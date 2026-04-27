@@ -164,6 +164,7 @@ private:
         bool daemonActive{false};
         bool daemonNativeBinary{false};
         bool daemonJobsSupported{false};
+        bool daemonZpoolImportUsable{true};
         QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
     };
 

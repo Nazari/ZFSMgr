@@ -1804,6 +1804,10 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
     if (!isAllowedGenericZpoolMutationOpClient(op)) {
         return QString();
     }
+    if (op.compare(QStringLiteral("import"), Qt::CaseInsensitive) == 0
+        && !st.daemonZpoolImportUsable) {
+        return QString();
+    }
     QJsonArray arr;
     for (int i = 1; i < parts.size(); ++i) {
         arr.push_back(parts.at(i));

@@ -1134,6 +1134,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
 
     {
+        state.daemonZpoolImportUsable = daemonReadApiOk;
         AsyncSshResult importRes;
         bool importOk = false;
         if (daemonReadApiOk) {
@@ -1151,8 +1152,13 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 // (on macOS the daemon's zpool import may lack disk access that sudo SSH has)
                 const AsyncSshResult classicRes = importFuture.result();
                 if (classicRes.ran) {
-                    merged = classicRes.out + QStringLiteral("\n") + classicRes.err;
-                    parsed = mwhelpers::parseZpoolImportOutput(merged);
+                    const QString mergedClassic = classicRes.out + QStringLiteral("\n") + classicRes.err;
+                    const QVector<mwhelpers::ImportablePoolInfo> parsedClassic =
+                        mwhelpers::parseZpoolImportOutput(mergedClassic);
+                    if (!parsedClassic.isEmpty()) {
+                        state.daemonZpoolImportUsable = false;
+                        parsed = parsedClassic;
+                    }
                 }
             }
             if (!parsed.isEmpty()) {

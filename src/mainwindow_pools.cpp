@@ -641,14 +641,6 @@ void MainWindow::importPoolFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    parts << shSingleQuote(importTarget);
-    if (!newNameEd->text().trimmed().isEmpty()) {
-        parts << shSingleQuote(newNameEd->text().trimmed());
-    }
-    if (!extraEd->text().trimmed().isEmpty()) {
-        parts << extraEd->text().trimmed();
-    }
-
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -657,14 +649,26 @@ void MainWindow::importPoolFromRow(int row) {
             return;
         }
     }
-    QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
-    if (!isWindowsConnection(p)) {
-        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
-    }
-    const QString cmd = withSudo(p, rawCmd);
+    auto buildImportCommandForTarget = [&](const QString& target) -> QString {
+        QStringList cmdParts = parts;
+        cmdParts << shSingleQuote(target);
+        if (!newNameEd->text().trimmed().isEmpty()) {
+            cmdParts << shSingleQuote(newNameEd->text().trimmed());
+        }
+        if (!extraEd->text().trimmed().isEmpty()) {
+            cmdParts << extraEd->text().trimmed();
+        }
+        QString rawCmd = cmdParts.join(' ');
+        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+            rawCmd = daemonCmd;
+        }
+        if (!isWindowsConnection(p)) {
+            rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+        }
+        return withSudo(p, rawCmd);
+    };
+    const QString cmd = buildImportCommandForTarget(importTarget);
+    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -677,15 +681,65 @@ void MainWindow::importPoolFromRow(int row) {
             QStringLiteral("Importing pool..."),
             QStringLiteral("正在导入存储池...")));
     QString errorText;
-    if (!executePoolCommand(idx,
-                            poolName,
-                            QStringLiteral("Import"),
-                            cmd,
-                            45000,
-                            &errorText,
-                            true,
-                            false)) {
+    const bool imported = executePoolCommand(idx,
+                                             poolName,
+                                             QStringLiteral("Import"),
+                                             cmd,
+                                             45000,
+                                             &errorText,
+                                             true,
+                                             false);
+    if (!imported) {
+        const bool hasGuidTarget = importTarget.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) != 0;
+        const bool missingGuid = errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive)
+                                 || errorText.contains(QStringLiteral("pool no existe"), Qt::CaseInsensitive);
+        if (hasGuidTarget && missingGuid) {
+            QString fallbackError;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Reintento import %1::%2 por nombre (%3) tras fallo por GUID (%4)")
+                       .arg(connName, poolName, poolName, importTarget));
+            const QString fallbackCmd = buildImportCommandForTarget(poolName);
+            daemonRpcAttempted = daemonRpcAttempted
+                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+            if (executePoolCommand(idx,
+                                   poolName,
+                                   QStringLiteral("Import"),
+                                   fallbackCmd,
+                                   45000,
+                                   &fallbackError,
+                                   true,
+                                   false)) {
+                endTransientUiBusy();
+                return;
+            }
+            errorText = QStringLiteral("%1\n\nFallback por nombre (%2):\n%3")
+                            .arg(errorText.trimmed(), poolName, fallbackError.trimmed());
+        }
         endTransientUiBusy();
+        QString osHint = p.osType.trimmed().toLower();
+        if (idx >= 0 && idx < m_states.size()) {
+            osHint += QStringLiteral(" ") + m_states[idx].osLine.trimmed().toLower();
+        }
+        const bool isMacLike = osHint.contains(QStringLiteral("darwin"))
+                               || osHint.contains(QStringLiteral("mac"));
+        if (daemonRpcAttempted && missingGuid && isMacLike) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_daemon_macos_full_disk_access_import_fail_001"),
+                    QStringLiteral("El import por daemon falló en \"%1\" y puede deberse a permisos de macOS.\n\n"
+                                   "En el Mac remoto, concede acceso completo al disco a zfsmgr-agent:\n\n"
+                                   "Configuración del Sistema → Privacidad y Seguridad → "
+                                   "Acceso completo al disco → zfsmgr-agent"),
+                    QStringLiteral("Daemon-based import failed on \"%1\" and it may be caused by macOS permissions.\n\n"
+                                   "On the remote Mac, grant Full Disk Access to zfsmgr-agent:\n\n"
+                                   "System Settings → Privacy & Security → "
+                                   "Full Disk Access → zfsmgr-agent"),
+                    QStringLiteral("在 \"%1\" 上通过守护进程导入失败，可能是 macOS 权限导致。\n\n"
+                                   "请在远程 Mac 上为 zfsmgr-agent 授予完整磁盘访问权限：\n\n"
+                                   "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                    .arg(connName));
+        }
         QMessageBox::critical(this,
                               trk(QStringLiteral("t_import_btn001"),
                                   QStringLiteral("Importar"),
@@ -906,11 +960,6 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    parts << shSingleQuote(importTarget) << shSingleQuote(newNameEd->text().trimmed());
-    if (!extraEd->text().trimmed().isEmpty()) {
-        parts << extraEd->text().trimmed();
-    }
-
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -919,14 +968,23 @@ void MainWindow::importPoolRenamingFromRow(int row) {
             return;
         }
     }
-    QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
-    if (!isWindowsConnection(p)) {
-        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
-    }
-    const QString cmd = withSudo(p, rawCmd);
+    auto buildImportRenameCommandForTarget = [&](const QString& target) -> QString {
+        QStringList cmdParts = parts;
+        cmdParts << shSingleQuote(target) << shSingleQuote(newNameEd->text().trimmed());
+        if (!extraEd->text().trimmed().isEmpty()) {
+            cmdParts << extraEd->text().trimmed();
+        }
+        QString rawCmd = cmdParts.join(' ');
+        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+            rawCmd = daemonCmd;
+        }
+        if (!isWindowsConnection(p)) {
+            rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+        }
+        return withSudo(p, rawCmd);
+    };
+    const QString cmd = buildImportRenameCommandForTarget(importTarget);
+    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -939,15 +997,65 @@ void MainWindow::importPoolRenamingFromRow(int row) {
             QStringLiteral("Importing pool..."),
             QStringLiteral("正在导入存储池...")));
     QString errorText;
-    if (!executePoolCommand(idx,
-                            poolName,
-                            QStringLiteral("Import (rename)"),
-                            cmd,
-                            45000,
-                            &errorText,
-                            true,
-                            false)) {
+    const bool imported = executePoolCommand(idx,
+                                             poolName,
+                                             QStringLiteral("Import (rename)"),
+                                             cmd,
+                                             45000,
+                                             &errorText,
+                                             true,
+                                             false);
+    if (!imported) {
+        const bool hasGuidTarget = importTarget.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) != 0;
+        const bool missingGuid = errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive)
+                                 || errorText.contains(QStringLiteral("pool no existe"), Qt::CaseInsensitive);
+        if (hasGuidTarget && missingGuid) {
+            QString fallbackError;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Reintento import-renombrar %1::%2 por nombre (%3) tras fallo por GUID (%4)")
+                       .arg(connName, poolName, poolName, importTarget));
+            const QString fallbackCmd = buildImportRenameCommandForTarget(poolName);
+            daemonRpcAttempted = daemonRpcAttempted
+                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+            if (executePoolCommand(idx,
+                                   poolName,
+                                   QStringLiteral("Import (rename)"),
+                                   fallbackCmd,
+                                   45000,
+                                   &fallbackError,
+                                   true,
+                                   false)) {
+                endTransientUiBusy();
+                return;
+            }
+            errorText = QStringLiteral("%1\n\nFallback por nombre (%2):\n%3")
+                            .arg(errorText.trimmed(), poolName, fallbackError.trimmed());
+        }
         endTransientUiBusy();
+        QString osHint = p.osType.trimmed().toLower();
+        if (idx >= 0 && idx < m_states.size()) {
+            osHint += QStringLiteral(" ") + m_states[idx].osLine.trimmed().toLower();
+        }
+        const bool isMacLike = osHint.contains(QStringLiteral("darwin"))
+                               || osHint.contains(QStringLiteral("mac"));
+        if (daemonRpcAttempted && missingGuid && isMacLike) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_daemon_macos_full_disk_access_import_fail_001"),
+                    QStringLiteral("El import por daemon falló en \"%1\" y puede deberse a permisos de macOS.\n\n"
+                                   "En el Mac remoto, concede acceso completo al disco a zfsmgr-agent:\n\n"
+                                   "Configuración del Sistema → Privacidad y Seguridad → "
+                                   "Acceso completo al disco → zfsmgr-agent"),
+                    QStringLiteral("Daemon-based import failed on \"%1\" and it may be caused by macOS permissions.\n\n"
+                                   "On the remote Mac, grant Full Disk Access to zfsmgr-agent:\n\n"
+                                   "System Settings → Privacy & Security → "
+                                   "Full Disk Access → zfsmgr-agent"),
+                    QStringLiteral("在 \"%1\" 上通过守护进程导入失败，可能是 macOS 权限导致。\n\n"
+                                   "请在远程 Mac 上为 zfsmgr-agent 授予完整磁盘访问权限：\n\n"
+                                   "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                    .arg(connName));
+        }
         QMessageBox::critical(this,
                               trk(QStringLiteral("t_import_btn001"),
                                   QStringLiteral("Importar"),

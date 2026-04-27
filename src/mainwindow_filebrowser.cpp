@@ -107,16 +107,17 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
     }
 
     const ConnectionProfile& prof = m_profiles[connIdx];
-    const QString remoteCmdRaw = QStringLiteral(
-                                     "p=%1; "
-                                     "if [ -d \"$p\" ]; then "
-                                     "  ls -lA \"$p\" 2>&1; "
-                                     "elif [ -e \"$p\" ]; then "
-                                     "  echo \"not a directory: $p\" >&2; exit 2; "
-                                     "else "
-                                     "  echo \"path not found: $p\" >&2; exit 3; "
-                                     "fi")
-                                     .arg(shSingleQuote(dirPath));
+    const QString browserScript = QStringLiteral(
+                                      "p=%1; "
+                                      "if [ -d \"$p\" ]; then "
+                                      "  ls -lA \"$p\" 2>&1; "
+                                      "elif [ -e \"$p\" ]; then "
+                                      "  echo \"not a directory: $p\" >&2; exit 2; "
+                                      "else "
+                                      "  echo \"path not found: $p\" >&2; exit 3; "
+                                      "fi")
+                                      .arg(shSingleQuote(dirPath));
+    const QString remoteCmdRaw = QStringLiteral("sh -lc %1").arg(shSingleQuote(browserScript));
     const QString remoteCmd = withSudo(prof, remoteCmdRaw);
 
     QString out;
