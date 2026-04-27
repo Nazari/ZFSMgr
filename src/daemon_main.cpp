@@ -2550,6 +2550,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-get-json <props> <dataset>\n"; return r; }
         return runExecCapture("zfs", {"get", "-j", params[0], params[1]});
     }
+    if (cmd == "--dump-zfs-diff") {
+        if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-diff <snap1> <snap2>\n"; return r; }
+        return runExecCapture("zfs", {"diff", params[0], params[1]});
+    }
+    if (cmd == "--dump-zfs-allow") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow <dataset>\n"; return r; }
+        return runExecCapture("zfs", {"allow", params[0]});
+    }
     if (cmd == "--dump-zfs-get-gsa-raw-all-pools") return runDumpGsaRawAllPoolsCapture();
     if (cmd == "--dump-zfs-get-gsa-raw-recursive") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-get-gsa-raw-recursive <dataset>\n"; return r; }

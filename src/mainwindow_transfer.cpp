@@ -711,7 +711,17 @@ void MainWindow::actionDiffSnapshot() {
     const QString rawCmd = QStringLiteral("zfs diff %1 %2")
                                .arg(shSingleQuote(srcObj),
                                     shSingleQuote(dstObj));
-    const QString remoteCmd = withSudo(profile, rawCmd);
+    const bool daemonReadApiOk = !isWindowsConnection(profile)
+        && src.connIdx >= 0 && src.connIdx < static_cast<int>(m_states.size())
+        && m_states[src.connIdx].daemonInstalled
+        && m_states[src.connIdx].daemonActive
+        && m_states[src.connIdx].daemonNativeBinary
+        && m_states[src.connIdx].daemonApiVersion.trimmed()
+               == agentversion::expectedApiVersion().trimmed();
+    const QString remoteCmd = daemonReadApiOk
+        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-diff %1 %2")
+              .arg(shSingleQuote(srcObj), shSingleQuote(dstObj))
+        : withSudo(profile, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3")
                                          .arg(profile.username, profile.host)

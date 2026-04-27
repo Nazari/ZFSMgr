@@ -635,10 +635,18 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 
     QString out;
     QString detail;
-    const QString cmd = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zfs allow %1").arg(shSingleQuote(datasetName))));
+    const bool daemonReadApiOk = !isWindowsConnection(p)
+        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonNativeBinary
+        && m_states[connIdx].daemonApiVersion.trimmed()
+               == agentversion::expectedApiVersion().trimmed();
+    const QString cmd = daemonReadApiOk
+        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow %1")
+              .arg(mwhelpers::shSingleQuote(datasetName))
+        : withSudo(p, mwhelpers::withUnixSearchPathCommand(
+              QStringLiteral("zfs allow %1").arg(mwhelpers::shSingleQuote(datasetName))));
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos"),
                                       cmd,
