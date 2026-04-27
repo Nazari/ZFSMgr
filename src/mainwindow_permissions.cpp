@@ -855,7 +855,17 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
                                     "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
                                     "done")
                                     .arg(quoted.join(QLatin1Char(' ')));
-    const QString batchCommand = withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
+    const bool daemonReadApiOk = !isWindowsConnection(p)
+        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonNativeBinary
+        && m_states[connIdx].daemonApiVersion.trimmed()
+               == agentversion::expectedApiVersion().trimmed();
+    const QString batchCommand = daemonReadApiOk
+        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow-batch %1")
+              .arg(quoted.join(QLatin1Char(' ')))
+        : withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
 
     QString out;
     QString detail;

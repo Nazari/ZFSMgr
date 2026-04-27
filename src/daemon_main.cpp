@@ -2558,6 +2558,20 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow <dataset>\n"; return r; }
         return runExecCapture("zfs", {"allow", params[0]});
     }
+    if (cmd == "--dump-zfs-allow-batch") {
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow-batch <ds1> [ds2...]\n"; return r; }
+        r.rc = 0;
+        for (const auto& ds : params) {
+            r.out += "__ZFSMGR_ALLOW_BEGIN__ " + ds + "\n";
+            ExecResult res = runExecCapture("zfs", {"allow", ds});
+            r.out += res.out;
+            if (!res.err.empty()) r.out += res.err;
+            r.out += "__ZFSMGR_ALLOW_RC__ " + ds + " " + std::to_string(res.rc) + "\n";
+            r.out += "__ZFSMGR_ALLOW_END__ " + ds + "\n";
+            if (res.rc != 0) r.rc = res.rc;
+        }
+        return r;
+    }
     if (cmd == "--dump-zfs-get-gsa-raw-all-pools") return runDumpGsaRawAllPoolsCapture();
     if (cmd == "--dump-zfs-get-gsa-raw-recursive") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-get-gsa-raw-recursive <dataset>\n"; return r; }
