@@ -514,6 +514,7 @@ private:
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
+    void exportTrustStoreToSelectedConnection();
     void installHelperCommandsForSelectedConnection();
     void installMsysForSelectedConnection();
     void editConnection();

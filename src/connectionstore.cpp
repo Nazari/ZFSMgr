@@ -142,6 +142,30 @@ QJsonObject connectionToJson(const ConnectionProfile& inProfile) {
     obj.insert(QStringLiteral("password"), p.password);
     obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
     obj.insert(QStringLiteral("use_sudo"), p.useSudo);
+    return obj;
+}
+
+QJsonObject connectionTrustToJson(const ConnectionProfile& inProfile) {
+    ConnectionProfile p = inProfile;
+    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
+    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
+    QJsonObject obj;
+    obj.insert(QStringLiteral("id"), p.id.trimmed());
+    obj.insert(QStringLiteral("name"), p.name.trimmed());
+    obj.insert(QStringLiteral("machine_uid"), p.machineUid);
+    obj.insert(QStringLiteral("conn_type"),
+               p.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : p.connType.trimmed());
+    obj.insert(QStringLiteral("os_type"),
+               p.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : p.osType.trimmed());
+    obj.insert(QStringLiteral("host"), p.host.trimmed());
+    obj.insert(QStringLiteral("port"), ensurePort(p.connType, p.port));
+    obj.insert(QStringLiteral("ssh_address_family"),
+               (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
+                   ? sshFamily
+                   : QStringLiteral("auto"));
+    obj.insert(QStringLiteral("username"), p.username);
+    obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
+    obj.insert(QStringLiteral("use_sudo"), p.useSudo);
     obj.insert(QStringLiteral("daemon_tls_server_cert_pem"), p.daemonTlsServerCertPem);
     obj.insert(QStringLiteral("daemon_tls_client_cert_pem"), p.daemonTlsClientCertPem);
     obj.insert(QStringLiteral("daemon_tls_client_key_pem"), p.daemonTlsClientKeyPem);
@@ -207,6 +231,17 @@ bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
     return true;
 }
 
+bool profileHasDaemonTls(const ConnectionProfile& p) {
+    return !p.daemonTlsServerCertPem.trimmed().isEmpty()
+        || !p.daemonTlsClientCertPem.trimmed().isEmpty()
+        || !p.daemonTlsClientKeyPem.trimmed().isEmpty();
+}
+
+bool isLocalProfile(const ConnectionProfile& p) {
+    return p.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
+        || p.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+}
+
 QJsonObject readJsonRootNoMigration(const QString& path) {
     QFile file(path);
     if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
@@ -255,6 +290,10 @@ QString ConnectionStore::configDir() const {
 
 QString ConnectionStore::configPath() const {
     return configDir() + QStringLiteral("/config.json");
+}
+
+QString ConnectionStore::trustStorePath() const {
+    return configDir() + QStringLiteral("/trust-store.json");
 }
 
 QString ConnectionStore::iniPath() const {
@@ -326,6 +365,227 @@ bool ConnectionStore::saveConfigJson(const QJsonObject& root, QString* error) co
     return true;
 }
 
+QJsonObject ConnectionStore::loadTrustStoreJson(QString* error) const {
+    if (error) {
+        error->clear();
+    }
+    QFile file(trustStorePath());
+    if (!file.exists()) {
+        return QJsonObject();
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) {
+            *error = trk(QStringLiteral("t_trust_json_read_open_err"),
+                         QStringLiteral("No se pudo abrir trust-store.json"),
+                         QStringLiteral("Could not open trust-store.json"),
+                         QStringLiteral("无法打开 trust-store.json"));
+        }
+        return QJsonObject();
+    }
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error) {
+            *error = trk(QStringLiteral("t_trust_json_parse_err"),
+                         QStringLiteral("trust-store.json no es válido"),
+                         QStringLiteral("trust-store.json is invalid"),
+                         QStringLiteral("trust-store.json 无效"));
+        }
+        return QJsonObject();
+    }
+    return doc.object();
+}
+
+bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error) const {
+    if (error) {
+        error->clear();
+    }
+    QDir dir(configDir());
+    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
+        if (error) {
+            *error = trk(QStringLiteral("t_cfg_json_dir_err"),
+                         QStringLiteral("No se pudo crear el directorio de configuración"),
+                         QStringLiteral("Could not create configuration directory"),
+                         QStringLiteral("无法创建配置目录"));
+        }
+        return false;
+    }
+    QFile file(trustStorePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error) {
+            *error = trk(QStringLiteral("t_trust_json_write_open_err"),
+                         QStringLiteral("No se pudo escribir trust-store.json"),
+                         QStringLiteral("Could not write trust-store.json"),
+                         QStringLiteral("无法写入 trust-store.json"));
+        }
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    file.close();
+    return true;
+}
+
+bool ConnectionStore::upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const {
+    error.clear();
+    if (profile.id.trimmed().isEmpty() || isLocalProfile(profile) || !profileHasDaemonTls(profile)) {
+        return true;
+    }
+    ConnectionProfile toSave = profile;
+
+    auto encryptIfNeeded = [&](QString& value, const QString& fieldLabel) -> bool {
+        if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
+            return true;
+        }
+        if (m_masterPassword.isEmpty()) {
+            error = trk(QStringLiteral("t_cstore_tls_mp_required_001"),
+                        QStringLiteral("Password maestro requerido para cifrar %1"),
+                        QStringLiteral("Master password required to encrypt %1"),
+                        QStringLiteral("加密 %1 需要主密码"))
+                        .arg(fieldLabel);
+            return false;
+        }
+        QString encErr;
+        QString encrypted;
+        if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
+            error = trk(QStringLiteral("t_cstore_tls_enc_fail_001"),
+                        QStringLiteral("No se pudo cifrar %1: %2"),
+                        QStringLiteral("Could not encrypt %1: %2"),
+                        QStringLiteral("无法加密 %1：%2"))
+                        .arg(fieldLabel, encErr);
+            return false;
+        }
+        value = encrypted;
+        return true;
+    };
+    if (!encryptIfNeeded(toSave.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))
+        || !encryptIfNeeded(toSave.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))
+        || !encryptIfNeeded(toSave.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
+        return false;
+    }
+
+    QString loadErr;
+    QJsonObject root = loadTrustStoreJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
+        return false;
+    }
+    root.insert(QStringLiteral("schema"), 1);
+    root.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    const QJsonObject obj = connectionTrustToJson(toSave);
+    const int idx = indexOfConnectionById(connections, toSave.id);
+    if (idx >= 0) {
+        connections[idx] = obj;
+    } else {
+        connections.push_back(obj);
+    }
+    root.insert(QStringLiteral("connections"), connections);
+    return saveTrustStoreJson(root, &error);
+}
+
+bool ConnectionStore::deleteTrustStoreConnectionById(const QString& id, QString& error) const {
+    error.clear();
+    QString loadErr;
+    QJsonObject root = loadTrustStoreJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
+        return false;
+    }
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    bool touched = false;
+    for (int i = connections.size() - 1; i >= 0; --i) {
+        const ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
+        if (p.id.trimmed().compare(id.trimmed(), Qt::CaseInsensitive) == 0) {
+            connections.removeAt(i);
+            touched = true;
+        }
+    }
+    if (!touched) {
+        return true;
+    }
+    root.insert(QStringLiteral("connections"), connections);
+    return saveTrustStoreJson(root, &error);
+}
+
+void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>& profiles, QStringList& warnings) const {
+    QString loadErr;
+    const QJsonObject root = loadTrustStoreJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        warnings.push_back(loadErr);
+        return;
+    }
+    const QJsonArray trustConnections = root.value(QStringLiteral("connections")).toArray();
+    for (const QJsonValue& v : trustConnections) {
+        ConnectionProfile trust = connectionFromJson(v.toObject());
+        if (trust.id.trimmed().isEmpty() || isLocalProfile(trust)) {
+            continue;
+        }
+        auto decryptField = [&](QString& value, const QString& suffix) {
+            if (!SecretCipher::isEncrypted(value)) {
+                return;
+            }
+            QString dec;
+            QString err;
+            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
+                value = dec;
+            } else {
+                warnings.push_back(QStringLiteral("%1.%2: %3")
+                                       .arg(trust.name.isEmpty() ? trust.id : trust.name,
+                                            suffix,
+                                            err.isEmpty()
+                                                ? trk(QStringLiteral("t_cstore_auto_tls_dec_001"),
+                                                      QStringLiteral("no se pudo descifrar"),
+                                                      QStringLiteral("could not decrypt"),
+                                                      QStringLiteral("无法解密"))
+                                                : err));
+            }
+        };
+        decryptField(trust.username, QStringLiteral("username"));
+        decryptField(trust.password, QStringLiteral("password"));
+        decryptField(trust.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"));
+        decryptField(trust.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"));
+        decryptField(trust.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"));
+
+        int idx = -1;
+        for (int i = 0; i < profiles.size(); ++i) {
+            if (profiles[i].id.trimmed().compare(trust.id.trimmed(), Qt::CaseInsensitive) == 0) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx >= 0) {
+            if (!trust.daemonTlsServerCertPem.trimmed().isEmpty()) {
+                profiles[idx].daemonTlsServerCertPem = trust.daemonTlsServerCertPem;
+            }
+            if (!trust.daemonTlsClientCertPem.trimmed().isEmpty()) {
+                profiles[idx].daemonTlsClientCertPem = trust.daemonTlsClientCertPem;
+            }
+            if (!trust.daemonTlsClientKeyPem.trimmed().isEmpty()) {
+                profiles[idx].daemonTlsClientKeyPem = trust.daemonTlsClientKeyPem;
+            }
+            if (trust.daemonTlsPort > 0 && trust.daemonTlsPort <= 65535) {
+                profiles[idx].daemonTlsPort = trust.daemonTlsPort;
+            }
+            continue;
+        }
+        profiles.push_back(trust);
+    }
+}
+
+bool ConnectionStore::migrateLegacyTlsToTrustStore(const QJsonArray& connections, QString& error) const {
+    error.clear();
+    for (const QJsonValue& v : connections) {
+        const ConnectionProfile p = connectionFromJson(v.toObject());
+        if (isLocalProfile(p) || !profileHasDaemonTls(p)) {
+            continue;
+        }
+        if (!upsertTrustStoreConnection(p, error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool ConnectionStore::validateMasterPassword(QString& error) const {
     error.clear();
     QString migrationError;
@@ -338,42 +598,57 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     }
     const QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
     bool hasEncrypted = false;
-    for (const QJsonValue& v : connections) {
-        const ConnectionProfile p = connectionFromJson(v.toObject());
-        const QString connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+    auto validateConnections = [&](const QJsonArray& items) -> bool {
+        for (const QJsonValue& v : items) {
+            const ConnectionProfile p = connectionFromJson(v.toObject());
+            const QString connName = p.name.trimmed().isEmpty() ? p.id : p.name;
 
-        auto checkOne = [&](const QString& value, const QString& fieldName) -> bool {
-            if (!SecretCipher::isEncrypted(value)) {
+            auto checkOne = [&](const QString& value, const QString& fieldName) -> bool {
+                if (!SecretCipher::isEncrypted(value)) {
+                    return true;
+                }
+                hasEncrypted = true;
+                QString dec;
+                QString err;
+                if (m_masterPassword.isEmpty() || !SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
+                    const QString msg = trk(QStringLiteral("t_cstore_auto002"), QStringLiteral("%1: %2 incorrecto"),
+                                            QStringLiteral("%1: invalid %2"),
+                                            QStringLiteral("%1：%2 无效"));
+                    error = msg.arg(connName, fieldName);
+                    return false;
+                }
                 return true;
-            }
-            hasEncrypted = true;
-            QString dec;
-            QString err;
-            if (m_masterPassword.isEmpty() || !SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
-                const QString msg = trk(QStringLiteral("t_cstore_auto002"), QStringLiteral("%1: %2 incorrecto"),
-                                        QStringLiteral("%1: invalid %2"),
-                                        QStringLiteral("%1：%2 无效"));
-                error = msg.arg(connName, fieldName);
+            };
+
+            if (!checkOne(p.username, QStringLiteral("usuario"))) {
                 return false;
             }
-            return true;
-        };
-
-        if (!checkOne(p.username, QStringLiteral("usuario"))) {
-            return false;
+            if (!checkOne(p.password, QStringLiteral("password"))) {
+                return false;
+            }
+            if (!checkOne(p.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
+                return false;
+            }
+            if (!checkOne(p.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
+                return false;
+            }
+            if (!checkOne(p.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
+                return false;
+            }
         }
-        if (!checkOne(p.password, QStringLiteral("password"))) {
-            return false;
-        }
-        if (!checkOne(p.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
-            return false;
-        }
-        if (!checkOne(p.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
-            return false;
-        }
-        if (!checkOne(p.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
-            return false;
-        }
+        return true;
+    };
+    if (!validateConnections(connections)) {
+        return false;
+    }
+    QString trustErr;
+    const QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
+    if (!trustErr.isEmpty()) {
+        error = trustErr;
+        return false;
+    }
+    if (!validateConnections(trustRoot.value(QStringLiteral("connections")).toArray())) {
+        return false;
     }
 
     if (hasEncrypted && m_masterPassword.isEmpty()) {
@@ -628,6 +903,11 @@ LoadResult ConnectionStore::loadConnections() const {
         result.warnings.push_back(loadErr);
     }
     const QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    QString trustMigrationError;
+    if (!migrateLegacyTlsToTrustStore(connections, trustMigrationError)
+        && !trustMigrationError.trimmed().isEmpty()) {
+        result.warnings.push_back(trustMigrationError);
+    }
     for (const QJsonValue& v : connections) {
         ConnectionProfile p = connectionFromJson(v.toObject());
         p.port = ensurePort(p.connType, p.port);
@@ -696,6 +976,7 @@ LoadResult ConnectionStore::loadConnections() const {
             result.profiles.push_back(p);
         }
     }
+    mergeTrustStoreIntoConnections(result.profiles, result.warnings);
 
     // Determine the platform-correct values for the local profile.
     const QString localPlatformOsType =
@@ -808,14 +1089,25 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     }
 
     ConnectionProfile toSave = profile;
+    bool existingEndpointStable = true;
+    bool hadExistingConnection = false;
     {
         const int existingIdx = indexOfConnectionById(connections, id);
         if (existingIdx >= 0) {
+            hadExistingConnection = true;
             const ConnectionProfile existing = connectionFromJson(connections.at(existingIdx).toObject());
+            QString existingUsername = existing.username;
+            if (SecretCipher::isEncrypted(existingUsername) && !m_masterPassword.isEmpty()) {
+                QString dec;
+                QString decErr;
+                if (SecretCipher::decryptEncv1(existingUsername, m_masterPassword, dec, decErr)) {
+                    existingUsername = dec;
+                }
+            }
             const bool endpointStable =
                 existing.host.trimmed().compare(profile.host.trimmed(), Qt::CaseInsensitive) == 0
                 && ensurePort(existing.connType, existing.port) == ensurePort(profile.connType, profile.port)
-                && existing.username.trimmed().compare(profile.username.trimmed(), Qt::CaseInsensitive) == 0
+                && existingUsername.trimmed().compare(profile.username.trimmed(), Qt::CaseInsensitive) == 0
                 && existing.keyPath.trimmed() == profile.keyPath.trimmed();
             if (endpointStable) {
                 if (toSave.daemonTlsServerCertPem.trimmed().isEmpty()) {
@@ -833,6 +1125,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
                                            ? existing.daemonTlsPort
                                            : 47653;
             }
+            existingEndpointStable = endpointStable;
         }
     }
     toSave.id = id;
@@ -902,6 +1195,12 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
                     QStringLiteral("无法保存连接"));
         return false;
     }
+    if (hadExistingConnection && !existingEndpointStable && !deleteTrustStoreConnectionById(id, error)) {
+        return false;
+    }
+    if (!upsertTrustStoreConnection(toSave, error)) {
+        return false;
+    }
     root.insert(QStringLiteral("connections"), connections);
     return saveConfigJson(root, &error);
 }
@@ -934,6 +1233,9 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
         }
     }
     root.insert(QStringLiteral("connections"), connections);
+    if (!deleteTrustStoreConnectionById(clean, error)) {
+        return false;
+    }
     return saveConfigJson(root, &error);
 }
 
@@ -1013,7 +1315,50 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
         }
     }
     root.insert(QStringLiteral("connections"), connections);
-    return saveConfigJson(root, &error);
+    if (!saveConfigJson(root, &error)) {
+        return false;
+    }
+
+    QString trustErr;
+    QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
+    if (!trustErr.isEmpty()) {
+        error = trustErr;
+        return false;
+    }
+    QJsonArray trustConnections = trustRoot.value(QStringLiteral("connections")).toArray();
+    bool trustTouched = false;
+    for (int i = 0; i < trustConnections.size(); ++i) {
+        ConnectionProfile p = connectionFromJson(trustConnections.at(i).toObject());
+        auto encryptField = [&](QString& value) -> bool {
+            if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
+                return true;
+            }
+            QString encErr;
+            QString encrypted;
+            if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
+                return false;
+            }
+            value = encrypted;
+            return true;
+        };
+        if (!encryptField(p.daemonTlsServerCertPem)
+            || !encryptField(p.daemonTlsClientCertPem)
+            || !encryptField(p.daemonTlsClientKeyPem)) {
+            return false;
+        }
+        trustConnections[i] = connectionTrustToJson(p);
+        trustTouched = true;
+    }
+    if (trustTouched) {
+        trustRoot.insert(QStringLiteral("schema"), 1);
+        trustRoot.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
+        trustRoot.insert(QStringLiteral("connections"), trustConnections);
+        if (!saveTrustStoreJson(trustRoot, &error)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
@@ -1111,6 +1456,53 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
     root.insert(QStringLiteral("connections"), connections);
     if (!saveConfigJson(root, &error)) {
         return false;
+    }
+    QString trustErr;
+    QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
+    if (!trustErr.isEmpty()) {
+        error = trustErr;
+        return false;
+    }
+    QJsonArray trustConnections = trustRoot.value(QStringLiteral("connections")).toArray();
+    bool trustTouched = false;
+    for (int i = 0; i < trustConnections.size(); ++i) {
+        ConnectionProfile p = connectionFromJson(trustConnections.at(i).toObject());
+        auto rotateField = [&](QString& value) -> bool {
+            if (value.isEmpty()) {
+                return true;
+            }
+            QString plainField = value;
+            if (SecretCipher::isEncrypted(value)) {
+                QString decErr;
+                if (!SecretCipher::decryptEncv1(value, oldMasterPassword, plainField, decErr)) {
+                    error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
+                    return false;
+                }
+            }
+            QString encErr;
+            QString encryptedField;
+            if (!SecretCipher::encryptEncv1(plainField, newMasterPassword, encryptedField, encErr)) {
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
+                return false;
+            }
+            value = encryptedField;
+            return true;
+        };
+        if (!rotateField(p.daemonTlsServerCertPem)
+            || !rotateField(p.daemonTlsClientCertPem)
+            || !rotateField(p.daemonTlsClientKeyPem)) {
+            return false;
+        }
+        trustConnections[i] = connectionTrustToJson(p);
+        trustTouched = true;
+    }
+    if (trustTouched) {
+        trustRoot.insert(QStringLiteral("schema"), 1);
+        trustRoot.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
+        trustRoot.insert(QStringLiteral("connections"), trustConnections);
+        if (!saveTrustStoreJson(trustRoot, &error)) {
+            return false;
+        }
     }
     m_masterPassword = newMasterPassword;
     return true;

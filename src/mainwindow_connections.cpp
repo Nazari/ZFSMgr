@@ -27,6 +27,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSysInfo>
+#include <QFile>
 #include <QFileInfo>
 #include <QTabBar>
 #include <QTableWidget>
@@ -1330,6 +1331,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Instalar comandos auxiliares"),
             QStringLiteral("Install helper commands"),
             QStringLiteral("安装辅助命令")));
+    QAction* aExportTrustStore = menu.addAction(
+        trk(QStringLiteral("t_export_trust_store_ctx001"),
+            QStringLiteral("Exportar trust-store a esta conexión"),
+            QStringLiteral("Export trust-store to this connection"),
+            QStringLiteral("将 trust-store 导出到此连接")));
     const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
                                && m_profiles[connIdx].connType.compare(
                                       QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
@@ -1366,6 +1372,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
+    aExportTrustStore->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx));
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
     aDelete->setEnabled(menuState.canEditDelete);
@@ -1454,6 +1461,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aInstallHelpers) {
         logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
         installHelperCommandsForSelectedConnection();
+    } else if (chosen == aExportTrustStore) {
+        logUiAction(QStringLiteral("Exportar trust-store (menú conexiones)"));
+        exportTrustStoreToSelectedConnection();
     } else if (chosen == aNewConn) {
         logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
         createConnection();
@@ -2637,6 +2647,156 @@ void MainWindow::createConnection() {
             break;
         }
     }
+}
+
+void MainWindow::exportTrustStoreToSelectedConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: export trust-store bloqueado"));
+        return;
+    }
+    const int idx = currentConnectionIndexFromUi();
+    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+        return;
+    }
+    if (isLocalConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_trust_export_local_001"),
+                QStringLiteral("La conexión Local ya usa el trust-store local."),
+                QStringLiteral("The Local connection already uses the local trust-store."),
+                QStringLiteral("本地连接已使用本地 trust-store。")));
+        return;
+    }
+
+    const QString trustPath = m_store.trustStorePath();
+    QFile trustFile(trustPath);
+    if (!trustFile.exists()) {
+        // Fuerza migración de TLS legacy desde config.json si existe.
+        const LoadResult loaded = m_store.loadConnections();
+        for (const QString& warning : loaded.warnings) {
+            appLog(QStringLiteral("WARN"), warning);
+        }
+        trustFile.setFileName(trustPath);
+    }
+    if (!trustFile.exists() || !trustFile.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_trust_export_missing_001"),
+                QStringLiteral("No existe trust-store.json local para exportar."),
+                QStringLiteral("There is no local trust-store.json to export."),
+                QStringLiteral("没有可导出的本地 trust-store.json。")));
+        return;
+    }
+    const QByteArray payload = trustFile.readAll();
+    if (payload.trimmed().isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_trust_export_empty_001"),
+                QStringLiteral("trust-store.json está vacío."),
+                QStringLiteral("trust-store.json is empty."),
+                QStringLiteral("trust-store.json 为空。")));
+        return;
+    }
+
+    const ConnectionProfile p = m_profiles[idx];
+    const int confirm = QMessageBox::question(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_trust_export_confirm_001"),
+            QStringLiteral("Se copiará el trust-store portable local a \"%1\".\n\n"
+                           "El fichero remoto anterior se conservará como backup si existe. "
+                           "La máquina remota podrá usar estos certificados si se desbloquea ZFSMgr con el mismo password maestro.\n\n"
+                           "¿Continuar?"),
+            QStringLiteral("The local portable trust-store will be copied to \"%1\".\n\n"
+                           "The previous remote file will be kept as a backup if it exists. "
+                           "The remote machine will be able to use these certificates when ZFSMgr is unlocked with the same master password.\n\n"
+                           "Continue?"),
+            QStringLiteral("本地便携 trust-store 将复制到“%1”。\n\n"
+                           "如果远端文件已存在，将保留备份。使用相同主密码解锁 ZFSMgr 后，远端机器即可使用这些证书。\n\n"
+                           "是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    QString remoteCmd;
+    WindowsCommandMode mode = WindowsCommandMode::Auto;
+    if (isWindowsConnection(p)) {
+        mode = WindowsCommandMode::PowerShellNative;
+        remoteCmd = QStringLiteral(
+            "$ErrorActionPreference='Stop'; "
+            "$dir=Join-Path $env:USERPROFILE '.config\\ZFSMgr'; "
+            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
+            "$dst=Join-Path $dir 'trust-store.json'; "
+            "if (Test-Path -LiteralPath $dst) { "
+            "  $stamp=Get-Date -Format 'yyyyMMddHHmmss'; "
+            "  Copy-Item -LiteralPath $dst -Destination ($dst + '.bak.' + $stamp) -Force; "
+            "} "
+            "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); "
+            "$content=$reader.ReadToEnd(); "
+            "[System.IO.File]::WriteAllText($dst, $content, [System.Text.UTF8Encoding]::new($false)); "
+            "Write-Output ('trust-store exported to ' + $dst)");
+    } else {
+        remoteCmd = QStringLiteral(
+            "set -eu; "
+            "cfg=\"${XDG_CONFIG_HOME:-$HOME/.config}/ZFSMgr\"; "
+            "mkdir -p \"$cfg\"; "
+            "dst=\"$cfg/trust-store.json\"; "
+            "if [ -f \"$dst\" ]; then "
+            "  cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\"; "
+            "fi; "
+            "cat > \"$dst\"; "
+            "chmod 600 \"$dst\" 2>/dev/null || true; "
+            "printf 'trust-store exported to %s\\n' \"$dst\"");
+    }
+
+    beginUiBusy();
+    struct TrustExportBusyGuard {
+        MainWindow* w;
+        ~TrustExportBusyGuard() { w->endUiBusy(); }
+    } busyGuard{this};
+    updateStatus(trk(QStringLiteral("t_trust_export_status_001"),
+                     QStringLiteral("Exportando trust-store..."),
+                     QStringLiteral("Exporting trust-store..."),
+                     QStringLiteral("正在导出 trust-store...")));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, 30000, out, err, rc, {}, {}, {}, mode, payload) && rc == 0;
+    if (!ok) {
+        const QString detail = mwhelpers::oneLine(err.trimmed().isEmpty() ? out : err);
+        appLog(QStringLiteral("ERROR"),
+               QStringLiteral("trust-store export fallo en %1: %2")
+                   .arg(p.name, detail.isEmpty() ? QStringLiteral("rc=%1").arg(rc) : detail));
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_trust_export_fail_001"),
+                QStringLiteral("No se pudo exportar trust-store a \"%1\".\n\n%2"),
+                QStringLiteral("Could not export trust-store to \"%1\".\n\n%2"),
+                QStringLiteral("无法将 trust-store 导出到“%1”。\n\n%2"))
+                .arg(p.name,
+                     detail.isEmpty() ? QStringLiteral("rc=%1").arg(rc) : detail));
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("trust-store exportado a %1: %2")
+               .arg(p.name, mwhelpers::oneLine(out).trimmed()));
+    QMessageBox::information(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_trust_export_ok_001"),
+            QStringLiteral("trust-store exportado a \"%1\"."),
+            QStringLiteral("trust-store exported to \"%1\"."),
+            QStringLiteral("trust-store 已导出到“%1”。"))
+            .arg(p.name));
 }
 
 void MainWindow::editConnection() {

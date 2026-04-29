@@ -288,12 +288,14 @@ Design reference: `docs/daemon2daemon.md`
 - Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
 - Current daemon model security notes:
   - daemon-rpc uses TLS/mTLS material deployed per connection,
+  - portable daemon trust material should live in a dedicated trust-store rather than copying the full local `config.json`,
   - remote execution keeps SSH fallback while daemon-rpc is unavailable,
   - scheduler events remain auditable via `GSA.log` + app logs.
 - Daemon log tab (`Daemon`): rotating log at `/var/lib/zfsmgr/daemon.log` viewable from the GUI, with a `Heartbeat` button to confirm liveness.
 - ZED event detection is driven by `zpool events -f` in a background thread inside the daemon; the GUI polls `--health` every ~10 s and triggers a tree refresh when a new ZED event timestamp appears.
 - See:
   - `docs/diseno_tecnico_daemon_nativo_zed.md`
+  - `docs/diseno_configuracion_portable_trust_store.md`
   - `docs/diseno_y_funcionamiento_gsa.md`
   - `docs/daemon2daemon.md`
 

@@ -60,6 +60,7 @@ Nota: `zed` aplica de forma natural a plataformas OpenZFS tipo Unix. Para macOS/
 - mTLS (certificado cliente ZFSMgr + certificado servidor agent).
 - Pinning de CA de ZFSMgr por conexión.
 - Rotación de certificados con validez corta.
+- El material TLS portable debe persistirse en un trust-store cifrado con password maestro, no mediante copia completa de `config.json`. Diseño específico: `docs/diseno_configuracion_portable_trust_store.md`.
 
 ### Bootstrap
 

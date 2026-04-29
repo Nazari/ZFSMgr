@@ -40,6 +40,7 @@ public:
     bool validateMasterPassword(QString& error) const;
     QString configDir() const;
     QString configPath() const;
+    QString trustStorePath() const;
     QString iniPath() const; // legacy alias
     QJsonObject loadConfigJson(QString* error = nullptr) const;
     bool saveConfigJson(const QJsonObject& root, QString* error = nullptr) const;
@@ -62,6 +63,12 @@ private:
     static ConnectionProfile loadProfileFromGroup(QSettings& ini, const QString& groupName);
     static void saveProfileToGroup(QSettings& ini, const QString& groupName, const ConnectionProfile& profile);
     static ConnectionProfile loadProfileFromIni(const QString& path);
+    QJsonObject loadTrustStoreJson(QString* error = nullptr) const;
+    bool saveTrustStoreJson(const QJsonObject& root, QString* error = nullptr) const;
+    bool upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const;
+    bool deleteTrustStoreConnectionById(const QString& id, QString& error) const;
+    void mergeTrustStoreIntoConnections(QVector<ConnectionProfile>& profiles, QStringList& warnings) const;
+    bool migrateLegacyTlsToTrustStore(const QJsonArray& connections, QString& error) const;
     QString m_appName;
     QString m_masterPassword;
     QString m_language{QStringLiteral("es")};
