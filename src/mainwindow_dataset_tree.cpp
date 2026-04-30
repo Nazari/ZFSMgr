@@ -1420,6 +1420,34 @@ QIcon treeStandardIcon(QStyle::StandardPixmap sp) {
     return style ? style->standardIcon(sp) : QIcon();
 }
 
+QIcon grayTreeIcon(const QIcon& base) {
+    if (base.isNull()) {
+        return QIcon();
+    }
+    QIcon gray;
+    const QColor tint(QStringLiteral("#7a7f85"));
+    const QList<QSize> sizes = {
+        QSize(16, 16),
+        QSize(24, 24),
+        QSize(32, 32),
+    };
+    for (const QSize& size : sizes) {
+        QPixmap src = base.pixmap(size);
+        if (src.isNull()) {
+            continue;
+        }
+        QPixmap dst(src.size());
+        dst.fill(Qt::transparent);
+        QPainter painter(&dst);
+        painter.drawPixmap(0, 0, src);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        painter.fillRect(dst.rect(), tint);
+        painter.end();
+        gray.addPixmap(dst);
+    }
+    return gray.isNull() ? base : gray;
+}
+
 QIcon datasetNodeIcon(QTreeWidgetItem* item) {
     if (!item) {
         return QIcon();
@@ -1434,9 +1462,9 @@ QIcon datasetNodeIcon(QTreeWidgetItem* item) {
 QIcon contentNodeIcon() {
     const QIcon themed = QIcon::fromTheme(QStringLiteral("folder-open"));
     if (!themed.isNull()) {
-        return themed;
+        return grayTreeIcon(themed);
     }
-    return treeStandardIcon(QStyle::SP_DirOpenIcon);
+    return grayTreeIcon(treeStandardIcon(QStyle::SP_DirOpenIcon));
 }
 
 void applySnapshotVisualState(QTreeWidgetItem* item) {
