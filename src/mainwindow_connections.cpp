@@ -2744,14 +2744,19 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
     } else {
         remoteCmd = QStringLiteral(
             "set -eu; "
+            "umask 077; "
             "cfg=\"${XDG_CONFIG_HOME:-$HOME/.config}/ZFSMgr\"; "
             "mkdir -p \"$cfg\"; "
             "dst=\"$cfg/trust-store.json\"; "
+            "tmp=\"$cfg/.trust-store.json.tmp.$$\"; "
+            "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; "
+            "cat > \"$tmp\"; "
+            "chmod 600 \"$tmp\" 2>/dev/null || true; "
             "if [ -f \"$dst\" ]; then "
-            "  cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\"; "
+            "  cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; "
             "fi; "
-            "cat > \"$dst\"; "
-            "chmod 600 \"$dst\" 2>/dev/null || true; "
+            "mv -f \"$tmp\" \"$dst\"; "
+            "trap - EXIT HUP INT TERM; "
             "printf 'trust-store exported to %s\\n' \"$dst\"");
     }
 
