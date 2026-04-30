@@ -890,7 +890,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     const QString mountedCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
     QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000, agentWinMode);
-    QFuture<AsyncSshResult> importFuture = runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto);
+    auto runClassicImportProbe = [&]() -> AsyncSshResult {
+        return runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto).result();
+    };
 
     {
         const AsyncSshResult agentRes = agentFuture.result();
@@ -1142,7 +1144,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             importOk = importRes.ran && importRes.rc == 0;
         }
         if (!importOk) {
-            importRes = importFuture.result();
+            importRes = runClassicImportProbe();
         }
         if (importRes.ran) {
             QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
@@ -1150,7 +1152,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             if (parsed.isEmpty() && importOk) {
                 // daemon ran OK but found no importable pools — fall back to classic SSH result
                 // (on macOS the daemon's zpool import may lack disk access that sudo SSH has)
-                const AsyncSshResult classicRes = importFuture.result();
+                const AsyncSshResult classicRes = runClassicImportProbe();
                 if (classicRes.ran) {
                     const QString mergedClassic = classicRes.out + QStringLiteral("\n") + classicRes.err;
                     const QVector<mwhelpers::ImportablePoolInfo> parsedClassic =
@@ -1292,6 +1294,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             && state.daemonApiVersion.trimmed() != expectedApiVersion) {
             state.daemonNeedsAttention = true;
             state.daemonAttentionReasons.push_back(QStringLiteral("API daemon incompatible"));
+        }
+        const QString tlsBackoff = daemonRpcBackoffTextForConnection(profile);
+        if (!tlsBackoff.isEmpty()) {
+            state.daemonNeedsAttention = true;
+            state.daemonAttentionReasons.push_back(QStringLiteral("TLS daemon-rpc desincronizado"));
+            if (!state.daemonDetail.trimmed().isEmpty()) {
+                state.daemonDetail += QStringLiteral(" | ");
+            }
+            state.daemonDetail += tlsBackoff;
         }
     }
     appLog(

@@ -1550,6 +1550,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 {
                     QMutexLocker lock(&m_sshRuntimeSetsMutex);
                     m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
+                    m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
                 }
                 const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
                                             .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
@@ -1590,6 +1591,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 constexpr int kDaemonRpcRetryBackoffSec = 30;
                 m_daemonRpcRetryAfterByConnKey.insert(
                     rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
+                m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
             } else if (!suppressedReason.isEmpty()) {
                 const QString skippedLine =
                     QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
@@ -1914,6 +1916,7 @@ void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
         }
         // Clear backoff so the first RPC after restart is not suppressed.
         m_daemonRpcRetryAfterByConnKey.remove(key);
+        m_daemonRpcRetryReasonByConnKey.remove(key);
     }
     if (proc && proc->state() != QProcess::NotRunning) {
         proc->terminate();
@@ -1957,6 +1960,40 @@ void MainWindow::closeAllRemoteDaemonRpcTunnels() {
         }
         proc->deleteLater();
     }
+}
+
+QString MainWindow::daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const {
+    const QString key = remoteDaemonTlsCacheKey(p);
+    QMutexLocker lock(&m_sshRuntimeSetsMutex);
+    const auto retryIt = m_daemonRpcRetryAfterByConnKey.constFind(key);
+    if (retryIt == m_daemonRpcRetryAfterByConnKey.constEnd() || !retryIt.value().isValid()) {
+        return QString();
+    }
+    const qint64 seconds = QDateTime::currentDateTimeUtc().secsTo(retryIt.value());
+    if (seconds <= 0) {
+        return QString();
+    }
+    const QString reason = m_daemonRpcRetryReasonByConnKey.value(key).trimmed();
+    const bool tlsRelated =
+        reason.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)
+        || reason.contains(QStringLiteral("cert"), Qt::CaseInsensitive)
+        || reason.contains(QStringLiteral("certificate"), Qt::CaseInsensitive)
+        || reason.contains(QStringLiteral("clave"), Qt::CaseInsensitive)
+        || reason.contains(QStringLiteral("handshake"), Qt::CaseInsensitive);
+    if (!tlsRelated) {
+        return QString();
+    }
+    if (reason.isEmpty()) {
+        return QStringLiteral("daemon-rpc TLS en backoff (%1s)").arg(seconds);
+    }
+    return QStringLiteral("daemon-rpc TLS en backoff (%1s): %2").arg(seconds).arg(reason);
+}
+
+QString MainWindow::daemonRpcBackoffTextForConnection(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    return daemonRpcBackoffTextForConnection(m_profiles[connIdx]);
 }
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {

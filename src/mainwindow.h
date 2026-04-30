@@ -644,6 +644,8 @@ private:
     bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
     void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
+    QString daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const;
+    QString daemonRpcBackoffTextForConnection(int connIdx) const;
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
@@ -1164,6 +1166,7 @@ private:
     QSet<QString> m_loggedSshResolutionKeys;
     QSet<QString> m_daemonBootstrapPromptedConnIds;
     QMap<QString, QDateTime> m_daemonRpcRetryAfterByConnKey;
+    QMap<QString, QString> m_daemonRpcRetryReasonByConnKey;
     struct RemoteRpcTunnelState {
         QPointer<QProcess> process;
         quint16 localPort{0};
