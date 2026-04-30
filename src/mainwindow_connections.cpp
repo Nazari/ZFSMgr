@@ -2742,22 +2742,38 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             "[System.IO.File]::WriteAllText($dst, $content, [System.Text.UTF8Encoding]::new($false)); "
             "Write-Output ('trust-store exported to ' + $dst)");
     } else {
+        const QString sudoPrefix = (!p.useSudo)
+                                       ? QStringLiteral("exit 1")
+                                       : (!p.password.isEmpty()
+                                              ? QStringLiteral("printf '%s\\n' %1 | sudo -k -S -p ''")
+                                                    .arg(mwhelpers::shSingleQuote(p.password))
+                                              : QStringLiteral("sudo -n"));
         remoteCmd = QStringLiteral(
-            "set -eu; "
+            "set -u; "
             "umask 077; "
+            "user_name=\"$(id -un)\"; "
+            "group_name=\"$(id -gn)\"; "
             "cfg=\"${XDG_CONFIG_HOME:-$HOME/.config}/ZFSMgr\"; "
-            "mkdir -p \"$cfg\"; "
             "dst=\"$cfg/trust-store.json\"; "
-            "tmp=\"$cfg/.trust-store.json.tmp.$$\"; "
+            "tmp=\"${TMPDIR:-/tmp}/zfsmgr-trust-store.$$\"; "
             "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; "
             "cat > \"$tmp\"; "
             "chmod 600 \"$tmp\" 2>/dev/null || true; "
-            "if [ -f \"$dst\" ]; then "
-            "  cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; "
+            "if mkdir -p \"$cfg\" 2>/dev/null && [ -w \"$cfg\" ]; then "
+            "  if [ -f \"$dst\" ]; then cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; fi; "
+            "  mv -f \"$tmp\" \"$dst\"; chmod 600 \"$dst\" 2>/dev/null || true; "
+            "else "
+            "  sudo_script='cfg=\"$1\"; dst=\"$2\"; tmp=\"$3\"; user_name=\"$4\"; group_name=\"$5\"; "
+            "mkdir -p \"$cfg\"; "
+            "if [ -f \"$dst\" ]; then cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; fi; "
+            "install -m 600 -o \"$user_name\" -g \"$group_name\" \"$tmp\" \"$dst\"; "
+            "chown \"$user_name:$group_name\" \"$cfg\" 2>/dev/null || true; chmod 700 \"$cfg\" 2>/dev/null || true'; "
+            "%1 sh -c \"$sudo_script\" sh \"$cfg\" \"$dst\" \"$tmp\" \"$user_name\" \"$group_name\"; "
             "fi; "
-            "mv -f \"$tmp\" \"$dst\"; "
+            "rm -f \"$tmp\"; "
             "trap - EXIT HUP INT TERM; "
-            "printf 'trust-store exported to %s\\n' \"$dst\"");
+            "printf 'trust-store exported to %s\\n' \"$dst\"")
+            .arg(sudoPrefix);
     }
 
     beginUiBusy();
