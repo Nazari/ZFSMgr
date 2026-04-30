@@ -1588,28 +1588,11 @@ void MainWindow::refreshAllConnections() {
         }
     }
 
-    QVector<int> deferred;
-    int immediateBudget = 2;
     for (int idx : std::as_const(launchOrder)) {
         if (isConnectionDisconnected(idx)) {
             continue;
         }
-        if (immediateBudget > 0) {
-            launchRefreshForIndex(idx);
-            --immediateBudget;
-        } else {
-            deferred.push_back(idx);
-        }
-    }
-    if (!deferred.isEmpty()) {
-        QTimer::singleShot(80, this, [this, generation, deferred, launchRefreshForIndex]() {
-            if (generation != m_refreshGeneration) {
-                return;
-            }
-            for (int idx : deferred) {
-                launchRefreshForIndex(idx);
-            }
-        });
+        launchRefreshForIndex(idx);
     }
 }
 

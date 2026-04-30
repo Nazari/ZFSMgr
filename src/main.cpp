@@ -17,6 +17,8 @@
 #include <QDir>
 #include <QStyleFactory>
 #include <QStyleOption>
+#include <QThread>
+#include <QThreadPool>
 #include <QToolTip>
 #include <QProcessEnvironment>
 #include <QSysInfo>
@@ -150,6 +152,11 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
 #endif
     QApplication app(argc, argv);
+    {
+        const int desiredWorkers = qMin(16, qMax(4, QThread::idealThreadCount()));
+        QThreadPool* pool = QThreadPool::globalInstance();
+        pool->setMaxThreadCount(qMax(pool->maxThreadCount(), desiredWorkers));
+    }
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));

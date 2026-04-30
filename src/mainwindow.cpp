@@ -11,6 +11,7 @@
 #include <QProcess>
 #include <QSet>
 #include <QTableWidget>
+#include <QTimer>
 #include <QTreeWidget>
 
 #include <QtConcurrent/QtConcurrent>
@@ -198,7 +199,13 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
             break;
         }
         ensureStartupLocalSudoConnection();
-        refreshAllConnections();
+        updateStatus(trk(QStringLiteral("t_startup_refresh_001"),
+                         QStringLiteral("Cargando conexiones..."),
+                         QStringLiteral("Loading connections..."),
+                         QStringLiteral("正在加载连接...")));
+        QTimer::singleShot(0, this, [this]() {
+            refreshAllConnections();
+        });
     }
     rebuildConnInfoModel();
 }
