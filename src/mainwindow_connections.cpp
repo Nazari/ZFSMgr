@@ -848,10 +848,15 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
         return;
     }
     const QString keepId = m_profiles[keepIdx].id.trimmed();
+    const bool keepIsLocal = isLocalConnection(keepIdx);
     QStringList toRemove;
     QStringList toRemoveNames;
     for (int i = 0; i < m_profiles.size(); ++i) {
-        if (i == keepIdx || isLocalConnection(i)) {
+        if (i == keepIdx) {
+            continue;
+        }
+        // Never delete Local; but if keepIdx IS Local, SSH duplicates are fair game
+        if (isLocalConnection(i) && !keepIsLocal) {
             continue;
         }
         const QString uid = m_profiles[i].machineUid.trimmed().toLower();
@@ -2556,6 +2561,15 @@ void MainWindow::loadConnections() {
 
     syncConnectionLogTabs();
     updatePoolManagementBoxTitle();
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isLocalConnection(i) && !m_profiles[i].machineUid.trimmed().isEmpty()) {
+            QTimer::singleShot(0, this, [this, i]() {
+                removeDuplicateMachineConnections(i);
+            });
+            break;
+        }
+    }
 }
 
 void MainWindow::rebuildConnectionsTable() {
