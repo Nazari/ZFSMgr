@@ -510,6 +510,7 @@ private:
     int connectionIndexByNameOrId(const QString& value) const;
     bool connectionsReferToSameMachine(int a, int b) const;
     int equivalentSshForLocal(int localIdx) const;
+    void removeDuplicateMachineConnections(int keepIdx);
     bool canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut = nullptr, int* effectiveDstIdxOut = nullptr);
     void refreshAllConnections();
     void refreshSelectedConnection();

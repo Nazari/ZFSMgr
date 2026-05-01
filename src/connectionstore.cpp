@@ -51,7 +51,7 @@ QString currentLocalMachineUid() {
     {
         QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography"),
                       QSettings::NativeFormat);
-        const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed();
+        const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed().toLower();
         if (!guid.isEmpty()) {
             return guid;
         }
@@ -62,13 +62,13 @@ QString currentLocalMachineUid() {
                QStringList{QStringLiteral("-lc"),
                            QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
     if (proc.waitForFinished(3000)) {
-        const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed().toLower();
         if (!out.isEmpty()) {
             return out;
         }
     }
 #endif
-    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
+    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed().toLower();
 }
 
 QString decodeHexAsciiIfUuid(const QString& raw) {

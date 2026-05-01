@@ -839,6 +839,45 @@ int MainWindow::equivalentSshForLocal(int localIdx) const {
     return -1;
 }
 
+void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
+    if (keepIdx < 0 || keepIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString keepUid = m_profiles[keepIdx].machineUid.trimmed().toLower();
+    if (keepUid.isEmpty()) {
+        return;
+    }
+    const QString keepId = m_profiles[keepIdx].id.trimmed();
+    QStringList toRemove;
+    QStringList toRemoveNames;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (i == keepIdx || isLocalConnection(i)) {
+            continue;
+        }
+        const QString uid = m_profiles[i].machineUid.trimmed().toLower();
+        if (!uid.isEmpty() && uid == keepUid && m_profiles[i].id.trimmed() != keepId) {
+            toRemove << m_profiles[i].id.trimmed();
+            toRemoveNames << m_profiles[i].name.trimmed();
+        }
+    }
+    if (toRemove.isEmpty()) {
+        return;
+    }
+    for (int k = 0; k < toRemove.size(); ++k) {
+        QString err;
+        if (m_store.deleteConnectionById(toRemove[k], err)) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Deduplicación: eliminada conexión '%1' (misma máquina que '%2')")
+                       .arg(toRemoveNames[k], m_profiles[keepIdx].name.trimmed()));
+        } else {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Deduplicación: no se pudo eliminar '%1': %2")
+                       .arg(toRemoveNames[k], err));
+        }
+    }
+    loadConnections();
+}
+
 bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut, int* effectiveDstIdxOut) {
     if (effectiveDstIdxOut) {
         *effectiveDstIdxOut = -1;
@@ -1667,6 +1706,10 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                        QStringLiteral("machine_uid persistido para %1: %2")
                            .arg(m_profiles[targetIdx].name,
                                 newMachineUid));
+                const int dedupIdx = targetIdx;
+                QTimer::singleShot(0, this, [this, dedupIdx]() {
+                    removeDuplicateMachineConnections(dedupIdx);
+                });
             } else {
                 appLog(QStringLiteral("WARN"),
                        QStringLiteral("No se pudo persistir machine_uid para %1: %2")
@@ -2613,6 +2656,12 @@ void MainWindow::createConnection() {
     }
     loadConnections();
     for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id.trimmed().compare(createdId, Qt::CaseInsensitive) == 0) {
+            removeDuplicateMachineConnections(i);
+            break;
+        }
+    }
+    for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == createdId) {
             setCurrentConnectionInUi(i);
             if (!isLocalConnection(i)) {
@@ -2856,6 +2905,7 @@ void MainWindow::editConnection() {
             }
         }
     }
+    const QString editedId = edited.id.trimmed();
     QString err;
     if (!m_store.upsertConnection(edited, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
@@ -2866,6 +2916,12 @@ void MainWindow::editConnection() {
         return;
     }
     loadConnections();
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id.trimmed().compare(editedId, Qt::CaseInsensitive) == 0) {
+            removeDuplicateMachineConnections(i);
+            break;
+        }
+    }
 }
 
 void MainWindow::installMsysForSelectedConnection() {
