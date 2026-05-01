@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -170,6 +171,8 @@ bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
     : QMainWindow(parent)
     , m_store(QStringLiteral("ZFSMgr")) {
+    QElapsedTimer startupTimer;
+    startupTimer.start();
     setObjectName(QStringLiteral("mainWindow"));
     m_language = language.trimmed().toLower();
     if (m_language.isEmpty()) {
@@ -183,10 +186,13 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     m_store.setLanguage(m_language);
     m_store.setMasterPassword(masterPassword);
     initLogPersistence();
+    appLog(QStringLiteral("INFO"), QStringLiteral("[startup] initLogPersistence: %1 ms").arg(startupTimer.elapsed()));
     buildUi();
+    appLog(QStringLiteral("INFO"), QStringLiteral("[startup] buildUi: %1 ms").arg(startupTimer.elapsed()));
     loadUserExpandedState();
     if (!zfsmgrTestModeEnabled()) {
         loadConnections();
+        appLog(QStringLiteral("INFO"), QStringLiteral("[startup] loadConnections: %1 ms").arg(startupTimer.elapsed()));
         restoreSplitTreeLayoutFromState(m_splitTreeLayoutState);
         for (const ConnectionProfile& p : std::as_const(m_profiles)) {
             if (!isLocalConnection(p) || p.username.trimmed().isEmpty() || p.password.isEmpty()) {
@@ -199,6 +205,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
             break;
         }
         ensureStartupLocalSudoConnection();
+        appLog(QStringLiteral("INFO"), QStringLiteral("[startup] ensureLocalSudo: %1 ms").arg(startupTimer.elapsed()));
         updateStatus(trk(QStringLiteral("t_startup_refresh_001"),
                          QStringLiteral("Cargando conexiones..."),
                          QStringLiteral("Loading connections..."),
@@ -208,6 +215,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         });
     }
     rebuildConnInfoModel();
+    appLog(QStringLiteral("INFO"), QStringLiteral("[startup] constructor done (window not shown yet): %1 ms").arg(startupTimer.elapsed()));
 }
 
 void MainWindow::configureSingleConnectionUiTestState(const ConnectionProfile& profile,

@@ -244,9 +244,15 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     const QString host = (bindAddr.isNull() || bindIsAny) ? QStringLiteral("127.0.0.1")
                                                            : bindAddr.toString();
     const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
-    const int connectTimeout = qBound(400, timeoutMs > 0 ? timeoutMs / 5 : 1200, 2500);
+    // Localhost TLS: either connects in <10ms or ECONNREFUSED immediately.
+    // A 2500ms cap was wasting seconds per call when daemon is not running.
+    const int connectTimeout = qBound(200, timeoutMs > 0 ? timeoutMs / 20 : 400, 700);
     const int ioTimeout = qBound(800, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+    QElapsedTimer rpcTimer;
+    rpcTimer.start();
+    qDebug("[agent-rpc] cmd=%s port=%d connectTimeout=%d", qPrintable(cmd), cfg.port, connectTimeout);
     for (const QString& peerName : peerNames) {
+        const qint64 t0 = rpcTimer.elapsed();
         QSslSocket sock;
         sock.setProtocol(QSsl::TlsV1_2OrLater);
         QSslConfiguration conf = sock.sslConfiguration();
@@ -259,6 +265,9 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
 
         sock.connectToHostEncrypted(host, cfg.port, peerName);
         if (!sock.waitForEncrypted(connectTimeout)) {
+            qDebug("[agent-rpc] peerName=%s FAILED in %lld ms (err: %s)",
+                   qPrintable(peerName), rpcTimer.elapsed() - t0,
+                   qPrintable(sock.errorString()));
             continue;
         }
 
@@ -291,9 +300,12 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
             rc = resp.value(QStringLiteral("rc")).toInt(1);
             out = resp.value(QStringLiteral("stdout")).toString();
             err = resp.value(QStringLiteral("stderr")).toString();
+            qDebug("[agent-rpc] cmd=%s OK via peerName=%s total=%lld ms",
+                   qPrintable(cmd), qPrintable(peerName), rpcTimer.elapsed());
             return true;
         }
     }
+    qDebug("[agent-rpc] cmd=%s FAILED total=%lld ms", qPrintable(cmd), rpcTimer.elapsed());
     return false;
 }
 

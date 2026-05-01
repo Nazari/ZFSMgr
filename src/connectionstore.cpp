@@ -2,7 +2,9 @@
 #include "i18nmanager.h"
 #include "secretcipher.h"
 
+#include <QDebug>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -47,11 +49,14 @@ bool shouldForceLocalSudo(const ConnectionProfile& p) {
 }
 
 QString currentLocalMachineUid() {
+    QElapsedTimer t;
+    t.start();
 #if defined(Q_OS_WIN)
     {
         QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography"),
                       QSettings::NativeFormat);
         const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed().toLower();
+        qDebug("[startup] currentLocalMachineUid (Windows registry): %lld ms", t.elapsed());
         if (!guid.isEmpty()) {
             return guid;
         }
@@ -63,11 +68,13 @@ QString currentLocalMachineUid() {
                            QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
     if (proc.waitForFinished(3000)) {
         const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed().toLower();
+        qDebug("[startup] currentLocalMachineUid (ioreg): %lld ms", t.elapsed());
         if (!out.isEmpty()) {
             return out;
         }
     }
 #endif
+    qDebug("[startup] currentLocalMachineUid (QSysInfo fallback): %lld ms", t.elapsed());
     return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed().toLower();
 }
 
