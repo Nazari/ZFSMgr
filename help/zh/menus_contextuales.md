@@ -24,8 +24,11 @@ ZFSMgr 在统一树上使用上下文菜单。
   - `Install helper commands`
 
 `Daemon` 子菜单包括：
-- `Install/update daemon`（若已最新则显示 `Daemon updated and running`）
-- `Uninstall daemon`
+- `Install/update daemon`：daemon 缺失、过旧或需要重新缓存 TLS 时可用。
+- `Daemon updated and running`：没有待处理动作时禁用。
+- `Uninstall daemon`。
+
+如果检测到 daemon-rpc TLS backoff，ZFSMgr 会将连接标记为需要注意，并在刷新结束后自动尝试更新/重新缓存 TLS。
 
 ## 在合并后的池根节点上
 

@@ -23,6 +23,13 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - `Instalar MSYS2`
   - `Instalar comandos auxiliares`
 
+El submenú `Daemon` incluye:
+- `Instalar/Actualizar daemon` cuando falta, está obsoleto o necesita recachear TLS.
+- `Daemon actualizado y funcionando` desactivado cuando no hay acción pendiente.
+- `Desinstalar daemon`.
+
+Si se detecta backoff TLS de daemon-rpc, ZFSMgr marca la conexión para atención e intenta la actualización/recache de forma no interactiva al finalizar el refresh.
+
 ## Sobre el nodo raíz del pool fusionado
 
 ![Menú contextual de pool importado](qrc:/help/img/auto/pool-context-menu-imported.png)

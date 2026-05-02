@@ -151,7 +151,20 @@ Cuando se instala o actualiza el daemon:
 3. Elimina `client.key` del remoto cuando el agente ya no la necesita allí.
 4. Actualiza la cache en memoria de la sesión.
 
-Si `trust-store.json` existe, esta persistencia debe ir ahí. Mientras dure la transición, puede duplicarse en `config.json` para compatibilidad.
+La persistencia va a `trust-store.json` como destino principal. `config.json` conserva la configuración local y solo se lee como fallback legacy durante la fase de migración.
+
+## Backoff TLS y recuperación suave
+
+Si daemon-rpc detecta un fallo de handshake TLS, certificado o clave:
+
+1. ZFSMgr guarda el motivo del fallo por conexión.
+2. Activa un backoff corto para evitar reintentos repetidos contra el mismo material inválido.
+3. Muestra el estado en el nodo de conexión.
+4. Marca el daemon como pendiente de atención con motivo de TLS desincronizado.
+5. Al finalizar el refresh, ejecuta el flujo no interactivo de instalar/actualizar daemon.
+6. El flujo limpia túneles/cache, vuelve a leer el bundle TLS remoto, actualiza `trust-store.json` y reintenta daemon-rpc.
+
+Este camino evita pedir al usuario una desinstalación manual salvo que el problema real sea externo: permisos insuficientes, daemon remoto inaccesible, servicio que no arranca o conectividad SSH rota.
 
 ## Cambios de código sugeridos
 
@@ -193,6 +206,7 @@ Implementado en la primera fase:
 - La validación del password maestro incluye secretos cifrados en `trust-store.json`.
 - La rotación del password maestro re-cifra también los campos TLS del trust-store.
 - Si cambia el endpoint de una conexión existente, se invalida su entrada en el trust-store para no reutilizar certificados de otro host.
+- Los fallos TLS de daemon-rpc se recuperan mediante actualización suave y re-cache del trust-store antes de requerir intervención manual.
 - Menú contextual de conexión: `Exportar trust-store a esta conexión`.
   - Copia solo `trust-store.json`.
   - No toca `config.json` remoto.

@@ -14,6 +14,7 @@
 - `Heartbeat` 按钮向 daemon 发送心跳，确认其正常响应。
 - 检测到 ZED 事件或点击 `Heartbeat` 时日志会刷新。
 - 刷新连接时日志不会被清空；仅在重新安装 daemon 后重置。
+- daemon-rpc 的 TLS 失败会在日志中显示为 `daemon-rpc:fallback` 或 `daemon-rpc:skip`；ZFSMgr 会尝试重新缓存 TLS 并更新 daemon，而不要求手动卸载。
 
 ## Transferencias 标签页
 

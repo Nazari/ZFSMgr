@@ -62,9 +62,10 @@ Casos típicos:
 - daemon no instalado,
 - daemon no activo,
 - versión o API desalineada,
+- TLS daemon-rpc desincronizado,
 - incidencia de configuración requerida para scheduler/nivelación.
 
-La visibilidad técnica está bajo `Info -> Daemon` en el árbol de conexión.
+La visibilidad técnica está bajo `Info -> Daemon` en el árbol de conexión. Si el problema es TLS de daemon-rpc, el nodo de conexión también muestra temporalmente el backoff y ZFSMgr intenta actualizar/re-cachear el daemon sin exigir desinstalación manual.
 
 ## Logs y observabilidad
 
@@ -82,6 +83,7 @@ Eventos típicos:
 
 - Si daemon-rpc está disponible, ZFSMgr prioriza ese canal.
 - Si no está disponible, se usa fallback SSH controlado.
+- Si el fallo es TLS, se marca la conexión para atención y se dispara recuperación suave del daemon/trust-store.
 - La política de snapshots/nivelación sigue siendo la misma en ambos caminos.
 
 ## Referencias relacionadas

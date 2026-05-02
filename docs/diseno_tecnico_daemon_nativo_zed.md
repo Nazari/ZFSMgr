@@ -228,6 +228,11 @@ Implementado actualmente:
   - usa RPC mTLS al daemon remoto mediante túnel SSH local (`-L`)
   - reutiliza túneles por conexión con caducidad por inactividad para reducir coste por comando
   - aplica cooldown corto tras fallos de RPC para evitar reintentos costosos en bucle
+  - si el fallo es TLS/certificado/handshake, muestra el backoff en el nodo de conexión, marca el daemon como pendiente de atención y dispara el flujo automático de actualización/re-cache TLS sin requerir desinstalar manualmente
+- persistencia de confianza TLS:
+  - el material `server.crt`, `client.crt`, `client.key` y puerto se guarda cifrado en `trust-store.json`
+  - `config.json` queda como configuración local, no como destino principal de secretos TLS
+  - tras cachear `client.key`, ZFSMgr intenta eliminarla del host remoto
 - caché en memoria en daemon residente (TTL rápido/lento configurable)
 - tamaño de caché acotado (`CACHE_MAX_ENTRIES`) con purga controlada al superar el límite
 - invalidación reactiva de caché por eventos (`zpool events -f`)
@@ -278,7 +283,7 @@ Implementado:
 
 Pendiente de esta fase:
 
-- extender el cliente RPC directo en GUI para conexiones remotas (sin invocar binario remoto por SSH en lecturas)
+- reducir aún más los casos que todavía construyen shell compuesto y no tienen RPC dedicado
 - mutaciones migradas parcialmente a API daemon:
   - `zfs snapshot`, `zfs destroy ...@snap` y `zfs rollback ...@snap` se enrutan por `--mutate-*` cuando el daemon está activo
   - además, comandos `zfs` mutables comunes (`create/destroy/rollback/clone/rename/set/inherit/mount/unmount/hold/release/load-key/unload-key/change-key/promote`) se enrutan por `--mutate-zfs-generic` con whitelist

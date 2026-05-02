@@ -106,23 +106,33 @@ log() {
 package_macos_app_zip() {
   local app_path="$1"
   local out_zip="$2"
-  local app_dir app_name
-  app_dir="$(cd "$(dirname "${app_path}")" && pwd)"
-  app_name="$(basename "${app_path}")"
+  local out_dir stage_dir app_name
+  app_name="ZFSMgr.app"
+  out_dir="$(cd "$(dirname "${out_zip}")" && pwd)"
+  out_zip="${out_dir}/$(basename "${out_zip}")"
 
   rm -f "${out_zip}"
+  stage_dir="${out_zip}.stage.$$"
+  rm -rf "${stage_dir}"
+  mkdir -p "${stage_dir}"
+  # El artefacto zip conserva la versión/arquitectura en el nombre del fichero,
+  # pero el bundle interno debe llamarse siempre ZFSMgr.app para que al copiarlo
+  # a /Applications sustituya la instalación anterior.
+  cp -a "${app_path}" "${stage_dir}/${app_name}"
   if command -v ditto >/dev/null 2>&1; then
     (
-      cd "${app_dir}"
+      cd "${stage_dir}"
       ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${out_zip}"
     )
+    rm -rf "${stage_dir}"
     return
   fi
   (
-    cd "${app_dir}"
+    cd "${stage_dir}"
     # -y preserva symlinks del bundle .app; sin esto Gatekeeper puede marcar la app como dañada.
     zip -qry -y "${out_zip}" "${app_name}"
   )
+  rm -rf "${stage_dir}"
 }
 
 write_macos_first_run_note() {
@@ -138,16 +148,16 @@ En macOS puedes abrir la app aplicando excepción de seguridad.
 Pasos recomendados:
 1) Extraer el .zip y mover la app a /Applications (opcional).
 2) Eliminar cuarentena del bundle:
-   xattr -dr com.apple.quarantine "/ruta/ZFSMgr-<version>.app"
+   xattr -dr com.apple.quarantine "/ruta/ZFSMgr.app"
 3) Intentar abrir con clic derecho -> Abrir.
    Si macOS lo bloquea, ve a:
    Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
 4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
-   codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr-<version>.app"
+   codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr.app"
 
 Comprobación:
-   spctl -a -vv "/ruta/ZFSMgr-<version>.app"
-   codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr-<version>.app"
+   spctl -a -vv "/ruta/ZFSMgr.app"
+   codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr.app"
 
 [EN]
 These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
@@ -156,16 +166,16 @@ On macOS you can still open the app by applying a local security exception.
 Recommended steps:
 1) Extract the .zip and move the app to /Applications (optional).
 2) Remove quarantine from the bundle:
-   xattr -dr com.apple.quarantine "/path/ZFSMgr-<version>.app"
+   xattr -dr com.apple.quarantine "/path/ZFSMgr.app"
 3) Try opening with right-click -> Open.
    If macOS blocks it, go to:
    System Settings -> Privacy & Security -> "Open Anyway".
 4) (Optional) Re-sign locally (ad-hoc) to stabilize validation:
-   codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr-<version>.app"
+   codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr.app"
 
 Verification:
-   spctl -a -vv "/path/ZFSMgr-<version>.app"
-   codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr-<version>.app"
+   spctl -a -vv "/path/ZFSMgr.app"
+   codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr.app"
 
 [ZH]
 这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
@@ -174,16 +184,16 @@ Verification:
 建议步骤：
 1) 解压 .zip，并将应用移动到 /Applications（可选）。
 2) 移除应用包隔离属性：
-   xattr -dr com.apple.quarantine "/路径/ZFSMgr-<version>.app"
+   xattr -dr com.apple.quarantine "/路径/ZFSMgr.app"
 3) 使用右键 -> 打开 尝试启动。
    若被系统拦截，请前往：
    系统设置 -> 隐私与安全性 -> “仍要打开”。
 4)（可选）本地 ad-hoc 重签名以提高校验稳定性：
-   codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr-<version>.app"
+   codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr.app"
 
 校验：
-   spctl -a -vv "/路径/ZFSMgr-<version>.app"
-   codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr-<version>.app"
+   spctl -a -vv "/路径/ZFSMgr.app"
+   codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr.app"
 EOF
 }
 

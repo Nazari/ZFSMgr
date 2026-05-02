@@ -23,6 +23,13 @@ ZFSMgr uses context menus on the unified tree.
   - `Install MSYS2`
   - `Install helper commands`
 
+The `Daemon` submenu includes:
+- `Install/update daemon` when it is missing, outdated, or needs TLS re-cache.
+- `Daemon updated and running` disabled when no action is pending.
+- `Uninstall daemon`.
+
+If daemon-rpc TLS backoff is detected, ZFSMgr marks the connection for attention and attempts the update/re-cache path non-interactively after refresh.
+
 ## On the merged pool root
 
 ![Imported pool context menu](qrc:/help/img/auto/pool-context-menu-imported.png)

@@ -158,6 +158,7 @@ It gives you:
   - uninstall,
   - up-to-date/running state.
 - ZFSMgr auto-checks daemon version/API on refresh/connect and can auto-update when required.
+- TLS/mTLS desynchronization is surfaced on the connection node and triggers a non-interactive daemon refresh/re-cache path instead of requiring manual uninstall/reinstall.
 - Validation avoids conflicting recursive schedules between parent and child datasets.
 - Sequential leveling toward configured destinations is supported.
 - Scheduler events are appended to `GSA.log` and surfaced in the UI log tabs.
@@ -288,7 +289,8 @@ Design reference: `docs/daemon2daemon.md`
 - Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
 - Current daemon model security notes:
   - daemon-rpc uses TLS/mTLS material deployed per connection,
-  - portable daemon trust material should live in a dedicated trust-store rather than copying the full local `config.json`,
+  - portable daemon trust material is stored in a dedicated encrypted `trust-store.json` instead of copying the full local `config.json`,
+  - when daemon-rpc TLS enters backoff, the connection is marked for attention and ZFSMgr attempts a soft daemon update plus TLS re-cache automatically,
   - remote execution keeps SSH fallback while daemon-rpc is unavailable,
   - scheduler events remain auditable via `GSA.log` + app logs.
 - Daemon log tab (`Daemon`): rotating log at `/var/lib/zfsmgr/daemon.log` viewable from the GUI, with a `Heartbeat` button to confirm liveness.

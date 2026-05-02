@@ -14,6 +14,7 @@ The bottom area uses tabs:
 - The `Heartbeat` button pings the daemon to confirm it is responsive.
 - The log updates when a ZED event is detected or when `Heartbeat` is pressed.
 - The log is not cleared on connection refresh; it resets only if the daemon is reinstalled.
+- daemon-rpc TLS failures appear in logs as `daemon-rpc:fallback` or `daemon-rpc:skip`; ZFSMgr attempts TLS re-cache and daemon update without requiring manual uninstall.
 
 ## Transferencias tab
 

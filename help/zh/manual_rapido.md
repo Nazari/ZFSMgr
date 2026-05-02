@@ -27,6 +27,7 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
   - 远端 daemon 可用时显示 `(libzfs_core)`
   - 回退时显示 `(ssh)`
 - 如果连接需要 daemon 注意，名称会显示 `(*)`。
+- 如果 daemon-rpc 因 TLS 进入 backoff，原因会临时显示在连接节点上，ZFSMgr 会自动尝试更新 daemon 并重新缓存 TLS。
 - `Connection` 与 `Pool` 节点使用粗体并带类型前缀。
 - 池根节点与池根数据集合并：
   - 保留池图标

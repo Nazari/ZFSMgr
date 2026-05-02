@@ -27,6 +27,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - `(libzfs_core)` when remote daemon is active
   - `(ssh)` in fallback mode
 - If a connection needs daemon attention, its name shows `(*)`.
+- If daemon-rpc enters TLS backoff, the reason is shown temporarily on the connection node and ZFSMgr attempts to update the daemon and re-cache TLS automatically.
 - `Connection` and `Pool` nodes are shown in bold with a type prefix.
 - The pool root is merged with the pool root dataset:
   - it keeps the pool icon

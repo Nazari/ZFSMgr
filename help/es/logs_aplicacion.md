@@ -14,6 +14,7 @@ La parte inferior de la ventana usa pestañas:
 - El botón `Heartbeat` envía un ping al daemon para confirmar que responde.
 - El log se actualiza al detectar un evento ZED o al pulsar `Heartbeat`.
 - El log no se borra al refrescar la conexión; solo se resetea si el daemon ha sido reinstalado.
+- Los fallos de daemon-rpc por TLS aparecen en los logs como `daemon-rpc:fallback` o `daemon-rpc:skip`; ZFSMgr intenta recachear TLS y actualizar el daemon sin pedir desinstalación manual.
 
 ## Pestaña Transferencias
 

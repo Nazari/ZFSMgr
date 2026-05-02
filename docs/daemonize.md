@@ -2,12 +2,32 @@
 
 ## Contexto
 
-ZFSMgr tiene dos mecanismos para ejecutar comandos en el host remoto:
+ZFSMgr tiene tres mecanismos para ejecutar comandos en el host remoto:
 
 - **SSH directo**: Se abre una sesión SSH y se ejecuta el comando en el shell remoto.
 - **SSH → daemon CLI** (`daemonReadApiOk`): Se ejecuta `/usr/local/libexec/zfsmgr-agent --dump-*` vía SSH cuando el daemon está instalado, activo, es un binario nativo y su versión de API coincide. El daemon corre como root, por lo que no requiere `sudo` ni variaciones de PATH.
+- **daemon-rpc mTLS sobre túnel SSH**: `runSsh` intercepta llamadas a `/usr/local/libexec/zfsmgr-agent --dump-*`, `--health`, `--heartbeat` y `--mutate-*`, abre/reutiliza un túnel `ssh -L` hacia `127.0.0.1:<AGENT_PORT>` del remoto y habla JSON-line con el daemon residente usando mTLS. Si falla, aplica backoff corto y cae al camino SSH clásico cuando existe fallback.
 
-Hay además un tercer mecanismo de **RPC real** (túnel mTLS sobre SSH) usado exclusivamente para operaciones de transferencia async (`--zfs-send-to-peer-async`, `--zfs-recv-listen`). Ese mecanismo no aplica a lecturas simples.
+Las transferencias async (`--zfs-send-to-peer-async`, `--zfs-recv-listen`) usan el mismo canal RPC cuando ambos extremos tienen daemon compatible. Las lecturas simples también pueden usarlo; por tanto la ausencia de daemon-rpc no debe romper funcionalidad, pero sí reduce rendimiento y aislamiento respecto al shell remoto.
+
+## TLS, trust-store y backoff
+
+El material TLS por conexión se persiste en `trust-store.json`, cifrado con el password maestro. Al instalar o actualizar el daemon, ZFSMgr:
+
+- lee `server.crt`, `client.crt`, `client.key` y el puerto del daemon,
+- persiste ese material en el trust-store local,
+- elimina `client.key` del remoto cuando ya está cacheada localmente,
+- limpia túneles RPC y cache TLS en memoria.
+
+Cuando el handshake mTLS falla por certificado/clave/peer, ZFSMgr no exige una desinstalación manual agresiva:
+
+- guarda el motivo del fallo y activa un backoff corto para no repetir handshakes costosos en bucle,
+- muestra el backoff en el nodo de conexión,
+- marca el daemon como `Needs attention` con motivo de TLS desincronizado,
+- al finalizar el refresh dispara el flujo automático de instalar/actualizar daemon en modo no interactivo,
+- tras el despliegue, recachea TLS y vuelve a intentar RPC.
+
+Si el refresco suave no basta, el fallback SSH clásico mantiene la operación disponible mientras el usuario revisa permisos, conectividad o instalación remota.
 
 ## Patrón `--dump-*`
 
@@ -42,6 +62,8 @@ const QString cmd = daemonReadApiOk
     : withSudo(p, mwhelpers::withUnixSearchPathCommand(
           QStringLiteral("zfs foo %1").arg(arg)));
 ```
+
+Aunque el comando seleccionado sea el binario remoto, `runSsh` puede convertirlo internamente en daemon-rpc mTLS. Si ese canal falla, se ejecuta el comando por SSH como fallback.
 
 ## Inventario: estado de daemonización
 
@@ -84,5 +106,6 @@ Ejecuta `zfs allow dataset`. Salida: texto estructurado por secciones (local, de
 ## Compatibilidad hacia atrás
 
 - Si `daemonReadApiOk == false` (daemon inactivo, versión distinta, o Windows), la GUI cae al path SSH clásico sin cambio de comportamiento.
+- Si `daemonReadApiOk == true` pero daemon-rpc falla por TLS/socket, se aplica backoff, se registra el motivo, se intenta refresh suave del daemon/TLS y se conserva fallback SSH.
 - No hay bump de `kApiVersion`. Los handlers son aditivos.
 - Un daemon antiguo que no tenga `--dump-zfs-diff` o `--dump-zfs-allow` nunca será seleccionado por la GUI (el check de versión de API lo impide) mientras el daemon se actualice al desplegarse la nueva versión.
