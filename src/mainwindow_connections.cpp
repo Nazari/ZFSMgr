@@ -1375,6 +1375,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Instalar comandos auxiliares"),
             QStringLiteral("Install helper commands"),
             QStringLiteral("安装辅助命令")));
+    QAction* aInstallDaemon = menu.addAction(
+        trk(QStringLiteral("t_install_daemon_ctx001"),
+            QStringLiteral("Reinstalar/Actualizar daemon"),
+            QStringLiteral("Reinstall/Update daemon"),
+            QStringLiteral("重新安装/更新守护进程")));
     QAction* aExportTrustStore = menu.addAction(
         trk(QStringLiteral("t_export_trust_store_ctx001"),
             QStringLiteral("Exportar trust-store a esta conexión"),
@@ -1416,6 +1421,8 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
+    aInstallDaemon->setEnabled(hasConn && !actionsLocked() && !isDisconnected
+                               && !isLocalConnection(connIdx) && !isWindowsConnection(connIdx));
     aExportTrustStore->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx));
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
@@ -1505,6 +1512,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aInstallHelpers) {
         logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
         installHelperCommandsForSelectedConnection();
+    } else if (chosen == aInstallDaemon) {
+        logUiAction(QStringLiteral("Reinstalar/Actualizar daemon (menú conexiones)"));
+        if (connIdx >= 0 && connIdx < m_profiles.size()) {
+            (void)installOrUpdateDaemonForConnectionInternal(connIdx, true);
+        }
     } else if (chosen == aExportTrustStore) {
         logUiAction(QStringLiteral("Exportar trust-store (menú conexiones)"));
         exportTrustStoreToSelectedConnection();

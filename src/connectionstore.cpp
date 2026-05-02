@@ -49,6 +49,11 @@ bool shouldForceLocalSudo(const ConnectionProfile& p) {
 }
 
 QString currentLocalMachineUid() {
+    // Cache: ioreg/registry can take 400-600ms; no need to repeat within the same process.
+    static QString s_cached;
+    if (!s_cached.isEmpty()) {
+        return s_cached;
+    }
     QElapsedTimer t;
     t.start();
 #if defined(Q_OS_WIN)
@@ -58,7 +63,8 @@ QString currentLocalMachineUid() {
         const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed().toLower();
         qDebug("[startup] currentLocalMachineUid (Windows registry): %lld ms", t.elapsed());
         if (!guid.isEmpty()) {
-            return guid;
+            s_cached = guid;
+            return s_cached;
         }
     }
 #elif defined(Q_OS_MACOS)
@@ -70,12 +76,14 @@ QString currentLocalMachineUid() {
         const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed().toLower();
         qDebug("[startup] currentLocalMachineUid (ioreg): %lld ms", t.elapsed());
         if (!out.isEmpty()) {
-            return out;
+            s_cached = out;
+            return s_cached;
         }
     }
 #endif
     qDebug("[startup] currentLocalMachineUid (QSysInfo fallback): %lld ms", t.elapsed());
-    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed().toLower();
+    s_cached = QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed().toLower();
+    return s_cached;
 }
 
 QString decodeHexAsciiIfUuid(const QString& raw) {
