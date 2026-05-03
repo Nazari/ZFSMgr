@@ -33,8 +33,15 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#ifndef _PID_T_
+#define _PID_T_
+typedef int pid_t;
+#endif
 #endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
