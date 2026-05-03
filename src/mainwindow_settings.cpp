@@ -337,7 +337,12 @@ void MainWindow::applyLanguageLive() {
     }
 
     buildUi();
-    loadConnections();
+    // Al cambiar de idioma los perfiles y estados ya están en memoria: reutilizarlos
+    // sin releer config.json evita el I/O y el reset completo de m_states.
+    rebuildConnInfoModel();
+    rebuildConnectionsTable();
+    syncConnectionLogTabs();
+    updatePoolManagementBoxTitle();
 
     if (m_logView) {
         m_logView->setPlainText(appLogText);
