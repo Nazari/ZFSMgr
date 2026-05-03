@@ -210,9 +210,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
                          QStringLiteral("Cargando conexiones..."),
                          QStringLiteral("Loading connections..."),
                          QStringLiteral("正在加载连接...")));
-        QTimer::singleShot(0, this, [this]() {
-            refreshAllConnections();
-        });
+        refreshAllConnections();
     }
     rebuildConnInfoModel();
     appLog(QStringLiteral("INFO"), QStringLiteral("[startup] constructor done (window not shown yet): %1 ms").arg(startupTimer.elapsed()));
