@@ -843,7 +843,10 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
     if (keepIdx < 0 || keepIdx >= m_profiles.size()) {
         return;
     }
-    const QString keepUid = m_profiles[keepIdx].machineUid.trimmed().toLower();
+    QString keepUid = m_profiles[keepIdx].machineUid.trimmed().toLower();
+    if (keepUid.isEmpty() && keepIdx < m_states.size()) {
+        keepUid = m_states[keepIdx].machineUuid.trimmed().toLower();
+    }
     if (keepUid.isEmpty()) {
         return;
     }
@@ -859,7 +862,10 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
         if (isLocalConnection(i) && !keepIsLocal) {
             continue;
         }
-        const QString uid = m_profiles[i].machineUid.trimmed().toLower();
+        QString uid = m_profiles[i].machineUid.trimmed().toLower();
+        if (uid.isEmpty() && i < m_states.size()) {
+            uid = m_states[i].machineUuid.trimmed().toLower();
+        }
         if (!uid.isEmpty() && uid == keepUid && m_profiles[i].id.trimmed() != keepId) {
             toRemove << m_profiles[i].id.trimmed();
             toRemoveNames << m_profiles[i].name.trimmed();
@@ -1709,8 +1715,8 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     const int selectedIdx = currentConnectionIndexFromUi();
     if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
         && !state.machineUuid.trimmed().isEmpty()
-        && !isLocalConnection(targetIdx)
-        && (m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+        && (isLocalConnection(targetIdx)
+            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
             || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)) {
         const QString newMachineUid = state.machineUuid.trimmed();
         if (m_profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
@@ -2477,6 +2483,35 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             } else {
                 ++valIt;
             }
+        }
+    }
+    // Marcar el nodo de conexión como "Cargando" antes de las operaciones SSH.
+    if (m_connContentTree) {
+        QTreeWidgetItem* connRootItem = nullptr;
+        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = m_connContentTree->topLevelItem(i);
+            if (item && item->data(0, kIsConnectionRootRole).toBool()
+                && item->data(0, kConnIdxRole).toInt() == idx) {
+                connRootItem = item;
+                break;
+            }
+        }
+        if (connRootItem) {
+            const QString connName = (idx < m_profiles.size())
+                ? (m_profiles[idx].name.trimmed().isEmpty()
+                       ? m_profiles[idx].id.trimmed()
+                       : m_profiles[idx].name.trimmed())
+                : QStringLiteral("?");
+            const QString prefix = trk(QStringLiteral("t_tree_connection_prefix_001"),
+                                       QStringLiteral("Conexión"),
+                                       QStringLiteral("Connection"),
+                                       QStringLiteral("连接"));
+            const QString loadingHint = trk(QStringLiteral("t_loading_001"),
+                                            QStringLiteral("Cargando…"),
+                                            QStringLiteral("Loading…"),
+                                            QStringLiteral("加载中…"));
+            connRootItem->setText(0, QStringLiteral("%1 %2 [%3]").arg(prefix, connName, loadingHint));
+            QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         }
     }
     m_states[idx] = refreshConnection(m_profiles[idx]);
