@@ -1941,12 +1941,22 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
 
     // Daemon: auto-actualizar cuando haya desalineación de versión/API.
+    // No reinstalar si la única razón es un backoff TLS: reinstalar en ese
+    // caso regenera las claves TLS y perpetúa el bucle fallo→reinstall→fallo.
     for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
         }
         const ConnectionRuntimeState& st = m_states[i];
         if (!st.daemonInstalled || !st.daemonNeedsAttention) {
+            continue;
+        }
+        const bool hasVersionOrApiReason = std::any_of(
+            st.daemonAttentionReasons.begin(), st.daemonAttentionReasons.end(),
+            [](const QString& r) {
+                return r.contains(QStringLiteral("versión")) || r.contains(QStringLiteral("API"));
+            });
+        if (!hasVersionOrApiReason) {
             continue;
         }
         const QString connName = m_profiles[i].name.trimmed().isEmpty()
