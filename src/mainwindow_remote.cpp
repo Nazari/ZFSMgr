@@ -932,8 +932,15 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
 
             sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
             if (!sock.waitForEncrypted(connectTimeout)) {
-                lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1)")
-                                        .arg(peerName);
+                QStringList sslErrStrs;
+                for (const QSslError& e : sock.sslHandshakeErrors()) {
+                    sslErrStrs << e.errorString();
+                }
+                const QString sslDetail = sslErrStrs.isEmpty()
+                    ? sock.errorString()
+                    : sslErrStrs.join(QStringLiteral("; "));
+                lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1): %2")
+                                        .arg(peerName, sslDetail);
                 continue;
             }
 
