@@ -426,7 +426,7 @@ QString tlsBootstrapShellCommand() {
         "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
-        "if [ ! -s %4 ] || [ ! -s %5 ]; then "
+        "if [ ! -s %4 ] && [ ! -s %5 ]; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
         "      -subj '/CN=zfsmgr-agent-client' "
