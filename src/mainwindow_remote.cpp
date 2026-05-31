@@ -889,16 +889,6 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 appLog(QStringLiteral("WARN"),
                        QStringLiteral("daemon-rpc TLS persist fallback %1 -> %2")
                            .arg(p.name, persistErr.isEmpty() ? QStringLiteral("upsert failed") : persistErr));
-            } else if (clientKeyFetchedFromRemote) {
-                QString cleanupErr;
-                if (!cleanupRemoteDaemonClientPrivateKey(p, &cleanupErr)) {
-                    appLog(QStringLiteral("WARN"),
-                           QStringLiteral("daemon-rpc TLS cleanup remote key %1 -> %2")
-                               .arg(p.name, cleanupErr.isEmpty() ? QStringLiteral("cleanup failed") : cleanupErr));
-                } else {
-                    appLog(QStringLiteral("INFO"),
-                           QStringLiteral("daemon-rpc TLS cleanup remote key %1 -> ok").arg(p.name));
-                }
             }
         }
 
@@ -1115,14 +1105,6 @@ bool MainWindow::cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p,
             *errorOut = persistErr.isEmpty() ? QStringLiteral("no se pudo persistir TLS en config") : persistErr;
         }
         return false;
-    }
-    if (fetchedFromRemote && clientKeyFetchedFromRemote) {
-        QString cleanupErr;
-        if (!cleanupRemoteDaemonClientPrivateKey(p, &cleanupErr)) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("daemon TLS cache cleanup %1 -> %2")
-                       .arg(p.name, cleanupErr.isEmpty() ? QStringLiteral("cleanup failed") : cleanupErr));
-        }
     }
     return true;
 }
@@ -1945,6 +1927,13 @@ void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
         QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
         s_remoteDaemonTlsCache.remove(key);
     }
+}
+
+void MainWindow::clearDaemonRpcBackoffForConnection(const ConnectionProfile& p) {
+    const QString key = remoteDaemonTlsCacheKey(p);
+    QMutexLocker lock(&m_sshRuntimeSetsMutex);
+    m_daemonRpcRetryAfterByConnKey.remove(key);
+    m_daemonRpcRetryReasonByConnKey.remove(key);
 }
 
 void MainWindow::closeAllRemoteDaemonRpcTunnels() {

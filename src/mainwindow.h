@@ -645,6 +645,7 @@ private:
     bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
     void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
+    void clearDaemonRpcBackoffForConnection(const ConnectionProfile& p);
     QString daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const;
     QString daemonRpcBackoffTextForConnection(int connIdx) const;
     void closeAllSshControlMasters();

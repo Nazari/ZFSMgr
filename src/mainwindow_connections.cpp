@@ -3625,7 +3625,8 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 "chown root:root %2 %3 %5; "
                 "chown root:root %8 %9 %10 %11 %12; "
                 "systemctl daemon-reload; "
-                "systemctl enable --now zfsmgr-agent.service")
+                "systemctl enable zfsmgr-agent.service; "
+                "systemctl restart zfsmgr-agent.service")
                             .arg(deployBinCmd,
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
@@ -3689,13 +3690,12 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                    QStringLiteral("TLS daemon cacheado en config para \"%1\"").arg(p.name));
         }
     }
-    // Clear backoff a second time: a concurrent refresh thread that was already
-    // in-flight may have attempted RPC in the window between the first
-    // clearDaemonRpcStateForConnection and cacheDaemonTlsMaterialForConnection,
-    // found the TLS cache empty (we just evicted it), failed with "clave no
-    // disponible", and set a fresh 30-second backoff — which would suppress
-    // the first RPC from the new refresh launched below.
-    clearDaemonRpcStateForConnection(p);
+    // Clear only the backoff (not the TLS cache) a second time: a concurrent
+    // refresh thread in-flight during the window between the first
+    // clearDaemonRpcStateForConnection and cacheDaemonTlsMaterialForConnection
+    // may have found the cache empty, failed, and set a fresh 30-second backoff.
+    // That would suppress the first RPC from the refresh launched below.
+    clearDaemonRpcBackoffForConnection(p);
     refreshConnectionByIndex(idx);
     if (isMac && interactive) {
         QMessageBox::information(
