@@ -3689,6 +3689,13 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                    QStringLiteral("TLS daemon cacheado en config para \"%1\"").arg(p.name));
         }
     }
+    // Clear backoff a second time: a concurrent refresh thread that was already
+    // in-flight may have attempted RPC in the window between the first
+    // clearDaemonRpcStateForConnection and cacheDaemonTlsMaterialForConnection,
+    // found the TLS cache empty (we just evicted it), failed with "clave no
+    // disponible", and set a fresh 30-second backoff — which would suppress
+    // the first RPC from the new refresh launched below.
+    clearDaemonRpcStateForConnection(p);
     refreshConnectionByIndex(idx);
     if (isMac && interactive) {
         QMessageBox::information(
