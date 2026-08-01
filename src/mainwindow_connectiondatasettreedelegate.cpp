@@ -3134,11 +3134,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 targetType->addItem(QStringLiteral("Everyone"), QStringLiteral("everyone"));
                 auto* targetName = new QComboBox(&dlg);
                 targetName->setEditable(true);
-                auto reloadNames = [entry, targetType, targetName]() {
+                // Capture copies of the name lists, not `entry`: this lambda runs on
+                // every combo change *inside* dlg.exec(), and a queued event can
+                // replace the cache entry while the modal loop is pumping.
+                const QStringList systemUsers = entry->systemUsers;
+                const QStringList systemGroups = entry->systemGroups;
+                auto reloadNames = [systemUsers, systemGroups, targetType, targetName]() {
                     targetName->clear();
                     const QString kind = targetType->currentData().toString();
                     const QStringList names =
-                        (kind == QStringLiteral("group")) ? entry->systemGroups : entry->systemUsers;
+                        (kind == QStringLiteral("group")) ? systemGroups : systemUsers;
                     targetName->addItems(names);
                     targetName->setEnabled(kind != QStringLiteral("everyone"));
                 };
@@ -3164,6 +3169,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 const QString newScope = scope->currentData().toString();
                 if (newType != QStringLiteral("everyone") && newName.isEmpty()) {
                     QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), QStringLiteral("Debe indicar el usuario o grupo."));
+                    return;
+                }
+                // Re-look up after the modal: the entry may have been replaced while
+                // dlg.exec() pumped the event loop. Every write below is after this.
+                entry = m_mainWindow->datasetPermissionsEntryMutable(actx.connIdx, actx.poolName, actx.datasetName);
+                if (!entry) {
                     return;
                 }
                 auto appendPending = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
@@ -3218,6 +3229,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 }
                 if (selected.isEmpty()) {
                     QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), QStringLiteral("Debe seleccionar al menos un permiso o set."));
+                    return;
+                }
+                // Re-look up after the modals above, same reason as the branch before.
+                entry = m_mainWindow->datasetPermissionsEntryMutable(actx.connIdx, actx.poolName, actx.datasetName);
+                if (!entry) {
                     return;
                 }
                 for (const MainWindow::DatasetPermissionSet& s : entry->permissionSets) {

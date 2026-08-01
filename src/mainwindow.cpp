@@ -762,7 +762,9 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         return true;
     }
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    // Copy, not a reference: m_profiles is reassigned wholesale by loadConnections(),
+    // which a queued event can trigger while runSsh() pumps the event loop.
+    const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
         !isWindowsConnection(connIdx)
         && connIdx >= 0
@@ -813,9 +815,11 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
     bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
     if (!propsOk) {
-        if (dsInfo) {
-            dsInfo->runtime.propertiesState = LoadState::Error;
-            dsInfo->runtime.errorText = err.trimmed();
+        // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
+        // destroying the nested maps that dsInfo points into.
+        if (DSInfo* freshDsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
+            freshDsInfo->runtime.propertiesState = LoadState::Error;
+            freshDsInfo->runtime.errorText = err.trimmed();
         }
         return false;
     }
@@ -905,7 +909,9 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
         return true;
     }
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    // Copy, not a reference: m_profiles is reassigned wholesale by loadConnections(),
+    // which a queued event can trigger while runSsh() pumps the event loop.
+    const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
         !isWindowsConnection(connIdx)
         && connIdx >= 0
@@ -949,6 +955,12 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
                         mwhelpers::shSingleQuote(trimmedObject))));
     const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
     bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+    // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
+    // destroying the nested maps dsInfo points into. Every use below is after this.
+    dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
+    if (!dsInfo) {
+        return false;
+    }
     if (!propsOk) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
@@ -2168,14 +2180,20 @@ bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& po
     if (dsInfo && dsInfo->runtime.holdsState == LoadState::Loaded) {
         return true;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    // Copy, not a reference: m_profiles is reassigned wholesale by loadConnections(),
+    // which a queued event can trigger while runSsh() pumps the event loop.
+    const ConnectionProfile p = m_profiles[connIdx];
     QString out;
     QString err;
     int rc = -1;
     const QString cmd = withSudo(
         p,
         QStringLiteral("zfs holds -H %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
-    if (!runSsh(p, cmd, 20000, out, err, rc) || rc != 0) {
+    const bool holdsOk = runSsh(p, cmd, 20000, out, err, rc) && rc == 0;
+    // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
+    // destroying the nested maps dsInfo points into. Every use below is after this.
+    dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
+    if (!holdsOk) {
         if (dsInfo) {
             dsInfo->runtime.holdsState = LoadState::Error;
             dsInfo->runtime.errorText = err.trimmed();
