@@ -1331,6 +1331,135 @@ int runZfsAllowBatch(const std::string& payloadB64) {
     return rc;
 }
 
+// --mutate-rsync-local: typed rsync sync. Replaces the shell command that used to
+// probe rsync capabilities inline (`rsync --help | grep ...`) and interpolate the
+// resulting $RSYNC_OPTS into a shell line. The capability probe now runs here, the
+// daemon assembles the argv, and rsync is exec'd directly — no shell involved.
+//
+// Payload is base64(JSON array) of strings:
+//   [delete("0"|"1"), dryRun("0"|"1"), rsh, dstHost, src1, dst1, src2, dst2, ...]
+// There must be at least one src/dst pair and the trailing path list must be even.
+// Multiple pairs cover the subdataset case, which previously chained N rsync calls
+// with `set -e; ... && ...`: the probe runs once and the pairs execute in order,
+// stopping at the first failure (same semantics).
+// rsh/dstHost are empty for a same-host sync. When dstHost is set the destination
+// becomes "<dstHost>:<dst>/" and rsh (if non-empty) is passed as -e; rsync applies
+// its own quote-aware tokenization to that string, matching the previous behavior.
+bool buildRsyncLocalPlan(const std::string& payloadB64,
+                         std::vector<std::vector<std::string>>& argvsOut,
+                         std::string& errMsg) {
+    argvsOut.clear();
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        errMsg = "invalid rsync payload\n";
+        return false;
+    }
+    std::vector<std::string> f;
+    if (!parseJsonStringArray(decoded, f) || f.size() < 6 || ((f.size() - 4) % 2) != 0) {
+        errMsg = "invalid rsync payload\n";
+        return false;
+    }
+    const std::string delFlag = trim(f[0]);
+    const std::string dryFlag = trim(f[1]);
+    const std::string rsh = f[2];
+    const std::string dstHost = trim(f[3]);
+    if ((delFlag != "0" && delFlag != "1") || (dryFlag != "0" && dryFlag != "1")) {
+        errMsg = "invalid rsync flag\n";
+        return false;
+    }
+
+    std::vector<std::pair<std::string, std::string>> pairs;
+    for (std::size_t i = 4; i + 1 < f.size(); i += 2) {
+        const std::string src = trim(f[i]);
+        const std::string dst = trim(f[i + 1]);
+        if (src.empty() || dst.empty() || src[0] != '/' || dst[0] != '/') {
+            errMsg = "rsync paths must be absolute\n";
+            return false;
+        }
+        pairs.emplace_back(src, dst);
+    }
+    if (pairs.empty()) {
+        errMsg = "invalid rsync payload\n";
+        return false;
+    }
+
+    // Capability probe (previously done inline in shell), run once for all pairs.
+    const ExecResult help = runExecCapture("rsync", {"--help"});
+    const std::string helpText = help.out + help.err;
+    const bool hasInfo = helpText.find("--info") != std::string::npos;
+    const bool hasAcls = runExecCapture("rsync", {"-A", "--version"}).rc == 0;
+    const bool hasXattrs = runExecCapture("rsync", {"-X", "--version"}).rc == 0;
+    const bool hasExtAttrs = helpText.find("--extended-attributes") != std::string::npos;
+
+    std::vector<std::string> base;
+    base.push_back("-aHWS");
+    if (delFlag == "1") {
+        base.push_back("--delete");
+    }
+    if (dryFlag == "1") {
+        base.push_back("--dry-run");
+    }
+    if (hasAcls) {
+        base.push_back("-A");
+    }
+    if (hasXattrs) {
+        base.push_back("-X");
+    } else if (hasExtAttrs) {
+        base.push_back("--extended-attributes");
+    }
+    base.push_back(hasInfo ? "--info=progress2" : "--progress");
+    if (!dstHost.empty() && !rsh.empty()) {
+        base.push_back("-e");
+        base.push_back(rsh);
+    }
+
+    for (const auto& p : pairs) {
+        std::vector<std::string> argv = base;
+        argv.push_back(p.first + "/");
+        argv.push_back(dstHost.empty() ? (p.second + "/") : (dstHost + ":" + p.second + "/"));
+        argvsOut.push_back(std::move(argv));
+    }
+    return true;
+}
+
+ExecResult runRsyncLocalCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::vector<std::vector<std::string>> argvs;
+    std::string errMsg;
+    if (!buildRsyncLocalPlan(payloadB64, argvs, errMsg)) {
+        r.rc = 2;
+        r.err = errMsg;
+        return r;
+    }
+    r.rc = 0;
+    for (const std::vector<std::string>& argv : argvs) {
+        const ExecResult sub = runExecCapture("rsync", argv);
+        r.out += sub.out;
+        r.err += sub.err;
+        if (sub.rc != 0) {
+            r.rc = sub.rc;  // stop at first failure, like the previous `set -e`
+            break;
+        }
+    }
+    return r;
+}
+
+int runRsyncLocal(const std::string& payloadB64) {
+    std::vector<std::vector<std::string>> argvs;
+    std::string errMsg;
+    if (!buildRsyncLocalPlan(payloadB64, argvs, errMsg)) {
+        std::cerr << errMsg;
+        return 2;
+    }
+    for (const std::vector<std::string>& argv : argvs) {
+        const int sub = runExecStreaming("rsync", argv);
+        if (sub != 0) {
+            return sub;  // stop at first failure, like the previous `set -e`
+        }
+    }
+    return 0;
+}
+
 #ifndef _WIN32
 // --zfs-pipe-local: typed same-host `zfs send ... | zfs recv ...`. Replaces the
 // shell pipeline that used to be routed through --mutate-shell-generic. Payload is
@@ -2869,6 +2998,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-allow-batch") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-allow-batch <payload-b64>\n"; return r; }
         return runZfsAllowBatchCapture(params[0]);
+    }
+    if (cmd == "--mutate-rsync-local") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-rsync-local <payload-b64>\n"; return r; }
+        return runRsyncLocalCapture(params[0]);
     }
     if (cmd == "--mutate-shell-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-shell-generic <payload-b64>\n"; return r; }
@@ -4480,6 +4613,13 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runZfsAllowBatch(args[2]);
+    }
+    if (cmd == "--mutate-rsync-local") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runRsyncLocal(args[2]);
     }
     if (cmd == "--mutate-shell-generic") {
         if (args.size() < 3) {

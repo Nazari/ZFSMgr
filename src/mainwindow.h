@@ -755,6 +755,12 @@ private:
     QString daemonizeLocalSendRecvCommand(int connIdx,
                                           const QString& sendRawCmd,
                                           const QString& recvRawCmd) const;
+    QString daemonizeRsyncSyncCommand(int connIdx,
+                                      const QList<QPair<QString, QString>>& pathPairs,
+                                      bool useDelete,
+                                      bool dryRun,
+                                      const QString& rsh,
+                                      const QString& dstHost) const;
     bool fetchPoolCommandOutput(int connIdx,
                                 const QString& poolName,
                                 const QString& actionName,

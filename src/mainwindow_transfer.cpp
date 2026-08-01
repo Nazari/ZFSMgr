@@ -1657,6 +1657,20 @@ void MainWindow::actionSyncDatasets() {
             return;
         }
         auto buildRsyncSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
+            // Prefer the typed --mutate-rsync-local RPC: the daemon runs the
+            // capability probe and assembles the rsync argv itself, so no shell is
+            // built. Falls back to the inline shell probe when the daemon is not
+            // available (e.g. Windows or an out-of-date agent).
+            const QString typedRsync = daemonizeRsyncSyncCommand(
+                src.connIdx,
+                {qMakePair(srcEffectiveMp, dstEffectiveMp)},
+                useDelete,
+                dryRun,
+                sameConnection ? QString() : sshBaseCommand(dp),
+                sameConnection ? QString() : sshUserHost(dp));
+            if (!typedRsync.isEmpty()) {
+                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+            }
             const QString rsyncOptsProbe = buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun);
             if (sameConnection) {
                 QString remoteRsync =
@@ -1862,6 +1876,24 @@ void MainWindow::actionSyncDatasets() {
                          command);
     } else {
         auto buildSubdatasetRsyncCommand = [&](bool useDelete, bool dryRun) -> QString {
+            // Prefer the typed --mutate-rsync-local RPC: one probe, then one rsync
+            // per pair, stopping at the first failure (same as the `set -e` + `&&`
+            // chain below, which stays as the no-daemon fallback).
+            QList<QPair<QString, QString>> typedPairs;
+            typedPairs.reserve(syncPairs.size());
+            for (const auto& pair : syncPairs) {
+                typedPairs.push_back(qMakePair(pair.first, pair.second));
+            }
+            const QString typedRsync = daemonizeRsyncSyncCommand(
+                src.connIdx,
+                typedPairs,
+                useDelete,
+                dryRun,
+                sameConnection ? QString() : sshTransport,
+                sameConnection ? QString() : sshUserHost(dp));
+            if (!typedRsync.isEmpty()) {
+                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+            }
             QStringList cmds;
             cmds.reserve(syncPairs.size());
             for (const auto& pair : syncPairs) {

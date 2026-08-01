@@ -152,6 +152,70 @@ sys.exit(p2.returncode if p2.returncode != 0 else p1.returncode)
 PY
 }
 
+run_rsync_local_payload() {
+  payload="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not available for rsync payload" >&2
+    return 127
+  fi
+  python3 - "$payload" <<'PY'
+import base64, json, subprocess, sys
+try:
+    f = json.loads(base64.b64decode(sys.argv[1]))
+except Exception:
+    print("invalid rsync payload", file=sys.stderr)
+    sys.exit(2)
+if (not isinstance(f, list) or len(f) < 6 or (len(f) - 4) % 2 != 0
+        or not all(isinstance(v, str) for v in f)):
+    print("invalid rsync payload", file=sys.stderr)
+    sys.exit(2)
+del_flag, dry_flag, rsh, dst_host = f[0].strip(), f[1].strip(), f[2], f[3].strip()
+if del_flag not in ("0", "1") or dry_flag not in ("0", "1"):
+    print("invalid rsync flag", file=sys.stderr)
+    sys.exit(2)
+pairs = []
+for i in range(4, len(f), 2):
+    s, d = f[i].strip(), f[i + 1].strip()
+    if not s or not d or not s.startswith("/") or not d.startswith("/"):
+        print("rsync paths must be absolute", file=sys.stderr)
+        sys.exit(2)
+    pairs.append((s, d))
+if not pairs:
+    print("invalid rsync payload", file=sys.stderr)
+    sys.exit(2)
+def probe(args):
+    try:
+        return subprocess.run(["rsync"] + args, capture_output=True).returncode == 0
+    except Exception:
+        return False
+try:
+    h = subprocess.run(["rsync", "--help"], capture_output=True)
+    help_text = (h.stdout or b"").decode("utf-8", "replace") + (h.stderr or b"").decode("utf-8", "replace")
+except Exception:
+    help_text = ""
+argv = ["-aHWS"]
+if del_flag == "1":
+    argv.append("--delete")
+if dry_flag == "1":
+    argv.append("--dry-run")
+if probe(["-A", "--version"]):
+    argv.append("-A")
+if probe(["-X", "--version"]):
+    argv.append("-X")
+elif "--extended-attributes" in help_text:
+    argv.append("--extended-attributes")
+argv.append("--info=progress2" if "--info" in help_text else "--progress")
+if dst_host and rsh:
+    argv += ["-e", rsh]
+for s, d in pairs:
+    full = argv + [s + "/", (dst_host + ":" + d + "/") if dst_host else (d + "/")]
+    rc = subprocess.call(["rsync"] + full)
+    if rc != 0:
+        sys.exit(rc)
+sys.exit(0)
+PY
+}
+
 run_shell_payload() {
   /usr/bin/env python3 - "$1" <<'PY'
 import base64, subprocess, sys
@@ -390,6 +454,9 @@ case "$cmd" in
     ;;
   --zfs-pipe-local)
     run_pipe_local_payload "$2"
+    ;;
+  --mutate-rsync-local)
+    run_rsync_local_payload "$2"
     ;;
   --mutate-shell-generic)
     run_shell_payload "$2"

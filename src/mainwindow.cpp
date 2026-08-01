@@ -1931,6 +1931,51 @@ QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
+QString MainWindow::daemonizeRsyncSyncCommand(int connIdx,
+                                              const QList<QPair<QString, QString>>& pathPairs,
+                                              bool useDelete,
+                                              bool dryRun,
+                                              const QString& rsh,
+                                              const QString& dstHost) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    if (pathPairs.isEmpty()) {
+        return QString();
+    }
+
+    QJsonArray fields;
+    fields.push_back(useDelete ? QStringLiteral("1") : QStringLiteral("0"));
+    fields.push_back(dryRun ? QStringLiteral("1") : QStringLiteral("0"));
+    fields.push_back(rsh);
+    fields.push_back(dstHost);
+    for (const QPair<QString, QString>& pair : pathPairs) {
+        const QString src = pair.first.trimmed();
+        const QString dst = pair.second.trimmed();
+        if (src.isEmpty() || dst.isEmpty()
+            || !src.startsWith(QLatin1Char('/')) || !dst.startsWith(QLatin1Char('/'))) {
+            return QString();
+        }
+        fields.push_back(src);
+        fields.push_back(dst);
+    }
+    const QString payloadB64 = QString::fromLatin1(
+        QJsonDocument(fields).toJson(QJsonDocument::Compact).toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-rsync-local %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
+}
+
 QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
