@@ -517,6 +517,7 @@ private:
     void createConnection();
     void exportTrustStoreToSelectedConnection();
     void installHelperCommandsForSelectedConnection();
+    void repairAltMountpointsForSelectedConnection();
     void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();

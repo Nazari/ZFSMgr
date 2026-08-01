@@ -1386,6 +1386,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Reinstalar/Actualizar daemon"),
             QStringLiteral("Reinstall/Update daemon"),
             QStringLiteral("重新安装/更新守护进程")));
+    QAction* aRepairAltMountpoints = menu.addAction(
+        trk(QStringLiteral("t_repair_altmp_ctx001"),
+            QStringLiteral("Reparar mountpoints temporales"),
+            QStringLiteral("Repair temporary mountpoints"),
+            QStringLiteral("修复临时挂载点")));
     QAction* aExportTrustStore = menu.addAction(
         trk(QStringLiteral("t_export_trust_store_ctx001"),
             QStringLiteral("Exportar trust-store a esta conexión"),
@@ -1429,6 +1434,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     aInstallHelpers->setEnabled(canInstallHelpers);
     aInstallDaemon->setEnabled(hasConn && !actionsLocked() && !isDisconnected
                                && !isLocalConnection(connIdx) && !isWindowsConnection(connIdx));
+    // Also available on the local connection: a local dataset can be left stranded too.
+    aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
+                                      && !isWindowsConnection(connIdx));
     aExportTrustStore->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx));
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
@@ -1523,6 +1531,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         if (connIdx >= 0 && connIdx < m_profiles.size()) {
             (void)installOrUpdateDaemonForConnectionInternal(connIdx, true);
         }
+    } else if (chosen == aRepairAltMountpoints) {
+        logUiAction(QStringLiteral("Reparar mountpoints temporales (menú conexiones)"));
+        repairAltMountpointsForSelectedConnection();
     } else if (chosen == aExportTrustStore) {
         logUiAction(QStringLiteral("Exportar trust-store (menú conexiones)"));
         exportTrustStoreToSelectedConnection();
@@ -2764,6 +2775,125 @@ void MainWindow::createConnection() {
             break;
         }
     }
+}
+
+void MainWindow::repairAltMountpointsForSelectedConnection() {
+    const int connIdx = selectedConnectionIndexForPoolManagement();
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        QMessageBox::information(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_repair_altmp_win001"),
+                QStringLiteral("La reparación de mountpoints temporales no aplica a conexiones Windows."),
+                QStringLiteral("Temporary mountpoint repair does not apply to Windows connections."),
+                QStringLiteral("临时挂载点修复不适用于 Windows 连接。")));
+        return;
+    }
+
+    const QString agentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+    // Report-only pass first: nothing is modified until the user confirms.
+    QString out;
+    QString failure;
+    const bool ok = fetchConnectionCommandOutput(
+        connIdx,
+        QStringLiteral("Repair alt mountpoints (report)"),
+        withSudo(p, mwhelpers::withUnixSearchPathCommand(
+                        agentBin + QStringLiteral(" --repair-alt-mountpoints"))),
+        &out,
+        &failure,
+        30000);
+    if (!ok) {
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_repair_altmp_fail001"),
+                QStringLiteral("No se pudo consultar el estado: %1"),
+                QStringLiteral("Could not query state: %1"),
+                QStringLiteral("无法查询状态：%1")).arg(mwhelpers::oneLine(failure)));
+        return;
+    }
+
+    QStringList stranded;
+    for (const QString& line : out.split('\n', Qt::SkipEmptyParts)) {
+        if (line.trimmed().startsWith(QStringLiteral("STRANDED="))) {
+            stranded << line.trimmed();
+        }
+    }
+    if (stranded.isEmpty()) {
+        QMessageBox::information(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_repair_altmp_none001"),
+                QStringLiteral("No hay datasets con mountpoint temporal pendiente en \"%1\"."),
+                QStringLiteral("No datasets are left on a temporary mountpoint on \"%1\"."),
+                QStringLiteral("“%1”上没有停留在临时挂载点的数据集。")).arg(p.name));
+        return;
+    }
+
+    const QString detail =
+        trk(QStringLiteral("t_repair_altmp_confirm001"),
+            QStringLiteral("Se han encontrado %1 dataset(s) con el mountpoint relocalizado por una "
+                           "sincronización interrumpida:\n\n%2\n\n¿Restaurar su mountpoint original?\n"
+                           "Se desmontarán antes de restaurarlo."),
+            QStringLiteral("Found %1 dataset(s) whose mountpoint was relocated by an interrupted "
+                           "sync:\n\n%2\n\nRestore their original mountpoint?\n"
+                           "They will be unmounted first."),
+            QStringLiteral("发现 %1 个数据集的挂载点因同步中断而被重定位：\n\n%2\n\n是否恢复其原始挂载点？\n将先卸载它们。"))
+            .arg(stranded.size())
+            .arg(stranded.join(QLatin1Char('\n')));
+    if (QMessageBox::question(this, QStringLiteral("ZFSMgr"), detail,
+                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+        != QMessageBox::Yes) {
+        return;
+    }
+
+    QString applyOut;
+    QString applyFail;
+    const bool applied = fetchConnectionCommandOutput(
+        connIdx,
+        QStringLiteral("Repair alt mountpoints (apply)"),
+        withSudo(p, mwhelpers::withUnixSearchPathCommand(
+                        agentBin + QStringLiteral(" --repair-alt-mountpoints apply"))),
+        &applyOut,
+        &applyFail,
+        60000);
+    int repaired = 0;
+    int failed = 0;
+    for (const QString& line : applyOut.split('\n', Qt::SkipEmptyParts)) {
+        const QString t = line.trimmed();
+        if (t.startsWith(QStringLiteral("REPAIRED_COUNT="))) {
+            repaired = t.section('=', 1).trimmed().toInt();
+        } else if (t.startsWith(QStringLiteral("FAILED_COUNT="))) {
+            failed = t.section('=', 1).trimmed().toInt();
+        }
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Reparación de mountpoints temporales en %1: %2 restaurados, %3 fallidos")
+               .arg(p.name)
+               .arg(repaired)
+               .arg(failed));
+    if (!applied || failed > 0) {
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_repair_altmp_partial001"),
+                QStringLiteral("Restaurados %1, fallidos %2.\nLos que fallaron conservan la marca y "
+                               "se pueden reintentar.\n%3"),
+                QStringLiteral("Restored %1, failed %2.\nThose that failed keep their marker and can "
+                               "be retried.\n%3"),
+                QStringLiteral("已恢复 %1 个，失败 %2 个。\n失败的仍保留标记，可以重试。\n%3"))
+                .arg(repaired)
+                .arg(failed)
+                .arg(mwhelpers::oneLine(applyFail)));
+    } else {
+        QMessageBox::information(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_repair_altmp_ok001"),
+                QStringLiteral("Restaurados %1 dataset(s)."),
+                QStringLiteral("Restored %1 dataset(s)."),
+                QStringLiteral("已恢复 %1 个数据集。")).arg(repaired));
+    }
+    refreshConnectionByIndex(connIdx);
 }
 
 void MainWindow::exportTrustStoreToSelectedConnection() {
