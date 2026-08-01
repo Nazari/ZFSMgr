@@ -761,9 +761,40 @@ bool MainWindow::executeDatasetAction(const QString& side,
     const bool withRealtimeProgress =
         (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction);
     const QByteArray effectiveStdin = embeddedStdin ? QByteArray{} : stdinPayload;
-    const bool ok = withRealtimeProgress
-                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, effectiveStdin)
-                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, effectiveStdin);
+    // Operations that copy real data are submitted as daemon jobs: they routinely
+    // outlast any RPC read timeout, and a timeout there is ambiguous because the
+    // daemon keeps working. As a job the submission is instant and the outcome is
+    // polled, so a slow run can no longer be mistaken for a failure.
+    const bool submittableAsJob =
+        !isWindowsConnection(p) && effectiveStdin.isEmpty()
+        && (isBreakdownAction || isAssembleAction || isToDirAction)
+        && effectiveCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent"));
+    bool ok = false;
+    bool jobWasSubmitted = false;
+    if (submittableAsJob) {
+        ok = runAgentMutationAsJob(p, effectiveCmd, out, err, rc, progressLogger, &jobWasSubmitted);
+        if (!ok && jobWasSubmitted) {
+            // The daemon accepted the job and is very likely still running it. Falling
+            // back to the synchronous path would execute the same destructive command
+            // a second time, so stop here and say so.
+            appLog(QStringLiteral("ERROR"),
+                   QStringLiteral("%1: el trabajo se envió al daemon pero se perdió su seguimiento (%2). "
+                                  "Puede seguir en curso; compruebe el estado antes de repetirlo.")
+                       .arg(actionName, mwhelpers::oneLine(err)));
+            setActionsLocked(false);
+            return false;
+        }
+        if (!ok) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("%1: no se pudo enviar como trabajo del daemon (%2); se ejecuta de forma síncrona")
+                       .arg(actionName, mwhelpers::oneLine(err)));
+        }
+    }
+    if (!submittableAsJob || !ok) {
+        ok = withRealtimeProgress
+                 ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, effectiveStdin)
+                 : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, effectiveStdin);
+    }
     if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {
             if (!loggedProgressRealtime) {

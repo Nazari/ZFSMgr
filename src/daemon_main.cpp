@@ -134,6 +134,9 @@ struct DaemonJob {
     std::string sendFlags;
     std::string pipeCmd;       // base64-encoded shell command (pipe-local only)
     std::string dstDataset;    // destination dataset (pipe-local only)
+    std::string submittedCmd;  // agent command being run (type "mutation")
+    std::string resultOut;     // captured stdout of a "mutation" job
+    int         resultRc{0};   // exit code of a "mutation" job
 
     JobState    state{JobState::Queued};
     pid_t       sendPid{-1};
@@ -3826,6 +3829,42 @@ std::string dumpClassForCommand(const std::string& cmd) {
     return "other";
 }
 
+// ── Long mutations as background jobs ────────────────────────────────────────
+// These operations copy real data and routinely outlast any RPC read timeout. Run
+// synchronously they forced the client to wait, and a timeout there is ambiguous:
+// the daemon keeps working, so the client cannot safely retry. Submitting them as
+// jobs makes the RPC answer immediate and turns "did it finish?" into a question
+// with an actual answer (--job-status).
+bool isAsyncSubmittableCommand(const std::string& cmd) {
+    return cmd == "--mutate-advanced-breakdown"
+           || cmd == "--mutate-advanced-assemble"
+           || cmd == "--mutate-advanced-todir"
+           || cmd == "--mutate-rsync-local";
+}
+
+void runSubmittedMutationJob(const std::string& jobId,
+                             const std::string& cmd,
+                             const std::vector<std::string>& params) {
+    const ExecResult r = executeAgentCommandCapture(cmd, params, "zfsmgr-agent");
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    auto it = g_jobs.find(jobId);
+    if (it == g_jobs.end()) {
+        return;
+    }
+    DaemonJob& j = it->second;
+    if (j.state != JobState::Cancelled) {
+        j.state = (r.rc == 0) ? JobState::Done : JobState::Failed;
+    }
+    j.resultRc = r.rc;
+    j.resultOut = r.out;
+    if (r.rc != 0 && j.errorText.empty()) {
+        j.errorText = r.err.empty() ? ("exit " + std::to_string(r.rc)) : r.err;
+    }
+    j.finishedAtUtc = utcNowIsoString();
+    persistJobsLocked();
+    daemonLog("INFO", "job " + jobId + " finished rc=" + std::to_string(r.rc) + " cmd=" + cmd);
+}
+
 int runServeLoop() {
 #ifdef _WIN32
     WSADATA wsaData;
@@ -4300,6 +4339,41 @@ int runServeLoop() {
                     exec.rc  = 0;
                     exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
                 }
+            } else if (cmd == "--job-submit") {
+                if (rpcArgs.empty() || !isAsyncSubmittableCommand(rpcArgs[0])) {
+                    exec.rc = 2;
+                    exec.err = "usage: --job-submit <async-submittable-mutation> [args...]\n";
+                } else {
+                    DaemonJob job;
+                    {
+                        unsigned char rnd[8] = {};
+                        int urfd = open("/dev/urandom", O_RDONLY);
+                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
+                        static const char hx[] = "0123456789abcdef";
+                        for (int i = 0; i < 8; ++i) {
+                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
+                            job.id.push_back(hx[rnd[i] & 0xf]);
+                        }
+                    }
+                    job.type = "mutation";
+                    job.submittedCmd = rpcArgs[0];
+                    job.state = JobState::Running;
+                    job.startedAtUtc = utcNowIsoString();
+                    const std::string jobId = job.id;
+                    const std::string subCmd = rpcArgs[0];
+                    const std::vector<std::string> subParams(rpcArgs.begin() + 1, rpcArgs.end());
+                    {
+                        std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                        g_jobs[jobId] = job;
+                        persistJobsLocked();
+                    }
+                    daemonLog("INFO", "job " + jobId + " started type=mutation cmd=" + subCmd);
+                    std::thread([jobId, subCmd, subParams]() {
+                        runSubmittedMutationJob(jobId, subCmd, subParams);
+                    }).detach();
+                    exec.rc = 0;
+                    exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
+                }
             } else if (cmd == "--job-status") {
                 if (rpcArgs.empty()) {
                     exec.rc = 1; exec.err = "usage: --job-status <jobId>\n";
@@ -4321,6 +4395,19 @@ int runServeLoop() {
                            << "ERROR=" << j.errorText << "\n";
                         if (!j.progressLines.empty())
                             js << "PROGRESS_LINE=" << j.progressLines.back() << "\n";
+                        if (j.type == "mutation") {
+                            js << "CMD=" << j.submittedCmd << "\n"
+                               << "RC=" << j.resultRc << "\n";
+                            // The transport is line based, so fold the captured output
+                            // onto a single line rather than truncating it.
+                            std::string flat = j.resultOut;
+                            for (char& ch : flat) {
+                                if (ch == '\n' || ch == '\r') {
+                                    ch = ' ';
+                                }
+                            }
+                            js << "OUT=" << trim(flat) << "\n";
+                        }
                         exec.rc = 0; exec.out = js.str();
                     }
                 }

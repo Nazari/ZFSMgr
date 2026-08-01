@@ -688,6 +688,116 @@ QString describeHostAddress(const QHostAddress& address) {
 }
 } // namespace
 
+bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
+                                       const QString& agentCommandLine,
+                                       QString& out,
+                                       QString& err,
+                                       int& rc,
+                                       const std::function<void(const QString&)>& progressCb,
+                                       bool* jobSubmittedOut) {
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (jobSubmittedOut) {
+        *jobSubmittedOut = false;
+    }
+
+    const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+    const int pos = agentCommandLine.indexOf(marker);
+    if (pos < 0) {
+        return false;
+    }
+    // Insert --job-submit right after the binary path, leaving the original command
+    // and its arguments as the job payload.
+    const QString head = agentCommandLine.left(pos + marker.size());
+    const QString tail = agentCommandLine.mid(pos + marker.size());
+    const QString submitCmd = head + QStringLiteral(" --job-submit") + tail;
+
+    QString subOut;
+    QString subErr;
+    int subRc = -1;
+    if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(submitCmd)), 20000, subOut, subErr, subRc)
+        || subRc != 0) {
+        err = subErr.trimmed().isEmpty() ? QStringLiteral("no se pudo enviar el trabajo al daemon")
+                                         : subErr;
+        return false;
+    }
+    QString jobId;
+    for (const QString& line : subOut.split('\n', Qt::SkipEmptyParts)) {
+        const QString t = line.trimmed();
+        if (t.startsWith(QStringLiteral("JOB_ID="))) {
+            jobId = t.mid(7).trimmed();
+            break;
+        }
+    }
+    if (jobId.isEmpty()) {
+        err = QStringLiteral("el daemon no devolvió un identificador de trabajo");
+        return false;
+    }
+    if (jobSubmittedOut) {
+        *jobSubmittedOut = true;
+    }
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
+
+    const QString statusCmd =
+        head + QStringLiteral(" --job-status ") + mwhelpers::shSingleQuote(jobId);
+    QString lastProgress;
+    // No overall deadline on purpose: the daemon owns the operation and reports when
+    // it is done. Each individual poll is short, so a dead daemon still surfaces.
+    while (true) {
+        QThread::msleep(1000);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+        QString stOut;
+        QString stErr;
+        int stRc = -1;
+        if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(statusCmd)), 20000, stOut, stErr, stRc)
+            || stRc != 0) {
+            err = QStringLiteral("se perdió el contacto con el daemon mientras el trabajo %1 seguía en curso")
+                      .arg(jobId);
+            return false;
+        }
+        QString state;
+        QString jobErr;
+        QString jobOut;
+        int jobRc = 0;
+        for (const QString& line : stOut.split('\n', Qt::SkipEmptyParts)) {
+            const QString t = line.trimmed();
+            if (t.startsWith(QStringLiteral("STATE="))) {
+                state = t.mid(6).trimmed();
+            } else if (t.startsWith(QStringLiteral("ERROR="))) {
+                jobErr = t.mid(6).trimmed();
+            } else if (t.startsWith(QStringLiteral("OUT="))) {
+                jobOut = t.mid(4).trimmed();
+            } else if (t.startsWith(QStringLiteral("RC="))) {
+                jobRc = t.mid(3).trimmed().toInt();
+            } else if (t.startsWith(QStringLiteral("PROGRESS_LINE="))) {
+                const QString pl = t.mid(14).trimmed();
+                if (!pl.isEmpty() && pl != lastProgress) {
+                    lastProgress = pl;
+                    if (progressCb) {
+                        progressCb(pl);
+                    }
+                }
+            }
+        }
+        if (state == QStringLiteral("done") || state == QStringLiteral("failed")
+            || state == QStringLiteral("cancelled")) {
+            out = jobOut;
+            err = jobErr;
+            rc = (state == QStringLiteral("done")) ? jobRc : (jobRc != 0 ? jobRc : 1);
+            if (progressCb && !jobOut.isEmpty()) {
+                progressCb(jobOut);
+            }
+            return true;
+        }
+        if (state.isEmpty()) {
+            err = QStringLiteral("estado de trabajo ilegible para %1").arg(jobId);
+            return false;
+        }
+    }
+}
+
 bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                                const QStringList& agentArgs,
                                                int timeoutMs,

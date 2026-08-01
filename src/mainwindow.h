@@ -629,6 +629,21 @@ private:
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
+    // Submits a long-running agent mutation as a background job and polls until it
+    // finishes. Removes the RPC read timeout from the equation: the submission is
+    // instant and the outcome is asked for afterwards, so a slow operation can no
+    // longer look like a failure. Returns false only if the job could not be
+    // submitted or tracked; the operation's own exit code comes back in rc.
+    // jobSubmittedOut distinguishes "could not submit" (nothing ran, a fallback is
+    // safe) from "submitted but lost track of it" (the daemon is working right now,
+    // so re-running the command would duplicate it).
+    bool runAgentMutationAsJob(const ConnectionProfile& p,
+                               const QString& agentCommandLine,
+                               QString& out,
+                               QString& err,
+                               int& rc,
+                               const std::function<void(const QString&)>& progressCb = {},
+                               bool* jobSubmittedOut = nullptr);
     // commandMayHaveRunOut, when non-null, is set to true as soon as the request has
     // been written to the daemon. From that point a failure is ambiguous: the daemon
     // may be executing the command right now, so retrying or falling back to SSH would
