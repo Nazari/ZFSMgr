@@ -629,13 +629,18 @@ private:
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
+    // commandMayHaveRunOut, when non-null, is set to true as soon as the request has
+    // been written to the daemon. From that point a failure is ambiguous: the daemon
+    // may be executing the command right now, so retrying or falling back to SSH would
+    // run it a second time. Closing the tunnel does NOT abort the remote work.
     bool tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                        const QStringList& agentArgs,
                                        int timeoutMs,
                                        QString& out,
                                        QString& err,
                                        int& rc,
-                                       QString* failureReason = nullptr);
+                                       QString* failureReason = nullptr,
+                                       bool* commandMayHaveRunOut = nullptr);
     bool persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
                                                const QByteArray& serverCertPem,
                                                const QByteArray& clientCertPem,

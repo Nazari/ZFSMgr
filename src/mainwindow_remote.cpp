@@ -161,6 +161,22 @@ static QStringList posixShellSplitArgs(const QString& s) {
     return result;
 }
 
+// Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
+// nothing, but re-sending a mutation that may already be running is how a single
+// destructive operation ends up executed twice.
+bool isMutatingAgentCommand(const QStringList& agentArgs) {
+    if (agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString cmd = agentArgs.first().trimmed();
+    return cmd.startsWith(QStringLiteral("--mutate-"))
+           || cmd.startsWith(QStringLiteral("--zfs-pipe-"))
+           || cmd.startsWith(QStringLiteral("--zfs-send-"))
+           || cmd.startsWith(QStringLiteral("--zfs-recv-"))
+           || cmd == QStringLiteral("--repair-alt-mountpoints")
+           || cmd == QStringLiteral("--job-cancel");
+}
+
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
     const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
@@ -678,12 +694,16 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                                QString& out,
                                                QString& err,
                                                int& rc,
-                                               QString* failureReason) {
+                                               QString* failureReason,
+                                               bool* commandMayHaveRunOut) {
     // Este camino mantiene/crea QProcess asociados a estado de MainWindow.
     // Si se ejecuta desde un worker de QtConcurrent puede crear QObject hijos
     // con parent en otro hilo (warning/crash de afinidad).
     if (failureReason) {
         failureReason->clear();
+    }
+    if (commandMayHaveRunOut) {
+        *commandMayHaveRunOut = false;
     }
     if (QThread::currentThread() != thread()) {
         if (failureReason) {
@@ -994,6 +1014,11 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             }
             req.insert(QStringLiteral("args"), args);
             const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
+            // Mark before writing, not after: a partial write can still reach the
+            // daemon and start the command, so anything from here on is ambiguous.
+            if (commandMayHaveRunOut) {
+                *commandMayHaveRunOut = true;
+            }
             if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
                 lastAttemptReason = QStringLiteral("fallo al enviar solicitud RPC");
                 continue;
@@ -1042,6 +1067,15 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
 
     if (attempt(false)) {
         return true;
+    }
+    if (commandMayHaveRunOut && *commandMayHaveRunOut) {
+        // The request already reached the daemon. Retrying would submit the same
+        // command a second time while the first one may still be running remotely,
+        // which for a mutation means duplicated destructive work.
+        if (failureReason && !lastAttemptReason.isEmpty()) {
+            *failureReason = lastAttemptReason;
+        }
+        return false;
     }
     const QString firstFailure = lastAttemptReason.trimmed().toLower();
     if (firstFailure.contains(QStringLiteral("handshake tls daemon-rpc"))
@@ -1576,16 +1610,19 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             }
             bool rpcAttemptOk = false;
             QString rpcFailureReason;
+            bool rpcCommandMayHaveRun = false;
             if (allowRpcAttempt) {
                 if (QThread::currentThread() == thread()) {
-                    rpcAttemptOk =
-                        tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason);
+                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
                 } else {
                     QMetaObject::invokeMethod(
                         this,
-                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason]() {
+                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
+                         &rpcCommandMayHaveRun]() {
                             rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason);
+                                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
+                                &rpcCommandMayHaveRun);
                         },
                         Qt::BlockingQueuedConnection);
                 }
@@ -1621,6 +1658,28 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 if (!err.trimmed().isEmpty()) {
                     appendConnectionLog(p.id, oneLine(err));
                 }
+                return true;
+            } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
+                // The daemon received a mutating command and we never got its answer.
+                // Closing the tunnel does not abort remote work, so falling back to
+                // SSH here would run the same destructive command a second time,
+                // possibly overlapping with the first. Fail loudly instead.
+                const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                           ? QStringLiteral("motivo no especificado")
+                                           : rpcFailureReason.trimmed();
+                const QString abortLine =
+                    QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
+                                   " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
+                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+                appLog(QStringLiteral("ERROR"), abortLine);
+                appendConnectionLog(p.id, abortLine);
+                out.clear();
+                err = QStringLiteral(
+                          "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
+                          "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
+                          "reintenta automáticamente.\nCompruebe el estado antes de repetirla.")
+                          .arg(reason);
+                rc = 124;
                 return true;
             } else if (allowRpcAttempt) {
                 const QString reason = rpcFailureReason.trimmed().isEmpty()
