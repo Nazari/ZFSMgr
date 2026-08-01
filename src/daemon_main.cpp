@@ -1258,6 +1258,237 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
 }
 
 #ifndef _WIN32
+// ── Sync via tar with a temporary mountpoint ─────────────────────────────────
+// Typed replacement for the buildUnixTemporaryTar{Source,Destination}Script shell
+// scripts. A dataset that is not mounted is temporarily relocated to a scratch
+// mountpoint so its contents can be streamed, then put back.
+//
+// The original mountpoint is stashed in a ZFS user property before moving it, exactly
+// as the shell helpers did: that way a run killed outright still leaves a breadcrumb
+// identifying the dataset and its intended mountpoint.
+constexpr const char* kSavedMountpointProp = "org.fc16.zfsmgr:savedmountpoint";
+
+std::atomic<pid_t> g_streamChildPid{-1};
+
+// Async-signal-safe: only touches an atomic and calls kill(). The actual restore
+// happens in AltMountGuard's destructor once the wait below returns.
+void onStreamSignal(int) {
+    g_stop.store(true);
+    const pid_t child = g_streamChildPid.load();
+    if (child > 0) {
+        kill(child, SIGTERM);
+    }
+}
+
+struct AltMountGuard {
+    std::string dataset;
+    std::string tmpDir;
+    bool active{false};
+
+    // Moves the dataset onto a scratch mountpoint and mounts it there.
+    bool engage(const std::string& ds, std::string& mpOut, std::string& errMsg) {
+        char tmpl[] = "/tmp/zfsmgr-sync-XXXXXX";
+        const char* dir = mkdtemp(tmpl);
+        if (!dir) {
+            errMsg = "cannot create temporary mountpoint\n";
+            return false;
+        }
+        dataset = ds;
+        tmpDir = dir;
+        const ExecResult cur = getZfsPropertyCapture(ds, "mountpoint");
+        const std::string savedMp = (cur.rc == 0) ? trim(cur.out) : std::string();
+        // Record the original mountpoint before touching anything.
+        (void)runExecCapture("zfs",
+                             {"set", std::string(kSavedMountpointProp) + "=" + savedMp, ds});
+        const ExecResult setRes = runExecCapture("zfs", {"set", "mountpoint=" + tmpDir, ds});
+        if (setRes.rc != 0) {
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, ds});
+            rmdir(tmpDir.c_str());
+            tmpDir.clear();
+            errMsg = setRes.err.empty() ? "cannot set temporary mountpoint\n" : setRes.err;
+            return false;
+        }
+        active = true;  // from here on the dataset must be restored
+        const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
+        if (mountRes.rc != 0) {
+            errMsg = mountRes.err.empty() ? "cannot mount on temporary mountpoint\n" : mountRes.err;
+            return false;
+        }
+        mpOut = tmpDir;
+        return true;
+    }
+
+    void release() {
+        if (!active) {
+            if (!tmpDir.empty()) {
+                rmdir(tmpDir.c_str());
+                tmpDir.clear();
+            }
+            return;
+        }
+        active = false;
+        (void)runExecCapture("zfs", {"unmount", dataset});
+        const ExecResult saved = getZfsPropertyCapture(dataset, kSavedMountpointProp);
+        const std::string savedMp = (saved.rc == 0) ? trim(saved.out) : std::string();
+        if (!savedMp.empty() && savedMp != "-") {
+            (void)runExecCapture("zfs", {"set", "mountpoint=" + savedMp, dataset});
+        }
+        (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, dataset});
+        if (!tmpDir.empty()) {
+            rmdir(tmpDir.c_str());
+            tmpDir.clear();
+        }
+    }
+
+    ~AltMountGuard() { release(); }
+};
+
+// Runs `producer | consumer`, both execvp'd, with the outer ends left on our own
+// stdin/stdout so the tar stream flows through the SSH pipeline.
+int runStreamPair(const std::vector<std::string>& producer,
+                  const std::vector<std::string>& consumer) {
+    auto toArgv = [](const std::vector<std::string>& v) {
+        std::vector<char*> a;
+        a.reserve(v.size() + 1);
+        for (const std::string& s : v) {
+            a.push_back(const_cast<char*>(s.c_str()));
+        }
+        a.push_back(nullptr);
+        return a;
+    };
+    if (consumer.empty()) {
+        std::vector<char*> a = toArgv(producer);
+        const pid_t pid = fork();
+        if (pid < 0) return 125;
+        if (pid == 0) {
+            execvp(producer[0].c_str(), a.data());
+            _exit(127);
+        }
+        g_streamChildPid.store(pid);
+        int st = 0;
+        waitpid(pid, &st, 0);
+        g_streamChildPid.store(-1);
+        return decodeWaitStatus(st);
+    }
+    int fds[2] = {-1, -1};
+    if (pipe(fds) != 0) return 125;
+    std::vector<char*> pa = toArgv(producer);
+    std::vector<char*> ca = toArgv(consumer);
+    const pid_t p1 = fork();
+    if (p1 < 0) { close(fds[0]); close(fds[1]); return 125; }
+    if (p1 == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]); close(fds[1]);
+        execvp(producer[0].c_str(), pa.data());
+        _exit(127);
+    }
+    const pid_t p2 = fork();
+    if (p2 < 0) { close(fds[0]); close(fds[1]); int st = 0; waitpid(p1, &st, 0); return 125; }
+    if (p2 == 0) {
+        dup2(fds[0], STDIN_FILENO);
+        close(fds[0]); close(fds[1]);
+        execvp(consumer[0].c_str(), ca.data());
+        _exit(127);
+    }
+    close(fds[0]);
+    close(fds[1]);
+    g_streamChildPid.store(p1);
+    int st1 = 0;
+    int st2 = 0;
+    waitpid(p1, &st1, 0);
+    waitpid(p2, &st2, 0);
+    g_streamChildPid.store(-1);
+    const int rc2 = decodeWaitStatus(st2);
+    return (rc2 != 0) ? rc2 : decodeWaitStatus(st1);
+}
+
+bool validSyncCodec(const std::string& codec) {
+    return codec == "none" || codec == "zstd" || codec == "gzip";
+}
+
+// --mutate-sync-temp-tar-source <dataset> [none|zstd|gzip]
+int runSyncTempTarSource(const std::vector<std::string>& params) {
+    if (params.empty()) {
+        std::cerr << "usage: --mutate-sync-temp-tar-source <dataset> [none|zstd|gzip]\n";
+        return 2;
+    }
+    const std::string dataset = trim(params[0]);
+    const std::string codec = params.size() > 1 ? toLower(trim(params[1])) : std::string("none");
+    if (dataset.empty() || !validSyncCodec(codec)) {
+        std::cerr << "invalid dataset or codec\n";
+        return 2;
+    }
+    std::signal(SIGINT, onStreamSignal);
+    std::signal(SIGTERM, onStreamSignal);
+
+    AltMountGuard guard;
+    const ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    std::string mp = (mpRes.rc == 0) ? trim(mpRes.out) : std::string();
+    if (mp.empty()) {
+        std::string errMsg;
+        if (!guard.engage(dataset, mp, errMsg)) {
+            std::cerr << errMsg;
+            return 41;
+        }
+    }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (mp.empty() || !fs::is_directory(fs::path(mp), ec)) {
+        std::cerr << "could not resolve a usable mountpoint\n";
+        return 41;
+    }
+    const std::vector<std::string> tarCmd = {"tar", "--acls", "--xattrs", "-cpf", "-", "-C", mp, "."};
+    if (codec == "zstd") {
+        return runStreamPair(tarCmd, {"zstd", "-1", "-T0", "-q", "-c"});
+    }
+    if (codec == "gzip") {
+        return runStreamPair(tarCmd, {"gzip", "-1", "-c"});
+    }
+    return runStreamPair(tarCmd, {});
+}
+
+// --mutate-sync-temp-tar-dest <dataset> [none|zstd|gzip]
+int runSyncTempTarDest(const std::vector<std::string>& params) {
+    if (params.empty()) {
+        std::cerr << "usage: --mutate-sync-temp-tar-dest <dataset> [none|zstd|gzip]\n";
+        return 2;
+    }
+    const std::string dataset = trim(params[0]);
+    const std::string codec = params.size() > 1 ? toLower(trim(params[1])) : std::string("none");
+    if (dataset.empty() || !validSyncCodec(codec)) {
+        std::cerr << "invalid dataset or codec\n";
+        return 2;
+    }
+    std::signal(SIGINT, onStreamSignal);
+    std::signal(SIGTERM, onStreamSignal);
+
+    AltMountGuard guard;
+    const ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    std::string mp = (mpRes.rc == 0) ? trim(mpRes.out) : std::string();
+    if (mp.empty()) {
+        std::string errMsg;
+        if (!guard.engage(dataset, mp, errMsg)) {
+            std::cerr << errMsg;
+            return 41;
+        }
+    }
+    if (mp.empty()) {
+        std::cerr << "could not resolve a usable mountpoint\n";
+        return 41;
+    }
+    namespace fs = std::filesystem;
+    std::error_code mkec;
+    fs::create_directories(fs::path(mp), mkec);
+    const std::vector<std::string> tarCmd = {"tar", "--acls", "--xattrs", "-xpf", "-", "-C", mp};
+    if (codec == "zstd") {
+        return runStreamPair({"zstd", "-d", "-q", "-c", "-"}, tarCmd);
+    }
+    if (codec == "gzip") {
+        return runStreamPair({"gzip", "-d", "-c", "-"}, tarCmd);
+    }
+    return runStreamPair(tarCmd, {});
+}
+
 // --mutate-advanced-fromdir: typed replacement for the "Desde Dir" destination shell
 // script. Mounts the dataset, resolves its effective mountpoint, creates the target
 // subdirectory and extracts the tar stream arriving on stdin — all with execvp, no
@@ -4676,6 +4907,20 @@ int main(int argc, char* argv[]) {
         return runZfsAllowBatch(args[2]);
     }
 #ifndef _WIN32
+    if (cmd == "--mutate-sync-temp-tar-source") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runSyncTempTarSource(std::vector<std::string>(args.begin() + 2, args.end()));
+    }
+    if (cmd == "--mutate-sync-temp-tar-dest") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runSyncTempTarDest(std::vector<std::string>(args.begin() + 2, args.end()));
+    }
     if (cmd == "--mutate-advanced-fromdir") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

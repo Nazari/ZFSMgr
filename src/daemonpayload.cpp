@@ -429,6 +429,52 @@ case "$cmd" in
     done
     exit 0
     ;;
+  --mutate-sync-temp-tar-source|--mutate-sync-temp-tar-dest)
+    MODE="$1"
+    DATASET="${2:-}"
+    CODEC="${3:-none}"
+    [ -n "$DATASET" ] || exit 2
+    case "$CODEC" in none|zstd|gzip) ;; *) echo 'invalid codec' >&2; exit 2 ;; esac
+    SAVED_PROP='org.fc16.zfsmgr:savedmountpoint'
+    TMP_MP=''
+    cleanup() {
+      [ -n "$TMP_MP" ] || return 0
+      zfs unmount "$DATASET" >/dev/null 2>&1 || true
+      saved_mp="$(zfs get -H -o value "$SAVED_PROP" "$DATASET" 2>/dev/null || true)"
+      if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then
+        zfs set mountpoint="$saved_mp" "$DATASET" >/dev/null 2>&1 || true
+      fi
+      zfs inherit "$SAVED_PROP" "$DATASET" >/dev/null 2>&1 || true
+      rmdir "$TMP_MP" >/dev/null 2>&1 || true
+    }
+    trap cleanup EXIT INT TERM
+    MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+    if [ -z "$MP" ]; then
+      TMP_MP="$(mktemp -d /tmp/zfsmgr-sync-XXXXXX)"
+      cur_mp="$(zfs get -H -o value mountpoint "$DATASET" 2>/dev/null || true)"
+      zfs set "$SAVED_PROP=$cur_mp" "$DATASET"
+      zfs set mountpoint="$TMP_MP" "$DATASET"
+      zfs mount "$DATASET"
+      MP="$TMP_MP"
+    fi
+    [ -n "$MP" ] || { echo 'could not resolve a usable mountpoint' >&2; exit 41; }
+    if [ "$MODE" = '--mutate-sync-temp-tar-source' ]; then
+      [ -d "$MP" ] || exit 41
+      case "$CODEC" in
+        zstd) tar --acls --xattrs -cpf - -C "$MP" . | zstd -1 -T0 -q -c ;;
+        gzip) tar --acls --xattrs -cpf - -C "$MP" . | gzip -1 -c ;;
+        *)    tar --acls --xattrs -cpf - -C "$MP" . ;;
+      esac
+    else
+      mkdir -p "$MP"
+      case "$CODEC" in
+        zstd) zstd -d -q -c - | tar --acls --xattrs -xpf - -C "$MP" ;;
+        gzip) gzip -d -c - | tar --acls --xattrs -xpf - -C "$MP" ;;
+        *)    tar --acls --xattrs -xpf - -C "$MP" ;;
+      esac
+    fi
+    exit $?
+    ;;
   --mutate-advanced-fromdir)
     DATASET="${2:-}"
     REL="${3:-}"

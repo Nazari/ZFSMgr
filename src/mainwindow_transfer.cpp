@@ -133,55 +133,30 @@ QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QS
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
 }
 
-QString unixAlternateMountHelpersScript() {
-    return QStringLiteral(
-        "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
-        "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-        "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
-        "zfs set mountpoint=\"$mp\" \"$ds\"; "
-        "zfs mount \"$ds\"; }; "
-        "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
-        "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
-        "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
-        "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "
-        "zfs inherit \"$saved_prop\" \"$ds\" >/dev/null 2>&1 || true; }; "
-        "resolve_mp(){ ds=\"$1\"; zfs mount 2>/dev/null | awk -v d=\"$ds\" '$1==d{print $2; exit}'; }; ");
+QString syncCodecToken(mwhelpers::StreamCodec codec) {
+    switch (codec) {
+    case mwhelpers::StreamCodec::Zstd:
+        return QStringLiteral("zstd");
+    case mwhelpers::StreamCodec::Gzip:
+        return QStringLiteral("gzip");
+    case mwhelpers::StreamCodec::None:
+    default:
+        return QStringLiteral("none");
+    }
 }
 
+// These used to emit inline shell scripts that relocated the dataset's mountpoint,
+// streamed tar and restored everything from a `trap cleanup EXIT INT TERM`. The agent
+// now does all of it natively (see --mutate-sync-temp-tar-*), so nothing here builds
+// shell any more.
 QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    const QString tarFromVar =
-        (codec == mwhelpers::StreamCodec::Zstd) ? QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" . | zstd -1 -T0 -q -c")
-        : (codec == mwhelpers::StreamCodec::Gzip) ? QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" . | gzip -1 -c")
-        : QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" .");
-    return QStringLiteral(
-               "set -e; DATASET=%1; %2"
-               "TMP_MP=''; "
-               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
-               "trap cleanup EXIT INT TERM; "
-               "MP=$(resolve_mp \"$DATASET\"); "
-               "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-src-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
-               "[ -n \"$MP\" ] && [ -d \"$MP\" ] || exit 41; "
-               "%3")
-        .arg(shSingleQuote(dataset), unixAlternateMountHelpersScript(), tarFromVar);
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-source %1 %2")
+        .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 
 QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    const QString decodePipe =
-        (codec == mwhelpers::StreamCodec::Zstd) ? QStringLiteral("zstd -d -q -c - | ")
-        : (codec == mwhelpers::StreamCodec::Gzip) ? QStringLiteral("gzip -d -c - | ")
-        : QString();
-    return QStringLiteral(
-               "set -e; DATASET=%1; %2"
-               "TMP_MP=''; "
-               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
-               "trap cleanup EXIT INT TERM; "
-               "MP=$(resolve_mp \"$DATASET\"); "
-               "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-dst-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
-               "mkdir -p \"$MP\"; "
-               "%3tar --acls --xattrs -xpf - -C \"$MP\"")
-        .arg(shSingleQuote(dataset), unixAlternateMountHelpersScript(), decodePipe);
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-dest %1 %2")
+        .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 } // namespace
 
