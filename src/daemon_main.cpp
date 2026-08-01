@@ -153,7 +153,6 @@ std::unordered_map<std::string, DaemonJob> g_jobs;
 static void persistJobsLocked();
 static void loadPersistedJobsAtStartup();
 static void runZfsSendToPeerAsync(const std::string& jobId);
-static void runZfsPipeLocalAsync(const std::string& jobId);
 
 struct ExecResult {
     int rc{1};
@@ -1258,6 +1257,239 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
     return runExecCapture(tool, arr);
 }
 
+// --mutate-zfs-allow-batch: typed replacement for the old semicolon-joined shell
+// batch that used to be routed through --mutate-shell-generic. Payload is
+// base64(JSON array); each element is base64(JSON array) holding one
+// `zfs allow|unallow ...` argv (without the leading "zfs"). Only allow/unallow
+// ops are accepted, and every entry runs via execvp — never through a shell.
+bool decodeZfsAllowBatch(const std::string& payloadB64,
+                         std::vector<std::vector<std::string>>& out,
+                         std::string& errMsg) {
+    out.clear();
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        errMsg = "invalid allow-batch payload\n";
+        return false;
+    }
+    std::vector<std::string> items;
+    if (!parseJsonStringArray(decoded, items) || items.empty()) {
+        errMsg = "invalid allow-batch payload\n";
+        return false;
+    }
+    for (const std::string& itemB64 : items) {
+        std::string innerJson;
+        std::vector<std::string> argv;
+        if (!decodeBase64(itemB64, innerJson) || !parseJsonStringArray(innerJson, argv) || argv.empty()) {
+            errMsg = "invalid allow-batch entry\n";
+            return false;
+        }
+        const std::string op = toLower(trim(argv.front()));
+        if (op != "allow" && op != "unallow") {
+            errMsg = "unsupported allow-batch op: " + argv.front() + "\n";
+            return false;
+        }
+        out.push_back(std::move(argv));
+    }
+    return true;
+}
+
+ExecResult runZfsAllowBatchCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::vector<std::vector<std::string>> batch;
+    std::string errMsg;
+    if (!decodeZfsAllowBatch(payloadB64, batch, errMsg)) {
+        r.rc = 2;
+        r.err = errMsg;
+        return r;
+    }
+    r.rc = 0;
+    for (const std::vector<std::string>& argv : batch) {
+        const ExecResult sub = runExecCapture("zfs", argv);
+        r.out += sub.out;
+        r.err += sub.err;
+        if (sub.rc != 0 && r.rc == 0) {
+            r.rc = sub.rc;  // run all entries; surface the first failure
+        }
+    }
+    return r;
+}
+
+int runZfsAllowBatch(const std::string& payloadB64) {
+    std::vector<std::vector<std::string>> batch;
+    std::string errMsg;
+    if (!decodeZfsAllowBatch(payloadB64, batch, errMsg)) {
+        std::cerr << errMsg;
+        return 2;
+    }
+    int rc = 0;
+    for (const std::vector<std::string>& argv : batch) {
+        const int sub = runExecStreaming("zfs", argv);
+        if (sub != 0 && rc == 0) {
+            rc = sub;  // run all entries; surface the first failure
+        }
+    }
+    return rc;
+}
+
+#ifndef _WIN32
+// --zfs-pipe-local: typed same-host `zfs send ... | zfs recv ...`. Replaces the
+// shell pipeline that used to be routed through --mutate-shell-generic. Payload is
+// base64(JSON array) of exactly two elements, each base64(JSON array) holding one
+// argv without the leading "zfs": entry 0 must start with "send", entry 1 with
+// "recv". The daemon wires the pipe itself and execvp()s both ends, so no shell is
+// involved and nothing but zfs send/recv can be expressed.
+bool decodeZfsPipeLocal(const std::string& payloadB64,
+                        std::vector<std::string>& sendArgv,
+                        std::vector<std::string>& recvArgv,
+                        std::string& errMsg) {
+    sendArgv.clear();
+    recvArgv.clear();
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        errMsg = "invalid pipe-local payload\n";
+        return false;
+    }
+    std::vector<std::string> items;
+    if (!parseJsonStringArray(decoded, items) || items.size() != 2) {
+        errMsg = "invalid pipe-local payload\n";
+        return false;
+    }
+    auto decodeOne = [&](const std::string& b64,
+                         const char* expectOp,
+                         std::vector<std::string>& out) -> bool {
+        std::string json;
+        if (!decodeBase64(b64, json) || !parseJsonStringArray(json, out) || out.empty()) {
+            errMsg = "invalid pipe-local entry\n";
+            return false;
+        }
+        if (toLower(trim(out.front())) != expectOp) {
+            errMsg = std::string("pipe-local entry must start with ") + expectOp + "\n";
+            return false;
+        }
+        return true;
+    };
+    if (!decodeOne(items[0], "send", sendArgv)) {
+        return false;
+    }
+    if (!decodeOne(items[1], "recv", recvArgv)) {
+        return false;
+    }
+    return true;
+}
+
+ExecResult runZfsPipeLocalCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::vector<std::string> sendArgv;
+    std::vector<std::string> recvArgv;
+    std::string errMsg;
+    if (!decodeZfsPipeLocal(payloadB64, sendArgv, recvArgv, errMsg)) {
+        r.rc = 2;
+        r.err = errMsg;
+        return r;
+    }
+
+    int dataPipe[2] = {-1, -1};
+    int errPipe[2] = {-1, -1};
+    if (pipe(dataPipe) != 0) {
+        r.rc = 125;
+        r.err = "pipe failed\n";
+        return r;
+    }
+    if (pipe(errPipe) != 0) {
+        close(dataPipe[0]);
+        close(dataPipe[1]);
+        r.rc = 125;
+        r.err = "pipe failed\n";
+        return r;
+    }
+
+    auto buildArgv = [](const std::vector<std::string>& v) {
+        std::vector<char*> a;
+        a.reserve(v.size() + 2);
+        a.push_back(const_cast<char*>("zfs"));
+        for (const std::string& s : v) {
+            a.push_back(const_cast<char*>(s.c_str()));
+        }
+        a.push_back(nullptr);
+        return a;
+    };
+    std::vector<char*> sendA = buildArgv(sendArgv);
+    std::vector<char*> recvA = buildArgv(recvArgv);
+
+    auto closeAll = [&]() {
+        close(dataPipe[0]);
+        close(dataPipe[1]);
+        close(errPipe[0]);
+        close(errPipe[1]);
+    };
+
+    const pid_t sendPid = fork();
+    if (sendPid < 0) {
+        closeAll();
+        r.rc = 125;
+        r.err = "fork failed\n";
+        return r;
+    }
+    if (sendPid == 0) {
+        dup2(dataPipe[1], STDOUT_FILENO);
+        dup2(errPipe[1], STDERR_FILENO);
+        closeAll();
+        execvp("zfs", sendA.data());
+        _exit(127);
+    }
+
+    const pid_t recvPid = fork();
+    if (recvPid < 0) {
+        closeAll();
+        int st = 0;
+        waitpid(sendPid, &st, 0);
+        r.rc = 125;
+        r.err = "fork failed\n";
+        return r;
+    }
+    if (recvPid == 0) {
+        dup2(dataPipe[0], STDIN_FILENO);
+        dup2(errPipe[1], STDERR_FILENO);
+        closeAll();
+        execvp("zfs", recvA.data());
+        _exit(127);
+    }
+
+    // Parent must drop both data-pipe ends so recv sees EOF when send finishes.
+    close(dataPipe[0]);
+    close(dataPipe[1]);
+    close(errPipe[1]);
+
+    std::string errAccum;
+    char buf[4096];
+    while (true) {
+        const ssize_t n = read(errPipe[0], buf, sizeof(buf));
+        if (n == 0) {
+            break;
+        }
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+        errAccum.append(buf, static_cast<std::size_t>(n));
+    }
+    close(errPipe[0]);
+
+    int sendStatus = 0;
+    int recvStatus = 0;
+    waitpid(sendPid, &sendStatus, 0);
+    waitpid(recvPid, &recvStatus, 0);
+    const int sendRc = decodeWaitStatus(sendStatus);
+    const int recvRc = decodeWaitStatus(recvStatus);
+
+    r.err = errAccum;
+    r.rc = (recvRc != 0) ? recvRc : sendRc;
+    return r;
+}
+#endif // _WIN32
+
 int runMutateShellGeneric(const std::string& payloadB64) {
     std::string decoded;
     if (!decodeBase64(payloadB64, decoded)) {
@@ -2351,115 +2583,6 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
     persistJobsLocked();
 }
 
-// Async pipe-local: runs a shell pipe command on this host as a background job.
-static void runZfsPipeLocalAsync(const std::string& jobId) {
-    std::string pipeCmd;
-    {
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it == g_jobs.end()) return;
-        pipeCmd = it->second.pipeCmd;
-    }
-    if (pipeCmd.empty()) {
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) {
-            it->second.state = JobState::Failed;
-            it->second.errorText = "empty pipe command";
-            it->second.finishedAtUtc = utcNowIsoString();
-            persistJobsLocked();
-        }
-        return;
-    }
-
-    // Decode base64 pipeCmd via shell: printf '%s' ... | base64 -d
-    // We run: sh -c <decoded_cmd>
-    std::vector<char*> argv2;
-    argv2.push_back(const_cast<char*>("sh"));
-    argv2.push_back(const_cast<char*>("-c"));
-    argv2.push_back(const_cast<char*>(pipeCmd.c_str()));
-    argv2.push_back(nullptr);
-
-    int errFds[2];
-    if (pipe(errFds) != 0) {
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) {
-            it->second.state = JobState::Failed;
-            it->second.errorText = "pipe() failed";
-            it->second.finishedAtUtc = utcNowIsoString();
-            persistJobsLocked();
-        }
-        return;
-    }
-
-    const pid_t childPid = fork();
-    if (childPid < 0) {
-        close(errFds[0]); close(errFds[1]);
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) {
-            it->second.state = JobState::Failed;
-            it->second.errorText = "fork() failed";
-            it->second.finishedAtUtc = utcNowIsoString();
-            persistJobsLocked();
-        }
-        return;
-    }
-    if (childPid == 0) {
-        close(errFds[0]);
-        dup2(errFds[1], STDERR_FILENO);
-        close(errFds[1]);
-        int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
-        execvp("sh", argv2.data());
-        _exit(127);
-    }
-    close(errFds[1]);
-
-    {
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) it->second.sendPid = childPid;
-    }
-
-    // Drain stderr to progress ring buffer
-    char line[4096];
-    std::string errAccum;
-    while (true) {
-        {
-            std::lock_guard<std::mutex> lock(g_jobsMutex);
-            auto it = g_jobs.find(jobId);
-            if (it != g_jobs.end() && it->second.state == JobState::Cancelled) break;
-        }
-        const ssize_t n = read(errFds[0], line, sizeof(line) - 1);
-        if (n <= 0) break;
-        line[n] = '\0';
-        errAccum += line;
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) {
-            it->second.progressLines.push_back(std::string(line, static_cast<size_t>(n)));
-            if (it->second.progressLines.size() > 5)
-                it->second.progressLines.erase(it->second.progressLines.begin());
-        }
-    }
-    close(errFds[0]);
-
-    int status = 0;
-    waitpid(childPid, &status, 0);
-    const int rc = decodeWaitStatus(status);
-
-    std::lock_guard<std::mutex> lock(g_jobsMutex);
-    auto it = g_jobs.find(jobId);
-    if (it == g_jobs.end()) return;
-    if (it->second.state != JobState::Cancelled) {
-        it->second.state = (rc == 0) ? JobState::Done : JobState::Failed;
-        if (rc != 0) it->second.errorText = "sh exited " + std::to_string(rc);
-    }
-    it->second.finishedAtUtc = utcNowIsoString();
-    persistJobsLocked();
-}
 
 #endif // _WIN32
 
@@ -2743,12 +2866,20 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zpool-generic <payload-b64>\n"; return r; }
         return runGenericMutationCapture("zpool", params[0]);
     }
+    if (cmd == "--mutate-zfs-allow-batch") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-allow-batch <payload-b64>\n"; return r; }
+        return runZfsAllowBatchCapture(params[0]);
+    }
     if (cmd == "--mutate-shell-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-shell-generic <payload-b64>\n"; return r; }
         return runMutateShellGenericCapture(params[0]);
     }
 
 #ifndef _WIN32
+    if (cmd == "--zfs-pipe-local") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-pipe-local <payload-b64>\n"; return r; }
+        return runZfsPipeLocalCapture(params[0]);
+    }
     if (cmd == "--zfs-recv-listen") {
         // params: dataset [force=0|1]
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
@@ -3650,39 +3781,6 @@ int runServeLoop() {
                     exec.rc  = 0;
                     exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
                 }
-            } else if (cmd == "--zfs-pipe-local-async") {
-                // args: dstDataset pipeCmd(shell command, NOT base64)
-                if (rpcArgs.size() < 2) {
-                    exec.rc = 1;
-                    exec.err = "usage: --zfs-pipe-local-async <dstDataset> <pipeCmd>\n";
-                } else {
-                    DaemonJob job;
-                    {
-                        unsigned char rnd[8] = {};
-                        int urfd = open("/dev/urandom", O_RDONLY);
-                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
-                        static const char hx[] = "0123456789abcdef";
-                        for (int i = 0; i < 8; ++i) {
-                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
-                            job.id.push_back(hx[rnd[i] & 0xf]);
-                        }
-                    }
-                    job.type       = "pipe-local";
-                    job.dstDataset = rpcArgs[0];
-                    job.pipeCmd    = rpcArgs[1];
-                    job.state      = JobState::Running;
-                    job.startedAtUtc = utcNowIsoString();
-                    const std::string jobId = job.id;
-                    {
-                        std::lock_guard<std::mutex> jlock(g_jobsMutex);
-                        g_jobs[jobId] = job;
-                        persistJobsLocked();
-                    }
-                    daemonLog("INFO", "job " + jobId + " started type=pipe-local dst=" + job.dstDataset);
-                    std::thread([jobId]() { runZfsPipeLocalAsync(jobId); }).detach();
-                    exec.rc  = 0;
-                    exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
-                }
             } else if (cmd == "--job-status") {
                 if (rpcArgs.empty()) {
                     exec.rc = 1; exec.err = "usage: --job-status <jobId>\n";
@@ -4376,6 +4474,13 @@ int main(int argc, char* argv[]) {
         }
         return runGenericMutation("zpool", args[2]);
     }
+    if (cmd == "--mutate-zfs-allow-batch") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runZfsAllowBatch(args[2]);
+    }
     if (cmd == "--mutate-shell-generic") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
@@ -4385,6 +4490,16 @@ int main(int argc, char* argv[]) {
     }
 
 #ifndef _WIN32
+    if (cmd == "--zfs-pipe-local") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult e = runZfsPipeLocalCapture(args[2]);
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
     if (cmd == "--zfs-send-to-peer") {
         if (args.size() < 6) {
             printUsage(args[0].c_str());

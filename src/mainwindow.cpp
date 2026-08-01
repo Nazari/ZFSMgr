@@ -1873,6 +1873,64 @@ QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawC
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
+QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
+                                                  const QString& sendRawCmd,
+                                                  const QString& recvRawCmd) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+
+    // Both sides must be plain `zfs send ...` / `zfs recv ...` with no shell
+    // operators; anything else keeps the shell path so its semantics are honored.
+    auto toArgv = [](const QString& rawCmd, const QString& expectOp) -> QJsonArray {
+        const QString trimmed = rawCmd.trimmed();
+        if (trimmed.contains(QLatin1Char('&')) || trimmed.contains(QLatin1Char('|'))
+            || trimmed.contains(QLatin1Char('`')) || trimmed.contains(QLatin1Char('>'))
+            || trimmed.contains(QLatin1Char('<')) || trimmed.contains(QStringLiteral("$("))) {
+            return QJsonArray();
+        }
+        const QStringList parts = splitShellCommand(trimmed);
+        if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
+            return QJsonArray();
+        }
+        if (parts.at(1).trimmed().toLower() != expectOp) {
+            return QJsonArray();
+        }
+        QJsonArray argv;
+        for (int i = 1; i < parts.size(); ++i) {
+            argv.push_back(parts.at(i));
+        }
+        return argv;
+    };
+
+    const QJsonArray sendArgv = toArgv(sendRawCmd, QStringLiteral("send"));
+    const QJsonArray recvArgv = toArgv(recvRawCmd, QStringLiteral("recv"));
+    if (sendArgv.isEmpty() || recvArgv.isEmpty()) {
+        return QString();
+    }
+
+    QJsonArray outer;
+    outer.push_back(QString::fromLatin1(
+        QJsonDocument(sendArgv).toJson(QJsonDocument::Compact).toBase64()));
+    outer.push_back(QString::fromLatin1(
+        QJsonDocument(recvArgv).toJson(QJsonDocument::Compact).toBase64()));
+    const QString payloadB64 = QString::fromLatin1(
+        QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --zfs-pipe-local %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
+}
+
 QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();

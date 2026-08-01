@@ -147,18 +147,43 @@ CANCELLED=1
 
 ---
 
-### `--zfs-pipe-local-async` (Mode 2)
+### `--zfs-pipe-local-async` (Mode 2) — ELIMINADO
 
-**Args:** `dstDataset b64Cmd`
+Este RPC aceptaba un comando de shell arbitrario (`b64Cmd`) y lo ejecutaba como
+`sh -c <cmd>` con los privilegios del daemon (root). Nunca tuvo un llamador desde
+la GUI (Mode 2 no llegó a cablearse), por lo que era superficie de ataque muerta:
+cualquier cliente con certificado mTLS obtenía ejecución de shell root arbitraria,
+anulando las whitelists tipadas de `--mutate-*`.
 
-`b64Cmd` es el comando de shell pipe codificado en base64, p.ej.:
-`enBzcyBzZW5kIC1SIHB...` = `zfs send -R pool/ds@snap | zfs recv -Fus pool/backup/ds`
+Se retiró del daemon (handler, `runZfsPipeLocalAsync()` y su declaración).
 
-**Respuesta (rc=0):**
-```
-JOB_ID=c9d10e2f3a4b5678
-STATE=running
-```
+**Sustituido por `--zfs-pipe-local` (tipado, síncrono).**
+
+---
+
+### `--zfs-pipe-local` (Mode 2, tipado)
+
+**Args:** `payload-b64`
+
+`payload` es base64(JSON array) de **exactamente dos** elementos; cada elemento es
+base64(JSON array) con un argv sin el `zfs` inicial:
+
+- elemento 0 debe empezar por `send`
+- elemento 1 debe empezar por `recv`
+
+Ejemplo (decodificado): `[["send","-wLecR","tank/ds@snap"], ["recv","-Fus","tank/backup/ds"]]`
+
+El daemon monta la tubería él mismo (`pipe()` + `fork()` ×2 + `execvp("zfs", …)`),
+captura el stderr de ambos extremos y devuelve el rc de `recv` (o el de `send` si
+`recv` fue 0). **No interviene ningún shell**, así que no se puede expresar nada que
+no sea `zfs send … | zfs recv …`.
+
+Validación rechazada con rc=2: número de elementos ≠ 2, base64/JSON inválido, o un
+argv cuyo primer token no sea `send`/`recv` respectivamente.
+
+Nota: a diferencia del pipeline de shell anterior, no se interpone `pv`, por lo que
+esta ruta síncrona no emite líneas de progreso. El progreso sigue disponible en la
+ruta preferente (jobs asíncronos, pestaña *Transferencias*).
 
 ---
 

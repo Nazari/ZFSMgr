@@ -204,12 +204,26 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
     DaemonMutationPlan plan;
     const QString trimmedRaw = rawCmd.trimmed();
 
-    // Detect semicolon-joined sequences of zfs allow/unallow and route via
-    // --mutate-shell-generic to keep them as a single atomic daemon call.
+    // Detect semicolon-joined sequences of zfs allow/unallow and route via the
+    // typed --mutate-zfs-allow-batch RPC. The daemon runs each entry with execvp
+    // (never a shell). Payload is base64(JSON array); each element is
+    // base64(JSON array) holding one allow/unallow argv without the leading "zfs".
     if (trimmedRaw.contains(QStringLiteral("; "))) {
         const QStringList subCmds = trimmedRaw.split(QStringLiteral("; "), Qt::SkipEmptyParts);
         bool allAllowUnallow = !subCmds.isEmpty();
+        QJsonArray outer;
         for (const QString& sub : subCmds) {
+            // Only route through the typed RPC when the sub-command is a single,
+            // plain `zfs allow|unallow ...` with no shell operators. Anything with
+            // &&, ||, |, redirections or command substitution (e.g. the "unallow
+            // ... && allow ..." permission-set replacement, or a `set -e;` prefix)
+            // must keep the shell-generic path so its shell semantics are honored.
+            if (sub.contains(QLatin1Char('&')) || sub.contains(QLatin1Char('|'))
+                || sub.contains(QLatin1Char('`')) || sub.contains(QLatin1Char('>'))
+                || sub.contains(QLatin1Char('<')) || sub.contains(QStringLiteral("$("))) {
+                allAllowUnallow = false;
+                break;
+            }
             const QStringList subParts = shellSplit(sub.trimmed());
             if (subParts.size() < 2 || subParts.at(0) != QStringLiteral("zfs")) {
                 allAllowUnallow = false;
@@ -220,13 +234,20 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
                 allAllowUnallow = false;
                 break;
             }
+            QJsonArray inner;
+            for (int i = 1; i < subParts.size(); ++i) {
+                inner.push_back(subParts.at(i));
+            }
+            const QString innerB64 = QString::fromLatin1(
+                QJsonDocument(inner).toJson(QJsonDocument::Compact).toBase64());
+            outer.push_back(innerB64);
         }
-        if (allAllowUnallow) {
-            const QString payloadB64 =
-                QString::fromLatin1(trimmedRaw.toUtf8().toBase64());
+        if (allAllowUnallow && !outer.isEmpty()) {
+            const QString payloadB64 = QString::fromLatin1(
+                QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
             plan.matched = true;
             plan.daemonCmd =
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-allow-batch %1")
                     .arg(shSingleQuote(payloadB64));
             return plan;
         }

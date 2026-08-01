@@ -403,8 +403,16 @@ void MainWindow::actionCopySnapshot() {
                    QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
-        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
-        pipeline = buildSourceExecutionCommand(sourceShell);
+        // Prefer the typed --zfs-pipe-local RPC: the daemon wires send|recv itself
+        // with execvp, so no shell is built. Falls back to the shell pipeline when
+        // the daemon is unavailable or the commands are not plain send/recv.
+        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        if (!typedPipe.isEmpty()) {
+            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+        } else {
+            const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
+            pipeline = buildSourceExecutionCommand(sourceShell);
+        }
     } else if (directRemoteToRemote) {
         pipeline.clear();
         appLog(QStringLiteral("INFO"),
@@ -1227,8 +1235,14 @@ void MainWindow::actionLevelSnapshot() {
                    QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
-        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
-        pipeline = buildSourceExecutionCommand(sourceShell);
+        // Prefer the typed --zfs-pipe-local RPC (see actionCopySnapshot).
+        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        if (!typedPipe.isEmpty()) {
+            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+        } else {
+            const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
+            pipeline = buildSourceExecutionCommand(sourceShell);
+        }
     } else if (directRemoteToRemote) {
         pipeline.clear();
         appLog(QStringLiteral("INFO"),

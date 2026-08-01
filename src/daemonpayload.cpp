@@ -71,6 +71,87 @@ sys.exit(subprocess.call([tool] + arr))
 PY
 }
 
+run_allow_batch_payload() {
+  payload="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not available for allow-batch payload" >&2
+    return 127
+  fi
+  python3 - "$payload" <<'PY'
+import base64, json, subprocess, sys
+payload = sys.argv[1]
+try:
+    items = json.loads(base64.b64decode(payload))
+except Exception:
+    print("invalid allow-batch payload", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(items, list) or not items or not all(isinstance(v, str) for v in items):
+    print("invalid allow-batch payload", file=sys.stderr)
+    sys.exit(2)
+batch = []
+for it in items:
+    try:
+        argv = json.loads(base64.b64decode(it))
+    except Exception:
+        print("invalid allow-batch entry", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(argv, list) or not argv or not all(isinstance(v, str) for v in argv):
+        print("invalid allow-batch entry", file=sys.stderr)
+        sys.exit(2)
+    if argv[0].strip().lower() not in ("allow", "unallow"):
+        print("unsupported allow-batch op: " + argv[0], file=sys.stderr)
+        sys.exit(2)
+    batch.append(argv)
+rc = 0
+for argv in batch:
+    sub = subprocess.call(["zfs"] + argv)
+    if sub != 0 and rc == 0:
+        rc = sub
+sys.exit(rc)
+PY
+}
+
+run_pipe_local_payload() {
+  payload="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not available for pipe-local payload" >&2
+    return 127
+  fi
+  python3 - "$payload" <<'PY'
+import base64, json, subprocess, sys
+payload = sys.argv[1]
+try:
+    items = json.loads(base64.b64decode(payload))
+except Exception:
+    print("invalid pipe-local payload", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(items, list) or len(items) != 2 or not all(isinstance(v, str) for v in items):
+    print("invalid pipe-local payload", file=sys.stderr)
+    sys.exit(2)
+def decode_one(b64, expect):
+    try:
+        argv = json.loads(base64.b64decode(b64))
+    except Exception:
+        print("invalid pipe-local entry", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(argv, list) or not argv or not all(isinstance(v, str) for v in argv):
+        print("invalid pipe-local entry", file=sys.stderr)
+        sys.exit(2)
+    if argv[0].strip().lower() != expect:
+        print("pipe-local entry must start with " + expect, file=sys.stderr)
+        sys.exit(2)
+    return argv
+send_argv = decode_one(items[0], "send")
+recv_argv = decode_one(items[1], "recv")
+p1 = subprocess.Popen(["zfs"] + send_argv, stdout=subprocess.PIPE)
+p2 = subprocess.Popen(["zfs"] + recv_argv, stdin=p1.stdout)
+p1.stdout.close()
+p2.wait()
+p1.wait()
+sys.exit(p2.returncode if p2.returncode != 0 else p1.returncode)
+PY
+}
+
 run_shell_payload() {
   /usr/bin/env python3 - "$1" <<'PY'
 import base64, subprocess, sys
@@ -303,6 +384,12 @@ case "$cmd" in
     ;;
   --mutate-zpool-generic)
     run_generic_payload zpool "$2"
+    ;;
+  --mutate-zfs-allow-batch)
+    run_allow_batch_payload "$2"
+    ;;
+  --zfs-pipe-local)
+    run_pipe_local_payload "$2"
     ;;
   --mutate-shell-generic)
     run_shell_payload "$2"

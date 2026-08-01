@@ -276,8 +276,8 @@ Implementado:
 - `DaemonJob` struct con persistencia en `/var/lib/zfsmgr/jobs.json`.
 - Jobs en estado `Running` al reiniciar el daemon se marcan `Failed` automáticamente.
 - `runZfsSendToPeerAsync()`: relay loop async en hilo independiente, actualiza progreso cada 2 s, almacena PID para cancelación.
-- `runZfsPipeLocalAsync()`: pipe local async para Mode 2 (mismo host).
-- Nuevos RPCs: `--zfs-send-to-peer-async`, `--job-status`, `--job-list`, `--job-cancel`, `--zfs-pipe-local-async`.
+- ~~`runZfsPipeLocalAsync()`: pipe local async para Mode 2 (mismo host).~~ **Eliminado** (ejecutaba shell root arbitrario, sin llamador en la GUI). Sustituido por `runZfsPipeLocalCapture()`, tipado: monta `send|recv` con `pipe()`+`fork()`+`execvp()`, sin shell.
+- Nuevos RPCs: `--zfs-send-to-peer-async`, `--job-status`, `--job-list`, `--job-cancel`, `--zfs-pipe-local` (tipado), `--mutate-zfs-allow-batch` (tipado). (`--zfs-pipe-local-async` retirado por seguridad.)
 - `JOBS_SUPPORT=1` en respuesta de `--health` (flag de capacidad, sin cambio de versión de API).
 - GUI: tab `Transferencias`, polling cada 2,5 s, recuperación de jobs al reconectar, diálogo de confirmación al cerrar con jobs activos.
 

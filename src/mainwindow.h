@@ -752,6 +752,9 @@ private:
     QString daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const;
     QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
     QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
+    QString daemonizeLocalSendRecvCommand(int connIdx,
+                                          const QString& sendRawCmd,
+                                          const QString& recvRawCmd) const;
     bool fetchPoolCommandOutput(int connIdx,
                                 const QString& poolName,
                                 const QString& actionName,
