@@ -187,9 +187,13 @@ QString maskSecretsForPreview(const QString& input) {
 
     replaceAll(QRegularExpression(QStringLiteral("(SSHPASS=)([^\\s]+)")),
                QStringLiteral("\\1[secret]"));
-    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo\\s+-S)")),
+    // `(?:-\w+\s+)*` tolerates flags between `sudo` and `-S`. The real command is
+    // built as `sudo -k -S -p ''` (see withSudoCommand), so a pattern anchored on a
+    // bare `sudo -S` never matched and the password was rendered verbatim in the
+    // confirmation dialog.
+    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo\\s+(?:-\\w+\\s+)*-S)")),
                QStringLiteral("\\1'[secret]'"));
-    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat\\s*;\\s*}\\s*\\|\\s*sudo\\s+-S)")),
+    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat\\s*;\\s*}\\s*\\|\\s*sudo\\s+(?:-\\w+\\s+)*-S)")),
                QStringLiteral("\\1'[secret]'"));
 
     return out;
@@ -426,7 +430,11 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QStringList rendered;
     rendered.reserve(commands.size());
     for (const QString& cmd : commands) {
-        rendered.push_back(formatCommandPreview(maskSecretsForPreview(cmd), m_language));
+        // maskSecrets() on top of the regex pass: it also replaces the stored
+        // passwords literally, so a command shape the patterns do not anticipate
+        // still cannot leak a credential into this dialog.
+        rendered.push_back(
+            formatCommandPreview(maskSecrets(maskSecretsForPreview(cmd)), m_language));
     }
 
     QPlainTextEdit* txt = new QPlainTextEdit(&dlg);

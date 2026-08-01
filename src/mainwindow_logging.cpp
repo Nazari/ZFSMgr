@@ -443,9 +443,12 @@ QString MainWindow::maskSecrets(const QString& text) const {
         return text;
     }
     QString out = text;
+    // `(?:-\w+\s+)*` tolerates flags between `sudo` and `-S`: the real command is
+    // `sudo -k -S -p ''` (withSudoCommand), which a pattern anchored on a bare
+    // `sudo -S` never matched.
     out.replace(
-        QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+.+?\\s+\\|\\s+sudo\\s+-S\\s+-p\\s+''")),
-        QStringLiteral("printf '%s\\n' [secret] | sudo -S -p ''"));
+        QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+.+?\\s+\\|\\s+sudo\\s+(?:-\\w+\\s+)*-S\\s+-p\\s+''")),
+        QStringLiteral("printf '%s\\n' [secret] | sudo -k -S -p ''"));
     out.replace(
         QRegularExpression(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+")),
         QStringLiteral("\\1[secret]"));
@@ -453,6 +456,11 @@ QString MainWindow::maskSecrets(const QString& text) const {
         if (!p.password.isEmpty()) {
             out.replace(p.password, QStringLiteral("[secret]"));
         }
+    }
+    // The sudo password entered at runtime for the local connection is not part of
+    // m_profiles, so the loop above would miss it.
+    if (!m_localSudoPassword.isEmpty()) {
+        out.replace(m_localSudoPassword, QStringLiteral("[secret]"));
     }
     return out;
 }
