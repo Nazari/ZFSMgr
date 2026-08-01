@@ -9,6 +9,8 @@ Requisitos para habilitar el boton:
 - Origen y destino deben estar en la misma conexion.
 - Origen y destino deben pertenecer al mismo pool.
 
+El dataset destino se propone como `<destino>/<nombre-hoja-del-origen>` (salvo que el destino ya termine con ese nombre) y puede editarse antes de aceptar.
+
 Opciones disponibles en la ventana de Clonar:
 
 - `-p` crear datasets padre si no existen.
@@ -22,4 +24,5 @@ Comando base:
 Notas:
 
 - Si no cumple condiciones, el boton aparece deshabilitado.
-- Tras completar la accion, se refresca la conexion destino y su contenido.
+- La acción se añade a `Cambios pendientes` y solo se ejecuta al aplicar los cambios; al terminar se refresca la conexion destino y su contenido.
+- Si alguna conexión usa OpenZFS por debajo de `2.3.3`, la acción se bloquea al ejecutarse, aunque el botón aparezca habilitado.

@@ -5,11 +5,19 @@ Objetivo: convertir subdatasets en directorios dentro del dataset padre.
 Condiciones:
 
 - Dataset seleccionado en el árbol del pool.
-- Dataset y descendientes montados (segun reglas de seguridad).
+- El dataset padre debe estar **montado**; si no lo está, la operación falla con `mountpoint=none`. Cada subdataset seleccionado lo monta el propio agente.
+- En conexiones Unix requiere el agente `zfsmgr-agent` instalado: no hay alternativa por shell.
 
 Comportamiento:
 
-- Muestra una pantalla para seleccionar subdatasets.
-- Copia contenido de cada subdataset al padre.
-- Solo destruye subdataset si la copia termina correctamente.
-- Registra progreso por subdataset en log NORMAL.
+- Muestra una pantalla para seleccionar subdatasets. El listado es recursivo: incluye descendientes anidados, no solo los hijos directos.
+- Muestra el comando, pide confirmación y se ejecuta en el acto, bloqueando la interfaz mientras dura.
+- Para cada subdataset: copia su contenido a un directorio temporal en `/tmp` del sistema remoto, destruye el subdataset (`zfs destroy -r`) y copia el contenido desde el temporal al directorio correspondiente dentro del padre.
+- El subdataset solo se destruye si la copia **al directorio temporal** ha terminado correctamente.
+- Registra en NORMAL los subdatasets seleccionados antes de empezar y una línea `[ASSEMBLE] ok` por subdataset al terminar. No hay progreso en tiempo real durante la copia.
+
+Advertencias importantes:
+
+- **`zfs destroy -r` arrastra también los descendientes** del subdataset elegido.
+- **Se usa `/tmp` del sistema remoto como almacenamiento intermedio**: debe haber espacio libre suficiente.
+- La copia usa `rsync -aHWS`: **no se preservan ACLs ni atributos extendidos**.

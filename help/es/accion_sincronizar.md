@@ -6,13 +6,20 @@ Condiciones:
 
 - Origen: dataset seleccionado.
 - Destino: dataset seleccionado.
-- Origen y destino deben ser distintos, y ambos deben estar montados.
+- Origen y destino deben ser distintos y ambos montados. También se admite `canmount=off` si los subdatasets equivalentes están montados en ambos extremos.
 - Origen y destino deben usar OpenZFS `2.3.3` o superior.
 
 Comportamiento:
 
-- Usa `rsync` o `tar` segun plataforma y conexion.
-- La acción se añade primero a `Cambios pendientes` y solo se ejecuta al aplicar los cambios.
-- Muestra progreso (MB/GB transferidos) en log.
-- Respeta cancelacion.
+- En conexiones Unix usa `rsync` a través del daemon (`--mutate-rsync-local`): es el propio daemon quien sondea las capacidades de rsync (`-A` para ACLs, `-X` para atributos extendidos, `--info=progress2`) y ejecuta el comando, sin construir órdenes de shell. Si no hay daemon disponible se recurre al mecanismo anterior basado en shell.
+- En conexiones Windows se usa `tar` sobre SSH (con `zstd` o `gzip` si están disponibles en ambos extremos) y **sin `--delete`**.
+- En Linux, macOS y FreeBSD, un dataset no montado puede sincronizarse mediante un montaje temporal alternativo: el agente relocaliza su punto de montaje, transfiere y lo restaura al terminar.
+- Antes de encolar se abre el diálogo *Opciones de sincronización*, donde puede activar o desactivar `--delete` (no disponible en modo tar) y lanzar un `Check` (dry-run) cuya salida se muestra en el propio diálogo.
+- La acción se añade a `Cambios pendientes` y solo se ejecuta al aplicar los cambios.
+- La salida de rsync se vuelca al log al terminar la operación. En la ruta a través del daemon **no hay líneas de progreso en tiempo real**.
+- El `Check` (dry-run) puede cancelarse desde el diálogo. La ejecución real, una vez aplicada, no dispone de cancelación.
 - Si alguna conexión está por debajo de `2.3.3`, la acción se bloquea.
+
+Nota sobre interrupciones:
+
+- Si una sincronización con montaje temporal se interrumpe de forma abrupta, el dataset puede quedar montado en un directorio temporal. Use `Reparar mountpoints temporales` en el menú contextual de la conexión para restaurarlo.
