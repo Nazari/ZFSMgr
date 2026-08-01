@@ -23,6 +23,7 @@ api:v3
 cmd:--dump-zfs-exists
 cmd:--mutate-zfs-clone
 cli-only:--mutate-shell-generic
+cli-only:--mutate-advanced-fromdir
 cmd:--mutate-zfs-allow-batch
 cmd:--zfs-pipe-local
 cmd:--mutate-rsync-local

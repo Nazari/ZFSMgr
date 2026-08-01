@@ -1257,6 +1257,55 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
     return runExecCapture(tool, arr);
 }
 
+#ifndef _WIN32
+// --mutate-advanced-fromdir: typed replacement for the "Desde Dir" destination shell
+// script. Mounts the dataset, resolves its effective mountpoint, creates the target
+// subdirectory and extracts the tar stream arriving on stdin — all with execvp, no
+// shell. Completes the set alongside --mutate-advanced-breakdown/assemble/todir.
+//
+// CLI only, deliberately: this reads the tar stream from stdin, and the RPC channel
+// has no stdin. The GUI invokes it as the destination end of an SSH pipeline.
+int runMutateAdvancedFromDir(const std::vector<std::string>& params) {
+    if (params.empty()) {
+        std::cerr << "usage: --mutate-advanced-fromdir <dataset> [relative-subdir]\n";
+        return 2;
+    }
+    const std::string dataset = trim(params[0]);
+    const std::string rel = params.size() > 1 ? trim(params[1]) : std::string();
+    if (dataset.empty()) {
+        std::cerr << "empty dataset\n";
+        return 2;
+    }
+    // Refuse anything that could escape the dataset's mountpoint.
+    if (!rel.empty() && (rel.front() == '/' || rel.find("..") != std::string::npos)) {
+        std::cerr << "invalid relative subdirectory\n";
+        return 2;
+    }
+
+    (void)runExecCapture("zfs", {"set", "canmount=on", dataset});
+    (void)runExecCapture("zfs", {"mount", dataset});
+    const ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    const std::string mp = (mpRes.rc == 0) ? trim(mpRes.out) : std::string();
+    if (mp.empty()) {
+        std::cerr << "could not resolve effective mountpoint\n";
+        return 4;
+    }
+
+    const std::string dst = rel.empty() ? mp : (mp + "/" + rel);
+    namespace fs = std::filesystem;
+    std::error_code mkec;
+    fs::create_directories(fs::path(dst), mkec);
+    if (mkec) {
+        std::cerr << "cannot create destination directory\n";
+        return 1;
+    }
+    std::cout << "[FROMDIR] tar recv -> " << dst << "\n";
+    std::cout.flush();
+    // stdin stays inherited so tar consumes the incoming stream.
+    return runExecStreaming("tar", {"--acls", "--xattrs", "-xpf", "-", "-C", dst});
+}
+#endif // _WIN32
+
 // --mutate-zfs-allow-batch: typed replacement for the old semicolon-joined shell
 // batch that used to be routed through --mutate-shell-generic. Payload is
 // base64(JSON array); each element is base64(JSON array) holding one
@@ -4626,6 +4675,15 @@ int main(int argc, char* argv[]) {
         }
         return runZfsAllowBatch(args[2]);
     }
+#ifndef _WIN32
+    if (cmd == "--mutate-advanced-fromdir") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runMutateAdvancedFromDir(std::vector<std::string>(args.begin() + 2, args.end()));
+    }
+#endif
     if (cmd == "--mutate-rsync-local") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

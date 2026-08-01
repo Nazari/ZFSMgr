@@ -846,17 +846,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
 
         QString dstRecvCmd;
         if (!isWindowsConnection(ctx.connIdx)) {
-            dstRecvCmd = QStringLiteral(
-                             "set -e; DATASET=%1; "
-                             "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                             "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                             "MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
-                             "[ -n \"$MP\" ] || { echo 'could not resolve effective mountpoint'; exit 4; }; "
-                             "REL=%2; "
-                             "if [ -n \"$REL\" ]; then DST=\"$MP/$REL\"; else DST=\"$MP\"; fi; "
-                             "mkdir -p \"$DST\"; "
-                             "echo \"[FROMDIR] tar recv -> $DST\"; "
-                             "tar --acls --xattrs -xpf - -C \"$DST\"")
+            // Typed RPC instead of an inline shell script: the agent mounts the
+            // dataset, resolves the mountpoint, creates the subdirectory and runs tar
+            // itself with execvp. withSudoStreamInput() keeps stdin wired to the
+            // incoming tar stream.
+            dstRecvCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-fromdir %1 %2")
                              .arg(shSingleQuote(opt.datasetPath), shSingleQuote(rel));
         } else {
             const QString relWin = rel;

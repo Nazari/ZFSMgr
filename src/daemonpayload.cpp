@@ -429,6 +429,22 @@ case "$cmd" in
     done
     exit 0
     ;;
+  --mutate-advanced-fromdir)
+    DATASET="${2:-}"
+    REL="${3:-}"
+    [ -n "$DATASET" ] || exit 2
+    case "$REL" in
+      /*|*..*) echo 'invalid relative subdirectory' >&2; exit 2 ;;
+    esac
+    zfs set canmount=on "$DATASET" >/dev/null 2>&1 || true
+    zfs mount "$DATASET" >/dev/null 2>&1 || true
+    MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+    [ -n "$MP" ] || { echo 'could not resolve effective mountpoint' >&2; exit 4; }
+    if [ -n "$REL" ]; then DST="$MP/$REL"; else DST="$MP"; fi
+    mkdir -p "$DST"
+    echo "[FROMDIR] tar recv -> $DST"
+    exec tar --acls --xattrs -xpf - -C "$DST"
+    ;;
   --mutate-advanced-todir)
     DATASET="${2:-}"
     DST_DIR="${3:-}"
