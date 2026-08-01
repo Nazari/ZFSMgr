@@ -970,11 +970,19 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 for (const QSslError& e : sock.sslHandshakeErrors()) {
                     sslErrStrs << e.errorString();
                 }
-                const QString sslDetail = sslErrStrs.isEmpty()
-                    ? sock.errorString()
-                    : sslErrStrs.join(QStringLiteral("; "));
-                lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1): %2")
-                                        .arg(peerName, sslDetail);
+                if (sslErrStrs.isEmpty()) {
+                    // No TLS-level error was produced: the socket never got far enough
+                    // (connection refused, timeout, tunnel not ready yet). Reporting
+                    // that as a TLS handshake failure points diagnosis at the
+                    // certificates and marks the connection "TLS desincronizado",
+                    // which triggers a re-provisioning that cannot fix a transport
+                    // problem.
+                    lastAttemptReason = QStringLiteral("conexión daemon-rpc fallida (peer=%1): %2")
+                                            .arg(peerName, sock.errorString());
+                } else {
+                    lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1): %2")
+                                            .arg(peerName, sslErrStrs.join(QStringLiteral("; ")));
+                }
                 continue;
             }
 
@@ -1037,6 +1045,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     }
     const QString firstFailure = lastAttemptReason.trimmed().toLower();
     if (firstFailure.contains(QStringLiteral("handshake tls daemon-rpc"))
+        || firstFailure.contains(QStringLiteral("conexión daemon-rpc fallida"))
         || firstFailure.contains(QStringLiteral("daemon-rpc sin respuesta válida"))
         || firstFailure.contains(QStringLiteral("túnel ssh daemon-rpc finalizado"))) {
         if (tryReviveRemoteDaemonService(p)) {

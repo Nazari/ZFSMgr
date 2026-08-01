@@ -3503,6 +3503,16 @@ int runServeLoop() {
         if (bind(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0
             && listen(fd, 32) == 0) {
             listenFd = fd;
+#ifndef _WIN32
+            // Keep the listening socket out of child processes: the ZED watcher runs
+            // `zpool events` through popen(), which would otherwise inherit this fd.
+            // A surviving child then keeps the port bound after the daemon exits, and
+            // the next start fails to bind for no visible reason.
+            const int fdFlags = fcntl(fd, F_GETFD, 0);
+            if (fdFlags >= 0) {
+                fcntl(fd, F_SETFD, fdFlags | FD_CLOEXEC);
+            }
+#endif
             break;
         }
         closeSock(fd);
