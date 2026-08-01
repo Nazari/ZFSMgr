@@ -12,23 +12,41 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - `Desconectar`
   - `Refrescar`
   - separador
-  - `Nueva conexión`
+  - `Nueva Conexión`
   - `Editar`
   - `Borrar`
   - separador
-  - `Nuevo pool`
-  - separador
-  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
+  - `Nuevo Pool`
   - separador
   - `Instalar MSYS2`
   - `Instalar comandos auxiliares`
+  - `Reinstalar/Actualizar daemon`
+  - `Reparar mountpoints temporales`
+  - `Exportar trust-store a esta conexión`
+  - `Autorizar clave SSH en...` (submenú con las demás conexiones SSH conectadas)
+  - separador
+  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`), o `Close` si el menú se abre sobre la raíz de un panel dividido
 
-El submenú `Daemon` incluye:
-- `Instalar/Actualizar daemon` cuando falta, está obsoleto o necesita recachear TLS.
-- `Daemon actualizado y funcionando` desactivado cuando no hay acción pendiente.
-- `Desinstalar daemon`.
+Condiciones de habilitación:
 
-Si se detecta backoff TLS de daemon-rpc, ZFSMgr marca la conexión para atención e intenta la actualización/recache de forma no interactiva al finalizar el refresh.
+- `Conectar`: conexión marcada como desconectada y sin acción en curso.
+- `Desconectar` y `Refrescar`: conexión conectada y sin acción en curso.
+- `Editar` y `Borrar`: no disponibles en la conexión Local ni en conexiones redirigidas a Local.
+- `Nuevo Pool`: conexión conectada.
+- `Instalar MSYS2`: solo en conexiones Windows sin una capa Unix (MSYS2/MinGW) completa.
+- `Instalar comandos auxiliares`: solo si el refresco detectó un gestor de paquetes y un plan de instalación soportado para los comandos que faltan.
+- `Reinstalar/Actualizar daemon`: conexiones remotas no Windows.
+- `Reparar mountpoints temporales`: cualquier conexión no Windows, incluida Local (un dataset local también puede quedarse en un mountpoint temporal).
+- `Exportar trust-store a esta conexión`: cualquier conexión remota; no aplica a Local, que ya usa el trust-store local.
+- `Autorizar clave SSH en...`: solo en conexiones SSH no Windows, y solo se puebla con otras conexiones SSH conectadas.
+
+`Reparar mountpoints temporales` hace primero una pasada de solo lectura, muestra los datasets que quedaron con el mountpoint relocalizado por una sincronización interrumpida y pide confirmación antes de restaurarlos (los desmonta antes de hacerlo). Los que fallen conservan su marca y se pueden reintentar.
+
+## Actualización automática del daemon
+
+Al terminar un refresco, ZFSMgr reinstala el daemon automáticamente y sin diálogos **solo** cuando el motivo de atención es una desalineación de versión o de API.
+
+Un backoff TLS de daemon-rpc marca la conexión para atención pero **no** dispara la reinstalación automática: reinstalar regeneraría el material TLS y perpetuaría el bucle fallo → reinstalación → fallo. En ese caso use `Reinstalar/Actualizar daemon` o `Exportar trust-store a esta conexión` manualmente.
 
 ## Sobre el nodo raíz del pool fusionado
 
@@ -36,24 +54,24 @@ Si se detecta backoff TLS de daemon-rpc, ZFSMgr marca la conexión para atenció
 
 - El primer submenú es `Pool`.
 - Dentro de `Pool` aparecen las acciones de pool:
-  - `Refresh status`
+  - `Actualizar estado`
   - `Importar`
   - `Importar renombrando`
   - `Exportar`
   - `Historial`
   - `Gestión`
-- `Gestión` ejecuta acciones inmediatas (`sync`, `scrub`, `upgrade`, `reguid`, `trim`, `initialize`, `clear`, `destroy`) con diálogo de parámetros cuando aplica.
-- Después del submenú `Pool` siguen las acciones normales de dataset sobre ese mismo nodo dual.
+- `Gestión` ejecuta acciones inmediatas (`Sync`, `Scrub`, `Upgrade`, `Reguid`, `Trim`, `Initialize`, `Clear`, `Destroy`) con diálogo de parámetros cuando aplica.
+- Justo después del submenú `Pool` aparece `Split and root`, y a continuación las acciones normales de dataset sobre ese mismo nodo dual.
 
 ## Sobre datasets y snapshots
 
 - En dataset filesystem (y en nodo pool fusionado):
-  - `Gestionar propiedades`
+  - `Gestionar visualización de propiedades`
   - `Dataset`
   - `Acciones`
-  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
   - `Seleccionar como origen`
   - `Seleccionar como destino`
+  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
 - Submenú `Dataset`:
   - `Crear`
   - `Renombrar`
@@ -66,14 +84,17 @@ Si se detecta backoff TLS de daemon-rpc, ZFSMgr marca la conexión para atenció
   - `Ensamblar`
   - `Desde Dir`
   - `Hasta Dir`
+  - `Mount`: solo se habilita si el dataset tiene `canmount` distinto de `off`, un `mountpoint` válido y no está ya montado.
 - En snapshots:
-  - `Gestionar propiedades`
+  - `Gestionar visualización de propiedades`
   - `Borrar snapshot`
   - `Rollback`
   - `Nuevo Hold`
   - `Seleccionar como origen`
 - En holds:
   - `Release`
+
+En el nodo pool fusionado, `Split and root` aparece justo después del submenú `Pool`, no al final.
 
 ## Sobre el nodo raíz de un panel dividido
 
@@ -85,5 +106,7 @@ Si se detecta backoff TLS de daemon-rpc, ZFSMgr marca la conexión para atenció
 - Las acciones destructivas piden confirmación.
 - Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
 - `Seleccionar como origen` y `Seleccionar como destino` actualizan la línea `Source/Target` de la caja `Acciones`.
-- No hay menú contextual en nodos `Dataset properties`, `Snapshot properties` ni en el nodo `@`.
+- El nodo `@` (agrupador de snapshots) no tiene menú contextual.
+- En `Dataset properties` y `Snapshot properties` el menú contextual contiene únicamente `Gestionar visualización de propiedades`.
+- Los hijos de la raíz de conexión que no son raíz de pool (`Properties`, `Info`) no tienen menú contextual.
 - En pools suspendidos, la mayoría de las acciones del menú contextual aparecen deshabilitadas.

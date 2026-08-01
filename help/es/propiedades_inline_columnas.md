@@ -11,7 +11,7 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
   - Dentro puede aparecer `Dispositivos` (árbol de vdev/discos del pool).
 - En datasets filesystem, los snapshots cuelgan del nodo `@`.
 - En pools con datasets GSA activos, puede aparecer `Datasets programados`.
-- En conexiones, bajo `Propiedades de conexión`.
+- En conexiones, bajo `Properties`.
 - En conexiones, `Info` agrupa:
   - `General`
   - `Daemon`
@@ -22,7 +22,7 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
 - El número de columnas visibles se ajusta desde el menú contextual del encabezado del árbol.
 - El rango actual de `Columnas de propiedades` es:
   - `4, 6, 8, 10, 12, 14, 16`
-- Los anchos de columna se guardan y se restauran.
+- Los anchos de columna se conservan al cambiar de conexión o de panel dentro de la misma sesión; no se mantienen entre arranques de la aplicación.
 - El scroll vertical del árbol es suave.
 
 ## Gestión de propiedades visibles
@@ -32,9 +32,10 @@ Con clic derecho sobre:
 - `Dataset properties`
 - `Snapshot properties`
 - `Pool Information`
-- `Propiedades de conexión`
 
 puede abrir `Gestionar visualización de propiedades`.
+
+El nodo `Properties` de la conexión no tiene menú contextual: sus campos se editan directamente en línea.
 
 Ese diálogo permite:
 
@@ -49,12 +50,12 @@ Los grupos son independientes por:
 - pool
 - dataset
 - snapshot
-- conexión
 
 ## Edición inline
 
 - Las propiedades editables se modifican directamente en el árbol.
 - Las propiedades heredables muestran `Inh.` cuando aplica.
 - Los permisos ZFS también se editan inline, pero en modo borrador.
-- Las propiedades `org.fc16.gsa:*` no usan control de herencia visual.
+- Las propiedades de usuario (las que llevan `:` en el nombre, como `org.fc16.gsa:*`) son editables y también muestran el control de herencia.
+- No muestran control de herencia las propiedades de solo lectura, las que no aplican a la plataforma, y `canmount`.
 - Al pulsar una línea en `Pending changes`, ZFSMgr intenta enfocar el objeto y la sección correspondiente.
