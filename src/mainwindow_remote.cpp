@@ -17,6 +17,7 @@
 #include <QSslKey>
 #include <QSslSocket>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
@@ -827,10 +828,43 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             proc->deleteLater();
             return false;
         }
-        QThread::msleep(180);
-        if (proc->state() == QProcess::NotRunning) {
-            proc->deleteLater();
-            return false;
+        // Wait until the forwarded port actually accepts connections. A fixed short
+        // sleep used to be enough only on warm/fast links: establishing the tunnel
+        // needs a full SSH handshake (plus mDNS resolution for *.local hosts), which
+        // measured ~830 ms against unib.local. Connecting too early yields
+        // ECONNREFUSED, which the caller then reports as a TLS handshake failure and
+        // puts the connection into TLS backoff — a misleading dead end.
+        {
+            QElapsedTimer readyTimer;
+            readyTimer.start();
+            bool tunnelReady = false;
+            while (readyTimer.elapsed() < 5000) {
+                if (proc->state() == QProcess::NotRunning) {
+                    break;
+                }
+                QTcpSocket probe;
+                probe.connectToHost(QHostAddress::LocalHost, localPort);
+                if (probe.waitForConnected(200)) {
+                    probe.abort();
+                    tunnelReady = true;
+                    break;
+                }
+                QThread::msleep(50);
+            }
+            if (!tunnelReady) {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("daemon-rpc: el túnel SSH a %1 no aceptó conexiones en 5 s")
+                           .arg(p.name));
+                if (proc->state() != QProcess::NotRunning) {
+                    proc->terminate();
+                    if (!proc->waitForFinished(1500)) {
+                        proc->kill();
+                        proc->waitForFinished(1500);
+                    }
+                }
+                proc->deleteLater();
+                return false;
+            }
         }
 
         QObject::connect(
