@@ -22,7 +22,7 @@ tls:mtls-required
 api:v3
 cmd:--dump-zfs-exists
 cmd:--mutate-zfs-clone
-cmd:--mutate-shell-generic
+cli-only:--mutate-shell-generic
 cmd:--mutate-zfs-allow-batch
 cmd:--zfs-pipe-local
 cmd:--mutate-rsync-local

@@ -3003,10 +3003,12 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-rsync-local <payload-b64>\n"; return r; }
         return runRsyncLocalCapture(params[0]);
     }
-    if (cmd == "--mutate-shell-generic") {
-        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-shell-generic <payload-b64>\n"; return r; }
-        return runMutateShellGenericCapture(params[0]);
-    }
+    // --mutate-shell-generic is deliberately NOT served over RPC: it runs an arbitrary
+    // shell as root, so exposing it here would let any client holding the mTLS
+    // certificate bypass every typed --mutate-* whitelist. The GUI only ever invokes
+    // it as a CLI command over SSH+sudo (see daemonizeShellMutationCommand), where the
+    // caller already has root and it grants no extra privilege. The CLI handler in
+    // main() stays for those flows.
 
 #ifndef _WIN32
     if (cmd == "--zfs-pipe-local") {
