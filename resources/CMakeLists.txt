@@ -26,6 +26,7 @@ cli-only:--mutate-shell-generic
 cli-only:--mutate-advanced-fromdir
 cli-only:--mutate-sync-temp-tar-source
 cli-only:--mutate-sync-temp-tar-dest
+cmd:--repair-alt-mountpoints
 cmd:--mutate-zfs-allow-batch
 cmd:--zfs-pipe-local
 cmd:--mutate-rsync-local

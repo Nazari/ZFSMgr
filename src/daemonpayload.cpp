@@ -429,6 +429,36 @@ case "$cmd" in
     done
     exit 0
     ;;
+  --repair-alt-mountpoints)
+    APPLY="${2:-}"
+    SAVED_PROP='org.fc16.zfsmgr:savedmountpoint'
+    stranded=0; repaired=0; failed=0
+    while IFS="$(printf '\t')" read -r ds saved; do
+      [ -n "$ds" ] || continue
+      cur="$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true)"
+      printf 'STRANDED=%s saved=%s current=%s\n' "$ds" "$saved" "$cur"
+      stranded=$((stranded+1))
+      [ "$APPLY" = 'apply' ] || continue
+      zfs unmount "$ds" >/dev/null 2>&1 || true
+      ok=1
+      if [ -n "$saved" ] && [ "$saved" != '-' ]; then
+        zfs set mountpoint="$saved" "$ds" >/dev/null 2>&1 || ok=0
+      fi
+      if [ "$ok" = "1" ]; then
+        zfs inherit "$SAVED_PROP" "$ds" >/dev/null 2>&1 || true
+        printf 'REPAIRED=%s -> %s\n' "$ds" "$saved"
+        repaired=$((repaired+1))
+      else
+        echo "cannot restore mountpoint for $ds" >&2
+        failed=$((failed+1))
+      fi
+    done <<EOF_STRANDED
+$(zfs get -H -o name,value -s local "$SAVED_PROP" 2>/dev/null || true)
+EOF_STRANDED
+    printf 'STRANDED_COUNT=%s\nREPAIRED_COUNT=%s\nFAILED_COUNT=%s\n' "$stranded" "$repaired" "$failed"
+    [ "$failed" = "0" ] || exit 1
+    exit 0
+    ;;
   --mutate-sync-temp-tar-source|--mutate-sync-temp-tar-dest)
     MODE="$1"
     DATASET="${2:-}"

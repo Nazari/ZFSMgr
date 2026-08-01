@@ -1343,6 +1343,93 @@ struct AltMountGuard {
     ~AltMountGuard() { release(); }
 };
 
+// ── Repair of datasets left on a temporary mountpoint ────────────────────────
+// If a temp-tar run is killed outright (SIGKILL, power loss, the daemon being
+// replaced mid-transfer), the dataset stays mounted on a scratch directory and keeps
+// kSavedMountpointProp set. Neither the old shell scripts nor the RAII guard can
+// cover that case, but the property is exactly the breadcrumb needed to find and undo
+// it afterwards.
+struct StrandedAltMount {
+    std::string dataset;
+    std::string savedMp;
+    std::string currentMp;
+};
+
+std::vector<StrandedAltMount> findStrandedAltMounts() {
+    std::vector<StrandedAltMount> out;
+    // -s local restricts this to datasets where we explicitly set the property.
+    const ExecResult r = runExecCapture(
+        "zfs", {"get", "-H", "-o", "name,value", "-s", "local", kSavedMountpointProp});
+    if (r.rc != 0) {
+        return out;
+    }
+    std::istringstream iss(r.out);
+    std::string line;
+    while (std::getline(iss, line)) {
+        const std::string trimmedLine = trim(line);
+        if (trimmedLine.empty()) {
+            continue;
+        }
+        const std::size_t tab = trimmedLine.find('\t');
+        if (tab == std::string::npos) {
+            continue;
+        }
+        StrandedAltMount s;
+        s.dataset = trim(trimmedLine.substr(0, tab));
+        s.savedMp = trim(trimmedLine.substr(tab + 1));
+        if (s.dataset.empty()) {
+            continue;
+        }
+        const ExecResult cur = getZfsPropertyCapture(s.dataset, "mountpoint");
+        s.currentMp = (cur.rc == 0) ? trim(cur.out) : std::string();
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
+// --repair-alt-mountpoints [apply]
+// Without "apply" it only reports, so it is safe to call for diagnosis.
+ExecResult runRepairAltMountpointsCapture(bool apply) {
+    ExecResult r;
+    const std::vector<StrandedAltMount> stranded = findStrandedAltMounts();
+    std::string out;
+    int repaired = 0;
+    int failed = 0;
+    for (const StrandedAltMount& s : stranded) {
+        out += "STRANDED=" + s.dataset + " saved=" + s.savedMp + " current=" + s.currentMp + "\n";
+        if (!apply) {
+            continue;
+        }
+        // Mirror the guard's restore order: unmount first, then put the mountpoint
+        // back, then drop the breadcrumb.
+        (void)runExecCapture("zfs", {"unmount", s.dataset});
+        bool ok = true;
+        if (!s.savedMp.empty() && s.savedMp != "-") {
+            const ExecResult setRes =
+                runExecCapture("zfs", {"set", "mountpoint=" + s.savedMp, s.dataset});
+            ok = (setRes.rc == 0);
+            if (!ok) {
+                r.err += "cannot restore mountpoint for " + s.dataset + ": " + setRes.err;
+            }
+        }
+        if (ok) {
+            // Only drop the breadcrumb once the mountpoint is actually back, so a
+            // failed repair stays discoverable on the next run.
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, s.dataset});
+            out += "REPAIRED=" + s.dataset + " -> " + s.savedMp + "\n";
+            ++repaired;
+        } else {
+            ++failed;
+        }
+    }
+    out += "STRANDED_COUNT=" + std::to_string(stranded.size()) + "\n";
+    out += "REPAIRED_COUNT=" + std::to_string(repaired) + "\n";
+    out += "FAILED_COUNT=" + std::to_string(failed) + "\n";
+    r.out = out;
+    r.rc = (failed > 0) ? 1 : 0;
+    return r;
+}
+
 // Runs `producer | consumer`, both execvp'd, with the outer ends left on our own
 // stdin/stdout so the tar stream flows through the SSH pipeline.
 int runStreamPair(const std::vector<std::string>& producer,
@@ -3295,6 +3382,13 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-pipe-local <payload-b64>\n"; return r; }
         return runZfsPipeLocalCapture(params[0]);
     }
+    if (cmd == "--repair-alt-mountpoints") {
+        // Fully typed and argument-free apart from the apply switch: it only ever acts
+        // on datasets carrying our own savedmountpoint property, so it is safe to
+        // serve over RPC.
+        const bool apply = !params.empty() && toLower(trim(params[0])) == "apply";
+        return runRepairAltMountpointsCapture(apply);
+    }
     if (cmd == "--zfs-recv-listen") {
         // params: dataset [force=0|1]
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
@@ -4907,6 +5001,13 @@ int main(int argc, char* argv[]) {
         return runZfsAllowBatch(args[2]);
     }
 #ifndef _WIN32
+    if (cmd == "--repair-alt-mountpoints") {
+        const bool apply = args.size() > 2 && toLower(trim(args[2])) == "apply";
+        const ExecResult e = runRepairAltMountpointsCapture(apply);
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
     if (cmd == "--mutate-sync-temp-tar-source") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

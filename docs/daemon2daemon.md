@@ -394,3 +394,29 @@ zfsmgr-agent --job-list
 # 7. GUI: cerrar durante transferencia → reabrir → tab Transferencias muestra job activo
 # 8. GUI + daemon antiguo: Copy/Level funciona como antes (sin JOBS_SUPPORT)
 ```
+
+---
+
+### `--repair-alt-mountpoints [apply]`
+
+Repara datasets que quedaron con el mountpoint relocalizado por un sync tar
+interrumpido de forma irrecuperable (SIGKILL, corte de luz, sustitución del daemon
+a mitad de transferencia). Esos casos no los cubre ni el `trap` del shell antiguo ni
+el guard RAII del agente, pero el dataset conserva la propiedad
+`org.fc16.zfsmgr:savedmountpoint`, que es la miga de pan necesaria para deshacerlo.
+
+Localiza los datasets con esa propiedad puesta explícitamente (`zfs get -s local`) y,
+para cada uno, informa del mountpoint guardado y del actual.
+
+- **Sin argumentos: solo informa.** Es seguro llamarlo para diagnóstico.
+- **Con `apply`:** desmonta, restaura `mountpoint` al valor guardado y limpia la
+  propiedad, en ese orden.
+
+Si la restauración falla, **la propiedad NO se borra**, de modo que el dataset sigue
+siendo detectable en la siguiente pasada. Devuelve rc=1 si hubo algún fallo.
+
+Salida: una línea `STRANDED=` por dataset encontrado, `REPAIRED=` por cada uno
+restaurado, y los contadores `STRANDED_COUNT` / `REPAIRED_COUNT` / `FAILED_COUNT`.
+
+Se sirve por RPC además de CLI: no acepta entrada libre (solo el interruptor `apply`)
+y actúa exclusivamente sobre datasets que llevan nuestra propia propiedad.
