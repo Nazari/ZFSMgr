@@ -23,6 +23,9 @@ api:v3
 cmd:--dump-zfs-exists
 cmd:--mutate-zfs-clone
 cmd:--mutate-shell-generic
+cmd:--mutate-zfs-allow-batch
+cmd:--zfs-pipe-local
+cmd:--mutate-rsync-local
 cmd:--wait-for-event
 cmd:--dump-gsa-log
 zed:event-watcher-class-filter
