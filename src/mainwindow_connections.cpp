@@ -452,7 +452,7 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     const ConnectionRuntimeState& st = m_states[connIdx];
     const bool disconnected = isConnectionDisconnected(connIdx);
     const QString osHint = (p.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
@@ -769,7 +769,7 @@ int MainWindow::connectionIndexByNameOrId(const QString& value) const {
         return -1;
     }
     for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile& p = m_profiles[i];
+        const ConnectionProfile p = m_profiles[i];
         if (p.name.trimmed().compare(wanted, Qt::CaseInsensitive) == 0
             || p.id.trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
             return i;
@@ -824,7 +824,7 @@ int MainWindow::equivalentSshForLocal(int localIdx) const {
         if (i == localIdx || isLocalConnection(i)) {
             continue;
         }
-        const ConnectionProfile& candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_profiles[i];
         if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
             continue;
         }
@@ -930,8 +930,8 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
         }
         return true;
     }
-    const ConnectionProfile& src = m_profiles[rowIdx];
-    const ConnectionProfile& effectiveDst = m_profiles[effectiveIdx];
+    const ConnectionProfile src = m_profiles[rowIdx];
+    const ConnectionProfile effectiveDst = m_profiles[effectiveIdx];
     if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         return fail(trk(QStringLiteral("t_connectivity_unsupported_target_001"),
                         QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
@@ -1006,7 +1006,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             if (i == localIdx || isLocalConnection(i)) {
                 continue;
             }
-            const ConnectionProfile& candidate = m_profiles[i];
+            const ConnectionProfile candidate = m_profiles[i];
             if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
                 continue;
             }
@@ -1085,8 +1085,8 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
         }
-        const ConnectionProfile& src = m_profiles[rowIdx];
-        const ConnectionProfile& dst = m_profiles[colIdx];
+        const ConnectionProfile src = m_profiles[rowIdx];
+        const ConnectionProfile dst = m_profiles[colIdx];
         const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         if (!srcOk || !dstOk) {
@@ -2524,10 +2524,24 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         }
     }
-    m_states[idx] = refreshConnection(m_profiles[idx]);
-    cachePoolStatusTextsForConnection(idx, m_states[idx]);
-    rebuildConnInfoFor(idx);
-    preloadPoolAutoSnapshotInfoForConnection(idx);
+    // Copy, not a direct binding to the vector element: refreshConnection() holds its
+    // parameter across ~16 runSsh() calls, each pumping the event loop, and
+    // loadConnections() can reassign m_profiles wholesale meanwhile.
+    const ConnectionProfile profileForRefresh = m_profiles[idx];
+    const QString refreshedConnId = profileForRefresh.id.trimmed();
+    const ConnectionRuntimeState refreshedState = refreshConnection(profileForRefresh);
+    // Re-resolve the index before applying the result: a dedup pass can remove
+    // connections while the refresh runs, shifting every index after it. Writing to a
+    // stale index would apply this state to a different connection.
+    const int targetIdx =
+        refreshedConnId.isEmpty() ? idx : connectionIndexByNameOrId(refreshedConnId);
+    if (targetIdx < 0 || targetIdx >= m_states.size()) {
+        return;
+    }
+    m_states[targetIdx] = refreshedState;
+    cachePoolStatusTextsForConnection(targetIdx, m_states[targetIdx]);
+    rebuildConnInfoFor(targetIdx);
+    preloadPoolAutoSnapshotInfoForConnection(targetIdx);
     rebuildConnectionsTable();
     populateAllPoolsTables();
 }
@@ -3004,7 +3018,7 @@ void MainWindow::installMsysForSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     if (!isWindowsConnection(idx)) {
         QMessageBox::information(
             this,
@@ -3209,7 +3223,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     if (isConnectionDisconnected(idx)) {
         QMessageBox::information(
             this,
@@ -3395,7 +3409,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         return false;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     if (interactive) {
         const auto confirm = QMessageBox::question(
             this,
@@ -3787,8 +3801,8 @@ void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
     if (srcIdx < 0 || srcIdx >= m_profiles.size() || dstIdx < 0 || dstIdx >= m_profiles.size()) {
         return;
     }
-    const ConnectionProfile& sp = m_profiles[srcIdx];
-    const ConnectionProfile& dp = m_profiles[dstIdx];
+    const ConnectionProfile sp = m_profiles[srcIdx];
+    const ConnectionProfile dp = m_profiles[dstIdx];
 
     beginUiBusy();
     struct BusyGuard { MainWindow* w; ~BusyGuard() { w->endUiBusy(); } } g{this};

@@ -2190,7 +2190,7 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     const bool daemonReadApiOk =
         !isWindowsConnection(p)
         && idx >= 0
@@ -2371,7 +2371,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     const QString cacheKey = poolDetailsCacheKey(idx, poolName);
 
     auto loadFromCache = [this, &cacheKey, idx, poolName]() -> bool {

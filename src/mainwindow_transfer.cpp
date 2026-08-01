@@ -190,7 +190,7 @@ QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src
         if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.poolName.trimmed().isEmpty()) {
             return QString();
         }
-        const ConnectionProfile& p = m_profiles.at(ctx.connIdx);
+        const ConnectionProfile p = m_profiles.at(ctx.connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, ctx.poolName.trimmed());
     };
@@ -1373,7 +1373,7 @@ void MainWindow::actionSyncDatasets() {
         if (connIdx < 0 || connIdx >= m_profiles.size() || tool.trimmed().isEmpty()) {
             return false;
         }
-        const ConnectionProfile& p = m_profiles[connIdx];
+        const ConnectionProfile p = m_profiles[connIdx];
         QString out;
         QString err;
         int rc = -1;
@@ -1936,8 +1936,8 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
 {
     if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return false;
     if (dstConnIdx < 0 || dstConnIdx >= m_profiles.size()) return false;
-    const ConnectionProfile& sp = m_profiles[srcConnIdx];
-    const ConnectionProfile& dp = m_profiles[dstConnIdx];
+    const ConnectionProfile sp = m_profiles[srcConnIdx];
+    const ConnectionProfile dp = m_profiles[dstConnIdx];
     const bool sameConn = (srcConnIdx == dstConnIdx);
 
     // Step 1: --zfs-recv-listen on dest daemon
@@ -2025,16 +2025,25 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
 
 void MainWindow::pollDaemonJobs() {
     bool anyRunning = false;
-    for (ActiveDaemonJob& job : m_activeDaemonJobs) {
-        if (job.state != QStringLiteral("running")) continue;
+    // Indexed, not a range-for: the RPC below yields, and an append() to
+    // m_activeDaemonJobs would reallocate the QList, invalidating both a held
+    // reference and the range-for's iterator.
+    for (int i = 0; i < m_activeDaemonJobs.size(); ++i) {
+        if (m_activeDaemonJobs[i].state != QStringLiteral("running")) continue;
         anyRunning = true;
-        if (job.srcConnIdx < 0 || job.srcConnIdx >= m_profiles.size()) continue;
-        const ConnectionProfile& sp = m_profiles[job.srcConnIdx];
+        const QString pollJobId = m_activeDaemonJobs[i].jobId;
+        const int srcConnIdx = m_activeDaemonJobs[i].srcConnIdx;
+        if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) continue;
+        const ConnectionProfile sp = m_profiles[srcConnIdx];
         QStringList args;
-        args << QStringLiteral("--job-status") << job.jobId;
+        args << QStringLiteral("--job-status") << pollJobId;
         QString out, err;
         int rc = -1;
         if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc) || rc != 0) continue;
+
+        // Re-acquire after the yield, and confirm the slot still holds the same job.
+        if (i >= m_activeDaemonJobs.size() || m_activeDaemonJobs[i].jobId != pollJobId) continue;
+        ActiveDaemonJob& job = m_activeDaemonJobs[i];
 
         for (const QString& line : out.split('\n')) {
             if (line.startsWith(QStringLiteral("STATE=")))
@@ -2073,7 +2082,7 @@ void MainWindow::pollDaemonJobs() {
 
 void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
     if (connIdx < 0 || connIdx >= m_profiles.size()) return;
-    const ConnectionProfile& sp = m_profiles[connIdx];
+    const ConnectionProfile sp = m_profiles[connIdx];
     QStringList args;
     args << QStringLiteral("--job-list");
     QString out, err;

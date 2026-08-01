@@ -4297,7 +4297,10 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
                QStringLiteral("restoreConnContentTreeState token=%1 no-state").arg(scopedToken));
         return;
     }
-    const ConnContentTreeState& st = it.value();
+    // Copy, not a reference into m_connContentTreeStateByToken: the
+    // refreshConnContentPropertiesFor() calls below reach runSsh(), which pumps the
+    // event loop, and tree handlers can rewrite this map meanwhile.
+    const ConnContentTreeState st = it.value();
     auto logSnapshotPhase = [this, tree, &st](const QString& phase) {
         if (!tree) {
             return;
@@ -4932,7 +4935,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         delete propsNode->takeChild(0);
     }
 
-    const ConnectionProfile& cp = m_profiles[connIdx];
+    const ConnectionProfile cp = m_profiles[connIdx];
     const bool localConnection = isLocalConnection(connIdx);
     const bool osIsWindows = cp.osType.trimmed().toLower().contains(QStringLiteral("windows"));
     const QVector<QPair<QString, QString>> fields = {
@@ -5687,19 +5690,26 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                            .arg(mwhelpers::shSingleQuote(trimmedPool))));
             const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
             bool ok = runSsh(p, selectedCmd, 12000, out, err, rc) && rc == 0;
+            // Unconditional re-look up: runSsh() pumped the event loop, so
+            // rebuildConnInfoFor() may have replaced the ConnInfo that owns poolInfo.
+            // This used to happen only on the success path, leaving the pointer stale
+            // whenever the command failed.
+            poolInfo = findPoolInfo(connIdx, poolName);
             if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     if (connIdx >= 0 && connIdx < m_states.size()) {
                         m_states[connIdx].poolGuidByName.insert(trimmedPool, guid);
                     }
-                    poolInfo = findPoolInfo(connIdx, poolName);
                     if (poolInfo && poolInfo->key.poolGuid.trimmed().isEmpty()) {
                         poolInfo->key.poolGuid = guid;
                     }
                     changed = true;
                 }
             }
+        }
+        if (!poolInfo) {
+            return false;
         }
         QSet<QString> missingNames;
         for (auto it = poolInfo->objectsByFullName.cbegin(); it != poolInfo->objectsByFullName.cend(); ++it) {
@@ -5756,8 +5766,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         if (changed) {
             rebuildConnInfoFor(connIdx);
-            poolInfo = findPoolInfo(connIdx, poolName);
         }
+        // Unconditional re-look up: the runSsh() above pumped the event loop, so the
+        // ConnInfo owning poolInfo may have been replaced even when nothing changed.
+        poolInfo = findPoolInfo(connIdx, poolName);
         if (!poolInfo || poolInfo->key.poolGuid.trimmed().isEmpty()) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Abort tree build: missing stable pool GUID conn=%1 pool=%2")
@@ -5821,7 +5833,11 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         return QString();
     };
-    auto buildDatasetItem = [&](const DSInfo& dsInfo, auto&& buildDatasetItemRef) -> QTreeWidgetItem* {
+    // By value, not by reference into poolInfo->objectsByFullName: effectiveMountPath()
+    // below reaches runSsh() on Windows connections, and rebuildConnInfoFor() can
+    // replace the whole ConnInfo while the event loop is pumped, which would dangle
+    // both this parameter and the caller's iterator.
+    auto buildDatasetItem = [&](const DSInfo dsInfo, auto&& buildDatasetItemRef) -> QTreeWidgetItem* {
         auto* item = new QTreeWidgetItem();
         const QString fullName = dsInfo.key.fullName.trimmed();
         const QString displayName = fullName.contains('/')
@@ -6095,7 +6111,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     };
 
     QVector<QTreeWidgetItem*> logicalTopLevelItems;
-    for (const QString& rootName : poolInfo->rootObjectNames) {
+    // Copy the name list: buildDatasetItem() can yield, and iterating a member of
+    // *poolInfo across that would dangle if the ConnInfo gets rebuilt.
+    const QStringList rootObjectNames = poolInfo->rootObjectNames;
+    for (const QString& rootName : rootObjectNames) {
         const auto it = poolInfo->objectsByFullName.constFind(rootName);
         if (it == poolInfo->objectsByFullName.cend() || it->kind == DSKind::Snapshot) {
             continue;
@@ -6404,7 +6423,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                                                  &normalizedValue,
                                                  &errorText)) {
                 const QString fallbackRawValue = [this, connIdx, fieldKey]() -> QString {
-                    const ConnectionProfile& cp = m_profiles[connIdx];
+                    const ConnectionProfile cp = m_profiles[connIdx];
                     const QString k = fieldKey.toLower();
                     if (k == QStringLiteral("name")) return cp.name;
                     if (k == QStringLiteral("machine_uid")) return cp.machineUid;

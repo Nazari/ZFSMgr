@@ -2038,7 +2038,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return false;
     }
@@ -2137,7 +2137,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
         !isWindowsConnection(p)
         && connIdx >= 0

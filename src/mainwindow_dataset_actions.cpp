@@ -408,7 +408,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         if (isLocalConnection(i) || i >= m_states.size()) {
             continue;
         }
-        const ConnectionProfile& candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_profiles[i];
         if (!isConnectionRedirectedToLocal(i)) {
             continue;
         }
@@ -425,7 +425,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile& candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_profiles[i];
         if (!isLocalConnection(candidate)) {
             continue;
         }
@@ -446,7 +446,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
 
     bool hasConfiguredRedirect = false;
     for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile& candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_profiles[i];
         if (isLocalConnection(candidate)) {
             continue;
         }
@@ -671,7 +671,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
                 QStringLiteral("存储池处于 suspended 状态，已禁用操作。")));
         return false;
     }
-    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_profiles[ctx.connIdx];
     if (isWindowsConnection(p) && !allowWindowsScript) {
         const QString c = cmd.toLower();
         const bool unixScriptLike = c.contains(QStringLiteral("&&"))
@@ -1109,7 +1109,7 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         }
         return false;
     }
-    const ConnectionProfile& p = m_profiles.at(draft.connIdx);
+    const ConnectionProfile p = m_profiles.at(draft.connIdx);
     ConnectionProfile sudoProfile = p;
     if (!ensureLocalSudoCredentials(sudoProfile)) {
         const QString msg = QStringLiteral("faltan credenciales sudo locales");
@@ -1170,7 +1170,7 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
     if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_profiles[ctx.connIdx];
     QString mp;
     QString mpHint;
     QString mountedValue;
@@ -1624,7 +1624,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
         return false;
     }
     if (isWindowsConnection(ctx.connIdx)) {
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
+        const ConnectionProfile p = m_profiles[ctx.connIdx];
         QString effectiveMp = effectiveMountPath(ctx.connIdx,
                                                  ctx.poolName,
                                                  ctx.datasetName,
@@ -1740,7 +1740,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.datasetName.isEmpty()) {
         return false;
     }
-    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_profiles[ctx.connIdx];
 
     if (!ensureDatasetsLoaded(ctx.connIdx, ctx.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -1758,11 +1758,15 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
                                  QStringLiteral("无法检查挂载点冲突。")));
         return false;
     }
-    const PoolDatasetCache& cache = cacheIt.value();
+    // Copy the record map instead of holding a reference into m_poolDatasetCache: the
+    // effectiveMountPath() call in the loop below reaches runSsh() on Windows
+    // connections, and a queued refresh erases entries from that map, which would
+    // dangle both the reference and the loop iterator.
+    const QMap<QString, DatasetRecord> recordByName = cacheIt->recordByName;
 
     QMap<QString, QString> targetMpByDs;
     const QString prefix = ctx.datasetName + QStringLiteral("/");
-    for (auto it = cache.recordByName.constBegin(); it != cache.recordByName.constEnd(); ++it) {
+    for (auto it = recordByName.constBegin(); it != recordByName.constEnd(); ++it) {
         const QString ds = it.key();
         if (ds != ctx.datasetName) {
             if (!includeDescendants || !ds.startsWith(prefix)) {
@@ -1885,7 +1889,7 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     QString out;
     QString err;
     int rc = -1;
-    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_profiles[ctx.connIdx];
     QString checkCmd = withSudo(p, isWin ? hasChildrenCmd : mwhelpers::withUnixSearchPathCommand(hasChildrenCmd));
     const bool ran = runSsh(p, checkCmd, 12000, out, err, rc);
     bool hasChildrenMounted = ran && rc == 0;

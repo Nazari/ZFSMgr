@@ -786,7 +786,7 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
             return QString();
         }
-        const ConnectionProfile& p = m_profiles.at(selCtx.connIdx);
+        const ConnectionProfile p = m_profiles.at(selCtx.connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, selCtx.poolName.trimmed());
     };

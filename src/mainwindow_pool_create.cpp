@@ -332,7 +332,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 QStringLiteral("请选择一个连接来管理池。")));
         return;
     }
-    const ConnectionProfile& p = m_profiles[idx];
+    const ConnectionProfile p = m_profiles[idx];
     const bool isMacConn = p.osType.trimmed().toLower().contains(QStringLiteral("mac"));
     beginUiBusy();
     struct UiBusyGuard {

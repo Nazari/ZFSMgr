@@ -906,7 +906,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
     if (!isConnectionLevel && rootDataset.trimmed().isEmpty()) {
         return;
     }
-    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_profiles.at(connIdx);
     const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
     const QString trimmedRoot = rootDataset.trimmed();
     const QString trimmedPool = poolName.trimmed();
@@ -1286,7 +1286,7 @@ void MainWindow::restoreSplitTreeLayoutFromState(const QString& state) {
             if (connIdx < 0 || connIdx >= m_profiles.size()) {
                 return nullptr;
             }
-            const ConnectionProfile& p = m_profiles.at(connIdx);
+            const ConnectionProfile p = m_profiles.at(connIdx);
             const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
             const bool isConnectionLevel = pool.isEmpty();
             const QString displayRoot = isConnectionLevel
@@ -1393,7 +1393,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     }
     const int connIdx = change.connIdx;
     const QString poolName = change.poolName.trimmed();
-    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_profiles.at(connIdx);
     const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
 
     auto visiblePoolRoot = [&](QTreeWidget* tree) -> QTreeWidgetItem* {
@@ -2718,7 +2718,7 @@ void MainWindow::buildUi() {
             const QString jobId   = item->data(Qt::UserRole).toString();
             const int srcConnIdx  = item->data(Qt::UserRole + 1).toInt();
             if (jobId.isEmpty() || srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return;
-            const ConnectionProfile& sp = m_profiles[srcConnIdx];
+            const ConnectionProfile sp = m_profiles[srcConnIdx];
             QStringList args;
             args << QStringLiteral("--job-cancel") << jobId;
             QString out, err;

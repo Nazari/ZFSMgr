@@ -106,7 +106,7 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         delete browserNode->takeChild(0);
     }
 
-    const ConnectionProfile& prof = m_profiles[connIdx];
+    const ConnectionProfile prof = m_profiles[connIdx];
     const QString browserScript = QStringLiteral(
                                       "p=%1; "
                                       "if [ -d \"$p\" ]; then "

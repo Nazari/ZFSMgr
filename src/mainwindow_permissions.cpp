@@ -475,7 +475,7 @@ QString MainWindow::connectionAccountCacheKey(int connIdx) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     QString key = p.id.trimmed().toLower();
     if (key.isEmpty()) {
         key = p.name.trimmed().toLower();
@@ -620,7 +620,7 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
     if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return false;
     }
@@ -768,7 +768,7 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
     if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return false;
     }

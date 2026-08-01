@@ -338,7 +338,7 @@ QString MainWindow::connStableIdForIndex(int connIdx) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QStringLiteral("conn-%1").arg(connIdx);
     }
-    const ConnectionProfile& profile = m_profiles[connIdx];
+    const ConnectionProfile profile = m_profiles[connIdx];
     const QString id = profile.id.trimmed();
     if (!id.isEmpty()) {
         return id;
@@ -1743,7 +1743,7 @@ bool MainWindow::executePoolCommand(int connIdx,
         return false;
     }
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Inicio %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
     setActionsLocked(true);
@@ -1807,7 +1807,7 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return QString();
     }
@@ -1850,7 +1850,7 @@ QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawC
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return QString();
     }
@@ -1891,7 +1891,7 @@ QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return QString();
     }
@@ -1952,7 +1952,7 @@ QString MainWindow::daemonizeRsyncSyncCommand(int connIdx,
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return QString();
     }
@@ -1992,7 +1992,7 @@ QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& ra
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
         return QString();
     }
@@ -2031,7 +2031,7 @@ bool MainWindow::fetchPoolCommandOutput(int connIdx,
         return false;
     }
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Consulta %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
     QString out;
@@ -2066,7 +2066,7 @@ bool MainWindow::executeConnectionCommand(int connIdx,
         }
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     QString out;
     QString err;
     int rc = -1;
@@ -2106,7 +2106,7 @@ bool MainWindow::fetchConnectionCommandOutput(int connIdx,
         }
         return false;
     }
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     QString out;
     QString err;
     int rc = -1;
@@ -2142,7 +2142,7 @@ bool MainWindow::fetchConnectionProbeOutput(int sourceConnIdx,
         }
         return false;
     }
-    const ConnectionProfile& src = m_profiles[sourceConnIdx];
+    const ConnectionProfile src = m_profiles[sourceConnIdx];
     QString out;
     QString err;
     int rc = -1;

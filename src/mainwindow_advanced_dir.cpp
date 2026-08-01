@@ -370,7 +370,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             errorMsg = QStringLiteral("invalid connection");
             return false;
         }
-        const ConnectionProfile& prof = m_profiles[connIdx];
+        const ConnectionProfile prof = m_profiles[connIdx];
         const bool isWinRemote = isWindowsConnection(connIdx);
         QString remoteCmd;
         if (isWinRemote) {
@@ -1045,7 +1045,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     const bool deleteSourceDataset = deleteSourceDatasetChk->isChecked();
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
-    const ConnectionProfile& profile = m_profiles[ctx.connIdx];
+    const ConnectionProfile profile = m_profiles[ctx.connIdx];
     const bool daemonReadApiOk =
         !isWindowsConnection(profile)
         && ctx.connIdx >= 0

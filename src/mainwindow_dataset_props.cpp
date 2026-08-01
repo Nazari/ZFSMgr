@@ -911,7 +911,7 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         }
     }
     const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile p = m_profiles[connIdx];
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(p.osType, (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString());
 
@@ -1453,7 +1453,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             if (connIdx < 0 || connIdx >= m_profiles.size()) {
                 return QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
             }
-            const ConnectionProfile& p = m_profiles.at(connIdx);
+            const ConnectionProfile p = m_profiles.at(connIdx);
             const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
             return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
         };
@@ -1961,7 +1961,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                 || draft.targetName.trimmed().isEmpty()) {
                 continue;
             }
-            const ConnectionProfile& p = m_profiles.at(draft.connIdx);
+            const ConnectionProfile p = m_profiles.at(draft.connIdx);
             ConnectionProfile sudoProfile = p;
             if (!ensureLocalSudoCredentials(sudoProfile)) {
                 appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
@@ -2505,7 +2505,7 @@ bool MainWindow::executePendingQueuedChangeLine(const QString& line) {
 QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
     QVector<PendingChange> changes;
     auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
-        const ConnectionProfile& p = m_profiles.at(connIdx);
+        const ConnectionProfile p = m_profiles.at(connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
     };
@@ -3004,7 +3004,7 @@ bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDr
                    .arg(draft.displayLabel.trimmed()));
         return true;
     }
-    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_profiles.at(connIdx);
     if (isWindowsConnection(p)) {
         appLog(QStringLiteral("DEBUG"),
                QStringLiteral("Pending shell daemon-rpc skip: Windows no soportado para \"%1\" en %2")
