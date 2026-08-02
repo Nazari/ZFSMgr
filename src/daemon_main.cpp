@@ -77,6 +77,7 @@ typedef int64_t hrtime_t;
 
 #ifndef _WIN32
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <limits.h>
@@ -2117,6 +2118,81 @@ ExecResult runDumpRefreshBasicsCapture() {
     return r;
 }
 
+#ifndef _WIN32
+// Directories probed on top of $PATH, mirroring the search list the old shell
+// loop prepended: sudo often runs with a trimmed PATH that hides /usr/local/zfs
+// or Homebrew.
+const char* const kToolSearchDirs[] = {"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
+                                       "/usr/local/sbin",   "/usr/local/zfs/bin", "/usr/sbin",
+                                       "/sbin",             "/usr/bin",           "/bin"};
+
+// Package managers reported alongside the commands, so a refresh needs one round
+// trip instead of one per manager. Order and spelling must match what the GUI
+// expects (it maps apt-get -> apt itself).
+const char* const kProbedPackageManagers[] = {"apt-get", "pacman", "zypper", "brew", "pkg"};
+
+bool isExecutableFile(const std::string& path) {
+    struct stat st {};
+    if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+        return false;
+    }
+    return ::access(path.c_str(), X_OK) == 0;
+}
+
+// Equivalent of `command -v <name>`, without a shell. Names containing a slash
+// are rejected rather than resolved: the caller asks for tools by bare name, and
+// accepting a path would turn this into an arbitrary-file existence oracle.
+bool lookupExecutable(const std::string& name) {
+    if (name.empty() || name.find('/') != std::string::npos) {
+        return false;
+    }
+    if (const char* pathEnv = ::getenv("PATH")) {
+        std::istringstream ps(pathEnv);
+        std::string dir;
+        while (std::getline(ps, dir, ':')) {
+            if (!dir.empty() && isExecutableFile(dir + "/" + name)) {
+                return true;
+            }
+        }
+    }
+    for (const char* dir : kToolSearchDirs) {
+        if (isExecutableFile(std::string(dir) + "/" + name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Command availability probe. Payload is base64(JSON array) with the tool names
+// to look for; output keeps the OK:/KO:/PM: line format the GUI already parses.
+// This replaces a `for c in %1; do command -v ...` loop that interpolated the
+// names straight into the remote shell.
+ExecResult runDumpToolAvailabilityCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::string decoded;
+    std::vector<std::string> wanted;
+    if (!decodeBase64(payloadB64, decoded) || !parseJsonStringArray(decoded, wanted)) {
+        r.rc = 2;
+        r.err = "invalid tool-availability payload\n";
+        return r;
+    }
+    std::ostringstream ss;
+    for (const std::string& raw : wanted) {
+        const std::string name = trim(raw);
+        if (name.empty()) {
+            continue;
+        }
+        ss << (lookupExecutable(name) ? "OK:" : "KO:") << name << "\n";
+    }
+    for (const char* pm : kProbedPackageManagers) {
+        ss << "PM:" << pm << ":" << (lookupExecutable(pm) ? "1" : "0") << "\n";
+    }
+    r.rc = 0;
+    r.out = ss.str();
+    return r;
+}
+#endif
+
 int runDumpZpoolGuidStatusBatch() {
     ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
     if (pools.rc != 0) {
@@ -3108,6 +3184,16 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--dump-refresh-basics") {
         return runDumpRefreshBasicsCapture();
     }
+#ifndef _WIN32
+    if (cmd == "--dump-tool-availability") {
+        if (params.size() < 1) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --dump-tool-availability <payload-b64>\n";
+            return r;
+        }
+        return runDumpToolAvailabilityCapture(params[0]);
+    }
+#endif
     if (cmd == "--dump-zfs-version") {
         r = runExecCapture("zfs", {"version"});
         if (r.rc != 0 || trim(r.out).empty()) {
@@ -3823,7 +3909,7 @@ std::string dumpClassForCommand(const std::string& cmd) {
     if (startsWith(cmd, "--dump-zpool-")) {
         return "zpool";
     }
-    if (cmd == "--dump-refresh-basics") {
+    if (cmd == "--dump-refresh-basics" || cmd == "--dump-tool-availability") {
         return "system";
     }
     return "other";
@@ -4700,6 +4786,22 @@ int main(int argc, char* argv[]) {
     if (cmd == "--dump-refresh-basics") {
         return runDumpRefreshBasics();
     }
+#ifndef _WIN32
+    if (cmd == "--dump-tool-availability") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult e = runDumpToolAvailabilityCapture(args[2]);
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
+    }
+#endif
     if (cmd == "--dump-zfs-version") {
         ExecResult e = runExecCapture("zfs", {"version"});
         if (e.rc != 0 || trim(e.out).empty()) {

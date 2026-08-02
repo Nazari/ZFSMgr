@@ -696,6 +696,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             } else {
             QString dout, derr;
             int drc = -1;
+            // Ask the daemon first: one typed RPC instead of a shell loop that
+            // interpolated the tool names into the remote command line. The daemon
+            // resolves them with stat/access and answers in the same OK:/KO:/PM:
+            // format, so the parser below is shared. The shell probe stays as the
+            // fallback for hosts that have no agent yet.
+            bool commandsProbed = false;
+            {
+                QJsonArray wantedJson;
+                for (const QString& c : wanted) {
+                    wantedJson.push_back(c);
+                }
+                const QString payloadB64 = QString::fromLatin1(
+                    QJsonDocument(wantedJson).toJson(QJsonDocument::Compact).toBase64());
+                const QString probeCmd = withSudo(
+                    p,
+                    mwhelpers::withUnixSearchPathCommand(
+                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-tool-availability %1")
+                            .arg(mwhelpers::shSingleQuote(payloadB64))));
+                commandsProbed = runSsh(p, probeCmd, 12000, dout, derr, drc) && drc == 0;
+                if (!commandsProbed) {
+                    dout.clear();
+                    derr.clear();
+                    drc = -1;
+                }
+            }
             const QString checkCmd = QStringLiteral(
                 "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
                 "for c in %1; do "
@@ -715,7 +740,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "  if command -v \"$pm\" >/dev/null 2>&1; then echo \"PM:$pm:1\"; else echo \"PM:$pm:0\"; fi; "
                 "done")
                     .arg(wanted.join(' '));
-            if (runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0) {
+            if (!commandsProbed) {
+                commandsProbed = runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0;
+            }
+            if (commandsProbed) {
                 const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
                 for (const QString& raw : lines) {
                     const QString line = raw.trimmed();

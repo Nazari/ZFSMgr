@@ -1,5 +1,7 @@
 #include "mainwindow_helpers.h"
 
+#include <QRegularExpression>
+
 #include <iostream>
 
 namespace {
@@ -270,12 +272,17 @@ int main() {
     sudoLinux.osType = "Linux";
     sudoLinux.useSudo = true;
     sudoLinux.password = "pw";
+    // Matched by pattern, not by the literal "sudo -S": the password is fed on
+    // stdin through extra hardening flags (-k to drop any cached credential, -p ''
+    // to silence the prompt), and pinning the exact spelling made this test break
+    // the moment those were added.
+    const QRegularExpression sudoStdinRx(QStringLiteral("\\bsudo (?:-\\w+ )*-S\\b"));
     const QString sudoCmd = withSudoCommand(sudoLinux, "zpool list");
-    if (!sudoCmd.contains("sudo -S") || !sudoCmd.contains("zpool list")) {
+    if (!sudoStdinRx.match(sudoCmd).hasMatch() || !sudoCmd.contains("zpool list")) {
         return fail("withSudoCommand linux/password mismatch");
     }
     const QString sudoStream = withSudoStreamInputCommand(sudoLinux, "zfs recv pool");
-    if (!sudoStream.contains("cat;") || !sudoStream.contains("sudo -S")) {
+    if (!sudoStream.contains("cat;") || !sudoStdinRx.match(sudoStream).hasMatch()) {
         return fail("withSudoStreamInputCommand linux/password mismatch");
     }
     ConnectionProfile win;
