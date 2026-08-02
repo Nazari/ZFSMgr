@@ -128,7 +128,7 @@ install_windows_targets() {
     local work="/tmp/openssl-mingw-build"
     run_cmd "rm -rf '${work}'"
     run_cmd "mkdir -p '${work}' '${HOME}/opt'"
-    run_cmd "curl -fL -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
+    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
     run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && perl ./Configure mingw64 --cross-compile-prefix=x86_64-w64-mingw32- --prefix='${OPENSSL_PREFIX}' --libdir=lib no-tests no-shared"
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
@@ -155,7 +155,7 @@ freebsd_packagesite_yaml() {
   # que la salida de las órdenes va a stderr para no contaminarla.
   run_cmd "mkdir -p '${work}'" >&2
   if [[ ${FORCE} -eq 1 || ! -s "${yaml}" ]]; then
-    run_cmd "curl -fsSL -o '${pkg}' '${repo_root}/packagesite.pkg'" >&2
+    run_cmd "curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o '${pkg}' '${repo_root}/packagesite.pkg'" >&2
     run_cmd "unzstd -f '${pkg}' -o '${tarf}'" >&2
     run_cmd "tar -xf '${tarf}' -C '${work}' packagesite.yaml" >&2
   fi
@@ -233,7 +233,7 @@ install_freebsd_qt_packages() {
     bn="$(basename "${relpath}")"
     local local_pkg="${cache_dir}/${bn}"
     local local_tar="${cache_dir}/${bn%.pkg}.tar"
-    run_cmd "curl -fsSL -o '${local_pkg}' '${repo_root}/${relpath}'"
+    run_cmd "curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o '${local_pkg}' '${repo_root}/${relpath}'"
     run_cmd "unzstd -f '${local_pkg}' -o '${local_tar}'"
     run_cmd "tar -xf '${local_tar}' -C '${sysroot}'"
   done <<< "${pkg_paths}"
@@ -264,7 +264,7 @@ install_freebsd_sysroot() {
 
   if [[ ${FORCE} -eq 1 || ! -d "${sysroot}/usr/include" ]]; then
     run_cmd "mkdir -p '${FREEBSD_SYSROOT_BASE}' '${sysroot}'"
-    run_cmd "curl -fL -o '${txz}' '${url}'"
+    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${txz}' '${url}'"
     run_cmd "tar -xJf '${txz}' -C '${sysroot}'"
   fi
 
@@ -332,7 +332,7 @@ setup_osxcross() {
     local work="/tmp/openssl-macos-build"
     run_cmd "rm -rf '${work}'"
     run_cmd "mkdir -p '${work}' '$(dirname "${OPENSSL_MACOS_PREFIX}")'"
-    run_cmd "curl -fL -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
+    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
     run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && PATH='${OSXCROSS_ROOT}/target/bin':\$PATH SDKROOT='${sdk_guess}' CFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' LDFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' ./Configure darwin64-x86_64-cc --cross-compile-prefix='${osxcross_target}-' --prefix='${OPENSSL_MACOS_PREFIX}' --libdir=lib no-tests no-shared"
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
