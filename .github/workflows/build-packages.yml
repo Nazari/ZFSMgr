@@ -119,7 +119,10 @@ jobs:
             # hacía falta: el proyecto no usa LinguistTools — no está en el
             # find_package de Qt6 ni hay lrelease/qt_add_translations en el CMake;
             # la i18n la resuelve i18nmanager.cpp.
-            pkg install -y cmake qt6-base qt6-tools openssl git
+            # bash va explícito: FreeBSD no lo trae de serie y build-freebsd.sh
+            # lleva shebang de bash (y 29 construcciones que no son POSIX sh), así
+            # que sin él el job muere con "env: bash: No such file or directory".
+            pkg install -y bash cmake qt6-base qt6-tools openssl git
           run: |
             chmod +x ./scripts/build-freebsd.sh
             ./scripts/build-freebsd.sh
