@@ -19,10 +19,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # La versión sale de qt-version.txt para que CI y el aprovisionamiento local
+      # (scripts/provision-cross-targets.sh) no puedan divergir, como pasaba con el
+      # 6.6.3 fijado aquí frente al 6.8.3 que se usaba en local.
+      - name: Resolver versión de Qt
+        id: qtver
+        shell: bash
+        run: echo "version=$(tr -d '[:space:]' < qt-version.txt)" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.6.3"
+          version: ${{ steps.qtver.outputs.version }}
           cache: true
 
       - name: Build (Linux)

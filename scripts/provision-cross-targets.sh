@@ -10,7 +10,11 @@ DO_MACOS=0
 DRY_RUN=0
 FORCE=0
 
-QT_VERSION="6.8.3"
+# Fuente única de la versión de Qt que sí elegimos (CI y cross de Windows/Linux).
+# La de FreeBSD NO se fija aquí: viene del repositorio de paquetes de FreeBSD y el
+# propio script instala después un Qt host que le haga juego.
+QT_VERSION="$(cat "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null | tr -d '[:space:]')"
+QT_VERSION="${QT_VERSION:-6.8.3}"
 QT_ROOT="${HOME}/Qt"
 OPENSSL_VERSION="3.3.1"
 OPENSSL_PREFIX="${HOME}/opt/openssl-mingw64"

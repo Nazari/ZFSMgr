@@ -40,7 +40,15 @@ WORKDIR /opt/provision
 # El aprovisionamiento se hace con el propio script del repo, así que la imagen y una
 # máquina aprovisionada a mano quedan siempre equivalentes por construcción.
 COPY scripts/provision-cross-targets.sh /opt/provision/provision-cross-targets.sh
+# El script lee la versión de Qt de ../qt-version.txt respecto a su propia ubicación,
+# así que se copia al nivel correspondiente: sin esto la imagen usaría el valor de
+# reserva y quedaría desalineada al cambiar la versión.
+COPY qt-version.txt /opt/qt-version.txt
 RUN chmod +x /opt/provision/provision-cross-targets.sh
+
+# Misma versión que qt-version.txt. docker/build.sh la pasa desde ese fichero, para
+# que las rutas de abajo no puedan quedarse desalineadas con lo que se instaló.
+ARG QT_VERSION=6.8.3
 
 # Windows: Qt para MinGW vía aqtinstall + OpenSSL compilado para MinGW.
 # Instala además el Qt host de Linux (gcc_64), que es el que usan las herramientas
@@ -60,7 +68,7 @@ RUN chmod -R a+rX /opt/toolchain
 # aprovisionamiento instala aparte). build-cross.sh ya resuelve el adecuado por
 # objetivo buscando en ~/Qt, y docker/build.sh enlaza ~/Qt a esta toolchain.
 ENV QT_ROOT=/opt/toolchain/Qt \
-    QT6_WINDOWS_PREFIX=/opt/toolchain/Qt/6.8.3/mingw_64 \
+    QT6_WINDOWS_PREFIX=/opt/toolchain/Qt/${QT_VERSION}/mingw_64 \
     OPENSSL_ROOT_DIR=/opt/toolchain/opt/openssl-mingw64 \
     FREEBSD_SYSROOT=/opt/toolchain/sysroots/freebsd14.3-amd64 \
     QT6_FREEBSD_PREFIX=/opt/toolchain/sysroots/freebsd14.3-amd64/usr/local

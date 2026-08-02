@@ -58,7 +58,9 @@ fi
 
 if [[ ${REBUILD} -eq 1 ]] || ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   echo "[docker] construyendo ${IMAGE} (la primera vez descarga Qt y el sysroot de FreeBSD; tarda)"
-  docker build -f "${SCRIPT_DIR}/Dockerfile" -t "${IMAGE}" "${PROJECT_ROOT}"
+  QT_VERSION="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || echo 6.8.3)"
+  docker build -f "${SCRIPT_DIR}/Dockerfile" --build-arg "QT_VERSION=${QT_VERSION}" \
+    -t "${IMAGE}" "${PROJECT_ROOT}"
 fi
 
 # Se monta en la MISMA ruta absoluta que en el host, no en /src: CMake graba rutas

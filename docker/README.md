@@ -80,6 +80,24 @@ exige `Qt6 6.5` como mínimo (`resources/CMakeLists.txt`). El Qt bueno lo instal
 `aqtinstall` durante la construcción de la imagen, y las variables de entorno apuntan
 ahí para que ni el build nativo ni el cross cojan por error el del sistema.
 
+## Versión de Qt
+
+La versión que **sí elegimos** está en `qt-version.txt`, en la raíz del repositorio, y
+la leen tanto el CI (`.github/workflows/build-packages.yml`) como el aprovisionamiento
+(`scripts/provision-cross-targets.sh`) y esta imagen. Antes el CI tenía fijado 6.6.3
+mientras en local se usaba 6.8.3, sin nada que impidiera la divergencia.
+
+Al cambiarla hay que reconstruir la imagen: `docker/build.sh --rebuild-image`.
+
+Dos versiones **no** se alinean, y es correcto que no lo hagan:
+
+- **FreeBSD**: su Qt viene del repositorio de paquetes de FreeBSD (hoy 6.11.1), tanto
+  en el cross como en el job de CI, que hace `pkg install qt6-base`. Fijarla exigiría
+  compilar Qt para FreeBSD por nuestra cuenta. El aprovisionamiento detecta esa
+  versión e instala un Qt host de Linux que le haga juego, porque las herramientas de
+  Qt (`moc`, `rcc`) deben ser de la misma versión que el Qt de destino.
+- **Build nativo de Linux en el host**: usa el Qt de la distribución.
+
 ## Relación con el CI
 
 Esto no sustituye a `.github/workflows/build-packages.yml`, que compila en runners
