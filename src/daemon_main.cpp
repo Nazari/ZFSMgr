@@ -835,7 +835,8 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
     }
     cmd += " 2>&1";
 
-    FILE* fp = popen(cmd.c_str(), "r");
+    // MSVC no expone popen/pclose con el nombre POSIX, solo _popen/_pclose.
+    FILE* fp = _popen(cmd.c_str(), "r");
     if (!fp) {
         r.rc = 125;
         r.err = "popen failed";
@@ -845,7 +846,7 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
     while (std::fgets(buf, sizeof(buf), fp) != nullptr) {
         r.out += buf;
     }
-    const int prc = pclose(fp);
+    const int prc = _pclose(fp);
     r.rc = decodeWaitStatus(prc);
     return r;
 #endif

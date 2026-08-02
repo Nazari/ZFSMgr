@@ -114,7 +114,12 @@ jobs:
         with:
           usesh: true
           prepare: |
-            pkg install -y cmake qt6-base qt6-tools qt6-linguisttools openssl git
+            # qt6-linguisttools no existe en el repo de FreeBSD (verificado contra
+            # packagesite.pkg) y pkg aborta el job entero al no encontrarlo. Tampoco
+            # hacía falta: el proyecto no usa LinguistTools — no está en el
+            # find_package de Qt6 ni hay lrelease/qt_add_translations en el CMake;
+            # la i18n la resuelve i18nmanager.cpp.
+            pkg install -y cmake qt6-base qt6-tools openssl git
           run: |
             chmod +x ./scripts/build-freebsd.sh
             ./scripts/build-freebsd.sh
