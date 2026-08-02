@@ -57,15 +57,27 @@ wrong with the build: it simply means macOS cannot attribute it to a paying deve
 
 The Gatekeeper warning is not caused by the file — it is caused by the *quarantine
 attribute* that web browsers attach to anything you download. Command line tools do
-not set it, so downloading this way avoids the problem entirely:
+not set it, so downloading this way avoids the problem entirely.
+
+Release assets are named `ZFSMgr-<version>-macos-<arch>.app.zip`, so this snippet
+picks the right architecture and resolves the current version for you:
 
 ```bash
-curl -LO https://github.com/Nazari/ZFSMgr/releases/latest/download/ZFSMgr-macos.app.zip
-unzip ZFSMgr-macos.app.zip -d /Applications
+ARCH=$([ "$(uname -m)" = "arm64" ] && echo arm64 || echo amd64)
+URL=$(curl -fsSL https://api.github.com/repos/Nazari/ZFSMgr/releases/latest \
+      | grep -o "https://[^\"]*macos-${ARCH}\.app\.zip")
+curl -L -o ZFSMgr.app.zip "$URL"
+unzip ZFSMgr.app.zip -d /Applications
 open /Applications/ZFSMgr.app
 ```
 
-Adjust the file name to the asset published in the release you want.
+`arm64` is for Apple Silicon, `amd64` for Intel Macs.
+
+With the GitHub CLI it is a single command:
+
+```bash
+gh release download --repo Nazari/ZFSMgr --pattern '*macos-arm64.app.zip'
+```
 
 ### If you already downloaded it with a browser
 

@@ -149,9 +149,13 @@ Pasos recomendados:
 1) Extraer el .zip y mover la app a /Applications (opcional).
 2) Eliminar cuarentena del bundle:
    xattr -dr com.apple.quarantine "/ruta/ZFSMgr.app"
-3) Intentar abrir con clic derecho -> Abrir.
-   Si macOS lo bloquea, ve a:
+3) Si aun asi macOS lo bloquea:
    Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
+   (En macOS 15 y posteriores el clic derecho -> Abrir YA NO sirve para saltar
+   Gatekeeper; use esa ruta de Ajustes.)
+
+   Mejor aun: descargue el .zip con curl en vez de con el navegador. La cuarentena
+   la pone el navegador, no el fichero, asi que por terminal no aparece el aviso.
 4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
    codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr.app"
 
@@ -167,9 +171,13 @@ Recommended steps:
 1) Extract the .zip and move the app to /Applications (optional).
 2) Remove quarantine from the bundle:
    xattr -dr com.apple.quarantine "/path/ZFSMgr.app"
-3) Try opening with right-click -> Open.
-   If macOS blocks it, go to:
+3) If macOS still blocks it:
    System Settings -> Privacy & Security -> "Open Anyway".
+   (On macOS 15 and later, right-click -> Open NO LONGER bypasses Gatekeeper;
+   use that Settings path instead.)
+
+   Better still: download the .zip with curl rather than a browser. Quarantine is
+   applied by the browser, not by the file, so the warning never appears.
 4) (Optional) Re-sign locally (ad-hoc) to stabilize validation:
    codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr.app"
 
@@ -185,9 +193,12 @@ Verification:
 1) 解压 .zip，并将应用移动到 /Applications（可选）。
 2) 移除应用包隔离属性：
    xattr -dr com.apple.quarantine "/路径/ZFSMgr.app"
-3) 使用右键 -> 打开 尝试启动。
-   若被系统拦截，请前往：
+3) 若系统仍然拦截：
    系统设置 -> 隐私与安全性 -> “仍要打开”。
+   （在 macOS 15 及更高版本中，右键 -> 打开 已无法绕过 Gatekeeper，请使用上述设置路径。）
+
+   更好的做法：用 curl 而不是浏览器下载 .zip。隔离属性由浏览器添加，而非文件本身，
+   因此通过终端下载不会出现该警告。
 4)（可选）本地 ad-hoc 重签名以提高校验稳定性：
    codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr.app"
 
