@@ -170,7 +170,14 @@ if(NOT WIN32)
     # libnvpair.h must be reachable from the same include dir as libzfs_core.h.
     # Check with file(EXISTS) so we stay strictly within the resolved sysroot
     # path and don't accidentally pick up host-system headers during cross builds.
-    if(LIBZFS_CORE_INCLUDE_DIR AND EXISTS "${LIBZFS_CORE_INCLUDE_DIR}/libnvpair.h")
+    # libzfs_core.h incluye <sys/fs/zfs.h>, que no siempre acompaña a la cabecera: el
+    # sysroot base de FreeBSD trae libzfs_core.h y libnvpair.h pero no sys/fs/zfs.h, y
+    # entonces la detección daba por buena una cabecera que no compila. Comprobarla
+    # aquí hace que en ese caso se use el fallback por subproceso, que es el
+    # comportamiento previsto, en lugar de romper el build.
+    if(LIBZFS_CORE_INCLUDE_DIR
+       AND EXISTS "${LIBZFS_CORE_INCLUDE_DIR}/libnvpair.h"
+       AND EXISTS "${LIBZFS_CORE_INCLUDE_DIR}/sys/fs/zfs.h")
         set(_LIBNVPAIR_HEADER_OK TRUE)
     else()
         set(_LIBNVPAIR_HEADER_OK FALSE)

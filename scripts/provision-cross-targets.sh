@@ -16,7 +16,8 @@ OPENSSL_VERSION="3.3.1"
 OPENSSL_PREFIX="${HOME}/opt/openssl-mingw64"
 OPENSSL_MACOS_PREFIX="${HOME}/opt/openssl-macos-x86_64"
 
-FREEBSD_RELEASE="13.5-RELEASE"
+# 13.5 y 14.2 ya no están en download.freebsd.org (404): usar una release vigente.
+FREEBSD_RELEASE="14.3-RELEASE"
 FREEBSD_ARCH="amd64"
 FREEBSD_SYSROOT_BASE="${HOME}/sysroots"
 FREEBSD_REPO_BRANCH="quarterly"
@@ -83,8 +84,13 @@ need_cmd() {
 ensure_aqt() {
   local venv="${HOME}/.local/venvs/aqtinstall"
   if [[ ${FORCE} -eq 1 || ! -x "${venv}/bin/aqt" ]]; then
-    run_cmd "python3 -m venv '${venv}'"
-    run_cmd "'${venv}/bin/pip' install -U pip aqtinstall"
+    # A stderr: esta función devuelve la ruta de aqt por stdout y quien la llama la
+    # captura con $(...). Sin redirigir, la salida de venv y pip se capturaba junto a
+    # la ruta y el resultado era una cadena enorme ("File name too long" al ejecutar).
+    # Solo se notaba al aprovisionar desde cero, porque en una máquina ya preparada
+    # este bloque no se ejecuta.
+    run_cmd "python3 -m venv '${venv}'" >&2
+    run_cmd "'${venv}/bin/pip' install -U pip aqtinstall" >&2
   fi
   echo "${venv}/bin/aqt"
 }
@@ -134,17 +140,20 @@ install_windows_targets() {
 }
 
 freebsd_packagesite_yaml() {
-  local repo_root="https://pkg.freebsd.org/FreeBSD:13:${FREEBSD_ARCH}/${FREEBSD_REPO_BRANCH}"
+  local osmajor="${FREEBSD_RELEASE%%.*}"
+  local repo_root="https://pkg.freebsd.org/FreeBSD:${osmajor}:${FREEBSD_ARCH}/${FREEBSD_REPO_BRANCH}"
   local work="/tmp/zfsmgr-freebsd-pkgsite"
   local pkg="${work}/packagesite.pkg"
   local tarf="${work}/packagesite.tar"
   local yaml="${work}/packagesite.yaml"
 
-  run_cmd "mkdir -p '${work}'"
+  # Mismo cuidado que en ensure_aqt: esta función devuelve una ruta por stdout, así
+  # que la salida de las órdenes va a stderr para no contaminarla.
+  run_cmd "mkdir -p '${work}'" >&2
   if [[ ${FORCE} -eq 1 || ! -s "${yaml}" ]]; then
-    run_cmd "curl -fsSL -o '${pkg}' '${repo_root}/packagesite.pkg'"
-    run_cmd "unzstd -f '${pkg}' -o '${tarf}'"
-    run_cmd "tar -xf '${tarf}' -C '${work}' packagesite.yaml"
+    run_cmd "curl -fsSL -o '${pkg}' '${repo_root}/packagesite.pkg'" >&2
+    run_cmd "unzstd -f '${pkg}' -o '${tarf}'" >&2
+    run_cmd "tar -xf '${tarf}' -C '${work}' packagesite.yaml" >&2
   fi
   echo "${yaml}"
 }
@@ -200,7 +209,8 @@ PY
 
 install_freebsd_qt_packages() {
   local sysroot="$1"
-  local repo_root="https://pkg.freebsd.org/FreeBSD:13:${FREEBSD_ARCH}/${FREEBSD_REPO_BRANCH}"
+  local osmajor="${FREEBSD_RELEASE%%.*}"
+  local repo_root="https://pkg.freebsd.org/FreeBSD:${osmajor}:${FREEBSD_ARCH}/${FREEBSD_REPO_BRANCH}"
   local yaml
   yaml="$(freebsd_packagesite_yaml)"
 
