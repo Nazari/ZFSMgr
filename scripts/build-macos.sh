@@ -292,19 +292,38 @@ codesign_bundle_contents() {
 
 # Soporte Homebrew Apple Silicon e Intel, y Qt instalado manualmente.
 QT_PREFIX=""
-for candidate in \
-  "/opt/homebrew/opt/qt" \
-  "/usr/local/opt/qt" \
-  "/opt/homebrew/opt/qt@6" \
-  "/usr/local/opt/qt@6"; do
-  if [[ -d "${candidate}" ]]; then
-    QT_PREFIX="${candidate}"
-    break
-  fi
-done
 
-if [[ -z "${QT_PREFIX}" && -d "/Users/linarese/Qt" ]]; then
-  latest_qt_macos="$(find /Users/linarese/Qt -maxdepth 2 -type d -path '/Users/linarese/Qt/*/macos' | sort -V | tail -n1 || true)"
+# Primero, lo que exporta un entorno con Qt ya activado (install-qt-action en CI,
+# o un shell donde se haya cargado Qt a mano). Sin esto, en cualquier máquina que
+# no fuera la del autor QT_PREFIX quedaba vacío y el despliegue de frameworks y
+# plugins se saltaba ENTERO emitiendo solo avisos: el .app resultante no llevaba
+# Qt dentro y solo arrancaba donde ya estuviera instalado.
+if [[ -n "${QT_ROOT_DIR:-}" && -d "${QT_ROOT_DIR}" ]]; then
+  QT_PREFIX="${QT_ROOT_DIR}"
+elif [[ -n "${QT_PLUGIN_PATH:-}" && -d "${QT_PLUGIN_PATH}" ]]; then
+  QT_PREFIX="$(cd "${QT_PLUGIN_PATH}/.." && pwd -P)"
+elif command -v qmake6 >/dev/null 2>&1; then
+  QT_PREFIX="$(qmake6 -query QT_INSTALL_PREFIX 2>/dev/null || true)"
+elif command -v qmake >/dev/null 2>&1; then
+  QT_PREFIX="$(qmake -query QT_INSTALL_PREFIX 2>/dev/null || true)"
+fi
+
+if [[ -z "${QT_PREFIX}" ]]; then
+  for candidate in \
+    "/opt/homebrew/opt/qt" \
+    "/usr/local/opt/qt" \
+    "/opt/homebrew/opt/qt@6" \
+    "/usr/local/opt/qt@6"; do
+    if [[ -d "${candidate}" ]]; then
+      QT_PREFIX="${candidate}"
+      break
+    fi
+  done
+fi
+
+# ${HOME}/Qt, no una ruta personal fija: antes esto era /Users/linarese/Qt.
+if [[ -z "${QT_PREFIX}" && -d "${HOME}/Qt" ]]; then
+  latest_qt_macos="$(find "${HOME}/Qt" -maxdepth 2 -type d -path "${HOME}/Qt/*/macos" | sort -V | tail -n1 || true)"
   if [[ -n "${latest_qt_macos}" ]]; then
     QT_PREFIX="${latest_qt_macos}"
   fi
@@ -689,6 +708,22 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     else
       SHOULD_SIGN=0
     fi
+  fi
+
+  # El despliegue de Qt solo emitía avisos, así que un bundle SIN Qt dentro salía
+  # como build correcto y solo fallaba al abrirlo en un Mac sin Qt instalado. Aquí
+  # se comprueba lo mínimo imprescindible para que arranque: QtCore y el plugin de
+  # plataforma cocoa. Si falta, es un fallo de build, no un aviso.
+  missing_deploy=""
+  if [[ ! -d "${APP_BUNDLE}/Contents/Frameworks/QtCore.framework" ]]; then
+    missing_deploy="Contents/Frameworks/QtCore.framework"
+  elif [[ ! -e "${APP_BUNDLE}/Contents/PlugIns/platforms/libqcocoa.dylib" ]]; then
+    missing_deploy="Contents/PlugIns/platforms/libqcocoa.dylib"
+  fi
+  if [[ -n "${missing_deploy}" ]]; then
+    echo "Error: el bundle no es autocontenido, falta ${missing_deploy}." >&2
+    echo "       QT_PREFIX=${QT_PREFIX:-<vacío>} — si está vacío, Qt no se localizó." >&2
+    exit 1
   fi
 
   if [[ "${SHOULD_SIGN}" -eq 1 ]]; then
