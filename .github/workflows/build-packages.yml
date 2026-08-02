@@ -53,27 +53,40 @@ jobs:
         run: |
           ./scripts/build-windows.ps1
 
+      # Un artefacto de Actions no preserva el bit de ejecución ni los enlaces
+      # simbólicos de los frameworks de Qt, así que subir el .app como directorio
+      # entrega un bundle que no arranca y con la firma rota. ditto conserva
+      # permisos, symlinks y firma, y el zip viaja intacto.
+      - name: Empaquetar bundle (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd builds/macos
+          app="$(ls -d *.app | head -n1)"
+          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-$(uname -m).app.zip"
+
+      # Los scripts de build escriben en builds/<os>/, no en build-<os>/. Con las
+      # rutas antiguas y if-no-files-found: warn, el workflow subía artefactos
+      # vacíos y terminaba en verde. De ahí el error: si no hay ficheros, falla.
+      # Las rutas help/** e i18n/** que había aquí tampoco casaban nunca: ambos
+      # van compilados dentro del recurso Qt, no se copian al directorio de build.
       - name: Upload Linux artifacts
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: zfsmgr-linux
           path: |
-            build-linux/zfsmgr_qt
-            build-linux/help/**
-            build-linux/i18n/**
-          if-no-files-found: warn
+            builds/linux/zfsmgr_qt
+            builds/linux/zfsmgr_agent
+          if-no-files-found: error
 
       - name: Upload macOS artifacts
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: zfsmgr-macos
-          path: |
-            build-macos/*.app
-            build-macos/help/**
-            build-macos/i18n/**
-          if-no-files-found: warn
+          path: builds/macos/*.app.zip
+          if-no-files-found: error
 
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
@@ -81,10 +94,9 @@ jobs:
         with:
           name: zfsmgr-windows
           path: |
-            build-windows/Release/zfsmgr_qt.exe
-            build-windows/help/**
-            build-windows/i18n/**
-          if-no-files-found: warn
+            builds/windows/Release/zfsmgr_qt.exe
+            builds/windows/Release/zfsmgr_agent.exe
+          if-no-files-found: error
 
   build-freebsd:
     runs-on: ubuntu-latest
@@ -107,7 +119,6 @@ jobs:
         with:
           name: zfsmgr-freebsd
           path: |
-            build-freebsd/zfsmgr_qt
-            build-freebsd/help/**
-            build-freebsd/i18n/**
-          if-no-files-found: warn
+            builds/freebsd/zfsmgr_qt
+            builds/freebsd/zfsmgr_agent
+          if-no-files-found: error
