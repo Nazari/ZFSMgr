@@ -47,6 +47,51 @@ Legal references:
 - **Current beta line**: check the latest published release here:
   https://github.com/Nazari/ZFSMgr/releases
 
+## Installing on macOS
+
+ZFSMgr is **not signed with an Apple Developer ID**, and it is not notarized. That
+programme costs money every year and this project does not pay for it. Nothing is
+wrong with the build: it simply means macOS cannot attribute it to a paying developer.
+
+### Recommended: download from the terminal
+
+The Gatekeeper warning is not caused by the file — it is caused by the *quarantine
+attribute* that web browsers attach to anything you download. Command line tools do
+not set it, so downloading this way avoids the problem entirely:
+
+```bash
+curl -LO https://github.com/Nazari/ZFSMgr/releases/latest/download/ZFSMgr-macos.app.zip
+unzip ZFSMgr-macos.app.zip -d /Applications
+open /Applications/ZFSMgr.app
+```
+
+Adjust the file name to the asset published in the release you want.
+
+### If you already downloaded it with a browser
+
+Remove the quarantine attribute and it will open normally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ZFSMgr.app
+```
+
+Alternatively, open **System Settings → Privacy & Security**, and use **Open Anyway**
+next to the message about ZFSMgr.
+
+> On macOS 15 (Sequoia) and later, the old right-click → *Open* shortcut no longer
+> bypasses Gatekeeper. Use either of the two methods above.
+
+### Building it yourself
+
+Software you compile locally is never quarantined, so it just runs:
+
+```bash
+./scripts/build-macos.sh
+```
+
+Requires Xcode command line tools and Qt 6. See `docs/cross-compiling-linux.md` for
+the toolchain details.
+
 ## Cross-compiling from Linux
 
 There is now a Linux cross-compiling base for:
