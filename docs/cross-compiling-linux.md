@@ -1,8 +1,15 @@
 # Cross-compiling desde Linux
 
-Este repo ya soporta builds remotos (macOS/FreeBSD/Windows) mediante `scripts/buildall.sh`.
+La forma recomendada de compilar todas las plataformas desde Linux es el contenedor:
+`docker/build.sh` (ver `docker/README.md`). Lleva la toolchain ya aprovisionada, así
+que no depende de rutas del `$HOME` ni de máquinas ajenas.
 
-Además, se añade una base para cross-compiling local en Linux con:
+`scripts/buildall.sh`, que lanzaba los builds por SSH en máquinas dedicadas de
+macOS/FreeBSD/Windows, se ha retirado: esas máquinas ya no existen. Para compilar en
+sistemas nativos siguen estando `scripts/build-macos.sh`, `build-freebsd.sh` y
+`build-windows.ps1`, que son los que usa el CI de GitHub Actions en sus runners.
+
+Debajo, la base de cross-compiling local en Linux, que es la que usa el contenedor:
 
 - `scripts/build-cross.sh`
 - `scripts/provision-cross-targets.sh`

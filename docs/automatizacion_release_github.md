@@ -1,5 +1,12 @@
 # Automatización de release en GitHub
 
+> **Nota (2026-08):** este documento describía un flujo apoyado en `buildall.sh`, que
+> compilaba por SSH en máquinas dedicadas de macOS, FreeBSD y Windows. Esas máquinas
+> ya no existen y el script se ha retirado. La compilación multiplataforma se hace
+> ahora en local con `docker/build.sh` (ver `docker/README.md`), y `release-github.sh`
+> usa `buildall-cross.sh`. Las menciones a `buildall.sh` que queden más abajo son
+> históricas.
+
 ## Objetivo
 
 Automatizar el flujo de publicación de una release de ZFSMgr desde una sola orden.
@@ -32,7 +39,7 @@ el script:
 2. actualiza la versión en `resources/CMakeLists.txt`
 3. crea un commit `Release <version>`
 4. hace `push` del commit al remoto git configurado
-5. ejecuta `buildall.sh`
+5. ejecuta `buildall-cross.sh` (compilación local; antes era `buildall.sh`, que lanzaba builds por SSH en máquinas dedicadas y se ha retirado al desaparecer esas máquinas)
 6. localiza los artefactos generados:
    - `ZFSMgr-<version>.app.zip`
    - `ZFSMgr-Setup-<version>*.exe`
