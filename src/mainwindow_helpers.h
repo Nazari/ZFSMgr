@@ -91,6 +91,7 @@ QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCo
 QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
 QString withUnixSearchPathCommand(const QString& cmd);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
+QString agentCommand(const ConnectionProfile& p, const QString& agentArgs);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);
 // Strips any leading non-JSON text (e.g. MOTD banners) before the first '{'.

@@ -818,10 +818,8 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
     }
     const qint64 offset = m_connectionDaemonLogOffset.value(connId, 0);
 
-    const QString cmd = withSudo(
-        profile,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-daemon-log %1").arg(offset)));
+    const QString cmd =
+        mwhelpers::agentCommand(profile, QStringLiteral("--dump-daemon-log %1").arg(offset));
 
     (void)QtConcurrent::run([this, profile, connId, cmd, offset]() {
         QString out, err;
@@ -872,10 +870,7 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
     }
     const ConnectionProfile profile = m_profiles[idx];
 
-    const QString hbCmd = withSudo(
-        profile,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("/usr/local/libexec/zfsmgr-agent --heartbeat")));
+    const QString hbCmd = mwhelpers::agentCommand(profile, QStringLiteral("--heartbeat"));
 
     (void)QtConcurrent::run([this, idx, connId, hbCmd, profile]() {
         QString out, err;

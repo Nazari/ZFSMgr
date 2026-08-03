@@ -960,11 +960,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     // comprobación de salud, dejando el daemon por no disponible.
     const bool winSshDaemon =
         isWinConn && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
-    const QString daemonHealthCmd =
-        winSshDaemon
-            ? QStringLiteral("\"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" --health")
-            : withSudo(p, mwhelpers::withUnixSearchPathCommand(
-                              QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+    const QString daemonHealthCmd = mwhelpers::agentCommand(p, QStringLiteral("--health"));
     bool daemonReadApiOk =
         (!isWinConn || winSshDaemon)
         && state.daemonInstalled

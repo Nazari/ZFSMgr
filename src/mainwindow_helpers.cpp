@@ -782,6 +782,20 @@ QString withUnixSearchPathCommand(const QString& cmd) {
         .arg(cmd);
 }
 
+// Invocación del agente adaptada a la plataforma.
+//
+// Existe para no repetir la ruta en cada sitio. En Windows el binario está en otro
+// lugar y NO lleva sudo ni PATH de Unix; olvidarlo en un solo punto deja esa función
+// muda o con rc=127, que es lo que pasó con el log del daemon, el latido y la
+// comprobación de salud, cada uno descubierto por separado.
+QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
+    if (isWindowsOsType(p.osType)) {
+        return QStringLiteral("\"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" ") + agentArgs;
+    }
+    return withSudoCommand(
+        p, withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent ") + agentArgs));
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
