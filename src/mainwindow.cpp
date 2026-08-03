@@ -2486,6 +2486,12 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     }
 }
 
+namespace {
+// Mismo valor que kIsPoolRootRole en mainwindow_dataset_tree.cpp, que es una
+// constante de unidad de traducción y no está expuesta en la cabecera.
+constexpr int kIsPoolRootRoleForTest = Qt::UserRole + 12;
+}  // namespace
+
 QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
     QStringList names;
     Q_UNUSED(bottom);
@@ -2493,10 +2499,23 @@ QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
     if (!tree) {
         return names;
     }
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        if (QTreeWidgetItem* item = tree->topLevelItem(i)) {
-            names.push_back(item->text(0).trimmed());
+    // Los pools ya NO son nodos raíz del árbol: tras unificarlo, la raíz es la
+    // conexión y los pools cuelgan de ella. Esta función devolvía los raíces sin
+    // más, así que contaba conexiones y hacía fallar los tests como si faltaran
+    // pools. Se buscan por su rol, esté donde esté el nodo.
+    std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
         }
+        if (node->data(0, kIsPoolRootRoleForTest).toBool()) {
+            names.push_back(node->text(0).trimmed());
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            collect(node->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        collect(tree->topLevelItem(i));
     }
     return names;
 }

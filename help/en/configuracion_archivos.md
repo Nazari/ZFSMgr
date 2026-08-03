@@ -1,6 +1,6 @@
-# Configuration and INI files
+# Configuration and files
 
-ZFSMgr uses a per-user configuration directory per OS:
+ZFSMgr uses one configuration directory per user and operating system:
 
 - Linux: `$HOME/.config/ZFSMgr`
 - macOS: `$HOME/.config/ZFSMgr`
@@ -8,32 +8,53 @@ ZFSMgr uses a per-user configuration directory per OS:
 
 ## File layout
 
-- `config.ini`: global app configuration.
+- `config.json`: global application settings and connection definitions. Sensitive fields (user and password) are stored encrypted with the master password.
+- `trust-store.json`: the daemon's TLS material (server certificate, plus client certificate and key), also encrypted with the master password. This is the file copied by `Export trust-store to this connection`.
+- `application.log`: the application's persistent log.
 
-Real example:
+Actual example:
 
 ```text
 ~/.config/ZFSMgr/
-  config.ini
+  config.json
+  trust-store.json
+  application.log
 ```
 
-## What is stored in `config.ini`
+## What is stored in `config.json`
 
-- UI language
-- global log options
-- property columns count (`conn_prop_columns`)
-- selected source/target connection+dataset
-- splitter state and window geometry
-- unified-tree column widths
-- inline properties order and groups
-- default values (for example `[ZPoolCreationDefaults]`)
-- full connection definitions in `connection:<id>` groups
+The root object has three blocks:
 
-## Startup loading
+- `connections`: an array with the full definition of each connection (id, name, machine_uid, type, operating system, host, port, SSH address family, user, password, key path and sudo usage). User and password are encrypted.
+- `app`: application options and interface state.
+- `ZPoolCreationDefaults`: default values for pool creation.
+
+Inside `app` the following are stored, among others:
+
+- interface language
+- log options (maximum size, level, number of lines)
+- action confirmation
+- number of property columns (`conn_prop_columns`)
+- connection shown in the upper panel
+- connections marked as disconnected
+- window geometry and splitter state
+- visibility of the inline sections
+- order and groups of inline properties
+
+## What is NOT stored
+
+- The `Source` and `Target` selections are per session: they are lost when the application closes.
+- Tree column widths are kept when switching connection or panel within the same session, but not across restarts.
+
+## Loading at startup
 
 On startup, ZFSMgr:
 
-1. Reads `config.ini`.
-2. Loads connections from `connection:<id>` groups.
+1. Migrates the legacy configuration if present (see below).
+2. Reads `config.json`.
+3. Loads the connections from the `connections` array.
+4. Moves to `trust-store.json` any TLS material still stored in `config.json`.
 
-If old `conn*.ini` files exist, ZFSMgr auto-migrates them into `config.ini` and then deletes them.
+## Migration from the old format
+
+If old `config.ini`, `connections.ini` or `conn*.ini` files exist, ZFSMgr merges them automatically into `config.json` — the `connection:<id>` groups become entries of the `connections` array — and then deletes them. The INI format is no longer used.

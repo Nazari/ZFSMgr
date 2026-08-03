@@ -63,6 +63,8 @@
     <file alias="help/en/propiedades_inline_columnas.md">../help/en/propiedades_inline_columnas.md</file>
     <file alias="help/en/logs_aplicacion.md">../help/en/logs_aplicacion.md</file>
     <file alias="help/en/configuracion_archivos.md">../help/en/configuracion_archivos.md</file>
+    <file alias="help/en/accion_diff.md">../help/en/accion_diff.md</file>
+    <file alias="help/en/conexiones_windows.md">../help/en/conexiones_windows.md</file>
     <file alias="help/zh/manual_rapido.md">../help/zh/manual_rapido.md</file>
     <file alias="help/zh/atajos_estados.md">../help/zh/atajos_estados.md</file>
     <file alias="help/zh/accion_copiar.md">../help/zh/accion_copiar.md</file>

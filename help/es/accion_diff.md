@@ -14,7 +14,7 @@ Restricciones:
 ZFSMgr ejecuta:
 
 ```sh
-zfs diff <origen> <destino>
+zfs diff -H <origen> <destino>
 ```
 
 Ejemplos válidos:

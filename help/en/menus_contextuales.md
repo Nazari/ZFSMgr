@@ -6,84 +6,107 @@ ZFSMgr uses context menus on the unified tree.
 
 ![Connection context menu](qrc:/help/img/auto/connection-context-menu.png)
 
-- The menu that used to belong to the connections table now belongs to the connection root node.
-- Current order on connection nodes:
+- The menu that used to hang off the connections table now hangs off the connection root node.
+- Current order on connections:
   - `Connect`
   - `Disconnect`
   - `Refresh`
   - separator
-  - `New connection`
+  - `New Connection`
   - `Edit`
   - `Delete`
   - separator
-  - `New pool`
-  - separator
-  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
+  - `New Pool`
   - separator
   - `Install MSYS2`
   - `Install helper commands`
+  - `Reinstall/Update daemon`
+  - `Repair temporary mountpoints`
+  - `Export trust-store to this connection`
+  - `Authorize SSH key on...` (submenu with the other connected SSH connections)
+  - separator
+  - `Split and root` (submenu: `Right`, `Left`, `Down`, `Up`), or `Close` when the menu is opened on the root of a split panel
 
-The `Daemon` submenu includes:
-- `Install/update daemon` when it is missing, outdated, or needs TLS re-cache.
-- `Daemon updated and running` disabled when no action is pending.
-- `Uninstall daemon`.
+Enablement conditions:
 
-If daemon-rpc TLS backoff is detected, ZFSMgr marks the connection for attention and attempts the update/re-cache path non-interactively after refresh.
+- `Connect`: connection marked as disconnected and with no action in progress.
+- `Disconnect` and `Refresh`: connection connected and with no action in progress.
+- `Edit` and `Delete`: not available on the Local connection nor on connections redirected to Local.
+- `New Pool`: connection connected.
+- `Install MSYS2`: only on Windows connections without a complete Unix layer (MSYS2/MinGW).
+- `Install helper commands`: only when the refresh detected a package manager and a supported installation plan for the missing commands.
+- `Reinstall/Update daemon`: remote non-Windows connections.
+- `Repair temporary mountpoints`: any non-Windows connection, including Local (a local dataset can also be left on a temporary mountpoint).
+- `Export trust-store to this connection`: any remote connection; it does not apply to Local, which already uses the local trust-store.
+- `Authorize SSH key on...`: only on non-Windows SSH connections, and it is only populated with other connected SSH connections.
 
-## On the merged pool root
+`Repair temporary mountpoints` first makes a read-only pass, shows the datasets left with a relocated mountpoint by an interrupted sync, and asks for confirmation before restoring them (unmounting them first). Those that fail keep their marker and can be retried.
+
+## Automatic daemon update
+
+When a refresh finishes, ZFSMgr reinstalls the daemon automatically and without dialogs **only** when the reason for attention is a version or API mismatch.
+
+A daemon-rpc TLS backoff marks the connection as needing attention but does **not** trigger the automatic reinstall: reinstalling would regenerate the TLS material and perpetuate the failure → reinstall → failure loop. In that case use `Reinstall/Update daemon` or `Export trust-store to this connection` manually.
+
+## On the merged pool root node
 
 ![Imported pool context menu](qrc:/help/img/auto/pool-context-menu-imported.png)
 
 - The first submenu is `Pool`.
-- Inside `Pool` you get the pool actions:
-  - `Refresh status`
+- Inside `Pool` are the pool actions:
+  - `Update status`
   - `Import`
-  - `Import with rename`
+  - `Import renaming`
   - `Export`
   - `History`
   - `Management`
-- `Management` runs immediate actions (`sync`, `scrub`, `upgrade`, `reguid`, `trim`, `initialize`, `clear`, `destroy`) with a parameter dialog when applicable.
-- After the `Pool` submenu, the normal dataset actions continue for that same merged node.
+- `Management` runs immediate actions (`Sync`, `Scrub`, `Upgrade`, `Reguid`, `Trim`, `Initialize`, `Clear`, `Destroy`) with a parameter dialog where applicable.
+- Right after the `Pool` submenu comes `Split and root`, and then the normal dataset actions on that same dual node.
 
 ## On datasets and snapshots
 
-- On filesystem datasets (and on the merged pool node):
-  - `Manage properties`
+- On a filesystem dataset (and on the merged pool node):
+  - `Manage property display`
   - `Dataset`
   - `Actions`
-  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
   - `Select as source`
-  - `Select as destination`
+  - `Select as target`
+  - `Split and root` (submenu: `Right`, `Left`, `Down`, `Up`)
 - `Dataset` submenu:
   - `Create`
   - `Rename`
   - `Delete`
-  - `Encryption key` (`Load key`, `Unload key`, `Change key`)
+  - `Encryption Key` (`Load Key`, `Unload Key`, `Change Key`)
   - `Schedule snapshots`
-  - `Permissions` (`New set`, `New delegation`)
+  - `Permissions` (`New Set`, `New Delegation`)
 - `Actions` submenu:
-  - `Break down`
+  - `Breakdown`
   - `Assemble`
   - `From Dir`
   - `To Dir`
+  - `Mount`: only enabled when the dataset has `canmount` other than `off`, a valid `mountpoint`, and is not already mounted.
 - On snapshots:
-  - `Manage properties`
+  - `Manage property display`
   - `Delete snapshot`
   - `Rollback`
   - `New Hold`
   - `Select as source`
-- On hold nodes:
+- On holds:
   - `Release`
+
+On the merged pool node, `Split and root` appears right after the `Pool` submenu, not at the end.
 
 ## On the root node of a split panel
 
-- If the node is the root of a split panel, an additional option appears:
-  - `Close`: closes that panel and releases its space in the splitter.
+- If the node is the root of a split panel, this option appears:
+  - `Close`: closes that panel and frees its space in the splitter.
 
 ## Rules
 
 - Destructive actions ask for confirmation.
-- Several actions are deferred and accumulate in `Pending changes`.
-- `Select as source` and `Select as destination` update the `Source/Target` line in `Actions`.
-- There is no context menu on `Dataset properties`, `Snapshot properties`, or the `@` node.
-- On suspended pools, most context menu actions are disabled.
+- Several actions work in deferred mode and accumulate in `Pending changes`.
+- `Select as source` and `Select as target` update the `Source/Target` line of the `Actions` box.
+- The `@` node (snapshot grouper) has no context menu.
+- On `Dataset properties` and `Snapshot properties` the context menu contains only `Manage property display`.
+- Children of the connection root that are not pool roots (`Properties`, `Info`) have no context menu.
+- On suspended pools, most context menu actions appear disabled.

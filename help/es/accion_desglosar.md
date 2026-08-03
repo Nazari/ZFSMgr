@@ -19,5 +19,5 @@ Comportamiento:
 Advertencias importantes:
 
 - **Se usa `/tmp` del sistema remoto como almacenamiento intermedio**: debe haber espacio libre suficiente para el contenido de cada directorio.
-- La copia se da por correcta según el código de salida de `rsync`; **no se hace una verificación adicional** de ficheros pendientes.
-- La copia usa `rsync -aHWS`: **no se preservan ACLs ni atributos extendidos**.
+- Antes de borrar el directorio origen se **verifica que la copia esté completa** (pasada en seco de `rsync` contando ficheros pendientes, con reintentos). Si tras varios intentos falta algo, la acción se detiene y **no borra nada**.
+- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).

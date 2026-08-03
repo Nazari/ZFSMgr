@@ -20,4 +20,5 @@ Advertencias importantes:
 
 - **`zfs destroy -r` arrastra también los descendientes** del subdataset elegido.
 - **Se usa `/tmp` del sistema remoto como almacenamiento intermedio**: debe haber espacio libre suficiente.
-- La copia usa `rsync -aHWS`: **no se preservan ACLs ni atributos extendidos**.
+- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).
+- Antes de destruir el dataset de origen se **verifica que la copia esté completa**; si falta algo, la acción se detiene y el dataset **no se destruye**.
