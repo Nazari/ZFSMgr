@@ -896,7 +896,6 @@ private:
     void trimLogWidget(QPlainTextEdit* widget);
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
-    void refreshConnectionGsaLogAsync(int idx);
     void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false);
     void runDaemonHeartbeat(const QString& connId);
     void pollDaemonZedAllConnections();

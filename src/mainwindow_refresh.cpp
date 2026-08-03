@@ -643,7 +643,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "$present=@(); foreach($r in $roots){ if(Test-Path -LiteralPath $r){ $present += $r } }; "
                 "$hasMsys = $present | Where-Object { $_ -like 'C:\\\\msys64*' }; "
                 "$hasMingw = $present | Where-Object { $_ -like 'C:\\\\MinGW*' -or $_ -like 'C:\\\\mingw64*' }; "
-                "if($hasMsys){ Write-Output '__LAYER__:MSYS64' } elseif($hasMingw){ Write-Output '__LAYER__:MingGW' } else { Write-Output '__LAYER__:Powershell' }; "
+                "if($hasMsys){ Write-Output '__LAYER__:MSYS64' } elseif($hasMingw){ Write-Output '__LAYER__:MinGW' } else { Write-Output '__LAYER__:Powershell' }; "
                 "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
                 "$cmds='%1'.Split(' '); "
                 "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ "

@@ -3490,7 +3490,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     }
     if (cmd == "--dump-zfs-diff") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-diff <snap1> <snap2>\n"; return r; }
-        return runExecCapture("zfs", {"diff", params[0], params[1]});
+        // -H: salida tabulada de verdad. Sin él, zfs imprime los renombrados como
+        // "viejo -> nuevo" en un solo campo, y el parseo de la GUI —escrito para
+        // campos separados por tabulador— se quedaba sin la ruta anterior.
+        return runExecCapture("zfs", {"diff", "-H", params[0], params[1]});
     }
     if (cmd == "--dump-zfs-allow") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow <dataset>\n"; return r; }

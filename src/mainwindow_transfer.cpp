@@ -691,7 +691,8 @@ void MainWindow::actionDiffSnapshot() {
     const QString dstObj = dst.snapshotName.isEmpty()
                                ? dst.datasetName
                                : QStringLiteral("%1@%2").arg(dst.datasetName, dst.snapshotName);
-    const QString rawCmd = QStringLiteral("zfs diff %1 %2")
+    // -H para que los renombrados salgan tabulados y no como "viejo -> nuevo".
+    const QString rawCmd = QStringLiteral("zfs diff -H %1 %2")
                                .arg(shSingleQuote(srcObj),
                                     shSingleQuote(dstObj));
     const bool daemonReadApiOk = !isWindowsConnection(profile)
@@ -836,7 +837,11 @@ void MainWindow::actionDiffSnapshot() {
             continue;
         }
         const QChar kind = cols.value(0).trimmed().isEmpty() ? QChar() : cols.value(0).trimmed().at(0);
-        QString path = cols.size() >= 3 ? cols.value(2).trimmed() : cols.value(cols.size() - 1).trimmed();
+        // Formato de "zfs diff -H" (sin -F): <tipo>\t<ruta> y, en renombrados,
+        // <tipo>\t<ruta-antigua>\t<ruta-nueva>. Los índices estaban escritos para
+        // la salida de -F, que añade una columna de tipo de fichero y que aquí no
+        // se pide, así que la ruta anterior de un renombrado nunca se leía.
+        QString path = cols.value(1).trimmed();
         QString leafLabel;
         QString leafToolTip;
         QTreeWidgetItem* targetRoot = modifiedRoot;
@@ -848,8 +853,8 @@ void MainWindow::actionDiffSnapshot() {
             targetRoot = modifiedRoot;
         } else if (kind == QLatin1Char('R')) {
             targetRoot = renamedRoot;
-            const QString oldPath = cols.size() >= 3 ? cols.value(2).trimmed() : QString();
-            const QString newPath = cols.size() >= 4 ? cols.value(3).trimmed() : QString();
+            const QString oldPath = cols.value(1).trimmed();
+            const QString newPath = cols.size() >= 3 ? cols.value(2).trimmed() : QString();
             if (!newPath.isEmpty()) {
                 const QString oldLeaf = QFileInfo(oldPath).fileName();
                 const QString newLeaf = QFileInfo(newPath).fileName();
