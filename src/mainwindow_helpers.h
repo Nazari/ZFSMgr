@@ -80,6 +80,7 @@ QString sshUserHost(const ConnectionProfile& p);
 QString sshUserHostPort(const ConnectionProfile& p);
 QString sshAddressFamilyOption(const ConnectionProfile& p);
 QString sshBaseCommand(const ConnectionProfile& p);
+QString scpUploadCommand(const ConnectionProfile& p, const QString& localPath, const QString& remotePath);
 QString buildSshTargetPrefix(const ConnectionProfile& p);
 QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd);
 QString streamProgressPipeFilter();

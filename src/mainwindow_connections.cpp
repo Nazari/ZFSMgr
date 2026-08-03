@@ -3603,13 +3603,38 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             refreshConnectionByIndex(idx);
             return false;
         }
-        // base64 por stdin: en la línea de comandos no cabe y en crudo lo estropea la
-        // conversión de codificación de PowerShell.
-        remoteStdinPayload = agentFile.readAll().toBase64();
-        remoteCmd = daemonpayload::windowsNativeInstallCommand();
+        agentFile.close();
+        // Se sube por scp ANTES de ejecutar nada: mandarlo por la entrada estándar no
+        // funciona contra Windows —PowerShell no devuelve de ReadToEnd() con
+        // megabytes— y la instalación se quedaba colgada hasta agotar el plazo.
         appLog(QStringLiteral("INFO"),
-               QStringLiteral("Daemon deploy %1: instalando daemon nativo de Windows desde %2")
-                   .arg(p.name, localAgentPath));
+               QStringLiteral("Daemon deploy %1: subiendo daemon nativo de Windows (%2 bytes) desde %3")
+                   .arg(p.name)
+                   .arg(QFileInfo(localAgentPath).size())
+                   .arg(localAgentPath));
+        const QString scpCmd = mwhelpers::scpUploadCommand(p, localAgentPath,
+                                                           daemonpayload::windowsUploadPath());
+        QProcess scpProc;
+        scpProc.start(QStringLiteral("sh"), {QStringLiteral("-c"), scpCmd});
+        const bool scpOk = scpProc.waitForStarted(5000)
+                           && scpProc.waitForFinished(180000)
+                           && scpProc.exitCode() == 0;
+        if (!scpOk) {
+            const QString detail = QString::fromUtf8(scpProc.readAllStandardError()).trimmed();
+            const QString reason =
+                trk(QStringLiteral("t_daemon_win_upload_fail_001"),
+                    QStringLiteral("No se pudo subir el daemon a la máquina Windows: %1"),
+                    QStringLiteral("Could not upload the daemon to the Windows machine: %1"),
+                    QStringLiteral("无法将守护进程上传到 Windows 计算机：%1"))
+                    .arg(detail.isEmpty() ? QStringLiteral("scp falló") : mwhelpers::oneLine(detail));
+            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
+            if (interactive) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+            }
+            refreshConnectionByIndex(idx);
+            return false;
+        }
+        remoteCmd = daemonpayload::windowsNativeInstallCommand();
     } else if (isWindowsConnection(idx)) {
         winMode = WindowsCommandMode::PowerShellNative;
         const QString payload = daemonpayload::windowsStubScript(daemonVersion, apiVersion);

@@ -12,6 +12,9 @@ QString windowsDirPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent
 QString windowsScriptPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1"); }
 QString windowsTaskName() { return QStringLiteral("ZFSMgr-Agent"); }
 QString windowsBinPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe"); }
+// Ruta intermedia del scp: el destino final puede estar en uso por el agente en
+// marcha, así que se sube aparte y se mueve tras pararlo.
+QString windowsUploadPath() { return QStringLiteral("C:/Users/Public/zfsmgr-agent.upload"); }
 QString tlsDirPath() { return QStringLiteral("/etc/zfsmgr/tls"); }
 QString tlsServerCertPath() { return QStringLiteral("/etc/zfsmgr/tls/server.crt"); }
 QString tlsServerKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/server.key"); }
@@ -589,24 +592,40 @@ QString windowsStubScript(const QString& version, const QString& apiVersion) {
 // propio agente enlaza: en Windows no hay openssl en el PATH (solo aparece si está
 // Git instalado, que no es garantía), así que el bootstrap por shell no sirve aquí.
 QString windowsNativeInstallCommand() {
+    // El binario ya está en $tmpUpload, subido por scp ANTES de ejecutar esto.
+    //
+    // Antes viajaba en base64 por la entrada estándar, y no funcionaba: PowerShell no
+    // devuelve de [Console]::In.ReadToEnd() con volúmenes de megabytes, así que la
+    // instalación se colgaba hasta agotar el plazo. Falla ya alrededor de 1 MB y el
+    // agente son 9,3 MB.
+    //
+    // Después se ejecuta --ensure-tls, que genera el material TLS con el OpenSSL que
+    // el propio agente enlaza: en Windows no hay openssl en el PATH (solo aparece si
+    // está Git instalado, que no es garantía).
     return QStringLiteral(
-        "$ErrorActionPreference='Stop'; "
-        "$dir='%1'; $bin='%2'; $task='%3'; "
+        // SIN $ErrorActionPreference='Stop': con él, cualquier salida por stderr de un
+        // comando nativo se convierte en excepción, y schtasks /End y /Delete escriben
+        // ahí cuando la tarea todavía no existe —que es el caso normal en la primera
+        // instalación—. Se comprueban explícitamente los pasos que sí importan.
+        "$dir='%1'; $bin='%2'; $task='%3'; $up='%4'; "
+        "if (-not (Test-Path -LiteralPath $up)) { Write-Error 'no llegó el binario'; exit 1 } "
         "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
-        "$b64=[Console]::In.ReadToEnd(); "
-        "$tmp=[IO.Path]::Combine($dir,'zfsmgr-agent.new'); "
-        "[IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); "
-        "schtasks /End /TN $task 2>$null | Out-Null; "
-        "schtasks /Delete /F /TN $task 2>$null | Out-Null; "
+        "cmd /c \"schtasks /End /TN $task >nul 2>&1\" | Out-Null; "
+        "cmd /c \"schtasks /Delete /F /TN $task >nul 2>&1\" | Out-Null; "
         "Get-Process zfsmgr-agent,zfsmgr_agent -ErrorAction SilentlyContinue | Stop-Process -Force; "
         "Start-Sleep -Milliseconds 500; "
-        "Move-Item -Force -LiteralPath $tmp -Destination $bin; "
+        "Move-Item -Force -LiteralPath $up -Destination $bin; "
+        "if (-not (Test-Path -LiteralPath $bin)) { Write-Output 'ZFSMGR_WIN_AGENT_MOVE_FAIL'; exit 1 } "
         "& $bin --ensure-tls | Out-Null; "
-        "$action='\"' + $bin + '\" --serve'; "
+        "if ($LASTEXITCODE -ne 0) { Write-Output 'ZFSMGR_WIN_AGENT_TLS_FAIL'; exit 1 } "
+        // [char]34 en vez de comillas escapadas: este texto atraviesa el literal de
+        // C++, el envoltorio de shell y el -Command de PowerShell, y en cada capa se
+        // reinterpretan los escapes. Así no depende de ninguna.
+        "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
         "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | Out-Null; "
         "schtasks /Run /TN $task | Out-Null; "
         "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0")
-        .arg(windowsDirPath(), windowsBinPath(), windowsTaskName());
+        .arg(windowsDirPath(), windowsBinPath(), windowsTaskName(), windowsUploadPath());
 }
 
 QString macLaunchdPlist() {

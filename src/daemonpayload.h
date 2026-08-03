@@ -21,6 +21,7 @@ QString tlsClientKeyPath();
 QString unixStubScript(const QString& version, const QString& apiVersion);
 QString windowsStubScript(const QString& version, const QString& apiVersion);
 QString windowsBinPath();
+QString windowsUploadPath();
 QString windowsNativeInstallCommand();
 QString macLaunchdPlist();
 QString freeBsdRcScript();
