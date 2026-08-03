@@ -1468,8 +1468,11 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         appLog(QStringLiteral("INFO"), cmdLine);
         appendConnectionLog(p.id, cmdLine);
 
+        // stdin no vacío descarta el RPC: el canal no transporta stdin (el daemon lo
+        // dice en runExecCaptureWithStdin) y la intercepción no lo miraba, así que la
+        // passphrase de un dataset cifrado se perdía en silencio al desglosarlo.
         QStringList localAgentArgs;
-        if (extractLocalAgentArgs(localCmd, localAgentArgs)) {
+        if (stdinPayload.isEmpty() && extractLocalAgentArgs(localCmd, localAgentArgs)) {
             if (tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc)) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
                     const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
@@ -1834,8 +1837,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     // fuera es PSRP, que no tiene SSH y por tanto no admite túnel; ese caso lo
     // descarta la comprobación de connType, no una excepción por sistema operativo.
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+        // Ver la nota de la rama local: stdin no vacío hace el RPC inelegible.
         QStringList agentArgs;
-        if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
+        if (stdinPayload.isEmpty() && extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
             const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
             bool allowRpcAttempt = true;
             QString suppressedReason;
