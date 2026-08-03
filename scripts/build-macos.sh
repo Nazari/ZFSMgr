@@ -773,6 +773,39 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # Va ANTES de firmar a propósito: añadir ficheros a un bundle ya firmado rompe el
   # sello de recursos, que es la misma clase de error que hacía que la app ni
   # arrancara.
+  # libssl al bundle. La GUI no la enlaza (solo usa libcrypto), así que el despliegue
+  # automático no la copia y Qt se queda sin backend de OpenSSL: en el .app publicado
+  # availableBackends() devolvía [securetransport, cert-only]. Con SecureTransport,
+  # macOS exige la clave privada del cliente en el llavero y pide contraseña, y su
+  # validación PKI ignora la CA que se le pasa.
+  #
+  # Va antes de firmar, como los agentes: añadir binarios después rompe el sello.
+  if [[ -n "${OPENSSL_PREFIX}" ]]; then
+    for lib in libssl.3.dylib libcrypto.3.dylib; do
+      src="${OPENSSL_PREFIX}/lib/${lib}"
+      dst="${APP_BUNDLE}/Contents/Frameworks/${lib}"
+      if [[ -f "${src}" && ! -f "${dst}" ]]; then
+        cp -f "${src}" "${dst}"
+        chmod u+w "${dst}"
+        install_name_tool -id "@executable_path/../Frameworks/${lib}" "${dst}" 2>/dev/null || true
+        echo "  copiada al bundle: ${lib}"
+      fi
+    done
+    # libssl depende de libcrypto: reapuntarla dentro del bundle o buscaría la del
+    # prefijo de compilación, que en la máquina del usuario no existe.
+    libssl_dst="${APP_BUNDLE}/Contents/Frameworks/libssl.3.dylib"
+    if [[ -f "${libssl_dst}" ]]; then
+      while IFS= read -r dep; do
+        case "${dep}" in
+          *libcrypto*)
+            install_name_tool -change "${dep}" \
+              "@executable_path/../Frameworks/libcrypto.3.dylib" "${libssl_dst}" 2>/dev/null || true
+            ;;
+        esac
+      done < <(otool -L "${libssl_dst}" | awk 'NR>1 {print $1}')
+    fi
+  fi
+
   AGENT_BUNDLE_SRC="${ZFSMGR_AGENT_BUNDLE_DIR:-${PROJECT_ROOT}/builds/agent-bundle}"
   agents_dst="${APP_BUNDLE}/Contents/Resources/agents"
   rm -rf "${agents_dst}"

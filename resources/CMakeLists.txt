@@ -118,7 +118,12 @@ set(ZFSMGR_CORE_SOURCES
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
-target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto)
+# OpenSSL::SSL además de Crypto aunque el código no la use directamente: hace que
+# libssl quede enlazada y, por tanto, cargada al arrancar y copiada al bundle por el
+# despliegue de macOS. Sin ella, el plugin TLS de OpenSSL de Qt no puede cargarse y
+# en macOS solo queda SecureTransport, que pide la clave del cliente en el llavero e
+# ignora la CA que se le pasa.
+target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto)
 
 if(WIN32)
     # OpenSSL static builds on MinGW may require explicit Win32 system libs.

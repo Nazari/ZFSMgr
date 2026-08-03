@@ -1121,6 +1121,18 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         // no lleva libssl) y este rechaza los certificados que OpenSSL acepta.
         static std::once_flag tlsBackendLogOnce;
         std::call_once(tlsBackendLogOnce, [this]() {
+            // Preferir OpenSSL cuando esté disponible, para que todas las
+            // plataformas se comporten igual. En macOS, SecureTransport además
+            // exige la clave privada del cliente en el llavero y hace que el
+            // sistema pida la contraseña al usuario en cada arranque.
+            const QString before = QSslSocket::activeBackend();
+            if (before != QStringLiteral("openssl")
+                && QSslSocket::availableBackends().contains(QStringLiteral("openssl"))) {
+                if (QSslSocket::setActiveBackend(QStringLiteral("openssl"))) {
+                    appLog(QStringLiteral("INFO"),
+                           QStringLiteral("TLS: backend cambiado de %1 a openssl").arg(before));
+                }
+            }
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("TLS: backend activo=%1 disponibles=[%2] libssl=%3")
                        .arg(QSslSocket::activeBackend(),
