@@ -274,8 +274,39 @@ std::string makeTempDir(const char* patternPrefix) {
 #endif
 }
 
+// Banderas de preservación de rsync, sondeadas UNA vez: son propiedad del binario
+// local, no de cada operación.
+//
+// El shell antiguo hacía este sondeo antes de cada copia. Al pasar a nativo se
+// perdió aquí y runRsyncCopyMoveCapture se quedó con "-aHWS" a secas, de modo que
+// todir, assemble y breakdown dejaron de preservar ACLs y atributos extendidos sin
+// avisar de nada. Copiar de menos en silencio es la peor forma de perder datos: el
+// usuario cree que tiene lo mismo que antes.
+const std::vector<std::string>& rsyncPreservationFlags() {
+    static const std::vector<std::string> flags = [] {
+        std::vector<std::string> out;
+        const ExecResult help = runExecCapture("rsync", {"--help"});
+        const std::string helpText = help.out + help.err;
+        if (runExecCapture("rsync", {"-A", "--version"}).rc == 0) {
+            out.push_back("-A");
+        }
+        if (runExecCapture("rsync", {"-X", "--version"}).rc == 0) {
+            out.push_back("-X");
+        } else if (helpText.find("--extended-attributes") != std::string::npos) {
+            out.push_back("--extended-attributes");  // el rsync de Apple lo llama así
+        }
+        return out;
+    }();
+    return flags;
+}
+
 ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir) {
-    return runExecCapture("rsync", {"-aHWS", srcDir + "/", dstDir + "/"});
+    std::vector<std::string> argv{"-aHWS"};
+    const std::vector<std::string>& extra = rsyncPreservationFlags();
+    argv.insert(argv.end(), extra.begin(), extra.end());
+    argv.push_back(srcDir + "/");
+    argv.push_back(dstDir + "/");
+    return runExecCapture("rsync", argv);
 }
 
 ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
@@ -343,6 +374,31 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
     return r;
 }
 
+// Cuenta los ficheros que a rsync todavía le quedarían por transferir, en seco.
+//
+// Es la verificación que hacía el shell antiguo antes de borrar el origen y que se
+// perdió al pasar a nativo: la versión intermedia borraba en cuanto rsync devolvía
+// 0. Un rsync que termina bien pero deja algo atrás (disco lleno a mitad, un fichero
+// que cambió durante la copia) convertía el desglose en pérdida de datos.
+//
+// El formato itemizado de "-i" pone las banderas en los 11 primeros caracteres;
+// ">f" significa fichero que se transferiría. --ignore-existing hace que solo
+// aparezca lo que falta, no lo que difiere.
+int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir) {
+    const ExecResult probe = runExecCapture("rsync", {"-rni", "--ignore-existing",
+                                                      srcDir + "/", dstDir + "/"});
+    if (probe.rc != 0) {
+        return -1;  // no se pudo comprobar: tratar como "no verificado"
+    }
+    int pending = 0;
+    for (const std::string& line : splitLines(probe.out)) {
+        if (line.size() > 11 && line[0] == '>' && line[1] == 'f') {
+            ++pending;
+        }
+    }
+    return pending;
+}
+
 ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
     ExecResult r;
     if (params.size() < 2) {
@@ -389,9 +445,26 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return create;
         }
         (void)runExecCapture("zfs", {"mount", child});
-        ExecResult rsync = runRsyncCopyMoveCapture(srcPath.string(), tmpChild);
-        if (rsync.rc != 0) {
-            return rsync;
+        // Copiar y VERIFICAR antes de borrar nada, reintentando como hacía el shell.
+        int pending = -1;
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            ExecResult rsync = runRsyncCopyMoveCapture(srcPath.string(), tmpChild);
+            if (rsync.rc != 0) {
+                return rsync;
+            }
+            pending = countPendingRsyncTransfers(srcPath.string(), tmpChild);
+            if (pending == 0) {
+                break;
+            }
+        }
+        if (pending != 0) {
+            // No se borra el origen: los datos siguen donde estaban. El dataset hijo
+            // queda creado en el mountpoint temporal, que es justo lo que el shell
+            // antiguo dejaba también al salir con 42.
+            r.rc = 42;
+            r.err = "verify_failed=" + child + " pending="
+                    + (pending < 0 ? std::string("unknown") : std::to_string(pending)) + "\n";
+            return r;
         }
         std::error_code rmec;
         fs::remove_all(srcPath, rmec);
@@ -461,6 +534,27 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (rsA.rc != 0) {
             return rsA;
         }
+        // Verificar ANTES de destruir. Esto NO es reponer nada: el shell antiguo
+        // tampoco comprobaba, destruía en cuanto rsync devolvía 0. Aquí el riesgo es
+        // mayor que en el desglose, porque "zfs destroy -r" no admite vuelta atrás:
+        // si la copia quedó incompleta, los datos no están en ningún sitio.
+        {
+            int pending = countPendingRsyncTransfers(childMp, tmp);
+            for (int attempt = 1; pending != 0 && attempt < 5; ++attempt) {
+                ExecResult again = runRsyncCopyMoveCapture(childMp, tmp);
+                if (again.rc != 0) {
+                    return again;
+                }
+                pending = countPendingRsyncTransfers(childMp, tmp);
+            }
+            if (pending != 0) {
+                r.rc = 42;
+                r.err = "verify_failed=" + child + " pending="
+                        + (pending < 0 ? std::string("unknown") : std::to_string(pending))
+                        + " (no se destruye el dataset)\n";
+                return r;
+            }
+        }
         ExecResult destroy = runExecCapture("zfs", {"destroy", "-r", child});
         if (destroy.rc != 0) {
             return destroy;
@@ -482,50 +576,6 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
     }
     r.rc = 0;
-    return r;
-}
-
-ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params) {
-    ExecResult r;
-    if (params.size() < 3) {
-        r.rc = 2;
-        r.err = "usage: --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>\n";
-        return r;
-    }
-    const std::string dataset = params[0];
-    const std::string dstDir = params[1];
-    const bool deleteSource = isTruthyValue(params[2]);
-    (void)runExecCapture("zfs", {"mount", dataset});
-    ExecResult mpRes = getDatasetMountpointCapture(dataset);
-    if (mpRes.rc != 0) {
-        return mpRes;
-    }
-    const std::string srcMp = trim(mpRes.out);
-    if (srcMp.empty()) {
-        r.rc = 2;
-        r.err = "mountpoint=none\n";
-        return r;
-    }
-    namespace fs = std::filesystem;
-    std::error_code mkec;
-    fs::create_directories(fs::path(dstDir), mkec);
-    if (mkec) {
-        r.rc = 1;
-        r.err = "cannot create destination directory\n";
-        return r;
-    }
-    ExecResult rs = runRsyncCopyMoveCapture(srcMp, dstDir);
-    if (rs.rc != 0) {
-        return rs;
-    }
-    if (deleteSource) {
-        ExecResult d = runExecCapture("zfs", {"destroy", "-r", dataset});
-        if (d.rc != 0) {
-            return d;
-        }
-    }
-    r.rc = 0;
-    r.out = "[TODIR] ok\n";
     return r;
 }
 
@@ -1348,6 +1398,184 @@ struct AltMountGuard {
     ~AltMountGuard() { release(); }
 };
 
+
+// ── Hacia Dir: dataset -> directorio plano ───────────────────────────────────
+// Reimplementación fiel del shell antiguo, cuyas garantías se habían perdido al
+// pasar a nativo. La versión intermedia hacía rsync DIRECTAMENTE sobre el destino y
+// luego destruía el origen, de modo que un fallo a mitad dejaba el destino fusionado
+// a medias y el dataset ya destruido, sin vuelta atrás.
+//
+// Se recuperan las tres garantías:
+//   1. Se rechaza un destino que ya sea mountpoint ZFS. Escribir ahí metería los
+//      datos dentro de otro dataset, y al desmontarlo parecerían haberse esfumado.
+//   2. Se copia a un directorio temporal y se INTERCAMBIA. El destino queda con lo
+//      viejo o con lo nuevo, nunca mezclado.
+//   3. El destino anterior se aparta como respaldo y vuelve a su sitio si algo falla.
+//
+// El temporal se crea junto al destino, no en /tmp, para que el intercambio final
+// sea un rename dentro del mismo sistema de ficheros y por tanto atómico. El shell
+// usaba /tmp y dependía de que mv copiara entre sistemas de ficheros.
+struct DestBackupGuard {
+    std::filesystem::path target;
+    std::filesystem::path backup;
+    bool active{false};
+
+    void commit() { active = false; }
+
+    ~DestBackupGuard() {
+        if (!active || backup.empty()) {
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(target, ec);
+        std::filesystem::rename(backup, target, ec);
+    }
+};
+
+bool pathIsZfsMountpoint(const std::string& path) {
+    const ExecResult mounts = runExecCapture("zfs", {"mount"});
+    if (mounts.rc != 0) {
+        return false;
+    }
+    std::error_code ec;
+    const std::filesystem::path want = std::filesystem::weakly_canonical(path, ec);
+    const std::string wantStr = ec ? path : want.string();
+    for (const std::string& line : splitLines(mounts.out)) {
+        // "<dataset><espacios><mountpoint>"; el mountpoint puede llevar espacios.
+        const std::size_t sep = line.find_first_of(" \t");
+        if (sep == std::string::npos) {
+            continue;
+        }
+        std::size_t mpStart = line.find_first_not_of(" \t", sep);
+        if (mpStart == std::string::npos) {
+            continue;
+        }
+        const std::string mp = trim(line.substr(mpStart));
+        if (mp.empty()) {
+            continue;
+        }
+        std::error_code mec;
+        const std::filesystem::path canon = std::filesystem::weakly_canonical(mp, mec);
+        if ((mec ? mp : canon.string()) == wantStr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 3) {
+        r.rc = 2;
+        r.err = "usage: --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>\n";
+        return r;
+    }
+    namespace fs = std::filesystem;
+    const std::string dataset = params[0];
+    const std::string dstDir = params[1];
+    const bool deleteSource = isTruthyValue(params[2]);
+
+    if (dstDir.empty() || dstDir[0] != '/') {
+        r.rc = 2;
+        r.err = "destination directory must be an absolute path\n";
+        return r;
+    }
+    if (pathIsZfsMountpoint(dstDir)) {
+        r.rc = 2;
+        r.err = "destination directory is already a zfs mountpoint\n";
+        return r;
+    }
+
+    // Reubicar el dataset a un mountpoint temporal: sin esto, el destino no puede
+    // ser la propia ruta donde el dataset estaba montado, que es el caso principal
+    // (convertir un dataset en un directorio en su mismo sitio).
+    AltMountGuard mountGuard;
+    std::string srcMp;
+    std::string mountErr;
+    if (!mountGuard.engage(dataset, srcMp, mountErr)) {
+        r.rc = 1;
+        r.err = mountErr.empty() ? "cannot relocate dataset to a temporary mountpoint\n" : mountErr;
+        return r;
+    }
+
+    const fs::path dst(dstDir);
+    const fs::path parent = dst.parent_path();
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    if (ec) {
+        r.rc = 1;
+        r.err = "cannot create destination parent directory\n";
+        return r;
+    }
+
+    // Temporal hermano del destino para que el rename final sea atómico.
+    const fs::path staging = parent / (dst.filename().string() + ".zfsmgr-new");
+    fs::remove_all(staging, ec);
+    fs::create_directories(staging, ec);
+    if (ec) {
+        r.rc = 1;
+        r.err = "cannot create staging directory next to destination\n";
+        return r;
+    }
+
+    ExecResult rs = runRsyncCopyMoveCapture(srcMp, staging.string());
+    if (rs.rc != 0) {
+        fs::remove_all(staging, ec);
+        return rs;
+    }
+
+    // Apartar el destino existente; el guard lo repone si algo falla a partir de aquí.
+    DestBackupGuard backupGuard;
+    backupGuard.target = dst;
+    if (fs::exists(dst, ec)) {
+        fs::path candidate = parent / (dst.filename().string() + ".zfsmgr-bak");
+        for (int i = 1; fs::exists(candidate, ec); ++i) {
+            candidate = parent / (dst.filename().string() + ".zfsmgr-bak-" + std::to_string(i));
+        }
+        fs::rename(dst, candidate, ec);
+        if (ec) {
+            fs::remove_all(staging, ec);
+            r.rc = 1;
+            r.err = "cannot move existing destination aside\n";
+            return r;
+        }
+        backupGuard.backup = candidate;
+        backupGuard.active = true;
+    }
+
+    fs::rename(staging, dst, ec);
+    if (ec) {
+        fs::remove_all(staging, ec);
+        r.rc = 1;
+        r.err = "cannot move copied data into place\n";
+        return r;  // el guard repone el destino anterior
+    }
+
+    if (deleteSource) {
+        (void)runExecCapture("zfs", {"unmount", dataset});
+        ExecResult d = runExecCapture("zfs", {"destroy", "-r", dataset});
+        if (d.rc != 0) {
+            return d;  // el guard repone el destino: el dataset sigue vivo
+        }
+        mountGuard.active = false;  // ya no existe: no hay nada que restaurar
+        mountGuard.release();
+    } else {
+        mountGuard.release();  // devuelve el dataset a su mountpoint original
+        (void)runExecCapture("zfs", {"unmount", dataset});
+        (void)runExecCapture("zfs", {"set", "canmount=off", dataset});
+    }
+
+    // A partir de aquí la operación es definitiva: se descarta el respaldo.
+    backupGuard.commit();
+    if (!backupGuard.backup.empty()) {
+        fs::remove_all(backupGuard.backup, ec);
+    }
+    r.rc = 0;
+    r.out = deleteSource ? "[TODIR] ok\n" : "[TODIR] ok (dataset preserved unmounted)\n";
+    return r;
+}
+
+
 // ── Repair of datasets left on a temporary mountpoint ────────────────────────
 // If a temp-tar run is killed outright (SIGKILL, power loss, the daemon being
 // replaced mid-transfer), the dataset stays mounted on a scratch directory and keeps
@@ -1759,9 +1987,6 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     const ExecResult help = runExecCapture("rsync", {"--help"});
     const std::string helpText = help.out + help.err;
     const bool hasInfo = helpText.find("--info") != std::string::npos;
-    const bool hasAcls = runExecCapture("rsync", {"-A", "--version"}).rc == 0;
-    const bool hasXattrs = runExecCapture("rsync", {"-X", "--version"}).rc == 0;
-    const bool hasExtAttrs = helpText.find("--extended-attributes") != std::string::npos;
 
     std::vector<std::string> base;
     base.push_back("-aHWS");
@@ -1771,13 +1996,10 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     if (dryFlag == "1") {
         base.push_back("--dry-run");
     }
-    if (hasAcls) {
-        base.push_back("-A");
-    }
-    if (hasXattrs) {
-        base.push_back("-X");
-    } else if (hasExtAttrs) {
-        base.push_back("--extended-attributes");
+    // Mismo sondeo que runRsyncCopyMoveCapture, compartido para que no puedan
+    // divergir otra vez.
+    for (const std::string& f : rsyncPreservationFlags()) {
+        base.push_back(f);
     }
     base.push_back(hasInfo ? "--info=progress2" : "--progress");
     if (!dstHost.empty() && !rsh.empty()) {
