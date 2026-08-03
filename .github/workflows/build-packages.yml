@@ -12,12 +12,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS va fijado a la 14, no a macos-latest. El SDK de macOS 15 (Xcode 16)
-        # retiró el framework AGL, al que Qt 6.8.3 sigue enlazando desde Qt6::Gui,
-        # así que en Sequoia el enlazado muere con "ld: framework 'AGL' not found".
-        # El job pasaba hasta que macos-latest saltó a Sequoia. Se podrá volver a
-        # macos-latest cuando se use un Qt cuyos binarios de macOS ya no lo pidan.
-        os: [ubuntu-latest, macos-14, windows-latest]
+        # Dos imágenes de macOS a propósito: macos-14 es Apple Silicon y macos-13
+        # es Intel, y cada una produce el .app de su arquitectura. No se hace un
+        # binario universal porque el OpenSSL de Homebrew que enlaza el agente solo
+        # trae la arquitectura de la máquina, así que un universal exigiría
+        # compilar OpenSSL para ambas.
+        #
+        # Ninguna es macos-latest: el SDK de macOS 15 (Xcode 16) retiró el framework
+        # AGL, al que Qt 6.8.3 sigue enlazando desde Qt6::Gui, así que en Sequoia el
+        # enlazado muere con "ld: framework 'AGL' not found". El job pasaba hasta que
+        # macos-latest saltó a Sequoia. Se podrá volver cuando se use un Qt cuyos
+        # binarios de macOS ya no lo pidan.
+        os: [ubuntu-latest, macos-14, macos-13, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -68,7 +74,11 @@ jobs:
         run: |
           cd builds/macos
           app="$(ls -d *.app | head -n1)"
-          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-$(uname -m).app.zip"
+          arch="$(uname -m)"
+          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-${arch}.app.zip"
+          # El nombre del artefacto lleva la arquitectura: con dos jobs de macOS,
+          # un nombre fijo haría que el segundo choque con el del primero.
+          echo "MAC_ARCH=${arch}" >> "$GITHUB_ENV"
 
       # Los scripts de build escriben en builds/<os>/, no en build-<os>/. Con las
       # rutas antiguas y if-no-files-found: warn, el workflow subía artefactos
@@ -89,7 +99,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: zfsmgr-macos
+          name: zfsmgr-macos-${{ env.MAC_ARCH }}
           path: builds/macos/*.app.zip
           if-no-files-found: error
 
