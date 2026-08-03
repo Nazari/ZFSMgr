@@ -663,19 +663,38 @@ QString simpleConfigPayload(const QString& version, const QString& apiVersion) {
 }
 
 QString tlsBootstrapShellCommand() {
+    // Los certificados DEBEN llevar subjectAltName. Emitirlos solo con CN funciona
+    // con el backend OpenSSL de Qt, que aún acepta el CN como nombre de host, pero
+    // no con el SecureTransport de Apple, que sigue el RFC 6125 y lo ignora por
+    // completo. Con certificados sin SAN, la aplicación de macOS no podía hablar
+    // con NINGÚN daemon: "The host name did not match any of the valid hosts for
+    // this certificate". Se incluyen los dos nombres que prueba el cliente y la
+    // IP de loopback, que es a donde apunta el túnel SSH.
+    //
+    // La condición de regeneración comprueba además que el certificado existente
+    // TENGA SAN: si no, se rehace. Sin eso, los hosts ya aprovisionados se
+    // quedarían con el certificado viejo para siempre, porque el fichero existe y
+    // no está vacío.
+    const QString san = QStringLiteral(
+        "subjectAltName=DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1");
     return QStringLiteral(
         "mkdir -p %1; "
-        "if [ ! -s %2 ] || [ ! -s %3 ]; then "
+        "_zfsmgr_needs_san() { "
+        "  [ -s \"$1\" ] || return 0; "
+        "  openssl x509 -in \"$1\" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:' || return 0; "
+        "  return 1; "
+        "}; "
+        "if [ ! -s %2 ] || [ ! -s %3 ] || _zfsmgr_needs_san %2; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-server' "
+        "      -subj '/CN=zfsmgr-agent-server' -addext '%6' "
         "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
-        "if [ ! -s %4 ] || [ ! -s %5 ]; then "
+        "if [ ! -s %4 ] || [ ! -s %5 ] || _zfsmgr_needs_san %4; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-client' "
+        "      -subj '/CN=zfsmgr-agent-client' -addext '%6' "
         "      -keyout %5 -out %4 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
@@ -685,7 +704,8 @@ QString tlsBootstrapShellCommand() {
              tlsServerCertPath(),
              tlsServerKeyPath(),
              tlsClientCertPath(),
-             tlsClientKeyPath());
+             tlsClientKeyPath(),
+             san);
 }
 
 } // namespace daemonpayload
