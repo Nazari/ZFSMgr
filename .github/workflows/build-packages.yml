@@ -40,6 +40,12 @@ jobs:
           chmod +x ./scripts/build-linux.sh
           ./scripts/build-linux.sh
 
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/build-windows.ps1
+
       # Los scripts de build escriben en builds/<os>/, no en build-<os>/. Con las
       # rutas antiguas y if-no-files-found: warn, el workflow subía artefactos
       # vacíos y terminaba en verde. De ahí el error: si no hay ficheros, falla.
