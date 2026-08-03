@@ -764,6 +764,42 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     exit 1
   fi
 
+  # Agentes de las demás plataformas dentro del bundle. Sin esto, la app de macOS
+  # no puede instalar ni actualizar el daemon en un host remoto: los busca en
+  # Contents/Resources/agents/<plataforma>-<arch>/ (ver findDeployableAgentBinaryPath
+  # en mainwindow_connections.cpp) y no encontraba nada, porque la regla install()
+  # que los coloca en share/zfsmgr/agents solo la usan CPack y el .deb, no el .app.
+  #
+  # Va ANTES de firmar a propósito: añadir ficheros a un bundle ya firmado rompe el
+  # sello de recursos, que es la misma clase de error que hacía que la app ni
+  # arrancara.
+  AGENT_BUNDLE_SRC="${ZFSMGR_AGENT_BUNDLE_DIR:-${PROJECT_ROOT}/builds/agent-bundle}"
+  agents_dst="${APP_BUNDLE}/Contents/Resources/agents"
+  rm -rf "${agents_dst}"
+  mkdir -p "${agents_dst}"
+  if [[ -d "${AGENT_BUNDLE_SRC}" ]]; then
+    cp -R "${AGENT_BUNDLE_SRC}/." "${agents_dst}/"
+  fi
+  # El agente de macOS lo produce este mismo build, así que no puede venir del
+  # bundle externo. En universal sirve para las dos arquitecturas, y se coloca bajo
+  # los dos nombres porque el GUI busca por macos-arm64 o macos-amd64 según el host.
+  if [[ -f "${BUILD_DIR}/zfsmgr_agent" ]]; then
+    for macos_key in macos-arm64 macos-amd64; do
+      mkdir -p "${agents_dst}/${macos_key}"
+      cp -f "${BUILD_DIR}/zfsmgr_agent" "${agents_dst}/${macos_key}/zfsmgr_agent"
+    done
+  fi
+  find "${agents_dst}" -type f -name 'zfsmgr_agent*' -exec chmod +x {} + 2>/dev/null || true
+  agent_count="$(find "${agents_dst}" -type f -name 'zfsmgr_agent*' | wc -l | tr -d ' ')"
+  if [[ "${agent_count}" -eq 0 ]]; then
+    echo "Error: no se empaquetó ningún agente en el bundle." >&2
+    echo "       Sin ellos la app no puede instalar el daemon en hosts remotos." >&2
+    echo "       Origen esperado: ${AGENT_BUNDLE_SRC}" >&2
+    exit 1
+  fi
+  echo "Agentes empaquetados en el bundle (${agent_count}):"
+  find "${agents_dst}" -type f -name 'zfsmgr_agent*' | sed "s|^${agents_dst}/|  |"
+
   # En universal, comprobar que TODO lo que se lleva el bundle trae las dos
   # arquitecturas. Basta con que una biblioteca se cuele con una sola para que la
   # app muera al arrancar en el otro Mac, y eso no se ve hasta probarlo allí.
@@ -779,7 +815,11 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
       if [[ "${archs}" != *arm64* || "${archs}" != *x86_64* ]]; then
         thin_files+="  ${candidate#${APP_BUNDLE}/} (${archs})"$'\n'
       fi
-    done < <(find "${APP_BUNDLE}" -type f)
+      # Contents/Resources/agents queda fuera: son binarios de OTRAS plataformas que
+      # se despliegan en hosts remotos, no código que macOS vaya a cargar. Los de
+      # macOS del bundle cruzado son además de una sola arquitectura, así que
+      # incluirlos aquí haría fallar el build sin motivo.
+    done < <(find "${APP_BUNDLE}" -path "${APP_BUNDLE}/Contents/Resources/agents" -prune -o -type f -print)
     if [[ -n "${thin_files}" ]]; then
       echo "Error: el bundle universal contiene binarios de una sola arquitectura:" >&2
       printf '%s' "${thin_files}" >&2
