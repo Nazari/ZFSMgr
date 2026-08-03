@@ -16,6 +16,8 @@
 #include <QSslConfiguration>
 #include <QSslKey>
 #include <QSslSocket>
+
+#include <mutex>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QRegularExpression>
@@ -1076,6 +1078,20 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             lastAttemptReason = QStringLiteral("no se pudo establecer túnel SSH local->daemon");
             return false;
         }
+
+        // Qué backend TLS está activo, una sola vez por ejecución. Sin este dato, un
+        // fallo de handshake no dice si lo está evaluando OpenSSL o el
+        // SecureTransport de Apple, que aplican políticas distintas: la app de macOS
+        // no podía hablar con ningún daemon porque cae a SecureTransport (el bundle
+        // no lleva libssl) y este rechaza los certificados que OpenSSL acepta.
+        static std::once_flag tlsBackendLogOnce;
+        std::call_once(tlsBackendLogOnce, [this]() {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("TLS: backend activo=%1 disponibles=[%2] libssl=%3")
+                       .arg(QSslSocket::activeBackend(),
+                            QSslSocket::availableBackends().join(QStringLiteral(", ")),
+                            QSslSocket::sslLibraryVersionString()));
+        });
 
         const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
         const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);

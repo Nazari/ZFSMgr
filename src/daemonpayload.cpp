@@ -675,8 +675,16 @@ QString tlsBootstrapShellCommand() {
     // TENGA SAN: si no, se rehace. Sin eso, los hosts ya aprovisionados se
     // quedarían con el certificado viejo para siempre, porque el fichero existe y
     // no está vacío.
+    // Con SAN el handshake dejó de fallar por nombre de host y pasó a fallar por
+    // "The root CA certificate is not trusted for this purpose", que es el
+    // InvalidPurpose de Qt: al certificado le faltaba extendedKeyUsage. Cada uno
+    // hace de ancla y de hoja a la vez, así que el del servidor declara serverAuth
+    // y el del cliente clientAuth. keyUsage lleva keyCertSign porque ambos son
+    // CA:TRUE de sí mismos, más lo que TLS necesita de la hoja.
     const QString san = QStringLiteral(
         "subjectAltName=DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1");
+    const QString keyUse = QStringLiteral(
+        "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign");
     return QStringLiteral(
         "mkdir -p %1; "
         "_zfsmgr_needs_san() { "
@@ -687,14 +695,16 @@ QString tlsBootstrapShellCommand() {
         "if [ ! -s %2 ] || [ ! -s %3 ] || _zfsmgr_needs_san %2; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-server' -addext '%6' "
+        "      -subj '/CN=zfsmgr-agent-server' -addext '%6' -addext '%7' "
+        "      -addext 'extendedKeyUsage=serverAuth' "
         "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
         "if [ ! -s %4 ] || [ ! -s %5 ] || _zfsmgr_needs_san %4; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-client' -addext '%6' "
+        "      -subj '/CN=zfsmgr-agent-client' -addext '%6' -addext '%7' "
+        "      -addext 'extendedKeyUsage=clientAuth' "
         "      -keyout %5 -out %4 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
@@ -705,7 +715,8 @@ QString tlsBootstrapShellCommand() {
              tlsServerKeyPath(),
              tlsClientCertPath(),
              tlsClientKeyPath(),
-             san);
+             san,
+             keyUse);
 }
 
 } // namespace daemonpayload
