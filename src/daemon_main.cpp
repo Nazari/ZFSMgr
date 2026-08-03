@@ -3662,6 +3662,9 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         }
         return runMutateAdvancedAssembleCapture(params);
     }
+#ifndef _WIN32
+    // todir usa AltMountGuard, que solo existe en Unix. En Windows la GUI no pasa
+    // por el agente para esta acción: usa su propio script de PowerShell.
     if (cmd == "--mutate-advanced-todir") {
         if (params.size() < 3) {
             r.rc = 2;
@@ -3670,6 +3673,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         }
         return runMutateAdvancedToDirCapture(params);
     }
+#endif
     if (cmd == "--mutate-zpool-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zpool-generic <payload-b64>\n"; return r; }
         return runGenericMutationCapture("zpool", params[0]);
@@ -5383,6 +5387,7 @@ int main(int argc, char* argv[]) {
         }
         return e.rc;
     }
+#ifndef _WIN32
     if (cmd == "--mutate-advanced-todir") {
         if (args.size() < 5) {
             printUsage(args[0].c_str());
@@ -5398,6 +5403,7 @@ int main(int argc, char* argv[]) {
         }
         return e.rc;
     }
+#endif
     if (cmd == "--mutate-zpool-generic") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
