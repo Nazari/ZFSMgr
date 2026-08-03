@@ -41,12 +41,18 @@ EOF
 
 REBUILD=0
 OPEN_SHELL=0
+# Todo lo que venga tras -- se le pasa tal cual a buildall-cross.sh dentro del
+# contenedor. Sin esto no había forma de usar ninguna de sus opciones; hizo falta
+# para --windows-installer 0, porque el instalador Inno necesita Wine y Wine no
+# está en la imagen.
+PASSTHROUGH_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platforms) shift; PLATFORMS="${1:?falta valor para --platforms}"; shift ;;
     --rebuild-image) REBUILD=1; shift ;;
     --shell) OPEN_SHELL=1; shift ;;
     -h|--help) usage; exit 0 ;;
+    --) shift; PASSTHROUGH_ARGS=("$@"); break ;;
     *) echo "Opción desconocida: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -86,6 +92,11 @@ if [[ ${OPEN_SHELL} -eq 1 ]]; then
   exec docker run -it "${DOCKER_ARGS[@]}" "${IMAGE}"
 fi
 
-echo "[docker] compilando: ${PLATFORMS}"
+extra=""
+if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
+  extra="$(printf ' %q' "${PASSTHROUGH_ARGS[@]}")"
+fi
+
+echo "[docker] compilando: ${PLATFORMS}${extra:+ (extra:${extra})}"
 exec docker run "${DOCKER_ARGS[@]}" "${IMAGE}" -lc \
-  "mkdir -p \"\${HOME}\" && ln -sfn /opt/toolchain/Qt \"\${HOME}/Qt\" && scripts/buildall-cross.sh --platforms '${PLATFORMS}'"
+  "mkdir -p \"\${HOME}\" && ln -sfn /opt/toolchain/Qt \"\${HOME}/Qt\" && scripts/buildall-cross.sh --platforms '${PLATFORMS}'${extra}"
