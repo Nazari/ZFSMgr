@@ -38,6 +38,7 @@ UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
 MAC_ARCH="$(uname -m)"
+UNIVERSAL=0
 
 usage() {
   cat <<'EOF'
@@ -47,6 +48,9 @@ Uso:
 Opciones:
   --bundle       Genera el bundle .app (por defecto)
   --no-bundle    Compila sin empaquetar el bundle final
+  --universal    Compila el .app universal (arm64 + x86_64). Requiere un OpenSSL
+                 universal: si no se indica ZFSMGR_OPENSSL_PREFIX, se construye
+                 con scripts/build-openssl-universal-macos.sh
   --sign         Fuerza la firma del bundle
   --no-sign      Desactiva la firma del bundle
   --sftpfc16     Sube el artefacto final (.dmg) al destino SFTP configurado
@@ -100,6 +104,8 @@ for arg in "$@"; do
     SIGN_APP_MODE="yes"
   elif [[ "${arg}" == "--no-sign" ]]; then
     SIGN_APP_MODE="no"
+  elif [[ "${arg}" == "--universal" ]]; then
+    UNIVERSAL=1
   else
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
@@ -635,7 +641,22 @@ if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
   fi
 fi
 
-if [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
+# En universal no vale el OpenSSL de Homebrew: solo trae la arquitectura de la
+# máquina y el enlazado de la otra fallaría. Se usa el prefijo universal, que se
+# construye si no está.
+if [[ ${UNIVERSAL} -eq 1 && -z "${ZFSMGR_OPENSSL_PREFIX:-}" ]]; then
+  "${SCRIPT_DIR}/build-openssl-universal-macos.sh"
+  ZFSMGR_OPENSSL_PREFIX="${PROJECT_ROOT}/builds/openssl-universal"
+fi
+
+if [[ -n "${ZFSMGR_OPENSSL_PREFIX:-}" ]]; then
+  if [[ ! -d "${ZFSMGR_OPENSSL_PREFIX}" ]]; then
+    echo "Error: ZFSMGR_OPENSSL_PREFIX apunta a ${ZFSMGR_OPENSSL_PREFIX}, que no existe." >&2
+    exit 1
+  fi
+  OPENSSL_PREFIX="${ZFSMGR_OPENSSL_PREFIX}"
+  export CMAKE_PREFIX_PATH="${OPENSSL_PREFIX}:${CMAKE_PREFIX_PATH:-}"
+elif [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
   OPENSSL_PREFIX="/opt/homebrew/opt/openssl@3"
   export CMAKE_PREFIX_PATH="${OPENSSL_PREFIX}:${CMAKE_PREFIX_PATH:-}"
 elif [[ -d "/usr/local/opt/openssl@3" ]]; then
@@ -644,6 +665,13 @@ elif [[ -d "/usr/local/opt/openssl@3" ]]; then
 fi
 
 cmake_cmd=(cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+if [[ ${UNIVERSAL} -eq 1 ]]; then
+  MAC_ARCH="universal"
+  cmake_cmd+=(-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64")
+fi
+if [[ -n "${OPENSSL_PREFIX}" ]]; then
+  cmake_cmd+=(-DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}")
+fi
 if [[ ${#EXTRA_CMAKE_ARGS[@]} -gt 0 ]]; then
   cmake_cmd+=("${EXTRA_CMAKE_ARGS[@]}")
 fi
@@ -724,6 +752,25 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "Error: el bundle no es autocontenido, falta ${missing_deploy}." >&2
     echo "       QT_PREFIX=${QT_PREFIX:-<vacío>} — si está vacío, Qt no se localizó." >&2
     exit 1
+  fi
+
+  # En universal, comprobar que TODO lo que se lleva el bundle trae las dos
+  # arquitecturas. Basta con que una biblioteca se cuele con una sola para que la
+  # app muera al arrancar en el otro Mac, y eso no se ve hasta probarlo allí.
+  if [[ ${UNIVERSAL} -eq 1 ]]; then
+    thin_files=""
+    while IFS= read -r macho; do
+      archs="$(lipo -archs "${macho}" 2>/dev/null || true)"
+      if [[ "${archs}" != *arm64* || "${archs}" != *x86_64* ]]; then
+        thin_files+="  ${macho#${APP_BUNDLE}/} (${archs:-desconocida})"$'\n'
+      fi
+    done < <(find "${APP_BUNDLE}" -type f \( -perm -u+x -o -name '*.dylib' \) ! -name '*.dSYM')
+    if [[ -n "${thin_files}" ]]; then
+      echo "Error: el bundle universal contiene binarios de una sola arquitectura:" >&2
+      printf '%s' "${thin_files}" >&2
+      exit 1
+    fi
+    echo "Bundle universal verificado: arm64 + x86_64 en todos los binarios."
   fi
 
   if [[ "${SHOULD_SIGN}" -eq 1 ]]; then

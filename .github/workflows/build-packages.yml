@@ -12,24 +12,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Dos imágenes de macOS a propósito: macos-14 es Apple Silicon y
-        # macos-15-intel es Intel, y cada una produce el .app de su arquitectura. No
-        # se hace un binario universal porque el OpenSSL de Homebrew que enlaza el
-        # agente solo trae la arquitectura de la máquina, así que un universal
-        # exigiría compilar OpenSSL para ambas.
+        # Un solo job de macOS: produce un .app UNIVERSAL (arm64 + x86_64) desde el
+        # runner Apple Silicon. Los frameworks de Qt ya vienen universales; la única
+        # pieza que faltaba era OpenSSL, que se compila para ambas arquitecturas con
+        # scripts/build-openssl-universal-macos.sh. Antes hacían falta dos jobs y se
+        # publicaban dos descargas.
         #
-        # El Intel NO puede ser macos-13: se retiró en diciembre de 2025 y la
-        # etiqueta ya no tiene runners — un job que la pida se queda encolado para
-        # siempre en vez de fallar. macos-15-intel es su sustituta oficial.
-        #
-        # Apple Silicon va fijado a macos-14 y no a macos-latest porque en Sequoia
-        # el enlazado murió con "ld: framework 'AGL' not found". OJO, la causa NO
-        # está identificada: se atribuyó al SDK de Xcode 16, pero macos-15-intel usa
-        # Xcode 16.4 y compila sin problema, así que esa explicación no se sostiene.
-        # Antes de volver a macos-latest hay que averiguar de dónde sale realmente
-        # la referencia a AGL (sospecha principal: el FindOpenGL de CMake, cuya
-        # versión difiere entre imágenes).
-        os: [ubuntu-latest, macos-14, macos-15-intel, windows-latest]
+        # macos-14 y no macos-latest porque en Sequoia el enlazado murió con
+        # "ld: framework 'AGL' not found". OJO, la causa NO está identificada: se
+        # atribuyó al SDK de Xcode 16, pero macos-15-intel usaba Xcode 16.4 y
+        # compilaba sin problema, así que esa explicación no se sostiene. Antes de
+        # volver a macos-latest hay que averiguar de dónde sale realmente la
+        # referencia a AGL (sospecha principal: el FindOpenGL de CMake, cuya versión
+        # difiere entre imágenes).
+        os: [ubuntu-latest, macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -57,12 +53,29 @@ jobs:
           chmod +x ./scripts/build-linux.sh
           ./scripts/build-linux.sh
 
+      # Compilar OpenSSL dos veces cuesta varios minutos y no cambia salvo que se
+      # suba su versión, así que se cachea contra la versión fijada en el script.
+      - name: Caché de OpenSSL universal (macOS)
+        if: runner.os == 'macOS'
+        id: ssl-cache
+        uses: actions/cache@v4
+        with:
+          path: builds/openssl-universal
+          key: openssl-universal-${{ runner.os }}-${{ hashFiles('scripts/build-openssl-universal-macos.sh') }}
+
+      - name: Compilar OpenSSL universal (macOS)
+        if: runner.os == 'macOS' && steps.ssl-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          chmod +x ./scripts/build-openssl-universal-macos.sh
+          ./scripts/build-openssl-universal-macos.sh
+
       - name: Build (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           chmod +x ./scripts/build-macos.sh
-          ./scripts/build-macos.sh
+          ZFSMGR_OPENSSL_PREFIX="${PWD}/builds/openssl-universal" ./scripts/build-macos.sh --universal
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -80,11 +93,12 @@ jobs:
         run: |
           cd builds/macos
           app="$(ls -d *.app | head -n1)"
-          arch="$(uname -m)"
-          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-${arch}.app.zip"
-          # El nombre del artefacto lleva la arquitectura: con dos jobs de macOS,
-          # un nombre fijo haría que el segundo choque con el del primero.
-          echo "MAC_ARCH=${arch}" >> "$GITHUB_ENV"
+          # No se usa uname -m: el runner es arm64 pero el bundle es universal, y
+          # etiquetarlo con la arquitectura de la máquina que lo compiló haría creer
+          # que no sirve en un Mac Intel.
+          bin="${app}/Contents/MacOS/$(ls "${app}/Contents/MacOS" | grep -v '\.dSYM$' | head -n1)"
+          echo "Arquitecturas del ejecutable: $(lipo -archs "${bin}")"
+          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-universal.app.zip"
 
       # Los scripts de build escriben en builds/<os>/, no en build-<os>/. Con las
       # rutas antiguas y if-no-files-found: warn, el workflow subía artefactos
@@ -105,7 +119,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: zfsmgr-macos-${{ env.MAC_ARCH }}
+          name: zfsmgr-macos-universal
           path: builds/macos/*.app.zip
           if-no-files-found: error
 
