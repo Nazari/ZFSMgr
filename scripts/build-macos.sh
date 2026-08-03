@@ -759,12 +759,17 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # app muera al arrancar en el otro Mac, y eso no se ve hasta probarlo allí.
   if [[ ${UNIVERSAL} -eq 1 ]]; then
     thin_files=""
-    while IFS= read -r macho; do
-      archs="$(lipo -archs "${macho}" 2>/dev/null || true)"
+    while IFS= read -r candidate; do
+      # No se filtra por nombre ni por permisos: el icono .icns lleva el bit de
+      # ejecución y colaba como si fuera un binario. Se recorre todo y se deja que
+      # lipo decida — falla en lo que no es Mach-O, y eso es justo lo que hay que
+      # saltarse.
+      archs="$(lipo -archs "${candidate}" 2>/dev/null)" || continue
+      [[ -z "${archs}" ]] && continue
       if [[ "${archs}" != *arm64* || "${archs}" != *x86_64* ]]; then
-        thin_files+="  ${macho#${APP_BUNDLE}/} (${archs:-desconocida})"$'\n'
+        thin_files+="  ${candidate#${APP_BUNDLE}/} (${archs})"$'\n'
       fi
-    done < <(find "${APP_BUNDLE}" -type f \( -perm -u+x -o -name '*.dylib' \) ! -name '*.dSYM')
+    done < <(find "${APP_BUNDLE}" -type f)
     if [[ -n "${thin_files}" ]]; then
       echo "Error: el bundle universal contiene binarios de una sola arquitectura:" >&2
       printf '%s' "${thin_files}" >&2
