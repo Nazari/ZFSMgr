@@ -1,5 +1,7 @@
 #include "mainwindow_helpers.h"
 
+#include "daemonpayload.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -796,10 +798,10 @@ QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
         // ("Token 'health' inesperado"). Además, quien invoque esto debe forzar
         // WindowsCommandMode::PowerShellNative: en Auto el envoltorio lo toma por shell
         // Unix y lo ejecuta con el bash de MSYS2, que se come las barras invertidas.
-        return QStringLiteral("& \"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" ") + agentArgs;
+        return QStringLiteral("& \"") + daemonpayload::windowsBinPath() + QStringLiteral("\" ") + agentArgs;
     }
     return withSudoCommand(
-        p, withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent ") + agentArgs));
+        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs));
 }
 
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {

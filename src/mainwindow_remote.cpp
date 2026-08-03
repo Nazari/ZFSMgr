@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "agentversion.h"
+#include "daemonpayload.h"
 
 #include <QCoreApplication>
 #include <QMessageBox>
@@ -181,12 +182,28 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
 
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
-    const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
-    const int pos = remoteCmd.lastIndexOf(marker);
+    // Se prueban las dos rutas del agente, no solo la de Unix. Buscar únicamente la
+    // Unix es lo que dejaba a Windows fuera del RPC: agentCommand() emite la ruta de
+    // Windows, no casaba con el marcador, y el comando acababa ejecutándose por SSH en
+    // crudo, sin el mTLS del túnel, sin que nada lo advirtiera.
+    int pos = -1;
+    int markerLen = 0;
+    for (const QString& marker : {daemonpayload::unixBinPath(), daemonpayload::windowsBinPath()}) {
+        const int found = remoteCmd.lastIndexOf(marker);
+        if (found > pos) {
+            pos = found;
+            markerLen = marker.size();
+        }
+    }
     if (pos < 0) {
         return false;
     }
-    QString tail = remoteCmd.mid(pos + marker.size()).trimmed();
+    QString tail = remoteCmd.mid(pos + markerLen).trimmed();
+    // La forma de Windows es: & "C:\...\zfsmgr-agent.exe" --health
+    // Tras el marcador queda la comilla de cierre, que no es parte de los argumentos.
+    if (tail.startsWith(QLatin1Char('"'))) {
+        tail = tail.mid(1).trimmed();
+    }
     if (tail.isEmpty()) {
         return false;
     }
@@ -554,7 +571,39 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                        "  port=$(awk -F= '/^[[:space:]]*AGENT_PORT[[:space:]]*=/{print $2}' /etc/zfsmgr/agent.conf | tail -n1 | tr -d \"' \\t\\r\"); "
                        "  if [ -n \"$port\" ]; then printf '__ZFSMGR_AGENT_PORT__:%s\\n' \"$port\"; fi; "
                        "fi");
-    const QString cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
+    // Windows guarda el material TLS bajo C:\ProgramData, no bajo /etc, y su shell por
+    // omisión es cmd: el bucle de arriba no vale. Se emite el equivalente en PowerShell
+    // codificado en base64, que es un único token y no atraviesa ninguna capa de
+    // comillas. Las rutas van con barra normal a propósito: Windows las acepta, y así
+    // los marcadores terminan en "/server.crt" y el parseador de arriba sirve sin tocar.
+    QString cmdPlain;
+    if (mwhelpers::isWindowsOsType(p.osType)) {
+        const QString winTlsDir = QStringLiteral("C:/ProgramData/ZFSMgr/agent/tls");
+        const QString winScript =
+            QStringLiteral(
+                "$ErrorActionPreference='SilentlyContinue'; "
+                "foreach($f in @('%1/server.crt','%1/client.crt','%1/client.key')){ "
+                "  if(Test-Path -LiteralPath $f){ "
+                "    Write-Output ('__ZFSMGR_TLS_BEGIN__:' + $f); "
+                "    Get-Content -LiteralPath $f -Raw; "
+                "    Write-Output ('__ZFSMGR_TLS_END__:' + $f); "
+                "  } "
+                "}; "
+                "$conf='C:/ProgramData/ZFSMgr/agent/agent.conf'; "
+                "if(Test-Path -LiteralPath $conf){ "
+                "  $m=Select-String -LiteralPath $conf -Pattern '^\\s*AGENT_PORT\\s*=\\s*(\\d+)' "
+                "     | Select-Object -Last 1; "
+                "  if($m){ Write-Output ('__ZFSMGR_AGENT_PORT__:' + $m.Matches[0].Groups[1].Value) } "
+                "}")
+                .arg(winTlsDir);
+        const QByteArray utf16(reinterpret_cast<const char*>(winScript.utf16()), winScript.size() * 2);
+        cmdPlain = QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1")
+                       .arg(QString::fromLatin1(utf16.toBase64()));
+    } else {
+        cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
+    }
+    // withSudoCommand ya devuelve el comando intacto en Windows, así que este reintento
+    // es inocuo allí: simplemente repite el mismo PowerShell.
     const QString cmdSudo = mwhelpers::withSudoCommand(p, cmdPlain);
 
     auto readBundle = [&](const QString& cmd,

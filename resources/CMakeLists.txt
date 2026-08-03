@@ -301,6 +301,10 @@ if(BUILD_TESTING)
     add_executable(zfsmgr_helpers_test
         ../tests/helpers_test.cpp
         ../src/mainwindow_helpers.cpp
+        # agentCommand() toma la ruta del binario de daemonpayload en vez de repetirla:
+        # quien construye la invocación y quien la reconoce para convertirla en RPC deben
+        # hablar de la misma ruta, o el comando se va por SSH en crudo sin avisar.
+        ../src/daemonpayload.cpp
     )
     target_include_directories(zfsmgr_helpers_test PRIVATE ../src)
     target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
