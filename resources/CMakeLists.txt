@@ -204,7 +204,11 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    set(ZFSMGR_BUNDLE_NAME "ZFSMgr-${ZFSMGR_APP_VERSION_STRING}")
+    # SIN versión en el nombre: el bundle debe llamarse siempre ZFSMgr.app para que
+    # al copiarlo a /Applications reemplace al anterior en vez de instalarse a su
+    # lado. La versión sigue estando en el Info.plist (CFBundleShortVersionString)
+    # y en el nombre del .zip que se publica.
+    set(ZFSMGR_BUNDLE_NAME "ZFSMgr")
     set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr.icns")
     set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     target_sources(zfsmgr_qt PRIVATE ${app_icns})

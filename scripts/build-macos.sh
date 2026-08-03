@@ -684,7 +684,11 @@ fi
 "${cmake_cmd[@]}"
 
 APP_VERSION="$(resolve_app_version)"
-BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
+# Debe coincidir con ZFSMGR_BUNDLE_NAME de resources/CMakeLists.txt, que ya no
+# lleva la versión: el bundle se llama ZFSMgr.app siempre, para que al copiarlo a
+# /Applications reemplace al anterior. La versión va en el nombre del .zip y en el
+# .dmg, que sí se construyen con APP_VERSION.
+BUNDLE_NAME="ZFSMgr"
 
 if [[ "${BUNDLE_APP}" -eq 1 && -d "${BUILD_DIR}/${BUNDLE_NAME}.app" ]]; then
   # El deploy manual reescribe install_names dentro del bundle; borrar la app fuerza un relink limpio.
@@ -813,7 +817,9 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     dmg_arch="${ARCH:-$(uname -m)}"
     dmg_path="$(create_macos_dmg "${APP_BUNDLE}")"
-    final_dmg="${BUILD_DIR}/${BUNDLE_NAME}_${dmg_arch}.dmg"
+    # La versión se pone aquí explícitamente: BUNDLE_NAME ya no la lleva, y un DMG
+    # sin versión en el nombre sobrescribiría al de la entrega anterior.
+    final_dmg="${BUILD_DIR}/ZFSMgr-${APP_VERSION}_${dmg_arch}.dmg"
     mv "${BUILD_DIR}/${BUNDLE_NAME}.dmg" "${final_dmg}"
     echo "DMG creado: ${final_dmg}"
     upload_to_sftp "${final_dmg}"

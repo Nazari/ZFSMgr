@@ -59,24 +59,26 @@ The Gatekeeper warning is not caused by the file — it is caused by the *quaran
 attribute* that web browsers attach to anything you download. Command line tools do
 not set it, so downloading this way avoids the problem entirely.
 
-Release assets are named `ZFSMgr-<version>-macos-<arch>.app.zip`, so this snippet
-picks the right architecture and resolves the current version for you:
+There is a single macOS asset, `ZFSMgr-<version>-macos-universal.app.zip`, which
+runs on both Apple Silicon and Intel — no need to pick an architecture. This
+snippet resolves the current version for you:
 
 ```bash
-ARCH=$([ "$(uname -m)" = "arm64" ] && echo arm64 || echo amd64)
 URL=$(curl -fsSL https://api.github.com/repos/Nazari/ZFSMgr/releases/latest \
-      | grep -o "https://[^\"]*macos-${ARCH}\.app\.zip")
+      | grep -o "https://[^\"]*macos-universal\.app\.zip")
 curl -L -o ZFSMgr.app.zip "$URL"
 unzip ZFSMgr.app.zip -d /Applications
 open /Applications/ZFSMgr.app
 ```
 
-`arm64` is for Apple Silicon, `amd64` for Intel Macs.
+The bundle inside the archive is always `ZFSMgr.app`, without the version, so
+unzipping over `/Applications` replaces the previous install instead of leaving
+both side by side. The version is in the app's Info.plist.
 
 With the GitHub CLI it is a single command:
 
 ```bash
-gh release download --repo Nazari/ZFSMgr --pattern '*macos-arm64.app.zip'
+gh release download --repo Nazari/ZFSMgr --pattern '*macos-universal.app.zip'
 ```
 
 ### If you already downloaded it with a browser
