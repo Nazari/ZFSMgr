@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 
 namespace mwhelpers {
@@ -771,6 +772,87 @@ QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
     }
     return withSudoCommand(
         p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs));
+}
+
+// Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
+// QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
+// cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
+QStringList posixShellSplitArgs(const QString& s) {
+    QStringList result;
+    QString current;
+    bool inSQ = false, inDQ = false, started = false;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s.at(i);
+        if (inSQ) {
+            if (c == QLatin1Char('\'')) { inSQ = false; }
+            else { current += c; }
+        } else if (inDQ) {
+            if (c == QLatin1Char('"')) { inDQ = false; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                const QChar next = s.at(++i);
+                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
+                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
+                    current += next;
+                } else {
+                    current += c;
+                    current += next;
+                }
+            } else {
+                current += c;
+            }
+        } else {
+            // "started" distingue un token vacío ESCRITO ('') de la ausencia de token.
+            // Sin esto, un argumento vacío desaparecía al recuperarlo, y --zfs-send-to-peer
+            // pasa vacíos a menudo (snapshot base y flags), con lo que los siguientes
+            // argumentos se corrían de posición.
+            if (c == QLatin1Char('\'')) { inSQ = true; started = true; }
+            else if (c == QLatin1Char('"')) { inDQ = true; started = true; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                current += s.at(++i);
+            } else if (c.isSpace()) {
+                if (!current.isEmpty() || started) { result += current; current.clear(); started = false; }
+            } else {
+                current += c;
+            }
+        }
+    }
+    if (!current.isEmpty() || started) { result += current; }
+    return result;
+}
+
+QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentArgs) {
+    QStringList quoted;
+    quoted.reserve(agentArgs.size());
+    for (const QString& a : agentArgs) {
+        quoted << (isWindowsOsType(p.osType) ? a : shSingleQuote(a));
+    }
+    return agentCommand(p, quoted.join(QLatin1Char(' ')));
+}
+
+QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs) {
+    if (isWindowsOsType(p.osType)) {
+        return agentShellCommand(p, agentArgs);
+    }
+    QStringList quoted;
+    quoted.reserve(agentArgs.size());
+    for (const QString& a : agentArgs) {
+        quoted << shSingleQuote(a);
+    }
+    return withSudoStreamInputCommand(
+        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ")
+                                     + quoted.join(QLatin1Char(' '))));
+}
+
+bool isCliOnlyAgentCommand(const QString& verb) {
+    // Estos cuatro no se sirven por RPC a propósito: transportan flujos por la entrada
+    // y la salida estándar, que el canal RPC no lleva.
+    static const QSet<QString> kCliOnly = {
+        QStringLiteral("--mutate-shell-generic"),
+        QStringLiteral("--mutate-advanced-fromdir"),
+        QStringLiteral("--mutate-sync-temp-tar-source"),
+        QStringLiteral("--mutate-sync-temp-tar-dest"),
+    };
+    return kCliOnly.contains(verb.trimmed());
 }
 
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {

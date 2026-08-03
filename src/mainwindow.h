@@ -619,7 +619,31 @@ private:
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {},
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
-                const QByteArray& stdinPayload = {});
+                const QByteArray& stdinPayload = {},
+                // Lo pone a false runAgentCommand, que ya ha intentado el RPC con los
+                // argumentos correctos. Sin esto, la cadena renderizada se volvería a
+                // parsear aquí y un segundo intento podría salir con argumentos
+                // truncados, que es justo el defecto que la migración elimina.
+                bool allowAgentRpc = true);
+
+    // Puerta única para pedirle algo al agente. Los sitios de llamada pasan argv y no
+    // construyen cadenas de shell.
+    bool runAgentCommand(const ConnectionProfile& p,
+                         const QStringList& agentArgs,
+                         int timeoutMs,
+                         QString& out,
+                         QString& err,
+                         int& rc,
+                         const QByteArray& stdinPayload = {});
+
+    bool tryAgentRpcOverSsh(const ConnectionProfile& p,
+                            const QStringList& agentArgs,
+                            int timeoutMs,
+                            QString& out,
+                            QString& err,
+                            int& rc,
+                            const std::function<void(const QString&)>& onStdoutLine = {},
+                            const std::function<void(const QString&)>& onStderrLine = {});
     // Submits a long-running agent mutation as a background job and polls until it
     // finishes. Removes the RPC read timeout from the equation: the submission is
     // instant and the outcome is asked for afterwards, so a slow operation can no

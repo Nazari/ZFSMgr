@@ -416,6 +416,50 @@ int main() {
         }
     }
 
+    // Ida y vuelta del renderizado a cadena. Es el test que define el problema que
+    // motivó la migración a argv: un argumento con ';', '&' o '|' —un directorio
+    // elegido por el usuario, por ejemplo— truncaba la orden al recuperarla.
+    {
+        ConnectionProfile unixProfile;
+        unixProfile.osType = QStringLiteral("Linux");
+        unixProfile.useSudo = false;
+        const QVector<QStringList> corpus = {
+            {QStringLiteral("--mutate-advanced-todir"), QStringLiteral("tank/x"),
+             QStringLiteral("/home/x/Copias & Backups"), QStringLiteral("1")},
+            {QStringLiteral("--dump-x"), QStringLiteral("a;b")},
+            {QStringLiteral("--dump-x"), QStringLiteral("a|b")},
+            {QStringLiteral("--dump-x"), QStringLiteral("con 'comilla'")},
+            {QStringLiteral("--dump-x"), QStringLiteral("")},
+            {QStringLiteral("--dump-x"), QStringLiteral("ñ 漢字")},
+            {QStringLiteral("--dump-x"), QStringLiteral("$HOME")},
+            {QStringLiteral("--dump-x"), QStringLiteral("a\\b")},
+        };
+        for (const QStringList& argv : corpus) {
+            const QString rendered = mwhelpers::agentShellCommand(unixProfile, argv);
+            const int marker = rendered.lastIndexOf(QStringLiteral("zfsmgr-agent"));
+            if (marker < 0) {
+                return fail("agentShellCommand debe contener la ruta del agente");
+            }
+            const QString tail = rendered.mid(marker + QStringLiteral("zfsmgr-agent").size()).trimmed();
+            const QStringList back = mwhelpers::posixShellSplitArgs(tail);
+            if (back != argv) {
+                std::cout << "  esperado: " << argv.join(QLatin1Char('|')).toStdString() << "\n";
+                std::cout << "  obtenido: " << back.join(QLatin1Char('|')).toStdString() << "\n";
+                return fail("el renderizado a cadena no conserva los argumentos");
+            }
+        }
+    }
+
+    // Los verbos que transportan flujos por la entrada estándar nunca deben ir por RPC.
+    {
+        if (!mwhelpers::isCliOnlyAgentCommand(QStringLiteral("--mutate-shell-generic"))) {
+            return fail("--mutate-shell-generic debe ser solo-CLI");
+        }
+        if (mwhelpers::isCliOnlyAgentCommand(QStringLiteral("--mutate-advanced-todir"))) {
+            return fail("--mutate-advanced-todir sí es servible por RPC");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

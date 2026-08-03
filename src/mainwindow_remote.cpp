@@ -122,47 +122,6 @@ LocalAgentConfig loadLocalAgentConfig() {
     return cfg;
 }
 
-// Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
-// QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
-// cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
-static QStringList posixShellSplitArgs(const QString& s) {
-    QStringList result;
-    QString current;
-    bool inSQ = false, inDQ = false;
-    for (int i = 0; i < s.size(); ++i) {
-        const QChar c = s.at(i);
-        if (inSQ) {
-            if (c == QLatin1Char('\'')) { inSQ = false; }
-            else { current += c; }
-        } else if (inDQ) {
-            if (c == QLatin1Char('"')) { inDQ = false; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                const QChar next = s.at(++i);
-                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
-                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
-                    current += next;
-                } else {
-                    current += c;
-                    current += next;
-                }
-            } else {
-                current += c;
-            }
-        } else {
-            if (c == QLatin1Char('\'')) { inSQ = true; }
-            else if (c == QLatin1Char('"')) { inDQ = true; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                current += s.at(++i);
-            } else if (c.isSpace()) {
-                if (!current.isEmpty()) { result += current; current.clear(); }
-            } else {
-                current += c;
-            }
-        }
-    }
-    if (!current.isEmpty()) { result += current; }
-    return result;
-}
 
 // Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
 // nothing, but re-sending a mutation that may already be running is how a single
@@ -220,7 +179,7 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     if (tail.isEmpty()) {
         return false;
     }
-    const QStringList parsed = posixShellSplitArgs(tail);
+    const QStringList parsed = mwhelpers::posixShellSplitArgs(tail);
     if (parsed.isEmpty()) {
         return false;
     }
@@ -1428,6 +1387,179 @@ bool MainWindow::cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p,
     return ok;
 }
 
+// Intenta servir una invocación del agente por el túnel RPC y decide qué hacer si no
+// puede. Devuelve true si la ha atendido (con éxito, o abortando a propósito para no
+// duplicar una mutación); false significa "ejecútala por SSH".
+//
+// Vive aquí, y no dentro de runSsh, porque hay dos entradas: la histórica, que recupera
+// los argumentos parseando una cadena de shell, y runAgentCommand, que ya los tiene. La
+// política de reintento, backoff y la regla de no reintentar mutaciones tiene que ser
+// exactamente la misma para las dos.
+bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
+                                    const QStringList& agentArgs,
+                                    int timeoutMs,
+                                    QString& out,
+                                    QString& err,
+                                    int& rc,
+                                    const std::function<void(const QString&)>& onStdoutLine,
+                                    const std::function<void(const QString&)>& onStderrLine) {
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0 || agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
+    bool allowRpcAttempt = true;
+    QString suppressedReason;
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
+        if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
+            && it.value().isValid()
+            && QDateTime::currentDateTimeUtc() < it.value()) {
+            allowRpcAttempt = false;
+            suppressedReason = QStringLiteral("backoff activo %1s")
+                                   .arg(QDateTime::currentDateTimeUtc().secsTo(it.value()));
+        }
+    }
+    bool rpcAttemptOk = false;
+    QString rpcFailureReason;
+    bool rpcCommandMayHaveRun = false;
+    if (allowRpcAttempt) {
+        if (QThread::currentThread() == thread()) {
+            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
+        } else {
+            QMetaObject::invokeMethod(
+                this,
+                [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
+                 &rpcCommandMayHaveRun]() {
+                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
+                        &rpcCommandMayHaveRun);
+                },
+                Qt::BlockingQueuedConnection);
+        }
+    }
+    if (rpcAttemptOk) {
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
+            m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
+        }
+        const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
+                                    .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
+        appLog(QStringLiteral("INFO"), cmdLine);
+        appendConnectionLog(p.id, cmdLine);
+        const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
+            const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+            for (const QString& rawLine : lines) {
+                const QString line = rawLine.trimmed();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (cb) {
+                    cb(line);
+                }
+                appendConnectionLog(p.id, line);
+            }
+        };
+        emitLines(out, onStdoutLine);
+        emitLines(err, onStderrLine);
+        if (!out.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(out));
+        }
+        if (!err.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(err));
+        }
+        return true;
+    } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
+        // The daemon received a mutating command and we never got its answer.
+        // Closing the tunnel does not abort remote work, so falling back to
+        // SSH here would run the same destructive command a second time,
+        // possibly overlapping with the first. Fail loudly instead.
+        const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                   ? QStringLiteral("motivo no especificado")
+                                   : rpcFailureReason.trimmed();
+        const QString abortLine =
+            QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
+                           " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+        appLog(QStringLiteral("ERROR"), abortLine);
+        appendConnectionLog(p.id, abortLine);
+        out.clear();
+        err = QStringLiteral(
+                  "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
+                  "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
+                  "reintenta automáticamente.\nCompruebe el estado antes de repetirla.")
+                  .arg(reason);
+        rc = 124;
+        return true;
+    } else if (allowRpcAttempt) {
+        const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                   ? QStringLiteral("motivo no especificado")
+                                   : rpcFailureReason.trimmed();
+        const QString fallbackLine =
+            QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+        appLog(QStringLiteral("INFO"), fallbackLine);
+        appendConnectionLog(p.id, fallbackLine);
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        constexpr int kDaemonRpcRetryBackoffSec = 30;
+        m_daemonRpcRetryAfterByConnKey.insert(
+            rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
+        m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
+    } else if (!suppressedReason.isEmpty()) {
+        const QString skippedLine =
+            QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
+        appLog(QStringLiteral("INFO"), skippedLine);
+        appendConnectionLog(p.id, skippedLine);
+    }
+    return false;
+}
+
+// Invocación del agente a partir de sus argumentos, sin pasar por una cadena de shell.
+//
+// El protocolo de cable ya era argv: lo que sobraba era construir una cadena en el
+// sitio de llamada para que runSsh la volviera a parsear. Ese ida y vuelta perdía
+// argumentos con ';', '&' o '|' —un directorio elegido por el usuario, por ejemplo—,
+// descartaba la entrada estándar en silencio y rechazaba los verbos de trabajos.
+//
+// El respaldo por shell sigue existiendo, pero se renderiza a partir de los mismos
+// argumentos y solo cuando hace falta.
+bool MainWindow::runAgentCommand(const ConnectionProfile& p,
+                                 const QStringList& agentArgs,
+                                 int timeoutMs,
+                                 QString& out,
+                                 QString& err,
+                                 int& rc,
+                                 const QByteArray& stdinPayload) {
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString verb = agentArgs.first().trimmed();
+    // stdin no vacío descarta el RPC: el canal no lo transporta. Antes esto no se
+    // comprobaba y la passphrase de un dataset cifrado se perdía sin aviso.
+    const bool rpcEligible =
+        stdinPayload.isEmpty() && !mwhelpers::isCliOnlyAgentCommand(verb);
+    if (rpcEligible) {
+        if (isLocalConnection(p)) {
+            if (tryRunLocalAgentRpc(agentArgs, timeoutMs, out, err, rc)) {
+                return true;
+            }
+        } else if (tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc)) {
+            return true;
+        }
+    }
+    const QString shellCmd = stdinPayload.isEmpty()
+                                 ? mwhelpers::agentShellCommand(p, agentArgs)
+                                 : mwhelpers::agentShellCommandStreamInput(p, agentArgs);
+    return runSsh(p, shellCmd, timeoutMs, out, err, rc, {}, {}, {}, stdinPayload,
+                  /*allowAgentRpc=*/false);
+}
+
 bool MainWindow::runSsh(const ConnectionProfile& p,
                         const QString& remoteCmd,
                         int timeoutMs,
@@ -1437,7 +1569,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         const std::function<void(const QString&)>& onStdoutLine,
                         const std::function<void(const QString&)>& onStderrLine,
                         const std::function<void(int)>& onIdleTimeoutRemaining,
-                        const QByteArray& stdinPayload) {
+                        const QByteArray& stdinPayload,
+                        bool allowAgentRpc) {
     out.clear();
     err.clear();
     rc = -1;
@@ -1452,7 +1585,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         // dice en runExecCaptureWithStdin) y la intercepción no lo miraba, así que la
         // passphrase de un dataset cifrado se perdía en silencio al desglosarlo.
         QStringList localAgentArgs;
-        if (stdinPayload.isEmpty() && extractLocalAgentArgs(localCmd, localAgentArgs)) {
+        if (allowAgentRpc && stdinPayload.isEmpty() && extractLocalAgentArgs(localCmd, localAgentArgs)) {
             if (tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc)) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
                     const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
@@ -1622,118 +1755,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
     // Windows entra por RPC como cualquier otro sistema: el daemon nativo sirve TLS por
     // el mismo túnel "ssh -L", verificado contra un Windows 11 real ejecutando ZFS.
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
-        // Ver la nota de la rama local: stdin no vacío hace el RPC inelegible.
+    // Camino histórico: los argumentos se recuperan parseando la cadena. runAgentCommand
+    // los pasa ya hechos y no pasa por aquí. Este parseo desaparece cuando migren todos
+    // los sitios; hasta entonces convive con el nuevo.
+    if (allowAgentRpc && stdinPayload.isEmpty()) {
         QStringList agentArgs;
-        if (stdinPayload.isEmpty() && extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
-            const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
-            bool allowRpcAttempt = true;
-            QString suppressedReason;
-            {
-                QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
-                if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
-                    && it.value().isValid()
-                    && QDateTime::currentDateTimeUtc() < it.value()) {
-                    allowRpcAttempt = false;
-                    suppressedReason = QStringLiteral("backoff activo %1s")
-                                           .arg(QDateTime::currentDateTimeUtc().secsTo(it.value()));
-                }
-            }
-            bool rpcAttemptOk = false;
-            QString rpcFailureReason;
-            bool rpcCommandMayHaveRun = false;
-            if (allowRpcAttempt) {
-                if (QThread::currentThread() == thread()) {
-                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
-                } else {
-                    QMetaObject::invokeMethod(
-                        this,
-                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
-                         &rpcCommandMayHaveRun]() {
-                            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
-                                &rpcCommandMayHaveRun);
-                        },
-                        Qt::BlockingQueuedConnection);
-                }
-            }
-            if (rpcAttemptOk) {
-                {
-                    QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                    m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
-                    m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
-                }
-                const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
-                                            .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
-                appLog(QStringLiteral("INFO"), cmdLine);
-                appendConnectionLog(p.id, cmdLine);
-                const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
-                    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-                    for (const QString& rawLine : lines) {
-                        const QString line = rawLine.trimmed();
-                        if (line.isEmpty()) {
-                            continue;
-                        }
-                        if (cb) {
-                            cb(line);
-                        }
-                        appendConnectionLog(p.id, line);
-                    }
-                };
-                emitLines(out, onStdoutLine);
-                emitLines(err, onStderrLine);
-                if (!out.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(out));
-                }
-                if (!err.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(err));
-                }
-                return true;
-            } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
-                // The daemon received a mutating command and we never got its answer.
-                // Closing the tunnel does not abort remote work, so falling back to
-                // SSH here would run the same destructive command a second time,
-                // possibly overlapping with the first. Fail loudly instead.
-                const QString reason = rpcFailureReason.trimmed().isEmpty()
-                                           ? QStringLiteral("motivo no especificado")
-                                           : rpcFailureReason.trimmed();
-                const QString abortLine =
-                    QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
-                                   " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
-                appLog(QStringLiteral("ERROR"), abortLine);
-                appendConnectionLog(p.id, abortLine);
-                out.clear();
-                err = QStringLiteral(
-                          "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
-                          "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
-                          "reintenta automáticamente.\nCompruebe el estado antes de repetirla.")
-                          .arg(reason);
-                rc = 124;
-                return true;
-            } else if (allowRpcAttempt) {
-                const QString reason = rpcFailureReason.trimmed().isEmpty()
-                                           ? QStringLiteral("motivo no especificado")
-                                           : rpcFailureReason.trimmed();
-                const QString fallbackLine =
-                    QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
-                appLog(QStringLiteral("INFO"), fallbackLine);
-                appendConnectionLog(p.id, fallbackLine);
-                QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                constexpr int kDaemonRpcRetryBackoffSec = 30;
-                m_daemonRpcRetryAfterByConnKey.insert(
-                    rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
-                m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
-            } else if (!suppressedReason.isEmpty()) {
-                const QString skippedLine =
-                    QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
-                appLog(QStringLiteral("INFO"), skippedLine);
-                appendConnectionLog(p.id, skippedLine);
-            }
+        if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)
+            && tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine)) {
+            return true;
         }
     }
 

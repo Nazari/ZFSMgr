@@ -91,6 +91,18 @@ QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, Str
 QString withUnixSearchPathCommand(const QString& cmd);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
 QString agentCommand(const ConnectionProfile& p, const QString& agentArgs);
+// Renderiza una invocación del agente a partir de sus argumentos.
+//
+// Es la ÚNICA dirección de conversión que sobrevive. La inversa —parsear la cadena
+// para recuperar los argumentos— es la que causaba que un directorio con ';', '&' o
+// '|' en el nombre truncara la orden, y desaparece con la migración a argv.
+QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentArgs);
+QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs);
+// Verbos que solo existen en la línea de comandos del agente, nunca por RPC. La lista
+// la fija el marcador de esquema de resources/CMakeLists.txt con el prefijo "cli-only:".
+bool isCliOnlyAgentCommand(const QString& verb);
+// Solo sobrevive como oráculo de los tests del renderizado a cadena.
+QStringList posixShellSplitArgs(const QString& s);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);
 // Strips any leading non-JSON text (e.g. MOTD banners) before the first '{'.
