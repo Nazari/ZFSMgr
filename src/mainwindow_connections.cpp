@@ -488,11 +488,12 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("API daemon: %1")
                  .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                               : st.daemonApiVersion.trimmed());
+    // Ya no se puede dar por hecho que Windows sea "script": por SSH lleva el daemon
+    // nativo, y solo PSRP conserva el stub de PowerShell. Se informa de lo que la
+    // sonda encontró realmente, en vez de deducirlo del sistema operativo.
     lines << QStringLiteral("Binario daemon: %1")
-                 .arg(isWindowsConnection(connIdx)
-                          ? QStringLiteral("script")
-                          : (st.daemonNativeBinary ? QStringLiteral("nativo")
-                                                   : QStringLiteral("script/no nativo")));
+                 .arg(st.daemonNativeBinary ? QStringLiteral("nativo")
+                                            : QStringLiteral("script/no nativo"));
     if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
         lines << QStringLiteral("Atención daemon: %1")
                      .arg(st.daemonAttentionReasons.join(QStringLiteral(", ")));

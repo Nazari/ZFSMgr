@@ -955,10 +955,18 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                isWinConn
                    ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
                    : QStringLiteral("zpool list -j")));
-    const QString daemonHealthCmd = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+    // En Windows el binario vive en otra ruta y no hay sudo ni PATH de Unix que
+    // aplicar: usar el comando de siempre daba "no se reconoce" y tumbaba la
+    // comprobación de salud, dejando el daemon por no disponible.
+    const bool winSshDaemon =
+        isWinConn && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    const QString daemonHealthCmd =
+        winSshDaemon
+            ? QStringLiteral("\"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" --health")
+            : withSudo(p, mwhelpers::withUnixSearchPathCommand(
+                              QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
     bool daemonReadApiOk =
-        !isWinConn
+        (!isWinConn || winSshDaemon)
         && state.daemonInstalled
         && state.daemonActive
         && state.daemonNativeBinary
@@ -1306,7 +1314,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (state.daemonInstalled) {
         const QString expectedAgentVersion = agentversion::currentVersion().trimmed();
         const QString expectedApiVersion = agentversion::expectedApiVersion().trimmed();
-        if (!isWinConn && !state.daemonNativeBinary) {
+        // También para Windows por SSH: allí el daemon nativo SÍ es exigible, y si lo
+        // instalado es el stub conviene decirlo en vez de callar.
+        if ((!isWinConn || winSshDaemon) && !state.daemonNativeBinary) {
             state.daemonNeedsAttention = true;
             state.daemonAttentionReasons.push_back(QStringLiteral("daemon no nativo (RPC TLS no disponible)"));
         }

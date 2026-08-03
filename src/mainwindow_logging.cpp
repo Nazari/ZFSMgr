@@ -802,7 +802,13 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         return;
     }
     const ConnectionProfile profile = m_profiles[idx];
-    if (isLocalConnection(profile) || isWindowsConnection(profile)) {
+    // Windows por SSH SÍ tiene log de daemon: lleva el agente nativo. El criterio es
+    // el transporte, no el sistema operativo; lo que queda fuera es PSRP, que sin SSH
+    // no admite el túnel del RPC y sigue con el stub de PowerShell.
+    const bool windowsWithoutDaemon =
+        isWindowsConnection(profile)
+        && profile.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0;
+    if (isLocalConnection(profile) || windowsWithoutDaemon) {
         return;
     }
 
@@ -853,7 +859,11 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
     if (idx < 0 || isConnectionDisconnected(idx)) {
         return;
     }
-    if (isLocalConnection(m_profiles[idx]) || isWindowsConnection(m_profiles[idx])) {
+    // Ver la nota de arriba: Windows por SSH tiene daemon nativo y admite latido.
+    const bool winNoDaemon =
+        isWindowsConnection(m_profiles[idx])
+        && m_profiles[idx].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0;
+    if (isLocalConnection(m_profiles[idx]) || winNoDaemon) {
         return;
     }
     QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
