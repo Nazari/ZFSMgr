@@ -218,6 +218,33 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     return true;
 }
 
+// Verificación del daemon por FIJACIÓN del certificado, no por confianza PKI.
+//
+// El certificado del daemon es autofirmado y lo hemos traído nosotros por SSH, así
+// que sabemos exactamente cuál debe presentar: comparar el certificado entero es
+// más estricto que aceptarlo como CA y comprobar el nombre de host, porque no
+// delega en ninguna cadena ni depende de cómo se interprete el nombre.
+//
+// Y sobre todo, no depende de la política del backend TLS. El de OpenSSL y el
+// SecureTransport de Apple discrepan: en macOS ningún certificado del daemon
+// validaba nunca ("The root CA certificate is not trusted for this purpose"),
+// incluso con subjectAltName, extendedKeyUsage, keyUsage y basicConstraints
+// correctos — comprobado sobre el certificado real. La autenticación mutua se
+// mantiene: el cliente sigue enviando su certificado y el daemon sigue
+// exigiéndolo con SSL_VERIFY_PEER.
+bool peerCertificateIsPinned(const QSslSocket& sock, const QList<QSslCertificate>& expected) {
+    const QSslCertificate peer = sock.peerCertificate();
+    if (peer.isNull()) {
+        return false;
+    }
+    for (const QSslCertificate& c : expected) {
+        if (!c.isNull() && c == peer) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool tryRunLocalAgentRpc(const QStringList& agentArgs,
                          int timeoutMs,
                          QString& out,
@@ -279,7 +306,9 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
         conf.setLocalCertificate(clientCerts.first());
         conf.setPrivateKey(clientKey);
         conf.setProtocol(QSsl::TlsV1_2OrLater);
-        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+        // VerifyNone + fijación: la validación la hace peerCertificateIsPinned, no
+        // la política PKI del backend, que difiere entre OpenSSL y Apple.
+        conf.setPeerVerifyMode(QSslSocket::VerifyNone);
         sock.setSslConfiguration(conf);
 
         sock.connectToHostEncrypted(host, cfg.port, peerName);
@@ -287,6 +316,12 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
             qDebug("[agent-rpc] peerName=%s FAILED in %lld ms (err: %s)",
                    qPrintable(peerName), rpcTimer.elapsed() - t0,
                    qPrintable(sock.errorString()));
+            continue;
+        }
+        if (!peerCertificateIsPinned(sock, caCerts)) {
+            qDebug("[agent-rpc] peerName=%s certificado del daemon NO coincide con el fijado",
+                   qPrintable(peerName));
+            sock.abort();
             continue;
         }
 
@@ -1107,7 +1142,8 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             conf.setLocalCertificate(clientCerts.first());
             conf.setPrivateKey(clientKey);
             conf.setProtocol(QSsl::TlsV1_2OrLater);
-            conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+            // VerifyNone + fijación: ver peerCertificateIsPinned.
+            conf.setPeerVerifyMode(QSslSocket::VerifyNone);
             sock.setSslConfiguration(conf);
 
             sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
@@ -1129,6 +1165,12 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                     lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1): %2")
                                             .arg(peerName, sslErrStrs.join(QStringLiteral("; ")));
                 }
+                continue;
+            }
+            if (!peerCertificateIsPinned(sock, caCerts)) {
+                lastAttemptReason =
+                    QStringLiteral("el certificado que presenta el daemon no coincide con el fijado");
+                sock.abort();
                 continue;
             }
 
