@@ -646,11 +646,16 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         && m_states[connIdx].daemonNativeBinary
         && m_states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
-    const QString cmd = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow %1")
-              .arg(mwhelpers::shSingleQuote(datasetName))
-        : withSudo(p, mwhelpers::withUnixSearchPathCommand(
-              QStringLiteral("zfs allow %1").arg(mwhelpers::shSingleQuote(datasetName))));
+    // La rama del daemon iba sin sudo ni PATH, apoyándose en que la intercepción del
+    // RPC se la llevara antes de ejecutarse por shell. Es decir: su respaldo estaba
+    // roto y no se notaba porque el RPC casi siempre gana. Con agentShellCommand el
+    // envoltorio es el mismo que en el resto de sitios y el respaldo funciona.
+    const QString cmd =
+        daemonReadApiOk
+            ? mwhelpers::agentShellCommand(
+                  p, {QStringLiteral("--dump-zfs-allow"), datasetName})
+            : withSudo(p, mwhelpers::withUnixSearchPathCommand(
+                  QStringLiteral("zfs allow %1").arg(mwhelpers::shSingleQuote(datasetName))));
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos"),
                                       cmd,
@@ -869,10 +874,13 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         && m_states[connIdx].daemonNativeBinary
         && m_states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
-    const QString batchCommand = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow-batch %1")
-              .arg(quoted.join(QLatin1Char(' ')))
-        : withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
+    // Igual que la versión de un solo dataset: la rama del daemon no llevaba envoltorio
+    // y su respaldo por shell no habría funcionado.
+    const QString batchCommand =
+        daemonReadApiOk
+            ? mwhelpers::agentShellCommand(
+                  p, QStringList{QStringLiteral("--dump-zfs-allow-batch")} + requested)
+            : withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
 
     QString out;
     QString detail;

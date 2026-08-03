@@ -82,6 +82,9 @@ public:
     void configurePoolDatasetsForTest(int connIdx,
                                       const QString& poolName,
                                       const QVector<UiTestDatasetSeed>& datasets);
+    // Expuesta para fijar el corte por separador: es donde un directorio con '&' en el
+    // nombre truncaba la orden.
+    static QStringList extractAgentArgsForTest(const QString& remoteCmd);
     void rebuildConnectionDetailsForTest();
     void setShowPoolInfoNodeForTest(bool visible);
     void setShowInlineGsaNodeForTest(bool visible);

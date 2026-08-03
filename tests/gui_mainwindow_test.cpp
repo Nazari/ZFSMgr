@@ -50,6 +50,26 @@ private Q_SLOTS:
         QCOMPARE(ssh.port, 2200);
     }
 
+    // El corte por separador decía "no entrecomillado" pero no lo comprobaba: cortaba
+    // en el primer ';', '&' o '|' aunque estuviera dentro de un argumento protegido.
+    // Con --mutate-advanced-todir ese argumento es un directorio que elige el usuario.
+    void agentArgExtractionRespectsQuotedSeparators() {
+        const QString cmd =
+            QStringLiteral("PATH=\"$PATH:/sbin\"; export PATH; /usr/local/libexec/zfsmgr-agent "
+                           "--mutate-advanced-todir 'tank/x' '/home/x/Copias & Backups' '1'");
+        const QStringList args = MainWindow::extractAgentArgsForTest(cmd);
+        QCOMPARE(args.size(), 4);
+        QCOMPARE(args.at(0), QStringLiteral("--mutate-advanced-todir"));
+        QCOMPARE(args.at(2), QStringLiteral("/home/x/Copias & Backups"));
+        QCOMPARE(args.at(3), QStringLiteral("1"));
+
+        // Un separador de verdad, fuera de comillas, sí debe cortar.
+        const QStringList cut = MainWindow::extractAgentArgsForTest(
+            QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount ; rm -rf /"));
+        QCOMPARE(cut.size(), 1);
+        QCOMPARE(cut.at(0), QStringLiteral("--dump-zfs-mount"));
+    }
+
     void createsMainWindowWithStableObjectNames() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
 

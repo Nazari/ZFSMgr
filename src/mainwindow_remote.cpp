@@ -166,10 +166,39 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     if (tail.isEmpty()) {
         return false;
     }
-    // Cortamos en el primer separador de shell no entrecomillado
-    const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|\\n\\r]")));
-    if (sep >= 0) {
-        tail = tail.left(sep).trimmed();
+    // Cortamos en el primer separador de shell NO entrecomillado.
+    //
+    // El comentario decía "no entrecomillado" pero la regex no lo comprobaba: cortaba
+    // en el primer ';', '&' o '|' apareciera donde apareciera, incluso dentro de un
+    // argumento correctamente protegido. Un directorio llamado "Copias & Backups"
+    // truncaba la orden, y con --mutate-advanced-todir ese directorio lo elige el
+    // usuario: se perdían el destino y el indicador de borrar el origen.
+    {
+        bool inSQ = false;
+        bool inDQ = false;
+        int sep = -1;
+        for (int i = 0; i < tail.size(); ++i) {
+            const QChar c = tail.at(i);
+            if (inSQ) {
+                if (c == QLatin1Char('\'')) { inSQ = false; }
+                continue;
+            }
+            if (inDQ) {
+                if (c == QLatin1Char('\\') && i + 1 < tail.size()) { ++i; continue; }
+                if (c == QLatin1Char('"')) { inDQ = false; }
+                continue;
+            }
+            if (c == QLatin1Char('\'')) { inSQ = true; continue; }
+            if (c == QLatin1Char('"')) { inDQ = true; continue; }
+            if (c == QLatin1Char(';') || c == QLatin1Char('&') || c == QLatin1Char('|')
+                || c == QLatin1Char('\n') || c == QLatin1Char('\r')) {
+                sep = i;
+                break;
+            }
+        }
+        if (sep >= 0) {
+            tail = tail.left(sep).trimmed();
+        }
     }
     // Los args vienen del comando construido con shSingleQuote() luego envuelto en otro
     // shSingleQuote() para el argumento de `sh -c '...'`.  El patrón '"'"' representa un
@@ -1395,6 +1424,12 @@ bool MainWindow::cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p,
 // los argumentos parseando una cadena de shell, y runAgentCommand, que ya los tiene. La
 // política de reintento, backoff y la regla de no reintentar mutaciones tiene que ser
 // exactamente la misma para las dos.
+QStringList MainWindow::extractAgentArgsForTest(const QString& remoteCmd) {
+    QStringList args;
+    extractLocalAgentArgs(remoteCmd, args);
+    return args;
+}
+
 bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                                     const QStringList& agentArgs,
                                     int timeoutMs,
