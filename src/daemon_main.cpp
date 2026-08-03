@@ -771,6 +771,12 @@ int runExecStreaming(const std::string& program, const std::vector<std::string>&
         cmd.push_back(' ');
         cmd += quoteArg(a);
     }
+    // cmd.exe quita la PRIMERA y la ÚLTIMA comilla de la línea que recibe, así que
+    // "zpool" "--version" le llega como zpool" "--version y responde que no es un
+    // comando reconocido. Envolver toda la línea en un par extra hace que lo que
+    // elimine sea ese par y el resto quede intacto. Comprobado contra el agente
+    // nativo corriendo en un Windows 11 real.
+    cmd = "\"" + cmd + "\"";
     const int rc = std::system(cmd.c_str());
     return decodeWaitStatus(rc);
 #endif
@@ -884,6 +890,12 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
         cmd += quoteArg(a);
     }
     cmd += " 2>&1";
+    // cmd.exe quita la PRIMERA y la ÚLTIMA comilla de la línea que recibe, así que
+    // "zpool" "--version" le llega como zpool" "--version y responde que no es un
+    // comando reconocido. Envolver toda la línea en un par extra hace que lo que
+    // elimine sea ese par y el resto quede intacto. Comprobado contra el agente
+    // nativo corriendo en un Windows 11 real.
+    cmd = "\"" + cmd + "\"";
 
     // MSVC no expone popen/pclose con el nombre POSIX, solo _popen/_pclose.
     FILE* fp = _popen(cmd.c_str(), "r");
