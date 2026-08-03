@@ -155,6 +155,13 @@ target_compile_definitions(zfsmgr_agent PRIVATE
 target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+    # Enlazado estático del runtime en Windows: sin esto el .exe necesita
+    # libgcc_s_seh-1.dll, libstdc++-6.dll y libwinpthread-1.dll a su lado, y al
+    # desplegarlo suelto en un Windows real muere con 0xC0000135 (DLL no encontrada)
+    # sin decir cuál. El daemon se despliega SOLO, así que tiene que bastarse.
+    if(MINGW)
+        target_link_options(zfsmgr_agent PRIVATE -static-libgcc -static-libstdc++ -static)
+    endif()
 endif()
 if(NOT WIN32)
     # Optional libzfs_core + libnvpair for efficient native ZFS operations.

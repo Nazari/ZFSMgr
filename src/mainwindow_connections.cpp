@@ -3570,7 +3570,41 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
     bool isMac = false;
 
-    if (isWindowsConnection(idx)) {
+    // Windows por SSH: se instala el daemon NATIVO, igual que en Unix. Verificado en
+    // un Windows 11 real que sirve TLS por el túnel y ejecuta ZFS.
+    //
+    // PSRP se queda con el stub a propósito: el RPC viaja por un túnel "ssh -L", y una
+    // conexión PSRP no tiene SSH, así que no hay túnel que abrir. No es que falte
+    // trabajo, es que el transporte no aplica.
+    const bool windowsNativeAgent =
+        isWindowsConnection(idx)
+        && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    if (windowsNativeAgent) {
+        winMode = WindowsCommandMode::PowerShellNative;
+        const QString localAgentPath =
+            findDeployableAgentBinaryPath(QStringLiteral("windows"), QStringLiteral("x86_64"));
+        QFile agentFile(localAgentPath);
+        if (localAgentPath.isEmpty() || !agentFile.open(QIODevice::ReadOnly)) {
+            const QString reason =
+                trk(QStringLiteral("t_daemon_win_native_missing_001"),
+                    QStringLiteral("No se encontró el binario nativo del daemon para Windows en este equipo."),
+                    QStringLiteral("No native Windows daemon binary found on this machine."),
+                    QStringLiteral("当前机器缺少适用于 Windows 的原生守护进程二进制文件。"));
+            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
+            if (interactive) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+            }
+            refreshConnectionByIndex(idx);
+            return false;
+        }
+        // base64 por stdin: en la línea de comandos no cabe y en crudo lo estropea la
+        // conversión de codificación de PowerShell.
+        remoteStdinPayload = agentFile.readAll().toBase64();
+        remoteCmd = daemonpayload::windowsNativeInstallCommand();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Daemon deploy %1: instalando daemon nativo de Windows desde %2")
+                   .arg(p.name, localAgentPath));
+    } else if (isWindowsConnection(idx)) {
         winMode = WindowsCommandMode::PowerShellNative;
         const QString payload = daemonpayload::windowsStubScript(daemonVersion, apiVersion);
         remoteCmd = QStringLiteral(

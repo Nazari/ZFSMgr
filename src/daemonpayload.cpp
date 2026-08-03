@@ -11,6 +11,7 @@ QString freeBsdRcPath() { return QStringLiteral("/usr/local/etc/rc.d/zfsmgr_agen
 QString windowsDirPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent"); }
 QString windowsScriptPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1"); }
 QString windowsTaskName() { return QStringLiteral("ZFSMgr-Agent"); }
+QString windowsBinPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe"); }
 QString tlsDirPath() { return QStringLiteral("/etc/zfsmgr/tls"); }
 QString tlsServerCertPath() { return QStringLiteral("/etc/zfsmgr/tls/server.crt"); }
 QString tlsServerKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/server.key"); }
@@ -575,6 +576,37 @@ QString windowsStubScript(const QString& version, const QString& apiVersion) {
     payload.replace(QStringLiteral("__VERSION__"), version.trimmed());
     payload.replace(QStringLiteral("__API__"), apiVersion.trimmed());
     return payload;
+}
+
+// Instalación del daemon NATIVO en Windows, en sustitución del stub de PowerShell.
+//
+// El binario llega en base64 por la entrada estándar: mandarlo en la propia línea de
+// comandos no cabe (son ~12 MB codificados) y enviarlo en crudo por stdin se topa
+// con la conversión de codificación de PowerShell. Se enlaza estáticamente, así que
+// no hay que llevar ninguna DLL al lado.
+//
+// Después se ejecuta --ensure-tls, que genera el material TLS con el OpenSSL que el
+// propio agente enlaza: en Windows no hay openssl en el PATH (solo aparece si está
+// Git instalado, que no es garantía), así que el bootstrap por shell no sirve aquí.
+QString windowsNativeInstallCommand() {
+    return QStringLiteral(
+        "$ErrorActionPreference='Stop'; "
+        "$dir='%1'; $bin='%2'; $task='%3'; "
+        "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
+        "$b64=[Console]::In.ReadToEnd(); "
+        "$tmp=[IO.Path]::Combine($dir,'zfsmgr-agent.new'); "
+        "[IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); "
+        "schtasks /End /TN $task 2>$null | Out-Null; "
+        "schtasks /Delete /F /TN $task 2>$null | Out-Null; "
+        "Get-Process zfsmgr-agent,zfsmgr_agent -ErrorAction SilentlyContinue | Stop-Process -Force; "
+        "Start-Sleep -Milliseconds 500; "
+        "Move-Item -Force -LiteralPath $tmp -Destination $bin; "
+        "& $bin --ensure-tls | Out-Null; "
+        "$action='\"' + $bin + '\" --serve'; "
+        "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | Out-Null; "
+        "schtasks /Run /TN $task | Out-Null; "
+        "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0")
+        .arg(windowsDirPath(), windowsBinPath(), windowsTaskName());
 }
 
 QString macLaunchdPlist() {

@@ -1780,7 +1780,11 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         return true;
     }
 
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0 && !isWindowsConnection(p)) {
+    // Windows por SSH SÍ entra por RPC: el daemon nativo sirve TLS por el mismo túnel
+    // "ssh -L", verificado contra un Windows 11 real ejecutando ZFS. Lo que queda
+    // fuera es PSRP, que no tiene SSH y por tanto no admite túnel; ese caso lo
+    // descarta la comprobación de connType, no una excepción por sistema operativo.
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
         QStringList agentArgs;
         if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
             const QString rpcConnKey = remoteDaemonTlsCacheKey(p);

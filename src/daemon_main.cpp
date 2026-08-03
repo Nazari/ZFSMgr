@@ -44,6 +44,8 @@ typedef int pid_t;
 #endif
 #endif
 #include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
 #ifdef HAVE_LIBZFS_CORE
@@ -101,14 +103,38 @@ constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
 constexpr const char* kDaemonLogFile = "/var/lib/zfsmgr/daemon.log";
 constexpr long long kDaemonLogMaxBytes = 2 * 1048576LL;
 constexpr const char* kJobsFilePath = "/var/lib/zfsmgr/jobs.json";
+// Rutas por defecto. En Windows no existe /etc, así que apuntar ahí dejaba al agente
+// sin configuración ni certificados salvo que se le pasara ZFSMGR_AGENT_CONFIG a mano
+// — comprobado en un Windows 11 real, donde --serve moría en silencio por eso.
+#ifdef _WIN32
+constexpr const char* kDefaultAgentConfigPath = "C:\\ProgramData\\ZFSMgr\\agent\\agent.conf";
+constexpr const char* kDefaultTlsDir = "C:\\ProgramData\\ZFSMgr\\agent\\tls";
+#else
 constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
+constexpr const char* kDefaultTlsDir = "/etc/zfsmgr/tls";
+#endif
+#ifdef _WIN32
+constexpr const char kPathSep = '\\';
+#else
+constexpr const char kPathSep = '/';
+#endif
 constexpr const char* kDefaultBind = "127.0.0.1";
 constexpr int kDefaultPort = 47653;
-constexpr const char* kDefaultTlsCertPath = "/etc/zfsmgr/tls/server.crt";
-constexpr const char* kDefaultTlsKeyPath = "/etc/zfsmgr/tls/server.key";
-constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
+const std::string kDefaultTlsCertPath_s = std::string(kDefaultTlsDir) + kPathSep + "server.crt";
+const char* const kDefaultTlsCertPath = kDefaultTlsCertPath_s.c_str();
+const std::string kDefaultTlsKeyPath_s = std::string(kDefaultTlsDir) + kPathSep + "server.key";
+const char* const kDefaultTlsKeyPath = kDefaultTlsKeyPath_s.c_str();
+const std::string kDefaultTlsClientCertPath_s = std::string(kDefaultTlsDir) + kPathSep + "client.crt";
+const char* const kDefaultTlsClientCertPath = kDefaultTlsClientCertPath_s.c_str();
+// En Windows el separador es ';' y las rutas Unix no significan nada: con el valor
+// de abajo el agente arrancaba y servía TLS, pero NINGÚN comando se encontraba.
+#ifdef _WIN32
+constexpr const char* kDefaultCommandPath =
+    "C:\\Program Files\\OpenZFS On Windows;C:\\Windows\\System32;C:\\Windows";
+#else
 constexpr const char* kDefaultCommandPath =
     "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin";
+#endif
 
 constexpr const char* kApiVersion = "3";
 #ifndef ZFSMGR_AGENT_VERSION_STRING
@@ -2337,6 +2363,141 @@ int runDumpRefreshBasics() {
     std::cout << "MACHINE_UUID=" << machineUuid << "\n";
     std::cout << "ZFS_VERSION_RAW=" << zraw << "\n";
     return 0;
+}
+
+
+// ── Generación del material TLS por el propio agente ─────────────────────────
+// Antes lo hacía un openssl EXTERNO invocado por shell desde la GUI. En Windows eso
+// no vale: openssl no está en el PATH (comprobado en un Windows 11 real; solo
+// aparece si hay Git instalado, que no es garantía). El agente ya enlaza OpenSSL de
+// forma estática, así que puede emitirlos él y el requisito desaparece en todas las
+// plataformas.
+//
+// Los certificados llevan subjectAltName, keyUsage y extendedKeyUsage porque sin
+// ellos el backend TLS de Apple los rechaza (ver el arreglo de la 0.90.3).
+bool writeSelfSignedPair(const std::string& certPath,
+                         const std::string& keyPath,
+                         const std::string& commonName,
+                         bool serverAuth,
+                         std::string& errMsg) {
+    EVP_PKEY* pkey = EVP_RSA_gen(2048);
+    if (!pkey) {
+        errMsg = "no se pudo generar la clave RSA\n";
+        return false;
+    }
+    X509* x = X509_new();
+    if (!x) {
+        EVP_PKEY_free(pkey);
+        errMsg = "no se pudo crear el certificado\n";
+        return false;
+    }
+    X509_set_version(x, 2);  // v3
+    ASN1_INTEGER_set(X509_get_serialNumber(x), 1);
+    X509_gmtime_adj(X509_get_notBefore(x), 0);
+    X509_gmtime_adj(X509_get_notAfter(x), 60L * 60 * 24 * 3650);
+    X509_set_pubkey(x, pkey);
+
+    X509_NAME* name = X509_get_subject_name(x);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                               reinterpret_cast<const unsigned char*>(commonName.c_str()), -1, -1, 0);
+    X509_set_issuer_name(x, name);  // autofirmado: emisor = sujeto
+
+    auto addExt = [&](int nid, const char* value) {
+        X509V3_CTX ctx;
+        X509V3_set_ctx_nodb(&ctx);
+        X509V3_set_ctx(&ctx, x, x, nullptr, nullptr, 0);
+        X509_EXTENSION* ex = X509V3_EXT_conf_nid(nullptr, &ctx, nid, value);
+        if (ex) {
+            X509_add_ext(x, ex, -1);
+            X509_EXTENSION_free(ex);
+        }
+    };
+    addExt(NID_basic_constraints, "critical,CA:TRUE");
+    addExt(NID_subject_alt_name,
+           "DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1");
+    addExt(NID_key_usage, "critical,digitalSignature,keyEncipherment,keyCertSign");
+    addExt(NID_ext_key_usage, serverAuth ? "serverAuth" : "clientAuth");
+
+    if (!X509_sign(x, pkey, EVP_sha256())) {
+        X509_free(x);
+        EVP_PKEY_free(pkey);
+        errMsg = "no se pudo firmar el certificado\n";
+        return false;
+    }
+
+    bool ok = false;
+    if (FILE* cf = std::fopen(certPath.c_str(), "wb")) {
+        ok = PEM_write_X509(cf, x) == 1;
+        std::fclose(cf);
+    }
+    if (ok) {
+        ok = false;
+        if (FILE* kf = std::fopen(keyPath.c_str(), "wb")) {
+            ok = PEM_write_PrivateKey(kf, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1;
+            std::fclose(kf);
+        }
+    }
+    X509_free(x);
+    EVP_PKEY_free(pkey);
+    if (!ok) {
+        errMsg = "no se pudieron escribir los ficheros PEM\n";
+        return false;
+    }
+#ifndef _WIN32
+    ::chmod(certPath.c_str(), 0600);
+    ::chmod(keyPath.c_str(), 0600);
+#endif
+    return true;
+}
+
+// Genera el material que falte. No toca lo existente salvo que carezca de SAN, misma
+// regla que el bootstrap por shell, para que los hosts ya aprovisionados se corrijan.
+ExecResult runEnsureTlsCapture() {
+    ExecResult r;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(kDefaultTlsDir, ec);
+
+    const std::string serverCrt = kDefaultTlsCertPath;
+    const std::string serverKey = kDefaultTlsKeyPath;
+    const std::string clientCrt = kDefaultTlsClientCertPath;
+    const std::string clientKey = std::string(kDefaultTlsDir) + kPathSep + "client.key";
+
+    auto needsRegen = [](const std::string& certPath) {
+        std::error_code e;
+        if (!std::filesystem::exists(certPath, e) || std::filesystem::file_size(certPath, e) == 0) {
+            return true;
+        }
+        FILE* f = std::fopen(certPath.c_str(), "rb");
+        if (!f) {
+            return true;
+        }
+        X509* x = PEM_read_X509(f, nullptr, nullptr, nullptr);
+        std::fclose(f);
+        if (!x) {
+            return true;
+        }
+        const int idx = X509_get_ext_by_NID(x, NID_subject_alt_name, -1);
+        X509_free(x);
+        return idx < 0;  // sin subjectAltName: se rehace
+    };
+
+    std::string err;
+    if (needsRegen(serverCrt)
+        && !writeSelfSignedPair(serverCrt, serverKey, "zfsmgr-agent-server", true, err)) {
+        r.rc = 1;
+        r.err = err;
+        return r;
+    }
+    if (needsRegen(clientCrt)
+        && !writeSelfSignedPair(clientCrt, clientKey, "zfsmgr-agent-client", false, err)) {
+        r.rc = 1;
+        r.err = err;
+        return r;
+    }
+    r.rc = 0;
+    r.out = "TLS_DIR=" + std::string(kDefaultTlsDir) + "\n";
+    return r;
 }
 
 ExecResult runDumpRefreshBasicsCapture() {
@@ -5027,6 +5188,18 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "--dump-refresh-basics") {
         return runDumpRefreshBasics();
+    }
+    // Solo CLI a propósito: es lo que se ejecuta ANTES de que exista el canal TLS,
+    // así que servirlo por RPC no tendría sentido.
+    if (cmd == "--ensure-tls") {
+        const ExecResult e = runEnsureTlsCapture();
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
     }
 #ifndef _WIN32
     if (cmd == "--dump-tool-availability") {
