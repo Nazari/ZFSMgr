@@ -100,7 +100,15 @@ inline void closeSock(NativeSock s) { close(s); }
 #endif
 
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
+// En Windows no existe /var/lib: el daemon no tenía dónde escribir y la pestaña
+// Daemon salía vacía, sin decir por qué (el ofstream fallaba y se retornaba en
+// silencio). El comando --dump-daemon-log sí estaba disponible; lo que faltaba era
+// el fichero.
+#ifdef _WIN32
+constexpr const char* kDaemonLogFile = "C:\\ProgramData\\ZFSMgr\\agent\\daemon.log";
+#else
 constexpr const char* kDaemonLogFile = "/var/lib/zfsmgr/daemon.log";
+#endif
 constexpr long long kDaemonLogMaxBytes = 2 * 1048576LL;
 constexpr const char* kJobsFilePath = "/var/lib/zfsmgr/jobs.json";
 // Rutas por defecto. En Windows no existe /etc, así que apuntar ahí dejaba al agente
@@ -1057,7 +1065,17 @@ void daemonLog(const std::string& level, const std::string& msg) {
     std::lock_guard<std::mutex> lock(g_daemonLogMutex);
     rotateDaemonLog();
     std::ofstream f(kDaemonLogFile, std::ios::app);
-    if (!f.is_open()) return;
+    if (!f.is_open()) {
+        // El directorio puede no existir todavía en una instalación recién hecha.
+        // Antes se retornaba sin más y el log quedaba mudo para siempre.
+        std::error_code ec;
+        std::filesystem::create_directories(
+            std::filesystem::path(kDaemonLogFile).parent_path(), ec);
+        f.open(kDaemonLogFile, std::ios::app);
+        if (!f.is_open()) {
+            return;
+        }
+    }
     f << ts << " " << level << " " << msg << "\n";
 }
 
