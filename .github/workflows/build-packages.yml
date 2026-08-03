@@ -20,9 +20,15 @@ jobs:
         #
         # El Intel NO puede ser macos-13: se retiró en diciembre de 2025 y la
         # etiqueta ya no tiene runners — un job que la pida se queda encolado para
-        # siempre en vez de fallar. macos-15-intel es su sustituta oficial. Ojo:
-        # Apple Silicon va fijado a macos-14 porque el SDK de macOS 15 (Xcode 16)
-        # retiró el framework AGL, al que Qt 6.8.3 enlaza desde Qt6::Gui.
+        # siempre en vez de fallar. macos-15-intel es su sustituta oficial.
+        #
+        # Apple Silicon va fijado a macos-14 y no a macos-latest porque en Sequoia
+        # el enlazado murió con "ld: framework 'AGL' not found". OJO, la causa NO
+        # está identificada: se atribuyó al SDK de Xcode 16, pero macos-15-intel usa
+        # Xcode 16.4 y compila sin problema, así que esa explicación no se sostiene.
+        # Antes de volver a macos-latest hay que averiguar de dónde sale realmente
+        # la referencia a AGL (sospecha principal: el FindOpenGL de CMake, cuya
+        # versión difiere entre imágenes).
         os: [ubuntu-latest, macos-14, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.os }}
 
