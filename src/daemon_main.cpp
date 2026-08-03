@@ -41,6 +41,8 @@
 // RegGetValueA: la versión y el identificador de máquina se leen del registro, porque
 // en Windows no hay uname ni /etc/machine-id que consultar.
 #include <windows.h>
+// CoCreateGuid, para nombrar directorios temporales sin colisiones entre conexiones.
+#include <objbase.h>
 #ifndef _PID_T_
 #define _PID_T_
 typedef int pid_t;
@@ -102,7 +104,13 @@ constexpr NativeSock kInvalidSock = -1;
 inline void closeSock(NativeSock s) { close(s); }
 #endif
 
+#ifdef _WIN32
+// En Windows no hay /tmp: el ofstream fallaba y writeHeartbeat retornaba en silencio,
+// así que el latido nunca se registraba.
+constexpr const char* kHeartbeatPath = "C:\\ProgramData\\ZFSMgr\\agent\\heartbeat.log";
+#else
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
+#endif
 // En Windows no existe /var/lib: el daemon no tenía dónde escribir y la pestaña
 // Daemon salía vacía, sin decir por qué (el ofstream fallaba y se retornaba en
 // silencio). El comando --dump-daemon-log sí estaba disponible; lo que faltaba era
@@ -296,6 +304,36 @@ ExecResult getDatasetMountpointCapture(const std::string& dataset) {
     return ok;
 }
 
+// Verbos que este binario sirve de verdad, para que el cliente no tenga que adivinarlo.
+//
+// La alternativa era una tabla escrita en la GUI, y se desincroniza en cuanto se porta
+// cualquier verbo: quien lo porta toca este fichero, no el cliente. Se calcula con los
+// mismos #ifdef que deciden qué se compila, así que no puede mentir.
+std::string agentCapabilityList() {
+    std::vector<std::string> caps = {
+        "--dump-zfs-allow",
+    };
+#ifndef _WIN32
+    caps.push_back("--job-submit");
+    caps.push_back("--repair-alt-mountpoints");
+    caps.push_back("--mutate-advanced-todir");
+    caps.push_back("--dump-tool-availability");
+    caps.push_back("--mutate-rsync-local");
+    caps.push_back("--zfs-send-to-peer");
+#endif
+    // Estas dos compilan en ambos sistemas, pero en Windows dependían de makeTempDir,
+    // que devolvía cadena vacía y las hacía fallar siempre con rc=125. Se declaran
+    // porque esa parte ya está resuelta.
+    caps.push_back("--mutate-advanced-breakdown");
+    caps.push_back("--mutate-advanced-assemble");
+    std::string out;
+    for (size_t i = 0; i < caps.size(); ++i) {
+        if (i) out += ",";
+        out += caps[i];
+    }
+    return out;
+}
+
 std::string makeTempDir(const char* patternPrefix) {
 #ifndef _WIN32
     char templ[PATH_MAX];
@@ -306,8 +344,28 @@ std::string makeTempDir(const char* patternPrefix) {
     }
     return std::string(out);
 #else
-    (void)patternPrefix;
-    return {};
+    // Devolvía cadena vacía, y sus llamantes no lo comprobaban: --mutate-advanced-breakdown
+    // y --mutate-advanced-assemble figuraban disponibles y fallaban SIEMPRE con
+    // rc=125 "mkdtemp failed", a mitad de una operación destructiva.
+    char tempRoot[MAX_PATH];
+    const DWORD n = GetTempPathA(sizeof(tempRoot), tempRoot);
+    if (n == 0 || n > sizeof(tempRoot)) {
+        return {};
+    }
+    // GUID en vez de un contador: el daemon atiende varias conexiones a la vez y dos
+    // operaciones simultáneas no pueden compartir directorio temporal.
+    GUID guid;
+    if (CoCreateGuid(&guid) != S_OK) {
+        return {};
+    }
+    char suffix[64];
+    std::snprintf(suffix, sizeof(suffix), "%08lX%04X%04X",
+                  static_cast<unsigned long>(guid.Data1), guid.Data2, guid.Data3);
+    const std::string dir = std::string(tempRoot) + patternPrefix + suffix;
+    if (!CreateDirectoryA(dir.c_str(), nullptr)) {
+        return {};
+    }
+    return dir;
 #endif
 }
 
@@ -909,15 +967,35 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
     r.rc = decodeWaitStatus(status);
     return r;
 #else
+    // CreateProcess con dos tuberías, en vez de _popen.
+    //
+    // _popen obligaba a fusionar stderr en stdout con "2>&1", así que r.err salía
+    // SIEMPRE vacío en Windows y los llamantes que discriminan por .err se comportaban
+    // distinto que en Unix. Además pasaba por cmd.exe, que se come la primera y la
+    // última comilla de la línea, y hacía falta un par extra envolviéndolo todo para
+    // compensarlo. CreateProcess no invoca ningún shell: desaparecen las dos cosas.
+    //
+    // El entrecomillado sigue las reglas de la línea de comandos de Windows: las barras
+    // invertidas solo se duplican cuando preceden a una comilla.
     auto quoteArg = [](const std::string& a) -> std::string {
-        std::string q = "\"";
-        for (char c : a) {
-            if (c == '"') {
-                q += "\\\"";
-            } else {
-                q.push_back(c);
-            }
+        if (!a.empty() && a.find_first_of(" \t\"") == std::string::npos) {
+            return a;
         }
+        std::string q = "\"";
+        size_t slashes = 0;
+        for (char c : a) {
+            if (c == '\\') {
+                ++slashes;
+                q.push_back(c);
+                continue;
+            }
+            if (c == '"') {
+                q.append(slashes + 1, '\\');
+            }
+            slashes = 0;
+            q.push_back(c);
+        }
+        q.append(slashes, '\\');
         q.push_back('"');
         return q;
     };
@@ -926,27 +1004,68 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
         cmd.push_back(' ');
         cmd += quoteArg(a);
     }
-    cmd += " 2>&1";
-    // cmd.exe quita la PRIMERA y la ÚLTIMA comilla de la línea que recibe, así que
-    // "zpool" "--version" le llega como zpool" "--version y responde que no es un
-    // comando reconocido. Envolver toda la línea en un par extra hace que lo que
-    // elimine sea ese par y el resto quede intacto. Comprobado contra el agente
-    // nativo corriendo en un Windows 11 real.
-    cmd = "\"" + cmd + "\"";
 
-    // MSVC no expone popen/pclose con el nombre POSIX, solo _popen/_pclose.
-    FILE* fp = _popen(cmd.c_str(), "r");
-    if (!fp) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE outRd = nullptr, outWr = nullptr, errRd = nullptr, errWr = nullptr;
+    if (!CreatePipe(&outRd, &outWr, &sa, 0)) {
         r.rc = 125;
-        r.err = "popen failed";
+        r.err = "CreatePipe failed";
         return r;
     }
-    char buf[4096];
-    while (std::fgets(buf, sizeof(buf), fp) != nullptr) {
-        r.out += buf;
+    if (!CreatePipe(&errRd, &errWr, &sa, 0)) {
+        CloseHandle(outRd);
+        CloseHandle(outWr);
+        r.rc = 125;
+        r.err = "CreatePipe failed";
+        return r;
     }
-    const int prc = _pclose(fp);
-    r.rc = decodeWaitStatus(prc);
+    // Los extremos de lectura NO se heredan: si el hijo se queda con ellos, la tubería
+    // nunca da EOF y la lectura se cuelga para siempre.
+    SetHandleInformation(outRd, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(errRd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = outWr;
+    si.hStdError = errWr;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    std::vector<char> mutableCmd(cmd.begin(), cmd.end());
+    mutableCmd.push_back('\0');
+    const BOOL started = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
+                                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(outWr);
+    CloseHandle(errWr);
+    if (!started) {
+        CloseHandle(outRd);
+        CloseHandle(errRd);
+        r.rc = 127;
+        r.err = "cannot start " + program;
+        return r;
+    }
+
+    // stderr se drena en otro hilo: leer una tubería entera y luego la otra se bloquea
+    // en cuanto el hijo llena la que no se está leyendo.
+    auto drain = [](HANDLE h, std::string* into) {
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            into->append(buf, n);
+        }
+        CloseHandle(h);
+    };
+    std::thread errThread(drain, errRd, &r.err);
+    drain(outRd, &r.out);
+    errThread.join();
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    r.rc = GetExitCodeProcess(pi.hProcess, &exitCode) ? static_cast<int>(exitCode) : 125;
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
     return r;
 #endif
 }
@@ -3645,6 +3764,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             "RPC_FAILURES=0\n"
             "RPC_COMMANDS=\n"
             "ZED_ACTIVE=0\n";
+        r.out += "CAPS=" + agentCapabilityList() + "\n";
         return r;
     }
     if (cmd == "--dump-refresh-basics") {
@@ -4825,6 +4945,7 @@ int runServeLoop() {
 #ifndef _WIN32
                 hs << "JOBS_SUPPORT=1\n";
 #endif
+                hs << "CAPS=" << agentCapabilityList() << "\n";
                 exec.rc = 0;
                 exec.out = hs.str();
             } else if (cmd == "--wait-for-event") {
@@ -5253,6 +5374,7 @@ int main(int argc, char* argv[]) {
 #ifndef _WIN32
         std::cout << "JOBS_SUPPORT=1\n";
 #endif
+        std::cout << "CAPS=" << agentCapabilityList() << "\n";
         return 0;
     }
 

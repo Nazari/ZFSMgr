@@ -2602,9 +2602,7 @@ zfsmgr::caps::Platform MainWindow::capabilityPlatform(int connIdx) const {
         plat.daemonActive = st.daemonInstalled && st.daemonActive;
         plat.daemonApiOk =
             st.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-        // daemonCaps queda vacío mientras --health no publique las capacidades del
-        // agente. En cuanto lo haga, su respuesta pasa a mandar sobre la tabla estática
-        // sin tocar nada de esto.
+        plat.daemonCaps = st.daemonCaps;
     }
     return plat;
 }

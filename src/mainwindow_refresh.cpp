@@ -915,6 +915,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
                 state.daemonJobsSupported =
                     (hkv.value(QStringLiteral("JOBS_SUPPORT")).trimmed() == QStringLiteral("1"));
+                // Lo que el agente declara servir manda sobre lo que suponga el cliente.
+                state.daemonCaps.clear();
+                const QString capsRaw = hkv.value(QStringLiteral("CAPS")).trimmed();
+                for (const QString& c : capsRaw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    state.daemonCaps.insert(c.trimmed());
+                }
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
                 // Store current ZED_LAST_EVENT_UTC for comparison in onAsyncRefreshResult
                 // (where m_states[targetIdx] holds the persisted previous value).

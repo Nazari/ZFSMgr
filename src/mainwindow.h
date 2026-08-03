@@ -162,6 +162,9 @@ private:
         bool daemonActive{false};
         bool daemonNativeBinary{false};
         bool daemonJobsSupported{false};
+        // Verbos que el agente declara servir, tal cual los publica en --health. Vacío
+        // significa "no lo dice", y entonces manda la tabla estática de zfsmgr::caps.
+        QSet<QString> daemonCaps;
         bool daemonZpoolImportUsable{true};
         QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
     };
