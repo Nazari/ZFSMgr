@@ -222,6 +222,16 @@ if(APPLE)
         OUTPUT_NAME "${ZFSMGR_BUNDLE_NAME}"
         MACOSX_BUNDLE_BUNDLE_NAME "${ZFSMGR_BUNDLE_NAME}"
         MACOSX_BUNDLE_ICON_FILE "ZFSMgr.icns"
+        # Sin esto, CMake genera com.yourcompany.zfsmgr_qt, su marcador de posición
+        # por defecto, que es lo que aparecía en los informes de fallo del sistema.
+        # Se usa el prefijo org.zfsmgr, que ya emplea el daemon en su plist de
+        # launchd (org.zfsmgr.agent), en vez de introducir otro distinto.
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.zfsmgr.ZFSMgr"
+        # CMake pone por defecto solo mayor.menor en la versión corta, así que la
+        # 0.90.2 y la 0.90.3 se veían ambas como "0.90" en Finder y en los informes
+        # de fallo. Ambas cadenas llevan la versión completa.
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${ZFSMGR_APP_VERSION_STRING}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${ZFSMGR_APP_VERSION_STRING}"
     )
 endif()
 
