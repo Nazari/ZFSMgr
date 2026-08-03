@@ -264,6 +264,12 @@ codesign_path() {
   local path="$1"
   local cert_name="$2"
   [[ -e "${path}" ]] || return 0
+  # Los ficheros sueltos que no son Mach-O (DWARF dentro de los .dSYM, recursos)
+  # no se pueden firmar y harían abortar el script. Se detectan dejando que lipo
+  # falle sobre ellos. Los directorios sí pasan: son bundles y frameworks.
+  if [[ -f "${path}" ]] && ! lipo -archs "${path}" >/dev/null 2>&1; then
+    return 0
+  fi
   /usr/bin/codesign --remove-signature "${path}" >/dev/null 2>&1 || true
   /usr/bin/codesign --force --sign "${cert_name}" --timestamp=none -vvv "${path}"
 }
@@ -789,7 +795,19 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
     echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
   else
-    echo "App macOS creada sin firma: ${APP_BUNDLE}"
+    # Sin identidad NO se puede dejar el bundle sin firmar. El despliegue reescribe
+    # los install_name de los frameworks de Qt y de libcrypto, y eso invalida la
+    # firma con la que venían; en Apple Silicon dyld mata el proceso al cargar la
+    # primera dependencia con firma inválida:
+    #   EXC_BAD_ACCESS (SIGKILL (Code Signature Invalid))
+    #   Termination Reason: Namespace CODESIGNING, Code 2, Invalid Page
+    # La firma ad-hoc no necesita certificado ni cuota de Apple y satisface esa
+    # exigencia. No sustituye a Developer ID: Gatekeeper sigue pidiendo quitar la
+    # cuarentena, pero la app arranca.
+    echo "Sin identidad de firma: firmando ad-hoc (obligatorio en Apple Silicon)"
+    codesign_bundle_contents "${APP_BUNDLE}" "-" "${MAIN_BIN}"
+    /usr/bin/codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
+    echo "App macOS creada con firma ad-hoc: ${APP_BUNDLE}"
   fi
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
