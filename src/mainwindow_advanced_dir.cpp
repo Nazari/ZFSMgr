@@ -94,6 +94,9 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirBreakdown)) {
+        return;
+    }
     const QString ds = curr.datasetName.trimmed();
     const QString snap = curr.snapshotName.trimmed();
     if (ds.isEmpty() || !snap.isEmpty()) {
@@ -940,6 +943,9 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirToDir)) {
         return;
     }
     const QString ds = curr.datasetName.trimmed();

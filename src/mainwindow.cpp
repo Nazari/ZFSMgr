@@ -4,6 +4,7 @@
 #include "agentversion.h"
 
 #include <algorithm>
+#include <QMessageBox>
 #include <QComboBox>
 #include <QElapsedTimer>
 #include <QJsonArray>
@@ -1480,7 +1481,7 @@ bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& po
     if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Error) {
         return false;
     }
-    if (isWindowsConnection(connIdx)) {
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::AutoSnapshotsGsa)) {
         return false;
     }
     if (isPoolSuspended(connIdx, trimmedPool)) {
@@ -1518,7 +1519,7 @@ void MainWindow::invalidatePoolAutoSnapshotInfoForConnection(int connIdx) {
 }
 
 void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || isWindowsConnection(connIdx)) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || !featureAvailable(connIdx, zfsmgr::caps::Feature::AutoSnapshotsGsa)) {
         return;
     }
     const ConnectionRuntimeState state =
@@ -1540,7 +1541,8 @@ void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
 
 bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || isWindowsConnection(connIdx)) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()
+        || !featureAvailable(connIdx, zfsmgr::caps::Feature::AutoSnapshotsGsa)) {
         return false;
     }
     if (isPoolSuspended(connIdx, trimmedPool)) {
@@ -2587,6 +2589,84 @@ QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetNam
     constexpr int kSnapshotListRole = Qt::UserRole + 1;
     names = item->data(1, kSnapshotListRole).toStringList();
     return names;
+}
+
+zfsmgr::caps::Platform MainWindow::capabilityPlatform(int connIdx) const {
+    zfsmgr::caps::Platform plat;
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return plat;
+    }
+    plat.isWindows = isWindowsConnection(connIdx);
+    if (connIdx < m_states.size()) {
+        const ConnectionRuntimeState& st = m_states[connIdx];
+        plat.daemonActive = st.daemonInstalled && st.daemonActive;
+        plat.daemonApiOk =
+            st.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        // daemonCaps queda vacío mientras --health no publique las capacidades del
+        // agente. En cuanto lo haga, su respuesta pasa a mandar sobre la tabla estática
+        // sin tocar nada de esto.
+    }
+    return plat;
+}
+
+QString MainWindow::capabilityReasonText(zfsmgr::caps::Reason r) const {
+    using R = zfsmgr::caps::Reason;
+    switch (r) {
+    case R::Available:
+        return QString();
+    case R::DaemonNotReady:
+        return trk(QStringLiteral("t_cap_daemon_down"),
+                   QStringLiteral("el agente no está instalado o no está activo en esta conexión"),
+                   QStringLiteral("the agent is not installed or not running on this connection"),
+                   QStringLiteral("此连接上未安装或未运行代理"));
+    case R::DaemonApiMismatch:
+        return trk(QStringLiteral("t_cap_api_mismatch"),
+                   QStringLiteral("la versión de API del agente no coincide con la que espera esta "
+                                  "aplicación; reinstale el daemon"),
+                   QStringLiteral("the agent API version does not match the one this application "
+                                  "expects; reinstall the daemon"),
+                   QStringLiteral("代理 API 版本与本应用程序期望的版本不匹配；请重新安装守护进程"));
+    case R::WindowsAgentPending:
+        return trk(QStringLiteral("t_cap_win_agent_todo"),
+                   QStringLiteral("el agente de Windows todavía no lo implementa"),
+                   QStringLiteral("the Windows agent does not implement it yet"),
+                   QStringLiteral("Windows 代理尚未实现该功能"));
+    case R::WindowsNeedsUnixShell:
+        return trk(QStringLiteral("t_win_unix_na01"),
+                   QStringLiteral("usa shell Unix y no está disponible en conexiones Windows"),
+                   QStringLiteral("it uses a Unix shell and is not available on Windows connections"),
+                   QStringLiteral("它使用 Unix shell，在 Windows 连接上不可用"));
+    case R::WindowsNotApplicable:
+        return trk(QStringLiteral("t_cap_win_na"),
+                   QStringLiteral("no es aplicable en Windows"),
+                   QStringLiteral("it does not apply on Windows"),
+                   QStringLiteral("不适用于 Windows"));
+    }
+    return QString();
+}
+
+bool MainWindow::featureAvailable(int connIdx, zfsmgr::caps::Feature f, QString* reasonOut) const {
+    const zfsmgr::caps::Availability a =
+        zfsmgr::caps::featureAvailability(f, capabilityPlatform(connIdx));
+    if (reasonOut) {
+        *reasonOut = a.available ? QString() : capabilityReasonText(a.reason);
+    }
+    return a.available;
+}
+
+bool MainWindow::requireFeature(int connIdx, zfsmgr::caps::Feature f) {
+    QString reason;
+    if (featureAvailable(connIdx, f, &reason)) {
+        return true;
+    }
+    const QString msg = trk(QStringLiteral("t_cap_blocked_msg"),
+                            QStringLiteral("Esta acción no está disponible: %1."),
+                            QStringLiteral("This action is not available: %1."),
+                            QStringLiteral("此操作不可用：%1。"))
+                            .arg(reason);
+    appLog(QStringLiteral("WARN"), msg);
+    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), msg);
+    return false;
 }
 
 QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {

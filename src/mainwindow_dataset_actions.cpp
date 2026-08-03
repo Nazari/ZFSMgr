@@ -673,15 +673,27 @@ bool MainWindow::executeDatasetAction(const QString& side,
     }
     const ConnectionProfile p = m_profiles[ctx.connIdx];
     if (isWindowsConnection(p) && !allowWindowsScript) {
+        // Lista ampliada: mientras existió MSYS2 esto era una cortesía, porque lo que
+        // se colara acababa en bash y funcionaba. Retirado MSYS no hay red debajo, así
+        // que un comando Unix que pase de aquí muere con un error de sintaxis de
+        // PowerShell que no le dice nada al usuario. Faltaban sed, uname, $(...),
+        // redirecciones a /dev/null y las sustituciones de ruta.
         const QString c = cmd.toLower();
         const bool unixScriptLike = c.contains(QStringLiteral("&&"))
             || c.contains(QStringLiteral(" set -e"))
             || c.contains(QStringLiteral("trap "))
             || c.contains(QStringLiteral("awk "))
             || c.contains(QStringLiteral("grep "))
-            || c.contains(QStringLiteral("mktemp "))
+            || c.contains(QStringLiteral("sed "))
+            || c.contains(QStringLiteral("uname"))
+            || c.contains(QStringLiteral("mktemp"))
             || c.contains(QStringLiteral("rsync "))
-            || c.contains(QStringLiteral("tail "));
+            || c.contains(QStringLiteral("tail "))
+            || c.contains(QStringLiteral("basename "))
+            || c.contains(QStringLiteral("dirname "))
+            || c.contains(QStringLiteral("command -v"))
+            || c.contains(QStringLiteral("$("))
+            || c.contains(QStringLiteral("/dev/null"));
         if (unixScriptLike) {
             QMessageBox::information(
                 this,
@@ -766,7 +778,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
     // daemon keeps working. As a job the submission is instant and the outcome is
     // polled, so a slow run can no longer be mistaken for a failure.
     const bool submittableAsJob =
-        !isWindowsConnection(p) && effectiveStdin.isEmpty()
+        featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::BackgroundJobs) && effectiveStdin.isEmpty()
         && (isBreakdownAction || isAssembleAction || isToDirAction)
         && effectiveCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent"));
     bool ok = false;

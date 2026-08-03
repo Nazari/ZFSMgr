@@ -621,7 +621,10 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
+    // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
+    // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return false;
     }
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
@@ -636,8 +639,8 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 
     QString out;
     QString detail;
-    const bool daemonReadApiOk = !isWindowsConnection(p)
-        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+    const bool daemonReadApiOk =
+        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonNativeBinary
@@ -769,7 +772,10 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
+    // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
+    // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return false;
     }
 
@@ -856,8 +862,8 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
                                     "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
                                     "done")
                                     .arg(quoted.join(QLatin1Char(' ')));
-    const bool daemonReadApiOk = !isWindowsConnection(p)
-        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+    const bool daemonReadApiOk =
+        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonNativeBinary
@@ -1046,7 +1052,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         }
     }
 
-    if (isWindowsConnection(connIdx)) {
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         if (permissionsNode) {
             permissionsNode->setHidden(true);
         }

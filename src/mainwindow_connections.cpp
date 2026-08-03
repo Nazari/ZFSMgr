@@ -503,6 +503,34 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("Comandos no detectados: %1")
                  .arg(st.missingUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
                                                        : st.missingUnixCommands.join(QStringLiteral(", ")));
+    // Lo que esta conexión NO puede hacer, y por qué. Antes esto no se decía en
+    // ninguna parte: el usuario lo descubría al pulsar y ver fallar la acción.
+    {
+        using F = zfsmgr::caps::Feature;
+        const QVector<QPair<F, QString>> checked = {
+            {F::DatasetPermissions, QStringLiteral("Permisos ZFS")},
+            {F::AutoSnapshotsGsa, QStringLiteral("Instantáneas automáticas")},
+            {F::BackgroundJobs, QStringLiteral("Trabajos en segundo plano")},
+            {F::DirBreakdown, QStringLiteral("Desglosar")},
+            {F::DirAssemble, QStringLiteral("Ensamblar")},
+            {F::DirToDir, QStringLiteral("Hacia Dir")},
+            {F::SendRecvStreaming, QStringLiteral("Copiar/Nivelar entre máquinas")},
+            {F::RsyncSync, QStringLiteral("Sincronizar con rsync")},
+            {F::RepairAltMountpoints, QStringLiteral("Reparar mountpoints temporales")},
+            {F::AlternateMount, QStringLiteral("Montaje alternativo")},
+        };
+        QStringList unavailable;
+        for (const auto& entry : checked) {
+            QString why;
+            if (!featureAvailable(connIdx, entry.first, &why)) {
+                unavailable << QStringLiteral("%1 (%2)").arg(entry.second, why);
+            }
+        }
+        if (!unavailable.isEmpty()) {
+            lines << QStringLiteral("Funciones no disponibles: %1")
+                         .arg(unavailable.join(QStringLiteral("; ")));
+        }
+    }
     lines << QStringLiteral("Plataforma instalación auxiliar: %1")
                  .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
                                                                  : st.helperPlatformLabel.trimmed());
@@ -2740,13 +2768,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
         return;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        QMessageBox::information(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_win001"),
-                QStringLiteral("La reparación de mountpoints temporales no aplica a conexiones Windows."),
-                QStringLiteral("Temporary mountpoint repair does not apply to Windows connections."),
-                QStringLiteral("临时挂载点修复不适用于 Windows 连接。")));
+    if (!requireFeature(connIdx, zfsmgr::caps::Feature::RepairAltMountpoints)) {
         return;
     }
 
@@ -3118,17 +3140,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         return;
     }
     const ConnectionRuntimeState& st = m_states[idx];
-    if (isWindowsConnection(idx)) {
-        // Windows ya no instala herramientas Unix en el host: todo lo que la aplicación
-        // necesita lo aporta el agente nativo. No hay gestor de paquetes que ofrecer.
-        QMessageBox::information(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helpers_win_na001"),
-                QStringLiteral("En Windows la aplicación trabaja solo con el agente nativo, "
-                               "así que no hay comandos auxiliares que instalar."),
-                QStringLiteral("On Windows the application works only through the native agent, "
-                               "so there are no helper commands to install."),
-                QStringLiteral("在 Windows 上，应用程序仅通过原生代理工作，因此无需安装辅助命令。")));
+    if (!requireFeature(idx, zfsmgr::caps::Feature::HelperCommandInstall)) {
         return;
     }
     if (st.missingUnixCommands.isEmpty()) {

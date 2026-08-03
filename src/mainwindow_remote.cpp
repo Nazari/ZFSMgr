@@ -2171,7 +2171,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::AlternateMount)) {
         return false;
     }
     const QString os = p.osType.trimmed().toLower();

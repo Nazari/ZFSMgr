@@ -1,0 +1,133 @@
+#include "connectioncapabilities.h"
+
+namespace zfsmgr::caps {
+namespace {
+
+// Funciones que en Windows no están porque el agente todavía no las implementa.
+// Comprobado por RPC contra un Windows 11 real: el daemon responde
+// "unknown command" a --job-submit, --repair-alt-mountpoints y
+// --mutate-advanced-todir; --dump-tool-availability tampoco existe allí.
+bool windowsAgentPending(Feature f) {
+    switch (f) {
+    case Feature::BackgroundJobs:       // depende de fork/waitpid
+    case Feature::RepairAltMountpoints:
+    case Feature::DirToDir:
+    case Feature::ToolAvailability:
+        return true;
+    // Estas dos SÍ están compiladas y aceptan argumentos, pero fallan siempre al
+    // ejecutarse: makeTempDir() devuelve cadena vacía en Windows y salen con rc=125.
+    // Anunciarlas disponibles sería peor que no tenerlas, porque el fallo aparece a
+    // mitad de una operación destructiva.
+    case Feature::DirBreakdown:
+    case Feature::DirAssemble:
+        return true;
+    // rsync no viaja con el agente y las rutas de Windows ni siquiera pasan su
+    // validación, que exige que empiecen por '/'.
+    case Feature::RsyncSync:
+        return true;
+    // Transmitir el flujo entre dos máquinas necesita las tuberías que el agente
+    // monta con pipe()/fork(); en Windows ese bloque no se compila.
+    case Feature::SendRecvStreaming:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Funciones que en Windows no son "trabajo pendiente" sino que no aplican.
+bool windowsNotApplicable(Feature f) {
+    switch (f) {
+    // No hay gestor de paquetes que ofrecer: la aplicación trabaja allí solo con el
+    // agente nativo, y no instala herramientas Unix en el host.
+    case Feature::HelperCommandInstall:
+        return true;
+    // Guardar y restaurar el mountpoint para montar en un directorio temporal no
+    // significa lo mismo contra letras de unidad.
+    case Feature::AlternateMount:
+        return true;
+    // El planificador de instantáneas se apoya en el bucle del daemon y en los
+    // eventos de ZED, y OpenZFS on Windows no trae zed.
+    case Feature::AutoSnapshotsGsa:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Funciones cuya implementación sigue siendo un script de shell Unix, sin camino por
+// el agente ni por PowerShell.
+bool windowsNeedsUnixShell(Feature f) {
+    return f == Feature::ShellActions;
+}
+
+bool requiresDaemon(Feature f) {
+    switch (f) {
+    case Feature::DatasetPermissions:
+    case Feature::BackgroundJobs:
+    case Feature::DirBreakdown:
+    case Feature::DirAssemble:
+    case Feature::DirToDir:
+    case Feature::RepairAltMountpoints:
+    case Feature::ToolAvailability:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
+QString featureAgentVerb(Feature f) {
+    switch (f) {
+    case Feature::DatasetPermissions:   return QStringLiteral("--dump-zfs-allow");
+    case Feature::BackgroundJobs:       return QStringLiteral("--job-submit");
+    case Feature::DirBreakdown:         return QStringLiteral("--mutate-advanced-breakdown");
+    case Feature::DirAssemble:          return QStringLiteral("--mutate-advanced-assemble");
+    case Feature::DirToDir:             return QStringLiteral("--mutate-advanced-todir");
+    case Feature::RepairAltMountpoints: return QStringLiteral("--repair-alt-mountpoints");
+    case Feature::ToolAvailability:     return QStringLiteral("--dump-tool-availability");
+    case Feature::RsyncSync:            return QStringLiteral("--mutate-rsync-local");
+    case Feature::SendRecvStreaming:    return QStringLiteral("--zfs-send-to-peer");
+    default:                            return QString();
+    }
+}
+
+Availability featureAvailability(Feature f, const Platform& plat) {
+    // Lo que declare el propio agente manda sobre cualquier tabla escrita aquí: la
+    // tabla es una suposición, su respuesta es un hecho.
+    const QString verb = featureAgentVerb(f);
+    const bool capsKnown = !plat.daemonCaps.isEmpty();
+    if (capsKnown && !verb.isEmpty()) {
+        if (plat.daemonCaps.contains(verb)) {
+            if (requiresDaemon(f) && !plat.daemonActive) {
+                return {false, Reason::DaemonNotReady};
+            }
+            return {true, Reason::Available};
+        }
+        return {false, plat.isWindows ? Reason::WindowsAgentPending : Reason::DaemonNotReady};
+    }
+
+    if (plat.isWindows) {
+        if (windowsNotApplicable(f)) {
+            return {false, Reason::WindowsNotApplicable};
+        }
+        if (windowsNeedsUnixShell(f)) {
+            return {false, Reason::WindowsNeedsUnixShell};
+        }
+        if (windowsAgentPending(f)) {
+            return {false, Reason::WindowsAgentPending};
+        }
+    }
+
+    if (requiresDaemon(f)) {
+        if (!plat.daemonActive) {
+            return {false, Reason::DaemonNotReady};
+        }
+        if (!plat.daemonApiOk) {
+            return {false, Reason::DaemonApiMismatch};
+        }
+    }
+    return {true, Reason::Available};
+}
+
+} // namespace zfsmgr::caps

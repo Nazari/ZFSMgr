@@ -2,6 +2,7 @@
 
 #include "connectionstore.h"
 #include "connectiondialog.h"
+#include "connectioncapabilities.h"
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreecoordinator.h"
 #include "connectiondatasettreewidget.h"
@@ -967,8 +968,19 @@ private:
                                     QVector<InlinePropGroupConfig>& groups,
                                     const QString& initialGroupName = QString());
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
-    bool requireNonWindowsStreamingEndpoints(const ConnectionProfile& sp,
-                                             const ConnectionProfile& dp,
+    // Consulta única de "¿puede el usuario hacer esto en esta conexión?". Sustituye a
+    // las comprobaciones sueltas de isWindowsConnection repartidas por 20 ficheros,
+    // que es lo que hacía que las funciones se apagaran de una en una y que el usuario
+    // se encontrara acciones que fallaban al pulsarlas.
+    zfsmgr::caps::Platform capabilityPlatform(int connIdx) const;
+    bool featureAvailable(int connIdx, zfsmgr::caps::Feature f, QString* reasonOut = nullptr) const;
+    // Igual que la anterior, pero además explica al usuario por qué no. Para usar como
+    // primera línea de un slot: if (!requireFeature(idx, F::X)) return;
+    bool requireFeature(int connIdx, zfsmgr::caps::Feature f);
+    QString capabilityReasonText(zfsmgr::caps::Reason r) const;
+
+    bool requireNonWindowsStreamingEndpoints(int srcConnIdx,
+                                             int dstConnIdx,
                                              const QString& actionLabel);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,

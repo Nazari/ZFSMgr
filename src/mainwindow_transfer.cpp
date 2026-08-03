@@ -203,10 +203,11 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     return true;
 }
 
-bool MainWindow::requireNonWindowsStreamingEndpoints(const ConnectionProfile& sp,
-                                                     const ConnectionProfile& dp,
+bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
+                                                     int dstConnIdx,
                                                      const QString& actionLabel) {
-    if (!isWindowsConnection(sp) && !isWindowsConnection(dp)) {
+    if (featureAvailable(srcConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)
+        && featureAvailable(dstConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)) {
         return true;
     }
     // La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando
@@ -243,7 +244,7 @@ void MainWindow::actionCopySnapshot() {
     }
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
-    if (!requireNonWindowsStreamingEndpoints(sp, dp, QStringLiteral("Copiar snapshot"))) {
+    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Copiar snapshot"))) {
         return;
     }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
@@ -1084,7 +1085,7 @@ void MainWindow::actionLevelSnapshot() {
 
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
-    if (!requireNonWindowsStreamingEndpoints(sp, dp, QStringLiteral("Nivelar snapshot"))) {
+    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Nivelar snapshot"))) {
         return;
     }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {

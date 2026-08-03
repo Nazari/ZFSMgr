@@ -3548,12 +3548,13 @@ void MainWindow::buildUi() {
             DatasetSelectionContext ctx = currentConnContentSelection(tree);
             if (ctx.valid
                 && ctx.snapshotName.isEmpty()
-                && !isWindowsConnection(ctx.connIdx)
+                && featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)
                 && permNode->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")
                 && permNode->childCount() == 0) {
                 populateDatasetPermissionsNode(tree, owner, false);
             }
-            if (!ctx.valid || !ctx.snapshotName.isEmpty() || isWindowsConnection(ctx.connIdx)) {
+            if (!ctx.valid || !ctx.snapshotName.isEmpty()
+                || !featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
                 return true;
             }
             QMenu permMenu(this);

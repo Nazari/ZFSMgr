@@ -53,6 +53,9 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirBreakdown)) {
+        return;
+    }
     const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
@@ -582,6 +585,9 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirAssemble)) {
         return;
     }
     const QString ds = curr.datasetName;

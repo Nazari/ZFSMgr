@@ -1935,12 +1935,13 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     mwCtx.snapshotName = ctx.snapshotName;
     if (ctx.valid
         && ctx.snapshotName.isEmpty()
-        && !m_mainWindow->isWindowsConnection(ctx.connIdx)
+        && m_mainWindow->featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)
         && permNode->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")
         && permNode->childCount() == 0) {
         refreshPermissionsOwnerNode(tree, owner, false);
     }
-    if (!ctx.valid || !ctx.snapshotName.isEmpty() || m_mainWindow->isWindowsConnection(ctx.connIdx)) {
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()
+        || !m_mainWindow->featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return true;
     }
     auto rebuildPermissionsNodeWithState = [&]() {
@@ -3112,7 +3113,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
                 return;
             }
-            if (m_mainWindow->isWindowsConnection(actx.connIdx)) {
+            if (!m_mainWindow->featureAvailable(actx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
                 return;
             }
             if (!m_mainWindow->ensureDatasetPermissionsEntryLoaded(actx.connIdx, actx.poolName, actx.datasetName)) {
