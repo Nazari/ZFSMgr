@@ -58,6 +58,30 @@ RUN /opt/provision/provision-cross-targets.sh --windows
 # FreeBSD: sysroot base.txz + paquetes Qt del repositorio oficial de FreeBSD.
 RUN /opt/provision/provision-cross-targets.sh --freebsd
 
+# Wine para el instalador de Windows. El compilador de Inno Setup es un ejecutable
+# de Windows, así que sin esto build-windows-inno-linux.sh aborta con "wine no está
+# instalado" y buildall-cross.sh muere en la fase windows-installer-local ANTES de
+# generar el .pkg de FreeBSD, que va después. Al no tenerlo había que compilar dentro
+# del contenedor con --windows-installer 0 y generar el instalador aparte en el host.
+#
+# Se instala "wine", no "wine64": wine64 deja los binarios fuera del PATH (quedan
+# bajo /usr/lib/wine) y el script busca "wine" y "winepath".
+#
+# Y hace falta wine32:i386 aunque el prefijo sea WINEARCH=win64: el instalador de
+# Inno Setup 6 es un ejecutable de 32 bits, así que sin la capa WoW64 wine muere con
+# "failed to load C:\windows\syswow64\ntdll.dll". Son unos 650 MB extra; la
+# alternativa sería saltar a Inno Setup 7, cuyo instalador sí es x64 nativo, pero eso
+# cambia la versión con la que se genera el instalador que se publica.
+#
+# xvfb porque el instalador de Inno necesita un display aunque se ejecute en silencio.
+#
+# Va al final a propósito: así no invalida las capas caras de Qt y del sysroot de
+# FreeBSD, que tardan mucho en reconstruirse.
+RUN dpkg --add-architecture i386 \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        wine wine32:i386 winbind xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
 # Legible y ejecutable por cualquier UID: el contenedor no corre como root.
 RUN chmod -R a+rX /opt/toolchain
 

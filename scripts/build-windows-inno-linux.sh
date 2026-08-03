@@ -9,8 +9,17 @@ OUTPUT_DIR="${PROJECT_ROOT}/builds/windows-installer"
 PAYLOAD_DIR="${OUTPUT_DIR}/payload"
 ISS_FILE="${OUTPUT_DIR}/zfsmgr-installer.iss"
 WINEPREFIX="${WINEPREFIX:-${HOME}/.wine-zfsmgr-inno}"
-WINEARCH="${WINEARCH:-win64}"
-INNO_URL="${INNO_URL:-https://jrsoftware.org/download.php/is.exe}"
+# win32 y no win64: el compilador de Inno Setup (ISCC.exe) es un ejecutable de 32
+# bits, así que un prefijo de 32 bits le vale y evita depender de la capa WoW64. La
+# arquitectura del prefijo no influye en el instalador que se GENERA, que la decide
+# el .iss.
+WINEARCH="${WINEARCH:-win32}"
+# URL directa de la release, no https://jrsoftware.org/download.php/is.exe: esa
+# dejó de servir el ejecutable y ahora redirige a una página HTML de descarga, así
+# que se bajaban 10 KB de HTML y wine fallaba con "No se encontró ISCC.exe" sin
+# explicar por qué. No se notaba en una máquina donde Inno ya estuviera instalado en
+# el prefijo de wine, porque entonces la descarga ni se intenta.
+INNO_URL="${INNO_URL:-https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe}"
 INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
 APP_EXE="zfsmgr_qt.exe"
@@ -67,22 +76,31 @@ if [[ -z "${APP_VERSION}" ]]; then
 fi
 [[ -n "${APP_VERSION}" ]] || APP_VERSION="0.10.0rc1"
 
+# WINEARCH NO se pasa al ejecutar: una vez creado el prefijo, su arquitectura manda,
+# y forzar otra hace que wine aborte con "WINEARCH set to win64 but ... is a 32-bit
+# installation". Solo se fija al crear el prefijo (ver ensure_wine_prefix).
 run_wine() {
   if command -v xvfb-run >/dev/null 2>&1; then
-    xvfb-run -a env WINEPREFIX="${WINEPREFIX}" WINEARCH="${WINEARCH}" wine "$@"
+    xvfb-run -a env WINEPREFIX="${WINEPREFIX}" wine "$@"
   else
-    env WINEPREFIX="${WINEPREFIX}" WINEARCH="${WINEARCH}" wine "$@"
+    env WINEPREFIX="${WINEPREFIX}" wine "$@"
   fi
 }
 
 ensure_wine_prefix() {
   command -v wine >/dev/null 2>&1 || { echo "wine no está instalado" >&2; exit 1; }
   command -v winepath >/dev/null 2>&1 || { echo "winepath no está instalado" >&2; exit 1; }
+  # WINEARCH solo cuenta al CREAR el prefijo. Si ya existe se respeta el suyo, para
+  # no romper prefijos previos (en el host había uno de 64 bits ya funcionando).
+  local arch_env=()
+  if [[ ! -f "${WINEPREFIX}/system.reg" ]]; then
+    arch_env=(WINEARCH="${WINEARCH}")
+  fi
   mkdir -p "${WINEPREFIX}"
   if command -v xvfb-run >/dev/null 2>&1; then
-    xvfb-run -a env WINEPREFIX="${WINEPREFIX}" WINEARCH="${WINEARCH}" wineboot -u >/dev/null 2>&1 || true
+    xvfb-run -a env WINEPREFIX="${WINEPREFIX}" "${arch_env[@]}" wineboot -u >/dev/null 2>&1 || true
   else
-    env WINEPREFIX="${WINEPREFIX}" WINEARCH="${WINEARCH}" wineboot -u >/dev/null 2>&1 || true
+    env WINEPREFIX="${WINEPREFIX}" "${arch_env[@]}" wineboot -u >/dev/null 2>&1 || true
   fi
 }
 
@@ -116,8 +134,20 @@ ensure_inno() {
   ensure_wine_prefix
   mkdir -p /tmp
   local installer="/tmp/innosetup-installer.exe"
-  curl -fL "${INNO_URL}" -o "${installer}"
-  run_wine "${installer}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+  curl -fL "${INNO_URL}" -o "${installer}" >&2
+  # Un instalador de Inno ronda los 10 MB. Si lo descargado es minúsculo o no es un
+  # ejecutable, se aborta aquí en vez de dejar que wine falle sin decir la causa.
+  if [[ ! -s "${installer}" ]] || [[ "$(stat -c%s "${installer}")" -lt 1000000 ]]; then
+    echo "Error: la descarga de Inno Setup no parece un instalador ($(stat -c%s "${installer}" 2>/dev/null || echo 0) bytes)." >&2
+    echo "       URL: ${INNO_URL}" >&2
+    exit 1
+  fi
+  # La salida de wine va a stderr: ensure_inno DEVUELVE la ruta de ISCC por stdout y
+  # se captura con $(...). Sin esto, los "err:menubuilder" de wine se mezclan con esa
+  # ruta y el llamante intenta ejecutarlos como si fueran una orden (exit 127).
+  # Mismo error que ya hubo en ensure_aqt() del aprovisionamiento; conviene revisarlo
+  # en cualquier función de este repositorio que devuelva un valor por stdout.
+  run_wine "${installer}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- >&2 2>&1
   iscc_path="$(find_iscc || true)"
   [[ -n "${iscc_path}" ]] || { echo "No se encontró ISCC.exe tras instalar Inno Setup" >&2; exit 1; }
   printf '%s\n' "${iscc_path}"

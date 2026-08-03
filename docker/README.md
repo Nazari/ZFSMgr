@@ -30,9 +30,24 @@ el código se monta en `/src` y el contenedor solo aporta la toolchain.
 
 - **Linux nativo**: Qt6 de Ubuntu, OpenSSL, herramientas de AppImage.
 - **Windows (cross)**: MinGW-w64, Qt para MinGW vía `aqtinstall`, OpenSSL compilado
-  para MinGW.
+  para MinGW, y **Wine + Xvfb** para generar el instalador de Inno Setup.
 - **FreeBSD (cross)**: clang, sysroot de `base.txz` y paquetes Qt del repositorio
   oficial de FreeBSD.
+
+### Wine y el instalador de Windows
+
+El compilador de Inno Setup es un ejecutable de Windows, así que sin Wine la fase
+`windows-installer-local` abortaba y se llevaba por delante el `.pkg` de FreeBSD, que
+se genera después. Antes había que compilar dentro del contenedor con
+`--windows-installer 0` y hacer el instalador aparte en el host.
+
+Hace falta `wine32:i386` aunque el prefijo sea de 64 bits: el instalador de Inno
+Setup 6 es de 32 bits. Son unos 650 MB extra. La alternativa sería Inno Setup 7,
+cuyo instalador sí es x64 nativo, pero eso cambiaría la versión con la que se genera
+el instalador que se publica.
+
+Verificado que el `.exe` producido dentro del contenedor es **byte a byte idéntico**
+al que se generaba en el host.
 
 La imagen **no duplica la lógica de aprovisionamiento**: ejecuta el propio
 `scripts/provision-cross-targets.sh` del repo. Así una máquina aprovisionada a mano
