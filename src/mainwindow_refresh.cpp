@@ -1012,7 +1012,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
-    if (!isWinConn) {
+    // Windows entra aquí desde que su daemon sirve --dump-zpool-guid-status-batch
+    // (comprobado por RPC contra un Windows 11 real). Sin esto se quedaba sin GUID ni
+    // estado de pool, que es de lo que dependen la identificación de pools entre
+    // conexiones y el aviso de pool degradado. Solo se excluye el camino clásico, que
+    // sigue siendo un bucle de shell Unix.
+    if (!isWinConn || daemonReadApiOk) {
         QString bout;
         QString berr;
         int brc = -1;
