@@ -1432,8 +1432,14 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
-    aInstallDaemon->setEnabled(hasConn && !actionsLocked() && !isDisconnected
-                               && !isLocalConnection(connIdx) && !isWindowsConnection(connIdx));
+    // El criterio es el TRANSPORTE, no el sistema operativo: Windows por SSH admite
+    // daemon nativo (verificado contra un Windows 11 real), y lo que no admite es
+    // PSRP, que al no tener SSH no permite abrir el túnel por el que viaja el RPC.
+    const bool daemonInstallable =
+        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx)
+        && (!isWindowsConnection(connIdx)
+            || m_profiles[connIdx].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
+    aInstallDaemon->setEnabled(daemonInstallable);
     // Also available on the local connection: a local dataset can be left stranded too.
     aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
                                       && !isWindowsConnection(connIdx));

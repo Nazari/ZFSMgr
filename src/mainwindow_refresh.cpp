@@ -840,18 +840,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         agentWinMode = winPsMode;
         agentProbeCmd = QStringLiteral(
                 "$taskName='ZFSMgr-Agent'; "
+                // El nativo (.exe) primero: es lo que se instala ahora en Windows por
+                // SSH. Se conserva el .ps1 porque las conexiones PSRP siguen con el
+                // stub, y porque un host puede tenerlo de una instalación anterior.
+                "$agentExe='C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe'; "
                 "$agentPath='C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1'; "
+                "$native=$false; "
                 "$scheduler='taskschd'; "
                 "$installed=$false; $active=$false; $ver=''; $api=''; $detail=''; "
                 "$task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; "
                 "if ($task) { $installed=$true; if ($task.State -eq 'Ready' -or $task.State -eq 'Running') { $active=$true } } "
-                "if (Test-Path -LiteralPath $agentPath) { "
+                // Al nativo se le PREGUNTA la versión en vez de leerla de un
+                // comentario: el .exe no lleva cabeceras que rascar.
+                "if (Test-Path -LiteralPath $agentExe) { "
+                "  $installed=$true; $native=$true; "
+                "  try { $ver=(& $agentExe --version 2>$null | Select-Object -First 1).Trim() } catch {} "
+                "  try { $api=(& $agentExe --api-version 2>$null | Select-Object -First 1).Trim() } catch {} "
+                "} "
+                "if (-not $native -and (Test-Path -LiteralPath $agentPath)) { "
                 "  $installed=$true; "
                 "  $m1=Select-String -LiteralPath $agentPath -Pattern '^# ZFSMgr Agent Version: (.+)$' -ErrorAction SilentlyContinue | Select-Object -First 1; "
                 "  if ($m1) { $ver=$m1.Matches[0].Groups[1].Value.Trim() } "
                 "  $m2=Select-String -LiteralPath $agentPath -Pattern '^# ZFSMgr Agent API: (.+)$' -ErrorAction SilentlyContinue | Select-Object -First 1; "
                 "  if ($m2) { $api=$m2.Matches[0].Groups[1].Value.Trim() } "
                 "} "
+                "Write-Output ('NATIVE=' + ($(if($native){'1'}else{'0'}))); "
                 "Write-Output ('SCHEDULER=' + $scheduler); "
                 "Write-Output ('INSTALLED=' + ($(if($installed){'1'}else{'0'}))); "
                 "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
