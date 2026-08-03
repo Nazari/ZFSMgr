@@ -30,7 +30,6 @@ private:
                            QString& osTypeOut,
                            QString& flavorOut,
                            QString& detailOut) const;
-    bool testPsrpConnection(const ConnectionProfile& p, QString& detail) const;
     void browsePrivateKey();
     QString trk(const QString& key,
                 const QString& es = QString(),

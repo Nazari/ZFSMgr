@@ -802,13 +802,7 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         return;
     }
     const ConnectionProfile profile = m_profiles[idx];
-    // Windows por SSH SÍ tiene log de daemon: lleva el agente nativo. El criterio es
-    // el transporte, no el sistema operativo; lo que queda fuera es PSRP, que sin SSH
-    // no admite el túnel del RPC y sigue con el stub de PowerShell.
-    const bool windowsWithoutDaemon =
-        isWindowsConnection(profile)
-        && profile.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0;
-    if (isLocalConnection(profile) || windowsWithoutDaemon) {
+    if (isLocalConnection(profile)) {
         return;
     }
 

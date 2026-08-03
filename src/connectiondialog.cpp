@@ -26,21 +26,6 @@
 #include <QFile>
 
 namespace {
-QString sanitizePsrpDetail(QString raw) {
-    if (raw.isEmpty()) {
-        return raw;
-    }
-    raw.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
-    raw.replace(QRegularExpression(QStringLiteral("_x[0-9A-Fa-f]{4}_")), QStringLiteral(""));
-    raw.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(""));
-    raw.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-    raw.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-    raw.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-    raw.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-    raw.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
-    return raw.simplified();
-}
-
 QString oneLine(QString text) {
     return text.replace('\n', ' ').replace('\r', ' ').simplified();
 }
@@ -146,7 +131,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     m_osInfoLabel->setFrameShadow(QFrame::Sunken);
     m_osInfoLabel->setMargin(4);
     m_connTypeCombo = new QComboBox(this);
-    m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
+    m_connTypeCombo->addItems({QStringLiteral("SSH")});
     auto* nameOsRow = new QWidget(this);
     auto* nameOsLayout = new QHBoxLayout(nameOsRow);
     nameOsLayout->setContentsMargins(0, 0, 0, 0);
@@ -343,58 +328,44 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.id = m_id;
     p.name = m_nameEdit->text().trimmed();
     p.connType = m_connTypeCombo->currentText().trimmed();
-    p.osType = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)
-                   ? QStringLiteral("Windows")
-                   : m_detectedOsType.trimmed();
+    p.osType = m_detectedOsType.trimmed();
     p.host = m_hostEdit->text().trimmed();
     p.port = m_portEdit->text().toInt();
     if (p.port <= 0) {
-        const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-        p.port = psrpMode ? 5986 : 22;
+        p.port = 22;
     }
     p.sshAddressFamily = m_sshFamilyCombo ? m_sshFamilyCombo->currentData().toString().trimmed().toLower()
                                           : QStringLiteral("auto");
     p.username = m_userEdit->text().trimmed();
     p.password = m_passwordEdit->text();
     p.keyPath = m_keyEdit->text().trimmed();
-    p.useSudo = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) != 0);
+    p.useSudo = true;
     return p;
 }
 
 void ConnectionDialog::ensureDefaultPortForMode() {
-    const QString connType = m_connTypeCombo->currentText().trimmed();
-    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-    const QString wantedPort = isPsrp ? QStringLiteral("5986") : QStringLiteral("22");
+    // Se siguen reconociendo 5985/5986 como "puerto puesto por la aplicación" para que
+    // un perfil que venía de PSRP recupere el 22 al editarlo, en vez de conservar un
+    // puerto de WinRM al que ya nadie escucha.
+    const QString wantedPort = QStringLiteral("22");
     const QString current = m_portEdit->text().trimmed();
-    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22") || current == QStringLiteral("5985") || current == QStringLiteral("5986")) {
+    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22")
+        || current == QStringLiteral("5985") || current == QStringLiteral("5986")) {
         m_portEdit->setText(wantedPort);
     }
     m_lastAutoPort = wantedPort;
 }
 
 void ConnectionDialog::updateConnectionModeUi() {
-    const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-
-    m_keyEdit->setEnabled(!psrpMode);
+    m_keyEdit->setEnabled(true);
     if (m_keyBrowseBtn) {
-        m_keyBrowseBtn->setEnabled(!psrpMode);
-    }
-    if (psrpMode) {
-        m_keyEdit->clear();
+        m_keyBrowseBtn->setEnabled(true);
     }
     if (m_sshFamilyCombo) {
-        m_sshFamilyCombo->setEnabled(!psrpMode);
+        m_sshFamilyCombo->setEnabled(true);
     }
-
-    if (psrpMode) {
-        m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_psrp_cred_ph01"), QStringLiteral("Credencial de Windows/PSRP"),
-                                               QStringLiteral("Windows/PSRP credential"),
-                                               QStringLiteral("Windows/PSRP 凭据")));
-        m_portEdit->setPlaceholderText(QStringLiteral("5986"));
-    } else {
-        m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
-        m_portEdit->setPlaceholderText(QStringLiteral("22"));
-    }
+    m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
+    m_portEdit->setPlaceholderText(QStringLiteral("22"));
 
     ensureDefaultPortForMode();
     updateDetectedOsLabel();
@@ -402,12 +373,6 @@ void ConnectionDialog::updateConnectionModeUi() {
 
 void ConnectionDialog::updateDetectedOsLabel() {
     if (!m_osInfoLabel) {
-        return;
-    }
-    const bool psrpMode = (m_connTypeCombo
-                           && m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-    if (psrpMode) {
-        m_osInfoLabel->setText(QStringLiteral("Windows | PSRP"));
         return;
     }
     const QString osType = m_detectedOsType.trimmed();
@@ -736,116 +701,6 @@ bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
     return false;
 }
 
-bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& detail) const {
-    detail.clear();
-    appendConnectionDialogTrace(QStringLiteral("INFO"),
-                                QStringLiteral("PSRP test start: %1@%2:%3")
-                                    .arg(p.username, p.host, QString::number(p.port > 0 ? p.port : 5986)));
-    QString program = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
-    if (program.isEmpty()) {
-        program = QStandardPaths::findExecutable(QStringLiteral("powershell"));
-    }
-    if (program.isEmpty()) {
-        detail = trk(QStringLiteral("t_psrp_bin_nf001"),
-                     QStringLiteral("No se encontró pwsh/powershell para validar PSRP."),
-                     QStringLiteral("pwsh/powershell not found to validate PSRP."),
-                     QStringLiteral("未找到 pwsh/powershell，无法验证 PSRP。"));
-        appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                    QStringLiteral("PSRP test failed: no pwsh/powershell executable"));
-        return false;
-    }
-
-    const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
-    const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
-    const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
-    const int port = (p.port > 0) ? p.port : 5986;
-
-    const QString script = QStringLiteral(
-        "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
-        "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
-        "$cred=New-Object System.Management.Automation.PSCredential('%2',$sec); "
-        "$so=$null; "
-        "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck } "
-        "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck }; "
-        "$r=$null; "
-        "try { "
-        "  $r=Invoke-Command -ComputerName '%3' -Port %4 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
-        "    -ScriptBlock { [System.Environment]::OSVersion.VersionString } -ErrorAction Stop 2>&1 "
-        "} catch { "
-        "  $r=Invoke-Command -ComputerName '%3' -Port %4 -UseSSL -Authentication Basic -Credential $cred -SessionOption $so "
-        "    -ScriptBlock { [System.Environment]::OSVersion.VersionString } -ErrorAction Stop 2>&1 "
-        "}; "
-        "$rc=$LASTEXITCODE; "
-        "$r | ForEach-Object { $_.ToString() }; "
-        "if($rc -eq $null){ $rc=0 }; "
-        "exit [int]$rc;")
-                               .arg(passB64, userEsc, hostEsc, QString::number(port));
-
-    const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
-    const QString encoded = QString::fromLatin1(utf16.toBase64());
-    QStringList args;
-    args << "-NoProfile" << "-NonInteractive" << "-EncodedCommand" << encoded;
-
-    QProcess proc;
-    proc.start(program, args);
-    if (!proc.waitForStarted(3000)) {
-        detail = trk(QStringLiteral("t_no_se_pudo_99f7f4"),
-                     QStringLiteral("No se pudo iniciar %1"),
-                     QStringLiteral("Could not start %1"),
-                     QStringLiteral("无法启动 %1")).arg(program);
-        appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                    QStringLiteral("PSRP test failed to start: program=%1 detail=%2")
-                                        .arg(program, oneLine(detail)));
-        return false;
-    }
-    if (!proc.waitForFinished(15000)) {
-        proc.kill();
-        proc.waitForFinished(1000);
-        detail = trk(QStringLiteral("t_timeout_psrp001"),
-                     QStringLiteral("Timeout de conexión PSRP"),
-                     QStringLiteral("PSRP connection timeout"),
-                     QStringLiteral("PSRP 连接超时"));
-        appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                    QStringLiteral("PSRP test timeout: %1@%2:%3")
-                                        .arg(p.username, p.host, QString::number(port)));
-        return false;
-    }
-
-    const int rc = proc.exitCode();
-    const QString out = sanitizePsrpDetail(QString::fromUtf8(proc.readAllStandardOutput()).trimmed());
-    const QString err = sanitizePsrpDetail(QString::fromUtf8(proc.readAllStandardError()).trimmed());
-    const QString merged = (out + QStringLiteral("\n") + err).trimmed();
-    if (rc == 0 && !out.isEmpty()) {
-        detail = out.section('\n', 0, 0).trimmed();
-        appendConnectionDialogTrace(QStringLiteral("INFO"),
-                                    QStringLiteral("PSRP test ok: %1@%2:%3 detail=\"%4\"")
-                                        .arg(p.username,
-                                             p.host,
-                                             QString::number(port),
-                                             oneLine(detail)));
-        return true;
-    }
-    if (merged.contains(QStringLiteral("no supported wsman client library"), Qt::CaseInsensitive)) {
-        detail = trk(QStringLiteral("t_psrp_wsman_miss"),
-                     QStringLiteral("PSRP no disponible: falta cliente WSMan en este sistema.\nInstale PSWSMan para PowerShell (ejemplo: Install-Module PSWSMan; Install-WSMan)."),
-                     QStringLiteral("PSRP unavailable: WSMan client library is missing on this system.\nInstall PSWSMan for PowerShell (e.g. Install-Module PSWSMan; Install-WSMan)."),
-                     QStringLiteral("PSRP 不可用：此系统缺少 WSMan 客户端库。\n请安装 PowerShell 的 PSWSMan（例如：Install-Module PSWSMan; Install-WSMan）。"));
-        appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                    QStringLiteral("PSRP test failed: missing WSMan client library"));
-        return false;
-    }
-    detail = err.isEmpty()
-                 ? trk(QStringLiteral("t_error_psrp_001"),
-                       QStringLiteral("Error PSRP (exit %1)"),
-                       QStringLiteral("PSRP error (exit %1)"),
-                       QStringLiteral("PSRP 错误（退出码 %1）")).arg(rc)
-                 : err;
-    appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                QStringLiteral("PSRP test failed rc=%1 merged=\"%2\"")
-                                    .arg(QString::number(rc), oneLine(merged)));
-    return false;
-}
-
 void ConnectionDialog::testConnection() {
     const ConnectionProfile p = profile();
     appendConnectionDialogTrace(
@@ -877,48 +732,6 @@ void ConnectionDialog::testConnection() {
                                  QStringLiteral("Puerto inválido."),
                                  QStringLiteral("Invalid port."),
                                  QStringLiteral("端口无效。")));
-        return;
-    }
-
-    const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-    if (psrpMode) {
-        if (p.password.trimmed().isEmpty()) {
-            appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                        QStringLiteral("PSRP test blocked: missing password"));
-            QMessageBox::warning(this,
-                                 QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_psrp_pwd_req001"),
-                                     QStringLiteral("Para validar una conexión PSRP debe indicar password."),
-                                     QStringLiteral("A password is required to validate a PSRP connection."),
-                                     QStringLiteral("验证 PSRP 连接需要密码。")));
-            return;
-        }
-        QString psrpDetail;
-        if (testPsrpConnection(p, psrpDetail)) {
-            appendConnectionDialogTrace(QStringLiteral("INFO"),
-                                        QStringLiteral("PSRP test success: %1@%2:%3")
-                                            .arg(p.username, p.host, QString::number(p.port)));
-            QMessageBox::information(this,
-                                     QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_psrp_ok_msg001"),
-                                         QStringLiteral("Conexión PSRP correcta a %1@%2:%3\n%4"),
-                                         QStringLiteral("PSRP connection successful to %1@%2:%3\n%4"),
-                                         QStringLiteral("PSRP 连接成功：%1@%2:%3\n%4"))
-                                         .arg(p.username)
-                                         .arg(p.host)
-                                         .arg(p.port)
-                                         .arg(psrpDetail));
-            return;
-        }
-        appendConnectionDialogTrace(QStringLiteral("WARN"),
-                                    QStringLiteral("PSRP test failed: %1")
-                                        .arg(oneLine(psrpDetail)));
-        QMessageBox::critical(this,
-                              QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_psrp_failmsg001"),
-                                  QStringLiteral("Fallo en prueba PSRP:\n%1"),
-                                  QStringLiteral("PSRP test failed:\n%1"),
-                                  QStringLiteral("PSRP 测试失败：\n%1")).arg(psrpDetail));
         return;
     }
 

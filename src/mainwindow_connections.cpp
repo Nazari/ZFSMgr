@@ -488,9 +488,8 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("API daemon: %1")
                  .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                               : st.daemonApiVersion.trimmed());
-    // Ya no se puede dar por hecho que Windows sea "script": por SSH lleva el daemon
-    // nativo, y solo PSRP conserva el stub de PowerShell. Se informa de lo que la
-    // sonda encontró realmente, en vez de deducirlo del sistema operativo.
+    // Se informa de lo que la sonda encontró realmente, no de lo que se deduzca del
+    // sistema operativo: Windows lleva daemon nativo como todos los demás.
     lines << QStringLiteral("Binario daemon: %1")
                  .arg(st.daemonNativeBinary ? QStringLiteral("nativo")
                                             : QStringLiteral("script/no nativo"));
@@ -697,9 +696,6 @@ struct ConnectivityProbeResult {
 };
 
 QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verbose = false) {
-    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
     const QString unixPathPrefix =
         QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
@@ -726,9 +722,6 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verb
 }
 
 QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
-    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
     const QString unixPathPrefix =
         QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
@@ -939,12 +932,6 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
                         QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
                         QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。")));
     }
-    if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return fail(trk(QStringLiteral("t_connectivity_unsupported_source_001"),
-                        QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
-                        QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
-                        QStringLiteral("不检查来自 PSRP 连接的出站连通性。")));
-    }
     const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
     if (sshCmd.trimmed().isEmpty()) {
         return fail(QStringLiteral("probe SSH vacío"));
@@ -1142,15 +1129,6 @@ void MainWindow::openConnectivityMatrixDialog() {
                                  QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
                                  QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
                                  QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。"));
-            result.detail = result.tooltip;
-            return result;
-        }
-        if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
-            result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_source_001"),
-                                 QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
-                                 QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
-                                 QStringLiteral("不检查来自 PSRP 连接的出站连通性。"));
             result.detail = result.tooltip;
             return result;
         }
@@ -1433,13 +1411,8 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
-    // El criterio es el TRANSPORTE, no el sistema operativo: Windows por SSH admite
-    // daemon nativo (verificado contra un Windows 11 real), y lo que no admite es
-    // PSRP, que al no tener SSH no permite abrir el túnel por el que viaja el RPC.
     const bool daemonInstallable =
-        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx)
-        && (!isWindowsConnection(connIdx)
-            || m_profiles[connIdx].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
+        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx);
     aInstallDaemon->setEnabled(daemonInstallable);
     // Also available on the local connection: a local dataset can be left stranded too.
     aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
@@ -1734,8 +1707,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
         && !state.machineUuid.trimmed().isEmpty()
         && (isLocalConnection(targetIdx)
-            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)) {
+            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0)) {
         const QString newMachineUid = state.machineUuid.trimmed();
         if (m_profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
             ConnectionProfile persisted = m_profiles[targetIdx];
@@ -3577,15 +3549,9 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
     bool isMac = false;
 
-    // Windows por SSH: se instala el daemon NATIVO, igual que en Unix. Verificado en
-    // un Windows 11 real que sirve TLS por el túnel y ejecuta ZFS.
-    //
-    // PSRP se queda con el stub a propósito: el RPC viaja por un túnel "ssh -L", y una
-    // conexión PSRP no tiene SSH, así que no hay túnel que abrir. No es que falte
-    // trabajo, es que el transporte no aplica.
-    const bool windowsNativeAgent =
-        isWindowsConnection(idx)
-        && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    // Windows instala el daemon NATIVO, igual que en Unix. Verificado en un Windows 11
+    // real que sirve TLS por el túnel y ejecuta ZFS.
+    const bool windowsNativeAgent = isWindowsConnection(idx);
     if (windowsNativeAgent) {
         winMode = WindowsCommandMode::PowerShellNative;
         const QString localAgentPath =
@@ -3636,22 +3602,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             return false;
         }
         remoteCmd = daemonpayload::windowsNativeInstallCommand();
-    } else if (isWindowsConnection(idx)) {
-        winMode = WindowsCommandMode::PowerShellNative;
-        const QString payload = daemonpayload::windowsStubScript(daemonVersion, apiVersion);
-        remoteCmd = QStringLiteral(
-            "$dir='%1'; $script='%2'; "
-            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
-            "Set-Content -LiteralPath $script -Value @'\n%3\n'@ -Encoding UTF8; "
-            "$taskName='%4'; "
-            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
-            "$action = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
-            "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $taskName /TR $action /F >$null; "
-            "schtasks /Run /TN $taskName 2>&1 | Out-Null; exit 0")
-                        .arg(daemonpayload::windowsDirPath(),
-                             daemonpayload::windowsScriptPath(),
-                             payload,
-                             daemonpayload::windowsTaskName());
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))

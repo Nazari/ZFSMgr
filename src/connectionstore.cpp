@@ -33,10 +33,27 @@ QString defaultIdFromGroup(const QString& group) {
 }
 
 int ensurePort(const QString& connType, int port) {
-    if (port > 0) {
-        return port;
+    Q_UNUSED(connType);
+    return port > 0 ? port : 22;
+}
+
+// PSRP se retiró como transporte: no admite el daemon, porque el RPC viaja por un túnel
+// "ssh -L" y sin SSH no hay túnel. Un perfil guardado con PSRP no puede quedarse como
+// está —fallaría de forma opaca— ni desaparecer sin más, así que se convierte a SSH.
+//
+// El puerto es la parte que se olvida: 5986 es WinRM, y dejarlo convierte una conexión
+// rota en una conexión rota SIN explicación, que es peor que la de partida.
+bool migratePsrpProfileToSsh(ConnectionProfile& p) {
+    if (p.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) != 0) {
+        return false;
     }
-    return connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0 ? 5986 : 22;
+    p.connType = QStringLiteral("SSH");
+    p.osType = QStringLiteral("Windows");
+    p.useSudo = false;
+    if (p.port == 5986 || p.port <= 0) {
+        p.port = 22;
+    }
+    return true;
 }
 
 bool shouldForceLocalSudo(const ConnectionProfile& p) {
@@ -904,6 +921,10 @@ bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
     return true;
 }
 
+bool ConnectionStore::migratePsrpProfileToSshForTest(ConnectionProfile& p) {
+    return migratePsrpProfileToSsh(p);
+}
+
 LoadResult ConnectionStore::loadConnections() const {
     LoadResult result;
     QString migrationError;
@@ -925,6 +946,19 @@ LoadResult ConnectionStore::loadConnections() const {
     }
     for (const QJsonValue& v : connections) {
         ConnectionProfile p = connectionFromJson(v.toObject());
+        // Antes de ensurePort: la conversión decide el puerto y no debe pisarla nadie.
+        if (migratePsrpProfileToSsh(p)) {
+            result.warnings.push_back(
+                QStringLiteral("%1: %2")
+                    .arg(p.name.isEmpty() ? p.id : p.name,
+                         trk(QStringLiteral("t_cstore_psrp001"),
+                             QStringLiteral("usaba PSRP, que ya no está soportado. Se ha convertido a "
+                                            "SSH en el puerto 22; revise usuario, clave y acceso SSH."),
+                             QStringLiteral("used PSRP, which is no longer supported. It has been "
+                                            "converted to SSH on port 22; check the user, key and SSH access."),
+                             QStringLiteral("使用了不再受支持的 PSRP。已转换为端口 22 的 SSH；"
+                                            "请检查用户、密钥和 SSH 访问。"))));
+        }
         p.port = ensurePort(p.connType, p.port);
 
         if (SecretCipher::isEncrypted(p.username)) {

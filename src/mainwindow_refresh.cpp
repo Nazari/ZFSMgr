@@ -341,8 +341,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
     const bool sshMode = (profile.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
-    const bool psrpMode = (profile.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-    if (!localMode && !sshMode && !psrpMode) {
+    if (!localMode && !sshMode) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
                            QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
@@ -840,9 +839,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         agentWinMode = winPsMode;
         agentProbeCmd = QStringLiteral(
                 "$taskName='ZFSMgr-Agent'; "
-                // El nativo (.exe) primero: es lo que se instala ahora en Windows por
-                // SSH. Se conserva el .ps1 porque las conexiones PSRP siguen con el
-                // stub, y porque un host puede tenerlo de una instalación anterior.
+                // El nativo (.exe) primero: es lo que se instala en Windows. Se sigue
+                // mirando el .ps1 porque un host puede conservarlo de una instalación
+                // anterior, y conviene detectarlo para avisar de que está obsoleto.
                 "$agentExe='C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe'; "
                 "$agentPath='C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1'; "
                 "$native=$false; "

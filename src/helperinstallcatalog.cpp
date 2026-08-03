@@ -130,7 +130,7 @@ PlatformInfo detectPlatform(const ConnectionProfile& profile, const QString& osL
     PlatformInfo info;
     const QString os = osLine.trimmed().toLower();
     const QString connType = profile.connType.trimmed().toLower();
-    if (connType == QStringLiteral("psrp") || profile.osType.trimmed().toLower().contains(QStringLiteral("windows"))
+    if (profile.osType.trimmed().toLower().contains(QStringLiteral("windows"))
         || os.contains(QStringLiteral("windows"))) {
         info.platformId = QStringLiteral("windows");
         info.platformLabel = QStringLiteral("Windows");
