@@ -92,37 +92,6 @@ QString normalizeDriveLetterValue(const QString& raw) {
     return QString(d);
 }
 
-bool looksLikePowerShellScript(const QString& cmd) {
-    const QString c = cmd.toLower();
-    const QString t = c.trimmed();
-    if (t.startsWith('[') || t.startsWith('$') || c.contains(QStringLiteral("::"))) {
-        return true;
-    }
-    if (t.startsWith(QStringLiteral("zfs "))
-        || t == QStringLiteral("zfs")
-        || t.startsWith(QStringLiteral("zpool "))
-        || t == QStringLiteral("zpool")
-        || t.startsWith(QStringLiteral("where.exe "))) {
-        return true;
-    }
-    return c.contains(QStringLiteral("out-null"))
-        || c.contains(QStringLiteral("test-path"))
-        || c.contains(QStringLiteral("resolve-path"))
-        || c.contains(QStringLiteral("join-path"))
-        || c.contains(QStringLiteral("new-item"))
-        || c.contains(QStringLiteral("remove-item"))
-        || c.contains(QStringLiteral("sort-object"))
-        || c.contains(QStringLiteral("select-object"))
-        || c.contains(QStringLiteral("get-childitem"))
-        || c.contains(QStringLiteral("write-output"))
-        || c.contains(QStringLiteral("invoke-expression"))
-        || c.contains(QStringLiteral("foreach("))
-        || c.contains(QStringLiteral("$lastexitcode"))
-        || c.contains(QStringLiteral("[string]::"))
-        || c.contains(QStringLiteral("$env:path"))
-        || c.contains(QStringLiteral("powershell "));
-}
-
 bool isWindowsOsType(const QString& osType) {
     return osType.trimmed().toLower().contains(QStringLiteral("windows"));
 }

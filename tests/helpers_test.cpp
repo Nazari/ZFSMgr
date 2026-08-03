@@ -190,12 +190,6 @@ int main() {
         }
     }
 
-    if (!looksLikePowerShellScript("Get-ChildItem -Path C:\\")) {
-        return fail("looksLikePowerShellScript should detect powershell verbs");
-    }
-    if (looksLikePowerShellScript("echo hello")) {
-        return fail("looksLikePowerShellScript false positive");
-    }
     if (!isWindowsOsType("Windows 11")) {
         return fail("isWindowsOsType should detect windows");
     }

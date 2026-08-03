@@ -34,10 +34,9 @@ private Q_SLOTS:
 
     void connectionMenuStateReflectsAvailability() {
         const ConnectionContextMenuState state =
-            buildConnectionContextMenuState(true, false, false, false, false, true, false);
+            buildConnectionContextMenuState(true, false, false, false, false, true);
         QVERIFY(!state.canConnect);
         QVERIFY(state.canDisconnect);
-        QVERIFY(state.canInstallMsys);
         QVERIFY(state.canRefreshThis);
         QVERIFY(state.canRefreshAll);
         QVERIFY(state.canEditDelete);

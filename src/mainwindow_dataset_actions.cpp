@@ -792,8 +792,8 @@ bool MainWindow::executeDatasetAction(const QString& side,
     }
     if (!submittableAsJob || !ok) {
         ok = withRealtimeProgress
-                 ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, effectiveStdin)
-                 : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, effectiveStdin);
+                 ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, effectiveStdin)
+                 : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, effectiveStdin);
     }
     if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {

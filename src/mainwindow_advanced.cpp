@@ -237,7 +237,6 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     {},
                     {},
                     {},
-                    WindowsCommandMode::Auto,
                     mountStdinPayload)
             || listRc != 0) {
             stopBusy();

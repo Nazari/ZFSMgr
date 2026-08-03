@@ -144,9 +144,6 @@ private:
         QStringList helperInstallableCommands;
         QStringList helperUnsupportedCommands;
         QStringList helperInstallPackages;
-        bool unixFromMsysOrMingw{false};
-        QString commandsLayer;
-        QStringList powershellFallbackCommands;
         bool helperPackageManagerDetected{false};
         bool helperInstallSupported{false};
         QVector<PoolImported> importedPools;
@@ -306,8 +303,6 @@ private:
         bool commandsProbeLoaded{false};
         QStringList detectedUnixCommands;
         QStringList missingUnixCommands;
-        bool unixFromMsysOrMingw{false};
-        QString commandsLayer;
         QMap<QString, bool> packageManagerAvailabilityById;
     };
     struct PendingChange {
@@ -497,12 +492,6 @@ private:
         QMap<QString, PoolInfo> poolsByStableId;
     };
 
-    enum class WindowsCommandMode {
-        Auto,
-        PowerShellNative,
-        UnixShell,
-    };
-
     void buildUi();
     void loadConnections();
     void ensureStartupLocalSudoConnection();
@@ -518,7 +507,6 @@ private:
     void exportTrustStoreToSelectedConnection();
     void installHelperCommandsForSelectedConnection();
     void repairAltMountpointsForSelectedConnection();
-    void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();
     int currentConnectionIndexFromUnifiedTree() const;
@@ -627,7 +615,6 @@ private:
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {},
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
-                WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
     // Submits a long-running agent mutation as a background job and polls until it
     // finishes. Removes the RPC read timeout from the equation: the submission is
@@ -678,11 +665,9 @@ private:
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
-                              const QString& remoteCmd,
-                              WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
+                              const QString& remoteCmd) const;
     QString sshExecFromLocal(const ConnectionProfile& p,
-                             const QString& remoteCmd,
-                             WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
+                             const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
@@ -794,15 +779,13 @@ private:
                                   const QString& remoteCmd,
                                   int timeoutMs,
                                   QString* failureDetailOut = nullptr,
-                                  WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                                   const QByteArray& stdinPayload = QByteArray());
     bool fetchConnectionCommandOutput(int connIdx,
                                       const QString& actionName,
                                       const QString& remoteCmd,
                                       QString* outputOut,
                                       QString* failureDetailOut = nullptr,
-                                      int timeoutMs = 45000,
-                                      WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+                                      int timeoutMs = 45000);
     bool fetchConnectionProbeOutput(int sourceConnIdx,
                                     const QString& actionName,
                                     const QString& remoteCmd,
@@ -984,6 +967,9 @@ private:
                                     QVector<InlinePropGroupConfig>& groups,
                                     const QString& initialGroupName = QString());
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
+    bool requireNonWindowsStreamingEndpoints(const ConnectionProfile& sp,
+                                             const ConnectionProfile& dp,
+                                             const QString& actionLabel);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,
                 const QString& es = QString(),

@@ -13,7 +13,6 @@ struct PlatformInfo {
     QString packageManagerId;
     QString packageManagerLabel;
     bool supportedByDesign{false};
-    bool windowsUsesMsys2{false};
     QString reason;
 };
 

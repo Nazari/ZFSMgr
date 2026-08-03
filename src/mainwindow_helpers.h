@@ -53,7 +53,6 @@ QString shSingleQuote(const QString& s);
 bool isMountedValueTrue(const QString& value);
 QString parentDatasetName(const QString& dataset);
 QString normalizeDriveLetterValue(const QString& raw);
-bool looksLikePowerShellScript(const QString& cmd);
 bool isWindowsOsType(const QString& osType);
 QString windowsGptTypeName(const QString& guid);
 QString formatWindowsFsTypeDetail(const QString& rawFsType);

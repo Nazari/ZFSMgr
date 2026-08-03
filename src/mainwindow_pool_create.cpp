@@ -379,8 +379,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 "$ErrorActionPreference='SilentlyContinue'; "
                 "$dirs=@("
                 "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\share\\\\zfs\\\\compatibility.d',"
-                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\compatibility.d',"
-                "'C:\\\\msys64\\\\usr\\\\share\\\\zfs\\\\compatibility.d'"
+                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\compatibility.d'"
                 "); "
                 "foreach($d in $dirs){ if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File | ForEach-Object { $_.Name } } }");
         } else {

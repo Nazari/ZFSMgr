@@ -33,13 +33,10 @@ ConnectionContextMenuState buildConnectionContextMenuState(bool hasConn,
                                                            bool actionsLocked,
                                                            bool isLocalConnection,
                                                            bool isRedirectedToLocal,
-                                                           bool isWindowsConnection,
-                                                           bool hasWindowsUnixLayerReady) {
+                                                           bool isWindowsConnection) {
     ConnectionContextMenuState state;
     state.canConnect = !actionsLocked && hasConn && isDisconnected;
     state.canDisconnect = !actionsLocked && hasConn && !isDisconnected;
-    state.canInstallMsys =
-        hasConn && !actionsLocked && !isDisconnected && isWindowsConnection && !hasWindowsUnixLayerReady;
     state.canRefreshThis = hasConn && !isDisconnected && !actionsLocked;
     state.canRefreshAll = !actionsLocked;
     state.canEditDelete = hasConn && !actionsLocked && !isLocalConnection && !isRedirectedToLocal;

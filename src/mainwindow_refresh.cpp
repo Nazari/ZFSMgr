@@ -38,21 +38,6 @@ QStringList zfsmgrUnixCommandSet() {
     };
 }
 
-QStringList zfsmgrPowershellCommandSet() {
-    return {
-        QStringLiteral("tar"),
-        QStringLiteral("robocopy"),
-        QStringLiteral("Get-ChildItem"),
-        QStringLiteral("Test-Path"),
-        QStringLiteral("Resolve-Path"),
-        QStringLiteral("New-Item"),
-        QStringLiteral("Remove-Item"),
-        QStringLiteral("Sort-Object"),
-        QStringLiteral("Select-Object"),
-        QStringLiteral("Out-String"),
-    };
-}
-
 QString normalizeMachineUuid(QString s) {
     s = s.trimmed().toLower();
     if (s.startsWith('{') && s.endsWith('}') && s.size() > 2) {
@@ -201,8 +186,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     ConnectionRuntimeState state;
     ConnectionProfile profile = p;
     state.connectionMethod = profile.connType;
-    state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
-    state.commandsLayer = isWindowsConnection(profile) ? QStringLiteral("Powershell") : QString();
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_inicio_ref_521ce1"),
                QStringLiteral("Inicio refresh: %1 [%2]"),
@@ -218,7 +201,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         phaseCheckpointMs = now;
     };
 
-    const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
     const bool localMode = isLocalConnection(profile);
     auto refineOsLineForRefresh = [&](const QString& currentOsLine) -> QString {
         if (isWindowsConnection(profile)) {
@@ -253,11 +235,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                        10000,
                        probeOut,
                        probeErr,
-                       probeRc,
-                       {},
-                       {},
-                       {},
-                       winPsMode)
+                       probeRc)
                 && probeRc == 0) {
                 const QString refined = oneLine(probeOut);
                 if (!refined.isEmpty()) {
@@ -272,11 +250,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                        8000,
                        probeOut,
                        probeErr,
-                       probeRc,
-                       {},
-                       {},
-                       {},
-                       winPsMode)
+                       probeRc)
                 && probeRc == 0) {
                 const QString refined = oneLine(probeOut);
                 if (!refined.isEmpty()) {
@@ -297,9 +271,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         if (pmIt != packageManagerAvailabilityCache.cend()) {
             return pmIt.value();
         }
-        if (pm == QStringLiteral("msys2")) {
-            return true;
-        }
         QString cmd;
         if (pm == QStringLiteral("apt")) {
             cmd = QStringLiteral("command -v apt-get >/dev/null 2>&1");
@@ -318,7 +289,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString probeOut;
         QString probeErr;
         int probeRc = -1;
-        const bool available = runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc, {}, {}, {}, winPsMode) && probeRc == 0;
+        const bool available = runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc) && probeRc == 0;
         packageManagerAvailabilityCache.insert(pm, available);
         return available;
     };
@@ -412,7 +383,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-refresh-basics")));
-        if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {}, MainWindow::WindowsCommandMode::Auto)
+        if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {})
             && bRc == 0) {
             const QMap<QString, QString> kv = parseKeyValueOutput(bOut + QStringLiteral("\n") + bErr);
             const QString osLine = kv.value(QStringLiteral("OS_LINE")).trimmed();
@@ -451,8 +422,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
     if (!unixBasicsLoaded) {
-        if (!runSsh(profile, osProbeCmd, 12000, out, err, rc, {}, {}, {},
-                    isWindowsConnection(profile) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
+        if (!runSsh(profile, osProbeCmd, 12000, out, err, rc) || rc != 0) {
             state.status = QStringLiteral("ERROR");
             state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
             appLog(QStringLiteral("NORMAL"),
@@ -486,8 +456,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             uOut.clear();
             uErr.clear();
             uRc = -1;
-            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc, {}, {}, {},
-                        isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || uRc != 0) {
+            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc) || uRc != 0) {
                 continue;
             }
             const QString uuid = extractMachineUuid(uOut + QStringLiteral("\n") + uErr);
@@ -511,7 +480,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "  if(-not [string]::IsNullOrWhiteSpace($w)){ Write-Output $w } "
                 "} catch {}; "
                 "exit 0").arg(exeName);
-            const bool ran = runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, {}, winPsMode);
+            const bool ran = runSsh(p, whereCmd, 12000, wOut, wErr, wRc);
             if (!ran) {
                 const QString reason = oneLine(wErr.isEmpty() ? QStringLiteral("probe failed") : wErr);
                 appLog(QStringLiteral("INFO"),
@@ -555,7 +524,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             "}; "
             "exit 1");
         rc = -1;
-        if (runSsh(p, zfsVersionCmd, 15000, out, err, rc, {}, {}, {}, winPsMode)) {
+        if (runSsh(p, zfsVersionCmd, 15000, out, err, rc)) {
             const QString merged = out + QStringLiteral("\n") + err;
             const QString parsed = mwhelpers::parseOpenZfsVersionText(merged);
             if (!parsed.isEmpty()) {
@@ -587,8 +556,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             err.clear();
             rc = -1;
             const QString zfsVersionCmd = withSudo(p, cand);
-            if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {}, {},
-                        MainWindow::WindowsCommandMode::Auto)) {
+            if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {}, {})) {
                 continue;
             }
             const QString parsed = mwhelpers::parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
@@ -627,71 +595,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         if (hasFreshCommandProbeCache) {
             state.detectedUnixCommands = cachedRuntime.detectedUnixCommands;
             state.missingUnixCommands = cachedRuntime.missingUnixCommands;
-            state.unixFromMsysOrMingw = cachedRuntime.unixFromMsysOrMingw;
-            if (!cachedRuntime.commandsLayer.trimmed().isEmpty()) {
-                state.commandsLayer = cachedRuntime.commandsLayer.trimmed();
-            }
         } else {
             QStringList detected;
             QStringList missing;
+            // Windows ya no sondea herramientas Unix en el host: la aplicación trabaja
+            // solo con el agente nativo, así que no hay capa que detectar ni que
+            // ofrecerse a instalar. Se deja la lista vacía en vez de la lista de 18
+            // comandos "faltantes" que antes mostraba, porque ya no faltan: no hacen
+            // falta.
             if (isWindowsConnection(p)) {
-            QString dout, derr;
-            int drc = -1;
-            const QString roots = QStringLiteral(
-                "$roots=@('C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin','C:\\\\Program Files\\\\OpenZFS On Windows','C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
-                "$present=@(); foreach($r in $roots){ if(Test-Path -LiteralPath $r){ $present += $r } }; "
-                "$hasMsys = $present | Where-Object { $_ -like 'C:\\\\msys64*' }; "
-                "$hasMingw = $present | Where-Object { $_ -like 'C:\\\\MinGW*' -or $_ -like 'C:\\\\mingw64*' }; "
-                "if($hasMsys){ Write-Output '__LAYER__:MSYS64' } elseif($hasMingw){ Write-Output '__LAYER__:MinGW' } else { Write-Output '__LAYER__:Powershell' }; "
-                "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
-                "$cmds='%1'.Split(' '); "
-                "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ "
-                "$exe = Join-Path $r ($c + '.exe'); "
-                "if(-not (Test-Path -LiteralPath $exe)){ continue }; "
-                "if($c -eq 'zfs' -or $c -eq 'zpool'){ "
-                "  try { & $exe 'version' | Out-Null; if($LASTEXITCODE -eq 0){ $ok=$true; break } } catch {}; "
-                "  try { & $exe '--version' | Out-Null; if($LASTEXITCODE -eq 0){ $ok=$true; break } } catch {}; "
-                "  try { & $exe 'list' '-H' '-o' 'name' | Out-Null; if($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1){ $ok=$true; break } } catch {}; "
-                "} else { "
-                "  $ok=$true; break; "
-                "} "
-                "}; "
-                "if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } }")
-                    .arg(wanted.join(' '));
-            if (runSsh(p, roots, 15000, dout, derr, drc, {}, {}, {}, winPsMode) && drc == 0) {
-                const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
-                bool noLayer = false;
-                for (const QString& raw : lines) {
-                    const QString line = raw.trimmed();
-                    if (line.startsWith(QStringLiteral("__LAYER__:"))) {
-                        state.commandsLayer = line.mid(QStringLiteral("__LAYER__:").size()).trimmed();
-                        continue;
-                    }
-                    if (line == QStringLiteral("__NO_UNIX_LAYER__")) {
-                        noLayer = true;
-                        state.commandsLayer = QStringLiteral("Powershell");
-                        break;
-                    }
-                    if (line.startsWith(QStringLiteral("OK:"))) {
-                        detected << line.mid(3).trimmed();
-                    } else if (line.startsWith(QStringLiteral("KO:"))) {
-                        missing << line.mid(3).trimmed();
-                    }
-                }
-                if (!noLayer && (!detected.isEmpty() || !missing.isEmpty())) {
-                    state.unixFromMsysOrMingw = true;
-                    state.detectedUnixCommands = detected;
-                    state.missingUnixCommands = missing;
-                    if (state.commandsLayer.trimmed().isEmpty()) {
-                        state.commandsLayer = QStringLiteral("MSYS64");
-                    }
-                } else {
-                    state.unixFromMsysOrMingw = false;
-                    state.detectedUnixCommands.clear();
-                    state.missingUnixCommands = wanted;
-                    state.commandsLayer = QStringLiteral("Powershell");
-                }
-            }
+                state.detectedUnixCommands.clear();
+                state.missingUnixCommands.clear();
             } else {
             QString dout, derr;
             int drc = -1;
@@ -773,8 +687,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
             state.detectedUnixCommands = detected;
             state.missingUnixCommands = missing;
-            state.unixFromMsysOrMingw = false;
-            state.commandsLayer.clear();
             }
         }
     }
@@ -798,7 +710,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.helperInstallCommandPreview = helperPlan.commandPreview;
             if (!helperPlatform.supportedByDesign) {
                 state.helperInstallReason = helperPlatform.reason.trimmed();
-            } else if (!state.helperPackageManagerDetected && !helperPlatform.windowsUsesMsys2) {
+            } else if (!state.helperPackageManagerDetected) {
                 state.helperInstallReason =
                     QStringLiteral("Gestor de paquetes no detectado: %1").arg(helperPlatform.packageManagerLabel);
             } else if (!helperPlan.supported) {
@@ -825,18 +737,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString err;
         int rc{-1};
     };
-    auto runAsyncCommand = [this, p](const QString& cmd, int timeoutMs, WindowsCommandMode mode) -> QFuture<AsyncSshResult> {
-        return QtConcurrent::run([this, p, cmd, timeoutMs, mode]() -> AsyncSshResult {
+    auto runAsyncCommand = [this, p](const QString& cmd, int timeoutMs) -> QFuture<AsyncSshResult> {
+        return QtConcurrent::run([this, p, cmd, timeoutMs]() -> AsyncSshResult {
             AsyncSshResult r;
-            r.ran = runSsh(p, cmd, timeoutMs, r.out, r.err, r.rc, {}, {}, {}, mode);
+            r.ran = runSsh(p, cmd, timeoutMs, r.out, r.err, r.rc);
             return r;
         });
     };
 
     QString agentProbeCmd;
-    WindowsCommandMode agentWinMode = WindowsCommandMode::Auto;
     if (isWinConn) {
-        agentWinMode = winPsMode;
         agentProbeCmd = QStringLiteral(
                 "$taskName='ZFSMgr-Agent'; "
                 // El nativo (.exe) primero: es lo que se instala en Windows. Se sigue
@@ -929,9 +839,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     const QString mountedCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
-    QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000, agentWinMode);
+    QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000);
     auto runClassicImportProbe = [&]() -> AsyncSshResult {
-        return runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto).result();
+        return runAsyncCommand(importProbeCmd, 18000).result();
     };
 
     {
@@ -974,8 +884,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         // el envoltorio lo tomaba por shell Unix y lo ejecutaba con el bash de MSYS2,
         // que al quitar comillas se comía las barras invertidas de la ruta.
         const bool healthOk =
-            runSsh(p, daemonHealthCmd, 8000, hout, herr, hrc, {}, {}, {},
-                   WindowsCommandMode::PowerShellNative)
+            runSsh(p, daemonHealthCmd, 8000, hout, herr, hrc, {}, {}, {})
             && hrc == 0;
         if (!healthOk) {
             daemonReadApiOk = false;
@@ -1190,7 +1099,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         AsyncSshResult importRes;
         bool importOk = false;
         if (daemonReadApiOk) {
-            importRes = runAsyncCommand(importProbeCmdDaemon, 25000, WindowsCommandMode::Auto).result();
+            importRes = runAsyncCommand(importProbeCmdDaemon, 25000).result();
             importOk = importRes.ran && importRes.rc == 0;
         }
         if (!importOk) {
@@ -1234,11 +1143,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     bool mountsViaDaemon = false;
     AsyncSshResult mountsRes;
     if (daemonReadApiOk) {
-        mountsRes = runAsyncCommand(mountedCmdDaemon, 18000, WindowsCommandMode::Auto).result();
+        mountsRes = runAsyncCommand(mountedCmdDaemon, 18000).result();
         mountsViaDaemon = mountsRes.ran && mountsRes.rc == 0;
     }
     if (!mountsViaDaemon) {
-        mountsRes = runAsyncCommand(mountedCmdClassic, 18000, WindowsCommandMode::Auto).result();
+        mountsRes = runAsyncCommand(mountedCmdClassic, 18000).result();
     }
     if (mountsRes.ran && mountsRes.rc == 0) {
         mountedRows = isWinConn
@@ -1388,8 +1297,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         fresh.commandsProbeLoaded = true;
         fresh.detectedUnixCommands = state.detectedUnixCommands;
         fresh.missingUnixCommands = state.missingUnixCommands;
-        fresh.unixFromMsysOrMingw = state.unixFromMsysOrMingw;
-        fresh.commandsLayer = state.commandsLayer;
         fresh.packageManagerAvailabilityById = packageManagerAvailabilityCache;
         m_refreshRuntimeCacheByConnId.insert(refreshCacheKey, fresh);
         constexpr qint64 kRefreshCacheMaxAgeMs = 60000;

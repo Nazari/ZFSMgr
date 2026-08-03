@@ -5235,14 +5235,6 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                  QStringLiteral("辅助安装原因")),
                              st.helperInstallReason.trimmed()});
     }
-    if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
-        && !st.powershellFallbackCommands.isEmpty()) {
-        infoProps.push_back({trk(QStringLiteral("t_powershell_commands_used_001"),
-                                 QStringLiteral("Comandos PowerShell usados"),
-                                 QStringLiteral("PowerShell commands used"),
-                                 QStringLiteral("已使用的 PowerShell 命令")),
-                             st.powershellFallbackCommands.join(QStringLiteral(", "))});
-    }
     auto* generalNode = new QTreeWidgetItem(infoNode);
     generalNode->setFlags(generalNode->flags() & ~Qt::ItemIsUserCheckable);
     generalNode->setData(0, kConnContentNodeRole, true);

@@ -2058,7 +2058,6 @@ bool MainWindow::executeConnectionCommand(int connIdx,
                                           const QString& remoteCmd,
                                           int timeoutMs,
                                           QString* failureDetailOut,
-                                          WindowsCommandMode windowsMode,
                                           const QByteArray& stdinPayload) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
         if (failureDetailOut) {
@@ -2070,7 +2069,7 @@ bool MainWindow::executeConnectionCommand(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode, stdinPayload) && rc == 0;
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, stdinPayload) && rc == 0;
     if (!ok) {
         QStringList parts;
         if (!err.trimmed().isEmpty()) {
@@ -2098,8 +2097,7 @@ bool MainWindow::fetchConnectionCommandOutput(int connIdx,
                                               const QString& remoteCmd,
                                               QString* outputOut,
                                               QString* failureDetailOut,
-                                              int timeoutMs,
-                                              WindowsCommandMode windowsMode) {
+                                              int timeoutMs) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
         if (failureDetailOut) {
             *failureDetailOut = QStringLiteral("invalid connection query context");
@@ -2110,7 +2108,7 @@ bool MainWindow::fetchConnectionCommandOutput(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode) && rc == 0;
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc) && rc == 0;
     if (!ok) {
         if (failureDetailOut) {
             QStringList parts;
@@ -2595,14 +2593,6 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
     const int connIdx = m_topDetailConnIdx;
     const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
     const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
-    const bool hasWindowsUnixLayerReady =
-        hasConn
-        && connIdx < m_states.size()
-        && isWindowsConnection(connIdx)
-        && m_states[connIdx].unixFromMsysOrMingw
-        && m_states[connIdx].missingUnixCommands.isEmpty()
-        && !m_states[connIdx].detectedUnixCommands.isEmpty();
-    Q_UNUSED(hasWindowsUnixLayerReady);
     return {
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
@@ -2635,10 +2625,6 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
             QStringLiteral("New Pool"),
             QStringLiteral("新建存储池")),
         QString(),
-        trk(QStringLiteral("t_install_msys_ctx001"),
-            QStringLiteral("Instalar MSYS2"),
-            QStringLiteral("Install MSYS2"),
-            QStringLiteral("安装 MSYS2")),
         trk(QStringLiteral("t_install_helpers_ctx001"),
             QStringLiteral("Instalar comandos auxiliares"),
             QStringLiteral("Install helper commands"),

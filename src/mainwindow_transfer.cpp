@@ -125,14 +125,6 @@ QString buildZfsSendFlags(const ZfsSendOptions& opts)
     return flags;
 }
 
-QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
-    const QString sshBase = sshBaseCommand(p);
-    const QString target = shSingleQuote(sshUserHost(p));
-    const QString winCmd = QStringLiteral("\"C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe\" -lc %1")
-                               .arg(shSingleQuote(remoteCmd));
-    return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
-}
-
 QString syncCodecToken(mwhelpers::StreamCodec codec) {
     switch (codec) {
     case mwhelpers::StreamCodec::Zstd:
@@ -211,6 +203,32 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     return true;
 }
 
+bool MainWindow::requireNonWindowsStreamingEndpoints(const ConnectionProfile& sp,
+                                                     const ConnectionProfile& dp,
+                                                     const QString& actionLabel) {
+    if (!isWindowsConnection(sp) && !isWindowsConnection(dp)) {
+        return true;
+    }
+    // La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando
+    // eso no aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías
+    // de shell Unix. En Windows se ejecutaban a través del bash de MSYS2, que se ha
+    // retirado: la aplicación trabaja allí solo con el agente nativo, y el agente aún
+    // no implementa el streaming entre máquinas en Windows.
+    const QString reason =
+        trk(QStringLiteral("t_win_stream_na001"),
+            QStringLiteral("%1 entre máquinas no está disponible cuando algún extremo es Windows: "
+                           "necesita transmitir el flujo por una tubería, y el agente de Windows "
+                           "todavía no lo implementa."),
+            QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
+                           "to stream through a pipe, and the Windows agent does not implement that yet."),
+            QStringLiteral("当任一端为 Windows 时，机器间的%1不可用：它需要通过管道传输数据流，"
+                           "而 Windows 代理尚未实现该功能。"))
+            .arg(actionLabel);
+    appLog(QStringLiteral("WARN"), reason);
+    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+    return false;
+}
+
 void MainWindow::actionCopySnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
@@ -225,6 +243,9 @@ void MainWindow::actionCopySnapshot() {
     }
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (!requireNonWindowsStreamingEndpoints(sp, dp, QStringLiteral("Copiar snapshot"))) {
+        return;
+    }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
         sp.useSudo = true;
         if (!ensureLocalSudoCredentials(sp)) {
@@ -396,12 +417,8 @@ void MainWindow::actionCopySnapshot() {
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
         pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
-        const QString srcSeg = isWindowsConnection(sp)
-                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
-                                   : sshExecFromLocal(sp, sendCmd);
-        const QString dstSeg = isWindowsConnection(dp)
-                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
-                                   : sshExecFromLocal(dp, recvCmd);
+        const QString srcSeg = sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = sshExecFromLocal(dp, recvCmd);
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
@@ -444,8 +461,7 @@ void MainWindow::actionCopySnapshot() {
                 pendingCommand = sshExecFromLocal(
                     sp,
                     buildPipedTransferCommand(withSudo(sp, srcScript),
-                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))),
-                    MainWindow::WindowsCommandMode::UnixShell);
+                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))));
             } else {
                 pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
                                                            sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
@@ -1068,6 +1084,9 @@ void MainWindow::actionLevelSnapshot() {
 
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (!requireNonWindowsStreamingEndpoints(sp, dp, QStringLiteral("Nivelar snapshot"))) {
+        return;
+    }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
         sp.useSudo = true;
         if (!ensureLocalSudoCredentials(sp)) {
@@ -1231,12 +1250,8 @@ void MainWindow::actionLevelSnapshot() {
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
         pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
-        const QString srcSeg = isWindowsConnection(sp)
-                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
-                                   : sshExecFromLocal(sp, sendCmd);
-        const QString dstSeg = isWindowsConnection(dp)
-                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
-                                   : sshExecFromLocal(dp, recvCmd);
+        const QString srcSeg = sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = sshExecFromLocal(dp, recvCmd);
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 

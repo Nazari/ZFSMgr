@@ -733,7 +733,6 @@ bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
 }
 
 using mwhelpers::isMountedValueTrue;
-using mwhelpers::looksLikePowerShellScript;
 using mwhelpers::findLocalExecutable;
 using mwhelpers::normalizeDriveLetterValue;
 using mwhelpers::oneLine;
@@ -1438,7 +1437,6 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         const std::function<void(const QString&)>& onStdoutLine,
                         const std::function<void(const QString&)>& onStderrLine,
                         const std::function<void(int)>& onIdleTimeoutRemaining,
-                        MainWindow::WindowsCommandMode windowsMode,
                         const QByteArray& stdinPayload) {
     out.clear();
     err.clear();
@@ -1752,7 +1750,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
     }
 
-    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd, windowsMode);
+    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
     const QString sshConnKey = QStringLiteral("%1|%2|%3|%4")
                                    .arg(p.username,
                                         p.host,
@@ -2185,67 +2183,44 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
-                                      const QString& remoteCmd,
-                                      MainWindow::WindowsCommandMode windowsMode) const {
+                                      const QString& remoteCmd) const {
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }
-    const QString trimmed = remoteCmd.trimmed();
-    const QString low = trimmed.toLower();
-    const bool zfsStreamCmd = low.contains(QStringLiteral("zfs send"))
-        || low.contains(QStringLiteral("zfs recv"));
-    MainWindow::WindowsCommandMode effectiveMode = windowsMode;
-    if (effectiveMode == MainWindow::WindowsCommandMode::Auto) {
-        // zfs send/recv transport binary streams; forcing PowerShell execution can break stdin/stdout.
-        // For these commands we must route through a Unix shell (MSYS/MinGW) when available.
-        effectiveMode = zfsStreamCmd || !looksLikePowerShellScript(trimmed)
-            ? MainWindow::WindowsCommandMode::UnixShell
-            : MainWindow::WindowsCommandMode::PowerShellNative;
-    }
-    const QString psEscaped = QString(trimmed).replace('\'', QStringLiteral("''"));
+    QString trimmed = remoteCmd.trimmed();
+    // Los comandos clásicos llegan envueltos por withUnixSearchPathCommand, que antepone
+    // un "PATH=...; export PATH; " de sintaxis Unix. Eso existía para el bash de MSYS2;
+    // en PowerShell es un error de sintaxis. Se retira aquí, en un único punto, en vez
+    // de en la treintena de sitios que lo aplican: el prólogo de abajo ya pone las rutas
+    // de OpenZFS en $env:Path, que es lo único que ese prefijo aportaba.
+    //
+    // Comprobado contra un Windows 11 real: "zfs version" y "zpool list -H -p -o ..."
+    // se ejecutan así sin ninguna capa Unix de por medio.
+    static const QRegularExpression unixPathPrefix(
+        QStringLiteral("^PATH=\"[^\"]*\";\\s*export PATH;\\s*"));
+    trimmed.remove(unixPathPrefix);
+
     QString script = QStringLiteral(
         "$ProgressPreference='SilentlyContinue'; "
         "$InformationPreference='SilentlyContinue'; "
         "$WarningPreference='Continue'; "
         "$zfsPaths=@("
         "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
-        "'C:\\\\Program Files\\\\OpenZFS On Windows',"
-        "'C:\\\\msys64\\\\usr\\\\bin',"
-        "'C:\\\\msys64\\\\mingw64\\\\bin',"
-        "'C:\\\\msys64\\\\mingw32\\\\bin',"
-        "'C:\\\\MinGW\\\\bin',"
-        "'C:\\\\mingw64\\\\bin'"
+        "'C:\\\\Program Files\\\\OpenZFS On Windows'"
         "); "
         "foreach($p in $zfsPaths){ "
         "  if(Test-Path -LiteralPath $p){ "
         "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
         "  } "
         "}; ");
-    if (effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative) {
-        script += trimmed;
-    } else {
-        script += QStringLiteral(
-            "$cmd='%1'; "
-            "$unixShells=@("
-            "'C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe',"
-            "'C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe',"
-            "'C:\\\\msys64\\\\mingw64\\\\bin\\\\bash.exe',"
-            "'C:\\\\msys64\\\\mingw32\\\\bin\\\\bash.exe',"
-            "'C:\\\\MinGW\\\\msys\\\\1.0\\\\bin\\\\sh.exe'"
-            "); "
-            "$shell=$null; foreach($s in $unixShells){ if(Test-Path -LiteralPath $s){ $shell=$s; break } }; "
-            "if($shell){ & $shell -lc $cmd; exit $LASTEXITCODE } "
-            "Invoke-Expression $cmd; exit $LASTEXITCODE;")
-                      .arg(psEscaped);
-    }
+    script += trimmed;
+
     const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
     const QString b64 = QString::fromLatin1(utf16.toBase64());
-    // Windows command-line length can be hit with very large EncodedCommand payloads
-    // in local cmd.exe execution. Over SSH, forcing -Command lets the remote shell
-    // expand PowerShell variables (e.g. "$p"), breaking scripts like foreach($p...).
-    if (isLocalConnection(p)
-        && effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative
-        && b64.size() > 7000) {
+    // La línea de comandos de cmd.exe se agota con payloads muy grandes en ejecución
+    // local. Por SSH no se usa -Command: el shell remoto expandiría las variables de
+    // PowerShell (p. ej. "$p") y rompería los foreach.
+    if (isLocalConnection(p) && b64.size() > 7000) {
         QString inlineScript = script;
         inlineScript.replace(QStringLiteral("\""), QStringLiteral("`\""));
         return QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
@@ -2255,14 +2230,13 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
 }
 
 QString MainWindow::sshExecFromLocal(const ConnectionProfile& p,
-                                     const QString& remoteCmd,
-                                     MainWindow::WindowsCommandMode windowsMode) const {
+                                     const QString& remoteCmd) const {
     if (isLocalConnection(p)) {
         return remoteCmd;
     }
     const QString sshBase = sshBaseCommand(p);
     const QString target = shSingleQuote(sshUserHost(p));
-    const QString wrapped = wrapRemoteCommand(p, remoteCmd, windowsMode);
+    const QString wrapped = wrapRemoteCommand(p, remoteCmd);
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrapped);
 }
 

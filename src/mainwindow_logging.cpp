@@ -820,8 +820,7 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         int rc = -1;
         // Ver la nota de refreshConnectionsState: el agente de Windows debe invocarse
         // como binario nativo, no a través del bash de MSYS2 que elige el modo Auto.
-        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {},
-                               WindowsCommandMode::PowerShellNative)
+        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {})
                         && rc == 0;
         QMetaObject::invokeMethod(this, [this, connId, out, offset, ok]() {
             QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
@@ -873,8 +872,7 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
     (void)QtConcurrent::run([this, idx, connId, hbCmd, profile]() {
         QString out, err;
         int rc = -1;
-        const bool ok = runSsh(profile, hbCmd, 10000, out, err, rc, {}, {}, {},
-                               WindowsCommandMode::PowerShellNative);
+        const bool ok = runSsh(profile, hbCmd, 10000, out, err, rc, {}, {}, {});
         QMetaObject::invokeMethod(this, [this, connId, out, err, ok, rc, idx]() {
             QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
             if (!v) return;
