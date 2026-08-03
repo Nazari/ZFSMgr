@@ -38,6 +38,9 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+// RegGetValueA: la versión y el identificador de máquina se leen del registro, porque
+// en Windows no hay uname ni /etc/machine-id que consultar.
+#include <windows.h>
 #ifndef _PID_T_
 #define _PID_T_
 typedef int pid_t;
@@ -1080,6 +1083,39 @@ void daemonLog(const std::string& level, const std::string& msg) {
 }
 
 std::string detectOsLine() {
+#ifdef _WIN32
+    // Sin esto la línea de sistema salía siendo el mensaje de error de cmd al no
+    // encontrar "uname", que es lo que la ficha de conexión mostraba tal cual. Se lee
+    // del registro, que es de donde la propia GUI ya lo sacaba por su cuenta.
+    {
+        char buf[256];
+        DWORD sz = sizeof(buf);
+        std::string product;
+        std::string display;
+        if (RegGetValueA(HKEY_LOCAL_MACHINE,
+                         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                         "ProductName", RRF_RT_REG_SZ, nullptr, buf, &sz) == ERROR_SUCCESS) {
+            product = buf;
+        }
+        sz = sizeof(buf);
+        if (RegGetValueA(HKEY_LOCAL_MACHINE,
+                         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                         "DisplayVersion", RRF_RT_REG_SZ, nullptr, buf, &sz) != ERROR_SUCCESS) {
+            sz = sizeof(buf);
+            if (RegGetValueA(HKEY_LOCAL_MACHINE,
+                             "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                             "CurrentBuildNumber", RRF_RT_REG_SZ, nullptr, buf, &sz) == ERROR_SUCCESS) {
+                display = std::string("build ") + buf;
+            }
+        } else {
+            display = buf;
+        }
+        if (product.empty()) {
+            return "Windows";
+        }
+        return display.empty() ? product : product + " " + display;
+    }
+#else
     ExecResult unames = runExecCapture("uname", {"-s"});
     const std::string unameS = trim(unames.out);
     if (unameS == "Linux") {
@@ -1136,9 +1172,24 @@ std::string detectOsLine() {
     }
     const std::string ua = trim(runExecCapture("uname", {"-a"}).out);
     return ua.empty() ? unameS : ua;
+#endif
 }
 
 std::string detectMachineUuid() {
+#ifdef _WIN32
+    // MachineGuid del registro: es el mismo identificador que la GUI ya leía por su
+    // cuenta para deduplicar conexiones, así que ambos lados coinciden.
+    {
+        char buf[128];
+        DWORD sz = sizeof(buf);
+        if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography",
+                         "MachineGuid", RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+                         nullptr, buf, &sz) == ERROR_SUCCESS) {
+            return trim(std::string(buf));
+        }
+        return std::string();
+    }
+#else
     std::string id = readFirstLineFile("/etc/machine-id");
     if (!id.empty()) {
         return id;
@@ -1167,6 +1218,7 @@ std::string detectMachineUuid() {
         }
     }
     return {};
+#endif
 }
 
 std::string detectZfsVersionRaw() {

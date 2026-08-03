@@ -955,7 +955,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         zpoolListOk = runSsh(p, zpoolListCmdClassic, 18000, out, err, rc) && rc == 0;
     }
     if (zpoolListOk) {
-        if (isWinConn) {
+        // El formato lo decide QUÉ comando respondió, no el sistema operativo. Desde
+        // que Windows entra por el daemon, su respuesta es JSON igual que en Unix;
+        // elegir el parseador por plataforma hacía que se leyera JSON como si fuera
+        // tabulado y el árbol se llenara de nombres de pool inventados.
+        if (isWinConn && !zpoolListViaDaemon) {
             const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
             for (const QString& line : lines) {
                 const QString poolName = line.section('\t', 0, 0).trimmed();
@@ -1150,9 +1154,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         mountsRes = runAsyncCommand(mountedCmdClassic, 18000).result();
     }
     if (mountsRes.ran && mountsRes.rc == 0) {
-        mountedRows = isWinConn
-            ? mwhelpers::parseZfsMountOutput(mountsRes.out)
-            : mwhelpers::parseZfsMountJsonOutput(mountsRes.out);
+        // Mismo criterio: el daemon responde "zfs mount -j" (JSON) en cualquier
+        // plataforma, y el camino clásico responde tabulado en cualquier plataforma.
+        mountedRows = mountsViaDaemon
+            ? mwhelpers::parseZfsMountJsonOutput(mountsRes.out)
+            : mwhelpers::parseZfsMountOutput(mountsRes.out);
     }
     if (!isWinConn && mountedRows.isEmpty() && !daemonReadApiOk) {
         QString fbOut;
