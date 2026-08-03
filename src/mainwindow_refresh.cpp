@@ -971,7 +971,13 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString hout;
         QString herr;
         int hrc = -1;
-        const bool healthOk = runSsh(p, daemonHealthCmd, 8000, hout, herr, hrc) && hrc == 0;
+        // PowerShellNative, no Auto: el agente de Windows es un .exe nativo, y en Auto
+        // el envoltorio lo tomaba por shell Unix y lo ejecutaba con el bash de MSYS2,
+        // que al quitar comillas se comía las barras invertidas de la ruta.
+        const bool healthOk =
+            runSsh(p, daemonHealthCmd, 8000, hout, herr, hrc, {}, {}, {},
+                   WindowsCommandMode::PowerShellNative)
+            && hrc == 0;
         if (!healthOk) {
             daemonReadApiOk = false;
             state.daemonActive = false;

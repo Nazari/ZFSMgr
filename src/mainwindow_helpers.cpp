@@ -790,7 +790,13 @@ QString withUnixSearchPathCommand(const QString& cmd) {
 // comprobación de salud, cada uno descubierto por separado.
 QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
     if (isWindowsOsType(p.osType)) {
-        return QStringLiteral("\"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" ") + agentArgs;
+        // El "&" no es decorativo: en PowerShell una cadena entrecomillada al principio
+        // de una sentencia es una expresión, no un comando, así que sin el operador de
+        // llamada la ruta se evalúa como texto y el primer argumento revienta el parseo
+        // ("Token 'health' inesperado"). Además, quien invoque esto debe forzar
+        // WindowsCommandMode::PowerShellNative: en Auto el envoltorio lo toma por shell
+        // Unix y lo ejecuta con el bash de MSYS2, que se come las barras invertidas.
+        return QStringLiteral("& \"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" ") + agentArgs;
     }
     return withSudoCommand(
         p, withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent ") + agentArgs));
