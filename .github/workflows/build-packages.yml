@@ -1,5 +1,21 @@
 name: Build Packages
 
+# Tres etapas encadenadas:
+#
+#   1. agents-*       compilan SOLO el daemon, una por plataforma
+#   2. agent-bundle   los reúne en un único artefacto zfsmgr-agents
+#   3. build-*        compilan la GUI y empaquetan, con ese bundle a mano
+#
+# La etapa 1 está separada a propósito. La aplicación instala y actualiza el daemon
+# en los hosts remotos, así que CUALQUIER paquete que se publique necesita llevar
+# dentro los agentes de TODAS las plataformas, no solo el de la suya. Si cada
+# plataforma solo compilara el suyo, o habría que encadenar builds completos entre
+# sí, o cada paquete saldría cojo — que es justo lo que pasaba: el .app de macOS no
+# llevaba ninguno y no podía desplegar nada.
+#
+# El daemon es un solo .cpp y se compila en poco tiempo, así que tener su propia
+# etapa sale barato comparado con encadenar builds de la GUI.
+
 on:
   workflow_dispatch:
   push:
@@ -8,12 +24,164 @@ on:
     branches: [main]
 
 jobs:
+  # ── Etapa 1: agentes ───────────────────────────────────────────────────────
+  agents:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            key: linux-x86_64
+            artifact: builds/agents-only/zfsmgr_agent
+          - os: windows-latest
+            key: windows-x86_64
+            artifact: builds/agents-only/Release/zfsmgr_agent.exe
+          - os: macos-14
+            key: macos-universal
+            artifact: builds/agents-only/zfsmgr_agent
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolver versión de Qt
+        id: qtver
+        shell: bash
+        run: echo "version=$(tr -d '[:space:]' < qt-version.txt)" >> "$GITHUB_OUTPUT"
+
+      # El daemon no usa Qt, pero el CMakeLists es común y hace find_package(Qt6)
+      # para la GUI, así que la configuración falla sin él.
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ steps.qtver.outputs.version }}
+          cache: true
+
+      # El agente de macOS tiene que ser universal como el .app, y para eso hace
+      # falta un OpenSSL universal. La caché la comparte con el job de empaquetado,
+      # que va después, así que solo se compila una vez.
+      - name: Caché de OpenSSL universal (macOS)
+        if: runner.os == 'macOS'
+        id: ssl-cache
+        uses: actions/cache@v4
+        with:
+          path: builds/openssl-universal
+          key: openssl-universal-macos-${{ hashFiles('scripts/build-openssl-universal-macos.sh') }}
+
+      - name: Compilar OpenSSL universal (macOS)
+        if: runner.os == 'macOS' && steps.ssl-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          chmod +x ./scripts/build-openssl-universal-macos.sh
+          ./scripts/build-openssl-universal-macos.sh
+
+      # Se compila el objetivo zfsmgr_agent a secas, sin la GUI: es lo único que
+      # esta etapa tiene que producir.
+      - name: Compilar el agente
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            extra+=(-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+                    -DOPENSSL_ROOT_DIR="${PWD}/builds/openssl-universal")
+          fi
+          cmake -S resources -B builds/agents-only -DCMAKE_BUILD_TYPE=Release "${extra[@]}"
+          cmake --build builds/agents-only --config Release --target zfsmgr_agent
+
+      - name: Comprobar el agente
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${{ matrix.artifact }}"
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            archs="$(lipo -archs "${{ matrix.artifact }}")"
+            echo "Arquitecturas: ${archs}"
+            case "${archs}" in
+              *arm64*x86_64*|*x86_64*arm64*) ;;
+              *) echo "Error: el agente de macOS no es universal (${archs})" >&2; exit 1 ;;
+            esac
+          fi
+
+      - name: Subir el agente
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.key }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  agents-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compilar el agente (FreeBSD)
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y bash cmake qt6-base qt6-tools openssl git
+          run: |
+            cmake -S resources -B builds/agents-only -DCMAKE_BUILD_TYPE=Release
+            cmake --build builds/agents-only --target zfsmgr_agent
+            test -f builds/agents-only/zfsmgr_agent
+
+      - name: Subir el agente
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-freebsd-x86_64
+          path: builds/agents-only/zfsmgr_agent
+          if-no-files-found: error
+
+  # ── Etapa 2: reunirlos en un solo artefacto ────────────────────────────────
+  agent-bundle:
+    runs-on: ubuntu-latest
+    needs: [agents, agents-freebsd]
+    steps:
+      - name: Descargar los agentes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agent-*
+          path: incoming
+
+      # El agente de macOS es universal, así que el mismo binario vale para
+      # macos-arm64 y macos-amd64, que son los nombres por los que pregunta
+      # findDeployableAgentBinaryPath según el host de destino.
+      - name: Componer el bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bundle/linux-x86_64 bundle/windows-x86_64 bundle/freebsd-x86_64 \
+                   bundle/macos-arm64 bundle/macos-amd64
+          cp incoming/agent-linux-x86_64/zfsmgr_agent       bundle/linux-x86_64/zfsmgr_agent
+          cp incoming/agent-windows-x86_64/zfsmgr_agent.exe bundle/windows-x86_64/zfsmgr_agent.exe
+          cp incoming/agent-freebsd-x86_64/zfsmgr_agent     bundle/freebsd-x86_64/zfsmgr_agent
+          cp incoming/agent-macos-universal/zfsmgr_agent    bundle/macos-arm64/zfsmgr_agent
+          cp incoming/agent-macos-universal/zfsmgr_agent    bundle/macos-amd64/zfsmgr_agent
+          chmod +x bundle/*/zfsmgr_agent*
+          echo "Bundle de agentes:"
+          find bundle -type f -exec ls -l {} +
+          # Cinco es el número exacto que espera la app; si cambia, alguien tocó
+          # esto sin actualizar el otro lado.
+          n="$(find bundle -type f -name 'zfsmgr_agent*' | wc -l | tr -d ' ')"
+          [ "${n}" -eq 5 ] || { echo "Error: se esperaban 5 agentes, hay ${n}" >&2; exit 1; }
+
+      - name: Subir el bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: zfsmgr-agents
+          path: bundle/
+          if-no-files-found: error
+
+  # ── Etapa 3: GUI y empaquetado ─────────────────────────────────────────────
   build:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    needs: agent-bundle
 
     steps:
       - name: Checkout
@@ -32,6 +200,12 @@ jobs:
         with:
           version: ${{ steps.qtver.outputs.version }}
           cache: true
+
+      - name: Descargar el bundle de agentes
+        uses: actions/download-artifact@v4
+        with:
+          name: zfsmgr-agents
+          path: builds/agent-bundle
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
@@ -73,9 +247,16 @@ jobs:
 
   build-freebsd:
     runs-on: ubuntu-latest
+    needs: agent-bundle
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Descargar el bundle de agentes
+        uses: actions/download-artifact@v4
+        with:
+          name: zfsmgr-agents
+          path: builds/agent-bundle
 
       - name: Build (FreeBSD)
         uses: vmactions/freebsd-vm@v1
@@ -104,16 +285,6 @@ jobs:
             builds/freebsd/zfsmgr_agent
           if-no-files-found: error
 
-  # macOS va en su PROPIO job y detrás de los demás (needs), no en la matriz. El
-  # .app tiene que llevar dentro los agentes de Linux, Windows y FreeBSD: sin ellos
-  # la app no puede instalar ni actualizar el daemon en un host remoto, que es una
-  # de sus funciones principales. Esos binarios los producen los otros jobs, así
-  # que este tiene que esperarlos. Cuesta paralelismo y lo vale.
-  #
-  # Produce un .app UNIVERSAL (arm64 + x86_64) desde el runner Apple Silicon. Los
-  # frameworks de Qt ya vienen universales; la pieza que faltaba era OpenSSL, que se
-  # compila para ambas con scripts/build-openssl-universal-macos.sh.
-  #
   # macos-14 y no macos-latest porque en Sequoia el enlazado murió con
   # "ld: framework 'AGL' not found". OJO, la causa NO está identificada: se atribuyó
   # al SDK de Xcode 16, pero macos-15-intel usaba Xcode 16.4 y compilaba sin
@@ -121,7 +292,7 @@ jobs:
   # realmente la referencia a AGL (sospecha: el FindOpenGL de CMake).
   build-macos:
     runs-on: macos-14
-    needs: [build, build-freebsd]
+    needs: agent-bundle
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -137,32 +308,13 @@ jobs:
           version: ${{ steps.qtver.outputs.version }}
           cache: true
 
-      - name: Descargar los agentes de las demás plataformas
+      - name: Descargar el bundle de agentes
         uses: actions/download-artifact@v4
         with:
-          path: downloaded-artifacts
+          name: zfsmgr-agents
+          path: builds/agent-bundle
 
-      # Se copian con nombre explícito y sin tolerar ausencias: si un agente falta,
-      # el .app saldría incapaz de desplegar en esa plataforma y nadie se enteraría
-      # hasta intentarlo desde la aplicación.
-      - name: Componer el bundle de agentes
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p builds/agent-bundle/linux-x86_64 \
-                   builds/agent-bundle/windows-x86_64 \
-                   builds/agent-bundle/freebsd-x86_64
-          cp downloaded-artifacts/zfsmgr-linux/zfsmgr_agent \
-             builds/agent-bundle/linux-x86_64/zfsmgr_agent
-          cp downloaded-artifacts/zfsmgr-windows/zfsmgr_agent.exe \
-             builds/agent-bundle/windows-x86_64/zfsmgr_agent.exe
-          cp downloaded-artifacts/zfsmgr-freebsd/zfsmgr_agent \
-             builds/agent-bundle/freebsd-x86_64/zfsmgr_agent
-          echo "Agentes recogidos:"
-          find builds/agent-bundle -type f -exec ls -l {} +
-
-      # Compilar OpenSSL dos veces cuesta varios minutos y no cambia salvo que se
-      # suba su versión, así que se cachea contra el hash del script.
+      # La caché la dejó caliente el job de agentes, así que aquí es un acierto.
       - name: Caché de OpenSSL universal
         id: ssl-cache
         uses: actions/cache@v4
