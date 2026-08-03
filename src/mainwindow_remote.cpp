@@ -1484,7 +1484,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         QStringList args;
 #ifdef Q_OS_WIN
         program = QStringLiteral("cmd.exe");
-        args << "/C" << wrapRemoteCommand(p, localCmd, windowsMode);
+        args << "/C" << wrapRemoteCommand(p, localCmd);
 #else
         program = QStringLiteral("sh");
         args << "-c" << localCmd;
