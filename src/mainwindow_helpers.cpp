@@ -623,8 +623,36 @@ QString sshAddressFamilyOption(const ConnectionProfile& p) {
     return QString();
 }
 
+// Traduce el fallo de verificación de host de ssh a algo accionable.
+//
+// Con StrictHostKeyChecking=accept-new, un host cuya clave CAMBIA se rechaza, y ssh
+// solo deja un "Host key verification failed" y sale con 255. Sin explicación, eso
+// parece una avería de red. Y es justo el caso que importa: o el host se reinstaló,
+// o alguien se está haciendo pasar por él.
+QString sshHostKeyProblemHint(const QString& sshStderr) {
+    if (sshStderr.contains(QStringLiteral("REMOTE HOST IDENTIFICATION HAS CHANGED"))
+        || sshStderr.contains(QStringLiteral("Host key verification failed"))) {
+        return QStringLiteral(
+            "La clave del host SSH no coincide con la registrada en ~/.ssh/known_hosts. "
+            "Si reinstaló o reemplazó esa máquina, elimine su línea de ese fichero "
+            "(ssh-keygen -R <host>) y vuelva a conectar. Si no ha cambiado nada, "
+            "no continúe: alguien podría estar suplantando al host.");
+    }
+    if (sshStderr.contains(QStringLiteral("Bad configuration option: stricthostkeychecking"))) {
+        return QStringLiteral(
+            "Su cliente SSH es demasiado antiguo para 'accept-new' (necesita OpenSSH 7.6 o superior).");
+    }
+    return QString();
+}
+
 QString sshBaseCommand(const ConnectionProfile& p) {
-    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    // accept-new y SIN UserKnownHostsFile: se usa el ~/.ssh/known_hosts del usuario.
+    // Antes iba StrictHostKeyChecking=no con UserKnownHostsFile=/dev/null, que no solo
+    // no verifica al host: descarta la memoria, así que cada conexión aceptaba
+    // cualquier clave para siempre. Como el material TLS del daemon se trae POR SSH,
+    // eso permitía que un intermediario entregara su propio certificado, que la
+    // aplicación fijaría tan tranquila.
+    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
                                  " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
                       .arg(shSingleQuote(sshControlPath()));
     const QString familyOpt = sshAddressFamilyOption(p);
@@ -769,8 +797,8 @@ QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& re
     parts << QStringLiteral("-o BatchMode=yes");
     parts << QStringLiteral("-o ConnectTimeout=10");
     parts << QStringLiteral("-o LogLevel=ERROR");
-    parts << QStringLiteral("-o StrictHostKeyChecking=no");
-    parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
+    // Ver la nota en sshBaseCommand: se verifica contra ~/.ssh/known_hosts.
+    parts << QStringLiteral("-o StrictHostKeyChecking=accept-new");
     parts << QStringLiteral("-o ControlMaster=auto");
     parts << QStringLiteral("-o ControlPersist=yes");
     parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));

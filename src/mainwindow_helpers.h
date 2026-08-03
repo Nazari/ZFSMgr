@@ -48,6 +48,7 @@ enum class StreamCodec {
 };
 
 QString oneLine(const QString& v, int maxLen = 220);
+QString sshHostKeyProblemHint(const QString& sshStderr);
 QString shSingleQuote(const QString& s);
 bool isMountedValueTrue(const QString& value);
 QString parentDatasetName(const QString& dataset);

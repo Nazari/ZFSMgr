@@ -394,8 +394,7 @@ bool runSshRawNoLog(const ConnectionProfile& p,
     args << "-o" << "BatchMode=yes";
     args << "-o" << "ConnectTimeout=10";
     args << "-o" << "LogLevel=ERROR";
-    args << "-o" << "StrictHostKeyChecking=no";
-    args << "-o" << "UserKnownHostsFile=/dev/null";
+    args << "-o" << "StrictHostKeyChecking=accept-new";
     if (hasPassword && !sshpassPrefixArgs.isEmpty()) {
         args << "-o" << "BatchMode=no";
         args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
@@ -972,8 +971,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         tunnelArgs << "-o" << "BatchMode=yes";
         tunnelArgs << "-o" << "ConnectTimeout=10";
         tunnelArgs << "-o" << "LogLevel=ERROR";
-        tunnelArgs << "-o" << "StrictHostKeyChecking=no";
-        tunnelArgs << "-o" << "UserKnownHostsFile=/dev/null";
+        tunnelArgs << "-o" << "StrictHostKeyChecking=accept-new";
         tunnelArgs << "-o" << "ExitOnForwardFailure=yes";
         if (hasPassword && tunnelProgram != QStringLiteral("ssh")) {
             tunnelArgs << "-o" << "BatchMode=no";
@@ -1570,6 +1568,17 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             return false;
         }
         rc = proc.exitCode();
+        // ssh sale con 255 y un "Host key verification failed" escueto cuando la
+        // clave del host no coincide. Sin traducirlo, eso llega al usuario como un
+        // fallo de red cualquiera, y es precisamente el caso que no debe ignorar.
+        if (rc != 0) {
+            const QString hostKeyHint = mwhelpers::sshHostKeyProblemHint(err);
+            if (!hostKeyHint.isEmpty()) {
+                err = hostKeyHint + QStringLiteral("\n\n") + err;
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("%1: verificación de host SSH fallida").arg(p.name));
+            }
+        }
         if (!out.trimmed().isEmpty()) {
             appendConnectionLog(p.id, oneLine(out));
         }
@@ -1929,8 +1938,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         args << "-o" << "BatchMode=yes";
         args << "-o" << "ConnectTimeout=10";
         args << "-o" << "LogLevel=ERROR";
-        args << "-o" << "StrictHostKeyChecking=no";
-        args << "-o" << "UserKnownHostsFile=/dev/null";
+        args << "-o" << "StrictHostKeyChecking=accept-new";
         if (enableMultiplexing) {
             args << "-o" << "ControlMaster=auto";
             args << "-o" << "ControlPersist=yes";
@@ -2169,8 +2177,7 @@ void MainWindow::closeAllSshControlMasters() {
         }
         args << "-o" << "BatchMode=yes";
         args << "-o" << "LogLevel=ERROR";
-        args << "-o" << "StrictHostKeyChecking=no";
-        args << "-o" << "UserKnownHostsFile=/dev/null";
+        args << "-o" << "StrictHostKeyChecking=accept-new";
         args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
         if (p.port > 0) {
             args << "-p" << QString::number(p.port);

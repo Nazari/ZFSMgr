@@ -457,8 +457,8 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     args << "-o" << "BatchMode=yes";
     args << "-o" << "ConnectTimeout=8";
     args << "-o" << "LogLevel=ERROR";
-    args << "-o" << "StrictHostKeyChecking=no";
-    args << "-o" << "UserKnownHostsFile=/dev/null";
+    // Se verifica al host contra ~/.ssh/known_hosts (ver sshBaseCommand).
+    args << "-o" << "StrictHostKeyChecking=accept-new";
     const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
     if (sshFamily == QStringLiteral("ipv4")) {
         args << "-4";
@@ -507,6 +507,13 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
                      QStringLiteral("SSH 正常"));
         return true;
     }
+    // Un cambio de clave de host es lo primero que hay que explicar aquí: al dar de
+    // alta o reprobar una conexión es cuando el usuario puede reaccionar.
+    const QString hostKeyHint = mwhelpers::sshHostKeyProblemHint(err);
+    if (!hostKeyHint.isEmpty()) {
+        detail = hostKeyHint;
+        return false;
+    }
     detail = err.isEmpty()
                  ? trk(QStringLiteral("t_error_ssh__30fa40"),
                        QStringLiteral("Error SSH (exit %1)"),
@@ -536,8 +543,8 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
     args << "-o" << "BatchMode=yes";
     args << "-o" << QStringLiteral("ConnectTimeout=%1").arg(qMax(3, timeoutMs / 1000));
     args << "-o" << "LogLevel=ERROR";
-    args << "-o" << "StrictHostKeyChecking=no";
-    args << "-o" << "UserKnownHostsFile=/dev/null";
+    // Se verifica al host contra ~/.ssh/known_hosts (ver sshBaseCommand).
+    args << "-o" << "StrictHostKeyChecking=accept-new";
     const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
     if (sshFamily == QStringLiteral("ipv4")) {
         args << "-4";

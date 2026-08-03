@@ -275,7 +275,7 @@ void MainWindow::actionCopySnapshot() {
         // Build a minimal SSH command without -i so the source machine uses its own
         // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
         // and does not exist on the remote source.
-        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=accept-new");
         if (dp.port > 0) {
             minSsh += QStringLiteral(" -p %1").arg(dp.port);
         }
@@ -1108,7 +1108,7 @@ void MainWindow::actionLevelSnapshot() {
         // Build a minimal SSH command without -i so the source machine uses its own
         // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
         // and does not exist on the remote source.
-        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=accept-new");
         if (dp.port > 0) {
             minSsh += QStringLiteral(" -p %1").arg(dp.port);
         }
