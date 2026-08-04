@@ -184,8 +184,34 @@ ensure_build_dir_source_match() {
   fi
 }
 
+# Igual que el anterior, pero con el Qt. Reutilizar un árbol configurado contra el Qt
+# del sistema mientras CMAKE_PREFIX_PATH apunta a otro no da un error claro: CMake
+# conserva el Qt6_DIR cacheado y usa las herramientas del sistema (rcc, moc), pero
+# LD_LIBRARY_PATH ya apunta al otro Qt, así que rcc muere con
+#   libQt6Core.so.6: version `Qt_6.10' not found
+# que no menciona ni el cache ni las dos rutas. Pasó al compilar la 0.90.7 después de
+# haber estado compilando a mano con el Qt del sistema.
+ensure_build_dir_qt_match() {
+  if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" || -z "${CMAKE_PREFIX_PATH:-}" ]]; then
+    return 0
+  fi
+  local cached_qt
+  cached_qt="$(sed -n 's/^Qt6_DIR:PATH=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+  [[ -n "${cached_qt}" ]] || return 0
+  local wanted
+  wanted="$(cd "${CMAKE_PREFIX_PATH%%:*}" 2>/dev/null && pwd -P || echo "${CMAKE_PREFIX_PATH%%:*}")"
+  if [[ "${cached_qt}" != "${wanted}"/* ]]; then
+    echo "Detectado build cache con otro Qt:"
+    echo "  cache:   ${cached_qt}"
+    echo "  pedido:  ${wanted}"
+    echo "Regenerando ${BUILD_DIR}..."
+    rm -rf "${BUILD_DIR}"
+  fi
+}
+
 if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   ensure_build_dir_source_match
+  ensure_build_dir_qt_match
   cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
   if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
     cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
@@ -237,6 +263,7 @@ extract_appimage_tool() {
 
 echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
+ensure_build_dir_qt_match
 cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
 if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
   cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
