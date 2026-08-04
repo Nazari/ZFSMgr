@@ -661,13 +661,19 @@ void MainWindow::importPoolFromRow(int row) {
         // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
         // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
         const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
+        if (!daemonArgv.isEmpty()) {
+            return mwhelpers::agentShellCommand(p, daemonArgv);
+        }
         if (!isWindowsConnection(p)) {
             rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
         }
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
+    // Se busca solo el verbo, no "ruta + espacio + verbo": agentShellCommand entrecomilla
+    // cada argumento, así que entre la ruta y el verbo hay una comilla. Husmear la cadena
+    // es frágil de por sí; queda como está porque el valor solo decide un mensaje de aviso.
+    bool daemonRpcAttempted = cmd.contains(QStringLiteral("--mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -699,7 +705,7 @@ void MainWindow::importPoolFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(QStringLiteral("--mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import"),
@@ -977,13 +983,19 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
         // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
         const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
+        if (!daemonArgv.isEmpty()) {
+            return mwhelpers::agentShellCommand(p, daemonArgv);
+        }
         if (!isWindowsConnection(p)) {
             rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
         }
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportRenameCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
+    // Se busca solo el verbo, no "ruta + espacio + verbo": agentShellCommand entrecomilla
+    // cada argumento, así que entre la ruta y el verbo hay una comilla. Husmear la cadena
+    // es frágil de por sí; queda como está porque el valor solo decide un mensaje de aviso.
+    bool daemonRpcAttempted = cmd.contains(QStringLiteral("--mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1015,7 +1027,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportRenameCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(QStringLiteral("--mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import (rename)"),
