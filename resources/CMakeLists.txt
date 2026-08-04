@@ -34,6 +34,8 @@ cmd:--mutate-rsync-local
 cmd:--wait-for-event
 cmd:--dump-gsa-log
 cmd:--dump-tool-availability
+health:caps-declared
+win:native-only
 zed:event-watcher-class-filter
 fallback:no-script-helpers
 gui:daemon-mandatory
