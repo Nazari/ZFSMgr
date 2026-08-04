@@ -1846,9 +1846,7 @@ void MainWindow::pollDaemonZedAllConnections() {
 
     for (int idx : std::as_const(toCheck)) {
         const ConnectionProfile profile = m_profiles[idx];
-        const QString healthCmd = withSudo(
-            profile, mwhelpers::withUnixSearchPathCommand(
-                         QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+        const QString healthCmd = mwhelpers::agentShellCommand(profile, {QStringLiteral("--health")});
         const QString connId = profile.id;
 
         (void)QtConcurrent::run([this, idx, connId, profile, healthCmd]() {
@@ -2772,7 +2770,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
         return;
     }
 
-    const QString agentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+    const QString agentBin = daemonpayload::unixBinPath();
     // Report-only pass first: nothing is modified until the user confirms.
     QString out;
     QString failure;

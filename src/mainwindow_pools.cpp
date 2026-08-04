@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
 
@@ -276,10 +277,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         profile,
         mwhelpers::withUnixSearchPathCommand(
             QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
-    const QString cmdDaemon = withSudo(
-        profile, mwhelpers::withUnixSearchPathCommand(
-                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
-                         .arg(shSingleQuote(trimmedPool))));
+    const QString cmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool});
     const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
     (void)runSsh(profile, cmd, 20000, out, err, rc);
     if (rc != 0) {
@@ -668,7 +666,7 @@ void MainWindow::importPoolFromRow(int row) {
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -700,7 +698,7 @@ void MainWindow::importPoolFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import"),
@@ -984,7 +982,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportRenameCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1016,7 +1014,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportRenameCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import (rename)"),
@@ -2203,10 +2201,7 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         historyClassic = mwhelpers::withUnixSearchPathCommand(historyClassic);
     }
     const QString cmdClassic = withSudo(p, historyClassic);
-    const QString cmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-history %1")
-                   .arg(shSingleQuote(poolName))));
+    const QString cmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-history"), poolName});
     const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
     QString out;
     QString detail;

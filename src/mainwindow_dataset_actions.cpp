@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 
 #include <QComboBox>
 #include <QDialog>
@@ -247,7 +248,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
                 QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
             plan.matched = true;
             plan.daemonCmd =
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-allow-batch %1")
+                daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-allow-batch %1")
                     .arg(shSingleQuote(payloadB64));
             return plan;
         }
@@ -285,7 +286,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-snapshot %1 %2")
+        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-snapshot %1 %2")
                              .arg(shSingleQuote(target),
                                   recursive ? QStringLiteral("1") : QStringLiteral("0"));
         return plan;
@@ -309,7 +310,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-destroy %1 %2 %3")
                              .arg(shSingleQuote(target),
                                   force ? QStringLiteral("1") : QStringLiteral("0"),
                                   shSingleQuote(recursiveMode));
@@ -334,7 +335,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-rollback %1 %2 %3")
                              .arg(shSingleQuote(target),
                                   force ? QStringLiteral("1") : QStringLiteral("0"),
                                   shSingleQuote(recursiveMode));
@@ -349,7 +350,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
             plan.matched = true;
             plan.embedsStdin = true;
-            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-load-key %1 %2")
+            plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-load-key %1 %2")
                                  .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64));
             return plan;
         }
@@ -368,7 +369,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             const QString flagsB64 = QString::fromLatin1(flagTokens.join(QLatin1Char(' ')).toUtf8().toBase64());
             plan.matched = true;
             plan.embedsStdin = true;
-            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-change-key %1 %2 %3")
+            plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-change-key %1 %2 %3")
                                  .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64), shSingleQuote(flagsB64));
             return plan;
         }
@@ -385,7 +386,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
         const QString payloadB64 = QString::fromUtf8(
             QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
         plan.matched = true;
-        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
                              .arg(shSingleQuote(payloadB64));
         return plan;
     }
@@ -780,7 +781,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
     const bool submittableAsJob =
         featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::BackgroundJobs) && effectiveStdin.isEmpty()
         && (isBreakdownAction || isAssembleAction || isToDirAction)
-        && effectiveCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent"));
+        && effectiveCmd.contains(daemonpayload::unixBinPath());
     bool ok = false;
     bool jobWasSubmitted = false;
     if (submittableAsJob) {
@@ -1060,10 +1061,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
                       .arg(propsCsv, shSingleQuote(trimmedPool))
                 : QStringLiteral("zpool get -j %1 %2")
                       .arg(propsCsv, shSingleQuote(trimmedPool))));
-    const QString poolCmdDaemon = withSudo(
-        profile, mwhelpers::withUnixSearchPathCommand(
-                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
-                         .arg(shSingleQuote(trimmedPool))));
+    const QString poolCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-get-all"), trimmedPool});
     const QString selectedPoolCmd = daemonReadApiOk ? poolCmdDaemon : poolCmdClassic;
     bool poolPropsOk = runSsh(profile, selectedPoolCmd, 15000, out, err, rc) && rc == 0;
     if (poolPropsOk) {
@@ -1858,9 +1856,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         mwhelpers::withUnixSearchPathCommand(
             isWinConn ? QStringLiteral("zfs mount")
                       : QStringLiteral("zfs mount -j")));
-    const QString mountedCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
+    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-mount")});
     QVector<QPair<QString, QString>> mountedRows;
     const QString selectedMountCmd = daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic;
     bool mountListOk = runSsh(p, selectedMountCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;

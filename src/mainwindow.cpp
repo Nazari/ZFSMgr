@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
 
@@ -787,7 +788,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
                 QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
         const QString typeCmdDaemon = withSudo(
             p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop type %1")
+                   daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop type %1")
                        .arg(mwhelpers::shSingleQuote(trimmedObject))));
         const QString selectedTypeCmd = daemonReadApiOk ? typeCmdDaemon : typeCmdClassic;
         bool typeOk = runSsh(p, selectedTypeCmd, 12000, tOut, tErr, tRc) && tRc == 0;
@@ -809,10 +810,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
             dsWin
                 ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
                 : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-    const QString propsCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-all %1")
-                   .arg(mwhelpers::shSingleQuote(trimmedObject))));
+    const QString propsCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-get-all"), trimmedObject});
     const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
     bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
     if (!propsOk) {
@@ -951,7 +949,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     }
     const QString propsCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-json %1 %2")
+               daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-json %1 %2")
                    .arg(mwhelpers::shSingleQuote(wantedProps.join(QLatin1Char(','))),
                         mwhelpers::shSingleQuote(trimmedObject))));
     const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
@@ -1347,10 +1345,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                               .arg(mwhelpers::shSingleQuote(trimmedPool))
                         : QStringLiteral("zpool get -j all %1")
                               .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString propsCmdDaemon = withSudo(
-                profile, mwhelpers::withUnixSearchPathCommand(
-                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
-                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString propsCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-get-all"), trimmedPool});
             const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
             bool propsOk = runSsh(profile, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
             if (propsOk) {
@@ -1389,10 +1384,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool status -v %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString stCmdDaemon = withSudo(
-                profile, mwhelpers::withUnixSearchPathCommand(
-                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
-                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString stCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool});
             const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
             bool statusOk = runSsh(profile, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
             if (statusOk) {
@@ -1416,10 +1408,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                     : mwhelpers::withUnixSearchPathCommand(
                           QStringLiteral("zpool status -P %1")
                               .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString stPCmdDaemon = withSudo(
-                profile, mwhelpers::withUnixSearchPathCommand(
-                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status-p %1")
-                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString stPCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status-p"), trimmedPool});
             const QString selectedStatusPCmd = daemonReadApiOk ? stPCmdDaemon : stPCmdClassic;
             bool statusPOk = runSsh(profile, selectedStatusPCmd, 20000, out, err, rc) && rc == 0;
             if (statusPOk) {
@@ -1596,10 +1585,7 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
                              .arg(propArgs.join(QLatin1Char(',')),
                                   mwhelpers::shSingleQuote(trimmedPool))));
         const QString cmdDaemon =
-            withSudo(profile,
-                     mwhelpers::withUnixSearchPathCommand(
-                         QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-gsa-raw-recursive %1")
-                             .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zfs-get-gsa-raw-recursive"), trimmedPool});
         QString out;
         QString err;
         int rc = -1;
@@ -1844,7 +1830,7 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
     }
     const QString payloadB64 =
         QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic %1")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic %1")
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
@@ -1883,7 +1869,7 @@ QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawC
     }
     const QString payloadB64 =
         QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
@@ -1941,7 +1927,7 @@ QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
         QJsonDocument(recvArgv).toJson(QJsonDocument::Compact).toBase64()));
     const QString payloadB64 = QString::fromLatin1(
         QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --zfs-pipe-local %1")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --zfs-pipe-local %1")
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
@@ -1986,7 +1972,7 @@ QString MainWindow::daemonizeRsyncSyncCommand(int connIdx,
     }
     const QString payloadB64 = QString::fromLatin1(
         QJsonDocument(fields).toJson(QJsonDocument::Compact).toBase64());
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-rsync-local %1")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-rsync-local %1")
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
@@ -2013,7 +1999,7 @@ QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& ra
         return QString();
     }
     const QString payloadB64 = QString::fromLatin1(utf8.toBase64());
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-shell-generic %1")
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 

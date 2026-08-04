@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "helperinstallcatalog.h"
 #include "agentversion.h"
 
@@ -379,10 +380,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString bOut;
         QString bErr;
         int bRc = -1;
-        const QString basicsCmd = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-refresh-basics")));
+        const QString basicsCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-refresh-basics")});
         if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {})
             && bRc == 0) {
             const QMap<QString, QString> kv = parseKeyValueOutput(bOut + QStringLiteral("\n") + bErr);
@@ -546,7 +544,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!unixBasicsLoaded || state.zfsVersion.trimmed().isEmpty()) {
         const QStringList zfsVersionCandidates = {
             mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-version")),
+                daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs --version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool --version")),
@@ -622,11 +620,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 }
                 const QString payloadB64 = QString::fromLatin1(
                     QJsonDocument(wantedJson).toJson(QJsonDocument::Compact).toBase64());
-                const QString probeCmd = withSudo(
-                    p,
-                    mwhelpers::withUnixSearchPathCommand(
-                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-tool-availability %1")
-                            .arg(mwhelpers::shSingleQuote(payloadB64))));
+                const QString probeCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-tool-availability"), payloadB64});
                 commandsProbed = runSsh(p, probeCmd, 12000, dout, derr, drc) && drc == 0;
                 if (!commandsProbed) {
                     dout.clear();
@@ -788,7 +782,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "scheduler=''; installed=0; active=0; native=0; version=''; api=''; detail=''; "
                     "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
                     "  scheduler='launchd'; "
-                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  bin='%1'; "
                     "  plist='/Library/LaunchDaemons/org.zfsmgr.agent.plist'; "
                     "  [ -x \"$bin\" ] && [ -f \"$plist\" ] && installed=1; "
                     "  if [ \"$installed\" -eq 1 ]; then "
@@ -800,7 +794,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  fi; "
                     "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
                     "  scheduler='rc.d'; "
-                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  bin='%1'; "
                     "  rc='/usr/local/etc/rc.d/zfsmgr_agent'; "
                     "  [ -x \"$bin\" ] && [ -f \"$rc\" ] && installed=1; "
                     "  if [ \"$installed\" -eq 1 ]; then "
@@ -812,7 +806,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  fi; "
                     "elif command -v systemctl >/dev/null 2>&1; then "
                     "  scheduler='systemd'; "
-                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  bin='%1'; "
                     "  service='/etc/systemd/system/zfsmgr-agent.service'; "
                     "  [ -x \"$bin\" ] && [ -f \"$service\" ] && installed=1; "
                     "  if [ \"$installed\" -eq 1 ]; then "
@@ -827,18 +821,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  detail='No native scheduler detected'; "
                     "fi; "
                     "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nNATIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
-                    "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\""));
+                    "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\"")
+                    .arg(daemonpayload::unixBinPath()));
     }
     const QString importProbeCmd = withSudo(
         p,
         mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
-    const QString importProbeCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-import-probe")));
+    const QString importProbeCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-import-probe")});
     const QString mountedCmdClassic = withSudo(
         p,
         mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
-    const QString mountedCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
+    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-mount")});
     QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000);
     auto runClassicImportProbe = [&]() -> AsyncSshResult {
         return runAsyncCommand(importProbeCmd, 18000).result();
@@ -946,10 +939,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
-    const QString zpoolListCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-list")));
-    const QString zpoolGuidStatusBatchCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid-status-batch")));
+    const QString zpoolListCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-list")});
+    const QString zpoolGuidStatusBatchCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-guid-status-batch")});
     out.clear(); err.clear(); rc = -1;
     bool zpoolListOk = false;
     bool zpoolListViaDaemon = false;
@@ -1070,10 +1061,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 p,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
-            const QString guidCmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
-                           .arg(mwhelpers::shSingleQuote(poolName))));
+            const QString guidCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-guid"), poolName});
             const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
             bool guidOk = runSsh(p, selectedGuidCmd, 12000, gout, gerr, grc) && grc == 0;
             if (guidOk) {
@@ -1093,10 +1081,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
-        const QString stCmdDaemon = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
-                       .arg(mwhelpers::shSingleQuote(poolName))));
+        const QString stCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-status"), poolName});
         const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
         bool statusOk = runSsh(p, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
         if (statusOk) {
@@ -1208,9 +1193,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
                     "done")
                     .arg(mwhelpers::shSingleQuote(gsaProps))));
-        const QString gcmdDaemon = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-gsa-raw-all-pools")));
+        const QString gcmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")});
         if (propsByDataset.isEmpty()) {
             const QString selectedGsaCmd = daemonReadApiOk ? gcmdDaemon : gcmdClassic;
             bool gsaPropsOk = runSsh(p, selectedGsaCmd, 30000, gout, gerr, grc) && grc == 0;

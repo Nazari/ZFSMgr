@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "agentversion.h"
 
 #include <QApplication>
@@ -776,7 +777,7 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString queueCmd = cmd;
     if (daemonMutateApiOk && target.contains(QLatin1Char('@'))) {
-        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-destroy %1 %2 %3")
                        .arg(shSingleQuote(target),
                             force ? QStringLiteral("1") : QStringLiteral("0"),
                             shSingleQuote(recursiveMode));

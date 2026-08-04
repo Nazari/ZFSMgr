@@ -5676,10 +5676,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString cmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
-                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString cmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-guid"), trimmedPool});
             const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
             bool ok = runSsh(p, selectedCmd, 12000, out, err, rc) && rc == 0;
             // Unconditional re-look up: runSsh() pumped the event loop, so
@@ -5722,10 +5719,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zfs list -H -o name,guid -r %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString cmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")
-                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString cmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-guid-map"), trimmedPool});
             const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
             bool ok = runSsh(p, selectedCmd, 25000, out, err, rc) && rc == 0;
             if (rc == 0) {

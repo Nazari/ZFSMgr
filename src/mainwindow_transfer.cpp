@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "agentversion.h"
 
 #include <QCheckBox>
@@ -142,12 +143,12 @@ QString syncCodecToken(mwhelpers::StreamCodec codec) {
 // now does all of it natively (see --mutate-sync-temp-tar-*), so nothing here builds
 // shell any more.
 QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-source %1 %2")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-sync-temp-tar-source %1 %2")
         .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 
 QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-dest %1 %2")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-sync-temp-tar-dest %1 %2")
         .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 } // namespace
@@ -363,7 +364,7 @@ void MainWindow::actionCopySnapshot() {
         }
         // For same-connection transfers, src daemon connects to itself via loopback
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        const QString kAgentBin = daemonpayload::unixBinPath();
         QString sendCmd2 = kAgentBin
             + QStringLiteral(" --zfs-send-to-peer ")
             + shSingleQuote(snap)
@@ -720,7 +721,7 @@ void MainWindow::actionDiffSnapshot() {
         && m_states[src.connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
     const QString remoteCmd = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-diff %1 %2")
+        ? daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-diff %1 %2")
               .arg(shSingleQuote(srcObj), shSingleQuote(dstObj))
         : withSudo(profile, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
@@ -1198,7 +1199,7 @@ void MainWindow::actionLevelSnapshot() {
             return {};
         }
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        const QString kAgentBin = daemonpayload::unixBinPath();
         QString sendCmd2 = kAgentBin
             + QStringLiteral(" --zfs-send-to-peer ")
             + shSingleQuote(snap)

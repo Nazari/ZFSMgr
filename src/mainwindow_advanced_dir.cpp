@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 
 #include <QtWidgets>
 #include <QRegularExpression>
@@ -853,7 +854,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             // dataset, resolves the mountpoint, creates the subdirectory and runs tar
             // itself with execvp. withSudoStreamInput() keeps stdin wired to the
             // incoming tar stream.
-            dstRecvCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-fromdir %1 %2")
+            dstRecvCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-fromdir %1 %2")
                              .arg(shSingleQuote(opt.datasetPath), shSingleQuote(rel));
         } else {
             const QString relWin = rel;
@@ -1060,7 +1061,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
             Q_UNUSED(daemonReadApiOk);
             cmd = withSudo(
                 profile, mwhelpers::withUnixSearchPathCommand(
-                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-todir %1 %2 %3")
+                             daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-todir %1 %2 %3")
                                  .arg(shSingleQuote(ds),
                                       shSingleQuote(localDir),
                                       deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
