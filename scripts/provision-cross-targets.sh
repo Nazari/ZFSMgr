@@ -87,7 +87,19 @@ need_cmd() {
 
 ensure_aqt() {
   local venv="${HOME}/.local/venvs/aqtinstall"
-  if [[ ${FORCE} -eq 1 || ! -x "${venv}/bin/aqt" ]]; then
+  # No basta con que el ejecutable exista: un entorno virtual a medias deja el
+  # lanzador de aqt en su sitio pero sin el módulo detrás, y entonces el fallo
+  # aparece mucho después, como un traceback de Python en mitad del registro y
+  # lejos de su causa. Se comprueba que arranca de verdad; si no, se rehace.
+  local aqt_usable=0
+  if [[ -x "${venv}/bin/aqt" ]] && "${venv}/bin/aqt" version >/dev/null 2>&1; then
+    aqt_usable=1
+  fi
+  if [[ ${FORCE} -eq 1 || ${aqt_usable} -eq 0 ]]; then
+    if [[ -d "${venv}" && ${aqt_usable} -eq 0 ]]; then
+      echo "[aqt] el entorno virtual está incompleto; se rehace" >&2
+      run_cmd "rm -rf '${venv}'" >&2
+    fi
     # A stderr: esta función devuelve la ruta de aqt por stdout y quien la llama la
     # captura con $(...). Sin redirigir, la salida de venv y pip se capturaba junto a
     # la ruta y el resultado era una cadena enorme ("File name too long" al ejecutar).
