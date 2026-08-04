@@ -370,6 +370,33 @@ BUILD_REF="$(git rev-parse HEAD)"
 log "Commit exacto de release: ${BUILD_REF}"
 write_state "git-push" "completed" "commit publicado"
 
+# Los agentes que se empaquetan salen de builds/agents/, que no está versionado y
+# que nada mantiene al día. Una vez se quedó en 0.90.0 mientras la aplicación
+# esperaba 0.90.5, y el efecto fue que reinstalar el daemon no lo actualizaba nunca.
+# Aquí se comprueba que los cinco existen y declaran ESTA versión; si no, se
+# aborta antes de generar ningún artefacto.
+log "Comprobando los agentes desplegables"
+agents_ok=1
+for _rel in linux-x86_64/zfsmgr_agent windows-x86_64/zfsmgr_agent.exe \
+            freebsd-x86_64/zfsmgr_agent macos-arm64/zfsmgr_agent macos-amd64/zfsmgr_agent; do
+  _bin="${PROJECT_ROOT}/builds/agents/${_rel}"
+  if [[ ! -f "${_bin}" ]]; then
+    echo "Error: falta el agente ${_rel}." >&2
+    agents_ok=0
+    continue
+  fi
+  if ! strings -a "${_bin}" | grep -qE "${VERSION//./\\.}\.[0-9]{6,9}"; then
+    echo "Error: ${_rel} no declara la versión ${VERSION}." >&2
+    agents_ok=0
+  fi
+done
+if [[ "${agents_ok}" -ne 1 ]]; then
+  echo "Recompílelos, o tráigalos de la integración continua con:" >&2
+  echo "  scripts/fetch-agents.sh --ref ${BUILD_REF}" >&2
+  exit 1
+fi
+log "Agentes correctos para ${VERSION}"
+
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
