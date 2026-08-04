@@ -781,16 +781,11 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     if (datasetType.trimmed().isEmpty()) {
         QString tOut, tErr;
         int tRc = -1;
-        const QString typeCmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-        const QString typeCmdDaemon = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop type %1")
-                       .arg(mwhelpers::shSingleQuote(trimmedObject))));
-        const QString selectedTypeCmd = daemonReadApiOk ? typeCmdDaemon : typeCmdClassic;
-        bool typeOk = runSsh(p, selectedTypeCmd, 12000, tOut, tErr, tRc) && tRc == 0;
+        const bool typeOk =
+            daemonReadApiOk
+            && runAgentCommand(p, {QStringLiteral("--dump-zfs-get-prop"), QStringLiteral("type"), trimmedObject},
+                               12000, tOut, tErr, tRc)
+            && tRc == 0;
         if (typeOk) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
@@ -812,8 +807,8 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
     const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zfs-get-all"), trimmedObject};
     bool propsOk = daemonReadApiOk
-        ? (runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
-        : (runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0);
+          && runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc)
+          && rc == 0;
     if (!propsOk) {
         // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
         // destroying the nested maps that dsInfo points into.
@@ -947,13 +942,15 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
                     .arg(wantedProps.join(QLatin1Char(',')),
                          mwhelpers::shSingleQuote(trimmedObject))));
     }
-    const QString propsCmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-json %1 %2")
-                   .arg(mwhelpers::shSingleQuote(wantedProps.join(QLatin1Char(','))),
-                        mwhelpers::shSingleQuote(trimmedObject))));
-    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
-    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+    if (!daemonReadApiOk) {
+        requireDaemonForRead(connIdx, QStringLiteral("leer las propiedades de un dataset"));
+    }
+    const bool propsOk =
+        daemonReadApiOk
+        && runAgentCommand(p, {QStringLiteral("--dump-zfs-get-json"),
+                               wantedProps.join(QLatin1Char(',')), trimmedObject},
+                           20000, out, err, rc)
+        && rc == 0;
     // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
     // destroying the nested maps dsInfo points into. Every use below is after this.
     dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
@@ -1347,8 +1344,8 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
             bool propsOk = daemonReadApiOk
-                ? (runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
-                : (runSsh(profile, propsCmdClassic, 20000, out, err, rc) && rc == 0);
+                  && runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc)
+                  && rc == 0;
             if (propsOk) {
                 if (poolWin) {
                     const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
@@ -1380,16 +1377,11 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             out.clear();
             err.clear();
             rc = -1;
-            const QString stCmdClassic = withSudo(
-                profile,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool status -v %1")
-                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList stCmdDaemonArgv = {QStringLiteral("--dump-zpool-status"), trimmedPool};
             bool statusOk = daemonReadApiOk
-                ? (runAgentCommand(profile, stCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
-                : (runSsh(profile, stCmdClassic, 20000, out, err, rc) && rc == 0);
+                  && runAgentCommand(profile, stCmdDaemonArgv, 20000, out, err, rc)
+                  && rc == 0;
             if (statusOk) {
                 fresh.statusText = out.trimmed();
             } else {
@@ -1403,19 +1395,11 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             out.clear();
             err.clear();
             rc = -1;
-            const QString stPCmdClassic = withSudo(
-                profile,
-                poolWin
-                    ? QStringLiteral("zpool status -P %1")
-                          .arg(mwhelpers::shSingleQuote(trimmedPool))
-                    : mwhelpers::withUnixSearchPathCommand(
-                          QStringLiteral("zpool status -P %1")
-                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList stPCmdDaemonArgv = {QStringLiteral("--dump-zpool-status-p"), trimmedPool};
             bool statusPOk = daemonReadApiOk
-                ? (runAgentCommand(profile, stPCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
-                : (runSsh(profile, stPCmdClassic, 20000, out, err, rc) && rc == 0);
+                  && runAgentCommand(profile, stPCmdDaemonArgv, 20000, out, err, rc)
+                  && rc == 0;
             if (statusPOk) {
                 fresh.statusPText = out.trimmed();
             } else {
@@ -1582,19 +1566,16 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         for (const QString& prop : gsaProps) {
             propArgs << mwhelpers::shSingleQuote(prop);
         }
-        const QString cmdClassic =
-            withSudo(profile,
-                     mwhelpers::withUnixSearchPathCommand(
-                         QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
-                             .arg(propArgs.join(QLatin1Char(',')),
-                                  mwhelpers::shSingleQuote(trimmedPool))));
         const QString cmdDaemon =
             mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zfs-get-gsa-raw-recursive"), trimmedPool});
         QString out;
         QString err;
         int rc = -1;
-        const QString selectedScanCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
-        bool scanOk = runSsh(profile, selectedScanCmd, 20000, out, err, rc) && rc == 0;
+        const bool scanOk =
+            daemonReadApiOk
+            && runAgentCommand(profile, {QStringLiteral("--dump-zfs-get-gsa-raw-recursive"), trimmedPool},
+                               20000, out, err, rc)
+            && rc == 0;
         if (!scanOk) {
             result.errorText = err.trimmed();
         } else {
@@ -2572,6 +2553,36 @@ QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetNam
     constexpr int kSnapshotListRole = Qt::UserRole + 1;
     names = item->data(1, kSnapshotListRole).toStringList();
     return names;
+}
+
+bool MainWindow::requireDaemonForRead(int connIdx, const QString& what) const {
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return false;
+    }
+    return requireDaemonForRead(m_profiles.value(connIdx).name, m_states[connIdx], what);
+}
+
+bool MainWindow::requireDaemonForRead(const QString& connName,
+                                      const ConnectionRuntimeState& st,
+                                      const QString& what) const {
+    QString reason;
+    if (!st.daemonInstalled) {
+        reason = QStringLiteral("el agente no está instalado");
+    } else if (!st.daemonActive) {
+        reason = QStringLiteral("el agente no está en marcha");
+    } else if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        reason = QStringLiteral("la versión de API del agente es %1 y se espera %2")
+                     .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("desconocida")
+                                                                  : st.daemonApiVersion.trimmed(),
+                          agentversion::expectedApiVersion());
+    } else {
+        return true;
+    }
+    const_cast<MainWindow*>(this)->appLog(
+        QStringLiteral("WARN"),
+        QStringLiteral("%1: no se puede %2 porque %3. Reinstale el daemon desde el menú de la conexión.")
+            .arg(connName, what, reason));
+    return false;
 }
 
 zfsmgr::caps::Platform MainWindow::capabilityPlatform(int connIdx) const {

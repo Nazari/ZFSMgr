@@ -272,13 +272,12 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    const QString cmdClassic = withSudo(
-        profile,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
-    const QString cmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool});
-    const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
-    (void)runSsh(profile, cmd, 20000, out, err, rc);
+    if (!daemonReadApiOk
+        && !requireDaemonForRead(connIdx, QStringLiteral("leer el estado de un pool"))) {
+        return;
+    }
+    (void)runAgentCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool},
+                          20000, out, err, rc);
     if (rc != 0) {
         const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
         appLog(QStringLiteral("WARN"),
@@ -2224,13 +2223,11 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         && m_states[idx].daemonInstalled
         && m_states[idx].daemonActive
         && m_states[idx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    QString historyClassic = QStringLiteral("zpool history %1").arg(shSingleQuote(poolName));
-    if (!isWindowsConnection(p)) {
-        historyClassic = mwhelpers::withUnixSearchPathCommand(historyClassic);
+    if (!daemonReadApiOk
+        && !requireDaemonForRead(idx, QStringLiteral("leer el historial de un pool"))) {
+        return;
     }
-    const QString cmdClassic = withSudo(p, historyClassic);
-    const QString cmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-history"), poolName});
-    const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+    const QString cmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-history"), poolName});
     QString out;
     QString detail;
     if (!fetchPoolCommandOutput(idx, poolName, QStringLiteral("Historial"), cmd, &out, &detail, 45000)) {

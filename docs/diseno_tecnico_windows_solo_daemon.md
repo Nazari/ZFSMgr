@@ -91,6 +91,34 @@ peor que no tenerlos:
 - `kHeartbeatPath` apuntaba a `/tmp`, que no existe: el `ofstream` fallaba y la función
   retornaba en silencio.
 
+## Sin respaldo por shell
+
+Desde 0.90.6 **no hay camino alternativo**: si el agente no está disponible, la
+operación no se intenta y se dice por qué. Antes, cada lectura y cada mutación tenían
+un `zfs`/`zpool` clásico de reserva, elegido en 67 puntos distintos.
+
+El motivo de quitarlo no es la simplificación —aunque desaparecen unas 60
+construcciones dobles de comando—, sino que **el respaldo ocultaba fallos reales del
+agente durante meses**:
+
+- En macOS el agente no tenía "Acceso total al disco" y no veía ningún pool
+  importable. La aplicación repetía la sonda por shell, que sí los veía, y todo
+  parecía correcto. Se descubrió solo al reinstalar el agente, cuando el sistema pidió
+  el permiso.
+- En Windows, exportar e importar pools se ejecutaban por shell mientras en Unix iban
+  por RPC. Nadie lo notó porque el resultado era el mismo.
+
+Donde el agente no ve algo que el shell sí vería, ahora se explica en el registro con
+la acción concreta que lo arregla, en vez de compensarlo en silencio.
+
+Lo que **no** es respaldo y sigue existiendo:
+
+- El arranque en frío: detección del sistema, sonda de presencia del agente e
+  instalación. Ocurre antes de que exista el agente, así que no puede depender de él.
+- El agente en modo línea de comandos sobre SSH, para los cuatro verbos `cli-only`
+  que transportan flujos por la entrada y la salida estándar. El canal RPC no lleva
+  stdin.
+
 ## Lo que no cubre ningún test
 
 **No hay cobertura automatizada de Windows.** Los cuatro binarios de prueba se ejecutan

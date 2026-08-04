@@ -824,19 +824,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\"")
                     .arg(daemonpayload::unixBinPath()));
     }
-    const QString importProbeCmd = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
     const QString importProbeCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-import-probe")});
-    const QString mountedCmdClassic = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-mount")});
     QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000);
-    auto runClassicImportProbe = [&]() -> AsyncSshResult {
-        return runAsyncCommand(importProbeCmd, 18000).result();
-    };
-
     {
         const AsyncSshResult agentRes = agentFuture.result();
         if (agentRes.ran) {
@@ -852,11 +842,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     cutPhase(QStringLiteral("agent_probe"));
 
-    const QString zpoolListCmdClassic = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               isWinConn
-                   ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
-                   : QStringLiteral("zpool list -j")));
     // En Windows el binario vive en otra ruta y no hay sudo ni PATH de Unix que
     // aplicar: usar el comando de siempre daba "no se reconoce" y tumbaba la
     // comprobación de salud, dejando el daemon por no disponible.
@@ -945,11 +930,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     bool zpoolListOk = false;
     bool zpoolListViaDaemon = false;
     if (daemonReadApiOk) {
-        zpoolListOk = runSsh(p, zpoolListCmdDaemon, 18000, out, err, rc) && rc == 0;
+        zpoolListOk = runAgentCommand(p, {QStringLiteral("--dump-zpool-list")}, 18000, out, err, rc)
+                      && rc == 0;
         zpoolListViaDaemon = zpoolListOk;
-    }
-    if (!zpoolListOk) {
-        zpoolListOk = runSsh(p, zpoolListCmdClassic, 18000, out, err, rc) && rc == 0;
+    } else {
+        requireDaemonForRead(p.name, state, QStringLiteral("listar los pools"));
     }
     if (zpoolListOk) {
         // El formato lo decide QUÉ comando respondió, no el sistema operativo. Desde
@@ -1012,22 +997,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString bout;
         QString berr;
         int brc = -1;
-        const QString batchCmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral(
-                    "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
-                    "[ -n \"$pool\" ] || continue; "
-                    "guid=$(zpool get -H -o value guid \"$pool\" 2>/dev/null | head -n1 || true); "
-                    "printf '__ZFSMGR_POOL__:%s\\n' \"$pool\"; "
-                    "printf '__ZFSMGR_GUID__:%s\\n' \"$guid\"; "
-                    "printf '__ZFSMGR_STATUS_BEGIN__\\n'; "
-                    "zpool status -v \"$pool\" 2>&1 || true; "
-                    "printf '__ZFSMGR_STATUS_END__\\n'; "
-                    "done")));
-        const QString batchCmd = daemonReadApiOk ? zpoolGuidStatusBatchCmdDaemon : batchCmdClassic;
         if (state.poolStatusByName.isEmpty() || state.poolGuidByName.isEmpty()) {
-            bool batchOk = runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0;
+            const bool batchOk =
+                daemonReadApiOk
+                && runAgentCommand(p, {QStringLiteral("--dump-zpool-guid-status-batch")},
+                                   45000, bout, berr, brc)
+                && brc == 0;
             if (batchOk) {
                 const QMap<QString, PoolGuidStatusEntry> parsed =
                     parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
@@ -1057,15 +1032,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString gout;
             QString gerr;
             int grc = -1;
-            const QString guidCmdClassic = withSudo(
-                p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList guidCmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), poolName};
             bool guidOk = daemonReadApiOk
-                ? (runAgentCommand(p, guidCmdDaemonArgv, 12000, gout, gerr, grc) && grc == 0)
-                : (runSsh(p, guidCmdClassic, 12000, gout, gerr, grc) && grc == 0);
+                  && runAgentCommand(p, guidCmdDaemonArgv, 12000, gout, gerr, grc)
+                  && grc == 0;
             if (guidOk) {
                 const QString guid = gout.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -1079,15 +1050,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         out.clear();
         err.clear();
         rc = -1;
-        const QString stCmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
         // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
         const QStringList stCmdDaemonArgv = {QStringLiteral("--dump-zpool-status"), poolName};
         bool statusOk = daemonReadApiOk
-            ? (runAgentCommand(p, stCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
-            : (runSsh(p, stCmdClassic, 20000, out, err, rc) && rc == 0);
+              && runAgentCommand(p, stCmdDaemonArgv, 20000, out, err, rc)
+              && rc == 0;
         if (statusOk) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {
@@ -1099,6 +1066,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
 
     {
+        // El respaldo clásico se retira: en macOS ocultó durante meses que el agente no
+        // tenía acceso a disco, porque el camino por shell sí lo tenía y la lista de
+        // importables salía igualmente. Ahora, si el agente no ve los pools, se nota.
         state.daemonZpoolImportUsable = daemonReadApiOk;
         AsyncSshResult importRes;
         bool importOk = false;
@@ -1106,25 +1076,20 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             importRes = runAsyncCommand(importProbeCmdDaemon, 25000).result();
             importOk = importRes.ran && importRes.rc == 0;
         }
-        if (!importOk) {
-            importRes = runClassicImportProbe();
-        }
         if (importRes.ran) {
             QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
             QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
             if (parsed.isEmpty() && importOk) {
-                // daemon ran OK but found no importable pools — fall back to classic SSH result
-                // (on macOS the daemon's zpool import may lack disk access that sudo SSH has)
-                const AsyncSshResult classicRes = runClassicImportProbe();
-                if (classicRes.ran) {
-                    const QString mergedClassic = classicRes.out + QStringLiteral("\n") + classicRes.err;
-                    const QVector<mwhelpers::ImportablePoolInfo> parsedClassic =
-                        mwhelpers::parseZpoolImportOutput(mergedClassic);
-                    if (!parsedClassic.isEmpty()) {
-                        state.daemonZpoolImportUsable = false;
-                        parsed = parsedClassic;
-                    }
-                }
+                // El agente respondió pero no ve ningún pool importable. Antes esto se
+                // tapaba repitiendo la sonda por shell, que sí los veía, y el resultado
+                // era que un agente sin acceso a los discos parecía funcionar: en macOS
+                // ocultó durante meses que faltaba concederle "Acceso total al disco".
+                // Ahora se dice, porque tiene arreglo y el usuario no puede adivinarlo.
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: el agente no encuentra pools importables. En macOS suele "
+                                      "faltar concederle \"Acceso total al disco\" en Ajustes del "
+                                      "Sistema > Privacidad y seguridad.")
+                           .arg(p.name));
             }
             if (!parsed.isEmpty()) {
                 state.importablePools.clear();
@@ -1149,9 +1114,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (daemonReadApiOk) {
         mountsRes = runAsyncCommand(mountedCmdDaemon, 18000).result();
         mountsViaDaemon = mountsRes.ran && mountsRes.rc == 0;
-    }
-    if (!mountsViaDaemon) {
-        mountsRes = runAsyncCommand(mountedCmdClassic, 18000).result();
+    } else {
+        requireDaemonForRead(p.name, state, QStringLiteral("leer los datasets montados"));
     }
     if (mountsRes.ran && mountsRes.rc == 0) {
         // Mismo criterio: el daemon responde "zfs mount -j" (JSON) en cualquier
@@ -1159,15 +1123,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         mountedRows = mountsViaDaemon
             ? mwhelpers::parseZfsMountJsonOutput(mountsRes.out)
             : mwhelpers::parseZfsMountOutput(mountsRes.out);
-    }
-    if (!isWinConn && mountedRows.isEmpty() && !daemonReadApiOk) {
-        QString fbOut;
-        QString fbErr;
-        int fbRc = -1;
-        const QString fallbackCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
-        if (runSsh(p, fallbackCmd, 18000, fbOut, fbErr, fbRc) && fbRc == 0) {
-            mountedRows = mwhelpers::parseZfsMountOutput(fbOut);
-        }
     }
     if (!mountedRows.isEmpty()) {
         for (const auto& row : mountedRows) {
@@ -1186,21 +1141,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString gout;
         QString gerr;
         int grc = -1;
-        const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
-        const QString gcmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral(
-                    "props=%1; "
-                    "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
-                    "[ -n \"$pool\" ] || continue; "
-                    "zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
-                    "done")
-                    .arg(mwhelpers::shSingleQuote(gsaProps))));
-        const QString gcmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")});
         if (propsByDataset.isEmpty()) {
-            const QString selectedGsaCmd = daemonReadApiOk ? gcmdDaemon : gcmdClassic;
-            bool gsaPropsOk = runSsh(p, selectedGsaCmd, 30000, gout, gerr, grc) && grc == 0;
+            const bool gsaPropsOk =
+                daemonReadApiOk
+                && runAgentCommand(p, {QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")},
+                                   30000, gout, gerr, grc)
+                && grc == 0;
             if (gsaPropsOk) {
                 const QString merged = gout + QStringLiteral("\n") + gerr;
                 const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);

@@ -5679,8 +5679,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList cmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), trimmedPool};
             bool ok = daemonReadApiOk
-                ? (runAgentCommand(p, cmdDaemonArgv, 12000, out, err, rc) && rc == 0)
-                : (runSsh(p, cmdClassic, 12000, out, err, rc) && rc == 0);
+                  && runAgentCommand(p, cmdDaemonArgv, 12000, out, err, rc)
+                  && rc == 0;
             // Unconditional re-look up: runSsh() pumped the event loop, so
             // rebuildConnInfoFor() may have replaced the ConnInfo that owns poolInfo.
             // This used to happen only on the success path, leaving the pointer stale
@@ -5724,8 +5724,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList cmdDaemonArgv = {QStringLiteral("--dump-zfs-guid-map"), trimmedPool};
             bool ok = daemonReadApiOk
-                ? (runAgentCommand(p, cmdDaemonArgv, 25000, out, err, rc) && rc == 0)
-                : (runSsh(p, cmdClassic, 25000, out, err, rc) && rc == 0);
+                  && runAgentCommand(p, cmdDaemonArgv, 25000, out, err, rc)
+                  && rc == 0;
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;
