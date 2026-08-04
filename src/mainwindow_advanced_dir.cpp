@@ -1047,6 +1047,10 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
     const ConnectionProfile profile = m_profiles[ctx.connIdx];
+    // Única exclusión por plataforma que sobrevive al barrido, y con motivo: el daemon
+    // de Windows no conoce --mutate-advanced-todir (responde "unknown command",
+    // comprobado por RPC). La tabla de capacidades ya rechaza la acción antes de llegar
+    // aquí; esto solo evita elegir un camino que no existe.
     const bool daemonReadApiOk =
         !isWindowsConnection(profile)
         && ctx.connIdx >= 0

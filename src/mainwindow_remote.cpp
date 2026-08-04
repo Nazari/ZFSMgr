@@ -2315,8 +2315,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     }
     const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(p)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
@@ -2377,8 +2376,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         QString err;
         int rc = -1;
         const bool daemonReadApiOk =
-            !isWindowsConnection(p)
-            && connIdx >= 0
+            connIdx >= 0
             && connIdx < m_states.size()
             && m_states[connIdx].daemonInstalled
             && m_states[connIdx].daemonActive
@@ -2507,8 +2505,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // be dispatched from the event loop while runSsh() pumps it.
     const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(p)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive

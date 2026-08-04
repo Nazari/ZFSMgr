@@ -713,8 +713,7 @@ void MainWindow::actionDiffSnapshot() {
     const QString rawCmd = QStringLiteral("zfs diff -H %1 %2")
                                .arg(shSingleQuote(srcObj),
                                     shSingleQuote(dstObj));
-    const bool daemonReadApiOk = !isWindowsConnection(profile)
-        && src.connIdx >= 0 && src.connIdx < static_cast<int>(m_states.size())
+    const bool daemonReadApiOk = src.connIdx >= 0 && src.connIdx < static_cast<int>(m_states.size())
         && m_states[src.connIdx].daemonInstalled
         && m_states[src.connIdx].daemonActive
         && m_states[src.connIdx].daemonNativeBinary
