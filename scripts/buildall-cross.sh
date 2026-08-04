@@ -439,9 +439,51 @@ PY
   rm -rf "${stage}"
 }
 
+# El build nativo de Linux no busca Qt en ninguna parte: da por hecho que lo tiene el
+# sistema. En este equipo lo tiene, así que funcionaba; dentro del contenedor de
+# toolchain NO, y a propósito —el Qt de Ubuntu es 6.4.2 y el proyecto exige >= 6.5—,
+# de modo que la compilación en contenedor fallaba en su primer paso con "Could not
+# find Qt6". Se resuelve igual que ya se hace con Windows y FreeBSD: buscándolo en
+# ~/Qt, que es donde lo deja el aprovisionamiento y adonde apunta el enlace que crea
+# docker/build.sh.
+# Entorno propio de la fase Linux, aplicado con "env" en cada llamada y NO exportado.
+#
+# Exportarlo era el error: estas variables valen para UN objetivo. Un LD_LIBRARY_PATH
+# con el Qt de Linux se filtraba a la fase de FreeBSD, cuyo rcc es de otra versión, y
+# el cruce moría con "version Qt_6.11 not found". Es el mismo fallo de forma que fijar
+# QT_HOST_PATH a mano para todos los objetivos.
+_linux_env=()
+if [[ -z "${CMAKE_PREFIX_PATH:-}" ]] && has_platform "linux"; then
+  # Se prefiere la versión fijada en qt-version.txt; autodetectar a secas cogía la más
+  # alta que hubiera instalada y el resultado dependía de la máquina.
+  _qt_pin="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || true)"
+  if [[ -n "${_qt_pin}" && -d "${HOME}/Qt/${_qt_pin}/gcc_64" ]]; then
+    _qt_linux="${HOME}/Qt/${_qt_pin}/gcc_64"
+  else
+    _qt_linux="$(autodetect_path_glob "${HOME}/Qt/*/gcc_64")"
+  fi
+  if [[ -n "${_qt_linux:-}" ]]; then
+    _linux_env+=("CMAKE_PREFIX_PATH=${_qt_linux}")
+    # linuxdeploy resuelve las dependencias por el enlazador, no por CMake, y su plugin
+    # qt busca qmake por PATH o por $QMAKE. Con un Qt fuera del sistema no encuentra
+    # ninguna de las dos cosas y el AppImage falla al empaquetar.
+    _linux_env+=("LD_LIBRARY_PATH=${_qt_linux}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}")
+    [[ -x "${_qt_linux}/bin/qmake" ]] && _linux_env+=("QMAKE=${_qt_linux}/bin/qmake")
+    echo "Qt para Linux: ${_qt_linux}"
+  fi
+fi
+
+# OPENSSL_ROOT_DIR también vale para un objetivo: la imagen de toolchain la exporta
+# apuntando al OpenSSL de MinGW, que es lo que necesita el cruce a Windows, y la
+# compilación nativa de Linux lo heredaba e intentaba enlazar libssl.a de Windows.
+_linux_unset=()
+if [[ "${OPENSSL_ROOT_DIR:-}" == *mingw* || "${OPENSSL_ROOT_DIR:-}" == *macos* ]]; then
+  _linux_unset+=(-u OPENSSL_ROOT_DIR)
+fi
+
 # 1) Compilación base de todos los targets para obtener agentes.
 if has_platform "linux"; then
-  run_phase linux-local-pre "${SCRIPT_DIR}/build-linux.sh"
+  run_phase linux-local-pre env "${_linux_unset[@]}" "${_linux_env[@]}" "${SCRIPT_DIR}/build-linux.sh"
   set_agent_path_if_exists "linux-x86_64" "${PROJECT_ROOT}/builds/linux/zfsmgr_agent"
 fi
 
@@ -481,7 +523,7 @@ build_agent_bundle_dir
 
 # 3) Empaquetado final por plataforma incluyendo bundle de agentes.
 if has_platform "linux"; then
-  run_phase linux-local env \
+  run_phase linux-local env "${_linux_unset[@]}" "${_linux_env[@]}" \
     ZFSMGR_AGENT_BUNDLE_DIR="${AGENT_BUNDLE_DIR}" \
     "${SCRIPT_DIR}/build-linux.sh" --appimage --deb
   linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
