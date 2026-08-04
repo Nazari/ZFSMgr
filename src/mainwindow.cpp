@@ -308,6 +308,17 @@ void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
+void MainWindow::setConnectionDaemonStateForTest(int connIdx, bool installed, bool active) {
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return;
+    }
+    ConnectionRuntimeState& st = m_states[connIdx];
+    st.daemonInstalled = installed;
+    st.daemonActive = active;
+    st.daemonNativeBinary = installed;
+    st.daemonApiVersion = installed ? agentversion::expectedApiVersion() : QString();
+}
+
 void MainWindow::setConnectionGsaStateForTest(int /*connIdx*/, bool /*installed*/, bool /*active*/, const QString& /*version*/) {
 }
 
