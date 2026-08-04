@@ -2,6 +2,7 @@
 #include "i18nmanager.h"
 #include "masterpassworddialog.h"
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QApplication>
 #include <QFileInfo>
@@ -293,6 +294,21 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("Usuario y password sudo son obligatorios."),
                         QStringLiteral("Sudo user and password are required."),
                         QStringLiteral("必须提供 sudo 用户和密码。")));
+                return false;
+            }
+            // Comprobar la contraseña ANTES de guardarla. Guardar una equivocada dejaba
+            // la conexión Local inservible sin arreglo posible desde la aplicación:
+            // aquí solo se preguntaba con el campo vacío, y Local no se puede editar.
+            QString sudoErr;
+            if (!mwhelpers::localSudoPasswordWorks(localPassword, &sudoErr)) {
+                QMessageBox::warning(
+                    nullptr,
+                    QStringLiteral("ZFSMgr"),
+                    trk(language,
+                        QStringLiteral("t_local_sudo_bad1"),
+                        QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
+                        QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
+                        QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoErr));
                 return false;
             }
             ConnectionProfile local;

@@ -1447,6 +1447,11 @@ QMutex s_localDaemonTlsCacheMutex;
 LocalDaemonTlsCacheEntry s_localDaemonTlsCache;
 } // namespace
 
+void MainWindow::clearLocalDaemonTlsCache() {
+    QMutexLocker lock(&s_localDaemonTlsCacheMutex);
+    s_localDaemonTlsCache = LocalDaemonTlsCacheEntry{};
+}
+
 bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
                                               QByteArray& clientCertPem,
                                               QByteArray& clientKeyPem,
@@ -2668,6 +2673,12 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         if (existing.loaded) {
             return true;
         }
+        if (existing.loadFailed) {
+            // Ya se intentó y falló desde el último refresco de la conexión. Repetirlo
+            // no da un resultado distinto y sí vuelve a bloquear la interfaz durante
+            // toda la ida y vuelta por SSH, con la reconstrucción del árbol detrás.
+            return false;
+        }
     }
     if (!allowRemoteLoadIfMissing) {
         return false;
@@ -2815,6 +2826,8 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         if (!runSsh(p, cmd, 35000, out, err, rc) || rc != 0) {
             appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
                                             .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+            // Anotar el fallo para no reintentarlo en cada reconstrucción del árbol.
+            m_poolDatasetCache[key].loadFailed = true;
             return false;
         }
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);

@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
@@ -885,6 +886,79 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
             .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
     return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
+}
+
+bool looksLikeSudoAuthFailure(const QString& text) {
+    const QString t = text.trimmed().toLower();
+    if (t.isEmpty()) {
+        return false;
+    }
+    // "no está en sudoers" y "no se permite ejecutar" son de autorización, no de
+    // autenticación: reintroducir la contraseña no los arregla, así que no se ofrece.
+    if (t.contains(QStringLiteral("not in the sudoers"))
+        || t.contains(QStringLiteral("no está en el fichero sudoers"))
+        || t.contains(QStringLiteral("is not allowed to execute"))) {
+        return false;
+    }
+    static const QStringList kNeedles = {
+        QStringLiteral("sorry, try again"),
+        QStringLiteral("incorrect password attempt"),
+        QStringLiteral("authentication failure"),
+        QStringLiteral("a password is required"),
+        QStringLiteral("lo siento, inténtelo de nuevo"),
+        QStringLiteral("se necesita una contraseña"),
+        QStringLiteral("fallo de autenticación"),
+    };
+    for (const QString& needle : kNeedles) {
+        if (t.contains(needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool localSudoPasswordWorks(const QString& password, QString* errorOut) {
+    if (errorOut) {
+        errorOut->clear();
+    }
+#ifdef Q_OS_WIN
+    Q_UNUSED(password);
+    return true;
+#else
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::SeparateChannels);
+    // Mismos argumentos que withSudoCommand, para que lo que se valida sea lo que
+    // después se ejecuta. `-p ''` deja el prompt fuera del error.
+    proc.start(QStringLiteral("sudo"),
+               {QStringLiteral("-k"), QStringLiteral("-S"), QStringLiteral("-p"), QString(),
+                QStringLiteral("true")});
+    if (!proc.waitForStarted(5000)) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("no se pudo ejecutar sudo");
+        }
+        return false;
+    }
+    proc.write((password + QStringLiteral("\n")).toUtf8());
+    proc.closeWriteChannel();
+    // Con la contraseña equivocada sudo reintenta hasta tres veces; al cerrarle la
+    // entrada estándar agota los intentos y sale enseguida, así que este plazo solo
+    // cubre un sudo que se quede colgado (LDAP, PAM lento).
+    if (!proc.waitForFinished(20000)) {
+        proc.kill();
+        proc.waitForFinished(2000);
+        if (errorOut) {
+            *errorOut = QStringLiteral("sudo no respondió");
+        }
+        return false;
+    }
+    const bool ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
+    if (!ok && errorOut) {
+        const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+        *errorOut = err.isEmpty() ? QStringLiteral("sudo devolvió %1").arg(proc.exitCode())
+                                  : oneLine(err);
+    }
+    return ok;
+#endif
 }
 
 QString stripToJson(const QString& output) {

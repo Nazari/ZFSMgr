@@ -104,6 +104,23 @@ bool isCliOnlyAgentCommand(const QString& verb);
 // Solo sobrevive como oráculo de los tests del renderizado a cadena.
 QStringList posixShellSplitArgs(const QString& s);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
+// Comprueba que una contraseña de sudo local sirve realmente, con la MISMA invocación
+// que usa withSudoCommand: `sudo -k -S -p '' true`.
+//
+// Existe porque guardar una contraseña equivocada dejaba la conexión Local inservible
+// y sin arreglo posible desde la aplicación: el arranque solo la pedía cuando el campo
+// estaba VACÍO, y la conexión Local no se puede editar. Se aceptaba cualquier cosa y el
+// error aparecía mucho después, al intentar usar sudo, con otro mensaje.
+//
+// El `-k` es imprescindible: sin él la comprobación puede aprovechar un ticket de sudo
+// todavía válido y dar por buena una contraseña incorrecta.
+// En Windows no hay sudo: devuelve true sin comprobar nada.
+bool localSudoPasswordWorks(const QString& password, QString* errorOut = nullptr);
+// ¿Este error de un comando es sudo rechazando la contraseña? Sirve para ofrecer el
+// arreglo donde el usuario se entera del problema, en vez de dejarlo con un mensaje
+// que no dice qué hacer. Se distingue de "el usuario no está en sudoers", que no se
+// arregla reintroduciendo la contraseña.
+bool looksLikeSudoAuthFailure(const QString& text);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);
 // Strips any leading non-JSON text (e.g. MOTD banners) before the first '{'.
 QString stripToJson(const QString& output);

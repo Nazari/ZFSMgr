@@ -2283,6 +2283,11 @@ void MainWindow::showPoolHistoryFromRow(int row) {
 }
 
 void MainWindow::populateAllPoolsTables() {
+    if (m_uiRebuildDeferred > 0) {
+        m_uiRebuildPendingPools = true;
+        return;
+    }
+    ++m_uiRebuildCounts.pools;
     m_poolListEntries.clear();
     for (int i = 0; i < m_states.size(); ++i) {
         if (i < m_profiles.size() && isConnectionDisconnected(i)) {

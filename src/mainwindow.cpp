@@ -2065,6 +2065,9 @@ bool MainWindow::executeConnectionCommand(int connIdx,
         if (failureDetailOut) {
             *failureDetailOut = detail;
         }
+        if (isLocalConnection(connIdx) && mwhelpers::looksLikeSudoAuthFailure(detail)) {
+            offerLocalSudoCredentialFix();
+        }
     }
     return ok;
 }
