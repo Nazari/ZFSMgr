@@ -1625,7 +1625,21 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         // passphrase de un dataset cifrado se perdía en silencio al desglosarlo.
         QStringList localAgentArgs;
         if (allowAgentRpc && stdinPayload.isEmpty() && extractLocalAgentArgs(localCmd, localAgentArgs)) {
-            if (tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc)) {
+            // Al hilo de interfaz, igual que la rama SSH. El RPC abre un socket TLS y
+            // hacerlo desde un hilo de trabajo revienta: no saltaba porque la conexión
+            // Local estaba excluida de todo lo que se ejecuta en segundo plano.
+            bool localRpcOk = false;
+            if (QThread::currentThread() == thread()) {
+                localRpcOk = tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc);
+            } else {
+                QMetaObject::invokeMethod(
+                    this,
+                    [&localAgentArgs, timeoutMs, &out, &err, &rc, &localRpcOk]() {
+                        localRpcOk = tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc);
+                    },
+                    Qt::BlockingQueuedConnection);
+            }
+            if (localRpcOk) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
                     const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
                     for (const QString& rawLine : lines) {

@@ -1423,8 +1423,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     // Sin !isDisconnected a propósito: reinstalar el daemon es justamente lo que hace
     // falta cuando una conexión ha quedado marcada como desconectada, y exigir que
     // estuviera conectada dejaba esa recuperación fuera de alcance.
-    const bool daemonInstallable =
-        hasConn && !actionsLocked() && !isLocalConnection(connIdx);
+    // La conexión Local también lleva daemon: el despliegue envía el binario por la
+    // entrada estándar y en local eso funciona igual que por SSH. Excluirla dejaba la
+    // aplicación señalando que su daemon necesita atención sin ofrecer forma de
+    // arreglarlo, y desde que no hay respaldo por shell eso la deja inservible.
+    const bool daemonInstallable = hasConn && !actionsLocked();
     aInstallDaemon->setEnabled(daemonInstallable);
     // Also available on the local connection: a local dataset can be left stranded too.
     aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected

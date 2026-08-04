@@ -802,6 +802,14 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         return;
     }
     const ConnectionProfile profile = m_profiles[idx];
+    // La conexión Local queda fuera del refresco AUTOMÁTICO del log, y no por ser
+    // local: la tarea en segundo plano captura la ventana y puede sobrevivirla, lo que
+    // es un uso después de liberar. Con conexiones remotas no se manifiesta porque el
+    // comando falla enseguida; en local llega a ejecutarse y da SIGSEGV al cerrar.
+    //
+    // El latido y la reinstalación del daemon SÍ funcionan en local: los lanza el
+    // usuario y no quedan en vuelo. Arreglar el tiempo de vida de estas tareas es un
+    // trabajo aparte que afecta también a las conexiones remotas.
     if (isLocalConnection(profile)) {
         return;
     }
@@ -852,13 +860,6 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
         }
     }
     if (idx < 0 || isConnectionDisconnected(idx)) {
-        return;
-    }
-    // Ver la nota de arriba: Windows por SSH tiene daemon nativo y admite latido.
-    const bool winNoDaemon =
-        isWindowsConnection(m_profiles[idx])
-        && m_profiles[idx].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0;
-    if (isLocalConnection(m_profiles[idx]) || winNoDaemon) {
         return;
     }
     QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
