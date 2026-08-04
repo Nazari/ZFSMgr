@@ -34,6 +34,7 @@ enum class Feature {
 
 // Motivo tipificado. La interfaz lo traduce; aquí no hay texto de usuario.
 enum class Reason {
+    MissingTool,           // falta una herramienta que el agente necesita ejecutar
     Available,
     DaemonNotReady,        // el agente no está instalado o activo
     DaemonApiMismatch,     // versión de API distinta de la esperada
@@ -46,6 +47,9 @@ struct Platform {
     bool isWindows{false};
     bool daemonActive{false};
     bool daemonApiOk{false};
+    // Herramientas que el agente NO encuentra en su PATH. Las pregunta el refresco con
+    // --dump-tool-availability, así que responde quien las va a ejecutar.
+    QSet<QString> missingTools;
     // Capacidades declaradas por el propio agente. Hoy llega vacío: el daemon aún no
     // las publica en --health. Cuando lo haga, manda sobre la tabla estática de abajo,
     // que si no se desincroniza en cuanto se porte cualquier verbo.
@@ -62,5 +66,10 @@ Availability featureAvailability(Feature f, const Platform& plat);
 // Identificador estable del verbo del agente asociado a la función, o cadena vacía si
 // no depende de uno. Es la clave con la que se contrastará daemonCaps.
 QString featureAgentVerb(Feature f);
+
+// Herramienta externa sin la cual esa función no puede funcionar, o cadena vacía si no
+// depende de ninguna. El agente las invoca con execvp: si no están, la operación falla
+// a mitad en vez de no ofrecerse.
+QString featureRequiredTool(Feature f);
 
 } // namespace zfsmgr::caps

@@ -16,26 +16,22 @@
 namespace {
 using mwhelpers::oneLine;
 
+// Herramientas externas que el AGENTE invoca. Antes eran dieciocho: las que
+// necesitaban las tuberías de shell que la aplicación enviaba, y de las que el daemon
+// no usa ninguna —awk, grep, sort, find, mktemp, printf, cat, gzip, pv, sudo—. Eran
+// residuo del modelo anterior, igual que MSYS2, y sondearlas solo servía para mostrar
+// una lista de "faltantes" que no afectaba a nada.
+//
+// Quien responde es ahora el propio agente, no un shell: él las ejecuta, y lo hace con
+// SU PATH, que no es el de la sesión SSH.
 QStringList zfsmgrUnixCommandSet() {
     return {
-        QStringLiteral("uname"),
-        QStringLiteral("sh"),
-        QStringLiteral("sudo"),
-        QStringLiteral("awk"),
-        QStringLiteral("grep"),
-        QStringLiteral("sort"),
-        QStringLiteral("find"),
-        QStringLiteral("mktemp"),
-        QStringLiteral("printf"),
-        QStringLiteral("cat"),
-        QStringLiteral("tar"),
-        QStringLiteral("gzip"),
-        QStringLiteral("zstd"),
-        QStringLiteral("pv"),
-        QStringLiteral("rsync"),
-        QStringLiteral("ssh"),
         QStringLiteral("zfs"),
         QStringLiteral("zpool"),
+        QStringLiteral("rsync"),
+        QStringLiteral("tar"),
+        QStringLiteral("ssh"),
+        QStringLiteral("sh"),
     };
 }
 
@@ -601,10 +597,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             // ofrecerse a instalar. Se deja la lista vacía en vez de la lista de 18
             // comandos "faltantes" que antes mostraba, porque ya no faltan: no hacen
             // falta.
-            if (isWindowsConnection(p)) {
-                state.detectedUnixCommands.clear();
-                state.missingUnixCommands.clear();
-            } else {
+            // Windows entra por el mismo camino: su agente sirve ya
+            // --dump-tool-availability y allí depende de zfs y zpool igual que el resto.
+            // Lo que no aplica en Windows es el respaldo por shell de más abajo.
+            {
             QString dout, derr;
             int drc = -1;
             // Ask the daemon first: one typed RPC instead of a shell loop that
@@ -647,7 +643,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "  if command -v \"$pm\" >/dev/null 2>&1; then echo \"PM:$pm:1\"; else echo \"PM:$pm:0\"; fi; "
                 "done")
                     .arg(wanted.join(' '));
-            if (!commandsProbed) {
+            if (!commandsProbed && !isWindowsConnection(p)) {
                 commandsProbed = runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0;
             }
             if (commandsProbed) {
