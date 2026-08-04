@@ -79,6 +79,28 @@ DOCKER_ARGS=(--rm -v "${PROJECT_ROOT}:${PROJECT_ROOT}" -w "${PROJECT_ROOT}")
 # como root y el siguiente build nativo del host fallaría por permisos.
 DOCKER_ARGS+=(--user "$(id -u):$(id -g)" -e HOME=/tmp/zfsmgrhome)
 
+# builds/ aislado: el contenedor y el equipo anfitrión usan toolchains distintas —Qt de
+# /opt/toolchain frente al del sistema, OpenSSL de la imagen frente al de ~/opt— y
+# compartir los directorios de compilación dejaba cachés de CMake apuntando a rutas que
+# dentro del contenedor no existen. Se manifestaba de formas dispares y confusas: un
+# rcc de una versión de Qt ejecutándose contra las bibliotecas de otra, u OpenSSL
+# "encontrado" en una ruta del host.
+#
+# Se monta encima en vez de parametrizar los directorios, que están fijados en una
+# docena de sitios.
+mkdir -p "${PROJECT_ROOT}/builds-docker"
+
+# El bundle que se empaqueta dentro de la app lleva los agentes de las CINCO
+# plataformas, pero la imagen no compila macOS —el SDK de Xcode no es
+# redistribuible—. Se siembra la caché con los agentes que haya en el equipo para que
+# los de macOS estén disponibles; los que el contenedor compile sobrescriben los suyos.
+if [[ -d "${PROJECT_ROOT}/builds/agents" ]]; then
+  mkdir -p "${PROJECT_ROOT}/builds-docker/agents"
+  cp -a "${PROJECT_ROOT}/builds/agents/." "${PROJECT_ROOT}/builds-docker/agents/" 2>/dev/null || true
+fi
+
+DOCKER_ARGS+=(-v "${PROJECT_ROOT}/builds-docker:${PROJECT_ROOT}/builds")
+
 if [[ ",${PLATFORMS}," == *",macos,"* ]]; then
   if [[ ! -d "${OSXCROSS_DIR}" ]]; then
     echo "macos solicitado pero no existe ${OSXCROSS_DIR} en el host." >&2
