@@ -1420,8 +1420,11 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
+    // Sin !isDisconnected a propósito: reinstalar el daemon es justamente lo que hace
+    // falta cuando una conexión ha quedado marcada como desconectada, y exigir que
+    // estuviera conectada dejaba esa recuperación fuera de alcance.
     const bool daemonInstallable =
-        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx);
+        hasConn && !actionsLocked() && !isLocalConnection(connIdx);
     aInstallDaemon->setEnabled(daemonInstallable);
     // Also available on the local connection: a local dataset can be left stranded too.
     aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
@@ -1779,8 +1782,12 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                 if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
                     return;
                 }
+                // Ver la nota de arriba: fallar aquí no debe dejar la conexión en un
+                // estado del que no se pueda salir desde el menú.
                 if (!installOrUpdateDaemonForConnectionInternal(targetIdx, false)) {
-                    setConnectionDisconnected(targetIdx, true);
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("No se pudo actualizar el daemon en \"%1\" automáticamente.")
+                               .arg(m_profiles[targetIdx].name));
                 }
             });
         }
@@ -2748,8 +2755,17 @@ void MainWindow::createConnection() {
                     if (i < 0 || i >= m_profiles.size()) {
                         return;
                     }
+                    // Un fallo aquí NO desconecta la conexión. Marcarla desconectada
+                    // era un callejón sin salida: deshabilitaba la opción de instalar
+                    // el daemon y, además, la propia función se niega a actuar sobre
+                    // una conexión desconectada, así que no quedaba forma de reintentar
+                    // desde el menú. Y el motivo más frecuente del fallo es transitorio
+                    // (había un refresco en curso y actionsLocked() devolvía true).
                     if (!installOrUpdateDaemonForConnectionInternal(i, false)) {
-                        setConnectionDisconnected(i, true);
+                        appLog(QStringLiteral("WARN"),
+                               QStringLiteral("No se pudo instalar o actualizar el daemon en \"%1\" "
+                                              "automáticamente. Use \"Reinstalar/Actualizar daemon\".")
+                                   .arg(m_profiles[i].name));
                     }
                 });
             } else {
@@ -3296,15 +3312,10 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     if (idx < 0 || idx >= m_profiles.size()) {
         return false;
     }
-    if (isConnectionDisconnected(idx)) {
-        if (interactive) {
-            QMessageBox::information(this,
-                                     QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_daemon_conn_disc_001"),
-                                         QStringLiteral("La conexión está desconectada."),
-                                         QStringLiteral("The connection is disconnected."),
-                                         QStringLiteral("该连接已断开。")));
-        }
+    // Una conexión desconectada SÍ puede reinstalar el daemon si el usuario lo pide
+    // expresamente: es la vía de recuperación. Lo que se rechaza es hacerlo solo, sin
+    // que nadie lo haya pedido, sobre una conexión que se dio por desconectada.
+    if (!interactive && isConnectionDisconnected(idx)) {
         return false;
     }
 
