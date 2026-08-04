@@ -1007,6 +1007,16 @@ private:
     // las comprobaciones sueltas de isWindowsConnection repartidas por 20 ficheros,
     // que es lo que hacía que las funciones se apagaran de una en una y que el usuario
     // se encontrara acciones que fallaban al pulsarlas.
+    // El daemon es obligatorio: sin él no hay camino alternativo. Registra por qué no
+    // está disponible y devuelve false, para que quien llama corte sin inventarse un
+    // respaldo por shell. El respaldo ocultaba fallos reales del daemon durante meses.
+    bool requireDaemonForRead(int connIdx, const QString& what) const;
+    // Variante para el refresco, que trabaja con el estado que está construyendo y
+    // todavía no tiene índice de conexión.
+    bool requireDaemonForRead(const QString& connName,
+                              const ConnectionRuntimeState& st,
+                              const QString& what) const;
+
     zfsmgr::caps::Platform capabilityPlatform(int connIdx) const;
     bool featureAvailable(int connIdx, zfsmgr::caps::Feature f, QString* reasonOut = nullptr) const;
     // Igual que la anterior, pero además explica al usuario por qué no. Para usar como

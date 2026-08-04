@@ -2320,20 +2320,16 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    QString cmdClassic =
-        QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
-    if (!isWindowsConnection(p)) {
-        cmdClassic = mwhelpers::withUnixSearchPathCommand(cmdClassic);
+    if (!daemonReadApiOk
+        && !requireDaemonForRead(connIdx, QStringLiteral("leer una propiedad de dataset"))) {
+        return false;
     }
-    const QString cmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop %1 %2")
-                   .arg(shSingleQuote(prop), shSingleQuote(dataset))));
-    const QString cmd = daemonReadApiOk ? cmdDaemon : withSudo(p, cmdClassic);
     QString out;
     QString err;
     int rc = -1;
-    bool ok = runSsh(p, cmd, 15000, out, err, rc) && rc == 0;
+    const bool ok =
+        runAgentCommand(p, {QStringLiteral("--dump-zfs-get-prop"), prop, dataset}, 15000, out, err, rc)
+        && rc == 0;
     if (!ok) {
         return false;
     }
@@ -2381,17 +2377,14 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
             && m_states[connIdx].daemonInstalled
             && m_states[connIdx].daemonActive
             && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-        QString guidCmdClassic =
-            QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
-        if (!isWindowsConnection(connIdx)) {
-            guidCmdClassic = mwhelpers::withUnixSearchPathCommand(guidCmdClassic);
+        if (!daemonReadApiOk
+            && !requireDaemonForRead(connIdx, QStringLiteral("leer el GUID de un objeto"))) {
+            return false;
         }
-        const QString guidCmdDaemon = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop guid %1")
-                       .arg(shSingleQuote(trimmedObject))));
-        const QString guidCmd = daemonReadApiOk ? guidCmdDaemon : withSudo(p, guidCmdClassic);
-        bool ok = runSsh(p, guidCmd, 15000, out, err, rc) && rc == 0;
+        const bool ok = runAgentCommand(
+                            p, {QStringLiteral("--dump-zfs-get-prop"), QStringLiteral("guid"), trimmedObject},
+                            15000, out, err, rc)
+                        && rc == 0;
         if (!ok) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
@@ -2517,16 +2510,11 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             QString gOut;
             QString gErr;
             int gRc = -1;
-            const QString guidCmdClassic = withSudo(
-                p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o value guid %1")
-                        .arg(shSingleQuote(trimmedPool))));
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList guidCmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), trimmedPool};
-            bool guidOk = daemonReadApiOk
-                ? (runAgentCommand(p, guidCmdDaemonArgv, 12000, gOut, gErr, gRc) && gRc == 0)
-                : (runSsh(p, guidCmdClassic, 12000, gOut, gErr, gRc) && gRc == 0);
+            const bool guidOk =
+                daemonReadApiOk
+                && runAgentCommand(p, {QStringLiteral("--dump-zpool-guid"), trimmedPool},
+                                   12000, gOut, gErr, gRc)
+                && gRc == 0;
             if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -2566,13 +2554,12 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
 
     if (!isWin) {
-        const QString jsonCmdClassic =
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
-                    .arg(shSingleQuote(poolName)));
-        const QString jsonCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-all"), poolName});
-        const QString jsonCmd = daemonReadApiOk ? jsonCmdDaemon : withSudo(p, jsonCmdClassic);
-        if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
+        if (!daemonReadApiOk) {
+            requireDaemonForRead(connIdx, QStringLiteral("listar los datasets de un pool"));
+        }
+        if (daemonReadApiOk
+            && runAgentCommand(p, {QStringLiteral("--dump-zfs-list-all"), poolName}, 35000, out, err, rc)
+            && rc == 0) {
             QString jsonPayload = mwhelpers::stripToJson(out);
             QJsonParseError parseErr{};
             QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);

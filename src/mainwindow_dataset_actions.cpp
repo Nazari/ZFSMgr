@@ -1055,19 +1055,11 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    const QString poolCmdClassic = withSudo(
-        profile,
-        mwhelpers::withUnixSearchPathCommand(
-            poolWin
-                ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
-                      .arg(propsCsv, shSingleQuote(trimmedPool))
-                : QStringLiteral("zpool get -j %1 %2")
-                      .arg(propsCsv, shSingleQuote(trimmedPool))));
     // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
     const QStringList poolCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
     bool poolPropsOk = daemonReadApiOk
-        ? (runAgentCommand(profile, poolCmdDaemonArgv, 15000, out, err, rc) && rc == 0)
-        : (runSsh(profile, poolCmdClassic, 15000, out, err, rc) && rc == 0);
+          && runAgentCommand(profile, poolCmdDaemonArgv, 15000, out, err, rc)
+          && rc == 0;
     if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
@@ -1857,28 +1849,17 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         && m_states[ctx.connIdx].daemonInstalled
         && m_states[ctx.connIdx].daemonActive
         && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    const QString mountedCmdClassic = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            isWinConn ? QStringLiteral("zfs mount")
-                      : QStringLiteral("zfs mount -j")));
     const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-mount")});
     QVector<QPair<QString, QString>> mountedRows;
-    const QString selectedMountCmd = daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic;
-    bool mountListOk = runSsh(p, selectedMountCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;
+    const bool mountListOk =
+        daemonReadApiOk
+        && runAgentCommand(p, {QStringLiteral("--dump-zfs-mount")}, 20000, mountedOut, mountedErr, mountedRc)
+        && mountedRc == 0;
     if (mountListOk) {
-        mountedRows = isWinConn
-            ? mwhelpers::parseZfsMountOutput(mountedOut)
-            : mwhelpers::parseZfsMountJsonOutput(mountedOut);
-    }
-    if (!isWinConn && mountedRows.isEmpty() && !daemonReadApiOk) {
-        QString fallbackOut;
-        QString fallbackErr;
-        int fallbackRc = -1;
-        const QString fallbackCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
-        if (runSsh(p, fallbackCmd, 20000, fallbackOut, fallbackErr, fallbackRc) && fallbackRc == 0) {
-            mountedRows = mwhelpers::parseZfsMountOutput(fallbackOut);
-        }
+        // El daemon responde "zfs mount -j" en cualquier plataforma.
+        mountedRows = mwhelpers::parseZfsMountJsonOutput(mountedOut);
+    } else if (!daemonReadApiOk) {
+        requireDaemonForRead(ctx.connIdx, QStringLiteral("leer los datasets montados"));
     }
     if (mountedRows.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
