@@ -5914,7 +5914,18 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+        // Igual que con el contenido de un snapshot: si el dataset no está montado no
+        // hay nada que listar en su mountpoint, y decirlo es más útil que dejar que el
+        // navegador falle. Antes salía "(error: )", sin siquiera un motivo.
+        if (!isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+            auto* hint = new QTreeWidgetItem(item);
+            hint->setText(0, trk(QStringLiteral("t_content_unmounted_001"),
+                                 QStringLiteral("Contenido no disponible: el dataset no está montado"),
+                                 QStringLiteral("Content unavailable: the dataset is not mounted"),
+                                 QStringLiteral("内容不可用：数据集未挂载")));
+            hint->setFlags(hint->flags() & ~Qt::ItemIsUserCheckable);
+        }
+        if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
             auto* contentNode = new QTreeWidgetItem(item);
             contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
                                         QStringLiteral("Contenido"),
@@ -5987,7 +5998,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 // dice lo que pasa ni cómo arreglarlo.
                 if (!isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
                     auto* snapHint = new QTreeWidgetItem(snapItem);
-                    snapHint->setText(0, trk(QStringLiteral("t_snap_content_unmounted_001"),
+                    snapHint->setText(0, trk(QStringLiteral("t_content_unmounted_001"),
                                              QStringLiteral("Contenido no disponible: el dataset no está montado"),
                                              QStringLiteral("Content unavailable: the dataset is not mounted"),
                                              QStringLiteral("内容不可用：数据集未挂载")));
