@@ -595,7 +595,11 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
     if [[ -n "${app_bundle}" ]]; then
       ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
     else
-      echo "Aviso: no se encontró bundle .app para deploy runtime macOS en ${BUILD_DIR}" >&2
+      # Antes era un aviso, y la compilación seguía en verde produciendo un .app sin Qt
+      # dentro: no arranca en un Mac que no tenga Qt instalado. Un artefacto que no
+      # funciona debe hacer fallar la compilación, no salir con una nota al margen.
+      echo "Error: no se encontró bundle .app para deploy runtime macOS en ${BUILD_DIR}" >&2
+      exit 1
     fi
   fi
 fi

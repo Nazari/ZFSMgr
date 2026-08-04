@@ -568,8 +568,12 @@ manual_deploy_bundle() {
       [[ "${dep}" == /System/* || "${dep}" == /usr/lib/* ]] && continue
       local resolved dep_target framework_name framework_bin
       if ! resolved="$(resolve_dep_path "${dep}" "${current}")"; then
-        echo "Aviso: dependencia no resuelta: ${dep}" >&2
-        continue
+        # Las de /System y /usr/lib ya se han descartado arriba, así que lo que llega
+        # aquí es una biblioteca que el binario necesita y que NO va a ir dentro del
+        # bundle: la aplicación no arrancará. Era un aviso y se seguía adelante.
+        echo "Error: dependencia no resuelta: ${dep}" >&2
+        echo "Requerida por: ${current}" >&2
+        exit 1
       fi
       if [[ "${resolved}" == *.framework ]] || [[ "${resolved}" == *.framework/* ]]; then
         local framework_root
@@ -599,8 +603,13 @@ manual_deploy_bundle() {
   fix_install_names "${main_bin}"
 }
 
+# El segundo argumento marca si el directorio es obligatorio. "platforms" y "tls" lo
+# son: sin el primero una app Qt no arranca ("could not load the Qt platform plugin"),
+# y sin el segundo no hay TLS, que es por donde habla con el daemon. Faltar cualquiera
+# de los dos producía un .app roto con la compilación en verde.
 copy_qt_plugin_dir() {
   local dir_name="$1"
+  local required="${2:-0}"
   local src=""
   local dst="${APP_BUNDLE}/Contents/PlugIns/${dir_name}"
   if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/share/qt/plugins/${dir_name}" ]]; then
@@ -617,7 +626,12 @@ copy_qt_plugin_dir() {
     done
   fi
   if [[ -z "${src}" ]]; then
-    echo "Aviso: no se encontró el directorio de plugins Qt '${dir_name}'." >&2
+    if [[ "${required}" == "1" ]]; then
+      echo "Error: no se encontró el directorio de plugins Qt '${dir_name}', que es" >&2
+      echo "obligatorio: sin él la aplicación no arranca en macOS." >&2
+      exit 1
+    fi
+    echo "Aviso: no se encontró el directorio de plugins Qt opcional '${dir_name}'." >&2
     return 0
   fi
   mkdir -p "${dst}"
@@ -721,12 +735,12 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "  QT_EXTRA_LIB_DIRS: (none)"
   fi
   manual_deploy_bundle "${MAIN_BIN}"
-  copy_qt_plugin_dir "platforms"
+  copy_qt_plugin_dir "platforms" 1
   copy_qt_plugin_dir "styles"
   copy_qt_plugin_dir "imageformats"
   copy_qt_plugin_dir "iconengines"
   copy_qt_plugin_dir "networkinformation"
-  copy_qt_plugin_dir "tls"
+  copy_qt_plugin_dir "tls" 1
   write_qt_conf
 
   # Safety: never ship local connection secrets inside the macOS app bundle.

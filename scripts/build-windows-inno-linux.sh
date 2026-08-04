@@ -218,7 +218,12 @@ copy_mingw_runtime() {
       cp -f "${found}" "${dest}/"
       echo "[payload] Runtime MinGW copiado: ${name}"
     else
-      echo "[payload] Advertencia: no se encontró ${name} para MinGW triple '${MINGW_TRIPLE}'" >&2
+      # Las tres son obligatorias: sin ellas el ejecutable muere en Windows con
+      # 0xC0000135 (DLL no encontrada) y sin decir cuál. Era un aviso, así que el
+      # instalador se generaba igual y el fallo aparecía en la máquina del usuario.
+      echo "[payload] Error: no se encontró ${name} para MinGW triple '${MINGW_TRIPLE}'." >&2
+      echo "[payload] Sin esa DLL el ejecutable no arranca en Windows (0xC0000135)." >&2
+      exit 1
     fi
   done
 }
