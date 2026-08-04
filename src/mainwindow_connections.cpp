@@ -1238,8 +1238,30 @@ void MainWindow::openConnectivityMatrixDialog() {
                            QStringLiteral("Conectividad"),
                            QStringLiteral("Connectivity"),
                            QStringLiteral("连通性")));
-    dlg.resize(760, 460);
+    dlg.resize(760, 500);
     auto* layout = new QVBoxLayout(&dlg);
+
+    // Qué mide esta tabla, dicho arriba y no en la documentación.
+    //
+    // Las sondas se ejecutan como el usuario de SU sesión SSH, pero quien abre la
+    // conexión en una transferencia entre máquinas es el AGENTE, que corre como root o
+    // como SYSTEM y con otras credenciales. Un verde aquí no garantiza que el agente
+    // pueda salir, ni un rojo que no pueda. Sin decirlo, la tabla invita a confiar en
+    // algo que no ha comprobado.
+    auto* scopeLabel = new QLabel(
+        trk(QStringLiteral("t_connectivity_scope_001"),
+            QStringLiteral("Se comprueba desde la sesión SSH de cada conexión, con sus credenciales. "
+                           "Las transferencias entre máquinas las abre el agente, que se ejecuta con "
+                           "otro usuario, así que este resultado es orientativo para ellas."),
+            QStringLiteral("Checked from each connection's SSH session, with its credentials. "
+                           "Transfers between machines are opened by the agent, which runs as a "
+                           "different user, so this result is only indicative for them."),
+            QStringLiteral("从每个连接的 SSH 会话使用其凭据进行检查。机器间的传输由代理发起，"
+                           "而代理以其他用户身份运行，因此该结果仅供参考。")),
+        &dlg);
+    scopeLabel->setWordWrap(true);
+    layout->addWidget(scopeLabel);
+
     auto* matrix = new QTableWidget(&dlg);
     matrix->setColumnCount(m_profiles.size());
     matrix->setRowCount(m_profiles.size());

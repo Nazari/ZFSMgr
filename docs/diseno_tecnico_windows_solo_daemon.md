@@ -119,6 +119,22 @@ Lo que **no** es respaldo y sigue existiendo:
   que transportan flujos por la entrada y la salida estándar. El canal RPC no lleva
   stdin.
 
+## Pendiente: las credenciales salientes del agente
+
+La matriz de conectividad comprueba si una máquina llega por SSH a otra, y eso sigue
+haciendo falta: las transferencias entre máquinas y las instantáneas programadas con
+destino remoto las abre el **agente del origen** contra el destino.
+
+Pero la sonda se ejecuta como el usuario de la sesión SSH, y quien abrirá esa conexión
+es el agente, que corre como `root` o `SYSTEM` **con otras credenciales**. La tabla
+puede salir en verde y la transferencia fallar igual. Desde 0.90.7 el diálogo lo dice,
+que es lo barato; lo correcto sería un verbo del daemon —`--probe-peer <host>`— que
+sondee con las credenciales que realmente va a usar.
+
+El trabajo no es el verbo, es la pregunta que hay debajo: **qué credenciales usa el
+agente para salir**. Hoy no está definido en ninguna parte. Conviene decidirlo aparte y
+no de pasada, porque afecta a cómo se instala y se configura el agente en cada máquina.
+
 ## Lo que no cubre ningún test
 
 **No hay cobertura automatizada de Windows.** Los cuatro binarios de prueba se ejecutan
