@@ -129,7 +129,12 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
 
     if (!ran || rc != 0) {
         auto* errItem = new QTreeWidgetItem(browserNode);
-        errItem->setText(0, QStringLiteral("(error: %1)").arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
+        // Con err y out vacíos el mensaje quedaba en "(error: )", que no dice nada de
+        // nada. Al menos el código de salida acota si fue la orden o el transporte.
+        const QString detail = !err.trimmed().isEmpty()   ? err.trimmed()
+                               : !out.trimmed().isEmpty() ? out.trimmed()
+                                                          : QStringLiteral("sin detalle (código %1)").arg(rc);
+        errItem->setText(0, QStringLiteral("(error: %1)").arg(detail));
         errItem->setFlags(errItem->flags() & ~Qt::ItemIsUserCheckable);
         return;
     }
