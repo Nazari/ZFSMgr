@@ -124,6 +124,25 @@ Lo que **no** es respaldo y sigue existiendo:
 **No hay cobertura automatizada de Windows.** Los cuatro binarios de prueba se ejecutan
 en el equipo de desarrollo y no ejercitan ni el agente de Windows ni su transporte.
 
+Lo que sí hay desde 0.90.6 es un **transporte de mentira**
+(`MainWindow::setAgentTransportForTest`). Mientras está puesto no se abre ninguna
+conexión: las órdenes por argv van a la función que se le pase y las que salgan como
+cadena de shell se registran y fracasan. Con eso un test puede afirmar tres cosas que
+antes no se podían comprobar sin una máquina remota:
+
+- qué verbo y qué argumentos exactos recibe el agente;
+- que un argumento hostil —con `&`, `;` o `|`— llega entero;
+- que **no** se intenta nada por shell, ni cuando el agente responde bien ni cuando
+  falla.
+
+Ese último es el que impide que reaparezca un respaldo. Está comprobado por mutación:
+reintroducir a mano un `runSsh` de reserva en `getDatasetProperty` hace fallar
+`failingAgentCallDoesNotFallBackToShell`, y cambiar el verbo hace fallar
+`datasetPropertyReadGoesToTheAgentByArgv`.
+
+Sigue sin cubrir el agente real: que el binario de Windows responda lo que se espera
+solo lo valida una máquina Windows con OpenZFS y un pool.
+
 Dos consecuencias prácticas:
 
 - Cada cambio en este terreno debe **cruzarse para Windows** además de compilarse para

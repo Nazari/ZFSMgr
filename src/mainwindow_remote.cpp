@@ -1678,6 +1678,24 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
 //
 // El respaldo por shell sigue existiendo, pero se renderiza a partir de los mismos
 // argumentos y solo cuando hace falta.
+bool MainWindow::getDatasetPropertyForTest(int connIdx, const QString& dataset,
+                                           const QString& prop, QString& valueOut) {
+    return getDatasetProperty(connIdx, dataset, prop, valueOut);
+}
+
+void MainWindow::setAgentTransportForTest(AgentTransportForTest fn) {
+    m_agentTransportForTest = std::move(fn);
+    m_agentCallsForTest.clear();
+}
+
+QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
+    return m_agentCallsForTest;
+}
+
+void MainWindow::clearAgentCallsForTest() {
+    m_agentCallsForTest.clear();
+}
+
 bool MainWindow::runAgentCommand(const ConnectionProfile& p,
                                  const QStringList& agentArgs,
                                  int timeoutMs,
@@ -1690,6 +1708,10 @@ bool MainWindow::runAgentCommand(const ConnectionProfile& p,
     rc = -1;
     if (agentArgs.isEmpty()) {
         return false;
+    }
+    if (m_agentTransportForTest) {
+        m_agentCallsForTest.push_back(AgentCallForTest{agentArgs, QString(), stdinPayload});
+        return m_agentTransportForTest(agentArgs, out, err, rc);
     }
     const QString verb = agentArgs.first().trimmed();
     // stdin no vacío descarta el RPC: el canal no lo transporta. Antes esto no se
@@ -1732,6 +1754,25 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     out.clear();
     err.clear();
     rc = -1;
+
+    // Con el transporte de mentira puesto no se abre ninguna conexión. Si la orden es
+    // una invocación del agente construida como cadena, se atiende igual —para que los
+    // sitios aún sin migrar funcionen en los tests—; si no lo es, se registra y fracasa,
+    // que es lo que permite afirmar "esto NO debía irse por shell".
+    if (m_agentTransportForTest) {
+        QStringList parsedArgs;
+        if (allowAgentRpc && stdinPayload.isEmpty()
+            && extractLocalAgentArgs(remoteCmd.trimmed(), parsedArgs)) {
+            m_agentCallsForTest.push_back(
+                AgentCallForTest{parsedArgs, remoteCmd.trimmed(), stdinPayload});
+            return m_agentTransportForTest(parsedArgs, out, err, rc);
+        }
+        m_agentCallsForTest.push_back(
+            AgentCallForTest{QStringList(), remoteCmd.trimmed(), stdinPayload});
+        err = QStringLiteral("transporte de prueba: no se ejecuta shell");
+        rc = 127;
+        return false;
+    }
 
     if (isLocalConnection(p)) {
         const QString localCmd = remoteCmd.trimmed();

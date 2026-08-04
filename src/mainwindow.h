@@ -85,6 +85,35 @@ public:
     // Expuesta para fijar el corte por separador: es donde un directorio con '&' en el
     // nombre truncaba la orden.
     static QStringList extractAgentArgsForTest(const QString& remoteCmd);
+
+    // Transporte de mentira, para poder comprobar QUÉ se le pide al agente sin
+    // necesitar una máquina remota.
+    //
+    // Existe porque los tests no ejercitaban nada fuera de este equipo, y por ahí se
+    // colaron tres fallos reales: una orden que llegaba con la ruta destrozada, otra
+    // que dejó de usar el daemon y se iba por shell, y un bloque de datos que dejó de
+    // rellenarse. Los tres compilaban y pasaban todos los tests.
+    //
+    // Mientras está puesto NO se abre ninguna conexión: las órdenes por argv van a la
+    // función que se le pase, y las que salgan como cadena de shell se registran y
+    // fracasan, para que un test pueda afirmar que algo NO se fue por ese camino.
+    struct AgentCallForTest {
+        QStringList argv;        // vacío si la orden salió como cadena de shell
+        QString shellCommand;    // no vacío solo en ese caso
+        QByteArray stdinPayload;
+    };
+    using AgentTransportForTest =
+        std::function<bool(const QStringList& argv, QString& out, QString& err, int& rc)>;
+    // Deja la conexión con un daemon sano, que es la precondición de casi todo desde
+    // que no hay respaldo por shell.
+    void setConnectionDaemonStateForTest(int connIdx, bool installed, bool active);
+    void setAgentTransportForTest(AgentTransportForTest fn);
+    // getDatasetProperty es privada; esto la expone para poder ejercitar la lectura
+    // más usada de la aplicación contra el transporte de mentira.
+    bool getDatasetPropertyForTest(int connIdx, const QString& dataset, const QString& prop,
+                                   QString& valueOut);
+    QVector<AgentCallForTest> agentCallsForTest() const;
+    void clearAgentCallsForTest();
     void rebuildConnectionDetailsForTest();
     void setShowPoolInfoNodeForTest(bool visible);
     void setShowInlineGsaNodeForTest(bool visible);
@@ -646,6 +675,9 @@ private:
                                       QByteArray& clientCertPem,
                                       QByteArray& clientKeyPem,
                                       quint16& daemonPort);
+
+    AgentTransportForTest m_agentTransportForTest;
+    QVector<AgentCallForTest> m_agentCallsForTest;
 
     bool tryAgentRpcOverSsh(const ConnectionProfile& p,
                             const QStringList& agentArgs,

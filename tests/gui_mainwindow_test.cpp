@@ -70,6 +70,120 @@ private Q_SLOTS:
         QCOMPARE(cut.at(0), QStringLiteral("--dump-zfs-mount"));
     }
 
+    // Estos tres ejercitan la capa de transporte de mentira. Comprueban QUÉ se le pide
+    // al agente, que es lo que ningún test podía ver hasta ahora: los cuatro binarios
+    // no ejecutan nada fuera de este equipo.
+    //
+    // Los tres fallos que motivaron esta capa —una orden con la ruta destrozada, otra
+    // que dejó de usar el daemon, y datos que dejaron de rellenarse— compilaban y
+    // pasaban todos los tests.
+
+    // Una lectura debe pedirle al agente el verbo y los argumentos exactos, y NO debe
+    // salir nada por shell.
+    void datasetPropertyReadGoesToTheAgentByArgv() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const QStringList&, QString& out, QString& err, int& rc) {
+                out = QStringLiteral("filesystem");
+                err.clear();
+                rc = 0;
+                return true;
+            });
+
+        QString value;
+        QVERIFY(window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
+                                                 QStringLiteral("type"), value));
+        QCOMPARE(value, QStringLiteral("filesystem"));
+
+        const auto calls = window.agentCallsForTest();
+        QCOMPARE(calls.size(), 1);
+        QCOMPARE(calls.at(0).argv,
+                 (QStringList{QStringLiteral("--dump-zfs-get-prop"), QStringLiteral("type"),
+                              QStringLiteral("tank/ds")}));
+        QVERIFY2(calls.at(0).shellCommand.isEmpty(),
+                 "la lectura no debe construirse como cadena de shell");
+    }
+
+    // Sin daemon no hay camino alternativo: la lectura falla y no se intenta nada.
+    // Antes esto caía a un "zfs get" por shell y el fallo del agente quedaba oculto.
+    void readWithoutDaemonFailsInsteadOfFallingBackToShell() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setConnectionDaemonStateForTest(0, false, false);
+        window.setAgentTransportForTest(
+            [](const QStringList&, QString&, QString&, int& rc) { rc = 0; return true; });
+
+        QString value;
+        QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
+                                                  QStringLiteral("type"), value));
+        QVERIFY2(window.agentCallsForTest().isEmpty(),
+                 "sin daemon no debe salir ninguna orden, ni al agente ni por shell");
+    }
+
+    // Si el agente responde con error, NO debe intentarse nada por shell. Es el
+    // escenario exacto en el que reaparecería un respaldo, y el que hace que un fallo
+    // del daemon quede oculto: la operación "funciona" y nadie se entera.
+    void failingAgentCallDoesNotFallBackToShell() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const QStringList&, QString& out, QString& err, int& rc) {
+                out.clear();
+                err = QStringLiteral("el agente falla a propósito");
+                rc = 1;
+                return true;
+            });
+
+        QString value;
+        QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
+                                                  QStringLiteral("type"), value));
+        const auto calls = window.agentCallsForTest();
+        QCOMPARE(calls.size(), 1);
+        QVERIFY2(calls.at(0).shellCommand.isEmpty(),
+                 "tras fallar el agente no debe intentarse el comando clásico por shell");
+    }
+
+    // Un argumento con '&' llega entero. Es el caso que truncaba la orden y hacía
+    // perder el destino y el indicador de borrar el origen en Hacia Dir.
+    void argumentsWithShellSeparatorsSurviveIntact() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const QStringList&, QString& out, QString&, int& rc) {
+                out = QStringLiteral("on");
+                rc = 0;
+                return true;
+            });
+
+        QString value;
+        const QString hostile = QStringLiteral("tank/Copias & Backups; rm -rf /");
+        QVERIFY(window.getDatasetPropertyForTest(0, hostile, QStringLiteral("mounted"), value));
+        const auto calls = window.agentCallsForTest();
+        QCOMPARE(calls.size(), 1);
+        QCOMPARE(calls.at(0).argv.size(), 3);
+        QCOMPARE(calls.at(0).argv.at(2), hostile);
+    }
+
     void createsMainWindowWithStableObjectNames() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
 
