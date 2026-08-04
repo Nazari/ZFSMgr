@@ -9,6 +9,8 @@
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLineEdit>
 #include <QCheckBox>
 #include <QEventLoop>
 #include <QDir>
@@ -43,6 +45,7 @@
 #include <QtConcurrent/QtConcurrent>
 
 #include <chrono>
+#include <utility>
 
 // Defined in mainwindow_remote.cpp — free function, thread-safe.
 bool runSshRawNoLog(const ConnectionProfile& p,
@@ -1380,6 +1383,14 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Borrar"),
             QStringLiteral("Delete"),
             QStringLiteral("删除")));
+    // Solo para Local: es la única conexión que no se puede editar, así que sin esto
+    // una contraseña de sudo mal introducida se quedaba guardada para siempre —el
+    // arranque solo la pide cuando el campo está vacío— y no había forma de corregirla.
+    QAction* aLocalSudoCreds = menu.addAction(
+        trk(QStringLiteral("t_local_sudo_creds_ctx001"),
+            QStringLiteral("Cambiar credenciales sudo local…"),
+            QStringLiteral("Change local sudo credentials…"),
+            QStringLiteral("修改本地 sudo 凭据…")));
     menu.addSeparator();
     QAction* aNewPool = menu.addAction(
         trk(QStringLiteral("t_new_pool_ctx_001"),
@@ -1458,6 +1469,10 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
     aDelete->setEnabled(menuState.canEditDelete);
+    // Se ofrece incluso con la conexión desconectada: una contraseña equivocada es
+    // precisamente lo que puede haberla dejado así.
+    aLocalSudoCreds->setVisible(hasConn && isLocalConnection(connIdx));
+    aLocalSudoCreds->setEnabled(hasConn && isLocalConnection(connIdx) && !actionsLocked());
     aNewConn->setEnabled(menuState.canNewConnection);
     aNewPool->setEnabled(menuState.canNewPool);
 
@@ -1537,6 +1552,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aDelete) {
         logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
         deleteConnection();
+    } else if (chosen == aLocalSudoCreds) {
+        logUiAction(QStringLiteral("Cambiar credenciales sudo local (menú conexiones)"));
+        changeLocalSudoCredentials();
     } else if (chosen == aInstallHelpers) {
         logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
         installHelperCommandsForSelectedConnection();
@@ -1969,6 +1987,17 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     // Daemon: auto-actualizar cuando haya desalineación de versión/API.
     // No reinstalar si la única razón es un backoff TLS: reinstalar en ese
     // caso regenera las claves TLS y perpetúa el bucle fallo→reinstall→fallo.
+    //
+    // Cada reinstalación termina refrescando su conexión, y ese refresco individual
+    // no entra por el camino masivo: repinta el árbol entero él solo. Con varias
+    // conexiones desalineadas —lo normal justo después de actualizar la aplicación,
+    // porque el cambio de versión las desalinea todas a la vez— eso eran tantos
+    // repintados como conexiones, en cadena. El guardián los agrupa en uno.
+    //
+    // Se decide primero a quién hay que actualizar y luego se actualiza, para poder
+    // decir "2 de 4": desplegar el agente lleva su tiempo y durante el lote el árbol
+    // ya no se repinta, así que sin este aviso la aplicación parecería colgada.
+    QVector<int> daemonsToAutoUpdate;
     for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
@@ -1982,15 +2011,35 @@ void MainWindow::onAsyncRefreshDone(int generation) {
             [](const QString& r) {
                 return r.contains(QStringLiteral("versión")) || r.contains(QStringLiteral("API"));
             });
-        if (!hasVersionOrApiReason) {
-            continue;
+        if (hasVersionOrApiReason) {
+            daemonsToAutoUpdate.append(i);
         }
-        const QString connName = m_profiles[i].name.trimmed().isEmpty()
-                                     ? m_profiles[i].id.trimmed()
-                                     : m_profiles[i].name.trimmed();
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("Daemon requiere actualización en \"%1\": actualización automática").arg(connName));
-        (void)installOrUpdateDaemonForConnectionInternal(i, false);
+    }
+    if (!daemonsToAutoUpdate.isEmpty()) {
+        DeferredUiRebuild autoUpdateBatch(this);
+        const int total = daemonsToAutoUpdate.size();
+        for (int n = 0; n < total; ++n) {
+            const int i = daemonsToAutoUpdate[n];
+            if (i >= m_profiles.size() || i >= m_states.size()) {
+                continue;
+            }
+            const QString connName = m_profiles[i].name.trimmed().isEmpty()
+                                         ? m_profiles[i].id.trimmed()
+                                         : m_profiles[i].name.trimmed();
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Daemon requiere actualización en \"%1\": actualización automática (%2 de %3)")
+                       .arg(connName)
+                       .arg(n + 1)
+                       .arg(total));
+            updateStatus(trk(QStringLiteral("t_daemon_autoupdate_progress_001"),
+                             QStringLiteral("Actualizando el daemon de «%1» (%2 de %3)…"),
+                             QStringLiteral("Updating the daemon on \"%1\" (%2 of %3)…"),
+                             QStringLiteral("正在更新“%1”上的守护进程（%2/%3）…"))
+                             .arg(connName)
+                             .arg(n + 1)
+                             .arg(total));
+            (void)installOrUpdateDaemonForConnectionInternal(i, false);
+        }
     }
 
     m_refreshInProgress = false;
@@ -2369,6 +2418,11 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
 }
 
 void MainWindow::refreshConnectionNodeDetails() {
+    if (m_uiRebuildDeferred > 0) {
+        m_uiRebuildPendingNodeDetails = true;
+        return;
+    }
+    ++m_uiRebuildCounts.nodeDetails;
     auto setConnectionActionButtonsVisible = [this](bool visible) {
         Q_UNUSED(visible);
     };
@@ -2669,7 +2723,59 @@ void MainWindow::loadConnections() {
     }
 }
 
+MainWindow::DeferredUiRebuild::DeferredUiRebuild(MainWindow* w) : m_w(w) {
+    if (m_w) {
+        ++m_w->m_uiRebuildDeferred;
+    }
+}
+
+MainWindow::DeferredUiRebuild::~DeferredUiRebuild() {
+    if (!m_w || m_w->m_uiRebuildDeferred <= 0) {
+        return;
+    }
+    if (--m_w->m_uiRebuildDeferred > 0) {
+        return;  // aún hay un guardián exterior: sigue acumulando
+    }
+    // El orden importa: la tabla fija el índice seleccionado del que dependen las
+    // otras dos.
+    const bool table = std::exchange(m_w->m_uiRebuildPendingTable, false);
+    const bool pools = std::exchange(m_w->m_uiRebuildPendingPools, false);
+    const bool details = std::exchange(m_w->m_uiRebuildPendingNodeDetails, false);
+    if (table) {
+        m_w->rebuildConnectionsTable();
+    }
+    if (pools) {
+        m_w->populateAllPoolsTables();
+    }
+    // rebuildConnectionsTable() ya termina llamando a refreshConnectionNodeDetails(),
+    // así que si la tabla se ha rehecho no hay que repetirlo.
+    if (details && !table) {
+        m_w->refreshConnectionNodeDetails();
+    }
+}
+
+MainWindow::UiRebuildCountsForTest MainWindow::uiRebuildCountsForTest() const {
+    return m_uiRebuildCounts;
+}
+
+void MainWindow::runWithDeferredUiRebuildForTest(const std::function<void()>& body) {
+    DeferredUiRebuild guard(this);
+    if (body) {
+        body();
+    }
+}
+
+void MainWindow::requestConnectionsUiRebuildForTest() {
+    rebuildConnectionsTable();
+    populateAllPoolsTables();
+}
+
 void MainWindow::rebuildConnectionsTable() {
+    if (m_uiRebuildDeferred > 0) {
+        m_uiRebuildPendingTable = true;
+        return;
+    }
+    ++m_uiRebuildCounts.table;
     auto connIdxFromPersistedKey = [this](const QString& wantedKey) -> int {
         const QString wanted = wantedKey.trimmed().toLower();
         if (wanted.isEmpty()) {
@@ -3081,6 +3187,161 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("trust-store exported to \"%1\"."),
             QStringLiteral("trust-store 已导出到“%1”。"))
             .arg(p.name));
+}
+
+void MainWindow::offerLocalSudoCredentialFix() {
+    if (m_localSudoFixOffered || m_closing) {
+        return;
+    }
+    m_localSudoFixOffered = true;
+    appLog(QStringLiteral("WARN"),
+           QStringLiteral("sudo rechaza la contraseña de la conexión Local: se ofrece reintroducirla"));
+    // Diferido: esto se dispara desde dentro de la ejecución de un comando, que a su
+    // vez bombea el bucle de eventos. Abrir aquí un diálogo modal reentraría en ese
+    // camino, que es de donde vienen las referencias colgantes de este repositorio.
+    QTimer::singleShot(0, this, [this]() {
+        if (m_closing) {
+            return;
+        }
+        const auto answer = QMessageBox::question(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_local_sudo_offer1"),
+                QStringLiteral("La contraseña de sudo guardada para la conexión Local no es válida.\n\n"
+                               "¿Quiere introducirla de nuevo ahora?"),
+                QStringLiteral("The stored sudo password for the Local connection is not valid.\n\n"
+                               "Do you want to enter it again now?"),
+                QStringLiteral("为本地连接保存的 sudo 密码无效。\n\n现在要重新输入吗？")),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes);
+        if (answer == QMessageBox::Yes) {
+            changeLocalSudoCredentials();
+        }
+    });
+}
+
+void MainWindow::changeLocalSudoCredentials() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: credenciales sudo bloqueadas"));
+        return;
+    }
+    int idx = currentConnectionIndexFromUi();
+    if (idx < 0 || idx >= m_profiles.size() || !isLocalConnection(idx)) {
+        idx = -1;
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (isLocalConnection(i)) {
+                idx = i;
+                break;
+            }
+        }
+    }
+    if (idx < 0) {
+        return;
+    }
+    if (isWindowsConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_local_sudo_win_na001"),
+                QStringLiteral("En Windows no se usa sudo."),
+                QStringLiteral("sudo is not used on Windows."),
+                QStringLiteral("Windows 上不使用 sudo。")));
+        return;
+    }
+
+    const QString title = trk(QStringLiteral("t_local_sudo_dlg_t001"),
+                              QStringLiteral("Credenciales sudo de la conexión Local"),
+                              QStringLiteral("Local connection sudo credentials"),
+                              QStringLiteral("本地连接的 sudo 凭据"));
+    // Se repite hasta que la contraseña funcione o el usuario cancele: aceptar una que
+    // no funciona es exactamente lo que dejaba la conexión Local sin arreglo.
+    while (true) {
+        QDialog dlg(this);
+        dlg.setWindowTitle(title);
+        auto* form = new QFormLayout(&dlg);
+        auto* userEdit = new QLineEdit(m_profiles[idx].username.trimmed(), &dlg);
+        auto* passEdit = new QLineEdit(&dlg);
+        passEdit->setEchoMode(QLineEdit::Password);
+        passEdit->setPlaceholderText(trk(QStringLiteral("t_local_pwd_ph_001"),
+                                         QStringLiteral("Password local sudo"),
+                                         QStringLiteral("Local sudo password"),
+                                         QStringLiteral("本地 sudo 密码")));
+        form->addRow(trk(QStringLiteral("t_usuario_2c1e3d"),
+                         QStringLiteral("Usuario"),
+                         QStringLiteral("User"),
+                         QStringLiteral("用户")),
+                     userEdit);
+        form->addRow(trk(QStringLiteral("t_password_8be3c9"),
+                         QStringLiteral("Password"),
+                         QStringLiteral("Password"),
+                         QStringLiteral("密码")),
+                     passEdit);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        form->addRow(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        passEdit->setFocus();
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        const QString user = userEdit->text().trimmed();
+        const QString pass = passEdit->text();
+        if (user.isEmpty() || pass.isEmpty()) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_local_sudo_req1"),
+                    QStringLiteral("Usuario y password sudo son obligatorios."),
+                    QStringLiteral("Sudo user and password are required."),
+                    QStringLiteral("必须提供 sudo 用户和密码。")));
+            continue;
+        }
+        QString sudoErr;
+        if (!mwhelpers::localSudoPasswordWorks(pass, &sudoErr)) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_local_sudo_bad1"),
+                    QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
+                    QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
+                    QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoErr));
+            continue;
+        }
+        ConnectionProfile updated = m_profiles[idx];
+        updated.username = user;
+        updated.password = pass;
+        updated.useSudo = true;
+        QString storeErr;
+        if (!m_store.upsertConnection(updated, storeErr)) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_local_sudo_save_err1"),
+                    QStringLiteral("No se pudieron guardar las credenciales locales.\n%1"),
+                    QStringLiteral("Could not save the local credentials.\n%1"),
+                    QStringLiteral("无法保存本地凭据。\n%1")).arg(storeErr));
+            return;
+        }
+        m_profiles[idx] = updated;
+        // El material TLS local se leyó elevando con la contraseña anterior; si no se
+        // descarta, el RPC local seguiría usando lo cacheado y el cambio parecería no
+        // haber surtido efecto.
+        clearLocalDaemonTlsCache();
+        // Corregida: si volviera a fallar más adelante, hay que volver a ofrecerlo.
+        m_localSudoFixOffered = false;
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Credenciales sudo de la conexión Local actualizadas (usuario \"%1\")").arg(user));
+        loadConnections();
+        refreshConnectionByIndex(idx);
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_local_sudo_ok1"),
+                QStringLiteral("Credenciales sudo locales actualizadas y comprobadas."),
+                QStringLiteral("Local sudo credentials updated and verified."),
+                QStringLiteral("本地 sudo 凭据已更新并验证。")));
+        return;
+    }
 }
 
 void MainWindow::editConnection() {

@@ -460,6 +460,31 @@ int main() {
         }
     }
 
+    // Reconocer que sudo rechaza la contraseña es lo que permite ofrecer el arreglo
+    // donde el usuario se entera. Y NO debe confundirse con un problema de sudoers,
+    // que reintroducir la contraseña no arregla.
+    if (!looksLikeSudoAuthFailure("sudo: 1 incorrect password attempt")) {
+        return fail("looksLikeSudoAuthFailure should detect a wrong password");
+    }
+    if (!looksLikeSudoAuthFailure("Sorry, try again.")) {
+        return fail("looksLikeSudoAuthFailure should detect 'Sorry, try again'");
+    }
+    if (!looksLikeSudoAuthFailure("sudo: a password is required")) {
+        return fail("looksLikeSudoAuthFailure should detect a missing password");
+    }
+    if (looksLikeSudoAuthFailure("user is not in the sudoers file")) {
+        return fail("looksLikeSudoAuthFailure must not fire on a sudoers problem");
+    }
+    if (looksLikeSudoAuthFailure("linarese is not allowed to execute /bin/zfs")) {
+        return fail("looksLikeSudoAuthFailure must not fire on an authorization problem");
+    }
+    if (looksLikeSudoAuthFailure("")) {
+        return fail("looksLikeSudoAuthFailure must not fire on empty output");
+    }
+    if (looksLikeSudoAuthFailure("cannot open 'tank': dataset does not exist")) {
+        return fail("looksLikeSudoAuthFailure false positive on an unrelated error");
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

@@ -426,6 +426,39 @@ private Q_SLOTS:
         QVERIFY(importablePoolMenu.contains(QStringLiteral("Reguid")));
         QVERIFY(importablePoolMenu.contains(QStringLiteral("Importar renombrando")));
     }
+
+    // Un lote que toca varias conexiones debe repintar el árbol UNA vez, no una por
+    // conexión. Lo que se rompió: al arrancar, la actualización automática de daemons
+    // refrescaba cada conexión por separado y cada refresco repintaba el árbol entero,
+    // así que el usuario veía el árbol rehacerse tantas veces como conexiones tuviera.
+    void batchedConnectionWorkRepaintsTheTreeOnce() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+
+        const auto before = window.uiRebuildCountsForTest();
+        window.runWithDeferredUiRebuildForTest([&window]() {
+            // Cuatro conexiones actualizándose = cuatro reconstrucciones pedidas.
+            for (int i = 0; i < 4; ++i) {
+                window.requestConnectionsUiRebuildForTest();
+            }
+        });
+        const auto after = window.uiRebuildCountsForTest();
+        QCOMPARE(after.table - before.table, 1);
+        QCOMPARE(after.pools - before.pools, 1);
+        // rebuildConnectionsTable() termina llamándolo, así que también una sola vez.
+        QCOMPARE(after.nodeDetails - before.nodeDetails, 1);
+
+        // Y sin el guardián, cada petición se ejecuta: el guardián agrupa, no suprime.
+        const auto beforeUngrouped = window.uiRebuildCountsForTest();
+        window.requestConnectionsUiRebuildForTest();
+        window.requestConnectionsUiRebuildForTest();
+        const auto afterUngrouped = window.uiRebuildCountsForTest();
+        QCOMPARE(afterUngrouped.table - beforeUngrouped.table, 2);
+    }
 };
 
 QTEST_MAIN(GuiMainWindowTest)

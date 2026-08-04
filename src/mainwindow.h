@@ -114,6 +114,20 @@ public:
                                    QString& valueOut);
     QVector<AgentCallForTest> agentCallsForTest() const;
     void clearAgentCallsForTest();
+    // Cuántas veces se ha ejecutado DE VERDAD cada reconstrucción de la interfaz.
+    // Existe para poder afirmar que un lote de operaciones sobre varias conexiones
+    // repinta el árbol una sola vez, que es lo que se rompió: la actualización
+    // automática de daemons lo repintaba una vez por conexión.
+    struct UiRebuildCountsForTest {
+        int table{0};
+        int pools{0};
+        int nodeDetails{0};
+    };
+    UiRebuildCountsForTest uiRebuildCountsForTest() const;
+    void runWithDeferredUiRebuildForTest(const std::function<void()>& body);
+    // Lo mismo que pide refreshConnectionByIndex() al terminar de refrescar una
+    // conexión: tabla, tablas de pools y árbol.
+    void requestConnectionsUiRebuildForTest();
     void rebuildConnectionDetailsForTest();
     void setShowPoolInfoNodeForTest(bool visible);
     void setShowInlineGsaNodeForTest(bool visible);
@@ -216,6 +230,14 @@ private:
 
     struct PoolDatasetCache {
         bool loaded{false};
+        // Un intento de carga que falló también es un resultado y hay que recordarlo.
+        // Sin esto, cada reconstrucción del árbol vuelve a intentar la carga remota,
+        // y como el fallo hace que el árbol se reconstruya para mostrarlo, se entra
+        // en un bucle: en los registros se ven ocho reconstrucciones del mismo árbol
+        // en un mismo segundo, cada una con su ida y vuelta por SSH.
+        // Se limpia con el resto de la entrada al refrescar la conexión, que es
+        // justo cuando tiene sentido reintentar.
+        bool loadFailed{false};
         bool autoSnapshotPropsLoaded{false};
         QVector<DatasetRecord> datasets;
         QMap<QString, QStringList> snapshotsByDataset;
@@ -532,6 +554,34 @@ private:
     void loadConnections();
     void ensureStartupLocalSudoConnection();
     void rebuildConnectionsTable();
+    // Reintroduce usuario y contraseña de sudo de la conexión Local, que es la única
+    // que no se puede editar. Valida la contraseña antes de guardarla.
+    void changeLocalSudoCredentials();
+    // Ofrece reintroducirlas cuando una operación en Local falla porque sudo rechaza
+    // la contraseña. Se ofrece una sola vez por sesión hasta que se corrija: un fallo
+    // de sudo se repite en cada comando y si no, saldrían diálogos en cadena.
+    void offerLocalSudoCredentialFix();
+    bool m_localSudoFixOffered{false};
+    // Invalida el material TLS local cacheado: se leyó elevando con la contraseña de
+    // sudo anterior, así que al cambiarla hay que volver a pedirlo.
+    void clearLocalDaemonTlsCache();
+    // Agrupa reconstrucciones de la interfaz. Mientras haya un guardián vivo, las
+    // llamadas a rebuildConnectionsTable/populateAllPoolsTables/
+    // refreshConnectionNodeDetails se anotan en vez de ejecutarse, y al soltarlo se
+    // hace UNA sola pasada. Existe porque un lote de operaciones sobre varias
+    // conexiones —la actualización automática de daemons al arrancar— repintaba el
+    // árbol entero una vez por conexión: el usuario veía el árbol rehacerse cuatro
+    // veces seguidas sin saber por qué.
+    class DeferredUiRebuild {
+    public:
+        explicit DeferredUiRebuild(MainWindow* w);
+        ~DeferredUiRebuild();
+        DeferredUiRebuild(const DeferredUiRebuild&) = delete;
+        DeferredUiRebuild& operator=(const DeferredUiRebuild&) = delete;
+
+    private:
+        MainWindow* m_w;
+    };
     int connectionIndexByNameOrId(const QString& value) const;
     bool connectionsReferToSameMachine(int a, int b) const;
     int equivalentSshForLocal(int localIdx) const;
@@ -1342,6 +1392,12 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    // Contador de guardianes DeferredUiRebuild vivos, y qué quedó pendiente.
+    int m_uiRebuildDeferred{0};
+    bool m_uiRebuildPendingTable{false};
+    bool m_uiRebuildPendingPools{false};
+    bool m_uiRebuildPendingNodeDetails{false};
+    UiRebuildCountsForTest m_uiRebuildCounts;
     int m_zedPollPending{0};
     QMap<QString, bool> m_userNodeExpanded;
     QTimer* m_userExpandedSaveTimer{nullptr};
