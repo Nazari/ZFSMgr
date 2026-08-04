@@ -704,9 +704,11 @@ bool MainWindow::executeDatasetAction(const QString& side,
         appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
         return false;
     }
+    // Windows ya no queda fuera por ser Windows: su daemon sirve --mutate-zfs-snapshot,
+    // --mutate-zfs-destroy, --mutate-zfs-generic y los demás verbos de este camino
+    // (comprobado por RPC contra un Windows 11 real).
     const bool daemonMutateApiOk =
-        !isWindowsConnection(p)
-        && ctx.connIdx >= 0
+        ctx.connIdx >= 0
         && ctx.connIdx < m_states.size()
         && m_states[ctx.connIdx].daemonInstalled
         && m_states[ctx.connIdx].daemonActive

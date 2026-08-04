@@ -770,8 +770,10 @@ QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
         // Unix y lo ejecuta con el bash de MSYS2, que se come las barras invertidas.
         return QStringLiteral("& \"") + daemonpayload::windowsBinPath() + QStringLiteral("\" ") + agentArgs;
     }
-    return withSudoCommand(
-        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs));
+    // Sin withUnixSearchPathCommand aquí: withSudoCommand ya lo aplica, y hacerlo dos
+    // veces dejaba el prefijo PATH duplicado en la orden y, de paso, en el diálogo de
+    // confirmación, donde no ayuda a decidir nada.
+    return withSudoCommand(p, daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs);
 }
 
 // Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.

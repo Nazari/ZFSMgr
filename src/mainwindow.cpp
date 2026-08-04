@@ -1804,9 +1804,6 @@ QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QString& r
         return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        return {};
-    }
     if (connIdx < 0 || connIdx >= m_states.size()) {
         return {};
     }
@@ -1846,9 +1843,6 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& raw
         return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        return {};
-    }
     if (connIdx < 0 || connIdx >= m_states.size()) {
         return {};
     }
@@ -1886,6 +1880,8 @@ QStringList MainWindow::daemonizeLocalSendRecvArgs(int connIdx,
         return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
+    // El agente de Windows no sirve --zfs-pipe-local (responde "unknown command",
+    // comprobado por RPC), así que la mutación se queda en el camino clásico.
     if (isWindowsConnection(p)) {
         return {};
     }
@@ -1985,6 +1981,8 @@ QStringList MainWindow::daemonizeShellMutationArgs(int connIdx, const QString& r
         return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
+    // El agente de Windows no sirve --mutate-shell-generic (responde "unknown command",
+    // comprobado por RPC), así que la mutación se queda en el camino clásico.
     if (isWindowsConnection(p)) {
         return {};
     }
