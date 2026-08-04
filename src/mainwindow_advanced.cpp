@@ -77,8 +77,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     };
     const ConnectionProfile p = m_profiles[ctx.connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(p)
-        && ctx.connIdx >= 0
+        ctx.connIdx >= 0
         && ctx.connIdx < m_states.size()
         && m_states[ctx.connIdx].daemonInstalled
         && m_states[ctx.connIdx].daemonActive
@@ -602,8 +601,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     };
     const ConnectionProfile p = m_profiles[ctx.connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(p)
-        && ctx.connIdx >= 0
+        ctx.connIdx >= 0
         && ctx.connIdx < m_states.size()
         && m_states[ctx.connIdx].daemonInstalled
         && m_states[ctx.connIdx].daemonActive

@@ -1163,8 +1163,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
         }
     }
     const bool daemonMutateApiOk =
-        !m_mainWindow->isWindowsConnection(cp)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_mainWindow->m_states.size()
         && m_mainWindow->m_states[connIdx].daemonInstalled
         && m_mainWindow->m_states[connIdx].daemonActive
@@ -1267,8 +1266,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
         }
     }
     const bool daemonMutateApiOk =
-        !m_mainWindow->isWindowsConnection(cp)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_mainWindow->m_states.size()
         && m_mainWindow->m_states[connIdx].daemonInstalled
         && m_mainWindow->m_states[connIdx].daemonActive
@@ -2960,8 +2958,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 }
             }
             const bool daemonMutateApiOk =
-                !m_mainWindow->isWindowsConnection(cp)
-                && actx.connIdx >= 0
+                actx.connIdx >= 0
                 && actx.connIdx < m_mainWindow->m_states.size()
                 && m_mainWindow->m_states[actx.connIdx].daemonInstalled
                 && m_mainWindow->m_states[actx.connIdx].daemonActive

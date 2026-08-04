@@ -267,8 +267,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     QString err;
     int rc = -1;
     const bool daemonReadApiOk =
-        !isWindowsConnection(profile)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
@@ -2208,8 +2207,7 @@ void MainWindow::showPoolHistoryFromRow(int row) {
 
     const ConnectionProfile p = m_profiles[idx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(p)
-        && idx >= 0
+        idx >= 0
         && idx < m_states.size()
         && m_states[idx].daemonInstalled
         && m_states[idx].daemonActive

@@ -768,8 +768,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     // which a queued event can trigger while runSsh() pumps the event loop.
     const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(connIdx)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
@@ -914,8 +913,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     // which a queued event can trigger while runSsh() pumps the event loop.
     const ConnectionProfile p = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(connIdx)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
@@ -1325,8 +1323,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
     m_poolDetailsLoadsInFlight.insert(key);
     const ConnectionProfile profile = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(connIdx)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
@@ -1571,8 +1568,7 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0) + 1;
     const ConnectionProfile profile = m_profiles[connIdx];
     const bool daemonReadApiOk =
-        !isWindowsConnection(connIdx)
-        && connIdx >= 0
+        connIdx >= 0
         && connIdx < m_states.size()
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive

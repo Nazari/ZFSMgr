@@ -769,8 +769,7 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         }
     }
     const bool daemonMutateApiOk =
-        !isWindowsConnection(cp)
-        && ctx.connIdx >= 0
+        ctx.connIdx >= 0
         && ctx.connIdx < m_states.size()
         && m_states[ctx.connIdx].daemonInstalled
         && m_states[ctx.connIdx].daemonActive
