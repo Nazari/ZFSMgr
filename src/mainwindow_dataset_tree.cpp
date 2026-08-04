@@ -5235,14 +5235,6 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                  QStringLiteral("辅助安装原因")),
                              st.helperInstallReason.trimmed()});
     }
-    if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
-        && !st.powershellFallbackCommands.isEmpty()) {
-        infoProps.push_back({trk(QStringLiteral("t_powershell_commands_used_001"),
-                                 QStringLiteral("Comandos PowerShell usados"),
-                                 QStringLiteral("PowerShell commands used"),
-                                 QStringLiteral("已使用的 PowerShell 命令")),
-                             st.powershellFallbackCommands.join(QStringLiteral(", "))});
-    }
     auto* generalNode = new QTreeWidgetItem(infoNode);
     generalNode->setFlags(generalNode->flags() & ~Qt::ItemIsUserCheckable);
     generalNode->setData(0, kConnContentNodeRole, true);
@@ -5684,12 +5676,11 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString cmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
-                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
-            bool ok = runSsh(p, selectedCmd, 12000, out, err, rc) && rc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList cmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), trimmedPool};
+            bool ok = daemonReadApiOk
+                ? (runAgentCommand(p, cmdDaemonArgv, 12000, out, err, rc) && rc == 0)
+                : (runSsh(p, cmdClassic, 12000, out, err, rc) && rc == 0);
             // Unconditional re-look up: runSsh() pumped the event loop, so
             // rebuildConnInfoFor() may have replaced the ConnInfo that owns poolInfo.
             // This used to happen only on the success path, leaving the pointer stale
@@ -5730,12 +5721,11 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zfs list -H -o name,guid -r %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString cmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")
-                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
-            bool ok = runSsh(p, selectedCmd, 25000, out, err, rc) && rc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList cmdDaemonArgv = {QStringLiteral("--dump-zfs-guid-map"), trimmedPool};
+            bool ok = daemonReadApiOk
+                ? (runAgentCommand(p, cmdDaemonArgv, 25000, out, err, rc) && rc == 0)
+                : (runSsh(p, cmdClassic, 25000, out, err, rc) && rc == 0);
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;

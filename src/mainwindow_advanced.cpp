@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 
 #include <QtWidgets>
 #include <QRegularExpression>
@@ -51,6 +52,9 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirBreakdown)) {
         return;
     }
     const QString ds = curr.datasetName;
@@ -167,7 +171,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         QString remoteListScriptCmd;
         if (!isWindowsConnection(p)) {
             remoteListScriptCmd = mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-advanced-breakdown-list %1")
+                daemonpayload::unixBinPath() + QStringLiteral(" --dump-advanced-breakdown-list %1")
                     .arg(shSingleQuote(ds)));
         } else {
             listScript =
@@ -237,7 +241,6 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     {},
                     {},
                     {},
-                    WindowsCommandMode::Auto,
                     mountStdinPayload)
             || listRc != 0) {
             stopBusy();
@@ -267,10 +270,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     QString dsListCmd;
     if (!isWindowsConnection(p)) {
         if (daemonReadApiOk) {
-            dsListCmd = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
-                           .arg(shSingleQuote(ds))));
+            dsListCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-children"), ds});
         } else {
             dsListCmd = withSudo(
                 p, mwhelpers::withUnixSearchPathCommand(
@@ -508,17 +508,11 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         allowWindowsScript = true;
     } else {
         if (!isWindowsConnection(p)) {
-            QStringList args;
-            args.reserve(1 + selectedDirs.size());
-            args.push_back(shSingleQuote(ds));
-            for (const QString& d : selectedDirs) {
-                args.push_back(shSingleQuote(d));
-            }
-            cmd = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-breakdown %1")
-                           .arg(args.join(QLatin1Char(' ')))));
-            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
+            QStringList argv{QStringLiteral("--mutate-advanced-breakdown"), ds};
+            argv += selectedDirs;
+            cmd = mwhelpers::agentShellCommand(p, argv);
+            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0,
+                                 allowWindowsScript, {}, true, {}, argv);
             return;
         }
         QStringList selectedQuoted;
@@ -585,6 +579,9 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirAssemble)) {
+        return;
+    }
     const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
@@ -638,10 +635,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     int listRc = -1;
     QString listCmd;
     if (!isWindowsConnection(p)) {
-        listCmd = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
-                       .arg(shSingleQuote(ds))));
+        listCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-children"), ds});
     } else {
         listCmd = withSudo(
             p,
@@ -773,23 +767,19 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         allowWindowsScript = true;
     } else {
         if (!isWindowsConnection(p)) {
-            QStringList args;
-            args.reserve(1 + selectedChildren.size());
-            args.push_back(shSingleQuote(ds));
-            for (const QString& child : selectedChildren) {
-                args.push_back(shSingleQuote(child));
-            }
-            cmd = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-assemble %1")
-                           .arg(args.join(QLatin1Char(' ')))));
+            QStringList argv{QStringLiteral("--mutate-advanced-assemble"), ds};
+            argv += selectedChildren;
+            cmd = mwhelpers::agentShellCommand(p, argv);
             executeDatasetAction(QStringLiteral("conncontent"),
                                  QStringLiteral("Ensamblar"),
                                  ctx,
                                  cmd,
                                  0,
                                  allowWindowsScript,
-                                 mountStdinPayload);
+                                 mountStdinPayload,
+                                 true,
+                                 {},
+                                 argv);
             return;
         }
         QStringList promptKeyDatasets;

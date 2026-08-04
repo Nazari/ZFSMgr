@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "agentversion.h"
 
 #include <QCheckBox>
@@ -125,14 +126,6 @@ QString buildZfsSendFlags(const ZfsSendOptions& opts)
     return flags;
 }
 
-QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
-    const QString sshBase = sshBaseCommand(p);
-    const QString target = shSingleQuote(sshUserHost(p));
-    const QString winCmd = QStringLiteral("\"C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe\" -lc %1")
-                               .arg(shSingleQuote(remoteCmd));
-    return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
-}
-
 QString syncCodecToken(mwhelpers::StreamCodec codec) {
     switch (codec) {
     case mwhelpers::StreamCodec::Zstd:
@@ -150,12 +143,12 @@ QString syncCodecToken(mwhelpers::StreamCodec codec) {
 // now does all of it natively (see --mutate-sync-temp-tar-*), so nothing here builds
 // shell any more.
 QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-source %1 %2")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-sync-temp-tar-source %1 %2")
         .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 
 QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers::StreamCodec codec) {
-    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-sync-temp-tar-dest %1 %2")
+    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-sync-temp-tar-dest %1 %2")
         .arg(shSingleQuote(dataset), syncCodecToken(codec));
 }
 } // namespace
@@ -211,6 +204,33 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     return true;
 }
 
+bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
+                                                     int dstConnIdx,
+                                                     const QString& actionLabel) {
+    if (featureAvailable(srcConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)
+        && featureAvailable(dstConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)) {
+        return true;
+    }
+    // La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando
+    // eso no aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías
+    // de shell Unix. En Windows se ejecutaban a través del bash de MSYS2, que se ha
+    // retirado: la aplicación trabaja allí solo con el agente nativo, y el agente aún
+    // no implementa el streaming entre máquinas en Windows.
+    const QString reason =
+        trk(QStringLiteral("t_win_stream_na001"),
+            QStringLiteral("%1 entre máquinas no está disponible cuando algún extremo es Windows: "
+                           "necesita transmitir el flujo por una tubería, y el agente de Windows "
+                           "todavía no lo implementa."),
+            QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
+                           "to stream through a pipe, and the Windows agent does not implement that yet."),
+            QStringLiteral("当任一端为 Windows 时，机器间的%1不可用：它需要通过管道传输数据流，"
+                           "而 Windows 代理尚未实现该功能。"))
+            .arg(actionLabel);
+    appLog(QStringLiteral("WARN"), reason);
+    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+    return false;
+}
+
 void MainWindow::actionCopySnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
@@ -225,6 +245,9 @@ void MainWindow::actionCopySnapshot() {
     }
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Copiar snapshot"))) {
+        return;
+    }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
         sp.useSudo = true;
         if (!ensureLocalSudoCredentials(sp)) {
@@ -297,9 +320,9 @@ void MainWindow::actionCopySnapshot() {
         return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
@@ -341,7 +364,7 @@ void MainWindow::actionCopySnapshot() {
         }
         // For same-connection transfers, src daemon connects to itself via loopback
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        const QString kAgentBin = daemonpayload::unixBinPath();
         QString sendCmd2 = kAgentBin
             + QStringLiteral(" --zfs-send-to-peer ")
             + shSingleQuote(snap)
@@ -381,9 +404,9 @@ void MainWindow::actionCopySnapshot() {
         // Prefer the typed --zfs-pipe-local RPC: the daemon wires send|recv itself
         // with execvp, so no shell is built. Falls back to the shell pipeline when
         // the daemon is unavailable or the commands are not plain send/recv.
-        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
         if (!typedPipe.isEmpty()) {
-            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+            pipeline = sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedPipe));
         } else {
             const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
             pipeline = buildSourceExecutionCommand(sourceShell);
@@ -396,12 +419,8 @@ void MainWindow::actionCopySnapshot() {
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
         pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
-        const QString srcSeg = isWindowsConnection(sp)
-                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
-                                   : sshExecFromLocal(sp, sendCmd);
-        const QString dstSeg = isWindowsConnection(dp)
-                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
-                                   : sshExecFromLocal(dp, recvCmd);
+        const QString srcSeg = sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = sshExecFromLocal(dp, recvCmd);
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
@@ -444,8 +463,7 @@ void MainWindow::actionCopySnapshot() {
                 pendingCommand = sshExecFromLocal(
                     sp,
                     buildPipedTransferCommand(withSudo(sp, srcScript),
-                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))),
-                    MainWindow::WindowsCommandMode::UnixShell);
+                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))));
             } else {
                 pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
                                                            sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
@@ -703,7 +721,7 @@ void MainWindow::actionDiffSnapshot() {
         && m_states[src.connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
     const QString remoteCmd = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-diff %1 %2")
+        ? daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-diff %1 %2")
               .arg(shSingleQuote(srcObj), shSingleQuote(dstObj))
         : withSudo(profile, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
@@ -1068,6 +1086,9 @@ void MainWindow::actionLevelSnapshot() {
 
     ConnectionProfile sp = m_profiles[src.connIdx];
     ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Nivelar snapshot"))) {
+        return;
+    }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
         sp.useSudo = true;
         if (!ensureLocalSudoCredentials(sp)) {
@@ -1135,9 +1156,9 @@ void MainWindow::actionLevelSnapshot() {
         return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
@@ -1178,7 +1199,7 @@ void MainWindow::actionLevelSnapshot() {
             return {};
         }
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        const QString kAgentBin = daemonpayload::unixBinPath();
         QString sendCmd2 = kAgentBin
             + QStringLiteral(" --zfs-send-to-peer ")
             + shSingleQuote(snap)
@@ -1216,9 +1237,9 @@ void MainWindow::actionLevelSnapshot() {
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         // Prefer the typed --zfs-pipe-local RPC (see actionCopySnapshot).
-        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
         if (!typedPipe.isEmpty()) {
-            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+            pipeline = sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedPipe));
         } else {
             const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
             pipeline = buildSourceExecutionCommand(sourceShell);
@@ -1231,12 +1252,8 @@ void MainWindow::actionLevelSnapshot() {
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
         pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
-        const QString srcSeg = isWindowsConnection(sp)
-                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
-                                   : sshExecFromLocal(sp, sendCmd);
-        const QString dstSeg = isWindowsConnection(dp)
-                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
-                                   : sshExecFromLocal(dp, recvCmd);
+        const QString srcSeg = sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = sshExecFromLocal(dp, recvCmd);
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
@@ -1302,9 +1319,9 @@ void MainWindow::actionSyncDatasets() {
 
     const QString srcSsh = buildSshTargetPrefix(sp);
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return srcSsh + QStringLiteral(" ") + shSingleQuote(withSudo(sp, sourceShellCmd));
     };
@@ -1641,7 +1658,7 @@ void MainWindow::actionSyncDatasets() {
             // capability probe and assembles the rsync argv itself, so no shell is
             // built. Falls back to the inline shell probe when the daemon is not
             // available (e.g. Windows or an out-of-date agent).
-            const QString typedRsync = daemonizeRsyncSyncCommand(
+            const QStringList typedRsync = daemonizeRsyncSyncArgs(
                 src.connIdx,
                 {qMakePair(srcEffectiveMp, dstEffectiveMp)},
                 useDelete,
@@ -1649,7 +1666,7 @@ void MainWindow::actionSyncDatasets() {
                 sameConnection ? QString() : sshBaseCommand(dp),
                 sameConnection ? QString() : sshUserHost(dp));
             if (!typedRsync.isEmpty()) {
-                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+                return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedRsync));
             }
             const QString rsyncOptsProbe = buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun);
             if (sameConnection) {
@@ -1864,7 +1881,7 @@ void MainWindow::actionSyncDatasets() {
             for (const auto& pair : syncPairs) {
                 typedPairs.push_back(qMakePair(pair.first, pair.second));
             }
-            const QString typedRsync = daemonizeRsyncSyncCommand(
+            const QStringList typedRsync = daemonizeRsyncSyncArgs(
                 src.connIdx,
                 typedPairs,
                 useDelete,
@@ -1872,7 +1889,7 @@ void MainWindow::actionSyncDatasets() {
                 sameConnection ? QString() : sshTransport,
                 sameConnection ? QString() : sshUserHost(dp));
             if (!typedRsync.isEmpty()) {
-                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+                return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedRsync));
             }
             QStringList cmds;
             cmds.reserve(syncPairs.size());

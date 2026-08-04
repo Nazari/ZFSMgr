@@ -21,6 +21,6 @@ Comportamiento:
   - Cada job puede cancelarse desde la pestaña Transferencias (envía `SIGTERM` al proceso `zfs send`). Solo puede cancelarse un job en ejecución.
 - Si no hay soporte de jobs, la acción cae en modo síncrono: se añade a `Cambios pendientes` y se ejecuta al aplicar los cambios.
 - Con origen y destino en la **misma conexión**, la tubería `zfs send | zfs recv` la monta el propio daemon (`--zfs-pipe-local`), sin shell remoto. En esa ruta **no se muestran líneas de progreso**; el avance solo es visible en la ruta de jobs.
-- En conexiones Windows no hay jobs ni daemon: la copia se hace mediante un fallback `tar` sobre `.zfs/snapshot`, sin `zfs send`/`recv`.
+- **Si alguno de los dos extremos es Windows, la acción no está disponible** y se explica el motivo al intentarla. Transmitir el flujo entre máquinas necesita tuberías que el agente de Windows todavía no implementa; el respaldo con `tar` que se usaba antes dependía de un shell Unix en el equipo remoto, que ya no se usa.
 - Al finalizar se refresca la conexión **destino** y su contenido.
 - Si alguna conexión está por debajo de `2.3.3`, la acción se bloquea.

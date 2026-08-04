@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "connectionstore.h"
 
 #include <QApplication>
 #include <QPlainTextEdit>
@@ -14,6 +15,59 @@ class GuiMainWindowTest final : public QObject {
 private Q_SLOTS:
     void initTestCase() {
         qputenv("ZFSMGR_TEST_MODE", QByteArrayLiteral("1"));
+    }
+
+    // PSRP se retiró como transporte. Un perfil guardado con PSRP debe convertirse a
+    // SSH, y sobre todo debe SOLTAR el puerto 5986: es de WinRM, y conservarlo deja
+    // una conexión rota sin explicación, que es peor que la de partida.
+    void psrpProfilesMigrateToSshAndDropWinrmPort() {
+        ConnectionProfile winrm;
+        winrm.connType = QStringLiteral("PSRP");
+        winrm.port = 5986;
+        QVERIFY(ConnectionStore::migratePsrpProfileToSshForTest(winrm));
+        QCOMPARE(winrm.connType, QStringLiteral("SSH"));
+        QCOMPARE(winrm.port, 22);
+        QCOMPARE(winrm.osType, QStringLiteral("Windows"));
+
+        ConnectionProfile noPort;
+        noPort.connType = QStringLiteral("psrp");   // sin distinguir mayúsculas
+        noPort.port = 0;
+        QVERIFY(ConnectionStore::migratePsrpProfileToSshForTest(noPort));
+        QCOMPARE(noPort.port, 22);
+
+        // Un puerto elegido a mano no se pisa: puede ser un SSH en puerto no estándar.
+        ConnectionProfile custom;
+        custom.connType = QStringLiteral("PSRP");
+        custom.port = 2222;
+        QVERIFY(ConnectionStore::migratePsrpProfileToSshForTest(custom));
+        QCOMPARE(custom.port, 2222);
+
+        // Y no debe tocar las conexiones que ya eran SSH.
+        ConnectionProfile ssh;
+        ssh.connType = QStringLiteral("SSH");
+        ssh.port = 2200;
+        QVERIFY(!ConnectionStore::migratePsrpProfileToSshForTest(ssh));
+        QCOMPARE(ssh.port, 2200);
+    }
+
+    // El corte por separador decía "no entrecomillado" pero no lo comprobaba: cortaba
+    // en el primer ';', '&' o '|' aunque estuviera dentro de un argumento protegido.
+    // Con --mutate-advanced-todir ese argumento es un directorio que elige el usuario.
+    void agentArgExtractionRespectsQuotedSeparators() {
+        const QString cmd =
+            QStringLiteral("PATH=\"$PATH:/sbin\"; export PATH; /usr/local/libexec/zfsmgr-agent "
+                           "--mutate-advanced-todir 'tank/x' '/home/x/Copias & Backups' '1'");
+        const QStringList args = MainWindow::extractAgentArgsForTest(cmd);
+        QCOMPARE(args.size(), 4);
+        QCOMPARE(args.at(0), QStringLiteral("--mutate-advanced-todir"));
+        QCOMPARE(args.at(2), QStringLiteral("/home/x/Copias & Backups"));
+        QCOMPARE(args.at(3), QStringLiteral("1"));
+
+        // Un separador de verdad, fuera de comillas, sí debe cortar.
+        const QStringList cut = MainWindow::extractAgentArgsForTest(
+            QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount ; rm -rf /"));
+        QCOMPARE(cut.size(), 1);
+        QCOMPARE(cut.at(0), QStringLiteral("--dump-zfs-mount"));
     }
 
     void createsMainWindowWithStableObjectNames() {

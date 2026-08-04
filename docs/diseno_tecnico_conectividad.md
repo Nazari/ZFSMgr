@@ -75,10 +75,9 @@ La matriz comprueba conectividad saliente solo hacia destinos:
 - `SSH`
 - `Local` con `SSH` equivalente
 
-No comprueba:
-
-- destinos `PSRP`
-- salidas desde conexiones `PSRP`
+> **Nota (0.90.6).** `PSRP` se retiró como tipo de conexión: no admite el daemon,
+> porque el RPC viaja por un túnel `ssh -L` y sin SSH no hay túnel. Los perfiles
+> guardados con `PSRP` se convierten a `SSH` al cargarlos, reponiendo el puerto 22.
 
 ## Sonda SSH
 

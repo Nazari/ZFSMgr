@@ -9,7 +9,6 @@ QString macPlistPath() { return QStringLiteral("/Library/LaunchDaemons/org.zfsmg
 QString linuxServicePath() { return QStringLiteral("/etc/systemd/system/zfsmgr-agent.service"); }
 QString freeBsdRcPath() { return QStringLiteral("/usr/local/etc/rc.d/zfsmgr_agent"); }
 QString windowsDirPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent"); }
-QString windowsScriptPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1"); }
 QString windowsTaskName() { return QStringLiteral("ZFSMgr-Agent"); }
 QString windowsBinPath() { return QStringLiteral("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe"); }
 // Ruta intermedia del scp: el destino final puede estar en uso por el agente en
@@ -566,19 +565,6 @@ esac
     daemonScript.replace(QStringLiteral("__VERSION__"), version.trimmed());
     daemonScript.replace(QStringLiteral("__API__"), apiVersion.trimmed());
     return daemonScript;
-}
-
-QString windowsStubScript(const QString& version, const QString& apiVersion) {
-    QString payload = QString::fromUtf8(
-        "# ZFSMgr Agent Version: __VERSION__\n"
-        "# ZFSMgr Agent API: __API__\n"
-        "param([string]$Mode='serve')\n"
-        "if ($Mode -eq 'version') { Write-Output '__VERSION__'; exit 0 }\n"
-        "if ($Mode -eq 'api') { Write-Output '__API__'; exit 0 }\n"
-        "while ($true) { Start-Sleep -Seconds 3600 }\n");
-    payload.replace(QStringLiteral("__VERSION__"), version.trimmed());
-    payload.replace(QStringLiteral("__API__"), apiVersion.trimmed());
-    return payload;
 }
 
 // Instalación del daemon NATIVO en Windows, en sustitución del stub de PowerShell.

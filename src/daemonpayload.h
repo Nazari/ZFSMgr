@@ -10,7 +10,6 @@ QString macPlistPath();
 QString linuxServicePath();
 QString freeBsdRcPath();
 QString windowsDirPath();
-QString windowsScriptPath();
 QString windowsTaskName();
 QString tlsDirPath();
 QString tlsServerCertPath();
@@ -19,7 +18,6 @@ QString tlsClientCertPath();
 QString tlsClientKeyPath();
 
 QString unixStubScript(const QString& version, const QString& apiVersion);
-QString windowsStubScript(const QString& version, const QString& apiVersion);
 QString windowsBinPath();
 QString windowsUploadPath();
 QString windowsNativeInstallCommand();

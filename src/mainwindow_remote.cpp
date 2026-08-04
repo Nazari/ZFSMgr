@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "agentversion.h"
+#include "daemonpayload.h"
 
 #include <QCoreApplication>
 #include <QMessageBox>
@@ -121,47 +122,6 @@ LocalAgentConfig loadLocalAgentConfig() {
     return cfg;
 }
 
-// Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
-// QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
-// cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
-static QStringList posixShellSplitArgs(const QString& s) {
-    QStringList result;
-    QString current;
-    bool inSQ = false, inDQ = false;
-    for (int i = 0; i < s.size(); ++i) {
-        const QChar c = s.at(i);
-        if (inSQ) {
-            if (c == QLatin1Char('\'')) { inSQ = false; }
-            else { current += c; }
-        } else if (inDQ) {
-            if (c == QLatin1Char('"')) { inDQ = false; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                const QChar next = s.at(++i);
-                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
-                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
-                    current += next;
-                } else {
-                    current += c;
-                    current += next;
-                }
-            } else {
-                current += c;
-            }
-        } else {
-            if (c == QLatin1Char('\'')) { inSQ = true; }
-            else if (c == QLatin1Char('"')) { inDQ = true; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                current += s.at(++i);
-            } else if (c.isSpace()) {
-                if (!current.isEmpty()) { result += current; current.clear(); }
-            } else {
-                current += c;
-            }
-        }
-    }
-    if (!current.isEmpty()) { result += current; }
-    return result;
-}
 
 // Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
 // nothing, but re-sending a mutation that may already be running is how a single
@@ -179,21 +139,75 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
            || cmd == QStringLiteral("--job-cancel");
 }
 
+// Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
+//
+// Existe solo para los sitios que todavía construyen la orden como cadena. Los que ya
+// pasan por runAgentCommand no lo tocan, y cuando migren los últimos esta función y las
+// dos interceptaciones de runSsh se borran de un tajo.
+//
+// No añadir sitios nuevos por aquí: el corte por separador, la lista blanca por prefijo
+// y el deshacer del doble entrecomillado son suposiciones sobre cómo se construyó la
+// cadena, y cada una ha fallado al menos una vez.
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
-    const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
-    const int pos = remoteCmd.lastIndexOf(marker);
+    // Se prueban las dos rutas del agente, no solo la de Unix. Buscar únicamente la
+    // Unix es lo que dejaba a Windows fuera del RPC: agentCommand() emite la ruta de
+    // Windows, no casaba con el marcador, y el comando acababa ejecutándose por SSH en
+    // crudo, sin el mTLS del túnel, sin que nada lo advirtiera.
+    int pos = -1;
+    int markerLen = 0;
+    for (const QString& marker : {daemonpayload::unixBinPath(), daemonpayload::windowsBinPath()}) {
+        const int found = remoteCmd.lastIndexOf(marker);
+        if (found > pos) {
+            pos = found;
+            markerLen = marker.size();
+        }
+    }
     if (pos < 0) {
         return false;
     }
-    QString tail = remoteCmd.mid(pos + marker.size()).trimmed();
+    QString tail = remoteCmd.mid(pos + markerLen).trimmed();
+    // La forma de Windows es: & "C:\...\zfsmgr-agent.exe" --health
+    // Tras el marcador queda la comilla de cierre, que no es parte de los argumentos.
+    if (tail.startsWith(QLatin1Char('"'))) {
+        tail = tail.mid(1).trimmed();
+    }
     if (tail.isEmpty()) {
         return false;
     }
-    // Cortamos en el primer separador de shell no entrecomillado
-    const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|\\n\\r]")));
-    if (sep >= 0) {
-        tail = tail.left(sep).trimmed();
+    // Cortamos en el primer separador de shell NO entrecomillado.
+    //
+    // El comentario decía "no entrecomillado" pero la regex no lo comprobaba: cortaba
+    // en el primer ';', '&' o '|' apareciera donde apareciera, incluso dentro de un
+    // argumento correctamente protegido. Un directorio llamado "Copias & Backups"
+    // truncaba la orden, y con --mutate-advanced-todir ese directorio lo elige el
+    // usuario: se perdían el destino y el indicador de borrar el origen.
+    {
+        bool inSQ = false;
+        bool inDQ = false;
+        int sep = -1;
+        for (int i = 0; i < tail.size(); ++i) {
+            const QChar c = tail.at(i);
+            if (inSQ) {
+                if (c == QLatin1Char('\'')) { inSQ = false; }
+                continue;
+            }
+            if (inDQ) {
+                if (c == QLatin1Char('\\') && i + 1 < tail.size()) { ++i; continue; }
+                if (c == QLatin1Char('"')) { inDQ = false; }
+                continue;
+            }
+            if (c == QLatin1Char('\'')) { inSQ = true; continue; }
+            if (c == QLatin1Char('"')) { inDQ = true; continue; }
+            if (c == QLatin1Char(';') || c == QLatin1Char('&') || c == QLatin1Char('|')
+                || c == QLatin1Char('\n') || c == QLatin1Char('\r')) {
+                sep = i;
+                break;
+            }
+        }
+        if (sep >= 0) {
+            tail = tail.left(sep).trimmed();
+        }
     }
     // Los args vienen del comando construido con shSingleQuote() luego envuelto en otro
     // shSingleQuote() para el argumento de `sh -c '...'`.  El patrón '"'"' representa un
@@ -203,7 +217,7 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     if (tail.isEmpty()) {
         return false;
     }
-    const QStringList parsed = posixShellSplitArgs(tail);
+    const QStringList parsed = mwhelpers::posixShellSplitArgs(tail);
     if (parsed.isEmpty()) {
         return false;
     }
@@ -554,7 +568,39 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                        "  port=$(awk -F= '/^[[:space:]]*AGENT_PORT[[:space:]]*=/{print $2}' /etc/zfsmgr/agent.conf | tail -n1 | tr -d \"' \\t\\r\"); "
                        "  if [ -n \"$port\" ]; then printf '__ZFSMGR_AGENT_PORT__:%s\\n' \"$port\"; fi; "
                        "fi");
-    const QString cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
+    // Windows guarda el material TLS bajo C:\ProgramData, no bajo /etc, y su shell por
+    // omisión es cmd: el bucle de arriba no vale. Se emite el equivalente en PowerShell
+    // codificado en base64, que es un único token y no atraviesa ninguna capa de
+    // comillas. Las rutas van con barra normal a propósito: Windows las acepta, y así
+    // los marcadores terminan en "/server.crt" y el parseador de arriba sirve sin tocar.
+    QString cmdPlain;
+    if (mwhelpers::isWindowsOsType(p.osType)) {
+        const QString winTlsDir = QStringLiteral("C:/ProgramData/ZFSMgr/agent/tls");
+        const QString winScript =
+            QStringLiteral(
+                "$ErrorActionPreference='SilentlyContinue'; "
+                "foreach($f in @('%1/server.crt','%1/client.crt','%1/client.key')){ "
+                "  if(Test-Path -LiteralPath $f){ "
+                "    Write-Output ('__ZFSMGR_TLS_BEGIN__:' + $f); "
+                "    Get-Content -LiteralPath $f -Raw; "
+                "    Write-Output ('__ZFSMGR_TLS_END__:' + $f); "
+                "  } "
+                "}; "
+                "$conf='C:/ProgramData/ZFSMgr/agent/agent.conf'; "
+                "if(Test-Path -LiteralPath $conf){ "
+                "  $m=Select-String -LiteralPath $conf -Pattern '^\\s*AGENT_PORT\\s*=\\s*(\\d+)' "
+                "     | Select-Object -Last 1; "
+                "  if($m){ Write-Output ('__ZFSMGR_AGENT_PORT__:' + $m.Matches[0].Groups[1].Value) } "
+                "}")
+                .arg(winTlsDir);
+        const QByteArray utf16(reinterpret_cast<const char*>(winScript.utf16()), winScript.size() * 2);
+        cmdPlain = QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1")
+                       .arg(QString::fromLatin1(utf16.toBase64()));
+    } else {
+        cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
+    }
+    // withSudoCommand ya devuelve el comando intacto en Windows, así que este reintento
+    // es inocuo allí: simplemente repite el mismo PowerShell.
     const QString cmdSudo = mwhelpers::withSudoCommand(p, cmdPlain);
 
     auto readBundle = [&](const QString& cmd,
@@ -676,24 +722,6 @@ QString sanitizeWindowsCliXml(const QString& raw) {
     return s.trimmed();
 }
 
-QString sanitizePsrpText(const QString& raw) {
-    QString s = raw;
-    if (s.isEmpty()) {
-        return s;
-    }
-    s.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
-    // PowerShell remoting escaping: _x000A_, _x001B_, ...
-    s.replace(QRegularExpression(QStringLiteral("_x[0-9A-Fa-f]{4}_")), QStringLiteral(""));
-    // Keep payload text, drop XML tags if present.
-    s.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(""));
-    s.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-    s.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-    s.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-    s.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-    s.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
-    return s.trimmed();
-}
-
 bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
     const QString lowered = stderrText.toLower();
     return lowered.contains(QStringLiteral("getsockname failed"))
@@ -702,7 +730,6 @@ bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
 }
 
 using mwhelpers::isMountedValueTrue;
-using mwhelpers::looksLikePowerShellScript;
 using mwhelpers::findLocalExecutable;
 using mwhelpers::normalizeDriveLetterValue;
 using mwhelpers::oneLine;
@@ -725,7 +752,7 @@ QString describeHostAddress(const QHostAddress& address) {
 } // namespace
 
 bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
-                                       const QString& agentCommandLine,
+                                       const QStringList& agentArgs,
                                        QString& out,
                                        QString& err,
                                        int& rc,
@@ -738,22 +765,17 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
         *jobSubmittedOut = false;
     }
 
-    const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
-    const int pos = agentCommandLine.indexOf(marker);
-    if (pos < 0) {
+    if (agentArgs.isEmpty()) {
         return false;
     }
-    // Insert --job-submit right after the binary path, leaving the original command
-    // and its arguments as the job payload.
-    const QString head = agentCommandLine.left(pos + marker.size());
-    const QString tail = agentCommandLine.mid(pos + marker.size());
-    const QString submitCmd = head + QStringLiteral(" --job-submit") + tail;
+    // --job-submit delante, y el resto como carga del trabajo. Antes esto se hacía
+    // buscando la ruta del binario dentro de una cadena y partiéndola en dos.
+    const QStringList submitArgs = QStringList{QStringLiteral("--job-submit")} + agentArgs;
 
     QString subOut;
     QString subErr;
     int subRc = -1;
-    if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(submitCmd)), 20000, subOut, subErr, subRc)
-        || subRc != 0) {
+    if (!runAgentCommand(p, submitArgs, 20000, subOut, subErr, subRc) || subRc != 0) {
         err = subErr.trimmed().isEmpty() ? QStringLiteral("no se pudo enviar el trabajo al daemon")
                                          : subErr;
         return false;
@@ -776,8 +798,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     appLog(QStringLiteral("INFO"),
            QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
 
-    const QString statusCmd =
-        head + QStringLiteral(" --job-status ") + mwhelpers::shSingleQuote(jobId);
+    const QStringList statusArgs = {QStringLiteral("--job-status"), jobId};
     QString lastProgress;
     // No overall deadline on purpose: the daemon owns the operation and reports when
     // it is done. Each individual poll is short, so a dead daemon still surfaces.
@@ -787,8 +808,9 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
         QString stOut;
         QString stErr;
         int stRc = -1;
-        if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(statusCmd)), 20000, stOut, stErr, stRc)
-            || stRc != 0) {
+        // Por el túnel ya abierto, en vez de un SSH completo con sudo cada segundo:
+        // --job-status no pasaba la lista blanca del parseo y caía siempre a shell.
+        if (!runAgentCommand(p, statusArgs, 20000, stOut, stErr, stRc) || stRc != 0) {
             err = QStringLiteral("se perdió el contacto con el daemon mientras el trabajo %1 seguía en curso")
                       .arg(jobId);
             return false;
@@ -1398,6 +1420,185 @@ bool MainWindow::cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p,
     return ok;
 }
 
+// Intenta servir una invocación del agente por el túnel RPC y decide qué hacer si no
+// puede. Devuelve true si la ha atendido (con éxito, o abortando a propósito para no
+// duplicar una mutación); false significa "ejecútala por SSH".
+//
+// Vive aquí, y no dentro de runSsh, porque hay dos entradas: la histórica, que recupera
+// los argumentos parseando una cadena de shell, y runAgentCommand, que ya los tiene. La
+// política de reintento, backoff y la regla de no reintentar mutaciones tiene que ser
+// exactamente la misma para las dos.
+QStringList MainWindow::extractAgentArgsForTest(const QString& remoteCmd) {
+    QStringList args;
+    extractLocalAgentArgs(remoteCmd, args);
+    return args;
+}
+
+bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
+                                    const QStringList& agentArgs,
+                                    int timeoutMs,
+                                    QString& out,
+                                    QString& err,
+                                    int& rc,
+                                    const std::function<void(const QString&)>& onStdoutLine,
+                                    const std::function<void(const QString&)>& onStderrLine) {
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0 || agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
+    bool allowRpcAttempt = true;
+    QString suppressedReason;
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
+        if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
+            && it.value().isValid()
+            && QDateTime::currentDateTimeUtc() < it.value()) {
+            allowRpcAttempt = false;
+            suppressedReason = QStringLiteral("backoff activo %1s")
+                                   .arg(QDateTime::currentDateTimeUtc().secsTo(it.value()));
+        }
+    }
+    bool rpcAttemptOk = false;
+    QString rpcFailureReason;
+    bool rpcCommandMayHaveRun = false;
+    if (allowRpcAttempt) {
+        if (QThread::currentThread() == thread()) {
+            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
+        } else {
+            QMetaObject::invokeMethod(
+                this,
+                [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
+                 &rpcCommandMayHaveRun]() {
+                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
+                        &rpcCommandMayHaveRun);
+                },
+                Qt::BlockingQueuedConnection);
+        }
+    }
+    if (rpcAttemptOk) {
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
+            m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
+        }
+        const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
+                                    .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
+        appLog(QStringLiteral("INFO"), cmdLine);
+        appendConnectionLog(p.id, cmdLine);
+        const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
+            const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+            for (const QString& rawLine : lines) {
+                const QString line = rawLine.trimmed();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (cb) {
+                    cb(line);
+                }
+                appendConnectionLog(p.id, line);
+            }
+        };
+        emitLines(out, onStdoutLine);
+        emitLines(err, onStderrLine);
+        if (!out.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(out));
+        }
+        if (!err.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(err));
+        }
+        return true;
+    } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
+        // The daemon received a mutating command and we never got its answer.
+        // Closing the tunnel does not abort remote work, so falling back to
+        // SSH here would run the same destructive command a second time,
+        // possibly overlapping with the first. Fail loudly instead.
+        const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                   ? QStringLiteral("motivo no especificado")
+                                   : rpcFailureReason.trimmed();
+        const QString abortLine =
+            QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
+                           " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+        appLog(QStringLiteral("ERROR"), abortLine);
+        appendConnectionLog(p.id, abortLine);
+        out.clear();
+        err = QStringLiteral(
+                  "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
+                  "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
+                  "reintenta automáticamente.\nCompruebe el estado antes de repetirla.")
+                  .arg(reason);
+        rc = 124;
+        return true;
+    } else if (allowRpcAttempt) {
+        const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                   ? QStringLiteral("motivo no especificado")
+                                   : rpcFailureReason.trimmed();
+        const QString fallbackLine =
+            QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+        appLog(QStringLiteral("INFO"), fallbackLine);
+        appendConnectionLog(p.id, fallbackLine);
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        constexpr int kDaemonRpcRetryBackoffSec = 30;
+        m_daemonRpcRetryAfterByConnKey.insert(
+            rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
+        m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
+    } else if (!suppressedReason.isEmpty()) {
+        const QString skippedLine =
+            QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
+        appLog(QStringLiteral("INFO"), skippedLine);
+        appendConnectionLog(p.id, skippedLine);
+    }
+    return false;
+}
+
+// Invocación del agente a partir de sus argumentos, sin pasar por una cadena de shell.
+//
+// El protocolo de cable ya era argv: lo que sobraba era construir una cadena en el
+// sitio de llamada para que runSsh la volviera a parsear. Ese ida y vuelta perdía
+// argumentos con ';', '&' o '|' —un directorio elegido por el usuario, por ejemplo—,
+// descartaba la entrada estándar en silencio y rechazaba los verbos de trabajos.
+//
+// El respaldo por shell sigue existiendo, pero se renderiza a partir de los mismos
+// argumentos y solo cuando hace falta.
+bool MainWindow::runAgentCommand(const ConnectionProfile& p,
+                                 const QStringList& agentArgs,
+                                 int timeoutMs,
+                                 QString& out,
+                                 QString& err,
+                                 int& rc,
+                                 const QByteArray& stdinPayload) {
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString verb = agentArgs.first().trimmed();
+    // stdin no vacío descarta el RPC: el canal no lo transporta. Antes esto no se
+    // comprobaba y la passphrase de un dataset cifrado se perdía sin aviso.
+    const bool rpcEligible =
+        stdinPayload.isEmpty() && !mwhelpers::isCliOnlyAgentCommand(verb);
+    if (rpcEligible) {
+        if (isLocalConnection(p)) {
+            if (tryRunLocalAgentRpc(agentArgs, timeoutMs, out, err, rc)) {
+                return true;
+            }
+        } else if (tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc)) {
+            return true;
+        }
+    }
+    const QString shellCmd = stdinPayload.isEmpty()
+                                 ? mwhelpers::agentShellCommand(p, agentArgs)
+                                 : mwhelpers::agentShellCommandStreamInput(p, agentArgs);
+    return runSsh(p, shellCmd, timeoutMs, out, err, rc, {}, {}, {}, stdinPayload,
+                  /*allowAgentRpc=*/false);
+}
+
 bool MainWindow::runSsh(const ConnectionProfile& p,
                         const QString& remoteCmd,
                         int timeoutMs,
@@ -1407,8 +1608,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         const std::function<void(const QString&)>& onStdoutLine,
                         const std::function<void(const QString&)>& onStderrLine,
                         const std::function<void(int)>& onIdleTimeoutRemaining,
-                        MainWindow::WindowsCommandMode windowsMode,
-                        const QByteArray& stdinPayload) {
+                        const QByteArray& stdinPayload,
+                        bool allowAgentRpc) {
     out.clear();
     err.clear();
     rc = -1;
@@ -1419,8 +1620,11 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         appLog(QStringLiteral("INFO"), cmdLine);
         appendConnectionLog(p.id, cmdLine);
 
+        // stdin no vacío descarta el RPC: el canal no transporta stdin (el daemon lo
+        // dice en runExecCaptureWithStdin) y la intercepción no lo miraba, así que la
+        // passphrase de un dataset cifrado se perdía en silencio al desglosarlo.
         QStringList localAgentArgs;
-        if (extractLocalAgentArgs(localCmd, localAgentArgs)) {
+        if (allowAgentRpc && stdinPayload.isEmpty() && extractLocalAgentArgs(localCmd, localAgentArgs)) {
             if (tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc)) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
                     const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
@@ -1452,7 +1656,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         QStringList args;
 #ifdef Q_OS_WIN
         program = QStringLiteral("cmd.exe");
-        args << "/C" << wrapRemoteCommand(p, localCmd, windowsMode);
+        args << "/C" << wrapRemoteCommand(p, localCmd);
 #else
         program = QStringLiteral("sh");
         args << "-c" << localCmd;
@@ -1588,313 +1792,16 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         return true;
     }
 
-    if (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        QString program = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
-        if (program.isEmpty()) {
-            program = QStandardPaths::findExecutable(QStringLiteral("powershell"));
-        }
-        if (program.isEmpty()) {
-            err = QStringLiteral("No se encontró pwsh/powershell para PSRP");
-            appendConnectionLog(p.id, err);
-            return false;
-        }
-
-        const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
-        const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
-        const QString wrappedRemoteCmd = wrapRemoteCommand(p, remoteCmd, windowsMode);
-        const QString remoteB64 = QString::fromLatin1(wrappedRemoteCmd.toUtf8().toBase64());
-        const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
-        const int port = (p.port > 0) ? p.port : 5986;
-        const QString script = QStringLiteral(
-            "$remote=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
-            "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%2')); "
-            "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
-            "$cred=New-Object System.Management.Automation.PSCredential('%3',$sec); "
-            "$so=$null; "
-            "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck } "
-            "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck }; "
-            "$res=$null; "
-            "try { "
-            "  $res=Invoke-Command -ComputerName '%4' -Port %5 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
-            "    -ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
-            "    -ArgumentList $remote -ErrorAction Stop 2>&1 "
-            "} catch { "
-            "  $res=Invoke-Command -ComputerName '%4' -Port %5 -UseSSL -Authentication Basic -Credential $cred -SessionOption $so "
-            "    -ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
-            "    -ArgumentList $remote -ErrorAction Stop 2>&1 "
-            "}; "
-            "$rc=$LASTEXITCODE; "
-            "$res | ForEach-Object { $_.ToString() }; "
-            "if($rc -eq $null){ $rc=0 }; "
-            "exit [int]$rc;")
-                                   .arg(remoteB64,
-                                        passB64,
-                                        userEsc,
-                                        hostEsc,
-                                        QString::number(port));
-
-        const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
-        const QString encoded = QString::fromLatin1(utf16.toBase64());
-        QStringList args;
-        args << "-NoProfile" << "-NonInteractive" << "-EncodedCommand" << encoded;
-
-        const QString cmdLine = QStringLiteral("%1@%2:%3 [PSRP] $ %4")
-                                    .arg(p.username, p.host)
-                                    .arg(port)
-                                    .arg(remoteCmd);
-        appLog(QStringLiteral("INFO"), cmdLine);
-        appendConnectionLog(p.id, cmdLine);
-
-        QProcess proc;
-        QElapsedTimer timer;
-        timer.start();
-        proc.start(program, args);
-        if (!proc.waitForStarted(4000)) {
-            err = QStringLiteral("No se pudo iniciar %1").arg(program);
-            appendConnectionLog(p.id, err);
-            return false;
-        }
-        if (!stdinPayload.isEmpty()) {
-            proc.write(stdinPayload);
-            proc.closeWriteChannel();
-        }
-
-        QString outLineBuf;
-        QString errLineBuf;
-        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
-            if (!chunk.isEmpty()) {
-                buf += chunk;
-            }
-            while (true) {
-                const int nl = buf.indexOf('\n');
-                const int cr = buf.indexOf('\r');
-                int sep = -1;
-                if (nl >= 0 && cr >= 0) {
-                    sep = qMin(nl, cr);
-                } else if (nl >= 0) {
-                    sep = nl;
-                } else if (cr >= 0) {
-                    sep = cr;
-                }
-                if (sep < 0) {
-                    break;
-                }
-                QString line = buf.left(sep);
-                buf.remove(0, sep + 1);
-                line = line.trimmed();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (cb) {
-                    cb(line);
-                }
-                appendConnectionLog(p.id, line);
-            }
-        };
-
-        bool timedOut = false;
-        int lastIdleRemainingSec = -1;
-        while (proc.state() != QProcess::NotRunning) {
-            proc.waitForReadyRead(120);
-            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
-            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
-            if (!outChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                out += outChunk;
-                flushLines(outLineBuf, outChunk, onStdoutLine);
-            }
-            if (!errChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                err += errChunk;
-                flushLines(errLineBuf, errChunk, onStderrLine);
-            }
-            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
-                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
-                if (remainingSec != lastIdleRemainingSec) {
-                    lastIdleRemainingSec = remainingSec;
-                    onIdleTimeoutRemaining(remainingSec);
-                }
-            }
-            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
-                timedOut = true;
-                proc.kill();
-                proc.waitForFinished(1000);
-                break;
-            }
-            if (QThread::currentThread() == thread()) {
-                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
-            }
-        }
-
-        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
-        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
-        if (!outTail.isEmpty()) {
-            out += outTail;
-            flushLines(outLineBuf, outTail, onStdoutLine);
-        }
-        if (!errTail.isEmpty()) {
-            err += errTail;
-            flushLines(errLineBuf, errTail, onStderrLine);
-        }
-        if (!outLineBuf.trimmed().isEmpty()) {
-            const QString line = outLineBuf.trimmed();
-            if (onStdoutLine) {
-                onStdoutLine(line);
-            }
-            appendConnectionLog(p.id, line);
-        }
-        if (!errLineBuf.trimmed().isEmpty()) {
-            const QString line = errLineBuf.trimmed();
-            if (onStderrLine) {
-                onStderrLine(line);
-            }
-            appendConnectionLog(p.id, line);
-        }
-
-        if (timedOut) {
-            rc = -1;
-            err = QStringLiteral("Timeout");
-            appendConnectionLog(p.id, err);
-            return false;
-        }
-
-        rc = proc.exitCode();
-        out = sanitizePsrpText(out);
-        err = sanitizePsrpText(err);
-        const QString mergedPsrp = (out + QStringLiteral("\n") + err);
-        if (mergedPsrp.contains(QStringLiteral("no supported wsman client library"), Qt::CaseInsensitive)
-            || mergedPsrp.contains(QStringLiteral("requires WSMan"), Qt::CaseInsensitive)) {
-            rc = -1;
-            err = QStringLiteral("PSRP no disponible en este host: falta WSMan client library (instale PSWSMan/Install-WSMan en PowerShell local).");
-            appendConnectionLog(p.id, oneLine(err));
-            return false;
-        }
-        if (!out.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(out));
-        }
-        if (!err.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(err));
-        }
-        return true;
-    }
-
-    // Windows por SSH SÍ entra por RPC: el daemon nativo sirve TLS por el mismo túnel
-    // "ssh -L", verificado contra un Windows 11 real ejecutando ZFS. Lo que queda
-    // fuera es PSRP, que no tiene SSH y por tanto no admite túnel; ese caso lo
-    // descarta la comprobación de connType, no una excepción por sistema operativo.
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+    // Windows entra por RPC como cualquier otro sistema: el daemon nativo sirve TLS por
+    // el mismo túnel "ssh -L", verificado contra un Windows 11 real ejecutando ZFS.
+    // Camino histórico: los argumentos se recuperan parseando la cadena. runAgentCommand
+    // los pasa ya hechos y no pasa por aquí. Este parseo desaparece cuando migren todos
+    // los sitios; hasta entonces convive con el nuevo.
+    if (allowAgentRpc && stdinPayload.isEmpty()) {
         QStringList agentArgs;
-        if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
-            const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
-            bool allowRpcAttempt = true;
-            QString suppressedReason;
-            {
-                QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
-                if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
-                    && it.value().isValid()
-                    && QDateTime::currentDateTimeUtc() < it.value()) {
-                    allowRpcAttempt = false;
-                    suppressedReason = QStringLiteral("backoff activo %1s")
-                                           .arg(QDateTime::currentDateTimeUtc().secsTo(it.value()));
-                }
-            }
-            bool rpcAttemptOk = false;
-            QString rpcFailureReason;
-            bool rpcCommandMayHaveRun = false;
-            if (allowRpcAttempt) {
-                if (QThread::currentThread() == thread()) {
-                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
-                } else {
-                    QMetaObject::invokeMethod(
-                        this,
-                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
-                         &rpcCommandMayHaveRun]() {
-                            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
-                                &rpcCommandMayHaveRun);
-                        },
-                        Qt::BlockingQueuedConnection);
-                }
-            }
-            if (rpcAttemptOk) {
-                {
-                    QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                    m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
-                    m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
-                }
-                const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
-                                            .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
-                appLog(QStringLiteral("INFO"), cmdLine);
-                appendConnectionLog(p.id, cmdLine);
-                const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
-                    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-                    for (const QString& rawLine : lines) {
-                        const QString line = rawLine.trimmed();
-                        if (line.isEmpty()) {
-                            continue;
-                        }
-                        if (cb) {
-                            cb(line);
-                        }
-                        appendConnectionLog(p.id, line);
-                    }
-                };
-                emitLines(out, onStdoutLine);
-                emitLines(err, onStderrLine);
-                if (!out.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(out));
-                }
-                if (!err.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(err));
-                }
-                return true;
-            } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
-                // The daemon received a mutating command and we never got its answer.
-                // Closing the tunnel does not abort remote work, so falling back to
-                // SSH here would run the same destructive command a second time,
-                // possibly overlapping with the first. Fail loudly instead.
-                const QString reason = rpcFailureReason.trimmed().isEmpty()
-                                           ? QStringLiteral("motivo no especificado")
-                                           : rpcFailureReason.trimmed();
-                const QString abortLine =
-                    QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
-                                   " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
-                appLog(QStringLiteral("ERROR"), abortLine);
-                appendConnectionLog(p.id, abortLine);
-                out.clear();
-                err = QStringLiteral(
-                          "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
-                          "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
-                          "reintenta automáticamente.\nCompruebe el estado antes de repetirla.")
-                          .arg(reason);
-                rc = 124;
-                return true;
-            } else if (allowRpcAttempt) {
-                const QString reason = rpcFailureReason.trimmed().isEmpty()
-                                           ? QStringLiteral("motivo no especificado")
-                                           : rpcFailureReason.trimmed();
-                const QString fallbackLine =
-                    QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
-                appLog(QStringLiteral("INFO"), fallbackLine);
-                appendConnectionLog(p.id, fallbackLine);
-                QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                constexpr int kDaemonRpcRetryBackoffSec = 30;
-                m_daemonRpcRetryAfterByConnKey.insert(
-                    rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
-                m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
-            } else if (!suppressedReason.isEmpty()) {
-                const QString skippedLine =
-                    QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
-                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
-                appLog(QStringLiteral("INFO"), skippedLine);
-                appendConnectionLog(p.id, skippedLine);
-            }
+        if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)
+            && tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine)) {
+            return true;
         }
     }
 
@@ -1911,7 +1818,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
     }
 
-    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd, windowsMode);
+    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
     const QString sshConnKey = QStringLiteral("%1|%2|%3|%4")
                                    .arg(p.username,
                                         p.host,
@@ -2332,7 +2239,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::AlternateMount)) {
         return false;
     }
     const QString os = p.osType.trimmed().toLower();
@@ -2344,67 +2251,44 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
-                                      const QString& remoteCmd,
-                                      MainWindow::WindowsCommandMode windowsMode) const {
+                                      const QString& remoteCmd) const {
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }
-    const QString trimmed = remoteCmd.trimmed();
-    const QString low = trimmed.toLower();
-    const bool zfsStreamCmd = low.contains(QStringLiteral("zfs send"))
-        || low.contains(QStringLiteral("zfs recv"));
-    MainWindow::WindowsCommandMode effectiveMode = windowsMode;
-    if (effectiveMode == MainWindow::WindowsCommandMode::Auto) {
-        // zfs send/recv transport binary streams; forcing PowerShell execution can break stdin/stdout.
-        // For these commands we must route through a Unix shell (MSYS/MinGW) when available.
-        effectiveMode = zfsStreamCmd || !looksLikePowerShellScript(trimmed)
-            ? MainWindow::WindowsCommandMode::UnixShell
-            : MainWindow::WindowsCommandMode::PowerShellNative;
-    }
-    const QString psEscaped = QString(trimmed).replace('\'', QStringLiteral("''"));
+    QString trimmed = remoteCmd.trimmed();
+    // Los comandos clásicos llegan envueltos por withUnixSearchPathCommand, que antepone
+    // un "PATH=...; export PATH; " de sintaxis Unix. Eso existía para el bash de MSYS2;
+    // en PowerShell es un error de sintaxis. Se retira aquí, en un único punto, en vez
+    // de en la treintena de sitios que lo aplican: el prólogo de abajo ya pone las rutas
+    // de OpenZFS en $env:Path, que es lo único que ese prefijo aportaba.
+    //
+    // Comprobado contra un Windows 11 real: "zfs version" y "zpool list -H -p -o ..."
+    // se ejecutan así sin ninguna capa Unix de por medio.
+    static const QRegularExpression unixPathPrefix(
+        QStringLiteral("^PATH=\"[^\"]*\";\\s*export PATH;\\s*"));
+    trimmed.remove(unixPathPrefix);
+
     QString script = QStringLiteral(
         "$ProgressPreference='SilentlyContinue'; "
         "$InformationPreference='SilentlyContinue'; "
         "$WarningPreference='Continue'; "
         "$zfsPaths=@("
         "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
-        "'C:\\\\Program Files\\\\OpenZFS On Windows',"
-        "'C:\\\\msys64\\\\usr\\\\bin',"
-        "'C:\\\\msys64\\\\mingw64\\\\bin',"
-        "'C:\\\\msys64\\\\mingw32\\\\bin',"
-        "'C:\\\\MinGW\\\\bin',"
-        "'C:\\\\mingw64\\\\bin'"
+        "'C:\\\\Program Files\\\\OpenZFS On Windows'"
         "); "
         "foreach($p in $zfsPaths){ "
         "  if(Test-Path -LiteralPath $p){ "
         "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
         "  } "
         "}; ");
-    if (effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative) {
-        script += trimmed;
-    } else {
-        script += QStringLiteral(
-            "$cmd='%1'; "
-            "$unixShells=@("
-            "'C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe',"
-            "'C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe',"
-            "'C:\\\\msys64\\\\mingw64\\\\bin\\\\bash.exe',"
-            "'C:\\\\msys64\\\\mingw32\\\\bin\\\\bash.exe',"
-            "'C:\\\\MinGW\\\\msys\\\\1.0\\\\bin\\\\sh.exe'"
-            "); "
-            "$shell=$null; foreach($s in $unixShells){ if(Test-Path -LiteralPath $s){ $shell=$s; break } }; "
-            "if($shell){ & $shell -lc $cmd; exit $LASTEXITCODE } "
-            "Invoke-Expression $cmd; exit $LASTEXITCODE;")
-                      .arg(psEscaped);
-    }
+    script += trimmed;
+
     const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
     const QString b64 = QString::fromLatin1(utf16.toBase64());
-    // Windows command-line length can be hit with very large EncodedCommand payloads
-    // in local cmd.exe execution. Over SSH, forcing -Command lets the remote shell
-    // expand PowerShell variables (e.g. "$p"), breaking scripts like foreach($p...).
-    if (isLocalConnection(p)
-        && effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative
-        && b64.size() > 7000) {
+    // La línea de comandos de cmd.exe se agota con payloads muy grandes en ejecución
+    // local. Por SSH no se usa -Command: el shell remoto expandiría las variables de
+    // PowerShell (p. ej. "$p") y rompería los foreach.
+    if (isLocalConnection(p) && b64.size() > 7000) {
         QString inlineScript = script;
         inlineScript.replace(QStringLiteral("\""), QStringLiteral("`\""));
         return QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
@@ -2414,14 +2298,13 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
 }
 
 QString MainWindow::sshExecFromLocal(const ConnectionProfile& p,
-                                     const QString& remoteCmd,
-                                     MainWindow::WindowsCommandMode windowsMode) const {
+                                     const QString& remoteCmd) const {
     if (isLocalConnection(p)) {
         return remoteCmd;
     }
     const QString sshBase = sshBaseCommand(p);
     const QString target = shSingleQuote(sshUserHost(p));
-    const QString wrapped = wrapRemoteCommand(p, remoteCmd, windowsMode);
+    const QString wrapped = wrapRemoteCommand(p, remoteCmd);
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrapped);
 }
 
@@ -2445,7 +2328,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     }
     const QString cmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop %1 %2")
+               daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop %1 %2")
                    .arg(shSingleQuote(prop), shSingleQuote(dataset))));
     const QString cmd = daemonReadApiOk ? cmdDaemon : withSudo(p, cmdClassic);
     QString out;
@@ -2507,7 +2390,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         }
         const QString guidCmdDaemon = withSudo(
             p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop guid %1")
+                   daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-get-prop guid %1")
                        .arg(shSingleQuote(trimmedObject))));
         const QString guidCmd = daemonReadApiOk ? guidCmdDaemon : withSudo(p, guidCmdClassic);
         bool ok = runSsh(p, guidCmd, 15000, out, err, rc) && rc == 0;
@@ -2642,12 +2525,11 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1")
                         .arg(shSingleQuote(trimmedPool))));
-            const QString guidCmdDaemon = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
-                           .arg(shSingleQuote(trimmedPool))));
-            const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
-            bool guidOk = runSsh(p, selectedGuidCmd, 12000, gOut, gErr, gRc) && gRc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList guidCmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), trimmedPool};
+            bool guidOk = daemonReadApiOk
+                ? (runAgentCommand(p, guidCmdDaemonArgv, 12000, gOut, gErr, gRc) && gRc == 0)
+                : (runSsh(p, guidCmdClassic, 12000, gOut, gErr, gRc) && gRc == 0);
             if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -2691,10 +2573,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
                     .arg(shSingleQuote(poolName)));
-        const QString jsonCmdDaemon = withSudo(
-            p, mwhelpers::withUnixSearchPathCommand(
-                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-all %1")
-                       .arg(shSingleQuote(poolName))));
+        const QString jsonCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-all"), poolName});
         const QString jsonCmd = daemonReadApiOk ? jsonCmdDaemon : withSudo(p, jsonCmdClassic);
         if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
             QString jsonPayload = mwhelpers::stripToJson(out);

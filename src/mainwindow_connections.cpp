@@ -488,9 +488,8 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("API daemon: %1")
                  .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                               : st.daemonApiVersion.trimmed());
-    // Ya no se puede dar por hecho que Windows sea "script": por SSH lleva el daemon
-    // nativo, y solo PSRP conserva el stub de PowerShell. Se informa de lo que la
-    // sonda encontró realmente, en vez de deducirlo del sistema operativo.
+    // Se informa de lo que la sonda encontró realmente, no de lo que se deduzca del
+    // sistema operativo: Windows lleva daemon nativo como todos los demás.
     lines << QStringLiteral("Binario daemon: %1")
                  .arg(st.daemonNativeBinary ? QStringLiteral("nativo")
                                             : QStringLiteral("script/no nativo"));
@@ -504,6 +503,34 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("Comandos no detectados: %1")
                  .arg(st.missingUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
                                                        : st.missingUnixCommands.join(QStringLiteral(", ")));
+    // Lo que esta conexión NO puede hacer, y por qué. Antes esto no se decía en
+    // ninguna parte: el usuario lo descubría al pulsar y ver fallar la acción.
+    {
+        using F = zfsmgr::caps::Feature;
+        const QVector<QPair<F, QString>> checked = {
+            {F::DatasetPermissions, QStringLiteral("Permisos ZFS")},
+            {F::AutoSnapshotsGsa, QStringLiteral("Instantáneas automáticas")},
+            {F::BackgroundJobs, QStringLiteral("Trabajos en segundo plano")},
+            {F::DirBreakdown, QStringLiteral("Desglosar")},
+            {F::DirAssemble, QStringLiteral("Ensamblar")},
+            {F::DirToDir, QStringLiteral("Hacia Dir")},
+            {F::SendRecvStreaming, QStringLiteral("Copiar/Nivelar entre máquinas")},
+            {F::RsyncSync, QStringLiteral("Sincronizar con rsync")},
+            {F::RepairAltMountpoints, QStringLiteral("Reparar mountpoints temporales")},
+            {F::AlternateMount, QStringLiteral("Montaje alternativo")},
+        };
+        QStringList unavailable;
+        for (const auto& entry : checked) {
+            QString why;
+            if (!featureAvailable(connIdx, entry.first, &why)) {
+                unavailable << QStringLiteral("%1 (%2)").arg(entry.second, why);
+            }
+        }
+        if (!unavailable.isEmpty()) {
+            lines << QStringLiteral("Funciones no disponibles: %1")
+                         .arg(unavailable.join(QStringLiteral("; ")));
+        }
+    }
     lines << QStringLiteral("Plataforma instalación auxiliar: %1")
                  .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
                                                                  : st.helperPlatformLabel.trimmed());
@@ -526,11 +553,6 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
                           : st.helperUnsupportedCommands.join(QStringLiteral(", ")));
     if (!st.helperInstallReason.trimmed().isEmpty()) {
         lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
-    }
-    if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
-        && !st.powershellFallbackCommands.isEmpty()) {
-        lines << QStringLiteral("Comandos PowerShell usados: %1")
-                     .arg(st.powershellFallbackCommands.join(QStringLiteral(", ")));
     }
     if (windowsSshConn && !disconnected
         && st.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
@@ -697,9 +719,6 @@ struct ConnectivityProbeResult {
 };
 
 QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verbose = false) {
-    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
     const QString unixPathPrefix =
         QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
@@ -726,9 +745,6 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verb
 }
 
 QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
-    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
     const QString unixPathPrefix =
         QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
@@ -939,12 +955,6 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
                         QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
                         QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。")));
     }
-    if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-        return fail(trk(QStringLiteral("t_connectivity_unsupported_source_001"),
-                        QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
-                        QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
-                        QStringLiteral("不检查来自 PSRP 连接的出站连通性。")));
-    }
     const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
     if (sshCmd.trimmed().isEmpty()) {
         return fail(QStringLiteral("probe SSH vacío"));
@@ -1145,15 +1155,6 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.detail = result.tooltip;
             return result;
         }
-        if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
-            result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_source_001"),
-                                 QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
-                                 QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
-                                 QStringLiteral("不检查来自 PSRP 连接的出站连通性。"));
-            result.detail = result.tooltip;
-            return result;
-        }
         const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
         if (sshCmd.trimmed().isEmpty()) {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
@@ -1316,13 +1317,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         setCurrentConnectionInUi(connIdx);
     }
     const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
-    const bool hasWindowsUnixLayerReady =
-        hasConn
-        && connIdx < m_states.size()
-        && isWindowsConnection(connIdx)
-        && m_states[connIdx].unixFromMsysOrMingw
-        && m_states[connIdx].missingUnixCommands.isEmpty()
-        && !m_states[connIdx].detectedUnixCommands.isEmpty();
     const zfsmgr::uilogic::ConnectionContextMenuState menuState =
         zfsmgr::uilogic::buildConnectionContextMenuState(
             hasConn,
@@ -1330,8 +1324,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             actionsLocked(),
             hasConn && isLocalConnection(connIdx),
             hasConn && isConnectionRedirectedToLocal(connIdx),
-            hasConn && isWindowsConnection(connIdx),
-            hasWindowsUnixLayerReady);
+            hasConn && isWindowsConnection(connIdx));
 
     QMenu menu(this);
     QAction* aConnect = menu.addAction(
@@ -1372,11 +1365,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("New Pool"),
             QStringLiteral("新建存储池")));
     menu.addSeparator();
-    QAction* aInstallMsys = menu.addAction(
-        trk(QStringLiteral("t_install_msys_ctx001"),
-            QStringLiteral("Instalar MSYS2"),
-            QStringLiteral("Install MSYS2"),
-            QStringLiteral("安装 MSYS2")));
     QAction* aInstallHelpers = menu.addAction(
         trk(QStringLiteral("t_install_helpers_ctx001"),
             QStringLiteral("Instalar comandos auxiliares"),
@@ -1427,19 +1415,13 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
 
     aConnect->setEnabled(menuState.canConnect);
     aDisconnect->setEnabled(menuState.canDisconnect);
-    aInstallMsys->setEnabled(menuState.canInstallMsys);
     const bool canInstallHelpers =
         hasConn && !actionsLocked() && !isDisconnected
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
-    // El criterio es el TRANSPORTE, no el sistema operativo: Windows por SSH admite
-    // daemon nativo (verificado contra un Windows 11 real), y lo que no admite es
-    // PSRP, que al no tener SSH no permite abrir el túnel por el que viaja el RPC.
     const bool daemonInstallable =
-        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx)
-        && (!isWindowsConnection(connIdx)
-            || m_profiles[connIdx].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
+        hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx);
     aInstallDaemon->setEnabled(daemonInstallable);
     // Also available on the local connection: a local dataset can be left stranded too.
     aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
@@ -1527,9 +1509,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aDelete) {
         logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
         deleteConnection();
-    } else if (chosen == aInstallMsys) {
-        logUiAction(QStringLiteral("Instalar MSYS2 (menú conexiones)"));
-        installMsysForSelectedConnection();
     } else if (chosen == aInstallHelpers) {
         logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
         installHelperCommandsForSelectedConnection();
@@ -1734,8 +1713,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
         && !state.machineUuid.trimmed().isEmpty()
         && (isLocalConnection(targetIdx)
-            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)) {
+            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0)) {
         const QString newMachineUid = state.machineUuid.trimmed();
         if (m_profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
             ConnectionProfile persisted = m_profiles[targetIdx];
@@ -1868,9 +1846,7 @@ void MainWindow::pollDaemonZedAllConnections() {
 
     for (int idx : std::as_const(toCheck)) {
         const ConnectionProfile profile = m_profiles[idx];
-        const QString healthCmd = withSudo(
-            profile, mwhelpers::withUnixSearchPathCommand(
-                         QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+        const QString healthCmd = mwhelpers::agentShellCommand(profile, {QStringLiteral("--health")});
         const QString connId = profile.id;
 
         (void)QtConcurrent::run([this, idx, connId, profile, healthCmd]() {
@@ -2790,17 +2766,11 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
         return;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        QMessageBox::information(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_win001"),
-                QStringLiteral("La reparación de mountpoints temporales no aplica a conexiones Windows."),
-                QStringLiteral("Temporary mountpoint repair does not apply to Windows connections."),
-                QStringLiteral("临时挂载点修复不适用于 Windows 连接。")));
+    if (!requireFeature(connIdx, zfsmgr::caps::Feature::RepairAltMountpoints)) {
         return;
     }
 
-    const QString agentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+    const QString agentBin = daemonpayload::unixBinPath();
     // Report-only pass first: nothing is modified until the user confirms.
     QString out;
     QString failure;
@@ -2979,9 +2949,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
     }
 
     QString remoteCmd;
-    WindowsCommandMode mode = WindowsCommandMode::Auto;
     if (isWindowsConnection(p)) {
-        mode = WindowsCommandMode::PowerShellNative;
         remoteCmd = QStringLiteral(
             "$ErrorActionPreference='Stop'; "
             "$dir=Join-Path $env:USERPROFILE '.config\\ZFSMgr'; "
@@ -3044,7 +3012,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
     QString out;
     QString err;
     int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, 30000, out, err, rc, {}, {}, {}, mode, payload) && rc == 0;
+    const bool ok = runSsh(p, remoteCmd, 30000, out, err, rc, {}, {}, {}, payload) && rc == 0;
     if (!ok) {
         const QString detail = mwhelpers::oneLine(err.trimmed().isEmpty() ? out : err);
         appLog(QStringLiteral("ERROR"),
@@ -3146,211 +3114,6 @@ void MainWindow::editConnection() {
     }
 }
 
-void MainWindow::installMsysForSelectedConnection() {
-    if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acci\xf3n en curso: instalaci\xf3n de MSYS2 bloqueada"));
-        return;
-    }
-    const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size()) {
-        return;
-    }
-    const ConnectionProfile p = m_profiles[idx];
-    if (!isWindowsConnection(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_windows_only_01"),
-                QStringLiteral("Esta acci\xf3n solo est\xe1 disponible para conexiones Windows."),
-                QStringLiteral("This action is only available for Windows connections."),
-                QStringLiteral("此操作仅适用于 Windows 连接。")));
-        return;
-    }
-    if (isConnectionDisconnected(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_conn_disc_01"),
-                QStringLiteral("La conexi\xf3n est\xe1 desconectada."),
-                QStringLiteral("The connection is disconnected."),
-                QStringLiteral("该连接已断开。")));
-        return;
-    }
-
-    const auto confirm = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_msys_install_title_01"),
-            QStringLiteral("Instalar MSYS2"),
-            QStringLiteral("Install MSYS2"),
-            QStringLiteral("安装 MSYS2")),
-        trk(QStringLiteral("t_msys_install_q_01"),
-            QStringLiteral("Se comprobará MSYS2 en \"%1\" y, si falta, se intentará instalar mediante winget junto con paquetes base (tar, gzip, zstd, rsync, grep, sed, gawk).\n\n¿Continuar?"),
-            QStringLiteral("ZFSMgr will check MSYS2 on \"%1\" and, if missing, try to install it with winget plus base packages (tar, gzip, zstd, rsync, grep, sed, gawk).\n\nContinue?"),
-            QStringLiteral("ZFSMgr 将检查 \"%1\" 上的 MSYS2，如缺失则尝试使用 winget 安装，并补齐基础包（tar、gzip、zstd、rsync、grep、sed、gawk）。\n\n是否继续？"))
-            .arg(p.name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return;
-    }
-
-    const WindowsCommandMode psMode = WindowsCommandMode::PowerShellNative;
-    const QString detectCmd = QStringLiteral(
-        "$roots=@('C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
-        "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe','C:\\\\msys64\\\\mingw64\\\\bin\\\\bash.exe','C:\\\\msys64\\\\mingw32\\\\bin\\\\bash.exe','C:\\\\MinGW\\\\msys\\\\1.0\\\\bin\\\\sh.exe'); "
-        "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
-        "if($bash){ Write-Output ('BASH:' + $bash) } else { Write-Output 'BASH:' }; "
-        "$cmds='tar gzip zstd rsync grep sed gawk'.Split(' '); "
-        "foreach($c in $cmds){ "
-        "  $ok=$false; foreach($r in $roots){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
-        "  if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } "
-        "}");
-
-    auto detectState = [&](QString& bashPath, QStringList& missing, QString* detailOut = nullptr) -> bool {
-        bashPath.clear();
-        missing.clear();
-        QString out;
-        QString detail;
-        if (!fetchConnectionCommandOutput(idx, QStringLiteral("Detectar MSYS2"), detectCmd, &out, &detail, 30000, psMode)) {
-            if (detailOut) {
-                *detailOut = detail.simplified().left(220);
-            }
-            return false;
-        }
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            const QString line = raw.trimmed();
-            if (line.startsWith(QStringLiteral("BASH:"))) {
-                bashPath = line.mid(5).trimmed();
-            } else if (line.startsWith(QStringLiteral("KO:"))) {
-                missing << line.mid(3).trimmed();
-            }
-        }
-        if (detailOut) {
-            *detailOut = out;
-        }
-        return true;
-    };
-
-    QString bashPath;
-    QStringList missingPackages;
-    QString detectDetail;
-    if (!detectState(bashPath, missingPackages, &detectDetail)) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_detect_fail_01"),
-                QStringLiteral("No se pudo comprobar MSYS2 en \"%1\".\n\n%2"),
-                QStringLiteral("Could not check MSYS2 on \"%1\".\n\n%2"),
-                QStringLiteral("无法检查 \"%1\" 上的 MSYS2。\n\n%2"))
-                .arg(p.name, detectDetail));
-        return;
-    }
-
-    if (!bashPath.isEmpty() && missingPackages.isEmpty()) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_already_ok_01"),
-                QStringLiteral("MSYS2 ya est\xe1 disponible en \"%1\"."),
-                QStringLiteral("MSYS2 is already available on \"%1\"."),
-                QStringLiteral("\"%1\" 上已提供 MSYS2。"))
-                .arg(p.name));
-        refreshConnectionByIndex(idx);
-        return;
-    }
-
-    QString installCmd;
-    if (bashPath.isEmpty()) {
-        installCmd = QStringLiteral(
-            "$ErrorActionPreference='Stop'; "
-            "$msysRoot='C:\\\\msys64'; "
-            "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe'); "
-            "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
-            "if(-not $bash){ "
-            "  $winget = Get-Command winget.exe -ErrorAction SilentlyContinue; "
-            "  $installed=$false; "
-            "  if($winget){ "
-            "    & $winget.Source install --exact --id MSYS2.MSYS2 --accept-package-agreements --accept-source-agreements --disable-interactivity --silent; "
-            "    if($LASTEXITCODE -eq 0){ $installed=$true } "
-            "  }; "
-            "  if(-not $installed){ "
-            "    $tmp = Join-Path $env:TEMP 'zfsmgr-msys2-base-x86_64-latest.sfx.exe'; "
-            "    $url = 'https://github.com/msys2/msys2-installer/releases/latest/download/msys2-base-x86_64-latest.sfx.exe'; "
-            "    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp; "
-            "    if(-not (Test-Path -LiteralPath $tmp)){ throw 'No se pudo descargar el instalador base de MSYS2' }; "
-            "    & $tmp '-y' '-oC:\\'; "
-            "    if($LASTEXITCODE -ne 0){ throw ('instalador base MSYS2 fall\xf3 con exit ' + $LASTEXITCODE) } "
-            "  }; "
-            "}; "
-            "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe'); "
-            "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
-            "if(-not $bash){ throw 'MSYS2 instalado pero bash.exe no encontrado en C:\\\\msys64' }; "
-            "& $bash -lc 'true'; "
-            "& $bash -lc 'pacman --noconfirm -Sy --needed tar gzip zstd rsync grep sed gawk'; "
-            "if($LASTEXITCODE -ne 0){ throw ('pacman fall\xf3 con exit ' + $LASTEXITCODE) }");
-    } else {
-        QString escapedBash = bashPath;
-        escapedBash.replace('\'', QStringLiteral("''"));
-        installCmd = QStringLiteral(
-            "$ErrorActionPreference='Stop'; "
-            "$bash='%1'; "
-            "& $bash -lc 'pacman --noconfirm -Sy --needed tar gzip zstd rsync grep sed gawk'; "
-            "if($LASTEXITCODE -ne 0){ throw ('pacman fall\xf3 con exit ' + $LASTEXITCODE) }")
-                         .arg(escapedBash);
-    }
-
-    beginUiBusy();
-    updateStatus(trk(QStringLiteral("t_msys_install_progress_01"),
-                     QStringLiteral("Instalando/verificando MSYS2 en %1..."),
-                     QStringLiteral("Installing/checking MSYS2 on %1..."),
-                     QStringLiteral("正在 %1 上安装/检查 MSYS2...")).arg(p.name));
-    QString installDetail;
-    const bool ok = executeConnectionCommand(idx, QStringLiteral("Instalar MSYS2"), installCmd, 900000, &installDetail, psMode);
-    endUiBusy();
-
-    if (!ok) {
-        const QString detail = installDetail.simplified().left(400);
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_install_fail_01"),
-                QStringLiteral("No se pudo instalar/preparar MSYS2 en \"%1\".\n\n%2"),
-                QStringLiteral("Could not install/prepare MSYS2 on \"%1\".\n\n%2"),
-                QStringLiteral("无法在 \"%1\" 上安装/准备 MSYS2。\n\n%2"))
-                .arg(p.name, detail));
-        refreshConnectionByIndex(idx);
-        return;
-    }
-
-    bashPath.clear();
-    missingPackages.clear();
-    detectDetail.clear();
-    detectState(bashPath, missingPackages, &detectDetail);
-    refreshConnectionByIndex(idx);
-
-    if (!bashPath.isEmpty() && missingPackages.isEmpty()) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_msys_install_ok_01"),
-                QStringLiteral("MSYS2 preparado correctamente en \"%1\"."),
-                QStringLiteral("MSYS2 was prepared successfully on \"%1\"."),
-                QStringLiteral("已在 \"%1\" 上成功准备 MSYS2。"))
-                .arg(p.name));
-        return;
-    }
-
-    QMessageBox::warning(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_msys_install_partial_01"),
-            QStringLiteral("La instalaci\xf3n termin\xf3, pero faltan comandos en \"%1\": %2"),
-            QStringLiteral("The installation finished, but commands are still missing on \"%1\": %2"),
-            QStringLiteral("安装已完成，但 \"%1\" 上仍缺少命令：%2"))
-            .arg(p.name, missingPackages.join(QStringLiteral(", "))));
-}
-
 void MainWindow::installHelperCommandsForSelectedConnection() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: instalación de comandos auxiliares bloqueada"));
@@ -3375,8 +3138,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         return;
     }
     const ConnectionRuntimeState& st = m_states[idx];
-    if (isWindowsConnection(idx)) {
-        installMsysForSelectedConnection();
+    if (!requireFeature(idx, zfsmgr::caps::Feature::HelperCommandInstall)) {
         return;
     }
     if (st.missingUnixCommands.isEmpty()) {
@@ -3574,20 +3336,12 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     const QString apiVersion = agentversion::expectedApiVersion().trimmed();
     QString remoteCmd;
     QByteArray remoteStdinPayload;
-    WindowsCommandMode winMode = WindowsCommandMode::Auto;
     bool isMac = false;
 
-    // Windows por SSH: se instala el daemon NATIVO, igual que en Unix. Verificado en
-    // un Windows 11 real que sirve TLS por el túnel y ejecuta ZFS.
-    //
-    // PSRP se queda con el stub a propósito: el RPC viaja por un túnel "ssh -L", y una
-    // conexión PSRP no tiene SSH, así que no hay túnel que abrir. No es que falte
-    // trabajo, es que el transporte no aplica.
-    const bool windowsNativeAgent =
-        isWindowsConnection(idx)
-        && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    // Windows instala el daemon NATIVO, igual que en Unix. Verificado en un Windows 11
+    // real que sirve TLS por el túnel y ejecuta ZFS.
+    const bool windowsNativeAgent = isWindowsConnection(idx);
     if (windowsNativeAgent) {
-        winMode = WindowsCommandMode::PowerShellNative;
         const QString localAgentPath =
             findDeployableAgentBinaryPath(QStringLiteral("windows"), QStringLiteral("x86_64"));
         QFile agentFile(localAgentPath);
@@ -3636,22 +3390,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             return false;
         }
         remoteCmd = daemonpayload::windowsNativeInstallCommand();
-    } else if (isWindowsConnection(idx)) {
-        winMode = WindowsCommandMode::PowerShellNative;
-        const QString payload = daemonpayload::windowsStubScript(daemonVersion, apiVersion);
-        remoteCmd = QStringLiteral(
-            "$dir='%1'; $script='%2'; "
-            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
-            "Set-Content -LiteralPath $script -Value @'\n%3\n'@ -Encoding UTF8; "
-            "$taskName='%4'; "
-            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
-            "$action = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
-            "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $taskName /TR $action /F >$null; "
-            "schtasks /Run /TN $taskName 2>&1 | Out-Null; exit 0")
-                        .arg(daemonpayload::windowsDirPath(),
-                             daemonpayload::windowsScriptPath(),
-                             payload,
-                             daemonpayload::windowsTaskName());
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
@@ -3866,7 +3604,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                              remoteCmd,
                                              180000,
                                              &detail,
-                                             winMode,
                                              remoteStdinPayload);
     if (!ok) {
         if (interactive) {

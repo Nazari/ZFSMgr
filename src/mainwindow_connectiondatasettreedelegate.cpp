@@ -3,6 +3,7 @@
 #include "agentversion.h"
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 
 #include <QAction>
@@ -1176,7 +1177,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
         arr.push_back(objectName);
         const QString payloadB64 = QString::fromUtf8(
             QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
                        .arg(mwhelpers::shSingleQuote(payloadB64));
     }
     const QString fullCmd = m_mainWindow->sshExecFromLocal(
@@ -1280,7 +1281,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
         arr.push_back(objectName);
         const QString payloadB64 = QString::fromUtf8(
             QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
                        .arg(mwhelpers::shSingleQuote(payloadB64));
     }
     const QString fullCmd = m_mainWindow->sshExecFromLocal(
@@ -1935,12 +1936,13 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     mwCtx.snapshotName = ctx.snapshotName;
     if (ctx.valid
         && ctx.snapshotName.isEmpty()
-        && !m_mainWindow->isWindowsConnection(ctx.connIdx)
+        && m_mainWindow->featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)
         && permNode->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")
         && permNode->childCount() == 0) {
         refreshPermissionsOwnerNode(tree, owner, false);
     }
-    if (!ctx.valid || !ctx.snapshotName.isEmpty() || m_mainWindow->isWindowsConnection(ctx.connIdx)) {
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()
+        || !m_mainWindow->featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return true;
     }
     auto rebuildPermissionsNodeWithState = [&]() {
@@ -2966,7 +2968,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 && m_mainWindow->m_states[actx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
             QString queueCmd = cmd;
             if (daemonMutateApiOk) {
-                queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+                queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-rollback %1 %2 %3")
                                .arg(mwhelpers::shSingleQuote(snapObj),
                                     rollbackForce ? QStringLiteral("1") : QStringLiteral("0"),
                                     mwhelpers::shSingleQuote(rollbackRecursiveMode));
@@ -3112,7 +3114,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
                 return;
             }
-            if (m_mainWindow->isWindowsConnection(actx.connIdx)) {
+            if (!m_mainWindow->featureAvailable(actx.connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
                 return;
             }
             if (!m_mainWindow->ensureDatasetPermissionsEntryLoaded(actx.connIdx, actx.poolName, actx.datasetName)) {

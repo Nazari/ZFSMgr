@@ -20,7 +20,6 @@ ZFSMgr 在统一树上使用上下文菜单。
   - 分隔线
   - `Split and root`（子菜单：`向右`、`向左`、`向下`、`向上`）
   - 分隔线
-  - `Install MSYS2`
   - `Install helper commands`
 
 `Daemon` 子菜单包括：

@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 
 #include <QtWidgets>
 #include <QRegularExpression>
@@ -92,6 +93,9 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                  trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirBreakdown)) {
         return;
     }
     const QString ds = curr.datasetName.trimmed();
@@ -850,7 +854,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             // dataset, resolves the mountpoint, creates the subdirectory and runs tar
             // itself with execvp. withSudoStreamInput() keeps stdin wired to the
             // incoming tar stream.
-            dstRecvCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-fromdir %1 %2")
+            dstRecvCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-fromdir %1 %2")
                              .arg(shSingleQuote(opt.datasetPath), shSingleQuote(rel));
         } else {
             const QString relWin = rel;
@@ -940,6 +944,9 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirToDir)) {
         return;
     }
     const QString ds = curr.datasetName.trimmed();
@@ -1052,18 +1059,21 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     if (!isWin) {
         if (!isWindowsConnection(profile)) {
             Q_UNUSED(daemonReadApiOk);
-            cmd = withSudo(
-                profile, mwhelpers::withUnixSearchPathCommand(
-                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-todir %1 %2 %3")
-                                 .arg(shSingleQuote(ds),
-                                      shSingleQuote(localDir),
-                                      deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
+            // El directorio lo elige el usuario: como argv no puede truncarse aunque
+            // contenga ';', '&' o '|', que es lo que rompía esta acción.
+            const QStringList argv{QStringLiteral("--mutate-advanced-todir"), ds, localDir,
+                                   deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0")};
+            cmd = mwhelpers::agentShellCommand(profile, argv);
             executeDatasetAction(QStringLiteral("conncontent"),
                                  trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                                  ctx,
                                  cmd,
                                  0,
-                                 allowWindowsScript);
+                                 allowWindowsScript,
+                                 {},
+                                 true,
+                                 {},
+                                 argv);
             return;
         }
         cmd = QStringLiteral(

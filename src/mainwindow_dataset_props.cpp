@@ -3080,15 +3080,15 @@ bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDr
         return true;
     }
     const QString tool = parts.at(0).trimmed().toLower();
-    QString execCmd;
+    QStringList execArgv;
     QString remoteActionLabel =
         draft.displayLabel.trimmed().isEmpty()
             ? QStringLiteral("Pending shell")
             : draft.displayLabel.trimmed();
     if (tool == QStringLiteral("zfs")) {
-        execCmd = daemonizeZfsMutationCommand(connIdx, rawCmd);
+        execArgv = daemonizeZfsMutationArgs(connIdx, rawCmd);
     } else if (tool == QStringLiteral("zpool")) {
-        execCmd = daemonizeZpoolMutationCommand(connIdx, rawCmd);
+        execArgv = daemonizeZpoolMutationArgs(connIdx, rawCmd);
     } else {
         // Evita comandos que dependen de orquestación local (ssh/powershell/pscp/scp).
         const QString lc = rawCmd.toLower();
@@ -3103,13 +3103,13 @@ bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDr
                        .arg(draft.displayLabel.trimmed(), p.name));
             return true;
         }
-        execCmd = daemonizeShellMutationCommand(connIdx, rawCmd);
+        execArgv = daemonizeShellMutationArgs(connIdx, rawCmd);
         remoteActionLabel =
             draft.displayLabel.trimmed().isEmpty()
                 ? QStringLiteral("Pending shell generic")
                 : draft.displayLabel.trimmed();
     }
-    if (execCmd.trimmed().isEmpty()) {
+    if (execArgv.isEmpty()) {
         appLog(QStringLiteral("DEBUG"),
                QStringLiteral("Pending shell daemon-rpc skip: comando no permitido/no compatible para \"%1\" en %2")
                    .arg(draft.displayLabel.trimmed(), p.name));
@@ -3132,8 +3132,8 @@ bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDr
                    .arg(remoteActionLabel, p.name));
         return false;
     }
-    const QString remoteCmd =
-        withSudo(sudoProfile, mwhelpers::withUnixSearchPathCommand(execCmd));
+    // agentShellCommand aplica sudo y PATH; no debe envolverse otra vez.
+    const QString remoteCmd = mwhelpers::agentShellCommand(sudoProfile, execArgv);
     QString detail;
     const bool ok = executeConnectionCommand(connIdx,
                                              remoteActionLabel,

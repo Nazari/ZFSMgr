@@ -64,19 +64,6 @@ QMap<QString, QString> packageMapFor(const QString& packageManagerId) {
             {QStringLiteral("gawk"), QStringLiteral("gawk")},
         };
     }
-    if (pm == QStringLiteral("msys2")) {
-        return {
-            {QStringLiteral("tar"), QStringLiteral("tar")},
-            {QStringLiteral("gzip"), QStringLiteral("gzip")},
-            {QStringLiteral("zstd"), QStringLiteral("zstd")},
-            {QStringLiteral("rsync"), QStringLiteral("rsync")},
-            {QStringLiteral("grep"), QStringLiteral("grep")},
-            {QStringLiteral("sed"), QStringLiteral("sed")},
-            {QStringLiteral("gawk"), QStringLiteral("gawk")},
-            {QStringLiteral("pv"), QStringLiteral("pv")},
-            {QStringLiteral("mbuffer"), QStringLiteral("mbuffer")},
-        };
-    }
     return {};
 }
 
@@ -103,9 +90,6 @@ QString buildCommandPreview(const QString& packageManagerId, const QStringList& 
     if (pm == QStringLiteral("pkg")) {
         return QStringLiteral("%1pkg install -y %2").arg(sudoPrefix, joined);
     }
-    if (pm == QStringLiteral("msys2")) {
-        return QStringLiteral("pacman --noconfirm -Sy --needed %1").arg(joined);
-    }
     return QString();
 }
 
@@ -130,14 +114,15 @@ PlatformInfo detectPlatform(const ConnectionProfile& profile, const QString& osL
     PlatformInfo info;
     const QString os = osLine.trimmed().toLower();
     const QString connType = profile.connType.trimmed().toLower();
-    if (connType == QStringLiteral("psrp") || profile.osType.trimmed().toLower().contains(QStringLiteral("windows"))
+    if (profile.osType.trimmed().toLower().contains(QStringLiteral("windows"))
         || os.contains(QStringLiteral("windows"))) {
         info.platformId = QStringLiteral("windows");
         info.platformLabel = QStringLiteral("Windows");
-        info.packageManagerId = QStringLiteral("msys2");
-        info.packageManagerLabel = QStringLiteral("MSYS2");
-        info.supportedByDesign = true;
-        info.windowsUsesMsys2 = true;
+        // Windows no instala herramientas Unix en el host: la aplicación trabaja solo
+        // con el agente nativo. No hay gestor de paquetes que ofrecer.
+        info.packageManagerId.clear();
+        info.packageManagerLabel.clear();
+        info.supportedByDesign = false;
         return info;
     }
     if (os.contains(QStringLiteral("freebsd"))) {

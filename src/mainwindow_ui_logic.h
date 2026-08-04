@@ -23,7 +23,6 @@ struct PoolRootMenuState {
 struct ConnectionContextMenuState {
     bool canConnect{false};
     bool canDisconnect{false};
-    bool canInstallMsys{false};
     bool canRefreshThis{false};
     bool canRefreshAll{false};
     bool canEditDelete{false};
@@ -40,8 +39,7 @@ ConnectionContextMenuState buildConnectionContextMenuState(bool hasConn,
                                                            bool actionsLocked,
                                                            bool isLocalConnection,
                                                            bool isRedirectedToLocal,
-                                                           bool isWindowsConnection,
-                                                           bool hasWindowsUnixLayerReady);
+                                                           bool isWindowsConnection);
 
 bool isValidPoolRenameCandidate(const QString& name, QString* errorOut = nullptr);
 bool isPoolNameInUse(const QStringList& importedPools,

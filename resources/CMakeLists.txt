@@ -65,6 +65,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/helperinstallcatalog.cpp
     ../src/helperinstallcatalog.h
     ../src/mainwindow_ui_logic.cpp
+    ../src/connectioncapabilities.cpp
     ../src/mainwindow_ui.cpp
     ../src/mainwindow_dialogs.cpp
     ../src/mainwindow_connections.cpp
@@ -301,6 +302,10 @@ if(BUILD_TESTING)
     add_executable(zfsmgr_helpers_test
         ../tests/helpers_test.cpp
         ../src/mainwindow_helpers.cpp
+        # agentCommand() toma la ruta del binario de daemonpayload en vez de repetirla:
+        # quien construye la invocación y quien la reconoce para convertirla en RPC deben
+        # hablar de la misma ruta, o el comando se va por SSH en crudo sin avisar.
+        ../src/daemonpayload.cpp
     )
     target_include_directories(zfsmgr_helpers_test PRIVATE ../src)
     target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
@@ -309,6 +314,18 @@ if(BUILD_TESTING)
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
+
+    qt_add_executable(zfsmgr_capabilities_test
+        ../tests/capabilities_test.cpp
+        ../src/connectioncapabilities.cpp
+    )
+    target_include_directories(zfsmgr_capabilities_test PRIVATE ../src)
+    target_link_libraries(zfsmgr_capabilities_test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(zfsmgr_capabilities_test PRIVATE
+        QT_NO_KEYWORDS
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    )
+    add_test(NAME zfsmgr_capabilities_test COMMAND zfsmgr_capabilities_test)
 
     qt_add_executable(zfsmgr_ui_logic_test
         ../tests/ui_logic_test.cpp

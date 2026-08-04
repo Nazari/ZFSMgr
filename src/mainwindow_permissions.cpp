@@ -621,7 +621,10 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
+    // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
+    // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return false;
     }
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
@@ -636,18 +639,23 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 
     QString out;
     QString detail;
-    const bool daemonReadApiOk = !isWindowsConnection(p)
-        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+    const bool daemonReadApiOk =
+        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonNativeBinary
         && m_states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
-    const QString cmd = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow %1")
-              .arg(mwhelpers::shSingleQuote(datasetName))
-        : withSudo(p, mwhelpers::withUnixSearchPathCommand(
-              QStringLiteral("zfs allow %1").arg(mwhelpers::shSingleQuote(datasetName))));
+    // La rama del daemon iba sin sudo ni PATH, apoyándose en que la intercepción del
+    // RPC se la llevara antes de ejecutarse por shell. Es decir: su respaldo estaba
+    // roto y no se notaba porque el RPC casi siempre gana. Con agentShellCommand el
+    // envoltorio es el mismo que en el resto de sitios y el respaldo funciona.
+    const QString cmd =
+        daemonReadApiOk
+            ? mwhelpers::agentShellCommand(
+                  p, {QStringLiteral("--dump-zfs-allow"), datasetName})
+            : withSudo(p, mwhelpers::withUnixSearchPathCommand(
+                  QStringLiteral("zfs allow %1").arg(mwhelpers::shSingleQuote(datasetName))));
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos"),
                                       cmd,
@@ -769,7 +777,10 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         return false;
     }
     const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
+    // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
+    // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
+    // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         return false;
     }
 
@@ -856,17 +867,20 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
                                     "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
                                     "done")
                                     .arg(quoted.join(QLatin1Char(' ')));
-    const bool daemonReadApiOk = !isWindowsConnection(p)
-        && connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
+    const bool daemonReadApiOk =
+        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
         && m_states[connIdx].daemonInstalled
         && m_states[connIdx].daemonActive
         && m_states[connIdx].daemonNativeBinary
         && m_states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
-    const QString batchCommand = daemonReadApiOk
-        ? QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-allow-batch %1")
-              .arg(quoted.join(QLatin1Char(' ')))
-        : withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
+    // Igual que la versión de un solo dataset: la rama del daemon no llevaba envoltorio
+    // y su respaldo por shell no habría funcionado.
+    const QString batchCommand =
+        daemonReadApiOk
+            ? mwhelpers::agentShellCommand(
+                  p, QStringList{QStringLiteral("--dump-zfs-allow-batch")} + requested)
+            : withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
 
     QString out;
     QString detail;
@@ -1046,7 +1060,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         }
     }
 
-    if (isWindowsConnection(connIdx)) {
+    if (!featureAvailable(connIdx, zfsmgr::caps::Feature::DatasetPermissions)) {
         if (permissionsNode) {
             permissionsNode->setHidden(true);
         }

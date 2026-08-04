@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
 
@@ -276,10 +277,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         profile,
         mwhelpers::withUnixSearchPathCommand(
             QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
-    const QString cmdDaemon = withSudo(
-        profile, mwhelpers::withUnixSearchPathCommand(
-                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
-                         .arg(shSingleQuote(trimmedPool))));
+    const QString cmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool});
     const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
     (void)runSsh(profile, cmd, 20000, out, err, rc);
     if (rc != 0) {
@@ -420,13 +418,15 @@ void MainWindow::exportPoolFromRow(int row) {
         parts << shSingleQuote(extraPool);
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -659,16 +659,16 @@ void MainWindow::importPoolFromRow(int row) {
             cmdParts << extraEd->text().trimmed();
         }
         QString rawCmd = cmdParts.join(' ');
-        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-            rawCmd = daemonCmd;
-        }
+        // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+        // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+        const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
         if (!isWindowsConnection(p)) {
             rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
         }
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -700,7 +700,7 @@ void MainWindow::importPoolFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import"),
@@ -975,16 +975,16 @@ void MainWindow::importPoolRenamingFromRow(int row) {
             cmdParts << extraEd->text().trimmed();
         }
         QString rawCmd = cmdParts.join(' ');
-        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-            rawCmd = daemonCmd;
-        }
+        // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+        // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+        const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
         if (!isWindowsConnection(p)) {
             rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
         }
         return withSudo(p, rawCmd);
     };
     const QString cmd = buildImportRenameCommandForTarget(importTarget);
-    bool daemonRpcAttempted = cmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+    bool daemonRpcAttempted = cmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1016,7 +1016,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                        .arg(connName, poolName, poolName, importTarget));
             const QString fallbackCmd = buildImportRenameCommandForTarget(poolName);
             daemonRpcAttempted = daemonRpcAttempted
-                                 || fallbackCmd.contains(QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic"));
+                                 || fallbackCmd.contains(daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic"));
             if (executePoolCommand(idx,
                                    poolName,
                                    QStringLiteral("Import (rename)"),
@@ -1177,13 +1177,15 @@ void MainWindow::scrubPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1303,13 +1305,15 @@ void MainWindow::upgradePoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1418,13 +1422,15 @@ void MainWindow::reguidPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1543,13 +1549,15 @@ void MainWindow::clearPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1692,13 +1700,15 @@ void MainWindow::destroyPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1811,13 +1821,15 @@ void MainWindow::syncPoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -1985,13 +1997,15 @@ void MainWindow::trimPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -2137,13 +2151,15 @@ void MainWindow::initializePoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
-    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
-        rawCmd = daemonCmd;
-    }
+    // Si el daemon puede servirlo, la orden se construye a partir de sus argumentos:
+    // agentShellCommand ya aplica sudo y PATH, así que no debe volver a envolverse.
+    const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, rawCmd);
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmd = daemonArgv.isEmpty()
+                            ? withSudo(p, rawCmd)
+                            : mwhelpers::agentShellCommand(p, daemonArgv);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
@@ -2203,10 +2219,7 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         historyClassic = mwhelpers::withUnixSearchPathCommand(historyClassic);
     }
     const QString cmdClassic = withSudo(p, historyClassic);
-    const QString cmdDaemon = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-history %1")
-                   .arg(shSingleQuote(poolName))));
+    const QString cmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-history"), poolName});
     const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
     QString out;
     QString detail;

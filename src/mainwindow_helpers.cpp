@@ -1,11 +1,14 @@
 #include "mainwindow_helpers.h"
 
+#include "daemonpayload.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 
 namespace mwhelpers {
@@ -88,37 +91,6 @@ QString normalizeDriveLetterValue(const QString& raw) {
         return QString();
     }
     return QString(d);
-}
-
-bool looksLikePowerShellScript(const QString& cmd) {
-    const QString c = cmd.toLower();
-    const QString t = c.trimmed();
-    if (t.startsWith('[') || t.startsWith('$') || c.contains(QStringLiteral("::"))) {
-        return true;
-    }
-    if (t.startsWith(QStringLiteral("zfs "))
-        || t == QStringLiteral("zfs")
-        || t.startsWith(QStringLiteral("zpool "))
-        || t == QStringLiteral("zpool")
-        || t.startsWith(QStringLiteral("where.exe "))) {
-        return true;
-    }
-    return c.contains(QStringLiteral("out-null"))
-        || c.contains(QStringLiteral("test-path"))
-        || c.contains(QStringLiteral("resolve-path"))
-        || c.contains(QStringLiteral("join-path"))
-        || c.contains(QStringLiteral("new-item"))
-        || c.contains(QStringLiteral("remove-item"))
-        || c.contains(QStringLiteral("sort-object"))
-        || c.contains(QStringLiteral("select-object"))
-        || c.contains(QStringLiteral("get-childitem"))
-        || c.contains(QStringLiteral("write-output"))
-        || c.contains(QStringLiteral("invoke-expression"))
-        || c.contains(QStringLiteral("foreach("))
-        || c.contains(QStringLiteral("$lastexitcode"))
-        || c.contains(QStringLiteral("[string]::"))
-        || c.contains(QStringLiteral("$env:path"))
-        || c.contains(QStringLiteral("powershell "));
 }
 
 bool isWindowsOsType(const QString& osType) {
@@ -790,10 +762,97 @@ QString withUnixSearchPathCommand(const QString& cmd) {
 // comprobación de salud, cada uno descubierto por separado.
 QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
     if (isWindowsOsType(p.osType)) {
-        return QStringLiteral("\"C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe\" ") + agentArgs;
+        // El "&" no es decorativo: en PowerShell una cadena entrecomillada al principio
+        // de una sentencia es una expresión, no un comando, así que sin el operador de
+        // llamada la ruta se evalúa como texto y el primer argumento revienta el parseo
+        // ("Token 'health' inesperado"). Además, quien invoque esto debe forzar
+        // WindowsCommandMode::PowerShellNative: en Auto el envoltorio lo toma por shell
+        // Unix y lo ejecuta con el bash de MSYS2, que se come las barras invertidas.
+        return QStringLiteral("& \"") + daemonpayload::windowsBinPath() + QStringLiteral("\" ") + agentArgs;
     }
     return withSudoCommand(
-        p, withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent ") + agentArgs));
+        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs));
+}
+
+// Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
+// QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
+// cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
+QStringList posixShellSplitArgs(const QString& s) {
+    QStringList result;
+    QString current;
+    bool inSQ = false, inDQ = false, started = false;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s.at(i);
+        if (inSQ) {
+            if (c == QLatin1Char('\'')) { inSQ = false; }
+            else { current += c; }
+        } else if (inDQ) {
+            if (c == QLatin1Char('"')) { inDQ = false; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                const QChar next = s.at(++i);
+                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
+                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
+                    current += next;
+                } else {
+                    current += c;
+                    current += next;
+                }
+            } else {
+                current += c;
+            }
+        } else {
+            // "started" distingue un token vacío ESCRITO ('') de la ausencia de token.
+            // Sin esto, un argumento vacío desaparecía al recuperarlo, y --zfs-send-to-peer
+            // pasa vacíos a menudo (snapshot base y flags), con lo que los siguientes
+            // argumentos se corrían de posición.
+            if (c == QLatin1Char('\'')) { inSQ = true; started = true; }
+            else if (c == QLatin1Char('"')) { inDQ = true; started = true; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                current += s.at(++i);
+            } else if (c.isSpace()) {
+                if (!current.isEmpty() || started) { result += current; current.clear(); started = false; }
+            } else {
+                current += c;
+            }
+        }
+    }
+    if (!current.isEmpty() || started) { result += current; }
+    return result;
+}
+
+QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentArgs) {
+    QStringList quoted;
+    quoted.reserve(agentArgs.size());
+    for (const QString& a : agentArgs) {
+        quoted << (isWindowsOsType(p.osType) ? a : shSingleQuote(a));
+    }
+    return agentCommand(p, quoted.join(QLatin1Char(' ')));
+}
+
+QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs) {
+    if (isWindowsOsType(p.osType)) {
+        return agentShellCommand(p, agentArgs);
+    }
+    QStringList quoted;
+    quoted.reserve(agentArgs.size());
+    for (const QString& a : agentArgs) {
+        quoted << shSingleQuote(a);
+    }
+    return withSudoStreamInputCommand(
+        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ")
+                                     + quoted.join(QLatin1Char(' '))));
+}
+
+bool isCliOnlyAgentCommand(const QString& verb) {
+    // Estos cuatro no se sirven por RPC a propósito: transportan flujos por la entrada
+    // y la salida estándar, que el canal RPC no lleva.
+    static const QSet<QString> kCliOnly = {
+        QStringLiteral("--mutate-shell-generic"),
+        QStringLiteral("--mutate-advanced-fromdir"),
+        QStringLiteral("--mutate-sync-temp-tar-source"),
+        QStringLiteral("--mutate-sync-temp-tar-dest"),
+    };
+    return kCliOnly.contains(verb.trimmed());
 }
 
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {

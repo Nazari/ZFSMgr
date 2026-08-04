@@ -18,7 +18,6 @@ ZFSMgr uses context menus on the unified tree.
   - separator
   - `New Pool`
   - separator
-  - `Install MSYS2`
   - `Install helper commands`
   - `Reinstall/Update daemon`
   - `Repair temporary mountpoints`
@@ -33,9 +32,8 @@ Enablement conditions:
 - `Disconnect` and `Refresh`: connection connected and with no action in progress.
 - `Edit` and `Delete`: not available on the Local connection nor on connections redirected to Local.
 - `New Pool`: connection connected.
-- `Install MSYS2`: only on Windows connections without a complete Unix layer (MSYS2/MinGW).
 - `Install helper commands`: only when the refresh detected a package manager and a supported installation plan for the missing commands.
-- `Reinstall/Update daemon`: remote non-Windows connections.
+- `Reinstall/Update daemon`: any remote connection, Windows included.
 - `Repair temporary mountpoints`: any non-Windows connection, including Local (a local dataset can also be left on a temporary mountpoint).
 - `Export trust-store to this connection`: any remote connection; it does not apply to Local, which already uses the local trust-store.
 - `Authorize SSH key on...`: only on non-Windows SSH connections, and it is only populated with other connected SSH connections.

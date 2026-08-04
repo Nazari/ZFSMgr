@@ -2,6 +2,7 @@
 
 #include "connectionstore.h"
 #include "connectiondialog.h"
+#include "connectioncapabilities.h"
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreecoordinator.h"
 #include "connectiondatasettreewidget.h"
@@ -81,6 +82,9 @@ public:
     void configurePoolDatasetsForTest(int connIdx,
                                       const QString& poolName,
                                       const QVector<UiTestDatasetSeed>& datasets);
+    // Expuesta para fijar el corte por separador: es donde un directorio con '&' en el
+    // nombre truncaba la orden.
+    static QStringList extractAgentArgsForTest(const QString& remoteCmd);
     void rebuildConnectionDetailsForTest();
     void setShowPoolInfoNodeForTest(bool visible);
     void setShowInlineGsaNodeForTest(bool visible);
@@ -144,9 +148,6 @@ private:
         QStringList helperInstallableCommands;
         QStringList helperUnsupportedCommands;
         QStringList helperInstallPackages;
-        bool unixFromMsysOrMingw{false};
-        QString commandsLayer;
-        QStringList powershellFallbackCommands;
         bool helperPackageManagerDetected{false};
         bool helperInstallSupported{false};
         QVector<PoolImported> importedPools;
@@ -164,6 +165,9 @@ private:
         bool daemonActive{false};
         bool daemonNativeBinary{false};
         bool daemonJobsSupported{false};
+        // Verbos que el agente declara servir, tal cual los publica en --health. Vacío
+        // significa "no lo dice", y entonces manda la tabla estática de zfsmgr::caps.
+        QSet<QString> daemonCaps;
         bool daemonZpoolImportUsable{true};
         QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
     };
@@ -306,8 +310,6 @@ private:
         bool commandsProbeLoaded{false};
         QStringList detectedUnixCommands;
         QStringList missingUnixCommands;
-        bool unixFromMsysOrMingw{false};
-        QString commandsLayer;
         QMap<QString, bool> packageManagerAvailabilityById;
     };
     struct PendingChange {
@@ -497,12 +499,6 @@ private:
         QMap<QString, PoolInfo> poolsByStableId;
     };
 
-    enum class WindowsCommandMode {
-        Auto,
-        PowerShellNative,
-        UnixShell,
-    };
-
     void buildUi();
     void loadConnections();
     void ensureStartupLocalSudoConnection();
@@ -518,7 +514,6 @@ private:
     void exportTrustStoreToSelectedConnection();
     void installHelperCommandsForSelectedConnection();
     void repairAltMountpointsForSelectedConnection();
-    void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();
     int currentConnectionIndexFromUnifiedTree() const;
@@ -627,8 +622,31 @@ private:
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {},
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
-                WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
-                const QByteArray& stdinPayload = {});
+                const QByteArray& stdinPayload = {},
+                // Lo pone a false runAgentCommand, que ya ha intentado el RPC con los
+                // argumentos correctos. Sin esto, la cadena renderizada se volvería a
+                // parsear aquí y un segundo intento podría salir con argumentos
+                // truncados, que es justo el defecto que la migración elimina.
+                bool allowAgentRpc = true);
+
+    // Puerta única para pedirle algo al agente. Los sitios de llamada pasan argv y no
+    // construyen cadenas de shell.
+    bool runAgentCommand(const ConnectionProfile& p,
+                         const QStringList& agentArgs,
+                         int timeoutMs,
+                         QString& out,
+                         QString& err,
+                         int& rc,
+                         const QByteArray& stdinPayload = {});
+
+    bool tryAgentRpcOverSsh(const ConnectionProfile& p,
+                            const QStringList& agentArgs,
+                            int timeoutMs,
+                            QString& out,
+                            QString& err,
+                            int& rc,
+                            const std::function<void(const QString&)>& onStdoutLine = {},
+                            const std::function<void(const QString&)>& onStderrLine = {});
     // Submits a long-running agent mutation as a background job and polls until it
     // finishes. Removes the RPC read timeout from the equation: the submission is
     // instant and the outcome is asked for afterwards, so a slow operation can no
@@ -638,7 +656,7 @@ private:
     // safe) from "submitted but lost track of it" (the daemon is working right now,
     // so re-running the command would duplicate it).
     bool runAgentMutationAsJob(const ConnectionProfile& p,
-                               const QString& agentCommandLine,
+                               const QStringList& agentArgs,
                                QString& out,
                                QString& err,
                                int& rc,
@@ -678,11 +696,9 @@ private:
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
-                              const QString& remoteCmd,
-                              WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
+                              const QString& remoteCmd) const;
     QString sshExecFromLocal(const ConnectionProfile& p,
-                             const QString& remoteCmd,
-                             WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
+                             const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
@@ -758,7 +774,12 @@ private:
                               bool allowWindowsScript = false,
                               const QByteArray& stdinPayload = {},
                               bool invalidatePoolCache = true,
-                              const std::function<void()>& onSuccessRefresh = {});
+                              const std::function<void()>& onSuccessRefresh = {},
+                              // Argumentos del agente cuando el llamante los tiene. Con
+                              // ellos la orden viaja por RPC sin pasar por el parseo de
+                              // la cadena, y el ciclo de trabajos usa el túnel ya
+                              // abierto en vez de un SSH con sudo por segundo.
+                              const QStringList& agentArgvIn = {});
     bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
                                           bool interactiveErrorDialog = true,
                                           QString* failureDetailOut = nullptr);
@@ -770,13 +791,13 @@ private:
                             QString* failureDetailOut = nullptr,
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
-    QString daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const;
-    QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
-    QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
-    QString daemonizeLocalSendRecvCommand(int connIdx,
+    QStringList daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const;
+    QStringList daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const;
+    QStringList daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const;
+    QStringList daemonizeLocalSendRecvArgs(int connIdx,
                                           const QString& sendRawCmd,
                                           const QString& recvRawCmd) const;
-    QString daemonizeRsyncSyncCommand(int connIdx,
+    QStringList daemonizeRsyncSyncArgs(int connIdx,
                                       const QList<QPair<QString, QString>>& pathPairs,
                                       bool useDelete,
                                       bool dryRun,
@@ -794,15 +815,13 @@ private:
                                   const QString& remoteCmd,
                                   int timeoutMs,
                                   QString* failureDetailOut = nullptr,
-                                  WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                                   const QByteArray& stdinPayload = QByteArray());
     bool fetchConnectionCommandOutput(int connIdx,
                                       const QString& actionName,
                                       const QString& remoteCmd,
                                       QString* outputOut,
                                       QString* failureDetailOut = nullptr,
-                                      int timeoutMs = 45000,
-                                      WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+                                      int timeoutMs = 45000);
     bool fetchConnectionProbeOutput(int sourceConnIdx,
                                     const QString& actionName,
                                     const QString& remoteCmd,
@@ -984,6 +1003,20 @@ private:
                                     QVector<InlinePropGroupConfig>& groups,
                                     const QString& initialGroupName = QString());
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
+    // Consulta única de "¿puede el usuario hacer esto en esta conexión?". Sustituye a
+    // las comprobaciones sueltas de isWindowsConnection repartidas por 20 ficheros,
+    // que es lo que hacía que las funciones se apagaran de una en una y que el usuario
+    // se encontrara acciones que fallaban al pulsarlas.
+    zfsmgr::caps::Platform capabilityPlatform(int connIdx) const;
+    bool featureAvailable(int connIdx, zfsmgr::caps::Feature f, QString* reasonOut = nullptr) const;
+    // Igual que la anterior, pero además explica al usuario por qué no. Para usar como
+    // primera línea de un slot: if (!requireFeature(idx, F::X)) return;
+    bool requireFeature(int connIdx, zfsmgr::caps::Feature f);
+    QString capabilityReasonText(zfsmgr::caps::Reason r) const;
+
+    bool requireNonWindowsStreamingEndpoints(int srcConnIdx,
+                                             int dstConnIdx,
+                                             const QString& actionLabel);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
