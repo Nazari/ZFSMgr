@@ -1171,6 +1171,28 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
         gsaPropsForCache = propsByDataset;
     }
+    // Que el agente falte, o esté parado, también es motivo de atención. Todo el
+    // bloque de abajo vivía dentro de "if (daemonInstalled)", así que una conexión sin
+    // agente salía como OK y sin un solo aviso. Mientras hubo respaldo por shell eso
+    // pasaba desapercibido porque los datos llegaban igual; ahora significa que la
+    // conexión aparece conectada y vacía, sin decir por qué.
+    if (!state.daemonInstalled) {
+        state.daemonNeedsAttention = true;
+        state.daemonAttentionReasons.push_back(
+            QStringLiteral("agente no instalado: sin él no hay datos"));
+        if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0) {
+            state.detail = QStringLiteral("%1 — sin agente instalado, no hay datos")
+                               .arg(state.detail.trimmed());
+        }
+    } else if (!state.daemonActive) {
+        state.daemonNeedsAttention = true;
+        state.daemonAttentionReasons.push_back(
+            QStringLiteral("agente instalado pero parado: sin él no hay datos"));
+        if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0) {
+            state.detail = QStringLiteral("%1 — el agente no está en marcha, no hay datos")
+                               .arg(state.detail.trimmed());
+        }
+    }
     if (state.daemonInstalled) {
         const QString expectedAgentVersion = agentversion::currentVersion().trimmed();
         const QString expectedApiVersion = agentversion::expectedApiVersion().trimmed();
