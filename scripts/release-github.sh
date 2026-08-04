@@ -385,7 +385,12 @@ for _rel in linux-x86_64/zfsmgr_agent windows-x86_64/zfsmgr_agent.exe \
     agents_ok=0
     continue
   fi
-  if ! strings -a "${_bin}" | grep -qE "${VERSION//./\\.}\.[0-9]{6,9}"; then
+  # Sin -q y contando coincidencias a propósito: con "set -o pipefail", grep -q sale
+  # en cuanto encuentra la primera, strings recibe SIGPIPE y la tubería se reporta
+  # como fallida AUNQUE la coincidencia existiera. Es decir, la comprobación decía
+  # que ningún agente declaraba la versión justo cuando todos la declaraban.
+  _hits="$(strings -a "${_bin}" | grep -cE "${VERSION//./\\.}\.[0-9]{6,9}" || true)"
+  if [[ "${_hits}" -eq 0 ]]; then
     echo "Error: ${_rel} no declara la versión ${VERSION}." >&2
     agents_ok=0
   fi

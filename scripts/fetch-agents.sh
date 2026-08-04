@@ -84,7 +84,11 @@ done
 # los de Windows, macOS y FreeBSD no corren en el equipo que publica.
 bad=0
 for rel in "${expected[@]}"; do
-  found="$(strings -a "${tmp}/${rel}" | grep -oE "${app_version//./\\.}\.[0-9]{6,9}" | sort -u | head -n1 || true)"
+  # sort -u sin head: con "set -o pipefail", head cierra la tubería al primer
+  # resultado, quien escribe recibe SIGPIPE y el conjunto se reporta como fallido
+  # aunque hubiera encontrado la versión.
+  found="$(strings -a "${tmp}/${rel}" | grep -oE "${app_version//./\\.}\.[0-9]{6,9}" | sort -u || true)"
+  found="${found%%$'"'"'\n'"'"'*}"
   if [[ -z "${found}" ]]; then
     echo "Error: ${rel} no declara la versión ${app_version}.*" >&2
     echo "El artefacto es de otra versión del proyecto." >&2
