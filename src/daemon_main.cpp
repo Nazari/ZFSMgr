@@ -4055,7 +4055,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // --mutate-shell-generic is deliberately NOT served over RPC: it runs an arbitrary
     // shell as root, so exposing it here would let any client holding the mTLS
     // certificate bypass every typed --mutate-* whitelist. The GUI only ever invokes
-    // it as a CLI command over SSH+sudo (see daemonizeShellMutationCommand), where the
+    // it as a CLI command over SSH+sudo (see daemonizeShellMutationArgs), where the
     // caller already has root and it grants no extra privilege. The CLI handler in
     // main() stays for those flows.
 

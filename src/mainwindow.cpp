@@ -810,9 +810,11 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
             dsWin
                 ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
                 : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-    const QString propsCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-get-all"), trimmedObject});
-    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
-    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+    // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+    const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zfs-get-all"), trimmedObject};
+    bool propsOk = daemonReadApiOk
+        ? (runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
+        : (runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0);
     if (!propsOk) {
         // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
         // destroying the nested maps that dsInfo points into.
@@ -1345,9 +1347,11 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                               .arg(mwhelpers::shSingleQuote(trimmedPool))
                         : QStringLiteral("zpool get -j all %1")
                               .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString propsCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-get-all"), trimmedPool});
-            const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
-            bool propsOk = runSsh(profile, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
+            bool propsOk = daemonReadApiOk
+                ? (runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
+                : (runSsh(profile, propsCmdClassic, 20000, out, err, rc) && rc == 0);
             if (propsOk) {
                 if (poolWin) {
                     const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
@@ -1384,9 +1388,11 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool status -v %1")
                         .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString stCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status"), trimmedPool});
-            const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
-            bool statusOk = runSsh(profile, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList stCmdDaemonArgv = {QStringLiteral("--dump-zpool-status"), trimmedPool};
+            bool statusOk = daemonReadApiOk
+                ? (runAgentCommand(profile, stCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
+                : (runSsh(profile, stCmdClassic, 20000, out, err, rc) && rc == 0);
             if (statusOk) {
                 fresh.statusText = out.trimmed();
             } else {
@@ -1408,9 +1414,11 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                     : mwhelpers::withUnixSearchPathCommand(
                           QStringLiteral("zpool status -P %1")
                               .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            const QString stPCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-status-p"), trimmedPool});
-            const QString selectedStatusPCmd = daemonReadApiOk ? stPCmdDaemon : stPCmdClassic;
-            bool statusPOk = runSsh(profile, selectedStatusPCmd, 20000, out, err, rc) && rc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList stPCmdDaemonArgv = {QStringLiteral("--dump-zpool-status-p"), trimmedPool};
+            bool statusPOk = daemonReadApiOk
+                ? (runAgentCommand(profile, stPCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
+                : (runSsh(profile, stPCmdClassic, 20000, out, err, rc) && rc == 0);
             if (statusPOk) {
                 fresh.statusPText = out.trimmed();
             } else {
@@ -1791,104 +1799,102 @@ static QStringList splitShellCommand(const QString& cmd) {
     return result;
 }
 
-QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const {
+QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        return QString();
+        return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
-        return QString();
+        return {};
     }
     if (connIdx < 0 || connIdx >= m_states.size()) {
-        return QString();
+        return {};
     }
     const ConnectionRuntimeState& st = m_states[connIdx];
     if (!st.daemonInstalled || !st.daemonActive) {
-        return QString();
+        return {};
     }
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return QString();
+        return {};
     }
     const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zpool")) {
-        return QString();
+        return {};
     }
     const QString op = parts.at(1).trimmed();
     if (!isAllowedGenericZpoolMutationOpClient(op)) {
-        return QString();
+        return {};
     }
     if (op.compare(QStringLiteral("import"), Qt::CaseInsensitive) == 0
         && !st.daemonZpoolImportUsable) {
-        return QString();
+        return {};
     }
     QJsonArray arr;
     for (int i = 1; i < parts.size(); ++i) {
         arr.push_back(parts.at(i));
     }
     if (arr.isEmpty()) {
-        return QString();
+        return {};
     }
     const QString payloadB64 =
         QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zpool-generic %1")
-        .arg(mwhelpers::shSingleQuote(payloadB64));
+    return {QStringLiteral("--mutate-zpool-generic"), payloadB64};
 }
 
-QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const {
+QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        return QString();
+        return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
-        return QString();
+        return {};
     }
     if (connIdx < 0 || connIdx >= m_states.size()) {
-        return QString();
+        return {};
     }
     const ConnectionRuntimeState& st = m_states[connIdx];
     if (!st.daemonInstalled || !st.daemonActive) {
-        return QString();
+        return {};
     }
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return QString();
+        return {};
     }
     const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
-        return QString();
+        return {};
     }
     const QString op = parts.at(1).trimmed();
     if (!isAllowedGenericZfsMutationOpClient(op)) {
-        return QString();
+        return {};
     }
     QJsonArray arr;
     for (int i = 1; i < parts.size(); ++i) {
         arr.push_back(parts.at(i));
     }
     if (arr.isEmpty()) {
-        return QString();
+        return {};
     }
     const QString payloadB64 =
         QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
-    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
-        .arg(mwhelpers::shSingleQuote(payloadB64));
+    return {QStringLiteral("--mutate-zfs-generic"), payloadB64};
 }
 
-QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
+QStringList MainWindow::daemonizeLocalSendRecvArgs(int connIdx,
                                                   const QString& sendRawCmd,
                                                   const QString& recvRawCmd) const {
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
-        return QString();
+        return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
-        return QString();
+        return {};
     }
     const ConnectionRuntimeState& st = m_states[connIdx];
     if (!st.daemonInstalled || !st.daemonActive) {
-        return QString();
+        return {};
     }
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return QString();
+        return {};
     }
 
     // Both sides must be plain `zfs send ...` / `zfs recv ...` with no shell
@@ -1917,7 +1923,7 @@ QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
     const QJsonArray sendArgv = toArgv(sendRawCmd, QStringLiteral("send"));
     const QJsonArray recvArgv = toArgv(recvRawCmd, QStringLiteral("recv"));
     if (sendArgv.isEmpty() || recvArgv.isEmpty()) {
-        return QString();
+        return {};
     }
 
     QJsonArray outer;
@@ -1927,32 +1933,31 @@ QString MainWindow::daemonizeLocalSendRecvCommand(int connIdx,
         QJsonDocument(recvArgv).toJson(QJsonDocument::Compact).toBase64()));
     const QString payloadB64 = QString::fromLatin1(
         QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
-    return daemonpayload::unixBinPath() + QStringLiteral(" --zfs-pipe-local %1")
-        .arg(mwhelpers::shSingleQuote(payloadB64));
+    return {QStringLiteral("--zfs-pipe-local"), payloadB64};
 }
 
-QString MainWindow::daemonizeRsyncSyncCommand(int connIdx,
+QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
                                               const QList<QPair<QString, QString>>& pathPairs,
                                               bool useDelete,
                                               bool dryRun,
                                               const QString& rsh,
                                               const QString& dstHost) const {
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
-        return QString();
+        return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
-        return QString();
+        return {};
     }
     const ConnectionRuntimeState& st = m_states[connIdx];
     if (!st.daemonInstalled || !st.daemonActive) {
-        return QString();
+        return {};
     }
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return QString();
+        return {};
     }
     if (pathPairs.isEmpty()) {
-        return QString();
+        return {};
     }
 
     QJsonArray fields;
@@ -1965,42 +1970,40 @@ QString MainWindow::daemonizeRsyncSyncCommand(int connIdx,
         const QString dst = pair.second.trimmed();
         if (src.isEmpty() || dst.isEmpty()
             || !src.startsWith(QLatin1Char('/')) || !dst.startsWith(QLatin1Char('/'))) {
-            return QString();
+            return {};
         }
         fields.push_back(src);
         fields.push_back(dst);
     }
     const QString payloadB64 = QString::fromLatin1(
         QJsonDocument(fields).toJson(QJsonDocument::Compact).toBase64());
-    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-rsync-local %1")
-        .arg(mwhelpers::shSingleQuote(payloadB64));
+    return {QStringLiteral("--mutate-rsync-local"), payloadB64};
 }
 
-QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const {
+QStringList MainWindow::daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        return QString();
+        return {};
     }
     const ConnectionProfile p = m_profiles[connIdx];
     if (isWindowsConnection(p)) {
-        return QString();
+        return {};
     }
     if (connIdx < 0 || connIdx >= m_states.size()) {
-        return QString();
+        return {};
     }
     const ConnectionRuntimeState& st = m_states[connIdx];
     if (!st.daemonInstalled || !st.daemonActive) {
-        return QString();
+        return {};
     }
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return QString();
+        return {};
     }
     const QByteArray utf8 = rawShell.trimmed().toUtf8();
     if (utf8.isEmpty()) {
-        return QString();
+        return {};
     }
     const QString payloadB64 = QString::fromLatin1(utf8.toBase64());
-    return daemonpayload::unixBinPath() + QStringLiteral(" --mutate-shell-generic %1")
-        .arg(mwhelpers::shSingleQuote(payloadB64));
+    return {QStringLiteral("--mutate-shell-generic"), payloadB64};
 }
 
 bool MainWindow::fetchPoolCommandOutput(int connIdx,

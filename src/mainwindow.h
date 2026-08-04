@@ -656,7 +656,7 @@ private:
     // safe) from "submitted but lost track of it" (the daemon is working right now,
     // so re-running the command would duplicate it).
     bool runAgentMutationAsJob(const ConnectionProfile& p,
-                               const QString& agentCommandLine,
+                               const QStringList& agentArgs,
                                QString& out,
                                QString& err,
                                int& rc,
@@ -774,7 +774,12 @@ private:
                               bool allowWindowsScript = false,
                               const QByteArray& stdinPayload = {},
                               bool invalidatePoolCache = true,
-                              const std::function<void()>& onSuccessRefresh = {});
+                              const std::function<void()>& onSuccessRefresh = {},
+                              // Argumentos del agente cuando el llamante los tiene. Con
+                              // ellos la orden viaja por RPC sin pasar por el parseo de
+                              // la cadena, y el ciclo de trabajos usa el túnel ya
+                              // abierto en vez de un SSH con sudo por segundo.
+                              const QStringList& agentArgvIn = {});
     bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
                                           bool interactiveErrorDialog = true,
                                           QString* failureDetailOut = nullptr);
@@ -786,13 +791,13 @@ private:
                             QString* failureDetailOut = nullptr,
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
-    QString daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const;
-    QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
-    QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
-    QString daemonizeLocalSendRecvCommand(int connIdx,
+    QStringList daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const;
+    QStringList daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const;
+    QStringList daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const;
+    QStringList daemonizeLocalSendRecvArgs(int connIdx,
                                           const QString& sendRawCmd,
                                           const QString& recvRawCmd) const;
-    QString daemonizeRsyncSyncCommand(int connIdx,
+    QStringList daemonizeRsyncSyncArgs(int connIdx,
                                       const QList<QPair<QString, QString>>& pathPairs,
                                       bool useDelete,
                                       bool dryRun,

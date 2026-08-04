@@ -508,17 +508,11 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         allowWindowsScript = true;
     } else {
         if (!isWindowsConnection(p)) {
-            QStringList args;
-            args.reserve(1 + selectedDirs.size());
-            args.push_back(shSingleQuote(ds));
-            for (const QString& d : selectedDirs) {
-                args.push_back(shSingleQuote(d));
-            }
-            cmd = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-breakdown %1")
-                           .arg(args.join(QLatin1Char(' ')))));
-            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
+            QStringList argv{QStringLiteral("--mutate-advanced-breakdown"), ds};
+            argv += selectedDirs;
+            cmd = mwhelpers::agentShellCommand(p, argv);
+            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0,
+                                 allowWindowsScript, {}, true, {}, argv);
             return;
         }
         QStringList selectedQuoted;
@@ -773,23 +767,19 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         allowWindowsScript = true;
     } else {
         if (!isWindowsConnection(p)) {
-            QStringList args;
-            args.reserve(1 + selectedChildren.size());
-            args.push_back(shSingleQuote(ds));
-            for (const QString& child : selectedChildren) {
-                args.push_back(shSingleQuote(child));
-            }
-            cmd = withSudo(
-                p, mwhelpers::withUnixSearchPathCommand(
-                       daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-assemble %1")
-                           .arg(args.join(QLatin1Char(' ')))));
+            QStringList argv{QStringLiteral("--mutate-advanced-assemble"), ds};
+            argv += selectedChildren;
+            cmd = mwhelpers::agentShellCommand(p, argv);
             executeDatasetAction(QStringLiteral("conncontent"),
                                  QStringLiteral("Ensamblar"),
                                  ctx,
                                  cmd,
                                  0,
                                  allowWindowsScript,
-                                 mountStdinPayload);
+                                 mountStdinPayload,
+                                 true,
+                                 {},
+                                 argv);
             return;
         }
         QStringList promptKeyDatasets;

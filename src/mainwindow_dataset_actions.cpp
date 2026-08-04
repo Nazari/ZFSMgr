@@ -174,7 +174,8 @@ QStringList shellSplit(const QString& cmd) {
 struct DaemonMutationPlan {
     bool matched{false};
     bool embedsStdin{false};
-    QString daemonCmd;
+    // argv, no cadena: la orden se renderiza a shell solo si hay que caer al respaldo.
+    QStringList daemonArgv;
 };
 
 bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
@@ -247,9 +248,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             const QString payloadB64 = QString::fromLatin1(
                 QJsonDocument(outer).toJson(QJsonDocument::Compact).toBase64());
             plan.matched = true;
-            plan.daemonCmd =
-                daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-allow-batch %1")
-                    .arg(shSingleQuote(payloadB64));
+            plan.daemonArgv = {QStringLiteral("--mutate-zfs-allow-batch"), payloadB64};
             return plan;
         }
     }
@@ -286,9 +285,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-snapshot %1 %2")
-                             .arg(shSingleQuote(target),
-                                  recursive ? QStringLiteral("1") : QStringLiteral("0"));
+        plan.daemonArgv = {QStringLiteral("--mutate-zfs-snapshot"), target, recursive ? QStringLiteral("1") : QStringLiteral("0")};
         return plan;
     }
 
@@ -310,10 +307,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-destroy %1 %2 %3")
-                             .arg(shSingleQuote(target),
-                                  force ? QStringLiteral("1") : QStringLiteral("0"),
-                                  shSingleQuote(recursiveMode));
+        plan.daemonArgv = {QStringLiteral("--mutate-zfs-destroy"), target, force ? QStringLiteral("1") : QStringLiteral("0"), recursiveMode};
         return plan;
     }
 
@@ -335,10 +329,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             }
         }
         plan.matched = true;
-        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-rollback %1 %2 %3")
-                             .arg(shSingleQuote(target),
-                                  force ? QStringLiteral("1") : QStringLiteral("0"),
-                                  shSingleQuote(recursiveMode));
+        plan.daemonArgv = {QStringLiteral("--mutate-zfs-rollback"), target, force ? QStringLiteral("1") : QStringLiteral("0"), recursiveMode};
         return plan;
     }
 
@@ -350,8 +341,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
             plan.matched = true;
             plan.embedsStdin = true;
-            plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-load-key %1 %2")
-                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64));
+            plan.daemonArgv = {QStringLiteral("--mutate-zfs-load-key"), datasetB64, passphraseB64};
             return plan;
         }
     }
@@ -369,8 +359,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             const QString flagsB64 = QString::fromLatin1(flagTokens.join(QLatin1Char(' ')).toUtf8().toBase64());
             plan.matched = true;
             plan.embedsStdin = true;
-            plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-change-key %1 %2 %3")
-                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64), shSingleQuote(flagsB64));
+            plan.daemonArgv = {QStringLiteral("--mutate-zfs-change-key"), datasetB64, passphraseB64, flagsB64};
             return plan;
         }
     }
@@ -386,8 +375,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
         const QString payloadB64 = QString::fromUtf8(
             QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
         plan.matched = true;
-        plan.daemonCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
-                             .arg(shSingleQuote(payloadB64));
+        plan.daemonArgv = {QStringLiteral("--mutate-zfs-generic"), payloadB64};
         return plan;
     }
 
@@ -655,7 +643,8 @@ bool MainWindow::executeDatasetAction(const QString& side,
                                       bool allowWindowsScript,
                                       const QByteArray& stdinPayload,
                                       bool invalidatePoolCache,
-                                      const std::function<void()>& onSuccessRefresh) {
+                                      const std::function<void()>& onSuccessRefresh,
+                                      const QStringList& agentArgvIn) {
     if (!ctx.valid) {
         return false;
     }
@@ -726,16 +715,27 @@ bool MainWindow::executeDatasetAction(const QString& side,
     QString effectiveCmd =
         isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
     bool embeddedStdin = false;
-    if (daemonMutateApiOk) {
+    QStringList agentArgv = agentArgvIn;
+    if (agentArgv.isEmpty() && daemonMutateApiOk) {
         const DaemonMutationPlan mutatePlan = daemonMutationPlanForCommand(cmd, stdinPayload);
-        if (mutatePlan.matched && !mutatePlan.daemonCmd.trimmed().isEmpty()) {
-            effectiveCmd = mwhelpers::withUnixSearchPathCommand(mutatePlan.daemonCmd);
+        if (mutatePlan.matched && !mutatePlan.daemonArgv.isEmpty()) {
+            agentArgv = mutatePlan.daemonArgv;
             embeddedStdin = mutatePlan.embedsStdin;
         }
     }
     const bool effectivelyStreamInput = usesStreamInput && !embeddedStdin;
-    QString remoteCmd = effectivelyStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
-                                               : withSudo(sudoProfile, effectiveCmd);
+    // La cadena se renderiza a partir de argv en un único sitio, y es la misma que se
+    // muestra en la confirmación y la que se ejecuta si hay que caer al respaldo: no
+    // pueden divergir.
+    QString remoteCmd;
+    if (!agentArgv.isEmpty()) {
+        remoteCmd = effectivelyStreamInput
+                        ? mwhelpers::agentShellCommandStreamInput(sudoProfile, agentArgv)
+                        : mwhelpers::agentShellCommand(sudoProfile, agentArgv);
+    } else {
+        remoteCmd = effectivelyStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
+                                           : withSudo(sudoProfile, effectiveCmd);
+    }
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
@@ -781,11 +781,11 @@ bool MainWindow::executeDatasetAction(const QString& side,
     const bool submittableAsJob =
         featureAvailable(ctx.connIdx, zfsmgr::caps::Feature::BackgroundJobs) && effectiveStdin.isEmpty()
         && (isBreakdownAction || isAssembleAction || isToDirAction)
-        && effectiveCmd.contains(daemonpayload::unixBinPath());
+        && !agentArgv.isEmpty();
     bool ok = false;
     bool jobWasSubmitted = false;
     if (submittableAsJob) {
-        ok = runAgentMutationAsJob(p, effectiveCmd, out, err, rc, progressLogger, &jobWasSubmitted);
+        ok = runAgentMutationAsJob(p, agentArgv, out, err, rc, progressLogger, &jobWasSubmitted);
         if (!ok && jobWasSubmitted) {
             // The daemon accepted the job and is very likely still running it. Falling
             // back to the synchronous path would execute the same destructive command
@@ -1061,9 +1061,11 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
                       .arg(propsCsv, shSingleQuote(trimmedPool))
                 : QStringLiteral("zpool get -j %1 %2")
                       .arg(propsCsv, shSingleQuote(trimmedPool))));
-    const QString poolCmdDaemon = mwhelpers::agentShellCommand(profile, {QStringLiteral("--dump-zpool-get-all"), trimmedPool});
-    const QString selectedPoolCmd = daemonReadApiOk ? poolCmdDaemon : poolCmdClassic;
-    bool poolPropsOk = runSsh(profile, selectedPoolCmd, 15000, out, err, rc) && rc == 0;
+    // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+    const QStringList poolCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
+    bool poolPropsOk = daemonReadApiOk
+        ? (runAgentCommand(profile, poolCmdDaemonArgv, 15000, out, err, rc) && rc == 0)
+        : (runSsh(profile, poolCmdClassic, 15000, out, err, rc) && rc == 0);
     if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
@@ -1162,14 +1164,16 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
     }
     const QString renameRawCmd = pendingDatasetRenameCommand(draft);
     QString renameExecCmd = renameRawCmd;
+    QStringList renameArgv;
     if (!isWindowsConnection(p)) {
-        if (const QString daemonCmd = daemonizeZfsMutationCommand(draft.connIdx, renameRawCmd);
-            !daemonCmd.isEmpty()) {
-            renameExecCmd = daemonCmd;
+        renameArgv = daemonizeZfsMutationArgs(draft.connIdx, renameRawCmd);
+        if (renameArgv.isEmpty()) {
+            renameExecCmd = mwhelpers::withUnixSearchPathCommand(renameExecCmd);
         }
-        renameExecCmd = mwhelpers::withUnixSearchPathCommand(renameExecCmd);
     }
-    const QString remoteCmd = withSudo(sudoProfile, renameExecCmd);
+    const QString remoteCmd = renameArgv.isEmpty()
+                                  ? withSudo(sudoProfile, renameExecCmd)
+                                  : mwhelpers::agentShellCommand(sudoProfile, renameArgv);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Aplicar renombrado %1::%2")
                .arg(p.name, draft.sourceName.trimmed()));

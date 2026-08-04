@@ -320,9 +320,9 @@ void MainWindow::actionCopySnapshot() {
         return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
@@ -404,9 +404,9 @@ void MainWindow::actionCopySnapshot() {
         // Prefer the typed --zfs-pipe-local RPC: the daemon wires send|recv itself
         // with execvp, so no shell is built. Falls back to the shell pipeline when
         // the daemon is unavailable or the commands are not plain send/recv.
-        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
         if (!typedPipe.isEmpty()) {
-            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+            pipeline = sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedPipe));
         } else {
             const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
             pipeline = buildSourceExecutionCommand(sourceShell);
@@ -1156,9 +1156,9 @@ void MainWindow::actionLevelSnapshot() {
         return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
@@ -1237,9 +1237,9 @@ void MainWindow::actionLevelSnapshot() {
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         // Prefer the typed --zfs-pipe-local RPC (see actionCopySnapshot).
-        const QString typedPipe = daemonizeLocalSendRecvCommand(src.connIdx, sendRawCmd, recvRawCmd);
+        const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
         if (!typedPipe.isEmpty()) {
-            pipeline = sshExecFromLocal(sp, withSudo(sp, typedPipe));
+            pipeline = sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedPipe));
         } else {
             const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
             pipeline = buildSourceExecutionCommand(sourceShell);
@@ -1319,9 +1319,9 @@ void MainWindow::actionSyncDatasets() {
 
     const QString srcSsh = buildSshTargetPrefix(sp);
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
-        if (!daemonCmd.isEmpty()) {
-            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
+        if (!daemonArgv.isEmpty()) {
+            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
         }
         return srcSsh + QStringLiteral(" ") + shSingleQuote(withSudo(sp, sourceShellCmd));
     };
@@ -1658,7 +1658,7 @@ void MainWindow::actionSyncDatasets() {
             // capability probe and assembles the rsync argv itself, so no shell is
             // built. Falls back to the inline shell probe when the daemon is not
             // available (e.g. Windows or an out-of-date agent).
-            const QString typedRsync = daemonizeRsyncSyncCommand(
+            const QStringList typedRsync = daemonizeRsyncSyncArgs(
                 src.connIdx,
                 {qMakePair(srcEffectiveMp, dstEffectiveMp)},
                 useDelete,
@@ -1666,7 +1666,7 @@ void MainWindow::actionSyncDatasets() {
                 sameConnection ? QString() : sshBaseCommand(dp),
                 sameConnection ? QString() : sshUserHost(dp));
             if (!typedRsync.isEmpty()) {
-                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+                return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedRsync));
             }
             const QString rsyncOptsProbe = buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun);
             if (sameConnection) {
@@ -1881,7 +1881,7 @@ void MainWindow::actionSyncDatasets() {
             for (const auto& pair : syncPairs) {
                 typedPairs.push_back(qMakePair(pair.first, pair.second));
             }
-            const QString typedRsync = daemonizeRsyncSyncCommand(
+            const QStringList typedRsync = daemonizeRsyncSyncArgs(
                 src.connIdx,
                 typedPairs,
                 useDelete,
@@ -1889,7 +1889,7 @@ void MainWindow::actionSyncDatasets() {
                 sameConnection ? QString() : sshTransport,
                 sameConnection ? QString() : sshUserHost(dp));
             if (!typedRsync.isEmpty()) {
-                return sshExecFromLocal(sp, withSudo(sp, typedRsync));
+                return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedRsync));
             }
             QStringList cmds;
             cmds.reserve(syncPairs.size());

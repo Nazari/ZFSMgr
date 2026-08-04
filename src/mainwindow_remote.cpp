@@ -139,6 +139,15 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
            || cmd == QStringLiteral("--job-cancel");
 }
 
+// Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
+//
+// Existe solo para los sitios que todavía construyen la orden como cadena. Los que ya
+// pasan por runAgentCommand no lo tocan, y cuando migren los últimos esta función y las
+// dos interceptaciones de runSsh se borran de un tajo.
+//
+// No añadir sitios nuevos por aquí: el corte por separador, la lista blanca por prefijo
+// y el deshacer del doble entrecomillado son suposiciones sobre cómo se construyó la
+// cadena, y cada una ha fallado al menos una vez.
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
     // Se prueban las dos rutas del agente, no solo la de Unix. Buscar únicamente la
@@ -743,7 +752,7 @@ QString describeHostAddress(const QHostAddress& address) {
 } // namespace
 
 bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
-                                       const QString& agentCommandLine,
+                                       const QStringList& agentArgs,
                                        QString& out,
                                        QString& err,
                                        int& rc,
@@ -756,22 +765,17 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
         *jobSubmittedOut = false;
     }
 
-    const QString marker = daemonpayload::unixBinPath();
-    const int pos = agentCommandLine.indexOf(marker);
-    if (pos < 0) {
+    if (agentArgs.isEmpty()) {
         return false;
     }
-    // Insert --job-submit right after the binary path, leaving the original command
-    // and its arguments as the job payload.
-    const QString head = agentCommandLine.left(pos + marker.size());
-    const QString tail = agentCommandLine.mid(pos + marker.size());
-    const QString submitCmd = head + QStringLiteral(" --job-submit") + tail;
+    // --job-submit delante, y el resto como carga del trabajo. Antes esto se hacía
+    // buscando la ruta del binario dentro de una cadena y partiéndola en dos.
+    const QStringList submitArgs = QStringList{QStringLiteral("--job-submit")} + agentArgs;
 
     QString subOut;
     QString subErr;
     int subRc = -1;
-    if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(submitCmd)), 20000, subOut, subErr, subRc)
-        || subRc != 0) {
+    if (!runAgentCommand(p, submitArgs, 20000, subOut, subErr, subRc) || subRc != 0) {
         err = subErr.trimmed().isEmpty() ? QStringLiteral("no se pudo enviar el trabajo al daemon")
                                          : subErr;
         return false;
@@ -794,8 +798,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     appLog(QStringLiteral("INFO"),
            QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
 
-    const QString statusCmd =
-        head + QStringLiteral(" --job-status ") + mwhelpers::shSingleQuote(jobId);
+    const QStringList statusArgs = {QStringLiteral("--job-status"), jobId};
     QString lastProgress;
     // No overall deadline on purpose: the daemon owns the operation and reports when
     // it is done. Each individual poll is short, so a dead daemon still surfaces.
@@ -805,8 +808,9 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
         QString stOut;
         QString stErr;
         int stRc = -1;
-        if (!runSsh(p, withSudo(p, mwhelpers::withUnixSearchPathCommand(statusCmd)), 20000, stOut, stErr, stRc)
-            || stRc != 0) {
+        // Por el túnel ya abierto, en vez de un SSH completo con sudo cada segundo:
+        // --job-status no pasaba la lista blanca del parseo y caía siempre a shell.
+        if (!runAgentCommand(p, statusArgs, 20000, stOut, stErr, stRc) || stRc != 0) {
             err = QStringLiteral("se perdió el contacto con el daemon mientras el trabajo %1 seguía en curso")
                       .arg(jobId);
             return false;
@@ -2521,9 +2525,11 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1")
                         .arg(shSingleQuote(trimmedPool))));
-            const QString guidCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-guid"), trimmedPool});
-            const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
-            bool guidOk = runSsh(p, selectedGuidCmd, 12000, gOut, gErr, gRc) && gRc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList guidCmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), trimmedPool};
+            bool guidOk = daemonReadApiOk
+                ? (runAgentCommand(p, guidCmdDaemonArgv, 12000, gOut, gErr, gRc) && gRc == 0)
+                : (runSsh(p, guidCmdClassic, 12000, gOut, gErr, gRc) && gRc == 0);
             if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {

@@ -2416,11 +2416,11 @@ void MainWindow::createPoolForSelectedConnection() {
         const QString createCmd = parts.join(' ');
         ConnectionProfile execProfile = p;
         QString cmd = createCmd;
-        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, cmd); !daemonCmd.isEmpty()) {
-            cmd = daemonCmd;
-        }
-        if (!isWindowsConnection(execProfile)) {
-            cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+        const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, cmd);
+        if (daemonArgv.isEmpty()) {
+            if (!isWindowsConnection(execProfile)) {
+                cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+            }
         }
         if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
             execProfile.useSudo = true;
@@ -2429,7 +2429,8 @@ void MainWindow::createPoolForSelectedConnection() {
                 return;
             }
         }
-        cmd = withSudo(execProfile, cmd);
+        cmd = daemonArgv.isEmpty() ? withSudo(execProfile, cmd)
+                                   : mwhelpers::agentShellCommand(execProfile, daemonArgv);
         const QString preview = QStringLiteral("[%1]\n%2")
                                     .arg(sshUserHostPort(execProfile))
                                     .arg(buildSshPreviewCommand(execProfile, cmd));

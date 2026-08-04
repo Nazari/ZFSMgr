@@ -1061,9 +1061,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 p,
                 mwhelpers::withUnixSearchPathCommand(
                     QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
-            const QString guidCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-guid"), poolName});
-            const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
-            bool guidOk = runSsh(p, selectedGuidCmd, 12000, gout, gerr, grc) && grc == 0;
+            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+            const QStringList guidCmdDaemonArgv = {QStringLiteral("--dump-zpool-guid"), poolName};
+            bool guidOk = daemonReadApiOk
+                ? (runAgentCommand(p, guidCmdDaemonArgv, 12000, gout, gerr, grc) && grc == 0)
+                : (runSsh(p, guidCmdClassic, 12000, gout, gerr, grc) && grc == 0);
             if (guidOk) {
                 const QString guid = gout.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -1081,9 +1083,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
-        const QString stCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zpool-status"), poolName});
-        const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
-        bool statusOk = runSsh(p, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
+        // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+        const QStringList stCmdDaemonArgv = {QStringLiteral("--dump-zpool-status"), poolName};
+        bool statusOk = daemonReadApiOk
+            ? (runAgentCommand(p, stCmdDaemonArgv, 20000, out, err, rc) && rc == 0)
+            : (runSsh(p, stCmdClassic, 20000, out, err, rc) && rc == 0);
         if (statusOk) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {

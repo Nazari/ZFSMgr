@@ -1059,18 +1059,21 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     if (!isWin) {
         if (!isWindowsConnection(profile)) {
             Q_UNUSED(daemonReadApiOk);
-            cmd = withSudo(
-                profile, mwhelpers::withUnixSearchPathCommand(
-                             daemonpayload::unixBinPath() + QStringLiteral(" --mutate-advanced-todir %1 %2 %3")
-                                 .arg(shSingleQuote(ds),
-                                      shSingleQuote(localDir),
-                                      deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
+            // El directorio lo elige el usuario: como argv no puede truncarse aunque
+            // contenga ';', '&' o '|', que es lo que rompía esta acción.
+            const QStringList argv{QStringLiteral("--mutate-advanced-todir"), ds, localDir,
+                                   deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0")};
+            cmd = mwhelpers::agentShellCommand(profile, argv);
             executeDatasetAction(QStringLiteral("conncontent"),
                                  trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                                  ctx,
                                  cmd,
                                  0,
-                                 allowWindowsScript);
+                                 allowWindowsScript,
+                                 {},
+                                 true,
+                                 {},
+                                 argv);
             return;
         }
         cmd = QStringLiteral(
