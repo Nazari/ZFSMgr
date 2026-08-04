@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 DO_WINDOWS=0
+SKIP_QT=0
 DO_FREEBSD=0
 DO_MACOS=0
 DRY_RUN=0
@@ -50,6 +51,7 @@ Opciones:
   --freebsd-repo-branch <b>  Rama repo pkg FreeBSD: quarterly|latest (default: ${FREEBSD_REPO_BRANCH})
   --osxcross-root <dir>      Ruta de osxcross (default: ${OSXCROSS_ROOT})
   --macos-sdk <file|dir>     SDK macOS (.tar.xz/.tar.zst/.sdk) para compilar osxcross
+  --skip-qt                  Con --windows, solo prepara OpenSSL (sin Qt)
   --force                    Reinstala/reconstruye aunque exista
   --dry-run                  Solo imprime acciones
   -h, --help                 Muestra esta ayuda y sale
@@ -111,6 +113,22 @@ ensure_aqt() {
   echo "${venv}/bin/aqt"
 }
 
+# Extraída para poder pedirla sola con --skip-qt. "no-shared" es intencionado: el
+# agente de Windows viaja solo a la máquina remota y no puede depender de DLL de
+# OpenSSL que allí no existen.
+install_openssl_mingw() {
+  if [[ ${FORCE} -eq 1 || ! -f "${OPENSSL_PREFIX}/lib/libcrypto.a" ]]; then
+    local work="/tmp/openssl-mingw-build"
+    run_cmd "rm -rf '${work}'"
+    run_cmd "mkdir -p '${work}' '${HOME}/opt'"
+    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
+    run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && perl ./Configure mingw64 --cross-compile-prefix=x86_64-w64-mingw32- --prefix='${OPENSSL_PREFIX}' --libdir=lib no-tests no-shared"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make install_sw"
+  fi
+}
+
 install_windows_targets() {
   need_cmd python3
   need_cmd perl
@@ -119,6 +137,14 @@ install_windows_targets() {
   need_cmd x86_64-w64-mingw32-gcc
   need_cmd x86_64-w64-mingw32-g++
   need_cmd x86_64-w64-mingw32-windres
+
+  # Con --skip-qt solo se prepara OpenSSL para MinGW. Lo usa la integración continua
+  # para cruzar el agente, que no usa Qt: instalarlo allí serían varios minutos y
+  # cientos de megas para nada.
+  if [[ ${SKIP_QT} -eq 1 ]]; then
+    install_openssl_mingw
+    return 0
+  fi
 
   local aqt
   aqt="$(ensure_aqt)"
@@ -136,16 +162,7 @@ install_windows_targets() {
     run_cmd "'${aqt}' install-qt -O '${QT_ROOT}' linux desktop '${QT_VERSION}' linux_gcc_64"
   fi
 
-  if [[ ${FORCE} -eq 1 || ! -f "${OPENSSL_PREFIX}/lib/libcrypto.a" ]]; then
-    local work="/tmp/openssl-mingw-build"
-    run_cmd "rm -rf '${work}'"
-    run_cmd "mkdir -p '${work}' '${HOME}/opt'"
-    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
-    run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
-    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && perl ./Configure mingw64 --cross-compile-prefix=x86_64-w64-mingw32- --prefix='${OPENSSL_PREFIX}' --libdir=lib no-tests no-shared"
-    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
-    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make install_sw"
-  fi
+  install_openssl_mingw
 
   echo
   echo "[windows] listo:"
@@ -363,6 +380,7 @@ setup_osxcross() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --windows) DO_WINDOWS=1; shift ;;
+    --skip-qt) SKIP_QT=1; shift ;;
     --freebsd) DO_FREEBSD=1; shift ;;
     --macos) DO_MACOS=1; shift ;;
     --all) DO_WINDOWS=1; DO_FREEBSD=1; DO_MACOS=1; shift ;;
