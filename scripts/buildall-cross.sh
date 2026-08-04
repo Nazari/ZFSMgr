@@ -526,7 +526,16 @@ if has_platform "macos"; then
     _arch="$(echo "${_arch}" | xargs)"
     [[ -n "${_arch}" ]] || continue
     _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
-    mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    # ZFSMgr.app primero. El bundle dejó de llevar la versión en el nombre para que al
+    # copiarlo reemplace al anterior, y este find se quedó con el patrón antiguo. Cuando
+    # quedaban bundles viejos en el directorio de compilación cogía el más alto por
+    # orden de versión —un 0.80.7— le inyectaba los agentes y lo empaquetaba como si
+    # fuera la versión que se publica. Al limpiarlos, ya no encontraba ninguno y
+    # abortaba. Las dos formas de fallar salían del mismo patrón obsoleto.
+    mac_app="${_build_dir}/ZFSMgr.app"
+    if [[ ! -d "${mac_app}" ]]; then
+      mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    fi
     [[ -n "${mac_app}" ]] || { echo "No se encontró .app de macOS cross (${_arch})" >&2; exit 1; }
     inject_agent_bundle_into_macos_app "${mac_app}"
     mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
