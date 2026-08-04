@@ -639,6 +639,14 @@ private:
                          int& rc,
                          const QByteArray& stdinPayload = {});
 
+    // Material TLS del daemon LOCAL. Vive bajo /etc/zfsmgr con permisos de root, así
+    // que hay que leerlo elevando, igual que el de las conexiones remotas se trae por
+    // SSH con sudo. Se cachea en memoria para no pedir credenciales en cada orden.
+    bool ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
+                                      QByteArray& clientCertPem,
+                                      QByteArray& clientKeyPem,
+                                      quint16& daemonPort);
+
     bool tryAgentRpcOverSsh(const ConnectionProfile& p,
                             const QStringList& agentArgs,
                             int timeoutMs,

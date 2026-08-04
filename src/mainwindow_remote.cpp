@@ -259,7 +259,17 @@ bool peerCertificateIsPinned(const QSslSocket& sock, const QList<QSslCertificate
     return false;
 }
 
+// El material TLS llega por parámetro, no se lee del disco.
+//
+// Vivía en /etc/zfsmgr/tls con permisos 600 de root, así que la interfaz —que corre
+// como usuario normal— nunca podía abrirlo y el RPC local no llegaba a intentarse.
+// No se notaba porque el camino clásico leía los pools sin privilegios; al retirarlo,
+// la conexión Local se quedó sin datos.
 bool tryRunLocalAgentRpc(const QStringList& agentArgs,
+                         const QByteArray& serverCertPem,
+                         const QByteArray& clientCertPem,
+                         const QByteArray& clientKeyPem,
+                         quint16 daemonPort,
                          int timeoutMs,
                          QString& out,
                          QString& err,
@@ -272,29 +282,18 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     }
     const QString cmd = agentArgs.first();
     const QStringList params = agentArgs.mid(1);
-    const LocalAgentConfig cfg = loadLocalAgentConfig();
-
-    QFile caFile(cfg.tlsCertPath);
-    QFile clientCertFile(cfg.tlsClientCertPath);
-    QFile clientKeyFile(cfg.tlsClientKeyPath);
-    QList<QSslCertificate> caCerts;
-    QList<QSslCertificate> clientCerts;
-    QSslKey clientKey;
-    if (caFile.open(QIODevice::ReadOnly)) {
-        caCerts = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
-    }
-    if (clientCertFile.open(QIODevice::ReadOnly)) {
-        clientCerts = QSslCertificate::fromData(clientCertFile.readAll(), QSsl::Pem);
-    }
-    if (clientKeyFile.open(QIODevice::ReadOnly)) {
-        const QByteArray keyPem = clientKeyFile.readAll();
-        clientKey = QSslKey(keyPem, QSsl::Rsa, QSsl::Pem);
-        if (clientKey.isNull()) {
-            clientKey = QSslKey(keyPem, QSsl::Ec, QSsl::Pem);
-        }
+    const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
+    const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
+    QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
+    if (clientKey.isNull()) {
+        clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
     }
     if (caCerts.isEmpty() || clientCerts.isEmpty() || clientKey.isNull()) {
         return false;
+    }
+    LocalAgentConfig cfg = loadLocalAgentConfig();
+    if (daemonPort > 0) {
+        cfg.port = daemonPort;
     }
 
     const QHostAddress bindAddr(cfg.bindAddress);
@@ -1434,6 +1433,120 @@ QStringList MainWindow::extractAgentArgsForTest(const QString& remoteCmd) {
     return args;
 }
 
+namespace {
+// Caché del material TLS local. Sin ella habría que pedir la contraseña de sudo en
+// cada orden, que es lo que hace inusable pedirla siquiera una vez.
+struct LocalDaemonTlsCacheEntry {
+    QByteArray serverCertPem;
+    QByteArray clientCertPem;
+    QByteArray clientKeyPem;
+    quint16 port{47653};
+    QDateTime fetchedAtUtc;
+};
+QMutex s_localDaemonTlsCacheMutex;
+LocalDaemonTlsCacheEntry s_localDaemonTlsCache;
+} // namespace
+
+bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
+                                              QByteArray& clientCertPem,
+                                              QByteArray& clientKeyPem,
+                                              quint16& daemonPort) {
+    {
+        QMutexLocker lock(&s_localDaemonTlsCacheMutex);
+        if (s_localDaemonTlsCache.fetchedAtUtc.isValid()
+            && s_localDaemonTlsCache.fetchedAtUtc.msecsTo(QDateTime::currentDateTimeUtc())
+                   <= 5 * 60 * 1000
+            && !s_localDaemonTlsCache.serverCertPem.isEmpty()) {
+            serverCertPem = s_localDaemonTlsCache.serverCertPem;
+            clientCertPem = s_localDaemonTlsCache.clientCertPem;
+            clientKeyPem = s_localDaemonTlsCache.clientKeyPem;
+            daemonPort = s_localDaemonTlsCache.port;
+            return true;
+        }
+    }
+
+    // Primero sin elevar: si la interfaz corre como root, o alguien aflojó los
+    // permisos, no hay por qué pedir nada.
+    const LocalAgentConfig cfg = loadLocalAgentConfig();
+    const auto readFile = [](const QString& path) -> QByteArray {
+        QFile f(path);
+        return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+    };
+    QByteArray srv = readFile(cfg.tlsCertPath);
+    QByteArray cli = readFile(cfg.tlsClientCertPath);
+    QByteArray key = readFile(cfg.tlsClientKeyPath);
+    quint16 port = static_cast<quint16>(cfg.port > 0 ? cfg.port : 47653);
+
+    if (srv.isEmpty() || cli.isEmpty() || key.isEmpty()) {
+        // Mismo guion y mismos marcadores que el camino remoto, para poder reutilizar
+        // su parseador en vez de escribir un segundo formato que se desincronice.
+        const QString bundleScript =
+            QStringLiteral("set -eu; "
+                           "for f in %1 %2 %3; do "
+                           "  if [ -r \"$f\" ]; then "
+                           "    printf '__ZFSMGR_TLS_BEGIN__:%s\\n' \"$f\"; "
+                           "    cat \"$f\"; "
+                           "    printf '__ZFSMGR_TLS_END__:%s\\n' \"$f\"; "
+                           "  fi; "
+                           "done; "
+                           "if [ -r %4 ]; then "
+                           "  port=$(awk -F= '/^[[:space:]]*AGENT_PORT[[:space:]]*=/{print $2}' %4 "
+                           "| tail -n1 | tr -d \"' \\t\\r\"); "
+                           "  if [ -n \"$port\" ]; then printf '__ZFSMGR_AGENT_PORT__:%s\\n' \"$port\"; fi; "
+                           "fi")
+                .arg(mwhelpers::shSingleQuote(cfg.tlsCertPath),
+                     mwhelpers::shSingleQuote(cfg.tlsClientCertPath),
+                     mwhelpers::shSingleQuote(cfg.tlsClientKeyPath),
+                     mwhelpers::shSingleQuote(QString::fromLatin1(kDefaultAgentConfigPath)));
+
+        ConnectionProfile sudoProfile;
+        sudoProfile.id = QStringLiteral("local");
+        sudoProfile.connType = QStringLiteral("LOCAL");
+        sudoProfile.useSudo = true;
+        if (!ensureLocalSudoCredentials(sudoProfile)) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Local: no se pudo leer el material TLS del daemon (faltan "
+                                  "credenciales sudo locales)."));
+            return false;
+        }
+        const QString cmd =
+            mwhelpers::withSudoCommand(sudoProfile,
+                                       QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript)));
+        QString out;
+        QString err;
+        int rc = -1;
+        if (!runSsh(sudoProfile, cmd, 15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
+            || rc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Local: no se pudo leer el material TLS del daemon -> %1")
+                       .arg(mwhelpers::oneLine(err.isEmpty() ? out : err)));
+            return false;
+        }
+        if (!parseRemoteDaemonTlsBundle(out, srv, cli, key, port)) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Local: el material TLS del daemon llegó incompleto."));
+            return false;
+        }
+    }
+
+    if (srv.isEmpty() || cli.isEmpty() || key.isEmpty()) {
+        return false;
+    }
+    {
+        QMutexLocker lock(&s_localDaemonTlsCacheMutex);
+        s_localDaemonTlsCache.serverCertPem = srv;
+        s_localDaemonTlsCache.clientCertPem = cli;
+        s_localDaemonTlsCache.clientKeyPem = key;
+        s_localDaemonTlsCache.port = port;
+        s_localDaemonTlsCache.fetchedAtUtc = QDateTime::currentDateTimeUtc();
+    }
+    serverCertPem = srv;
+    clientCertPem = cli;
+    clientKeyPem = key;
+    daemonPort = port;
+    return true;
+}
+
 bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                                     const QStringList& agentArgs,
                                     int timeoutMs,
@@ -1585,7 +1698,13 @@ bool MainWindow::runAgentCommand(const ConnectionProfile& p,
         stdinPayload.isEmpty() && !mwhelpers::isCliOnlyAgentCommand(verb);
     if (rpcEligible) {
         if (isLocalConnection(p)) {
-            if (tryRunLocalAgentRpc(agentArgs, timeoutMs, out, err, rc)) {
+            QByteArray srvPem;
+            QByteArray cliPem;
+            QByteArray keyPem;
+            quint16 localPort = 47653;
+            if (ensureLocalDaemonTlsMaterial(srvPem, cliPem, keyPem, localPort)
+                && tryRunLocalAgentRpc(agentArgs, srvPem, cliPem, keyPem, localPort,
+                                       timeoutMs, out, err, rc)) {
                 return true;
             }
         } else if (tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc)) {
@@ -1629,15 +1748,19 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             // hacerlo desde un hilo de trabajo revienta: no saltaba porque la conexión
             // Local estaba excluida de todo lo que se ejecuta en segundo plano.
             bool localRpcOk = false;
+            const auto runLocalRpc = [&]() {
+                QByteArray srvPem;
+                QByteArray cliPem;
+                QByteArray keyPem;
+                quint16 localPort = 47653;
+                localRpcOk = ensureLocalDaemonTlsMaterial(srvPem, cliPem, keyPem, localPort)
+                             && tryRunLocalAgentRpc(localAgentArgs, srvPem, cliPem, keyPem,
+                                                    localPort, timeoutMs, out, err, rc);
+            };
             if (QThread::currentThread() == thread()) {
-                localRpcOk = tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc);
+                runLocalRpc();
             } else {
-                QMetaObject::invokeMethod(
-                    this,
-                    [&localAgentArgs, timeoutMs, &out, &err, &rc, &localRpcOk]() {
-                        localRpcOk = tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc);
-                    },
-                    Qt::BlockingQueuedConnection);
+                QMetaObject::invokeMethod(this, runLocalRpc, Qt::BlockingQueuedConnection);
             }
             if (localRpcOk) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
