@@ -5980,7 +5980,20 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                                .arg(QString::number(connIdx), poolName, fullSnapshotName));
                 }
                 snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
-                if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+                // El contenido de un snapshot se lee por <mountpoint>/.zfs/snapshot/<snap>,
+                // y ese directorio solo existe si el dataset está MONTADO. Antes solo se
+                // comprobaba que hubiera mountpoint, así que con el dataset desmontado se
+                // creaba el nodo igual y al abrirlo salía "path not found: ...", que no
+                // dice lo que pasa ni cómo arreglarlo.
+                if (!isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+                    auto* snapHint = new QTreeWidgetItem(snapItem);
+                    snapHint->setText(0, trk(QStringLiteral("t_snap_content_unmounted_001"),
+                                             QStringLiteral("Contenido no disponible: el dataset no está montado"),
+                                             QStringLiteral("Content unavailable: the dataset is not mounted"),
+                                             QStringLiteral("内容不可用：数据集未挂载")));
+                    snapHint->setFlags(snapHint->flags() & ~Qt::ItemIsUserCheckable);
+                }
+                if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
                     const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
                     auto* snapContentNode = new QTreeWidgetItem(snapItem);
                     snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
