@@ -99,6 +99,27 @@ for rel in "${expected[@]}"; do
 done
 [[ "${bad}" -eq 0 ]] || exit 1
 
+# El agente de Windows se despliega SOLO en la máquina remota: no va acompañado de
+# ninguna otra biblioteca y allí no hay gestor de paquetes que le resuelva nada. Si
+# depende del runtime de Visual C++ o de las DLL de OpenSSL, arranca con 0xC0000135
+# ("DLL no encontrada") sin decir cuál, y el síntoma que se ve es que instalar el
+# daemon falla en el paso de generar el material TLS.
+#
+# Pasó: la integración continua lo compila con MSVC y OpenSSL dinámico, mientras que
+# el cruce con MinGW lo enlaza estáticamente. Traer el de CI rompía la instalación en
+# cualquier Windows sin el redistribuible de Visual C++.
+win_bin="${tmp}/windows-x86_64/zfsmgr_agent.exe"
+forbidden="$(strings -a "${win_bin}" \
+  | grep -oiE '(vcruntime[0-9]*|msvcp[0-9]*|libssl-[0-9]+-x64|libcrypto-[0-9]+-x64)\.dll' \
+  | sort -u || true)"
+if [[ -n "${forbidden}" ]]; then
+  echo "Error: el agente de Windows no es autosuficiente. Necesita:" >&2
+  printf '  %s\n' ${forbidden} >&2
+  echo "Se despliega solo en la máquina remota, así que arrancaría con 0xC0000135." >&2
+  echo "Use el compilado con MinGW: scripts/build-cross.sh --target windows" >&2
+  exit 1
+fi
+
 mkdir -p "${DEST}"
 for rel in "${expected[@]}"; do
   mkdir -p "${DEST}/$(dirname "${rel}")"
