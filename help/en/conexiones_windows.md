@@ -1,26 +1,67 @@
 # Windows connections
 
-ZFSMgr distinguishes between several scenarios when working with Windows connections.
+On Windows, ZFSMgr works **only through the native agent**. It does not run shell
+commands on the remote machine and does not need any Unix command layer installed
+there.
 
-## ZFS detection
+## What the Windows machine needs
 
-- Having a file named `zfs` or `zpool` is not enough.
-- For a Unix command to count as detected, ZFSMgr requires that the binary can actually be executed.
-- If there is no working Unix layer, the commands are marked as not detected.
+- **OpenSSH Server running.** It is the only supported transport. Windows 10 and 11
+  ship it; if it is not enabled:
 
-## PowerShell and the Unix layer
+  ```powershell
+  Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+  Start-Service sshd
+  Set-Service -Name sshd -StartupType 'Automatic'
+  ```
 
-- The PowerShell commands used for compatibility are listed separately.
-- `zfs` and `zpool` are not presented as PowerShell cmdlets.
-- This avoids false positives and ambiguous messages.
+- **OpenZFS on Windows**, which provides `zfs` and `zpool`.
+- **The ZFSMgr agent**, installed from the application itself with *Reinstall/Update
+  daemon* in the connection context menu.
 
-## Version information
+MSYS2, MinGW and other Unix tooling are no longer needed. Earlier versions did require
+them, and the menu entry that installed them is gone.
 
-- The OpenZFS version on Windows is resolved by running the real binary when it exists.
-- If a Windows connection has no `zfs`/`zpool` installed or reachable, the UI must show them as not detected.
+## How it communicates
 
-## Functional impact
+Exactly as on Linux, macOS and FreeBSD: commands travel as typed calls to the agent,
+encrypted with authentication on both ends, through a tunnel opened over the SSH
+connection itself. The agent runs them directly, with no command interpreter in
+between.
 
-- Actions that require a real Unix shell may be unavailable on Windows connections without a valid Unix layer.
-- **Windows has no native daemon**: only a PowerShell stub without an mTLS RPC server, so none of the daemon-based paths apply and the `Daemon` tab stays inert.
-- The connection status indicator should be read together with the list of detected and missing commands.
+That is why the transport must be SSH: without it there is no tunnel to carry those
+calls.
+
+## What is not available yet
+
+The Windows agent does not implement some features yet. The application **does not
+attempt them**: they appear disabled with the reason, and the connection card lists
+them under *Unavailable features*.
+
+- Background jobs, and with them daemon-to-daemon transfers.
+- Copy and Level snapshots when either end is Windows.
+- Sync with `rsync`.
+- *To Dir*.
+- Repairing temporary mountpoints.
+- Scheduled automatic snapshots.
+
+What does work: reading and modifying datasets and pools, snapshots, cloning, ZFS
+permissions, *Breakdown* and *Assemble*, and the agent log and heartbeat.
+
+That list is not written into the application: **the agent declares it** when asked for
+its status, so it updates itself once a version covering more is installed.
+
+## Differences worth keeping in mind
+
+- **Mountpoints.** A pool created on Linux keeps Unix-style paths (`/mnt/data`), which
+  correspond to no drive on Windows. That is the pool's real data, not a misreading.
+- **No `sudo`.** Commands run with the session's privileges, and the agent runs as a
+  system service.
+- **A pool imported with `-N`** stays unmounted, so an empty mount list is correct.
+
+## If something does not respond
+
+The connection card shows whether the agent is installed, whether it is running, its
+API version, and whether the binary is native. The **Daemon** tab shows its log and
+lets you request a heartbeat. If the API version does not match the one the application
+expects, reinstall the agent from the context menu.

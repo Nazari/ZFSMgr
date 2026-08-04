@@ -24,6 +24,7 @@ Comportamiento:
   - La GUI no se bloquea; el progreso se muestra en la pestaña **Transferencias**.
   - Se puede cerrar la GUI mientras la transferencia continúa en el daemon.
   - Los jobs pueden cancelarse desde la pestaña Transferencias.
+- **Si alguno de los dos extremos es Windows, la acción no está disponible**: el agente de Windows todavía no implementa la transmisión del flujo entre máquinas.
 - Si no hay soporte de jobs, la acción cae en modo síncrono: se añade a `Cambios pendientes` y se ejecuta al aplicar los cambios.
 - Con origen y destino en la **misma conexión**, la tubería `zfs send | zfs recv` la monta el propio daemon (`--zfs-pipe-local`), sin shell remoto. En esa ruta **no se muestran líneas de progreso**; el avance solo es visible en la ruta de jobs.
 - Registra el modo de transferencia elegido en nivel INFO y el cambio pendiente en nivel NORMAL.

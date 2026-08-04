@@ -376,12 +376,21 @@ This makes ZFSMgr suitable as a **remote ZFS GUI manager** for homelabs, NAS hos
 
 ## Windows compatibility checks
 
-For Windows targets, ZFSMgr validates runtime prerequisites so operations can run safely:
+On Windows, ZFSMgr works **only through the native agent**: it does not run shell
+commands on the remote host and does not require MSYS2, MinGW or any other Unix
+tooling. SSH is the only supported transport, because the typed RPC travels through a
+tunnel opened over the SSH connection itself.
 
+ZFSMgr validates the runtime prerequisites so operations can run safely:
+
+- SSH reachability (Windows 10/11 ship OpenSSH Server).
 - OpenZFS tools availability (`zfs`, `zpool`), including common install paths.
-- Shell/runtime availability and compatibility (PowerShell and optional MSYS64/MINGW tooling when needed).
-- Command path resolution and fallback behavior for mixed Unix/Windows command flows.
+- Agent presence, whether it is running, and API version match.
 - Mount semantics handling, including effective `driveletter` resolution.
+
+Features the Windows agent does not implement yet are shown **disabled with the
+reason** rather than attempted. That list is declared by the agent itself in its
+health response, so it updates as the agent gains coverage.
 
 If required components are missing, the UI reports the situation clearly in connection status and logs.
 

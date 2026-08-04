@@ -24,6 +24,7 @@ Behavior:
   - The GUI does not block; progress is shown in the **Transfers** tab.
   - The GUI can be closed while the transfer continues on the daemon.
   - Jobs can be cancelled from the Transfers tab.
+- **If either end is Windows the action is unavailable**: the Windows agent does not implement streaming between machines yet.
 - If there is no job support, the action falls back to synchronous mode: it is queued in `Pending changes` and runs when changes are applied.
 - With source and target on the **same connection**, the `zfs send | zfs recv` pipe is built by the daemon itself (`--zfs-pipe-local`), with no remote shell. On that path **no progress lines are shown**; progress is only visible on the jobs path.
 - Logs the chosen transfer mode at INFO level and the pending change at NORMAL level.

@@ -1,5 +1,12 @@
 # Estado actual de instalación de comandos auxiliares
 
+> **Obsoleto para Windows (0.90.6).** Este documento describe la instalación de
+> herramientas Unix en el equipo remoto mediante MSYS2 y `pacman`. Windows ya no usa
+> esa vía: la aplicación trabaja allí **solo con el agente nativo**, no ejecuta shell
+> en el equipo remoto y no instala herramientas auxiliares. La opción de instalar
+> MSYS2 se retiró de la interfaz. Lo que sigue vale para Linux, macOS y FreeBSD; las
+> secciones sobre Windows se conservan como registro de cómo funcionaba antes.
+
 ## Objetivo de este documento
 
 Dejar fijado qué parte de la funcionalidad de instalación de comandos auxiliares ya está implementada, qué decisiones se han tomado y qué queda pendiente.

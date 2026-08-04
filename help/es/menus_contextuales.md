@@ -18,7 +18,6 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - separador
   - `Nuevo Pool`
   - separador
-  - `Instalar MSYS2`
   - `Instalar comandos auxiliares`
   - `Reinstalar/Actualizar daemon`
   - `Reparar mountpoints temporales`
@@ -33,9 +32,8 @@ Condiciones de habilitación:
 - `Desconectar` y `Refrescar`: conexión conectada y sin acción en curso.
 - `Editar` y `Borrar`: no disponibles en la conexión Local ni en conexiones redirigidas a Local.
 - `Nuevo Pool`: conexión conectada.
-- `Instalar MSYS2`: solo en conexiones Windows sin una capa Unix (MSYS2/MinGW) completa.
-- `Instalar comandos auxiliares`: solo si el refresco detectó un gestor de paquetes y un plan de instalación soportado para los comandos que faltan.
-- `Reinstalar/Actualizar daemon`: conexiones remotas no Windows.
+- `Instalar comandos auxiliares`: solo si el refresco detectó un gestor de paquetes y un plan de instalación soportado para los comandos que faltan. No aplica a conexiones Windows, que trabajan solo con el agente nativo.
+- `Reinstalar/Actualizar daemon`: cualquier conexión remota, Windows incluido.
 - `Reparar mountpoints temporales`: cualquier conexión no Windows, incluida Local (un dataset local también puede quedarse en un mountpoint temporal).
 - `Exportar trust-store a esta conexión`: cualquier conexión remota; no aplica a Local, que ya usa el trust-store local.
 - `Autorizar clave SSH en...`: solo en conexiones SSH no Windows, y solo se puebla con otras conexiones SSH conectadas.
