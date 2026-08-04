@@ -33,9 +33,6 @@ jobs:
           - os: ubuntu-latest
             key: linux-x86_64
             artifact: builds/agents-only/zfsmgr_agent
-          - os: windows-latest
-            key: windows-x86_64
-            artifact: builds/agents-only/Release/zfsmgr_agent.exe
           - os: macos-14
             key: macos-universal
             artifact: builds/agents-only/zfsmgr_agent
@@ -110,6 +107,73 @@ jobs:
           path: ${{ matrix.artifact }}
           if-no-files-found: error
 
+  # Windows se cruza con MinGW desde Ubuntu, no se compila con MSVC en windows-latest.
+  #
+  # El agente se despliega SOLO en la máquina remota: no va acompañado de ninguna otra
+  # biblioteca y allí no hay gestor de paquetes. Compilado con MSVC depende de
+  # VCRUNTIME140, MSVCP140 y las DLL de OpenSSL, y arranca con 0xC0000135 ("DLL no
+  # encontrada") sin decir cuál; el síntoma que se veía era que instalar el daemon
+  # fallaba al generar el material TLS. Con MinGW se enlaza estáticamente.
+  agents-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar la toolchain MinGW
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mingw-w64 mingw-w64-tools
+
+      # Ubuntu no empaqueta OpenSSL para MinGW, así que se compila. Se cachea porque
+      # tarda varios minutos y solo cambia si cambia el script que lo construye.
+      - name: Caché de OpenSSL para MinGW
+        id: ssl-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/opt/openssl-mingw64
+          key: openssl-mingw64-${{ hashFiles('scripts/provision-cross-targets.sh') }}
+
+      - name: Compilar OpenSSL para MinGW
+        if: steps.ssl-mingw.outputs.cache-hit != 'true'
+        run: bash scripts/provision-cross-targets.sh --windows --skip-qt
+
+      # ZFSMGR_AGENT_ONLY evita find_package(Qt6): el daemon no usa Qt y así no hay que
+      # instalar un Qt para MinGW solo para configurar.
+      - name: Compilar el agente
+        run: |
+          set -euo pipefail
+          cmake -S resources -B builds/agents-only \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZFSMGR_AGENT_ONLY=ON \
+            -DCMAKE_TOOLCHAIN_FILE="${PWD}/toolchains/windows-mingw64.cmake" \
+            -DOPENSSL_ROOT_DIR="${HOME}/opt/openssl-mingw64"
+          cmake --build builds/agents-only --target zfsmgr_agent -j"$(nproc)"
+
+      # Sin esto, un cambio de toolchain o de opciones puede volver a producir un
+      # binario que necesita DLL que en la máquina de destino no existen, y solo se
+      # descubre al intentar instalar el daemon contra un Windows real.
+      - name: Comprobar que es autosuficiente
+        run: |
+          set -euo pipefail
+          bin=builds/agents-only/zfsmgr_agent.exe
+          test -f "$bin"
+          deps="$(x86_64-w64-mingw32-objdump -p "$bin" | sed -n 's/^\s*DLL Name: //p' | sort -u)"
+          echo "Dependencias:"; printf '  %s\n' $deps
+          bad="$(printf '%s\n' $deps | grep -iE '^(vcruntime|msvcp|libssl|libcrypto|libgcc|libstdc|libwinpthread)' || true)"
+          if [ -n "$bad" ]; then
+            echo "Error: el agente no es autosuficiente; necesita:" >&2
+            printf '  %s\n' $bad >&2
+            exit 1
+          fi
+
+      - name: Subir el agente
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-windows-x86_64
+          path: builds/agents-only/zfsmgr_agent.exe
+          if-no-files-found: error
+
   agents-freebsd:
     runs-on: ubuntu-latest
     steps:
@@ -137,7 +201,7 @@ jobs:
   # ── Etapa 2: reunirlos en un solo artefacto ────────────────────────────────
   agent-bundle:
     runs-on: ubuntu-latest
-    needs: [agents, agents-freebsd]
+    needs: [agents, agents-windows, agents-freebsd]
     steps:
       - name: Descargar los agentes
         uses: actions/download-artifact@v4

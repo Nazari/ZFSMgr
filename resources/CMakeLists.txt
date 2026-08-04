@@ -57,9 +57,35 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
+# El agente no usa Qt, pero este CMakeLists es común con la GUI y su find_package(Qt6)
+# obligaba a instalar Qt para compilar solo el daemon. Eso hacía inviable cruzarlo con
+# MinGW en integración continua, que es donde hace falta: el agente de Windows se
+# despliega solo en la máquina remota y tiene que ir enlazado estáticamente.
+option(ZFSMGR_AGENT_ONLY "Compilar únicamente el agente, sin Qt ni GUI" OFF)
+
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+
+if(ZFSMGR_AGENT_ONLY)
+    add_executable(zfsmgr_agent ../src/daemon_main.cpp)
+    target_compile_definitions(zfsmgr_agent PRIVATE
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+        ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
+    )
+    target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    if(WIN32)
+        target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+        # Igual que en la compilación completa: el agente viaja SOLO, así que no puede
+        # depender de libgcc, libstdc++ ni las DLL de OpenSSL. Sin esto arranca con
+        # 0xC0000135 en cualquier Windows sin esas bibliotecas.
+        if(MINGW)
+            target_link_options(zfsmgr_agent PRIVATE -static-libgcc -static-libstdc++ -static)
+        endif()
+    endif()
+    return()
+endif()
+
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
 
 set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
