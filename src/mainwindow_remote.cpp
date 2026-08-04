@@ -2970,5 +2970,18 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
     if (isLocalConnection(p)) {
         return QStringLiteral("[local] %1").arg(remoteCmd);
     }
+    // En Windows la orden NO se ejecuta tal como se ve aquí: runSsh la envuelve después
+    // en PowerShell. Mostrar la forma sin envolver hacía que la confirmación enseñara un
+    // comando que nunca llega a ejecutarse, y es justo el sitio donde el usuario decide
+    // si sigue adelante con una operación destructiva.
+    //
+    // Se muestra la forma -Command, que es equivalente y legible; lo que viaja de verdad
+    // es la misma orden en base64 (-EncodedCommand), ilegible en un diálogo.
+    if (isWindowsConnection(p)) {
+        const QString shown =
+            QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
+                .arg(remoteCmd.trimmed());
+        return mwhelpers::buildSshPreviewCommandText(p, shown);
+    }
     return mwhelpers::buildSshPreviewCommandText(p, remoteCmd);
 }
