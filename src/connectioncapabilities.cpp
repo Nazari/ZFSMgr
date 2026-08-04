@@ -92,7 +92,34 @@ QString featureAgentVerb(Feature f) {
     }
 }
 
+QString featureRequiredTool(Feature f) {
+    switch (f) {
+    // rsync no solo mueve datos: también es quien verifica que la copia está completa
+    // antes de borrar el origen en Desglosar, Ensamblar y Hacia Dir.
+    case Feature::RsyncSync:
+    case Feature::DirBreakdown:
+    case Feature::DirAssemble:
+    case Feature::DirToDir:
+        return QStringLiteral("rsync");
+    // Las instantáneas programadas con destino remoto salen por ssh desde el agente.
+    case Feature::AutoSnapshotsGsa:
+        return QStringLiteral("ssh");
+    case Feature::ShellActions:
+        return QStringLiteral("sh");
+    default:
+        return QString();
+    }
+}
+
 Availability featureAvailability(Feature f, const Platform& plat) {
+    // Una herramienta ausente gana a todo lo demás: da igual que el verbo exista si el
+    // agente no puede ejecutar el programa que necesita. Antes esto no se comprobaba y
+    // la acción fallaba a mitad, que en Desglosar significa a mitad de mover datos.
+    const QString tool = featureRequiredTool(f);
+    if (!tool.isEmpty() && plat.missingTools.contains(tool)) {
+        return {false, Reason::MissingTool};
+    }
+
     // Lo que declare el propio agente manda sobre cualquier tabla escrita aquí: la
     // tabla es una suposición, su respuesta es un hecho.
     const QString verb = featureAgentVerb(f);

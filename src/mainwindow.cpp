@@ -2608,6 +2608,12 @@ zfsmgr::caps::Platform MainWindow::capabilityPlatform(int connIdx) const {
         plat.daemonApiOk =
             st.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         plat.daemonCaps = st.daemonCaps;
+        for (const QString& c : st.missingUnixCommands) {
+            const QString t = c.trimmed();
+            if (!t.isEmpty()) {
+                plat.missingTools.insert(t);
+            }
+        }
     }
     return plat;
 }
@@ -2629,6 +2635,11 @@ QString MainWindow::capabilityReasonText(zfsmgr::caps::Reason r) const {
                    QStringLiteral("the agent API version does not match the one this application "
                                   "expects; reinstall the daemon"),
                    QStringLiteral("代理 API 版本与本应用程序期望的版本不匹配；请重新安装守护进程"));
+    case R::MissingTool:
+        return trk(QStringLiteral("t_cap_missing_tool"),
+                   QStringLiteral("falta una herramienta que el agente necesita en el equipo remoto"),
+                   QStringLiteral("a tool the agent needs is missing on the remote machine"),
+                   QStringLiteral("远程计算机上缺少代理所需的工具"));
     case R::WindowsAgentPending:
         return trk(QStringLiteral("t_cap_win_agent_todo"),
                    QStringLiteral("el agente de Windows todavía no lo implementa"),

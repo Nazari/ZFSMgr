@@ -65,6 +65,35 @@ private Q_SLOTS:
         QCOMPARE(a.reason, Reason::Available);
     }
 
+    // El agente ejecuta herramientas externas con execvp. Si no están, la operación
+    // falla a mitad —y en Desglosar eso es a mitad de mover datos—, así que la acción
+    // no debe ofrecerse. Antes solo se sondeaban para pintar una lista informativa.
+    void missingToolDisablesTheFeaturesThatNeedIt() {
+        Platform p = unixReady();
+        p.missingTools.insert(QStringLiteral("rsync"));
+        for (const Feature f : {Feature::RsyncSync, Feature::DirBreakdown,
+                                Feature::DirAssemble, Feature::DirToDir}) {
+            const Availability a = featureAvailability(f, p);
+            QVERIFY2(!a.available, "sin rsync no puede verificarse la copia antes de borrar");
+            QCOMPARE(a.reason, Reason::MissingTool);
+        }
+        // Y no debe afectar a lo que no lo usa.
+        QVERIFY(featureAvailability(Feature::DatasetPermissions, p).available);
+
+        Platform q = unixReady();
+        q.missingTools.insert(QStringLiteral("ssh"));
+        QCOMPARE(featureAvailability(Feature::AutoSnapshotsGsa, q).reason, Reason::MissingTool);
+    }
+
+    // Una herramienta ausente pesa más que lo que declare el agente: da igual que sirva
+    // el verbo si no puede ejecutar el programa.
+    void missingToolWinsOverDeclaredCapabilities() {
+        Platform p = unixReady();
+        p.daemonCaps.insert(featureAgentVerb(Feature::RsyncSync));
+        p.missingTools.insert(QStringLiteral("rsync"));
+        QCOMPARE(featureAvailability(Feature::RsyncSync, p).reason, Reason::MissingTool);
+    }
+
     void unixKeepsEverythingAvailableWhenDaemonIsReady() {
         const Feature all[] = {
             Feature::DatasetPermissions, Feature::AutoSnapshotsGsa, Feature::BackgroundJobs,

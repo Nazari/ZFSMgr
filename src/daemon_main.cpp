@@ -313,11 +313,11 @@ std::string agentCapabilityList() {
     std::vector<std::string> caps = {
         "--dump-zfs-allow",
     };
+    caps.push_back("--dump-tool-availability");
 #ifndef _WIN32
     caps.push_back("--job-submit");
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
-    caps.push_back("--dump-tool-availability");
     caps.push_back("--mutate-rsync-local");
     caps.push_back("--zfs-send-to-peer");
 #endif
@@ -2703,6 +2703,64 @@ ExecResult runDumpRefreshBasicsCapture() {
     return r;
 }
 
+#ifdef _WIN32
+// En Windows no hay gestores de paquetes que sondear ni rutas tipo /usr/local/bin: el
+// agente resuelve por PATH, que él mismo fija en kDefaultCommandPath. Se compila la
+// sonda igual que en Unix porque la pregunta es la misma —¿puede el agente ejecutar
+// esta herramienta?— y sin ella la aplicación no puede decir por qué falla una acción.
+bool isExecutableFile(const std::string& path) {
+    const DWORD attrs = GetFileAttributesA(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool lookupExecutable(const std::string& name) {
+    if (name.empty() || name.find('/') != std::string::npos
+        || name.find('\\') != std::string::npos) {
+        return false;
+    }
+    const char* pathEnv = ::getenv("PATH");
+    if (!pathEnv) {
+        return false;
+    }
+    const std::string exts[] = {"", ".exe", ".cmd", ".bat"};
+    std::string acc;
+    std::istringstream ps(pathEnv);
+    std::string dir;
+    while (std::getline(ps, dir, ';')) {
+        if (dir.empty()) {
+            continue;
+        }
+        for (const std::string& ext : exts) {
+            if (isExecutableFile(dir + "\\" + name + ext)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+ExecResult runDumpToolAvailabilityCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::string decoded;
+    std::vector<std::string> wanted;
+    if (!decodeBase64(payloadB64, decoded) || !parseJsonStringArray(decoded, wanted)) {
+        r.rc = 2;
+        r.err = "invalid tool-availability payload\n";
+        return r;
+    }
+    std::ostringstream ss;
+    for (const std::string& raw : wanted) {
+        const std::string name = trim(raw);
+        if (!name.empty()) {
+            ss << (lookupExecutable(name) ? "OK:" : "KO:") << name << "\n";
+        }
+    }
+    r.rc = 0;
+    r.out = ss.str();
+    return r;
+}
+#endif
+
 #ifndef _WIN32
 // Directories probed on top of $PATH, mirroring the search list the old shell
 // loop prepended: sudo often runs with a trimmed PATH that hides /usr/local/zfs
@@ -3770,7 +3828,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--dump-refresh-basics") {
         return runDumpRefreshBasicsCapture();
     }
-#ifndef _WIN32
     if (cmd == "--dump-tool-availability") {
         if (params.size() < 1) {
             r.rc = 2;
@@ -3779,7 +3836,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         }
         return runDumpToolAvailabilityCapture(params[0]);
     }
-#endif
     if (cmd == "--dump-zfs-version") {
         r = runExecCapture("zfs", {"version"});
         if (r.rc != 0 || trim(r.out).empty()) {
