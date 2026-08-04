@@ -583,7 +583,15 @@ fi
 if [[ "${DO_BUILD}" -eq 1 ]]; then
   cmake --build "${BUILD_DIR}" -j"${JOBS}"
   if [[ "${TARGET}" == "macos" ]]; then
-    app_bundle="$(find "${BUILD_DIR}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    # ZFSMgr.app primero: el bundle dejó de llevar la versión en el nombre para que al
+    # copiarlo reemplace al anterior, y este find se quedó buscando el patrón antiguo.
+    # El resultado era que Qt se desplegaba dentro de un bundle VIEJO que seguía en el
+    # directorio de compilación, o dentro de ninguno, y el .app publicado no arrancaba
+    # en un Mac sin Qt instalado.
+    app_bundle="${BUILD_DIR}/ZFSMgr.app"
+    if [[ ! -d "${app_bundle}" ]]; then
+      app_bundle="$(find "${BUILD_DIR}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    fi
     if [[ -n "${app_bundle}" ]]; then
       ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
     else
