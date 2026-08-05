@@ -1051,8 +1051,10 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             QElapsedTimer readyTimer;
             readyTimer.start();
             bool tunnelReady = false;
+            bool sshDied = false;
             while (readyTimer.elapsed() < 5000) {
                 if (proc->state() == QProcess::NotRunning) {
+                    sshDied = true;
                     break;
                 }
                 QTcpSocket probe;
@@ -1065,9 +1067,17 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 QThread::msleep(50);
             }
             if (!tunnelReady) {
+                // El tiempo REAL y el motivo, no un "5 s" fijo. Este bucle sale antes si
+                // el ssh muere —máquina apagada, sin ruta—, así que el mensaje anterior
+                // afirmaba cinco segundos cuando podían haber sido doscientos
+                // milisegundos. Un registro que miente sobre cuánto tardó algo hace
+                // perder horas buscando la lentitud donde no está.
+                const QString why = sshDied
+                                        ? QStringLiteral("el ssh del túnel terminó")
+                                        : QStringLiteral("agotados los 5 s de espera");
                 appLog(QStringLiteral("WARN"),
-                       QStringLiteral("daemon-rpc: el túnel SSH a %1 no aceptó conexiones en 5 s")
-                           .arg(p.name));
+                       QStringLiteral("daemon-rpc: el túnel SSH a %1 no aceptó conexiones (%2, %3 ms)")
+                           .arg(p.name, why, QString::number(readyTimer.elapsed())));
                 if (proc->state() != QProcess::NotRunning) {
                     proc->terminate();
                     if (!proc->waitForFinished(1500)) {

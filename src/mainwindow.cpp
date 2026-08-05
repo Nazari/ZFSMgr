@@ -212,7 +212,20 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
                          QStringLiteral("Cargando conexiones..."),
                          QStringLiteral("Loading connections..."),
                          QStringLiteral("正在加载连接...")));
-        refreshAllConnections();
+        // Diferido, no aquí: esto se ejecuta en el CONSTRUCTOR, así que el `w.show()`
+        // de main.cpp no llega hasta que termina. El preámbulo del refresco monta un
+        // túnel SSH por conexión, y con una máquina apagada o un enlace lento eso son
+        // decenas de segundos —medido: 56 s con cuatro conexiones, una de ellas
+        // inalcanzable— con la pantalla en blanco y sin ninguna pista de qué pasa.
+        //
+        // Con singleShot(0) la ventana se pinta primero y el refresco corre después: ya
+        // sabe actualizar la interfaz por su cuenta a medida que llegan los resultados,
+        // y la barra de estado dice "Cargando conexiones...".
+        QTimer::singleShot(0, this, [this]() {
+            if (!m_closing) {
+                refreshAllConnections();
+            }
+        });
     }
     rebuildConnInfoModel();
     appLog(QStringLiteral("INFO"), QStringLiteral("[startup] constructor done (window not shown yet): %1 ms").arg(startupTimer.elapsed()));
