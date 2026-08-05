@@ -459,10 +459,16 @@ const std::vector<std::string>& rsyncPreservationFlags() {
     return flags;
 }
 
-ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir) {
+ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
+                                   const std::vector<std::string>& excludes = {}) {
     std::vector<std::string> argv{"-aHWS"};
     const std::vector<std::string>& extra = rsyncPreservationFlags();
     argv.insert(argv.end(), extra.begin(), extra.end());
+    // Anclados con "/" inicial: sin eso, excluir "Tools" se comería CUALQUIER
+    // directorio llamado así en todo el subárbol, no solo el de la raíz de la copia.
+    for (const std::string& ex : excludes) {
+        argv.push_back("--exclude=/" + ex + "/");
+    }
     argv.push_back(srcDir + "/");
     argv.push_back(dstDir + "/");
     return runExecCapture("rsync", argv);
@@ -543,9 +549,17 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
 // El formato itemizado de "-i" pone las banderas en los 11 primeros caracteres;
 // ">f" significa fichero que se transferiría. --ignore-existing hace que solo
 // aparezca lo que falta, no lo que difiere.
-int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir) {
-    const ExecResult probe = runExecCapture("rsync", {"-rni", "--ignore-existing",
-                                                      srcDir + "/", dstDir + "/"});
+int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir,
+                               const std::vector<std::string>& excludes = {}) {
+    // Las MISMAS exclusiones que la copia: si no, lo que se dejó fuera a propósito
+    // contaría como pendiente y la verificación fallaría siempre.
+    std::vector<std::string> argv{"-rni", "--ignore-existing"};
+    for (const std::string& ex : excludes) {
+        argv.push_back("--exclude=/" + ex + "/");
+    }
+    argv.push_back(srcDir + "/");
+    argv.push_back(dstDir + "/");
+    const ExecResult probe = runExecCapture("rsync", argv);
     if (probe.rc != 0) {
         return -1;  // no se pudo comprobar: tratar como "no verificado"
     }
@@ -572,77 +586,184 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     }
     const std::string mountpoint = trim(mpRes.out);
     if (mountpoint.empty()) {
-        r.rc = 2;
+        r.rc = 1;
         r.err = "mountpoint=none\n";
         return r;
     }
     namespace fs = std::filesystem;
+
+    // Antes se convertía cada directorio de arriba abajo, y cada nivel copiaba TODO lo
+    // que tenía debajo: un fichero a tres niveles de profundidad se movía tres veces.
+    // Medido sobre 28 GB con 5 niveles: 14 minutos y 3,2 veces el volumen, con el pool
+    // albergando a la vez el original y las copias intermedias.
+    //
+    // Ahora cada byte se mueve UNA vez:
+    //   1. cada directorio se copia a un dataset con nombre TEMPORAL y plano, excluyendo
+    //      los subdirectorios que también van a convertirse;
+    //   2. solo cuando TODAS las copias están verificadas se borran los originales;
+    //   3. y se renombran los datasets a su nombre definitivo, de arriba abajo.
+    //
+    // El nombre temporal plano es la pieza que lo hace posible: crear directamente
+    // `<ds>/Disks/Bootables/Tools` obliga a `zfs create -p`, que fabrica los datasets
+    // intermedios con puntos de montaje heredados que TAPAN los datos aún sin mover.
+    //
+    // Y borrar al final, en vez de sobre la marcha, hace la operación recuperable: si
+    // algo falla a mitad, los originales siguen intactos.
+    struct Pending {
+        std::string rel;       // ruta relativa dentro del mountpoint
+        std::string tmpName;   // dataset temporal, hijo directo de `dataset`
+        std::string tmpMp;     // punto de montaje temporal
+    };
+    std::vector<Pending> pending;
+
+    // Si algo falla, no dejar datasets temporales sueltos por ahí.
+    struct TempCleanup {
+        std::vector<Pending>* items;
+        bool armed{true};
+        ~TempCleanup() {
+            if (!armed || !items) {
+                return;
+            }
+            for (const Pending& p : *items) {
+                (void)runExecCapture("zfs", {"destroy", "-r", p.tmpName});
+                std::error_code ec;
+                std::filesystem::remove_all(p.tmpMp, ec);
+            }
+        }
+    } cleanup{&pending};
+
+    // Los seleccionados, normalizados, para calcular exclusiones entre ellos.
+    std::vector<std::string> rels;
     for (std::size_t i = 1; i < params.size(); ++i) {
         const std::string rel = trim(params[i]);
-        if (rel.empty()) {
-            continue;
+        if (!rel.empty()) {
+            rels.push_back(rel);
         }
+    }
+
+    // ---- Fase 1: copiar cada directorio a su dataset temporal ----
+    for (std::size_t i = 0; i < rels.size(); ++i) {
+        const std::string& rel = rels[i];
         const fs::path srcPath = fs::path(mountpoint) / fs::path(rel);
         std::error_code ec;
-        if (!fs::exists(srcPath, ec) || !fs::is_directory(srcPath, ec) || fs::is_symlink(fs::symlink_status(srcPath, ec))) {
+        if (!fs::is_directory(srcPath, ec)) {
+            r.out += "skip_not_a_directory=" + rel + "\n";
             continue;
         }
         const std::string child = dataset + "/" + rel;
-        ExecResult childExists = runExecCapture("zfs", {"list", "-H", "-o", "name", child});
-        if (childExists.rc == 0) {
+        if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc == 0) {
             r.out += "child_exists=" + child + "\n";
             continue;
         }
-        const std::string tmpChild = makeTempDir("zfsmgr-breakdown-child-");
-        if (tmpChild.empty()) {
+
+        // Lo que NO hay que copiar aquí: los seleccionados que cuelgan de este.
+        std::vector<std::string> excludes;
+        for (const std::string& other : rels) {
+            if (other.size() > rel.size() + 1 && other.compare(0, rel.size(), rel) == 0
+                && other[rel.size()] == '/') {
+                excludes.push_back(other.substr(rel.size() + 1));
+            }
+        }
+
+        const std::string tmpMp = makeTempDir("zfsmgr-breakdown-child-");
+        if (tmpMp.empty()) {
             r.rc = 125;
-            r.err = "mkdtemp failed\n";
+            r.err = "no se pudo crear el punto de montaje temporal\n";
             return r;
         }
-        ExecResult create = runExecCapture("zfs", {"create", "-p", "-o", "mountpoint=" + tmpChild, child});
+        // Nombre plano: hijo DIRECTO del dataset base, así no hay intermedios que crear.
+        const std::string tmpName = dataset + "/" + fs::path(tmpMp).filename().string();
+        ExecResult create = runExecCapture("zfs", {"create", "-o", "mountpoint=" + tmpMp, tmpName});
         if (create.rc != 0) {
+            std::error_code rmec;
+            fs::remove_all(tmpMp, rmec);
             return create;
         }
-        (void)runExecCapture("zfs", {"mount", child});
-        // Copiar y VERIFICAR antes de borrar nada, reintentando como hacía el shell.
-        int pending = -1;
+        (void)runExecCapture("zfs", {"mount", tmpName});
+        pending.push_back(Pending{rel, tmpName, tmpMp});
+
+        int left = -1;
         for (int attempt = 0; attempt < 5; ++attempt) {
-            ExecResult rsync = runRsyncCopyMoveCapture(srcPath.string(), tmpChild);
-            if (rsync.rc != 0) {
-                return rsync;
+            ExecResult rs = runRsyncCopyMoveCapture(srcPath.string(), tmpMp, excludes);
+            if (rs.rc != 0) {
+                return rs;
             }
-            pending = countPendingRsyncTransfers(srcPath.string(), tmpChild);
-            if (pending == 0) {
+            left = countPendingRsyncTransfers(srcPath.string(), tmpMp, excludes);
+            if (left == 0) {
                 break;
             }
         }
-        if (pending != 0) {
-            // No se borra el origen: los datos siguen donde estaban. El dataset hijo
-            // queda creado en el mountpoint temporal, que es justo lo que el shell
-            // antiguo dejaba también al salir con 42.
+        if (left != 0) {
             r.rc = 42;
             r.err = "verify_failed=" + child + " pending="
-                    + (pending < 0 ? std::string("unknown") : std::to_string(pending)) + "\n";
+                    + (left < 0 ? std::string("unknown") : std::to_string(left)) + "\n";
             return r;
         }
+        reportJobProgress("Copiado " + std::to_string(i + 1) + " de "
+                          + std::to_string(rels.size()) + ": " + rel);
+    }
+
+    // ---- Fase 2: todo verificado; ahora sí se borra y se renombra ----
+    // Borrado de los originales primero, de más profundo a menos, para que el punto de
+    // montaje definitivo esté libre cuando se renombre.
+    std::vector<const Pending*> byDepth;
+    for (const Pending& p : pending) {
+        byDepth.push_back(&p);
+    }
+    const auto depthOf = [](const std::string& v) {
+        return std::count(v.begin(), v.end(), '/');
+    };
+    std::sort(byDepth.begin(), byDepth.end(), [&](const Pending* a, const Pending* b) {
+        return depthOf(a->rel) > depthOf(b->rel);
+    });
+    for (const Pending* p : byDepth) {
+        const fs::path srcPath = fs::path(mountpoint) / fs::path(p->rel);
         std::error_code rmec;
         fs::remove_all(srcPath, rmec);
         if (rmec) {
             r.rc = 1;
-            r.err = "remove_all failed for source directory\n";
+            r.err = "remove_all failed for " + srcPath.string() + "\n";
             return r;
         }
+    }
+
+    // Renombrado de menos profundo a más: `zfs rename` exige que el padre exista.
+    std::sort(byDepth.begin(), byDepth.end(), [&](const Pending* a, const Pending* b) {
+        return depthOf(a->rel) < depthOf(b->rel);
+    });
+    for (const Pending* p : byDepth) {
+        const std::string child = dataset + "/" + p->rel;
+        const fs::path srcPath = fs::path(mountpoint) / fs::path(p->rel);
+        ExecResult ren = runExecCapture("zfs", {"rename", p->tmpName, child});
+        if (ren.rc != 0) {
+            // A estas alturas los originales YA están borrados, así que los datasets
+            // temporales son la única copia. Destruirlos sería perder los datos: se
+            // desarma la limpieza y se dice dónde están.
+            cleanup.armed = false;
+            ren.err += "\nLos datos están a salvo en datasets temporales bajo " + dataset
+                       + ". Renómbrelos a mano; NO los destruya.\n";
+            for (const Pending* q : byDepth) {
+                ren.err += "  " + q->tmpName + "  ->  " + dataset + "/" + q->rel + "\n";
+            }
+            return ren;
+        }
+        // El punto de montaje explícito NO viaja con el renombrado: sigue apuntando al
+        // temporal, así que hay que fijarlo al definitivo.
         ExecResult setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
         if (setMp.rc != 0) {
+            // Igual que arriba: el dataset ya tiene su nombre bueno y contiene los
+            // únicos datos. Solo le falta el punto de montaje.
+            cleanup.armed = false;
+            setMp.err += "\nEl dataset " + child + " tiene los datos; falta fijarle "
+                         "mountpoint=" + srcPath.string() + "\n";
             return setMp;
         }
         (void)runExecCapture("zfs", {"mount", child});
         std::error_code tmpEc;
-        fs::remove_all(tmpChild, tmpEc);
-        r.out += "[BREAKDOWN] ok " + rel + " -> " + child + "\n";
-        reportJobProgress("Desglosado " + std::to_string(i) + " de "
-                          + std::to_string(params.size() - 1) + ": " + rel);
+        fs::remove_all(p->tmpMp, tmpEc);
+        r.out += "[BREAKDOWN] ok " + p->rel + " -> " + child + "\n";
     }
+    cleanup.armed = false;
     r.rc = 0;
     return r;
 }
