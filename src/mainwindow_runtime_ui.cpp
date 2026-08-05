@@ -80,6 +80,7 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     m_closing = true;
+    flushAppLogFile();
     if (m_actionsLocked) {
         m_closing = false;
         QMessageBox::warning(

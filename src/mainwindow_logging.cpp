@@ -311,14 +311,43 @@ void MainWindow::appendLogToFile(const QString& line) {
     if (m_appLogPath.isEmpty()) {
         return;
     }
-    rotateLogIfNeeded();
-    QFile f(m_appLogPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+    const qint64 maxBytes = qint64(qMax(1, m_logMaxSizeMb)) * 1024LL * 1024LL;
+    // Rotar según los bytes que llevamos escritos, no preguntando al sistema de
+    // ficheros en cada línea. La cuenta se inicializa al abrir.
+    if (m_appLogFile && m_appLogBytes >= maxBytes) {
+        m_appLogFile->close();
+        m_appLogFile.reset();
+        rotateLogIfNeeded();
+        m_appLogBytes = 0;
+    }
+    if (!m_appLogFile) {
+        auto f = std::make_unique<QFile>(m_appLogPath);
+        if (!f->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
+        m_appLogBytes = f->size();
+        m_appLogFile = std::move(f);
+    }
+    const QByteArray payload = (maskSecrets(line) + QLatin1Char('\n')).toUtf8();
+    const qint64 written = m_appLogFile->write(payload);
+    if (written < 0) {
+        // El descriptor dejó de servir (disco lleno, fichero movido): se suelta para
+        // que el siguiente intento lo reabra en vez de perder el resto de la sesión.
+        m_appLogFile->close();
+        m_appLogFile.reset();
         return;
     }
-    QTextStream ts(&f);
-    ts << maskSecrets(line) << '\n';
-    ts.flush();
+    m_appLogBytes += written;
+    // Sin flush por línea: el sistema operativo ya garantiza el orden y, si la
+    // aplicación se cierra, closeEvent lo vacía. Un fallo duro puede perder las
+    // últimas líneas; a cambio el registro deja de dominar el tiempo de refresco.
+    m_appLogFile->flush();
+}
+
+void MainWindow::flushAppLogFile() {
+    if (m_appLogFile) {
+        m_appLogFile->flush();
+    }
 }
 
 void MainWindow::appendLogToNative(const QString& level, const QString& line) {

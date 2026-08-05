@@ -19,6 +19,8 @@
 #include <QVector>
 #include <atomic>
 #include <functional>
+#include <QFile>
+
 #include <memory>
 #include <thread>
 
@@ -997,6 +999,7 @@ private:
     bool executePendingChange(const PendingChange& change);
     void initLogPersistence();
     void rotateLogIfNeeded();
+    void flushAppLogFile();
     void appendLogToFile(const QString& line);
     void appendLogToNative(const QString& level, const QString& line);
     void clearAppLog();
@@ -1383,6 +1386,14 @@ private:
     QStringList m_snapshotInlineVisibleProps;
     QVector<InlinePropGroupConfig> m_snapshotInlinePropGroups;
     QString m_appLogPath;
+    // Descriptor persistente del registro. Antes cada línea abría el fichero, escribía,
+    // vaciaba, cerraba, y además hacía un stat para decidir si rotar. En Linux el caché
+    // de página lo disimula; en Windows son 0,76 ms por línea (medido en una VM), y un
+    // refresco emite decenas de miles: ~31 s de reloj sin contar los demás registros.
+    // Se mantiene abierto y el tamaño se lleva contando bytes, sin volver a preguntar
+    // al sistema de ficheros.
+    std::unique_ptr<QFile> m_appLogFile;
+    qint64 m_appLogBytes{0};
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;
     QString m_compactPrevTime;
