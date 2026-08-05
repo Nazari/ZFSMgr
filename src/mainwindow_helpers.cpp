@@ -869,6 +869,24 @@ QString shPrintfOctalEscaped(const QString& s) {
     return out;
 }
 
+QString asciiSafeShellCommand(const QString& cmd) {
+    bool hasNonAscii = false;
+    for (const QChar c : cmd) {
+        if (c.unicode() > 127) {
+            hasNonAscii = true;
+            break;
+        }
+    }
+    if (!hasNonAscii) {
+        return cmd;
+    }
+    // `eval "$(printf '%b' '...')"`: los escapes octales son ASCII, printf reconstruye
+    // los bytes originales y eval ejecuta la orden tal cual era. La entrada estándar
+    // queda libre, que hace falta porque por ahí viajan cargas útiles (el binario del
+    // agente, la passphrase de un dataset cifrado).
+    return QStringLiteral("eval \"$(printf '%b' '%1')\"").arg(shPrintfOctalEscaped(cmd));
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;

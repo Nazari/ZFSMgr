@@ -528,7 +528,7 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
         args << "-i" << p.keyPath;
     }
     args << QStringLiteral("%1@%2").arg(p.username, p.host);
-    args << remoteCmd;
+    args << mwhelpers::asciiSafeShellCommand(remoteCmd);
 
     appendConnectionDialogTrace(
         QStringLiteral("DEBUG"),

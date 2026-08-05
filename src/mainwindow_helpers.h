@@ -118,6 +118,20 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 // En ASCII no hay descomposición posible, de ahí la codificación. `\0ddd` con `%b` es
 // POSIX, así que vale igual en macOS, Linux y FreeBSD.
 QString shPrintfOctalEscaped(const QString& s);
+// Devuelve una orden de shell equivalente cuyo texto es ASCII puro, para que sobreviva
+// al paso por los argumentos de un proceso.
+//
+// Mismo motivo que shPrintfOctalEscaped, pero general: en macOS, Qt convierte los
+// argumentos que entrega a QProcess a la forma descompuesta de Unicode. Para un nombre
+// de fichero da igual —el sistema de ficheros de Apple normaliza igual—, pero un nombre
+// de dataset, un punto de montaje o una contraseña se comparan byte a byte contra lo
+// que hay al otro lado, y dejan de coincidir. Afecta tanto a `sh -c` local como a la
+// orden que se le pasa a `ssh`, porque en los dos casos es un argumento.
+//
+// Si la orden ya es ASCII —la inmensa mayoría— se devuelve TAL CUAL y no cambia nada:
+// ni el rendimiento, ni lo que se ve al depurar, ni el comportamiento en Linux o
+// Windows. El envoltorio solo aparece cuando hay algo que proteger.
+QString asciiSafeShellCommand(const QString& cmd);
 // Comprueba que una contraseña de sudo local sirve realmente, con la MISMA invocación
 // que usa withSudoCommand: `sudo -k -S -p '' true`.
 //

@@ -419,7 +419,9 @@ bool runSshRawNoLog(const ConnectionProfile& p,
     if (!p.keyPath.isEmpty()) {
         args << "-i" << p.keyPath;
     }
-    args << mwhelpers::sshUserHost(p) << remoteCmd;
+    // Ver asciiSafeShellCommand: en macOS los argumentos de un proceso se
+    // descomponen, y la orden remota es un argumento. Inocuo si ya es ASCII.
+    args << mwhelpers::sshUserHost(p) << mwhelpers::asciiSafeShellCommand(remoteCmd);
 
     QProcess proc;
     proc.start(program, args);
@@ -1842,7 +1844,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         args << "/C" << wrapRemoteCommand(p, localCmd);
 #else
         program = QStringLiteral("sh");
-        args << "-c" << localCmd;
+        args << "-c" << mwhelpers::asciiSafeShellCommand(localCmd);
 #endif
         QElapsedTimer timer;
         timer.start();
@@ -2050,7 +2052,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             args << "-i" << p.keyPath;
         }
         args << sshUserHost(p);
-        args << wrappedCmd;
+        args << mwhelpers::asciiSafeShellCommand(wrappedCmd);
 
         QProcess proc;
         QElapsedTimer timer;
@@ -2945,7 +2947,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     localWinProfile.osType = QStringLiteral("Windows");
     proc.start(QStringLiteral("cmd.exe"), QStringList{QStringLiteral("/C"), wrapRemoteCommand(localWinProfile, command)});
 #else
-    proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-c"), command});
+    proc.start(QStringLiteral("sh"),
+               QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(command)});
 #endif
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),

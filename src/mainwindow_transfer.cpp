@@ -1518,7 +1518,10 @@ void MainWindow::actionSyncDatasets() {
             bool timedOut = false;
             bool cancelled = false;
             QProcess proc;
-            proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-c"), cmd});
+            // Ver asciiSafeShellCommand: aquí van nombres de dataset, de snapshot y
+            // directorios elegidos por el usuario, que en macOS se descomponían.
+            proc.start(QStringLiteral("sh"),
+                       QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(cmd)});
             started = proc.waitForStarted(4000);
             if (!started) {
                 err = QStringLiteral("Could not start local shell.");

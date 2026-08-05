@@ -576,6 +576,37 @@ int main() {
         }
     }
 
+    {
+        // asciiSafeShellCommand: intocable si ya es ASCII (el caso normal), y en ASCII
+        // puro si lleva algo que macOS descompondría al pasar por los argumentos de un
+        // proceso.
+        const QString plain = "zfs list -H -o name tank/datos";
+        if (asciiSafeShellCommand(plain) != plain) {
+            return fail("asciiSafeShellCommand must leave an ASCII command untouched");
+        }
+        const QString accented = QString::fromUtf8("zfs list -H -o name tanque/documentación");
+        const QString safe = asciiSafeShellCommand(accented);
+        if (safe == accented) {
+            return fail("asciiSafeShellCommand must rewrite a command with non-ASCII");
+        }
+        for (const QChar c : safe) {
+            if (c.unicode() > 127) {
+                return fail("asciiSafeShellCommand output must be pure ASCII");
+            }
+        }
+        if (!safe.startsWith("eval \"$(printf '%b' '") || !safe.endsWith("')\"")) {
+            return fail("asciiSafeShellCommand wrapper shape changed");
+        }
+        // Y los bytes de dentro deben ser los del original en UTF-8: es lo único que
+        // garantiza que el nombre del dataset llegue igual al otro lado.
+        if (!safe.contains(shPrintfOctalEscaped(accented))) {
+            return fail("asciiSafeShellCommand must embed the exact UTF-8 bytes");
+        }
+        if (asciiSafeShellCommand(QString()) != QString()) {
+            return fail("asciiSafeShellCommand of an empty command must stay empty");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }
