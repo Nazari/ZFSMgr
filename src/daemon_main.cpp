@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -459,6 +460,88 @@ const std::vector<std::string>& rsyncPreservationFlags() {
     return flags;
 }
 
+// Bytes que ocupa un dataset, para poder medir cuánto lleva copiado sin recorrer el
+// árbol: ZFS ya lleva la cuenta.
+long long datasetUsedBytes(const std::string& ds) {
+    const ExecResult r = runExecCapture("zfs", {"list", "-Hp", "-o", "used", ds});
+    if (r.rc != 0) {
+        return -1;
+    }
+    try {
+        return std::stoll(trim(r.out));
+    } catch (...) {
+        return -1;
+    }
+}
+
+std::string humanBytes(long long n) {
+    static const char* u[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+    double v = static_cast<double>(n);
+    int i = 0;
+    while (v >= 1024.0 && i < 4) { v /= 1024.0; ++i; }
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), (i == 0 ? "%.0f %s" : "%.1f %s"), v, u[i]);
+    return buf;
+}
+
+// Informa del avance MIENTRAS dura una copia, muestreando cuánto ha crecido un dataset.
+//
+// Existe porque avisar solo al empezar y al terminar cada elemento no basta: si un
+// elemento se lleva cuatro minutos —medido con 27 GB—, un contador que dice "1 de 13"
+// y no se mueve es indistinguible de un cuelgue.
+//
+// Se muestrea el dataset en vez de leer la salida de rsync: ZFS ya lleva la cuenta, no
+// hay que transmitir ni parsear nada, y sirve igual para el desglose (crece el dataset
+// temporal) que para el ensamblado (crece el padre, donde está la escala).
+class CopyProgressSampler {
+public:
+    CopyProgressSampler(std::string dataset, std::string prefix)
+        : dataset_(std::move(dataset)), prefix_(std::move(prefix)) {
+        baseline_ = datasetUsedBytes(dataset_);
+        started_ = std::chrono::steady_clock::now();
+        worker_ = std::thread([this]() { run(); });
+    }
+    ~CopyProgressSampler() {
+        stop_ = true;
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+    CopyProgressSampler(const CopyProgressSampler&) = delete;
+    CopyProgressSampler& operator=(const CopyProgressSampler&) = delete;
+
+private:
+    void run() {
+        while (!stop_) {
+            // Troceado para que el destructor no espere dos segundos a que salga.
+            for (int i = 0; i < 20 && !stop_; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            if (stop_ || baseline_ < 0) {
+                continue;
+            }
+            const long long now = datasetUsedBytes(dataset_);
+            if (now < 0 || now <= baseline_) {
+                continue;
+            }
+            const long long copied = now - baseline_;
+            const double secs = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - started_).count();
+            std::string line = prefix_ + " — " + humanBytes(copied) + " copiados";
+            if (secs > 1.0) {
+                line += " a " + humanBytes(static_cast<long long>(copied / secs)) + "/s";
+            }
+            reportJobProgress(line);
+        }
+    }
+    std::string dataset_;
+    std::string prefix_;
+    long long baseline_{-1};
+    std::chrono::steady_clock::time_point started_;
+    std::atomic<bool> stop_{false};
+    std::thread worker_;
+};
+
 ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
                                    const std::vector<std::string>& excludes = {}) {
     std::vector<std::string> argv{"-aHWS"};
@@ -689,6 +772,11 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         pending.push_back(Pending{rel, tmpName, tmpMp});
 
         int left = -1;
+        {
+        // El dataset temporal es el que crece mientras se copia.
+        CopyProgressSampler sampler(tmpName,
+                                    "[BREAKDOWN] " + std::to_string(i + 1) + " de "
+                                        + std::to_string(rels.size()) + ": " + rel);
         for (int attempt = 0; attempt < 5; ++attempt) {
             ExecResult rs = runRsyncCopyMoveCapture(srcPath.string(), tmpMp, excludes);
             if (rs.rc != 0) {
@@ -699,6 +787,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                 break;
             }
         }
+        }  // el muestreador se detiene aquí
         if (left != 0) {
             r.rc = 42;
             r.err = "verify_failed=" + child + " pending="
@@ -834,6 +923,9 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
             return r;
         }
+        std::unique_ptr<CopyProgressSampler> sampler(new CopyProgressSampler(
+            dataset, "[ASSEMBLE] " + std::to_string(i) + " de "
+                         + std::to_string(params.size() - 1) + ": " + bn));
         ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp);
         if (rsA.rc != 0) {
             return rsA;
@@ -859,6 +951,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 return r;
             }
         }
+        sampler.reset();  // deja de muestrear antes de destruir
         ExecResult destroy = runExecCapture("zfs", {"destroy", "-r", child});
         if (destroy.rc != 0) {
             return destroy;
