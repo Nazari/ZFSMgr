@@ -3456,7 +3456,13 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     if (idx >= m_states.size()) {
         return;
     }
-    const ConnectionRuntimeState& st = m_states[idx];
+    // Copia por valor, no referencia: más abajo hay un diálogo modal (`dlg.exec()`)
+    // y `st.helperInstallCommandPreview` se vuelve a leer DESPUÉS de cerrarlo para
+    // construir la orden que se ejecuta con sudo. Un modal bombea el bucle de eventos,
+    // y por ahí puede colarse loadConnections(), que hace `m_states.clear(); resize()`:
+    // la referencia quedaría colgando y se leería memoria liberada para montar una
+    // orden privilegiada. Mismo idioma que el `const ConnectionProfile p` de arriba.
+    const ConnectionRuntimeState st = m_states[idx];
     if (!requireFeature(idx, zfsmgr::caps::Feature::HelperCommandInstall)) {
         return;
     }
