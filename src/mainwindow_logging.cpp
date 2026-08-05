@@ -379,17 +379,25 @@ void MainWindow::appendLogToNative(const QString& level, const QString& line) {
     } else if (lvl == QStringLiteral("warn")) {
         eventType = EVENTLOG_WARNING_TYPE;
     }
-    HANDLE handle = RegisterEventSourceW(nullptr, L"ZFSMgr");
-    if (!handle) {
-        handle = RegisterEventSourceW(nullptr, L"Application");
+    // El registro de eventos de Windows es para lo que un administrador querría ver,
+    // no para trazas. Enviar cada línea DEBUG/NORMAL lo llenaba de ruido y costaba una
+    // llamada al servicio por línea: medido en una VM, 0,65 ms abriendo la fuente cada
+    // vez frente a 0,07 ms reutilizándola.
+    if (eventType == EVENTLOG_INFORMATION_TYPE) {
+        return;
     }
+    // La fuente se abre UNA vez y se conserva. Abrirla y cerrarla por línea era el
+    // mismo defecto que en el fichero de registro.
+    static HANDLE handle = []() -> HANDLE {
+        HANDLE h = RegisterEventSourceW(nullptr, L"ZFSMgr");
+        return h ? h : RegisterEventSourceW(nullptr, L"Application");
+    }();
     if (!handle) {
         return;
     }
     const std::wstring wide = msg.toStdWString();
     LPCWSTR strings[1] = { wide.c_str() };
     ReportEventW(handle, eventType, 0, 0x1000, nullptr, 1, 0, strings, nullptr);
-    DeregisterEventSource(handle);
 #elif defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
     static bool nativeOpen = false;
     if (!nativeOpen) {
@@ -864,7 +872,13 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         int rc = -1;
         // Ver la nota de refreshConnectionsState: el agente de Windows debe invocarse
         // como binario nativo, no a través del bash de MSYS2 que elige el modo Auto.
-        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {})
+        // Sin eco al registro: el destino de estas líneas es la vista del log del
+        // daemon. Se piden desde el desplazamiento 0 en cada arranque, y con un daemon
+        // llevando días en marcha son ~13.000 líneas de latidos —medido: el 84 % de todo
+        // el registro de la aplicación—, cada una con su escritura a fichero y su
+        // llamada al registro de eventos de Windows.
+        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {}, {},
+                               /*allowAgentRpc=*/true, /*echoOutputToLog=*/false)
                         && rc == 0;
         QMetaObject::invokeMethod(this, [this, connId, out, offset, ok]() {
             QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);

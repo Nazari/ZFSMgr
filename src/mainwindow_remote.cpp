@@ -1781,7 +1781,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         const std::function<void(const QString&)>& onStderrLine,
                         const std::function<void(int)>& onIdleTimeoutRemaining,
                         const QByteArray& stdinPayload,
-                        bool allowAgentRpc) {
+                        bool allowAgentRpc,
+                        bool echoOutputToLog) {
     out.clear();
     err.clear();
     rc = -1;
@@ -1845,16 +1846,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         if (cb) {
                             cb(line);
                         }
-                        appendConnectionLog(p.id, line);
+                        if (echoOutputToLog) {
+                            appendConnectionLog(p.id, line);
+                        }
                     }
                 };
                 emitLines(out, onStdoutLine);
                 emitLines(err, onStderrLine);
                 if (!out.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(out));
+                    if (echoOutputToLog) {
+                        appendConnectionLog(p.id, oneLine(out));
+                    }
                 }
                 if (!err.trimmed().isEmpty()) {
-                    appendConnectionLog(p.id, oneLine(err));
+                    if (echoOutputToLog) {
+                        appendConnectionLog(p.id, oneLine(err));
+                    }
                 }
                 return true;
             }
@@ -1911,7 +1918,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 if (cb) {
                     cb(line);
                 }
-                appendConnectionLog(p.id, line);
+                if (echoOutputToLog) {
+                    appendConnectionLog(p.id, line);
+                }
             }
         };
 
@@ -1965,14 +1974,18 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             if (onStdoutLine) {
                 onStdoutLine(line);
             }
-            appendConnectionLog(p.id, line);
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, line);
+            }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
             const QString line = errLineBuf.trimmed();
             if (onStderrLine) {
                 onStderrLine(line);
             }
-            appendConnectionLog(p.id, line);
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, line);
+            }
         }
         if (timedOut) {
             rc = -1;
@@ -1993,10 +2006,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             }
         }
         if (!out.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(out));
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, oneLine(out));
+            }
         }
         if (!err.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(err));
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, oneLine(err));
+            }
         }
         return true;
     }
@@ -2120,7 +2137,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 if (cb) {
                     cb(line);
                 }
-                appendConnectionLog(p.id, line);
+                if (echoOutputToLog) {
+                    appendConnectionLog(p.id, line);
+                }
             }
         };
 
@@ -2175,14 +2194,18 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             if (onStdoutLine) {
                 onStdoutLine(line);
             }
-            appendConnectionLog(p.id, line);
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, line);
+            }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
             const QString line = errLineBuf.trimmed();
             if (onStderrLine) {
                 onStderrLine(line);
             }
-            appendConnectionLog(p.id, line);
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, line);
+            }
         }
 
         if (timedOut) {
@@ -2271,10 +2294,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         err = sanitizeWindowsCliXml(err);
     }
     if (!out.trimmed().isEmpty()) {
-        appendConnectionLog(p.id, oneLine(out));
+        if (echoOutputToLog) {
+            appendConnectionLog(p.id, oneLine(out));
+        }
     }
     if (!err.trimmed().isEmpty()) {
-        appendConnectionLog(p.id, oneLine(err));
+        if (echoOutputToLog) {
+            appendConnectionLog(p.id, oneLine(err));
+        }
     }
     return true;
 }

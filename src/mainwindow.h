@@ -708,7 +708,14 @@ private:
                 // argumentos correctos. Sin esto, la cadena renderizada se volvería a
                 // parsear aquí y un segundo intento podría salir con argumentos
                 // truncados, que es justo el defecto que la migración elimina.
-                bool allowAgentRpc = true);
+                bool allowAgentRpc = true,
+                // Silencia el eco línea a línea de la salida al registro. Existe por el
+                // volcado del log del daemon: se pide desde el desplazamiento 0 en cada
+                // arranque, y con un daemon llevando días en marcha son ~13.000 líneas de
+                // latidos que acababan en el registro de la aplicación, cada una con su
+                // escritura a fichero y su llamada al registro de eventos de Windows. Su
+                // destino es una vista propia, no el diagnóstico de la aplicación.
+                bool echoOutputToLog = true);
 
     // Puerta única para pedirle algo al agente. Los sitios de llamada pasan argv y no
     // construyen cadenas de shell.
