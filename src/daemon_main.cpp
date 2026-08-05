@@ -362,6 +362,42 @@ std::string agentCapabilityList() {
     return out;
 }
 
+// Crea un directorio temporal DENTRO de un directorio dado, en vez de en el temporal
+// del sistema.
+//
+// Existe porque Ensamblar hacía su escala en /tmp, que en la mayoría de las
+// distribuciones es tmpfs, o sea RAM: mover 27 GB reventó con
+// "No space left on device" tras llenar los 9,5 GB de /tmp. Y aunque cupiera, estaría
+// copiando los datos fuera del pool para devolverlos después.
+//
+// Dentro del dataset padre el espacio que cuenta es el del pool, la copia no cruza
+// sistemas de ficheros, y el paso final puede ser un renombrado en vez de una segunda
+// copia entera.
+std::string makeTempDirIn(const std::string& baseDir, const char* patternPrefix) {
+#ifndef _WIN32
+    char templ[PATH_MAX];
+    if (std::snprintf(templ, sizeof(templ), "%s/%sXXXXXX", baseDir.c_str(), patternPrefix)
+        >= static_cast<int>(sizeof(templ))) {
+        return {};
+    }
+    char* out = ::mkdtemp(templ);
+    return out ? std::string(out) : std::string();
+#else
+    GUID guid;
+    if (CoCreateGuid(&guid) != S_OK) {
+        return {};
+    }
+    char suffix[64];
+    std::snprintf(suffix, sizeof(suffix), "%08lX%04X%04X",
+                  static_cast<unsigned long>(guid.Data1), guid.Data2, guid.Data3);
+    const std::string dir = baseDir + "\\" + patternPrefix + suffix;
+    if (!CreateDirectoryA(dir.c_str(), nullptr)) {
+        return {};
+    }
+    return dir;
+#endif
+}
+
 std::string makeTempDir(const char* patternPrefix) {
 #ifndef _WIN32
     char templ[PATH_MAX];
@@ -635,6 +671,14 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (child.empty()) {
             continue;
         }
+        // Puede que ya no exista: la lista que ofrece la interfaz incluye TODOS los
+        // niveles, y ensamblar un hijo destruye recursivamente lo que cuelga de él. Si
+        // se seleccionan padre e hijo, al llegar al hijo ya está absorbido. Antes eso
+        // abortaba la operación entera con error, aunque el resultado fuera correcto.
+        if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc != 0) {
+            r.out += "[ASSEMBLE] ya absorbido " + child + "\n";
+            continue;
+        }
         (void)runExecCapture("zfs", {"mount", child});
         ExecResult cmpRes = getDatasetMountpointCapture(child);
         if (cmpRes.rc != 0) {
@@ -649,10 +693,13 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (bn.empty()) {
             continue;
         }
-        const std::string tmp = makeTempDir("zfsmgr-assemble-");
+        // En el dataset PADRE, que es donde los datos tienen que acabar. Antes iba al
+        // temporal del sistema: en Linux suele ser tmpfs, así que 27 GB de datos se
+        // volcaban en RAM y la operación moría con "No space left on device".
+        const std::string tmp = makeTempDirIn(parentMp, ".zfsmgr-assemble-");
         if (tmp.empty()) {
             r.rc = 125;
-            r.err = "mkdtemp failed\n";
+            r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
             return r;
         }
         ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp);
@@ -685,19 +732,31 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             return destroy;
         }
         const fs::path dst = fs::path(parentMp) / bn;
-        std::error_code mkec;
-        fs::create_directories(dst, mkec);
-        if (mkec) {
-            r.rc = 1;
-            r.err = "create_directories failed\n";
-            return r;
+        // Renombrado, no segunda copia: la escala está en el mismo sistema de ficheros
+        // que el destino, así que esto es instantáneo. Antes se copiaba TODO otra vez
+        // —los datos viajaban dos veces por cada hijo ensamblado—.
+        std::error_code rmDst;
+        fs::remove(dst, rmDst);  // el punto de montaje vacío que dejó el destroy
+        std::error_code rnec;
+        fs::rename(tmp, dst, rnec);
+        if (rnec) {
+            // Red de seguridad por si escala y destino acabaran en sistemas distintos.
+            std::error_code mkec;
+            fs::create_directories(dst, mkec);
+            if (mkec) {
+                r.rc = 1;
+                r.err = "create_directories failed\n";
+                return r;
+            }
+            ExecResult rsB = runRsyncCopyMoveCapture(tmp, dst.string());
+            if (rsB.rc != 0) {
+                return rsB;
+            }
+            std::error_code rmec;
+            fs::remove_all(tmp, rmec);
         }
-        ExecResult rsB = runRsyncCopyMoveCapture(tmp, dst.string());
-        if (rsB.rc != 0) {
-            return rsB;
-        }
-        std::error_code rmec;
-        fs::remove_all(tmp, rmec);
+        reportJobProgress("Ensamblado " + std::to_string(i) + " de "
+                          + std::to_string(params.size() - 1) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
     }
     r.rc = 0;
