@@ -114,6 +114,10 @@ public:
     // más usada de la aplicación contra el transporte de mentira.
     bool getDatasetPropertyForTest(int connIdx, const QString& dataset, const QString& prop,
                                    QString& valueOut);
+    // Clasificación de órdenes mutantes. Es la que decide si, tras una respuesta
+    // ambigua del daemon, se REENVÍA la orden. Clasificar mal una destructiva la
+    // ejecuta dos veces solapadas, así que conviene fijarla con tests.
+    static bool isMutatingAgentCommandForTest(const QStringList& agentArgs);
     QVector<AgentCallForTest> agentCallsForTest() const;
     void clearAgentCallsForTest();
     // Cuántas veces se ha ejecutado DE VERDAD cada reconstrucción de la interfaz.

@@ -148,6 +148,10 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
            || cmd.startsWith(QStringLiteral("--zfs-send-"))
            || cmd.startsWith(QStringLiteral("--zfs-recv-"))
            || cmd == QStringLiteral("--repair-alt-mountpoints")
+           // --job-submit también: reenviarlo lanza la MISMA transferencia por segunda
+           // vez, con dos jobs corriendo a la vez sobre los mismos datos. Estaba
+           // --job-cancel pero no éste, que es el que causa daño al duplicarse.
+           || cmd == QStringLiteral("--job-submit")
            || cmd == QStringLiteral("--job-cancel");
 }
 
@@ -318,7 +322,9 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     // Localhost TLS: either connects in <10ms or ECONNREFUSED immediately.
     // A 2500ms cap was wasting seconds per call when daemon is not running.
     const int connectTimeout = qBound(200, timeoutMs > 0 ? timeoutMs / 20 : 400, 700);
-    const int ioTimeout = qBound(800, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+    // Igual que en el RPC remoto: 0 es "sin límite". Ver la nota de allí.
+    const bool noIoDeadline = (timeoutMs <= 0);
+    const qint64 ioTimeout = noIoDeadline ? 0 : qMax(800, timeoutMs);
     QElapsedTimer rpcTimer;
     rpcTimer.start();
     qDebug("[agent-rpc] cmd=%s port=%d connectTimeout=%d", qPrintable(cmd), cfg.port, connectTimeout);
@@ -365,8 +371,15 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
         QByteArray line;
         QElapsedTimer timer;
         timer.start();
-        while (timer.elapsed() < ioTimeout) {
+        while (noIoDeadline || timer.elapsed() < ioTimeout) {
             if (!sock.waitForReadyRead(300)) {
+                // Escape imprescindible ahora que 0 significa "sin límite": aquí no hay
+                // proceso de túnel cuya muerte delate al daemon, así que el equivalente
+                // es el estado del socket. Si el daemon cae, la sesión se corta y sin
+                // esto el bucle quedaría girando para siempre.
+                if (sock.state() != QAbstractSocket::ConnectedState) {
+                    break;
+                }
                 continue;
             }
             line.append(sock.readAll());
@@ -1174,7 +1187,20 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         });
 
         const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
-        const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+        // timeoutMs <= 0 significa SIN LÍMITE, igual que en el camino SSH que esta vía
+        // sustituye (`if (timeoutMs > 0 && timer.elapsed() > timeoutMs)`). Antes se
+        // convertía en 30 s, y un `qBound(..., 70000)` capaba además cualquier plazo
+        // explícito: pedir 600000 daba 70 s.
+        //
+        // Desglosar, Ensamblar y Hacia Dir piden 0 a propósito porque copian datos
+        // reales. Al expirar se cerraba el túnel y se reintentaba, y cerrar el túnel NO
+        // aborta nada en el remoto —comprobado: el daemon completa la operación tras la
+        // desconexión—, así que la misma orden destructiva podía solaparse consigo misma.
+        //
+        // "Sin límite" no es "colgado para siempre": el bucle de lectura sale en cuanto
+        // el proceso del túnel muere, que es la misma red de seguridad que tiene SSH.
+        const bool noIoDeadline = (timeoutMs <= 0);
+        const qint64 ioTimeout = noIoDeadline ? 0 : qMax(1000, timeoutMs);
         const QString cmd = agentArgs.first().trimmed();
         const QStringList params = agentArgs.mid(1);
         const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
@@ -1240,7 +1266,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             QByteArray line;
             QElapsedTimer timer;
             timer.start();
-            while (timer.elapsed() < ioTimeout) {
+            while (noIoDeadline || timer.elapsed() < ioTimeout) {
                 if (!sock.waitForReadyRead(300)) {
                     if (!tunnelProc || tunnelProc->state() == QProcess::NotRunning) {
                         lastAttemptReason = QStringLiteral("túnel SSH daemon-rpc finalizado durante espera");
@@ -1270,6 +1296,12 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             if (lastAttemptReason.isEmpty()) {
                 lastAttemptReason = QStringLiteral("timeout esperando respuesta RPC");
             }
+            // Ya se escribió la solicitud: probar el segundo nombre de par abriría otra
+            // sesión y ENVIARÍA LA MISMA ORDEN otra vez. Este bucle existe solo para
+            // resolver con qué nombre se presenta el certificado del daemon, no para
+            // reintentar trabajo. Era un envío duplicado dentro de un mismo intento, y
+            // el guardián de commandMayHaveRun no lo cubría porque no llega a verlo.
+            break;
         }
         closeTunnelForKey(rpcConnKey);
         if (lastAttemptReason.isEmpty()) {
@@ -1576,6 +1608,10 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
     clientKeyPem = key;
     daemonPort = port;
     return true;
+}
+
+bool MainWindow::isMutatingAgentCommandForTest(const QStringList& agentArgs) {
+    return isMutatingAgentCommand(agentArgs);
 }
 
 bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,

@@ -459,6 +459,45 @@ private Q_SLOTS:
         const auto afterUngrouped = window.uiRebuildCountsForTest();
         QCOMPARE(afterUngrouped.table - beforeUngrouped.table, 2);
     }
+
+    // Qué se considera mutante decide si una orden se REENVÍA tras una respuesta
+    // ambigua del daemon. Cerrar el túnel no aborta el trabajo remoto —comprobado—,
+    // así que clasificar mal una destructiva la ejecuta dos veces solapadas, y estas
+    // hacen `zfs destroy -r` y borran directorios origen.
+    void destructiveAgentCommandsAreNeverRetried() {
+        const QStringList mustBeMutating = {
+            QStringLiteral("--mutate-advanced-todir"),
+            QStringLiteral("--mutate-advanced-breakdown"),
+            QStringLiteral("--mutate-advanced-assemble"),
+            QStringLiteral("--mutate-rsync-local"),
+            QStringLiteral("--mutate-zfs-destroy"),
+            QStringLiteral("--zfs-pipe-local"),
+            QStringLiteral("--zfs-send-to-peer"),
+            QStringLiteral("--zfs-recv-listen"),
+            QStringLiteral("--repair-alt-mountpoints"),
+            // Reenviar este lanza la MISMA transferencia por segunda vez.
+            QStringLiteral("--job-submit"),
+            QStringLiteral("--job-cancel"),
+        };
+        for (const QString& c : mustBeMutating) {
+            QVERIFY2(MainWindow::isMutatingAgentCommandForTest({c}),
+                     qPrintable(QStringLiteral("debe considerarse mutante: %1").arg(c)));
+        }
+        // Y las lecturas no, o se perdería el respaldo para algo que no hace daño
+        // repetir.
+        const QStringList mustBeReads = {
+            QStringLiteral("--dump-zpool-list"),
+            QStringLiteral("--dump-zfs-list-all"),
+            QStringLiteral("--dump-refresh-basics"),
+            QStringLiteral("--dump-daemon-log"),
+            QStringLiteral("--health"),
+        };
+        for (const QString& c : mustBeReads) {
+            QVERIFY2(!MainWindow::isMutatingAgentCommandForTest({c}),
+                     qPrintable(QStringLiteral("no debe considerarse mutante: %1").arg(c)));
+        }
+        QVERIFY(!MainWindow::isMutatingAgentCommandForTest({}));
+    }
 };
 
 QTEST_MAIN(GuiMainWindowTest)
