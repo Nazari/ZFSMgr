@@ -1064,7 +1064,18 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                     tunnelReady = true;
                     break;
                 }
-                QThread::msleep(50);
+                // Bombear mientras se espera: esto corre en el hilo de INTERFAZ, y
+                // waitForConnected + msleep lo dejaban congelado hasta 5 s por intento.
+                // Con una máquina apagada son dos intentos seguidos nada más arrancar,
+                // así que la ventana ya existía pero no llegaba a pintarse: es lo que se
+                // veía como "tarda mucho en aparecer".
+                //
+                // ExcludeUserInputEvents a propósito: deja pasar los repintados pero NO
+                // las acciones del usuario, así que no puede colarse por aquí nada que
+                // mute m_profiles/m_states y deje colgando las referencias que sostiene
+                // quien nos llamó. Es más estricto que el processEvents de runSsh.
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 40);
+                QThread::msleep(10);
             }
             if (!tunnelReady) {
                 // El tiempo REAL y el motivo, no un "5 s" fijo. Este bucle sale antes si
