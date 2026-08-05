@@ -745,7 +745,11 @@ private:
                             QString& err,
                             int& rc,
                             const std::function<void(const QString&)>& onStdoutLine = {},
-                            const std::function<void(const QString&)>& onStderrLine = {});
+                            const std::function<void(const QString&)>& onStderrLine = {},
+                            // Mismo motivo que en runSsh: el volcado del log del
+                            // daemon llega por aquí, y eran ~27.000 líneas de latidos
+                            // eco al registro de la aplicación.
+                            bool echoOutputToLog = true);
     // Submits a long-running agent mutation as a background job and polls until it
     // finishes. Removes the RPC read timeout from the equation: the submission is
     // instant and the outcome is asked for afterwards, so a slow operation can no

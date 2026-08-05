@@ -1585,7 +1585,8 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                                     QString& err,
                                     int& rc,
                                     const std::function<void(const QString&)>& onStdoutLine,
-                                    const std::function<void(const QString&)>& onStderrLine) {
+                                    const std::function<void(const QString&)>& onStderrLine,
+                                    bool echoOutputToLog) {
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0 || agentArgs.isEmpty()) {
         return false;
     }
@@ -1642,16 +1643,22 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                 if (cb) {
                     cb(line);
                 }
-                appendConnectionLog(p.id, line);
+                if (echoOutputToLog) {
+                    appendConnectionLog(p.id, line);
+                }
             }
         };
         emitLines(out, onStdoutLine);
         emitLines(err, onStderrLine);
         if (!out.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(out));
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, oneLine(out));
+            }
         }
         if (!err.trimmed().isEmpty()) {
-            appendConnectionLog(p.id, oneLine(err));
+            if (echoOutputToLog) {
+                appendConnectionLog(p.id, oneLine(err));
+            }
         }
         return true;
     } else if (allowRpcAttempt && rpcCommandMayHaveRun && isMutatingAgentCommand(agentArgs)) {
@@ -2026,7 +2033,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if (allowAgentRpc && stdinPayload.isEmpty()) {
         QStringList agentArgs;
         if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)
-            && tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine)) {
+            && tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine,
+                                  echoOutputToLog)) {
             return true;
         }
     }

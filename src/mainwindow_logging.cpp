@@ -887,12 +887,31 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
             }
             const qint64 newOffset = offset + static_cast<qint64>(out.toUtf8().size());
             m_connectionDaemonLogOffset[connId] = newOffset;
-            const QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            // Recortar ANTES de pintar y añadir en un solo bloque. appendPlainText por
+            // línea rehace el trazado del widget en cada llamada: con el volcado inicial
+            // desde el desplazamiento 0 de un daemon que lleva días en marcha son ~27.000
+            // llamadas en el hilo de interfaz (medido en una VM Windows). trimLogWidget
+            // recortaba después, así que se pagaba el pintado de todo lo que iba a
+            // descartarse.
+            constexpr int kMaxDumpLines = 2000;
+            const int dropped = qMax(0, lines.size() - kMaxDumpLines);
+            if (dropped > 0) {
+                lines = lines.mid(dropped);
+            }
+            QStringList kept;
+            kept.reserve(lines.size() + 1);
+            if (dropped > 0) {
+                kept << QStringLiteral("… %1 líneas anteriores omitidas").arg(dropped);
+            }
             for (const QString& line : lines) {
                 const QString t = line.trimmed();
                 if (!t.isEmpty()) {
-                    v->appendPlainText(t);
+                    kept << t;
                 }
+            }
+            if (!kept.isEmpty()) {
+                v->appendPlainText(kept.join(QLatin1Char('\n')));
             }
             trimLogWidget(v);
             scrollLogViewToLatest(v);
