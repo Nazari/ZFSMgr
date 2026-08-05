@@ -6,6 +6,9 @@
 #include <QByteArray>
 #include <QCheckBox>
 #include <QDialog>
+#include <QSignalBlocker>
+
+#include <functional>
 #include <QDialogButtonBox>
 #include <QDropEvent>
 #include <QEvent>
@@ -742,7 +745,8 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                        const QStringList& items,
                                        QStringList& selected,
                                        const QString& detail,
-                                       const QMap<QString, QString>& invalidItems) {
+                                       const QMap<QString, QString>& invalidItems,
+                                       bool ancestorsRequired) {
     if (items.isEmpty()) {
         return false;
     }
@@ -827,8 +831,11 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                 node = new QTreeWidgetItem();
                 node->setText(0, part);
                 node->setData(0, fullPathRole, cumulative);
-                node->setFlags((node->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate)
-                               & ~Qt::ItemIsSelectable);
+                Qt::ItemFlags f = (node->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsSelectable;
+                if (!ancestorsRequired) {
+                    f |= Qt::ItemIsAutoTristate;
+                }
+                node->setFlags(f);
                 node->setCheckState(0, Qt::Unchecked);
                 if (parent) {
                     parent->addChild(node);
@@ -862,6 +869,39 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
             continue;
         }
         node->setCheckState(0, initiallySelected.contains(key) ? Qt::Checked : Qt::Unchecked);
+    }
+
+    if (ancestorsRequired) {
+        QObject::connect(tree, &QTreeWidget::itemChanged, tree,
+                         [tree](QTreeWidgetItem* item, int column) {
+            if (!item || column != 0) {
+                return;
+            }
+            // Reentrante: cada setCheckState vuelve a emitir itemChanged.
+            static bool applying = false;
+            if (applying) {
+                return;
+            }
+            applying = true;
+            const QSignalBlocker blocker(tree);
+            if (item->checkState(0) == Qt::Checked) {
+                for (QTreeWidgetItem* up = item->parent(); up; up = up->parent()) {
+                    if (!up->isDisabled()) {
+                        up->setCheckState(0, Qt::Checked);
+                    }
+                }
+            } else {
+                std::function<void(QTreeWidgetItem*)> down = [&](QTreeWidgetItem* n) {
+                    for (int i = 0; i < n->childCount(); ++i) {
+                        QTreeWidgetItem* c = n->child(i);
+                        c->setCheckState(0, Qt::Unchecked);
+                        down(c);
+                    }
+                };
+                down(item);
+            }
+            applying = false;
+        });
     }
 
     tree->expandAll();

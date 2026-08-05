@@ -1098,12 +1098,24 @@ private:
                            QStringList& selected,
                            const QString& detail = QString(),
                            const QMap<QString, QString>& invalidItems = {});
+    // `ancestorsRequired`: al marcar un nodo se marcan también sus ascendientes, y al
+    // desmarcarlo se desmarcan sus descendientes. Es la dependencia REAL de Desglosar:
+    // para que exista el dataset <ds>/Disks/Bootables tiene que existir antes
+    // <ds>/Disks, o `zfs rename` falla. Crearlo al vuelo con -p tampoco vale, porque
+    // heredaría el punto de montaje y taparía los datos no seleccionados que siguen
+    // en ese directorio.
+    //
+    // Sin esto el diálogo usaba tristate automático, que impone lo CONTRARIO —un padre
+    // solo se puede marcar marcando algún hijo— y obligaba a desglosar subárboles
+    // enteros: en una prueba real, pedir los 7 directorios de primer nivel creaba 250
+    // datasets anidados y ~170 MB de metadatos.
     bool selectTreeItemsDialog(const QString& title,
                                const QString& intro,
                                const QStringList& items,
                                QStringList& selected,
                                const QString& detail = QString(),
-                               const QMap<QString, QString>& invalidItems = {});
+                               const QMap<QString, QString>& invalidItems = {},
+                               bool ancestorsRequired = false);
     bool editInlinePropertiesDialog(const QString& title,
                                     const QString& intro,
                                     const QStringList& items,

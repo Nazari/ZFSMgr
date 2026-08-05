@@ -440,7 +440,12 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                 QStringLiteral("Mountpoint usado para explorar directorios: %1").arg(resolvedMp),
                 QStringLiteral("Mountpoint used to scan directories: %1").arg(resolvedMp),
                 QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)),
-            invalidDirReasons)) {
+            invalidDirReasons,
+            // Para que exista <ds>/Disks/Bootables tiene que existir antes <ds>/Disks:
+            // marcar un directorio arrastra a sus ascendientes, y desmarcarlo suelta a
+            // sus descendientes. Antes regía el tristate automático, que impone lo
+            // contrario y obligaba a desglosar subárboles enteros.
+            /*ancestorsRequired=*/true)) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),
