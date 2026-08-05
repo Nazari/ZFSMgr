@@ -625,9 +625,17 @@ QString sshBaseCommand(const ConnectionProfile& p) {
     // cualquier clave para siempre. Como el material TLS del daemon se trae POR SSH,
     // eso permitía que un intermediario entregara su propio certificado, que la
     // aplicación fijaría tan tranquila.
+    // Sin multiplexado cuando la aplicación corre en Windows: su OpenSSH responde
+    // `getsockname failed: Not a socket`, y ControlPersist deja un maestro de fondo que
+    // no suelta las tuberías heredadas. Mismo motivo que en runSsh.
+#ifdef Q_OS_WIN
+    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR"
+                                 " -o StrictHostKeyChecking=accept-new");
+#else
     QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
                                  " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
                       .arg(shSingleQuote(sshControlPath()));
+#endif
     const QString familyOpt = sshAddressFamilyOption(p);
     if (!familyOpt.isEmpty()) {
         cmd += QStringLiteral(" ") + familyOpt;

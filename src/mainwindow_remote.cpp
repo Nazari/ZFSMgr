@@ -2209,11 +2209,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
     }
 
+    // El multiplexado no funciona cuando la aplicación corre en Windows: su OpenSSH
+    // responde `getsockname failed: Not a socket` (comprobado contra fc16 desde una VM
+    // Windows 11), y `ControlPersist` deja un proceso maestro de fondo que no suelta
+    // las tuberías heredadas, así que waitForFinished no vuelve y la ventana se queda
+    // bloqueada. El reintento sin multiplexar no salvaba nada: para llegar a él hay
+    // que esperar primero a que el intento colgado agote su plazo, y son ~16 órdenes
+    // por refresco.
+#ifdef Q_OS_WIN
+    const bool allowMultiplexing = false;
+#else
     bool allowMultiplexing = true;
     {
         QMutexLocker lock(&m_sshRuntimeSetsMutex);
         allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
     }
+#endif
     bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
     if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
         {

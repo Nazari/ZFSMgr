@@ -77,6 +77,18 @@ void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
     refresh();
 }
 
+// Tapa la contraseña en una orden antes de escribirla en el registro del diálogo.
+// Cubre las dos formas en que puede aparecer: incrustada literal y —desde que se
+// codifica para sobrevivir a la normalización de macOS— como escapes octales.
+QString maskProbeCommandSecrets(const QString& cmd) {
+    QString out = cmd;
+    out.replace(QRegularExpression(QStringLiteral("printf\\s+'%b\\\\n'\\s+'(?:\\\\0[0-7]{1,3})*'")),
+                QStringLiteral("printf '%b\\n' [secret]"));
+    out.replace(QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+'(?:[^'\\\\]|\\\\.)*'")),
+                QStringLiteral("printf '%s\\n' [secret]"));
+    return out;
+}
+
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
 }
@@ -536,7 +548,11 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
             .arg(p.username,
                  p.host,
                  QString::number(p.port),
-                 oneLine(remoteCmd),
+                 // Enmascarado ANTES de escribir. Este registro es propio del diálogo y
+                 // no pasa por maskSecrets de la ventana principal, así que la
+                 // comprobación de la contraseña de sudo la dejaba escrita: en la forma
+                 // nueva son escapes octales, trivialmente reversibles.
+                 oneLine(maskProbeCommandSecrets(remoteCmd)),
                  QString::number(timeoutMs),
                  hasPassword ? QStringLiteral("password/key") : QStringLiteral("key/agent"),
                  p.keyPath.isEmpty() ? QStringLiteral("no") : QStringLiteral("yes")));
