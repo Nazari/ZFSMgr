@@ -499,7 +499,16 @@ public:
         : dataset_(std::move(dataset)), prefix_(std::move(prefix)) {
         baseline_ = datasetUsedBytes(dataset_);
         started_ = std::chrono::steady_clock::now();
-        worker_ = std::thread([this]() { run(); });
+        // El identificador del trabajo se lee AQUÍ, en el hilo que construye, y se
+        // reinstala dentro del hilo muestreador: t_currentJobId es thread_local, así
+        // que en un hilo nuevo nace vacío y reportJobProgress descartaba todo en
+        // silencio. Es el mismo mecanismo que yo mismo introduje, y lanzar un hilo que
+        // depende de él sin propagarlo lo dejaba mudo.
+        const std::string jobId = t_currentJobId;
+        worker_ = std::thread([this, jobId]() {
+            t_currentJobId = jobId;
+            run();
+        });
     }
     ~CopyProgressSampler() {
         stop_ = true;
