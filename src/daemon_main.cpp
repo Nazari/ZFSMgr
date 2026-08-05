@@ -665,6 +665,12 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             }
         }
 
+        // ANTES de copiar, no solo al terminar: un directorio grande puede tardar
+        // minutos, y avisando solo al acabar la caja de progreso se queda muda justo
+        // cuando más falta hace. Medido: en un ensamblado de 27 G se emitió UNA línea,
+        // al final, porque un elemento se llevó el 99 % del tiempo.
+        reportJobProgress("[BREAKDOWN] copiando " + std::to_string(i + 1) + " de "
+                          + std::to_string(rels.size()) + ": " + rel);
         const std::string tmpMp = makeTempDir("zfsmgr-breakdown-child-");
         if (tmpMp.empty()) {
             r.rc = 125;
@@ -699,7 +705,10 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                     + (left < 0 ? std::string("unknown") : std::to_string(left)) + "\n";
             return r;
         }
-        reportJobProgress("Copiado " + std::to_string(i + 1) + " de "
+        // Con la marca [BREAKDOWN]: la interfaz FILTRA las líneas de progreso y solo
+        // deja pasar las que la llevan. Sin ella se descartaban en silencio y la caja
+        // de Progreso seguía vacía aunque el daemon las estuviera emitiendo.
+        reportJobProgress("[BREAKDOWN] copiado " + std::to_string(i + 1) + " de "
                           + std::to_string(rels.size()) + ": " + rel);
     }
 
@@ -817,6 +826,8 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // En el dataset PADRE, que es donde los datos tienen que acabar. Antes iba al
         // temporal del sistema: en Linux suele ser tmpfs, así que 27 GB de datos se
         // volcaban en RAM y la operación moría con "No space left on device".
+        reportJobProgress("[ASSEMBLE] ensamblando " + std::to_string(i) + " de "
+                          + std::to_string(params.size() - 1) + ": " + bn);
         const std::string tmp = makeTempDirIn(parentMp, ".zfsmgr-assemble-");
         if (tmp.empty()) {
             r.rc = 125;
@@ -876,7 +887,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             std::error_code rmec;
             fs::remove_all(tmp, rmec);
         }
-        reportJobProgress("Ensamblado " + std::to_string(i) + " de "
+        reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
                           + std::to_string(params.size() - 1) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
     }
