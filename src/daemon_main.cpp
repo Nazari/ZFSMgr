@@ -552,8 +552,15 @@ private:
 };
 
 ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
-                                   const std::vector<std::string>& excludes = {}) {
+                                   const std::vector<std::string>& excludes = {},
+                                   bool oneFileSystem = false) {
     std::vector<std::string> argv{"-aHWS"};
+    // -x: no bajar a otros sistemas de ficheros. Al ensamblar conservando los
+    // subdatasets hay que copiar SOLO lo propio del dataset; sus hijos están montados
+    // dentro y se quedan donde están.
+    if (oneFileSystem) {
+        argv.push_back("-x");
+    }
     const std::vector<std::string>& extra = rsyncPreservationFlags();
     argv.insert(argv.end(), extra.begin(), extra.end());
     // Anclados con "/" inicial: sin eso, excluir "Tools" se comería CUALQUIER
@@ -642,10 +649,14 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
 // ">f" significa fichero que se transferiría. --ignore-existing hace que solo
 // aparezca lo que falta, no lo que difiere.
 int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir,
-                               const std::vector<std::string>& excludes = {}) {
+                               const std::vector<std::string>& excludes = {},
+                               bool oneFileSystem = false) {
     // Las MISMAS exclusiones que la copia: si no, lo que se dejó fuera a propósito
     // contaría como pendiente y la verificación fallaría siempre.
     std::vector<std::string> argv{"-rni", "--ignore-existing"};
+    if (oneFileSystem) {
+        argv.push_back("-x");
+    }
     for (const std::string& ex : excludes) {
         argv.push_back("--exclude=/" + ex + "/");
     }
@@ -932,10 +943,39 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
             return r;
         }
+        // Descendientes DIRECTOS que son datasets: se conservan en vez de destruirlos.
+        //
+        // Antes se hacía `zfs destroy -r`, que se llevaba todo el subárbol: ensamblar
+        // un dataset borraba de paso los que colgaban de él. Los datos no se perdían
+        // —se copiaban a la escala— pero la estructura sí, y eso obligaba además a
+        // ensamblar el subárbol entero desde la interfaz.
+        //
+        // ZFS no exige que el nombre del dataset refleje su ruta: un dataset puede
+        // seguir montado donde está aunque su directorio contenedor pase a ser un
+        // directorio normal del padre. Se reasignan al padre conservando su punto de
+        // montaje, y así sobreviven.
+        std::vector<std::string> directChildren;
+        {
+            const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", child});
+            const std::string prefix = child + "/";
+            for (const std::string& line : splitLines(ls.out)) {
+                const std::string ds = trim(line);
+                if (ds.size() <= prefix.size() || ds.compare(0, prefix.size(), prefix) != 0) {
+                    continue;
+                }
+                // Solo los directos: renombrar uno arrastra su propio subárbol.
+                if (ds.find('/', prefix.size()) == std::string::npos) {
+                    directChildren.push_back(ds);
+                }
+            }
+        }
+
         std::unique_ptr<CopyProgressSampler> sampler(new CopyProgressSampler(
             dataset, "[ASSEMBLE] " + std::to_string(i) + " de "
                          + std::to_string(params.size() - 1) + ": " + bn));
-        ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp);
+        // -x: copiar SOLO lo propio del dataset. Lo que hay bajo los puntos de montaje
+        // de sus hijos pertenece a esos hijos y se queda con ellos.
+        ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp, {}, /*oneFileSystem=*/true);
         if (rsA.rc != 0) {
             return rsA;
         }
@@ -944,13 +984,13 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // mayor que en el desglose, porque "zfs destroy -r" no admite vuelta atrás:
         // si la copia quedó incompleta, los datos no están en ningún sitio.
         {
-            int pending = countPendingRsyncTransfers(childMp, tmp);
+            int pending = countPendingRsyncTransfers(childMp, tmp, {}, true);
             for (int attempt = 1; pending != 0 && attempt < 5; ++attempt) {
-                ExecResult again = runRsyncCopyMoveCapture(childMp, tmp);
+                ExecResult again = runRsyncCopyMoveCapture(childMp, tmp, {}, true);
                 if (again.rc != 0) {
                     return again;
                 }
-                pending = countPendingRsyncTransfers(childMp, tmp);
+                pending = countPendingRsyncTransfers(childMp, tmp, {}, true);
             }
             if (pending != 0) {
                 r.rc = 42;
@@ -961,7 +1001,50 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             }
         }
         sampler.reset();  // deja de muestrear antes de destruir
-        ExecResult destroy = runExecCapture("zfs", {"destroy", "-r", child});
+
+        // Reasignar los hijos ANTES de destruir, y desmontarlos antes de mover nada:
+        // renombrar un directorio que contiene un punto de montaje da EBUSY, y el
+        // directorio del hijo cuelga justo de lo que vamos a sustituir.
+        struct Reparented {
+            std::string newName;
+            std::string mountpoint;
+        };
+        std::vector<Reparented> reparented;
+        for (const std::string& kid : directChildren) {
+            const std::string kidBase = kid.substr(kid.find_last_of('/') + 1);
+            ExecResult kmp = getDatasetMountpointCapture(kid);
+            const std::string kidMp = (kmp.rc == 0) ? trim(kmp.out) : std::string();
+            if (kidMp.empty()) {
+                r.rc = 1;
+                r.err = "no se pudo determinar el mountpoint de " + kid + "\n";
+                return r;
+            }
+            // Explícito antes de renombrar: si fuera heredado, al cambiar de padre se
+            // movería solo y el dataset dejaría de estar donde el usuario lo ve.
+            ExecResult fix = runExecCapture("zfs", {"set", "mountpoint=" + kidMp, kid});
+            if (fix.rc != 0) {
+                return fix;
+            }
+            (void)runExecCapture("zfs", {"unmount", kid});
+            // Nombre libre bajo el padre: puede haber ya uno que se llame igual.
+            std::string target = dataset + "/" + kidBase;
+            for (int n = 2; runExecCapture("zfs", {"list", "-H", "-o", "name", target}).rc == 0; ++n) {
+                target = dataset + "/" + kidBase + "-" + std::to_string(n);
+            }
+            ExecResult mv = runExecCapture("zfs", {"rename", kid, target});
+            if (mv.rc != 0) {
+                (void)runExecCapture("zfs", {"mount", kid});
+                return mv;
+            }
+            reparented.push_back(Reparented{target, kidMp});
+            r.out += "[ASSEMBLE] conservado " + kid + " -> " + target
+                     + " (montado en " + kidMp + ")\n";
+        }
+
+        // Sin -r: a estas alturas no le queda ningún descendiente, y un destroy no
+        // recursivo NO PUEDE llevarse nada por delante aunque el razonamiento anterior
+        // fuera erróneo. Si algo quedó colgando, falla en vez de destruirlo.
+        ExecResult destroy = runExecCapture("zfs", {"destroy", child});
         if (destroy.rc != 0) {
             return destroy;
         }
@@ -988,6 +1071,15 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             }
             std::error_code rmec;
             fs::remove_all(tmp, rmec);
+        }
+        // Con el directorio ya en su sitio, devolver los hijos a su punto de montaje.
+        // zfs crea el directorio si falta.
+        for (const Reparented& rp : reparented) {
+            ExecResult mnt = runExecCapture("zfs", {"mount", rp.newName});
+            if (mnt.rc != 0) {
+                r.out += "[ASSEMBLE] aviso: no se pudo montar " + rp.newName
+                         + " en " + rp.mountpoint + "\n";
+            }
         }
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
                           + std::to_string(params.size() - 1) + ": " + bn);
