@@ -34,10 +34,22 @@
 #include <cstring>
 
 namespace {
+// Rutas del agente EN ESTA MÁQUINA. Estaban fijas a las POSIX, así que en Windows la
+// conexión Local nunca encontraba su material TLS, no podía hablar por RPC con su
+// propio daemon y todo el refresco caía al camino de shell: cada orden arranca un
+// PowerShell nuevo y el refresco medía 102 s, de los que 99 eran sondas.
+// Tienen que coincidir con kDefaultTlsDir/kDefaultAgentConfigPath de daemon_main.cpp.
+#ifdef Q_OS_WIN
+constexpr const char* kDefaultAgentConfigPath = "C:\\ProgramData\\ZFSMgr\\agent\\agent.conf";
+constexpr const char* kDefaultAgentTlsCertPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\server.crt";
+constexpr const char* kDefaultAgentTlsClientCertPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\client.crt";
+constexpr const char* kDefaultAgentTlsClientKeyPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\client.key";
+#else
 constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
 constexpr const char* kDefaultAgentTlsCertPath = "/etc/zfsmgr/tls/server.crt";
 constexpr const char* kDefaultAgentTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
 constexpr const char* kDefaultAgentTlsClientKeyPath = "/etc/zfsmgr/tls/client.key";
+#endif
 
 struct LocalAgentConfig {
     QString bindAddress{QStringLiteral("127.0.0.1")};
@@ -1485,6 +1497,17 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
     quint16 port = static_cast<quint16>(cfg.port > 0 ? cfg.port : 47653);
 
     if (srv.isEmpty() || cli.isEmpty() || key.isEmpty()) {
+#ifdef Q_OS_WIN
+        // En Windows el material vive bajo C:\ProgramData y lo puede leer el usuario,
+        // así que la lectura directa de arriba basta. Si ha fallado, no queda camino
+        // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo,
+        // y lanzarlo daría un error que no dice nada. Se explica lo que pasa.
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Local: no se pudo leer el material TLS del daemon en %1. "
+                              "Reinstale el daemon desde el menú de la conexión.")
+                   .arg(cfg.tlsCertPath));
+        return false;
+#else
         // Mismo guion y mismos marcadores que el camino remoto, para poder reutilizar
         // su parseador en vez de escribir un segundo formato que se desincronice.
         const QString bundleScript =
@@ -1534,6 +1557,7 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
                    QStringLiteral("Local: el material TLS del daemon llegó incompleto."));
             return false;
         }
+#endif
     }
 
     if (srv.isEmpty() || cli.isEmpty() || key.isEmpty()) {

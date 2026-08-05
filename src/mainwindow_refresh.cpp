@@ -841,12 +841,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     // En Windows el binario vive en otra ruta y no hay sudo ni PATH de Unix que
     // aplicar: usar el comando de siempre daba "no se reconoce" y tumbaba la
     // comprobación de salud, dejando el daemon por no disponible.
-    const bool winSshDaemon =
-        isWinConn && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    // Antes se exigía además que una conexión Windows fuera de tipo SSH, porque el RPC
+    // en Windows solo llegaba por el túnel. La conexión Local es de tipo LOCAL, así que
+    // quedaba excluida POR DEFINICIÓN aunque su daemon estuviera instalado, activo y en
+    // la versión correcta: todo el refresco caía al camino de shell y cada orden
+    // arrancaba un PowerShell nuevo. Medido en una VM Windows 11: 102 s de refresco, de
+    // los que 99 eran sondas que el daemon sirve en una sola llamada.
     const QString daemonHealthCmd = mwhelpers::agentCommand(p, QStringLiteral("--health"));
     bool daemonReadApiOk =
-        (!isWinConn || winSshDaemon)
-        && state.daemonInstalled
+        state.daemonInstalled
         && state.daemonActive
         && state.daemonNativeBinary
         && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
@@ -1194,7 +1197,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString expectedApiVersion = agentversion::expectedApiVersion().trimmed();
         // También para Windows por SSH: allí el daemon nativo SÍ es exigible, y si lo
         // instalado es el stub conviene decirlo en vez de callar.
-        if ((!isWinConn || winSshDaemon) && !state.daemonNativeBinary) {
+        if (!state.daemonNativeBinary) {
             state.daemonNeedsAttention = true;
             state.daemonAttentionReasons.push_back(QStringLiteral("daemon no nativo (RPC TLS no disponible)"));
         }
