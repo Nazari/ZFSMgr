@@ -4,6 +4,10 @@
 
 #include <QDialog>
 
+// Declaración adelantada a propósito: mainwindow_helpers.h incluye este fichero,
+// así que incluirlo aquí cerraría el ciclo. La definición se necesita solo en el .cpp.
+namespace mwhelpers { enum class SudoCheck; }
+
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -26,6 +30,12 @@ private:
     void acceptDialog();
     bool runSshProbe(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err) const;
     bool testSshConnection(const ConnectionProfile& p, QString& detail) const;
+    // Comprueba la contraseña de sudo en la máquina remota, con la MISMA orden que se
+    // usará después. Sin esto se guardaba sin más: SSH entra por clave, así que una
+    // contraseña de sudo equivocada no rompe nada visible al aceptar y solo aparece
+    // mucho después, en forma de "el agente no está instalado" en una máquina donde
+    // sí lo está.
+    mwhelpers::SudoCheck checkRemoteSudoPassword(const ConnectionProfile& p, QString& detailOut) const;
     bool detectSshPlatform(const ConnectionProfile& p,
                            QString& osTypeOut,
                            QString& flavorOut,

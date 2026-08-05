@@ -472,6 +472,17 @@ int main() {
     if (!looksLikeSudoAuthFailure("sudo: a password is required")) {
         return fail("looksLikeSudoAuthFailure should detect a missing password");
     }
+    // Salidas REALES capturadas de sudo 1.9 en Ubuntu con LANG=es_ES.UTF-8 y de
+    // macOS 26. La lista original traía traducciones inventadas que no casaban.
+    if (!looksLikeSudoAuthFailure(QString::fromUtf8("Lo siento, pruebe otra vez."))) {
+        return fail("looksLikeSudoAuthFailure should detect the real Spanish sudo output");
+    }
+    if (!looksLikeSudoAuthFailure(QString::fromUtf8("sudo: 1 intento de contraseña incorrecto"))) {
+        return fail("looksLikeSudoAuthFailure should detect the Spanish attempt counter");
+    }
+    if (!looksLikeSudoAuthFailure(QString::fromUtf8("sudo: se requiere una contraseña"))) {
+        return fail("looksLikeSudoAuthFailure should detect the Spanish -n refusal");
+    }
     if (looksLikeSudoAuthFailure("user is not in the sudoers file")) {
         return fail("looksLikeSudoAuthFailure must not fire on a sudoers problem");
     }

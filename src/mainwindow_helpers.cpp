@@ -923,12 +923,20 @@ bool looksLikeSudoAuthFailure(const QString& text) {
         || t.contains(QStringLiteral("is not allowed to execute"))) {
         return false;
     }
+    // Cadenas OBSERVADAS, no supuestas. Las de español salen de un sudo 1.9 real en
+    // Ubuntu con LANG=es_ES.UTF-8: dice "Lo siento, pruebe otra vez", no "inténtelo
+    // de nuevo", que es lo que había aquí escrito de memoria y no casaba con nada.
+    // El resultado era que un rechazo de contraseña se clasificaba como "no se pudo
+    // comprobar" y el usuario no recibía el aviso.
     static const QStringList kNeedles = {
         QStringLiteral("sorry, try again"),
         QStringLiteral("incorrect password attempt"),
         QStringLiteral("authentication failure"),
         QStringLiteral("a password is required"),
-        QStringLiteral("lo siento, inténtelo de nuevo"),
+        QStringLiteral("lo siento, pruebe otra vez"),
+        QStringLiteral("intento de contraseña incorrecto"),
+        QStringLiteral("intentos de contraseña incorrectos"),
+        QStringLiteral("se requiere una contraseña"),
         QStringLiteral("se necesita una contraseña"),
         QStringLiteral("fallo de autenticación"),
     };

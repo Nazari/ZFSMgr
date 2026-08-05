@@ -793,6 +793,27 @@ void ConnectionDialog::testConnection() {
                               QStringLiteral("SSH 测试失败：\n%1")).arg(detail));
 }
 
+mwhelpers::SudoCheck ConnectionDialog::checkRemoteSudoPassword(const ConnectionProfile& p,
+                                                               QString& detailOut) const {
+    detailOut.clear();
+    if (!p.useSudo || mwhelpers::isWindowsOsType(p.osType) || p.password.isEmpty()) {
+        return mwhelpers::SudoCheck::Ok;
+    }
+    // La orden exacta que se usará en producción, no una aproximación: así lo que se
+    // valida es lo que después se ejecuta, incluida la codificación de la contraseña.
+    const QString cmd = mwhelpers::withSudoCommand(p, QStringLiteral("true"));
+    QString out;
+    QString err;
+    if (!runSshProbe(p, cmd, 15000, out, err)) {
+        detailOut = mwhelpers::oneLine(err.isEmpty() ? out : err);
+        if (mwhelpers::looksLikeSudoAuthFailure(detailOut)) {
+            return mwhelpers::SudoCheck::WrongPassword;
+        }
+        return mwhelpers::SudoCheck::CouldNotCheck;
+    }
+    return mwhelpers::SudoCheck::Ok;
+}
+
 void ConnectionDialog::acceptDialog() {
     if (m_connTypeCombo
         && m_connTypeCombo->currentText().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
@@ -822,6 +843,47 @@ void ConnectionDialog::acceptDialog() {
         m_detectedOsType = osType;
         m_detectedOsFlavor = flavor;
         updateDetectedOsLabel();
+
+        // La contraseña de sudo se comprueba AQUÍ. Con SSH por clave, una contraseña
+        // de sudo equivocada no impide conectar ni da ningún error al guardar: el
+        // fallo aparece mucho más tarde y disfrazado de "el agente no está instalado".
+        p.osType = osType;
+        QString sudoDetail;
+        const mwhelpers::SudoCheck sudoCheck = checkRemoteSudoPassword(p, sudoDetail);
+        if (sudoCheck == mwhelpers::SudoCheck::WrongPassword) {
+            appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                        QStringLiteral("Sudo password rejected on %1@%2")
+                                            .arg(p.username, p.host));
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_conn_sudo_bad_001"),
+                    QStringLiteral("La contraseña de sudo no es válida en %1@%2.\n%3\n\nCorríjala antes de guardar."),
+                    QStringLiteral("The sudo password is not valid on %1@%2.\n%3\n\nFix it before saving."),
+                    QStringLiteral("在 %1@%2 上 sudo 密码无效。\n%3\n\n请先更正再保存。"))
+                    .arg(p.username, p.host, sudoDetail));
+            return;
+        }
+        // No se pudo comprobar: se avisa y se deja guardar. Bloquear por no haber
+        // podido comprobar impediría dar de alta una conexión por un fallo ajeno.
+        if (sudoCheck == mwhelpers::SudoCheck::CouldNotCheck) {
+            appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                        QStringLiteral("Sudo password unverified on %1@%2: %3")
+                                            .arg(p.username, p.host, sudoDetail));
+            const auto proceed = QMessageBox::question(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_conn_sudo_unchecked_001"),
+                    QStringLiteral("No se pudo comprobar la contraseña de sudo en %1@%2:\n%3\n\n¿Guardar de todos modos?"),
+                    QStringLiteral("Could not verify the sudo password on %1@%2:\n%3\n\nSave anyway?"),
+                    QStringLiteral("无法验证 %1@%2 上的 sudo 密码：\n%3\n\n仍要保存吗？"))
+                    .arg(p.username, p.host, sudoDetail),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::Yes);
+            if (proceed != QMessageBox::Yes) {
+                return;
+            }
+        }
     } else {
         m_detectedOsType = QStringLiteral("Windows");
         m_detectedOsFlavor = QStringLiteral("Windows");
