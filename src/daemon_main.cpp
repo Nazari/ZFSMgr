@@ -768,6 +768,46 @@ std::string readFirstLineFile(const char* path) {
     return trim(line);
 }
 
+// Lee el log del daemon desde un desplazamiento, o su COLA si se pide un máximo.
+//
+// Por qué existe: el cliente pide el log desde el desplazamiento 0 en cada arranque, y un
+// daemon que lleva días en marcha tiene un latido por minuto. Medido en una VM Windows:
+// 27.413 líneas de "HBEAT agent alive" transferidas y procesadas para mostrar las últimas.
+//
+// Se emite primero `__ZFSMGR_LOG_OFFSET__:<n>` con el desplazamiento ABSOLUTO donde
+// termina lo devuelto. Sin eso el cliente no puede continuar: calculaba el siguiente
+// desplazamiento sumando el tamaño de lo recibido, y al saltar a la cola esa cuenta
+// dejaría de corresponder con el fichero. Un cliente viejo ve una línea que no reconoce.
+std::string readDaemonLogRange(long long offset, long long maxBytes) {
+    std::ifstream lf(kDaemonLogFile, std::ios::binary);
+    if (!lf.is_open()) {
+        return std::string();
+    }
+    lf.seekg(0, std::ios::end);
+    const long long size = static_cast<long long>(lf.tellg());
+    long long start = (offset > 0 && offset <= size) ? offset : 0;
+    if (maxBytes > 0 && (size - start) > maxBytes) {
+        start = size - maxBytes;
+        // Alinear al siguiente salto de línea para no entregar media línea.
+        lf.clear();
+        lf.seekg(start);
+        std::string partial;
+        if (std::getline(lf, partial)) {
+            const long long afterLine = static_cast<long long>(lf.tellg());
+            if (afterLine >= 0 && afterLine <= size) {
+                start = afterLine;
+            }
+        }
+    }
+    lf.clear();
+    lf.seekg(start);
+    std::ostringstream oss;
+    oss << lf.rdbuf();
+    std::ostringstream head;
+    head << "__ZFSMGR_LOG_OFFSET__:" << size << "\n";
+    return head.str() + oss.str();
+}
+
 std::string utcNowIsoString() {
     std::time_t now = std::time(nullptr);
     std::tm tm{};
@@ -4950,20 +4990,15 @@ int runServeLoop() {
                 exec.out = bs.str();
             } else if (cmd == "--dump-daemon-log") {
                 long long offset = 0;
+                long long maxBytes = 0;
                 if (!rpcArgs.empty()) {
                     try { offset = std::stoll(rpcArgs[0]); } catch (...) {}
                 }
-                std::ifstream lf(kDaemonLogFile, std::ios::binary);
-                if (lf.is_open()) {
-                    if (offset > 0) lf.seekg(offset);
-                    std::ostringstream oss;
-                    oss << lf.rdbuf();
-                    exec.rc = 0;
-                    exec.out = oss.str();
-                } else {
-                    exec.rc = 0;
-                    exec.out.clear();
+                if (rpcArgs.size() > 1) {
+                    try { maxBytes = std::stoll(rpcArgs[1]); } catch (...) {}
                 }
+                exec.rc = 0;
+                exec.out = readDaemonLogRange(offset, maxBytes);
             } else if (cmd == "--health") {
                 long long cacheEntries = 0;
                 std::string commandList;
@@ -5626,13 +5661,14 @@ int main(int argc, char* argv[]) {
     }
     if (cmd == "--dump-daemon-log") {
         long long offset = 0;
+        long long maxBytes = 0;
         if (args.size() > 2) {
             try { offset = std::stoll(args[2]); } catch (...) {}
         }
-        std::ifstream f(kDaemonLogFile, std::ios::binary);
-        if (!f.is_open()) return 0;
-        if (offset > 0) f.seekg(offset);
-        std::cout << f.rdbuf();
+        if (args.size() > 3) {
+            try { maxBytes = std::stoll(args[3]); } catch (...) {}
+        }
+        std::cout << readDaemonLogRange(offset, maxBytes);
         return 0;
     }
     if (cmd == "--heartbeat") {

@@ -40,6 +40,7 @@ zed:event-watcher-class-filter
 fallback:no-script-helpers
 gui:daemon-mandatory
 daemon:log-and-heartbeat
+daemon:log-tail-with-absolute-offset
 gsa:scheduler
 zed:lightweight-poll
 ]=])

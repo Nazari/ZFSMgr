@@ -865,7 +865,11 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
     const qint64 offset = m_connectionDaemonLogOffset.value(connId, 0);
 
     const QString cmd =
-        mwhelpers::agentCommand(profile, QStringLiteral("--dump-daemon-log %1").arg(offset));
+        // Segundo argumento: máximo de bytes. Con offset 0 —cada arranque— el daemon
+        // devuelve solo la COLA en vez de días enteros de latidos. 256 KiB dan de sobra
+        // para las 2000 líneas que la vista conserva.
+        mwhelpers::agentCommand(profile,
+                                QStringLiteral("--dump-daemon-log %1 %2").arg(offset).arg(262144));
 
     (void)QtConcurrent::run([this, profile, connId, cmd, offset]() {
         QString out, err;
@@ -885,9 +889,27 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
             if (!v || !ok || out.isEmpty()) {
                 return;
             }
-            const qint64 newOffset = offset + static_cast<qint64>(out.toUtf8().size());
-            m_connectionDaemonLogOffset[connId] = newOffset;
             QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            // El daemon declara el desplazamiento ABSOLUTO donde termina lo que envía.
+            // Hace falta porque al devolver solo la cola la vieja cuenta —sumar el
+            // tamaño de lo recibido al desplazamiento pedido— dejaría de corresponder
+            // con el fichero y el siguiente refresco releería lo mismo. Un daemon
+            // anterior no emite la marca: entonces se usa la cuenta de siempre.
+            qint64 newOffset = -1;
+            if (!lines.isEmpty()
+                && lines.first().startsWith(QStringLiteral("__ZFSMGR_LOG_OFFSET__:"))) {
+                bool okOff = false;
+                const qint64 parsed =
+                    lines.first().section(QLatin1Char(':'), 1).trimmed().toLongLong(&okOff);
+                if (okOff && parsed >= 0) {
+                    newOffset = parsed;
+                }
+                lines.removeFirst();
+            }
+            if (newOffset < 0) {
+                newOffset = offset + static_cast<qint64>(out.toUtf8().size());
+            }
+            m_connectionDaemonLogOffset[connId] = newOffset;
             // Recortar ANTES de pintar y añadir en un solo bloque. appendPlainText por
             // línea rehace el trazado del widget en cada llamada: con el volcado inicial
             // desde el desplazamiento 0 de un daemon que lleva días en marcha son ~27.000
