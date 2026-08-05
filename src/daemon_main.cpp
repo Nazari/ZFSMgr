@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -716,6 +717,11 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         std::string rel;       // ruta relativa dentro del mountpoint
         std::string tmpName;   // dataset temporal, hijo directo de `dataset`
         std::string tmpMp;     // punto de montaje temporal
+        // Cuando el directorio YA es el punto de montaje de un dataset —porque un
+        // Ensamblar anterior lo conservó reasignándolo— no hay nada que copiar: solo
+        // hay que devolverle su nombre canónico. En ese caso tmpName es el dataset
+        // REAL del usuario, así que ni se borra su origen ni se destruye al limpiar.
+        bool alreadyDataset{false};
     };
     std::vector<Pending> pending;
 
@@ -728,6 +734,9 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                 return;
             }
             for (const Pending& p : *items) {
+                if (p.alreadyDataset) {
+                    continue;  // es del usuario, no un temporal nuestro
+                }
                 (void)runExecCapture("zfs", {"destroy", "-r", p.tmpName});
                 std::error_code ec;
                 std::filesystem::remove_all(p.tmpMp, ec);
@@ -744,6 +753,27 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
     }
 
+    // Datasets ya existentes por su PUNTO DE MONTAJE, no por su nombre. Tras un
+    // Ensamblar que conservó los subdatasets, estos quedan reasignados al padre y su
+    // nombre deja de reflejar la ruta: buscar por nombre no los encontraría y se
+    // copiarían sus datos por segunda vez, encima de un punto de montaje vivo.
+    std::map<std::string, std::string> dsByMountpoint;
+    {
+        const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint",
+                                                     "-r", dataset});
+        for (const std::string& line : splitLines(ls.out)) {
+            const std::size_t tab = line.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
+            const std::string name = trim(line.substr(0, tab));
+            const std::string mp = trim(line.substr(tab + 1));
+            if (!mp.empty() && mp != "-" && mp != "none" && name != dataset) {
+                dsByMountpoint[mp] = name;
+            }
+        }
+    }
+
     // ---- Fase 1: copiar cada directorio a su dataset temporal ----
     for (std::size_t i = 0; i < rels.size(); ++i) {
         const std::string& rel = rels[i];
@@ -757,6 +787,20 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc == 0) {
             r.out += "child_exists=" + child + "\n";
             continue;
+        }
+        // ¿Ya es un dataset, solo que con otro nombre? Entonces no hay nada que copiar:
+        // basta devolverle el nombre canónico, y eso se hace en la fase 2, cuando sus
+        // ascendientes ya tengan el suyo (`zfs rename` exige que el padre exista).
+        {
+            const auto itMp = dsByMountpoint.find(srcPath.string());
+            if (itMp != dsByMountpoint.end()) {
+                pending.push_back(Pending{rel, itMp->second, std::string(), true});
+                r.out += "already_dataset=" + itMp->second + " -> " + child + "\n";
+                reportJobProgress("[BREAKDOWN] " + std::to_string(i + 1) + " de "
+                                  + std::to_string(rels.size()) + ": " + rel
+                                  + " — ya era dataset, solo se renombra");
+                continue;
+            }
         }
 
         // Lo que NO hay que copiar aquí: los seleccionados que cuelgan de este.
@@ -789,7 +833,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return create;
         }
         (void)runExecCapture("zfs", {"mount", tmpName});
-        pending.push_back(Pending{rel, tmpName, tmpMp});
+        pending.push_back(Pending{rel, tmpName, tmpMp, false});
 
         int left = -1;
         {
@@ -798,11 +842,13 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                                     "[BREAKDOWN] " + std::to_string(i + 1) + " de "
                                         + std::to_string(rels.size()) + ": " + rel);
         for (int attempt = 0; attempt < 5; ++attempt) {
-            ExecResult rs = runRsyncCopyMoveCapture(srcPath.string(), tmpMp, excludes);
+            // -x: nunca bajar a un dataset montado dentro. Las exclusiones ya cubren los
+            // seleccionados, pero esto protege también de los que no lo estén.
+            ExecResult rs = runRsyncCopyMoveCapture(srcPath.string(), tmpMp, excludes, true);
             if (rs.rc != 0) {
                 return rs;
             }
-            left = countPendingRsyncTransfers(srcPath.string(), tmpMp, excludes);
+            left = countPendingRsyncTransfers(srcPath.string(), tmpMp, excludes, true);
             if (left == 0) {
                 break;
             }
@@ -835,6 +881,9 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         return depthOf(a->rel) > depthOf(b->rel);
     });
     for (const Pending* p : byDepth) {
+        if (p->alreadyDataset) {
+            continue;  // su "origen" es el propio dataset montado: borrarlo sería perderlo
+        }
         const fs::path srcPath = fs::path(mountpoint) / fs::path(p->rel);
         std::error_code rmec;
         fs::remove_all(srcPath, rmec);
@@ -877,9 +926,12 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return setMp;
         }
         (void)runExecCapture("zfs", {"mount", child});
-        std::error_code tmpEc;
-        fs::remove_all(p->tmpMp, tmpEc);
-        r.out += "[BREAKDOWN] ok " + p->rel + " -> " + child + "\n";
+        if (!p->tmpMp.empty()) {  // los que ya eran dataset no tienen temporal que limpiar
+            std::error_code tmpEc;
+            fs::remove_all(p->tmpMp, tmpEc);
+        }
+        r.out += "[BREAKDOWN] ok " + p->rel + " -> " + child
+                 + (p->alreadyDataset ? " (renombrado, sin copiar)" : "") + "\n";
     }
     cleanup.armed = false;
     r.rc = 0;
