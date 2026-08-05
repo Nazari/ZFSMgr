@@ -884,7 +884,16 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
         return QStringLiteral("printf '%b\\n' '%1' | sudo -k -S -p '' sh -c %2")
             .arg(shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd));
     }
-    return QStringLiteral("sudo -n ") + preparedCmd;
+    // `sh -c` con la orden entrecomillada, igual que withSudoStreamInputCommand.
+    // Concatenar `sudo -n ` delante no valía: withUnixSearchPathCommand antepone
+    // `PATH="..."; export PATH; `, y los punto y coma partían la línea en tres —
+    //   sudo -n PATH="..."      <- sudo sin mandato: responde con su mensaje de uso
+    //   export PATH
+    //   /usr/local/libexec/zfsmgr-agent --health   <- SIN sudo: "Permiso denegado",
+    //                                                 porque el binario es 0700 root
+    // Con lo que la aplicación concluía que el agente no estaba instalado en una
+    // máquina donde sí lo está. Afectaba a toda conexión con sudo sin contraseña.
+    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
 }
 
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {

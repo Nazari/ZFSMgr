@@ -531,6 +531,40 @@ int main() {
         }
     }
 
+    {
+        // sudo SIN contraseña (clave + NOPASSWD). withUnixSearchPathCommand antepone
+        // `PATH="..."; export PATH; `, así que concatenar `sudo -n ` delante partía la
+        // línea por los punto y coma: sudo se quedaba sin mandato y el agente se
+        // ejecutaba sin privilegios. La orden debe ir entrecomillada tras `sh -c`.
+        ConnectionProfile np;
+        np.osType = "Linux";
+        np.useSudo = true;
+        np.password.clear();
+        const QString c = withSudoCommand(np, "/usr/local/libexec/zfsmgr-agent --health");
+        if (!c.startsWith("sudo -n sh -c ")) {
+            return fail("withSudoCommand without a password must use sudo -n sh -c");
+        }
+        // Nada de punto y coma fuera de las comillas: todo lo que sigue a `sh -c` es
+        // un único argumento.
+        const QString afterShC = c.mid(QString("sudo -n sh -c ").size());
+        if (!afterShC.startsWith('\'') || !afterShC.endsWith('\'')) {
+            return fail("withSudoCommand payload must be single-quoted as one argument");
+        }
+        const QString outside = c.left(QString("sudo -n sh -c ").size());
+        if (outside.contains(';')) {
+            return fail("withSudoCommand must not leave a ';' outside the quoted command");
+        }
+        // Y debe seguir llevando dentro tanto el PATH como el mandato.
+        if (!c.contains("export PATH") || !c.contains("zfsmgr-agent --health")) {
+            return fail("withSudoCommand lost the PATH prefix or the command");
+        }
+        // La variante con entrada por tubería ya lo hacía bien; que siga igual.
+        const QString cs = withSudoStreamInputCommand(np, "/usr/local/libexec/zfsmgr-agent --health");
+        if (!cs.startsWith("sudo -n sh -c ")) {
+            return fail("withSudoStreamInputCommand without a password regressed");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }
