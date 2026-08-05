@@ -300,7 +300,15 @@ Name: "{autodesktop}\\${APP_NAME}"; Filename: "{app}\\${APP_EXE}"; Tasks: deskto
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
 
 [Run]
-Filename: "{app}\\${APP_EXE}"; Description: "Run ${APP_NAME}"; Flags: nowait postinstall skipifsilent
+; shellexec: el ejecutable pide requireAdministrator en su manifiesto, y el lanzamiento
+; por omisión de Inno es CreateProcess, que NO eleva — falla con ERROR_ELEVATION_REQUIRED.
+; Solo ShellExecuteEx lee el manifiesto y pide confirmación a UAC.
+;
+; runasoriginaluser: sin esto la aplicación heredaría el token elevado del instalador, o
+; sea que correría con la cuenta que consintió el UAC de la instalación. Si es otra
+; distinta de la del escritorio, la configuración y el registro se escribirían en el
+; perfil equivocado y al abrir después la aplicación desde su acceso directo no estarían.
+Filename: "{app}\\${APP_EXE}"; Description: "Run ${APP_NAME}"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser
 EOF
 }
 
