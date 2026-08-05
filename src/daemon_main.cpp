@@ -198,6 +198,34 @@ struct DaemonJob {
 std::mutex g_jobsMutex;
 std::unordered_map<std::string, DaemonJob> g_jobs;
 
+// Sumidero de progreso del trabajo que corre EN ESTE HILO, si lo hay.
+//
+// Desglosar, Ensamblar y Hacia Dir se ejecutan como un trabajo y devuelven al
+// terminar, así que no tenían forma de informar de nada por el camino: catorce
+// minutos de operación destructiva sin una sola señal de vida en la caja de
+// progreso. El contador de bytes que sí muestran las transferencias vive en su
+// camino de tuberías y no pasa por aquí.
+//
+// Es por elemento y no por byte a propósito: rsync habría que transmitirlo en
+// vivo, y "5 de 13, Tools/BackupRecovery" ya responde a lo que se pregunta el
+// usuario mirando la pantalla.
+thread_local std::string t_currentJobId;
+
+void reportJobProgress(const std::string& line) {
+    if (t_currentJobId.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    auto it = g_jobs.find(t_currentJobId);
+    if (it == g_jobs.end()) {
+        return;
+    }
+    it->second.progressLines.push_back(line);
+    if (it->second.progressLines.size() > 5) {
+        it->second.progressLines.erase(it->second.progressLines.begin());
+    }
+}
+
 // Forward declarations — defined after jsonEscape
 static void persistJobsLocked();
 static void loadPersistedJobsAtStartup();
@@ -576,6 +604,8 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         std::error_code tmpEc;
         fs::remove_all(tmpChild, tmpEc);
         r.out += "[BREAKDOWN] ok " + rel + " -> " + child + "\n";
+        reportJobProgress("Desglosado " + std::to_string(i) + " de "
+                          + std::to_string(params.size() - 1) + ": " + rel);
     }
     r.rc = 0;
     return r;
@@ -5140,7 +5170,11 @@ int runServeLoop() {
                     }
                     daemonLog("INFO", "job " + jobId + " started type=mutation cmd=" + subCmd);
                     std::thread([jobId, subCmd, subParams]() {
+                        // Declarar el trabajo del hilo para que la operación pueda
+                        // informar de su avance con reportJobProgress().
+                        t_currentJobId = jobId;
                         runSubmittedMutationJob(jobId, subCmd, subParams);
+                        t_currentJobId.clear();
                     }).detach();
                     exec.rc = 0;
                     exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
