@@ -449,6 +449,13 @@ QString MainWindow::maskSecrets(const QString& text) const {
     out.replace(
         QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+.+?\\s+\\|\\s+sudo\\s+(?:-\\w+\\s+)*-S\\s+-p\\s+''")),
         QStringLiteral("printf '%s\\n' [secret] | sudo -k -S -p ''"));
+    // La contraseña ya no se incrusta literal sino como escapes octales para `%b`
+    // (ver shPrintfOctalEscaped). Sin esta pasada el bucle de más abajo, que busca la
+    // contraseña en claro, no la encontraría y quedaría escrita en el registro —
+    // trivialmente reversible, porque son sus propios bytes en octal.
+    out.replace(
+        QRegularExpression(QStringLiteral("printf\\s+'%b\\\\n'\\s+'(?:\\\\0[0-7]{1,3})*'")),
+        QStringLiteral("printf '%b\\n' [secret]"));
     out.replace(
         QRegularExpression(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+")),
         QStringLiteral("\\1[secret]"));

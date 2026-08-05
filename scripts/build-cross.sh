@@ -294,6 +294,68 @@ ensure_macos_bundle_runtime_cross() {
 [Paths]
 Plugins = PlugIns
 EOF
+
+  # OpenSSL compartido al bundle. Sin esto el .app compilado en cruce se quedaba SIN
+  # backend de OpenSSL —`availableBackends()` devolvía [securetransport, cert-only]—
+  # y NINGÚN daemon conectaba: con SecureTransport el cliente no presenta su
+  # certificado, el daemon exige mTLS y corta la sesión con
+  # `SSLHandshake failed: -9831`. Y como entonces `--health` cae a la rama de línea de
+  # comandos, que siempre imprime SERVER=0, la aplicación decía "el agente no está en
+  # marcha" con el daemon corriendo y escuchando.
+  #
+  # Esto ya estaba resuelto en scripts/build-macos.sh (compilación NATIVA), pero el
+  # cruce nunca lo tuvo: aquí solo se despliegan frameworks de Qt resueltos con otool,
+  # y encima OpenSSL se enlaza estático, así que el binario ni declara la dependencia.
+  # Quien necesita las .dylib sueltas es el plugin libqopensslbackend.dylib de Qt, que
+  # las carga en tiempo de ejecución. Afectó a los .app publicados de 0.90.6 y 0.90.7.
+  local install_name_tool_bin
+  install_name_tool_bin="$(find_cross_tool install_name_tool)" \
+    || { echo "No se encontró install_name_tool de osxcross" >&2; return 1; }
+  local ossl_prefix="${OPENSSL_MACOS_SHARED_PREFIX:-}"
+  if [[ -z "${ossl_prefix}" ]]; then
+    # La arquitectura sale del mismo sitio que para el OpenSSL estático, para que las
+    # dos no puedan divergir.
+    local ossl_arch
+    ossl_arch="$(macos_arch_from_target "${OSXCROSS_TARGET:-}")"
+    case "${ossl_arch}" in
+      arm64) ossl_prefix="${HOME}/opt/openssl-macos-arm64-shared" ;;
+      *)     ossl_prefix="${HOME}/opt/openssl-macos-x86_64-shared" ;;
+    esac
+  fi
+  local ossl_libs=()
+  local lib
+  for lib in libssl.3.dylib libcrypto.3.dylib; do
+    if [[ -f "${ossl_prefix}/lib/${lib}" ]]; then
+      cp -f "${ossl_prefix}/lib/${lib}" "${frameworks_dst}/${lib}"
+      chmod u+w "${frameworks_dst}/${lib}"
+      "${install_name_tool_bin}" -id "@executable_path/../Frameworks/${lib}" \
+        "${frameworks_dst}/${lib}" 2>/dev/null || true
+      ossl_libs+=("${lib}")
+    fi
+  done
+  if [[ ${#ossl_libs[@]} -eq 2 ]]; then
+    # libssl depende de libcrypto: reapuntarla dentro del bundle o buscaría la del
+    # prefijo de compilación, que en la máquina del usuario no existe.
+    local dep
+    while IFS= read -r dep; do
+      case "${dep}" in
+        *libcrypto*)
+          "${install_name_tool_bin}" -change "${dep}" \
+            "@executable_path/../Frameworks/libcrypto.3.dylib" \
+            "${frameworks_dst}/libssl.3.dylib" 2>/dev/null || true
+          ;;
+      esac
+    done < <("${otool_bin}" -L "${frameworks_dst}/libssl.3.dylib" | tail -n +2 | awk '{print $1}')
+    echo "  OpenSSL desplegado en el bundle desde ${ossl_prefix}"
+  else
+    # Antes esto habría sido un aviso y la compilación seguiría en verde produciendo
+    # un .app que no habla con ningún daemon. Es exactamente el fallo que se busca
+    # evitar: un artefacto roto que parece correcto.
+    echo "Error: faltan libssl.3.dylib/libcrypto.3.dylib para macOS en ${ossl_prefix}." >&2
+    echo "Sin ellas el .app se queda con SecureTransport y ningún daemon conecta." >&2
+    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos" >&2
+    return 1
+  fi
 }
 
 autodetect_matching_qt_host_prefix() {

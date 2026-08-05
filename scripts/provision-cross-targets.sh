@@ -368,6 +368,32 @@ setup_osxcross() {
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make install_sw"
   fi
 
+  # Y otra vez, COMPARTIDO, en un prefijo aparte. Son dos cosas distintas:
+  #  - el estático de arriba lo enlazan la GUI y el agente; el agente se despliega solo
+  #    en máquinas ajenas, así que tiene que seguir siendo autosuficiente;
+  #  - estas .dylib no las enlaza nadie: las carga en tiempo de ejecución el plugin
+  #    libqopensslbackend.dylib de Qt, y sin ellas el .app se queda con SecureTransport,
+  #    que no presenta el certificado de cliente. Resultado: ningún daemon conecta
+  #    (`SSLHandshake failed: -9831`) y la aplicación dice que el agente no está en
+  #    marcha aunque lo esté. Pasó con los .app publicados de 0.90.6 y 0.90.7.
+  # Las DOS arquitecturas: se publica un .app por cada una y las dos necesitan su
+  # OpenSSL. (El bloque estático de arriba solo cubre x86_64; eso viene de antes.)
+  local ossl_arch
+  for ossl_arch in x86_64 arm64; do
+    local shared_prefix="${HOME}/opt/openssl-macos-${ossl_arch}-shared"
+    [[ ${FORCE} -eq 0 && -f "${shared_prefix}/lib/libssl.3.dylib" ]] && continue
+    local conf_target="darwin64-${ossl_arch}-cc"
+    local xtriple="\$(ls -1 '${OSXCROSS_ROOT}'/target/bin/*-apple-darwin*-clang | sed -E 's|.*/([^/]+)-clang|\\1|' | rg '^${ossl_arch}-apple-darwin' | sort -V | tail -n1)"
+    local swork="/tmp/openssl-macos-shared-${ossl_arch}"
+    run_cmd "rm -rf '${swork}'"
+    run_cmd "mkdir -p '${swork}' '$(dirname "${shared_prefix}")'"
+    run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${swork}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
+    run_cmd "tar -xf '${swork}/openssl.tar.gz' -C '${swork}'"
+    run_cmd "cd '${swork}/openssl-${OPENSSL_VERSION}' && PATH='${OSXCROSS_ROOT}/target/bin':\$PATH SDKROOT='${sdk_guess}' CFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' LDFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' ./Configure ${conf_target} --cross-compile-prefix='${xtriple}-' --prefix='${shared_prefix}' --libdir=lib no-tests shared"
+    run_cmd "cd '${swork}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
+    run_cmd "cd '${swork}/openssl-${OPENSSL_VERSION}' && make install_sw"
+  done
+
   echo
   echo "[macos] listo (si build.sh completó):"
   echo "  export PATH='${OSXCROSS_ROOT}/target/bin:\$PATH'"

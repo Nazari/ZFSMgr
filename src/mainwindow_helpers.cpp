@@ -858,6 +858,17 @@ bool isCliOnlyAgentCommand(const QString& verb) {
     return kCliOnly.contains(verb.trimmed());
 }
 
+QString shPrintfOctalEscaped(const QString& s) {
+    const QByteArray utf8 = s.toUtf8();
+    QString out;
+    out.reserve(utf8.size() * 4);
+    for (const char rawByte : utf8) {
+        const unsigned char b = static_cast<unsigned char>(rawByte);
+        out += QStringLiteral("\\0%1").arg(static_cast<uint>(b), 3, 8, QLatin1Char('0'));
+    }
+    return out;
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
@@ -867,8 +878,11 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
         return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("printf '%s\\n' %1 | sudo -k -S -p '' sh -c %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
+        // %b + escapes octales: la contraseña viaja en ASCII puro. Ver
+        // shPrintfOctalEscaped: en macOS, Qt descompone los caracteres al pasar la
+        // orden al intérprete y sudo recibía otros bytes.
+        return QStringLiteral("printf '%b\\n' '%1' | sudo -k -S -p '' sh -c %2")
+            .arg(shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd));
     }
     return QStringLiteral("sudo -n ") + preparedCmd;
 }
@@ -882,8 +896,8 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
         return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -k -S -p '' sh -c %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
+        return QStringLiteral("{ printf '%b\\n' '%1'; cat; } | sudo -k -S -p '' sh -c %2")
+            .arg(shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd));
     }
     return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
 }
@@ -917,26 +931,48 @@ bool looksLikeSudoAuthFailure(const QString& text) {
     return false;
 }
 
-bool localSudoPasswordWorks(const QString& password, QString* errorOut) {
-    if (errorOut) {
-        errorOut->clear();
+SudoCheck checkLocalSudoPassword(const QString& password, QString* detailOut) {
+    if (detailOut) {
+        detailOut->clear();
     }
 #ifdef Q_OS_WIN
     Q_UNUSED(password);
-    return true;
+    return SudoCheck::Ok;
 #else
+    // Por ruta absoluta: una aplicación lanzada desde el escritorio hereda un PATH
+    // mínimo, y en macOS un .app abierto desde el Finder ni siquiera trae el del
+    // intérprete de órdenes. Resolverlo solo por PATH hacía fallar la comprobación
+    // en el sitio donde más se usa.
+    QString sudoBin = findLocalExecutable(QStringLiteral("sudo"));
+    if (sudoBin.isEmpty()) {
+        for (const QString& candidate : {QStringLiteral("/usr/bin/sudo"),
+                                         QStringLiteral("/bin/sudo"),
+                                         QStringLiteral("/usr/local/bin/sudo")}) {
+            if (QFileInfo(candidate).isExecutable()) {
+                sudoBin = candidate;
+                break;
+            }
+        }
+    }
+    if (sudoBin.isEmpty()) {
+        if (detailOut) {
+            *detailOut = QStringLiteral("no se encontró el ejecutable sudo");
+        }
+        return SudoCheck::CouldNotCheck;
+    }
+
     QProcess proc;
     proc.setProcessChannelMode(QProcess::SeparateChannels);
     // Mismos argumentos que withSudoCommand, para que lo que se valida sea lo que
     // después se ejecuta. `-p ''` deja el prompt fuera del error.
-    proc.start(QStringLiteral("sudo"),
+    proc.start(sudoBin,
                {QStringLiteral("-k"), QStringLiteral("-S"), QStringLiteral("-p"), QString(),
                 QStringLiteral("true")});
     if (!proc.waitForStarted(5000)) {
-        if (errorOut) {
-            *errorOut = QStringLiteral("no se pudo ejecutar sudo");
+        if (detailOut) {
+            *detailOut = QStringLiteral("no se pudo ejecutar %1").arg(sudoBin);
         }
-        return false;
+        return SudoCheck::CouldNotCheck;
     }
     proc.write((password + QStringLiteral("\n")).toUtf8());
     proc.closeWriteChannel();
@@ -946,18 +982,35 @@ bool localSudoPasswordWorks(const QString& password, QString* errorOut) {
     if (!proc.waitForFinished(20000)) {
         proc.kill();
         proc.waitForFinished(2000);
-        if (errorOut) {
-            *errorOut = QStringLiteral("sudo no respondió");
+        if (detailOut) {
+            *detailOut = QStringLiteral("sudo no respondió");
         }
-        return false;
+        return SudoCheck::CouldNotCheck;
     }
-    const bool ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
-    if (!ok && errorOut) {
-        const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-        *errorOut = err.isEmpty() ? QStringLiteral("sudo devolvió %1").arg(proc.exitCode())
-                                  : oneLine(err);
+    if (proc.exitStatus() != QProcess::NormalExit) {
+        if (detailOut) {
+            *detailOut = QStringLiteral("sudo terminó de forma anómala");
+        }
+        return SudoCheck::CouldNotCheck;
     }
-    return ok;
+    if (proc.exitCode() == 0) {
+        return SudoCheck::Ok;
+    }
+    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    // Un rechazo de sudo que NO es de contraseña —no estar en sudoers, no poder
+    // ejecutar el mandato— tampoco se arregla reescribiéndola, así que no se
+    // presenta como contraseña incorrecta.
+    if (!err.isEmpty() && !looksLikeSudoAuthFailure(err)) {
+        if (detailOut) {
+            *detailOut = oneLine(err);
+        }
+        return SudoCheck::CouldNotCheck;
+    }
+    if (detailOut) {
+        *detailOut = err.isEmpty() ? QStringLiteral("sudo devolvió %1").arg(proc.exitCode())
+                                   : oneLine(err);
+    }
+    return SudoCheck::WrongPassword;
 #endif
 }
 

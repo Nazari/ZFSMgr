@@ -104,6 +104,20 @@ bool isCliOnlyAgentCommand(const QString& verb);
 // Solo sobrevive como oráculo de los tests del renderizado a cadena.
 QStringList posixShellSplitArgs(const QString& s);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
+// Codifica un texto como escapes octales para `printf '%b'`: cada byte UTF-8 pasa a
+// ser \0ddd, así que el resultado es ASCII puro.
+//
+// Existe por la contraseña de sudo en macOS. Qt convierte los argumentos que pasa a
+// un proceso a la forma DESCOMPUESTA de Unicode, que es la que macOS usa para el
+// sistema de ficheros: una `ñ` precompuesta (U+00F1, bytes c3 b1) llega al intérprete
+// como `n` + tilde combinante (6e cc 83). Son bytes distintos, así que sudo recibía
+// una contraseña que no era la del usuario y la rechazaba, mientras que escribirla
+// directamente en su entrada estándar —lo que hace la comprobación— sí funcionaba.
+// Verificado en un Mac: mismo QString, c3 b1 por un lado y 6e cc 83 por el otro.
+//
+// En ASCII no hay descomposición posible, de ahí la codificación. `\0ddd` con `%b` es
+// POSIX, así que vale igual en macOS, Linux y FreeBSD.
+QString shPrintfOctalEscaped(const QString& s);
 // Comprueba que una contraseña de sudo local sirve realmente, con la MISMA invocación
 // que usa withSudoCommand: `sudo -k -S -p '' true`.
 //
@@ -114,8 +128,19 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 //
 // El `-k` es imprescindible: sin él la comprobación puede aprovechar un ticket de sudo
 // todavía válido y dar por buena una contraseña incorrecta.
-// En Windows no hay sudo: devuelve true sin comprobar nada.
-bool localSudoPasswordWorks(const QString& password, QString* errorOut = nullptr);
+// En Windows no hay sudo: devuelve Ok sin comprobar nada.
+//
+// Distingue "la contraseña es incorrecta" de "no se pudo comprobar". Confundirlas es
+// grave en las dos direcciones: decir "contraseña incorrecta" cuando lo que pasa es
+// que no se encuentra el binario manda al usuario a buscar donde no hay nada, y
+// bloquear el arranque porque no se pudo comprobar reproduce el encierro que esta
+// comprobación venía a evitar. Ante la duda hay que dejar pasar.
+enum class SudoCheck {
+    Ok,
+    WrongPassword,
+    CouldNotCheck,
+};
+SudoCheck checkLocalSudoPassword(const QString& password, QString* detailOut = nullptr);
 // ¿Este error de un comando es sudo rechazando la contraseña? Sirve para ofrecer el
 // arreglo donde el usuario se entera del problema, en vez de dejarlo con un mensaje
 // que no dice qué hacer. Se distingue de "el usuario no está en sudoers", que no se

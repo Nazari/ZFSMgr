@@ -195,6 +195,12 @@ QString maskSecretsForPreview(const QString& input) {
                QStringLiteral("\\1'[secret]'"));
     replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat\\s*;\\s*}\\s*\\|\\s*sudo\\s+(?:-\\w+\\s+)*-S)")),
                QStringLiteral("\\1'[secret]'"));
+    // Forma actual: la contraseña va como escapes octales para `%b`, porque en macOS
+    // Qt descomponía los caracteres al pasar la orden al intérprete. Es ASCII, pero
+    // sigue siendo la contraseña: hay que taparla igual en la vista previa, que es
+    // donde se decide si seguir adelante con una operación destructiva.
+    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%b\\\\n'\\s+)'(?:\\\\0[0-7]{1,3})*'")),
+               QStringLiteral("\\1'[secret]'"));
 
     return out;
 }

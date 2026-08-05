@@ -103,10 +103,44 @@ log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
 }
 
+# Un .app sin backend de OpenSSL compila en verde, arranca, y no habla con NINGÚN
+# daemon: Qt se queda con SecureTransport, que no presenta el certificado de cliente,
+# el daemon exige mTLS y corta con `SSLHandshake failed: -9831`. Después `--health`
+# cae a la rama de línea de comandos, que siempre imprime SERVER=0, y la aplicación
+# dice "el agente no está en marcha" con el daemon corriendo. Salió así en los .app
+# publicados de 0.90.6 y 0.90.7, y no lo detectó nada.
+verify_macos_bundle_tls() {
+  local app_path="$1"
+  local fw="${app_path}/Contents/Frameworks"
+  local plugin="${app_path}/Contents/PlugIns/tls/libqopensslbackend.dylib"
+  local missing=()
+  [[ -f "${fw}/libssl.3.dylib" ]]    || missing+=("Frameworks/libssl.3.dylib")
+  [[ -f "${fw}/libcrypto.3.dylib" ]] || missing+=("Frameworks/libcrypto.3.dylib")
+  [[ -f "${plugin}" ]]               || missing+=("PlugIns/tls/libqopensslbackend.dylib")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Error: el bundle de macOS no puede usar OpenSSL. Falta:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    echo "Sin backend OpenSSL, Qt usa SecureTransport y ningún daemon conecta." >&2
+    exit 1
+  fi
+  # Y que libssl apunte a la libcrypto DEL BUNDLE, no a la del equipo que compila:
+  # allí existe, en el Mac del usuario no.
+  local otool_bin=""
+  otool_bin="$(command -v "${OSXCROSS_TARGET:-x86_64-apple-darwin25.2}-otool" 2>/dev/null || true)"
+  if [[ -n "${otool_bin}" ]]; then
+    if "${otool_bin}" -L "${fw}/libssl.3.dylib" | tail -n +2 | grep -q "${HOME}"; then
+      echo "Error: libssl.3.dylib del bundle apunta a una ruta del equipo de compilación:" >&2
+      "${otool_bin}" -L "${fw}/libssl.3.dylib" | tail -n +2 | grep "${HOME}" >&2
+      exit 1
+    fi
+  fi
+}
+
 package_macos_app_zip() {
   local app_path="$1"
   local out_zip="$2"
   local out_dir stage_dir app_name
+  verify_macos_bundle_tls "${app_path}"
   app_name="ZFSMgr.app"
   out_dir="$(cd "$(dirname "${out_zip}")" && pwd)"
   out_zip="${out_dir}/$(basename "${out_zip}")"

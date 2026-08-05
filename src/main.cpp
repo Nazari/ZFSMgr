@@ -299,8 +299,10 @@ int main(int argc, char* argv[]) {
             // Comprobar la contraseña ANTES de guardarla. Guardar una equivocada dejaba
             // la conexión Local inservible sin arreglo posible desde la aplicación:
             // aquí solo se preguntaba con el campo vacío, y Local no se puede editar.
-            QString sudoErr;
-            if (!mwhelpers::localSudoPasswordWorks(localPassword, &sudoErr)) {
+            QString sudoDetail;
+            const mwhelpers::SudoCheck sudoCheck =
+                mwhelpers::checkLocalSudoPassword(localPassword, &sudoDetail);
+            if (sudoCheck == mwhelpers::SudoCheck::WrongPassword) {
                 QMessageBox::warning(
                     nullptr,
                     QStringLiteral("ZFSMgr"),
@@ -308,8 +310,26 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("t_local_sudo_bad1"),
                         QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
                         QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
-                        QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoErr));
+                        QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoDetail));
                 return false;
+            }
+            // No se pudo comprobar: se avisa y se sigue. Bloquear aquí dejaría al
+            // usuario sin poder arrancar por un fallo que no es suyo, que es
+            // exactamente el encierro que esta comprobación viene a evitar.
+            if (sudoCheck == mwhelpers::SudoCheck::CouldNotCheck) {
+                QMessageBox::warning(
+                    nullptr,
+                    QStringLiteral("ZFSMgr"),
+                    trk(language,
+                        QStringLiteral("t_local_sudo_unchecked1"),
+                        QStringLiteral("No se pudo comprobar la contraseña de sudo local:\n%1\n\n"
+                                       "Se guarda de todos modos. Si las operaciones locales fallan, "
+                                       "use «Cambiar credenciales sudo local…» en el menú de la conexión Local."),
+                        QStringLiteral("Could not verify the local sudo password:\n%1\n\n"
+                                       "It will be saved anyway. If local operations fail, use "
+                                       "\"Change local sudo credentials…\" in the Local connection menu."),
+                        QStringLiteral("无法验证本地 sudo 密码：\n%1\n\n仍将保存。如果本地操作失败，"
+                                       "请使用本地连接菜单中的“修改本地 sudo 凭据…”。")).arg(sudoDetail));
             }
             ConnectionProfile local;
             local.id = QStringLiteral("local");

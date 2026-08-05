@@ -485,6 +485,52 @@ int main() {
         return fail("looksLikeSudoAuthFailure false positive on an unrelated error");
     }
 
+    // La contraseña de sudo viaja como escapes octales porque en macOS Qt descompone
+    // los caracteres al pasar la orden al intérprete: una ñ precompuesta (c3 b1)
+    // llegaba como n + tilde combinante (6e cc 83) y sudo la rechazaba.
+    if (shPrintfOctalEscaped("abc") != "\\0141\\0142\\0143") {
+        return fail("shPrintfOctalEscaped ASCII mismatch");
+    }
+    // ñ = U+00F1 = c3 b1 -> \0303\0261
+    if (shPrintfOctalEscaped(QString::fromUtf8("\xC3\xB1")) != "\\0303\\0261") {
+        return fail("shPrintfOctalEscaped should encode UTF-8 bytes, not code points");
+    }
+    // La comilla simple deja de necesitar entrecomillado especial: es \047.
+    if (shPrintfOctalEscaped("'") != "\\0047") {
+        return fail("shPrintfOctalEscaped single quote mismatch");
+    }
+    if (!shPrintfOctalEscaped(QString::fromUtf8("añ'b")).toLatin1().isEmpty()) {
+        // Todo el resultado debe ser ASCII: es lo que lo hace inmune a la
+        // normalización de macOS.
+        const QString enc = shPrintfOctalEscaped(QString::fromUtf8("añ'b"));
+        for (const QChar c : enc) {
+            if (c.unicode() > 127) {
+                return fail("shPrintfOctalEscaped must produce pure ASCII");
+            }
+        }
+    }
+    if (!shPrintfOctalEscaped(QString()).isEmpty()) {
+        return fail("shPrintfOctalEscaped of an empty string must be empty");
+    }
+    {
+        // Y la orden real debe usar %b con la contraseña ya codificada.
+        ConnectionProfile sp;
+        sp.osType = "Linux";
+        sp.useSudo = true;
+        sp.password = QString::fromUtf8("añ'b");
+        const QString c = withSudoCommand(sp, "zfs list");
+        if (!c.contains("printf \'%b\\n\' \'\\0141\\0303\\0261\\0047\\0142\'")) {
+            return fail("withSudoCommand should embed the password as octal escapes");
+        }
+        if (c.contains(QString::fromUtf8("ñ"))) {
+            return fail("withSudoCommand must not embed the password verbatim");
+        }
+        const QString cs = withSudoStreamInputCommand(sp, "zfs list");
+        if (!cs.contains("printf \'%b\\n\'") || cs.contains(QString::fromUtf8("ñ"))) {
+            return fail("withSudoStreamInputCommand should do the same");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

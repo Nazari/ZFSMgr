@@ -3296,16 +3296,33 @@ void MainWindow::changeLocalSudoCredentials() {
                     QStringLiteral("必须提供 sudo 用户和密码。")));
             continue;
         }
-        QString sudoErr;
-        if (!mwhelpers::localSudoPasswordWorks(pass, &sudoErr)) {
+        QString sudoDetail;
+        const mwhelpers::SudoCheck sudoCheck = mwhelpers::checkLocalSudoPassword(pass, &sudoDetail);
+        if (sudoCheck == mwhelpers::SudoCheck::WrongPassword) {
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_local_sudo_bad1"),
                     QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
                     QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
-                    QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoErr));
+                    QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoDetail));
             continue;
+        }
+        if (sudoCheck == mwhelpers::SudoCheck::CouldNotCheck) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("No se pudo comprobar la contraseña de sudo local: %1").arg(sudoDetail));
+            const auto proceed = QMessageBox::question(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_local_sudo_unchecked2"),
+                    QStringLiteral("No se pudo comprobar la contraseña:\n%1\n\n¿Guardarla de todos modos?"),
+                    QStringLiteral("The password could not be verified:\n%1\n\nSave it anyway?"),
+                    QStringLiteral("无法验证密码：\n%1\n\n仍要保存吗？")).arg(sudoDetail),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::Yes);
+            if (proceed != QMessageBox::Yes) {
+                continue;
+            }
         }
         ConnectionProfile updated = m_profiles[idx];
         updated.username = user;
