@@ -607,6 +607,44 @@ int main() {
         }
     }
 
+    {
+        // La subida del daemon se lanza SIN intérprete: con `sh -c` no arrancaba
+        // siquiera cuando la aplicación corre en Windows, y el error salía vacío.
+        ConnectionProfile wp;
+        wp.username = "eladi";
+        wp.host = "192.168.122.229";
+        wp.port = 22;
+        wp.keyPath = "/home/u/.ssh/id_ed25519";
+        const QStringList a = scpUploadArgs(wp, "/tmp/agent.exe", "C:/Users/Public/x.upload", false);
+        if (a.last() != "eladi@192.168.122.229:C:/Users/Public/x.upload") {
+            return fail("scpUploadArgs destination mismatch");
+        }
+        if (a.at(a.size() - 2) != "/tmp/agent.exe") {
+            return fail("scpUploadArgs source must precede the destination");
+        }
+        // El puerto de scp es -P mayúscula, no -p.
+        if (!a.contains("-P") || a.contains("-p")) {
+            return fail("scpUploadArgs must use -P for the port");
+        }
+        // Sin multiplexar no debe colarse ninguna opción de ControlMaster: el OpenSSH
+        // de Windows no las admite.
+        for (const QString& x : a) {
+            if (x.startsWith("Control")) {
+                return fail("scpUploadArgs(multiplex=false) leaked a Control* option");
+            }
+        }
+        const QStringList m = scpUploadArgs(wp, "/tmp/agent.exe", "C:/x", true);
+        if (!m.contains("ControlMaster=auto")) {
+            return fail("scpUploadArgs(multiplex=true) should enable multiplexing");
+        }
+        // Y ningún argumento puede llevar comillas de shell: van directos al proceso.
+        for (const QString& x : a) {
+            if (x.contains('\'')) {
+                return fail("scpUploadArgs must not shell-quote: there is no shell");
+            }
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

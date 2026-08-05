@@ -641,34 +641,35 @@ QString sshBaseCommand(const ConnectionProfile& p) {
     return cmd;
 }
 
-// Subida de un fichero por scp, con las mismas opciones que sshBaseCommand.
-//
-// Existe porque mandar un binario grande por la entrada estándar NO funciona contra
-// Windows: PowerShell no devuelve de [Console]::In.ReadToEnd() con volúmenes de
-// megabytes y la instalación se quedaba colgada hasta agotar el plazo. Comprobado
-// que falla ya alrededor de 1 MB, y el agente son 9,3 MB. Con scp, que usa el
-// sftp-server que OpenSSH de Windows ya trae, la transferencia es directa.
-//
-// -p NO se usa (preservar tiempos no aporta aquí); sí se comparte el ControlPath,
-// así que reaprovecha la conexión SSH ya abierta.
-QString scpUploadCommand(const ConnectionProfile& p, const QString& localPath, const QString& remotePath) {
-    QString cmd = QStringLiteral("scp -q -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
-                                 " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
-                      .arg(shSingleQuote(sshControlPath()));
-    const QString familyOpt = sshAddressFamilyOption(p);
+
+QStringList scpUploadArgs(const ConnectionProfile& p,
+                          const QString& localPath,
+                          const QString& remotePath,
+                          bool multiplex) {
+    QStringList args;
+    args << QStringLiteral("-q")
+         << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("LogLevel=ERROR")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
+    if (multiplex) {
+        args << QStringLiteral("-o") << QStringLiteral("ControlMaster=auto")
+             << QStringLiteral("-o") << QStringLiteral("ControlPersist=yes")
+             << QStringLiteral("-o") << QStringLiteral("ControlPath=%1").arg(sshControlPath());
+    }
+    const QString familyOpt = sshAddressFamilyOption(p).trimmed();
     if (!familyOpt.isEmpty()) {
-        cmd += QStringLiteral(" ") + familyOpt;
+        args << familyOpt;
     }
     if (p.port > 0) {
         // scp usa -P mayúscula para el puerto, no -p como ssh.
-        cmd += QStringLiteral(" -P ") + QString::number(p.port);
+        args << QStringLiteral("-P") << QString::number(p.port);
     }
     if (!p.keyPath.isEmpty()) {
-        cmd += QStringLiteral(" -i ") + shSingleQuote(p.keyPath);
+        args << QStringLiteral("-i") << p.keyPath;
     }
-    cmd += QStringLiteral(" ") + shSingleQuote(localPath)
-           + QStringLiteral(" ") + shSingleQuote(sshUserHost(p) + QStringLiteral(":") + remotePath);
-    return cmd;
+    args << localPath
+         << QStringLiteral("%1:%2").arg(sshUserHost(p), remotePath);
+    return args;
 }
 
 QString buildSshTargetPrefix(const ConnectionProfile& p) {

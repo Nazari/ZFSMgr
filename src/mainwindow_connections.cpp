@@ -3681,15 +3681,57 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                    .arg(p.name)
                    .arg(QFileInfo(localAgentPath).size())
                    .arg(localAgentPath));
-        const QString scpCmd = mwhelpers::scpUploadCommand(p, localAgentPath,
-                                                           daemonpayload::windowsUploadPath());
-        QProcess scpProc;
-        scpProc.start(QStringLiteral("sh"), {QStringLiteral("-c"), scpCmd});
-        const bool scpOk = scpProc.waitForStarted(5000)
-                           && scpProc.waitForFinished(180000)
-                           && scpProc.exitCode() == 0;
+        const QString uploadPath = daemonpayload::windowsUploadPath();
+        bool scpOk = false;
+        QString uploadDetail;
+        if (isLocalConnection(idx)) {
+            // El destino es esta misma máquina. Hacerse scp a uno mismo exigiría un
+            // servidor SSH local y credenciales para entrar en el propio equipo, que
+            // es justo lo que no hay al gestionar el Windows donde corre la aplicación.
+            QFile::remove(uploadPath);
+            scpOk = QFile::copy(localAgentPath, uploadPath);
+            if (!scpOk) {
+                uploadDetail = QStringLiteral("no se pudo copiar el daemon a %1").arg(uploadPath);
+            }
+        } else {
+            // scp directo, sin `sh -c`: cuando la aplicación corre en Windows no existe
+            // ningún intérprete POSIX, el proceso ni siquiera arrancaba, la salida de
+            // error quedaba vacía y lo único que se veía era «scp falló».
+            //
+            // Dos intentos, con y sin multiplexado, igual que runSsh: el OpenSSH de
+            // Windows no lo admite, y un socket de control en mal estado también lo
+            // rompe. Se empieza sin multiplexar si la aplicación corre en Windows.
+#ifdef Q_OS_WIN
+            const QList<bool> attempts = {false};
+#else
+            const QList<bool> attempts = {true, false};
+#endif
+            for (const bool multiplex : attempts) {
+                QProcess scpProc;
+                scpProc.start(QStringLiteral("scp"),
+                              mwhelpers::scpUploadArgs(p, localAgentPath, uploadPath, multiplex));
+                if (!scpProc.waitForStarted(5000)) {
+                    uploadDetail = QStringLiteral("no se pudo ejecutar scp");
+                    continue;
+                }
+                if (!scpProc.waitForFinished(180000)) {
+                    scpProc.kill();
+                    scpProc.waitForFinished(2000);
+                    uploadDetail = QStringLiteral("scp no terminó a tiempo");
+                    continue;
+                }
+                if (scpProc.exitCode() == 0) {
+                    scpOk = true;
+                    break;
+                }
+                uploadDetail = QString::fromUtf8(scpProc.readAllStandardError()).trimmed();
+                if (uploadDetail.isEmpty()) {
+                    uploadDetail = QStringLiteral("scp devolvió %1").arg(scpProc.exitCode());
+                }
+            }
+        }
         if (!scpOk) {
-            const QString detail = QString::fromUtf8(scpProc.readAllStandardError()).trimmed();
+            const QString detail = uploadDetail;
             const QString reason =
                 trk(QStringLiteral("t_daemon_win_upload_fail_001"),
                     QStringLiteral("No se pudo subir el daemon a la máquina Windows: %1"),

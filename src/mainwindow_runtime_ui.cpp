@@ -63,11 +63,19 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
     if (rootPid <= 0) {
         return;
     }
+#ifdef Q_OS_WIN
+    // En Windows no hay `sh` ni `pkill`: esto se quedaba sin hacer nada en silencio y
+    // cancelar una acción no mataba los procesos hijos. taskkill /T recorre el árbol.
+    QProcess::execute(QStringLiteral("taskkill"),
+                      QStringList{QStringLiteral("/PID"), QString::number(rootPid),
+                                  QStringLiteral("/T"), QStringLiteral("/F")});
+#else
     QProcess::execute(QStringLiteral("sh"), QStringList{
         QStringLiteral("-lc"),
         QStringLiteral("pkill -TERM -P %1 >/dev/null 2>&1 || true; sleep 0.2; pkill -KILL -P %1 >/dev/null 2>&1 || true")
             .arg(rootPid)
     });
+#endif
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

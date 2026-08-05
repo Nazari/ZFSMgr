@@ -79,7 +79,20 @@ QString sshUserHost(const ConnectionProfile& p);
 QString sshUserHostPort(const ConnectionProfile& p);
 QString sshAddressFamilyOption(const ConnectionProfile& p);
 QString sshBaseCommand(const ConnectionProfile& p);
-QString scpUploadCommand(const ConnectionProfile& p, const QString& localPath, const QString& remotePath);
+// Los mismos argumentos, pero como lista para lanzar `scp` DIRECTAMENTE, sin pasar por
+// un intérprete.
+//
+// Existe porque la subida del daemon se lanzaba con `sh -c`, y cuando la aplicación
+// corre en Windows no hay ningún intérprete POSIX: el proceso no llegaba a arrancar,
+// la salida de error quedaba vacía y lo único que se veía era «scp falló».
+//
+// `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
+// Windows no admite multiplexado, y además da un segundo intento cuando el socket de
+// control heredado está en mal estado.
+QStringList scpUploadArgs(const ConnectionProfile& p,
+                          const QString& localPath,
+                          const QString& remotePath,
+                          bool multiplex);
 QString buildSshTargetPrefix(const ConnectionProfile& p);
 QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd);
 QString streamProgressPipeFilter();
