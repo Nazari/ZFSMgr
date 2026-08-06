@@ -167,6 +167,15 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
 // cadena, y cada una ha fallado al menos una vez.
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
+    // El resultado de esta función se usa para DESVIAR la orden al RPC. Hay verbos que
+    // el daemon no sirve por ahí a propósito —transportan flujos por la entrada o la
+    // salida estándar, y --mutate-shell-generic además ejecuta shell arbitrario como
+    // root—, así que desviarlos es garantizar un "unknown command".
+    //
+    // runAgentCommand ya lo comprobaba, pero este camino heredado no, y sus TRES
+    // interceptaciones tampoco. Resultado: borrar un dataset fallaba con
+    // «unknown command: --mutate-shell-generic». Se filtra aquí, que es el único sitio
+    // por el que pasan las tres.
     // Se prueban las dos rutas del agente, no solo la de Unix. Buscar únicamente la
     // Unix es lo que dejaba a Windows fuera del RPC: agentCommand() emite la ruta de
     // Windows, no casaba con el marcador, y el comando acababa ejecutándose por SSH en
@@ -244,6 +253,9 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
           || cmd.startsWith(QStringLiteral("--dump-"))
           || cmd.startsWith(QStringLiteral("--mutate-")))) {
         return false;
+    }
+    if (mwhelpers::isCliOnlyAgentCommand(cmd)) {
+        return false;  // se queda en el camino clásico; el RPC no lo sirve
     }
     argsOut = parsed;
     return true;

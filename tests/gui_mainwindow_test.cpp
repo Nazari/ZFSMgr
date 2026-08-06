@@ -70,6 +70,29 @@ private Q_SLOTS:
         QCOMPARE(cut.at(0), QStringLiteral("--dump-zfs-mount"));
     }
 
+    // El extractor decide si una orden se DESVÍA al RPC. Los verbos que el daemon no
+    // sirve por ahí no deben desviarse nunca: hacerlo garantiza un "unknown command".
+    // Borrar un dataset falló exactamente así —«unknown command: --mutate-shell-generic»—
+    // porque runAgentCommand sí lo comprobaba y este camino heredado no.
+    void agentArgExtractionSkipsCliOnlyVerbs() {
+        const QStringList cliOnly = {
+            QStringLiteral("--mutate-shell-generic"),
+            QStringLiteral("--mutate-advanced-fromdir"),
+            QStringLiteral("--mutate-sync-temp-tar-source"),
+            QStringLiteral("--mutate-sync-temp-tar-dest"),
+        };
+        for (const QString& verb : cliOnly) {
+            const QStringList args = MainWindow::extractAgentArgsForTest(
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent %1 'cGF5bG9hZA=='").arg(verb));
+            QVERIFY2(args.isEmpty(),
+                     qPrintable(QStringLiteral("%1 no debe desviarse al RPC").arg(verb)));
+        }
+        // Y uno que sí se sirve por RPC tiene que seguir desviándose.
+        const QStringList ok = MainWindow::extractAgentArgsForTest(
+            QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy 'tank/x' '0' ''"));
+        QCOMPARE(ok.value(0), QStringLiteral("--mutate-zfs-destroy"));
+    }
+
     // Estos tres ejercitan la capa de transporte de mentira. Comprueban QUÉ se le pide
     // al agente, que es lo que ningún test podía ver hasta ahora: los cuatro binarios
     // no ejecutan nada fuera de este equipo.
