@@ -796,10 +796,17 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     // Ensamblar que conservó los subdatasets, estos quedan reasignados al padre y su
     // nombre deja de reflejar la ruta: buscar por nombre no los encontraría y se
     // copiarían sus datos por segunda vez, encima de un punto de montaje vivo.
+    // Ojo con el ámbito: recorrer `-r <dataset>` recorre por NOMBRE, y tras un Ensamblar
+    // que conservó los subdatasets estos quedan colgando del padre, así que respecto al
+    // dataset que ahora los contiene FÍSICAMENTE son hermanos por nombre y no aparecen.
+    // Se recorre el pool entero y se filtra por punto de montaje, que es lo único que
+    // sigue diciendo la verdad sobre dónde está cada cosa.
     std::map<std::string, std::string> dsByMountpoint;
     {
+        const std::string pool = dataset.substr(0, dataset.find('/'));
         const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint",
-                                                     "-r", dataset});
+                                                     "-r", pool});
+        const std::string mpPrefix = mountpoint + "/";
         for (const std::string& line : splitLines(ls.out)) {
             const std::size_t tab = line.find('\t');
             if (tab == std::string::npos) {
@@ -807,7 +814,10 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             }
             const std::string name = trim(line.substr(0, tab));
             const std::string mp = trim(line.substr(tab + 1));
-            if (!mp.empty() && mp != "-" && mp != "none" && name != dataset) {
+            if (mp.empty() || mp == "-" || mp == "none" || name == dataset) {
+                continue;
+            }
+            if (mp.rfind(mpPrefix, 0) == 0) {  // solo lo que cae dentro de este mountpoint
                 dsByMountpoint[mp] = name;
             }
         }
