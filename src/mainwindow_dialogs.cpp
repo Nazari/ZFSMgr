@@ -831,11 +831,15 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                 node = new QTreeWidgetItem();
                 node->setText(0, part);
                 node->setData(0, fullPathRole, cumulative);
-                Qt::ItemFlags f = (node->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsSelectable;
-                if (!ancestorsRequired) {
-                    f |= Qt::ItemIsAutoTristate;
-                }
-                node->setFlags(f);
+                // Sin ItemIsAutoTristate en ningún caso: hacía que el padre no tuviera
+                // estado propio —se lo calculaban sus hijos—, así que un nodo con hijos
+                // solo se podía marcar marcando alguno de ellos. Los dos usos quieren lo
+                // contrario:
+                //   Desglosar  -> ancestorsRequired: marcar arrastra a los ascendientes.
+                //   Ensamblar  -> independiente: cada dataset se absorbe por su cuenta y
+                //                 los que cuelgan de él se conservan reasignados.
+                node->setFlags((node->flags() | Qt::ItemIsUserCheckable)
+                               & ~Qt::ItemIsSelectable);
                 node->setCheckState(0, Qt::Unchecked);
                 if (parent) {
                     parent->addChild(node);
