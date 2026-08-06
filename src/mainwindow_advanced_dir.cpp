@@ -4,6 +4,8 @@
 #include "daemonpayload.h"
 
 #include <QtWidgets>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <algorithm>
 #include <functional>
@@ -26,6 +28,50 @@ struct CreateDatasetOptions {
     QString extraArgs;
     QString encryptionPassphrase;
 };
+
+// Lo mismo que buildZfsCreateCmd pero como argv, sin entrecomillar: va por RPC, donde
+// no hay intérprete que deshacer las comillas. Existe para que la frase de cifrado no
+// tenga que viajar dentro de una orden de shell.
+QStringList buildZfsCreateArgv(const CreateDatasetOptions& opt) {
+    const QString dsType = opt.dsType.trimmed().toLower();
+    QStringList a;
+    if (dsType == QStringLiteral("snapshot")) {
+        a << QStringLiteral("snapshot");
+        if (opt.snapshotRecursive) {
+            a << QStringLiteral("-r");
+        }
+    } else {
+        a << QStringLiteral("create");
+        if (opt.parents) {
+            a << QStringLiteral("-p");
+        }
+        if (opt.sparse) {
+            a << QStringLiteral("-s");
+        }
+        if (opt.nomount) {
+            a << QStringLiteral("-u");
+        }
+        if (!opt.blocksize.trimmed().isEmpty()) {
+            a << QStringLiteral("-b") << opt.blocksize.trimmed();
+        }
+        if (dsType == QStringLiteral("volume") && !opt.volsize.trimmed().isEmpty()) {
+            a << QStringLiteral("-V") << opt.volsize.trimmed();
+        }
+    }
+    for (const QString& prop : opt.properties) {
+        const QString pp = prop.trimmed();
+        if (!pp.isEmpty()) {
+            a << QStringLiteral("-o") << pp;
+        }
+    }
+    // extraArgs es texto libre del usuario: se trocea por espacios, que es lo mismo que
+    // hacía el shell, pero sin que un ';' pueda encadenar nada.
+    const QStringList extra = opt.extraArgs.trimmed().split(QRegularExpression(QStringLiteral("\\s+")),
+                                                            Qt::SkipEmptyParts);
+    a += extra;
+    a << opt.datasetPath.trimmed();
+    return a;
+}
 
 QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
     const QString dsType = opt.dsType.trimmed().toLower();
@@ -734,24 +780,23 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     const bool deleteSourceDir = deleteSourceDirChk->isChecked();
+    // Solo Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
+    // La variante de shell para Unix —`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create`—
+    // se ha borrado, no desactivado: dejarla ahí era invitar a volver a usarla.
     const QString createCmd = buildZfsCreateCmd(opt);
     const QString createCmdWithPassphrase = [&]() {
-        if (opt.encryptionPassphrase.isEmpty()) {
+        if (opt.encryptionPassphrase.isEmpty() || !isWindowsConnection(ctx.connIdx)) {
             return createCmd;
         }
-        if (isWindowsConnection(ctx.connIdx)) {
-            return QStringLiteral(
-                       "$pp=%1; "
-                       "$payload=$pp + \"`n\" + $pp + \"`n\"; "
-                       "$bytes=[System.Text.Encoding]::UTF8.GetBytes($payload); "
-                       "$ms=New-Object System.IO.MemoryStream(,$bytes); "
-                       "$sr=New-Object System.IO.StreamReader($ms,[System.Text.Encoding]::UTF8); "
-                       "$old=[Console]::In; [Console]::SetIn($sr); "
-                       "try { %2 } finally { [Console]::SetIn($old); $sr.Dispose(); $ms.Dispose(); }")
-                .arg(psSingle(opt.encryptionPassphrase), createCmd);
-        }
-        return QStringLiteral("printf '%s\\n%s\\n' %1 %1 | %2")
-            .arg(shSingleQuote(opt.encryptionPassphrase), createCmd);
+        return QStringLiteral(
+                   "$pp=%1; "
+                   "$payload=$pp + \"`n\" + $pp + \"`n\"; "
+                   "$bytes=[System.Text.Encoding]::UTF8.GetBytes($payload); "
+                   "$ms=New-Object System.IO.MemoryStream(,$bytes); "
+                   "$sr=New-Object System.IO.StreamReader($ms,[System.Text.Encoding]::UTF8); "
+                   "$old=[Console]::In; [Console]::SetIn($sr); "
+                   "try { %2 } finally { [Console]::SetIn($old); $sr.Dispose(); $ms.Dispose(); }")
+            .arg(psSingle(opt.encryptionPassphrase), createCmd);
     }();
     const auto relativePathFromSource = [&](int connIdx, const QString& sourcePath) -> QString {
         const bool srcWin = isWindowsConnection(connIdx);
@@ -807,13 +852,31 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     QStringList steps;
+    // Paso previo por RPC, no por shell: la frase de cifrado iba incrustada en la orden
+    // (`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create ...`), así que quedaba en argv
+    // —visible en `ps` en las dos máquinas—, en la vista previa y en el registro. Por el
+    // RPC viaja dentro de la carga cifrada por mTLS y el daemon se la da a `zfs` por una
+    // tubería. Se rellena más abajo, junto al resto del cambio pendiente.
+    QStringList createArgv;
+    QString createSecret;
     if (!isWindowsConnection(ctx.connIdx)) {
-        const QString dstSetup = QStringLiteral(
-                                     "set -e; DATASET=%1; %2; "
-                                     "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                                     "zfs mount \"$DATASET\" >/dev/null 2>&1 || true")
-                                     .arg(shSingleQuote(opt.datasetPath), createCmdWithPassphrase);
-        steps.push_back(sshExecFromLocal(dstProfile, withSudo(dstProfile, dstSetup)));
+        const QStringList zfsArgs = buildZfsCreateArgv(opt);
+        QJsonArray arr;
+        for (const QString& a : zfsArgs) {
+            arr.append(a);
+        }
+        const QByteArray argvJson = QJsonDocument(arr).toJson(QJsonDocument::Compact);
+        createArgv = QStringList{QStringLiteral("--mutate-zfs-create"),
+                                 QString::fromLatin1(argvJson.toBase64())};
+        createSecret = opt.encryptionPassphrase;
+        // Montarlo sí puede ir por shell: no lleva secretos.
+        steps.push_back(sshExecFromLocal(
+            dstProfile,
+            withSudo(dstProfile,
+                     QStringLiteral("DATASET=%1; "
+                                    "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
+                                    "zfs mount \"$DATASET\" >/dev/null 2>&1 || true")
+                         .arg(shSingleQuote(opt.datasetPath)))));
     } else {
         const QString dstSetup = QStringLiteral(
                                      "$ErrorActionPreference='Stop'; "
@@ -912,15 +975,37 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     DatasetSelectionContext srcCtx;
     srcCtx.valid = false;
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            pendingTransferScopeLabel(srcCtx, ctx),
-            displayLabel,
-            localCmd,
-            0,
-            true,
-            srcCtx,
-            ctx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+    PendingShellActionDraft draft{
+        pendingTransferScopeLabel(srcCtx, ctx),
+        displayLabel,
+        localCmd,
+        0,
+        true,
+        srcCtx,
+        ctx,
+        PendingShellActionDraft::RefreshScope::TargetOnly};
+    if (!createSecret.isEmpty()
+        && (ctx.connIdx < 0 || ctx.connIdx >= m_states.size()
+            || !m_states[ctx.connIdx].daemonActive)) {
+        // Sin daemon, runAgentCommand cae a SSH y la frase volvería a viajar en argv.
+        // Mejor no dejar hacerlo que hacerlo de forma insegura sin decirlo.
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_fromdir_enc_needs_daemon_001"),
+                QStringLiteral("Crear un dataset cifrado requiere el agente activo en la "
+                               "conexión de destino: es lo que permite enviar la frase de "
+                               "cifrado por el canal seguro y no en la línea de órdenes."),
+                QStringLiteral("Creating an encrypted dataset requires the agent running on "
+                               "the destination connection: that is what allows sending the "
+                               "passphrase over the secure channel instead of the command line."),
+                QStringLiteral("创建加密数据集需要目标连接上的代理处于运行状态：只有这样才能通过"
+                               "安全通道发送密码，而不是放在命令行中。")));
+        return;
+    }
+    draft.rpcConnIdx = createArgv.isEmpty() ? -1 : ctx.connIdx;
+    draft.rpcArgv = createArgv;
+    draft.rpcSecret = createSecret;
+    if (!queuePendingShellAction(draft, &errorText)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }

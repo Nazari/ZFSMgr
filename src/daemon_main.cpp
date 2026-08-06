@@ -4900,6 +4900,45 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
 #endif
         return runExecCapture("zfs", {"clone", params[0], params[1]});
     }
+    if (cmd == "--mutate-zfs-create") {
+#ifndef _WIN32
+        // La frase de cifrado viaja DENTRO de la carga —cifrada por mTLS— y se le pasa
+        // a `zfs` por una tubería, no como argumento. Antes esto era un script de shell
+        // (`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create ...`) enviado por SSH: la
+        // frase quedaba en argv, visible en `ps` de las dos máquinas, y ningún patrón de
+        // enmascarado la tapaba ni en el registro ni en la confirmación.
+        if (params.size() < 2) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0
+                    + " --mutate-zfs-create <b64-json-argv> <b64-passphrase>\n";
+            return r;
+        }
+        std::string argvJson;
+        std::string passphrase;
+        if (!decodeBase64(params[0], argvJson) || !decodeBase64(params[1], passphrase)) {
+            r.rc = 2; r.err = "invalid base64 argument\n"; return r;
+        }
+        std::vector<std::string> zfsArgs;
+        if (!parseJsonStringArray(argvJson, zfsArgs) || zfsArgs.empty()) {
+            r.rc = 2; r.err = "invalid argv payload\n"; return r;
+        }
+        // El primer elemento decide la operación: solo create y snapshot, para que esto
+        // no acabe siendo otro `zfs` genérico con la puerta abierta.
+        const std::string op = toLower(trim(zfsArgs.front()));
+        if (op != "create" && op != "snapshot") {
+            r.rc = 2;
+            r.err = "unsupported op for --mutate-zfs-create: " + zfsArgs.front() + "\n";
+            return r;
+        }
+        if (passphrase.empty()) {
+            return runExecCapture("zfs", zfsArgs);
+        }
+        // `zfs create -o keyformat=passphrase` la pide dos veces.
+        return runExecCaptureWithStdin("zfs", zfsArgs, passphrase + "\n" + passphrase + "\n");
+#else
+        r.rc = 2; r.err = "not supported on Windows\n"; return r;
+#endif
+    }
     if (cmd == "--mutate-zfs-load-key") {
 #ifndef _WIN32
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-load-key <dataset-b64> <passphrase-b64>\n"; return r; }
@@ -6659,6 +6698,26 @@ int main(int argc, char* argv[]) {
 #else
         std::cerr << "not supported on Windows\n"; return 2;
 #endif
+    }
+    if (cmd == "--mutate-zfs-create") {
+        // También por CLI: cuando no hay daemon, runAgentCommand cae a SSH y ejecuta el
+        // agente por línea de órdenes. Sin esta rama, crear un dataset desde "Desde Dir"
+        // fallaría en esos equipos. Para datasets CIFRADOS la interfaz no deja llegar
+        // aquí —la frase acabaría en argv—, así que este camino es solo para los que no
+        // llevan secreto.
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = executeAgentCommandCapture("--mutate-zfs-create", params, args[0].c_str());
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
     }
     if (cmd == "--mutate-zfs-generic") {
         if (args.size() < 3) {

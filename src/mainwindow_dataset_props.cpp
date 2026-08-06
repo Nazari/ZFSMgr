@@ -3161,6 +3161,25 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
     }
     if (change.kind == PendingChange::Kind::ShellAction) {
         const PendingShellActionDraft& draft = change.shellDraft;
+        // Paso previo tipado, si lo hay. Va ANTES que la orden de shell y, si falla, no
+        // se ejecuta nada más: en Desde Dir este paso crea el dataset destino, y sin él
+        // la tubería de tar escribiría en un sitio que no existe.
+        if (!draft.rpcArgv.isEmpty() && draft.rpcConnIdx >= 0
+            && draft.rpcConnIdx < m_profiles.size()) {
+            QStringList argv = draft.rpcArgv;
+            argv << QString::fromLatin1(draft.rpcSecret.toUtf8().toBase64());
+            QString out;
+            QString err;
+            int rc = -1;
+            const bool ok = runAgentCommand(m_profiles.at(draft.rpcConnIdx), argv, 60000,
+                                            out, err, rc);
+            if (!ok || rc != 0) {
+                appLog(QStringLiteral("ERROR"),
+                       QStringLiteral("%1: no se pudo crear el dataset destino (%2)")
+                           .arg(draft.displayLabel.trimmed(), mwhelpers::oneLine(err)));
+                return false;
+            }
+        }
         bool handledRemotely = false;
         QString remoteFailure;
         if (!tryExecutePendingShellActionRemotely(draft, &handledRemotely, &remoteFailure)) {

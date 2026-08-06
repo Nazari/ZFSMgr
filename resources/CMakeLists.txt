@@ -45,6 +45,7 @@ gsa:scheduler
 zed:lightweight-poll
 breakdown:dir-name-pairs
 todir:progress-and-per-dataset
+cmd:--mutate-zfs-create
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)

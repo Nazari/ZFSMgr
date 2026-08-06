@@ -305,6 +305,19 @@ private:
         DatasetSelectionContext refreshSource;
         DatasetSelectionContext refreshTarget;
         RefreshScope refreshScope{RefreshScope::SourceAndTarget};
+        // Paso previo TIPADO, ejecutado por RPC antes de la orden de shell.
+        //
+        // Existe por un motivo concreto: la frase de cifrado de un dataset nuevo no
+        // puede viajar dentro de `command`. Ahí acabaría en la línea de órdenes de ssh
+        // —visible en `ps` de las dos máquinas—, en la vista previa de confirmación y en
+        // el registro. Por el RPC va dentro de la carga, cifrada por mTLS, y el daemon
+        // se la pasa a `zfs` por una tubería.
+        //
+        // `rpcSecret` se guarda aparte y NUNCA se copia a `command`, `displayLabel` ni
+        // al identificador estable, que son los tres sitios que se muestran o registran.
+        int rpcConnIdx{-1};
+        QStringList rpcArgv;   // sin el secreto: se añade al ejecutar
+        QString rpcSecret;
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};
