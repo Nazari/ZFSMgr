@@ -2174,7 +2174,10 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         if (poolTree->currentItem() && poolTree->currentItem() != poolRootItem) {
             menu.addSeparator();
-            QAction* removeAction = menu.addAction(QStringLiteral("Eliminar nodo"));
+            QAction* removeAction = menu.addAction(trk(QStringLiteral("t_ctx_remove_node01"),
+        QStringLiteral("Eliminar nodo"),
+        QStringLiteral("Remove node"),
+        QStringLiteral("删除节点")));
             QObject::connect(removeAction, &QAction::triggered, &dlg, removePoolNode);
         }
         menu.exec(poolTree->viewport()->mapToGlobal(pos));

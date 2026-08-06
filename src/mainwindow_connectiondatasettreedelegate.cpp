@@ -532,7 +532,10 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
                           QStringLiteral("Importar"),
                           QStringLiteral("Import"),
                           QStringLiteral("导入")));
-    actions.importRename = menu.addAction(QStringLiteral("Importar renombrando"));
+    actions.importRename = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_import_rename01"),
+                              QStringLiteral("Importar renombrando"),
+                              QStringLiteral("Import renaming"),
+                              QStringLiteral("导入并重命名")));
     actions.exportPool = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_export_btn001"),
                           QStringLiteral("Exportar"),
@@ -541,7 +544,10 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.history = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_pool_history_t1"),
                           QStringLiteral("Historial")));
-    QMenu* management = menu.addMenu(QStringLiteral("Gestión"));
+    QMenu* management = menu.addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_management001"),
+                              QStringLiteral("Gestión"),
+                              QStringLiteral("Management"),
+                              QStringLiteral("管理")));
     actions.sync = management->addAction(QStringLiteral("Sync"));
     actions.scrub = management->addAction(QStringLiteral("Scrub"));
     actions.upgrade = management->addAction(QStringLiteral("Upgrade"));
@@ -1675,7 +1681,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     }
     const QStringList gsaProps = gsaUserPropsForScheduling();
     QMenu autoMenu(m_mainWindow);
-    QAction* aDeleteSchedule = autoMenu.addAction(QStringLiteral("Borrar programación"));
+    QAction* aDeleteSchedule = autoMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_schedule01"),
+                              QStringLiteral("Borrar programación"),
+                              QStringLiteral("Delete schedule"),
+                              QStringLiteral("删除计划")));
     m_mainWindow->endUiBusy();
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
     logContextMenuPerf(m_mainWindow,
@@ -1956,21 +1965,42 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
 
     const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
     QMenu permMenu(m_mainWindow);
-    QAction* aNewGrant = permMenu.addAction(QStringLiteral("Nueva Delegación"));
-    QAction* aNewSet = permMenu.addAction(QStringLiteral("Nuevo Set"));
-    QAction* aRefreshPerms = permMenu.addAction(QStringLiteral("Refrescar permisos"));
+    QAction* aNewGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
+                              QStringLiteral("Nueva delegación"),
+                              QStringLiteral("New delegation"),
+                              QStringLiteral("新建委派")));
+    QAction* aNewSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_set001"),
+                              QStringLiteral("Nuevo set de permisos"),
+                              QStringLiteral("New permission set"),
+                              QStringLiteral("新建权限集")));
+    QAction* aRefreshPerms = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_refresh_perms1"),
+                              QStringLiteral("Refrescar permisos"),
+                              QStringLiteral("Refresh permissions"),
+                              QStringLiteral("刷新权限")));
     QAction* aEditGrant = nullptr;
     QAction* aDeleteGrant = nullptr;
     QAction* aRenameSet = nullptr;
     QAction* aDeleteSet = nullptr;
     if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
         permMenu.addSeparator();
-        aEditGrant = permMenu.addAction(QStringLiteral("Editar delegación"));
-        aDeleteGrant = permMenu.addAction(QStringLiteral("Eliminar delegación"));
+        aEditGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_edit_grant001"),
+                              QStringLiteral("Editar delegación"),
+                              QStringLiteral("Edit delegation"),
+                              QStringLiteral("编辑委派")));
+        aDeleteGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_grant001"),
+                              QStringLiteral("Eliminar delegación"),
+                              QStringLiteral("Delete delegation"),
+                              QStringLiteral("删除委派")));
     } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
         permMenu.addSeparator();
-        aRenameSet = permMenu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
-        aDeleteSet = permMenu.addAction(QStringLiteral("Eliminar set"));
+        aRenameSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_rename_set001"),
+                              QStringLiteral("Renombrar conjunto de permisos"),
+                              QStringLiteral("Rename permission set"),
+                              QStringLiteral("重命名权限集")));
+        aDeleteSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_set001"),
+                              QStringLiteral("Eliminar set de permisos"),
+                              QStringLiteral("Delete permission set"),
+                              QStringLiteral("删除权限集")));
     }
     m_mainWindow->endUiBusy();
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
@@ -2115,7 +2145,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         QString newScope;
         QStringList newTokens;
         if (!promptPermissionGrant(mwCtx,
-                                   QStringLiteral("Editar delegación"),
+                                   m_mainWindow->trk(QStringLiteral("t_ctx_edit_grant001"),
+                              QStringLiteral("Editar delegación"),
+                              QStringLiteral("Edit delegation"),
+                              QStringLiteral("编辑委派")),
                                    targetType,
                                    targetName,
                                    scope,
@@ -2182,7 +2215,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         bool ok = false;
         QString newSetName = QInputDialog::getText(
             m_mainWindow,
-            QStringLiteral("Renombrar conjunto de permisos"),
+            m_mainWindow->trk(QStringLiteral("t_ctx_rename_set001"),
+                              QStringLiteral("Renombrar conjunto de permisos"),
+                              QStringLiteral("Rename permission set"),
+                              QStringLiteral("重命名权限集")),
             QStringLiteral("Nuevo nombre"),
             QLineEdit::Normal,
             oldSetName,
@@ -2362,7 +2398,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     }
 
     if (item->data(0, kIsSplitRootRole).toBool()) {
-        aCloseSplit = menu.addAction(QStringLiteral("Close"));
+        aCloseSplit = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_close001"),
+                              QStringLiteral("Cerrar"),
+                              QStringLiteral("Close"),
+                              QStringLiteral("关闭")));
     }
 
     if (item->data(0, kConnSnapshotsNodeRole).toBool()) {
@@ -2490,26 +2529,65 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("设为源")));
         } else {
             datasetMenuRoot = menu.addMenu(QStringLiteral("Dataset"));
-            aCreate = datasetMenuRoot->addAction(QStringLiteral("Crear"));
-            aRename = datasetMenuRoot->addAction(QStringLiteral("Renombrar"));
-            aDelete = datasetMenuRoot->addAction(QStringLiteral("Borrar"));
-            mEncryption = datasetMenuRoot->addMenu(QStringLiteral("Clave de Encriptación"));
-            aLoadKey = mEncryption->addAction(QStringLiteral("Cargar Clave"));
-            aUnloadKey = mEncryption->addAction(QStringLiteral("Descargar Clave"));
-            aChangeKey = mEncryption->addAction(QStringLiteral("Cambiar Clave"));
-            aScheduleSnapshots = datasetMenuRoot->addAction(QStringLiteral("Programar snapshots"));
-            permsMenuRoot = datasetMenuRoot->addMenu(QStringLiteral("Permisos"));
-            aPermNewSet = permsMenuRoot->addAction(QStringLiteral("Nuevo Set"));
-            aPermNewDeleg = permsMenuRoot->addAction(QStringLiteral("Nueva Delegación"));
+            aCreate = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_create001"),
+                              QStringLiteral("Crear"),
+                              QStringLiteral("Create"),
+                              QStringLiteral("创建")));
+            aRename = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_rename001"),
+                              QStringLiteral("Renombrar"),
+                              QStringLiteral("Rename"),
+                              QStringLiteral("重命名")));
+            aDelete = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_delete001"),
+                              QStringLiteral("Borrar"),
+                              QStringLiteral("Delete"),
+                              QStringLiteral("删除")));
+            mEncryption = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_enc_key001"),
+                              QStringLiteral("Clave de encriptación"),
+                              QStringLiteral("Encryption key"),
+                              QStringLiteral("加密密钥")));
+            aLoadKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_load_key001"),
+                              QStringLiteral("Cargar clave"),
+                              QStringLiteral("Load key"),
+                              QStringLiteral("加载密钥")));
+            aUnloadKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_unload_key001"),
+                              QStringLiteral("Descargar clave"),
+                              QStringLiteral("Unload key"),
+                              QStringLiteral("卸载密钥")));
+            aChangeKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_change_key001"),
+                              QStringLiteral("Cambiar clave"),
+                              QStringLiteral("Change key"),
+                              QStringLiteral("更改密钥")));
+            aScheduleSnapshots = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_sched_snaps01"),
+                              QStringLiteral("Programar snapshots"),
+                              QStringLiteral("Schedule snapshots"),
+                              QStringLiteral("计划快照")));
+            permsMenuRoot = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_permissions01"),
+                              QStringLiteral("Permisos"),
+                              QStringLiteral("Permissions"),
+                              QStringLiteral("权限")));
+            aPermNewSet = permsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_set001"),
+                              QStringLiteral("Nuevo set de permisos"),
+                              QStringLiteral("New permission set"),
+                              QStringLiteral("新建权限集")));
+            aPermNewDeleg = permsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
+                              QStringLiteral("Nueva delegación"),
+                              QStringLiteral("New delegation"),
+                              QStringLiteral("新建委派")));
 
-            actionsMenuRoot = menu.addMenu(QStringLiteral("Acciones"));
+            actionsMenuRoot = menu.addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_actions001"),
+                              QStringLiteral("Acciones"),
+                              QStringLiteral("Actions"),
+                              QStringLiteral("操作")));
             aBreakdown = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
             aAssemble = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
             aFromDir = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
-            aToDir = actionsMenuRoot->addAction(QStringLiteral("Hasta Dir"));
+            aToDir = actionsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_advdir_auto035"),
+                              QStringLiteral("Hacia Dir"),
+                              QStringLiteral("To Dir"),
+                              QStringLiteral("到目录")));
             aMount = actionsMenuRoot->addAction(QStringLiteral("Mount"));
 
             aSelectOrigin = menu.addAction(
@@ -3030,7 +3108,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             const QString newLeaf = QInputDialog::getText(
                 m_mainWindow,
                 m_mainWindow->trk(QStringLiteral("t_ctx_rename_001"),
-                                  QStringLiteral("Renombrar"),
+                                  m_mainWindow->trk(QStringLiteral("t_ctx_ds_rename001"),
+                              QStringLiteral("Renombrar"),
+                              QStringLiteral("Rename"),
+                              QStringLiteral("重命名")),
                                   QStringLiteral("Rename"),
                                   QStringLiteral("重命名")),
                 m_mainWindow->trk(QStringLiteral("t_new_name_001"),
@@ -3124,7 +3205,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (picked == aPermNewDeleg) {
                 QDialog dlg(m_mainWindow);
                 dlg.setModal(true);
-                dlg.setWindowTitle(QStringLiteral("Nueva delegación"));
+                dlg.setWindowTitle(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
+                              QStringLiteral("Nueva delegación"),
+                              QStringLiteral("New delegation"),
+                              QStringLiteral("新建委派")));
                 auto* layout = new QVBoxLayout(&dlg);
                 auto* form = new QFormLayout();
                 auto* targetType = new QComboBox(&dlg);

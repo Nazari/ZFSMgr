@@ -1484,7 +1484,10 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     QAction* aSplitBelow = nullptr;
     QAction* aSplitAbove = nullptr;
     if (isSplitTree) {
-        aCloseSplit = menu.addAction(QStringLiteral("Close"));
+        aCloseSplit = menu.addAction(trk(QStringLiteral("t_ctx_close001"),
+        QStringLiteral("Cerrar"),
+        QStringLiteral("Close"),
+        QStringLiteral("关闭")));
     } else {
         QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
         aSplitRight = splitMenu->addAction(

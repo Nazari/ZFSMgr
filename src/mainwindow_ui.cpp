@@ -1762,7 +1762,9 @@ void MainWindow::buildUi() {
 
     QMenu* actionsHelpMenu = helpMenu->addMenu(
         trk(QStringLiteral("t_help_actions_001"),
-            QStringLiteral("Acciones")));
+            QStringLiteral("Acciones"),
+            QStringLiteral("Actions"),
+            QStringLiteral("操作")));
     struct HelpTopicItem {
         QString id;
         QString key;
@@ -2114,9 +2116,15 @@ void MainWindow::buildUi() {
         const bool hasPendingChange = findPendingChangeByDisplayLine(line, &change);
         QMenu menu(m_pendingChangesList);
         QAction* aExecute = (hasPendingChange && change.executableIndividually)
-                                ? menu.addAction(QStringLiteral("Ejecutar"))
+                                ? menu.addAction(trk(QStringLiteral("t_ctx_run001"),
+        QStringLiteral("Ejecutar"),
+        QStringLiteral("Run"),
+        QStringLiteral("运行")))
                                 : nullptr;
-        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
+        QAction* aDelete = menu.addAction(trk(QStringLiteral("t_ctx_remove001"),
+        QStringLiteral("Eliminar"),
+        QStringLiteral("Delete"),
+        QStringLiteral("删除")));
         if (!aExecute && !aDelete) {
             return;
         }
@@ -3509,19 +3517,40 @@ void MainWindow::buildUi() {
         QAction* renameSet{nullptr};
         QAction* deleteSet{nullptr};
     };
-    auto buildPermissionMenu = [](QMenu& menu, const QString& kind) {
+    auto buildPermissionMenu = [this](QMenu& menu, const QString& kind) {
         PermissionMenuActions actions;
-        actions.refreshPerms = menu.addAction(QStringLiteral("Refrescar permisos"));
-        actions.newGrant = menu.addAction(QStringLiteral("Nueva delegación"));
-        actions.newSet = menu.addAction(QStringLiteral("Nuevo set de permisos"));
+        actions.refreshPerms = menu.addAction(trk(QStringLiteral("t_ctx_refresh_perms1"),
+        QStringLiteral("Refrescar permisos"),
+        QStringLiteral("Refresh permissions"),
+        QStringLiteral("刷新权限")));
+        actions.newGrant = menu.addAction(trk(QStringLiteral("t_ctx_new_grant001"),
+        QStringLiteral("Nueva delegación"),
+        QStringLiteral("New delegation"),
+        QStringLiteral("新建委派")));
+        actions.newSet = menu.addAction(trk(QStringLiteral("t_ctx_new_set001"),
+        QStringLiteral("Nuevo set de permisos"),
+        QStringLiteral("New permission set"),
+        QStringLiteral("新建权限集")));
         if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
             menu.addSeparator();
-            actions.editGrant = menu.addAction(QStringLiteral("Editar delegación"));
-            actions.deleteGrant = menu.addAction(QStringLiteral("Eliminar delegación"));
+            actions.editGrant = menu.addAction(trk(QStringLiteral("t_ctx_edit_grant001"),
+        QStringLiteral("Editar delegación"),
+        QStringLiteral("Edit delegation"),
+        QStringLiteral("编辑委派")));
+            actions.deleteGrant = menu.addAction(trk(QStringLiteral("t_ctx_del_grant001"),
+        QStringLiteral("Eliminar delegación"),
+        QStringLiteral("Delete delegation"),
+        QStringLiteral("删除委派")));
         } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
             menu.addSeparator();
-            actions.renameSet = menu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
-            actions.deleteSet = menu.addAction(QStringLiteral("Eliminar set"));
+            actions.renameSet = menu.addAction(trk(QStringLiteral("t_ctx_rename_set001"),
+        QStringLiteral("Renombrar conjunto de permisos"),
+        QStringLiteral("Rename permission set"),
+        QStringLiteral("重命名权限集")));
+            actions.deleteSet = menu.addAction(trk(QStringLiteral("t_ctx_del_set001"),
+        QStringLiteral("Eliminar set de permisos"),
+        QStringLiteral("Delete permission set"),
+        QStringLiteral("删除权限集")));
         }
         return actions;
     };
@@ -3574,7 +3603,10 @@ void MainWindow::buildUi() {
                 QString scope;
                 QStringList tokens;
                 if (!promptPermissionGrant(ctx,
-                                           QStringLiteral("Nueva delegación"),
+                                           trk(QStringLiteral("t_ctx_new_grant001"),
+        QStringLiteral("Nueva delegación"),
+        QStringLiteral("New delegation"),
+        QStringLiteral("新建委派")),
                                            QString(),
                                            QString(),
                                            QString(),
@@ -3663,7 +3695,10 @@ void MainWindow::buildUi() {
                 QString newScope;
                 QStringList newTokens;
                 if (!promptPermissionGrant(ctx,
-                                           QStringLiteral("Editar delegación"),
+                                           trk(QStringLiteral("t_ctx_edit_grant001"),
+        QStringLiteral("Editar delegación"),
+        QStringLiteral("Edit delegation"),
+        QStringLiteral("编辑委派")),
                                            targetType,
                                            targetName,
                                            scope,
@@ -3702,7 +3737,10 @@ void MainWindow::buildUi() {
                 QString setName;
                 QStringList tokens;
                 if (!promptPermissionSet(ctx,
-                                         QStringLiteral("Nuevo set de permisos"),
+                                         trk(QStringLiteral("t_ctx_new_set001"),
+        QStringLiteral("Nuevo set de permisos"),
+        QStringLiteral("New permission set"),
+        QStringLiteral("新建权限集")),
                                          QString(),
                                          {},
                                          false,
@@ -3741,7 +3779,10 @@ void MainWindow::buildUi() {
                 bool ok = false;
                 QString newSetName = QInputDialog::getText(
                     this,
-                    QStringLiteral("Renombrar conjunto de permisos"),
+                    trk(QStringLiteral("t_ctx_rename_set001"),
+        QStringLiteral("Renombrar conjunto de permisos"),
+        QStringLiteral("Rename permission set"),
+        QStringLiteral("重命名权限集")),
                     QStringLiteral("Nuevo nombre"),
                     QLineEdit::Normal,
                     oldSetName,
