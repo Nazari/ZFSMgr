@@ -508,7 +508,16 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             item->setData(0, RolePath, childPath);
             item->setData(0, RoleConnIdx, connIdx);
             item->setData(0, RoleLoaded, false);
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate | Qt::ItemIsUserTristate);
+            // Sin tristate, ni automático ni de usuario. Con ItemIsUserTristate el
+            // primer clic dejaba el nodo en PartiallyChecked —un guion, no una marca—,
+            // y la recogida solo cuenta Qt::Checked, así que parecía que no se marcaba
+            // nada. Y ItemIsAutoTristate, encima, recalcula el estado del padre a partir
+            // de sus hijos: un directorio con contenido volvía solo a Unchecked.
+            //
+            // Ninguna de las dos hace falta aquí: la recogida ya se queda con el marcado
+            // más alto de cada rama (chooseThis = checked && !parentChecked), porque tar
+            // copia el directorio entero.
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
             item->setCheckState(0, parent->checkState(0) == Qt::Checked ? Qt::Checked : Qt::Unchecked);
             item->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         }
@@ -575,7 +584,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             rootItem->setData(0, RolePath, QStringLiteral("/"));
             rootItem->setData(0, RoleConnIdx, i);
             rootItem->setData(0, RoleLoaded, false);
-            rootItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate | Qt::ItemIsUserTristate);
+            rootItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
             rootItem->setCheckState(0, Qt::Unchecked);
             rootItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         } else {
@@ -596,7 +605,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     driveItem->setData(0, RolePath, drivePath);
                     driveItem->setData(0, RoleConnIdx, i);
                     driveItem->setData(0, RoleLoaded, false);
-                    driveItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate | Qt::ItemIsUserTristate);
+                    driveItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
                     driveItem->setCheckState(0, Qt::Unchecked);
                     driveItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
                 }
