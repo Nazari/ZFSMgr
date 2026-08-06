@@ -997,7 +997,11 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         }
         selected.push_back(fullPath);
     }
-    return true;
+    // Aceptar sin marcar nada NO es una selección válida. Antes devolvía "aceptado" con
+    // la lista vacía, el llamante armaba la orden sin directorios y el daemon la
+    // rechazaba con un `usage:` que no dice nada al usuario. Se trata como cancelar,
+    // que es lo que el llamante ya sabe explicar.
+    return !selected.isEmpty();
 }
 
 bool MainWindow::editInlinePropertiesDialog(const QString& title,

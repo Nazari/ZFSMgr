@@ -28,6 +28,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QLoggingCategory>
 #include <QMutexLocker>
 
 #include <algorithm>
@@ -281,6 +282,13 @@ bool peerCertificateIsPinned(const QSslSocket& sock, const QList<QSslCertificate
 // como usuario normal— nunca podía abrirlo y el RPC local no llegaba a intentarse.
 // No se notaba porque el camino clásico leía los pools sin privilegios; al retirarlo,
 // la conexión Local se quedó sin datos.
+// Categoría propia, APAGADA por omisión. Estas trazas salían por la salida de error
+// estándar en cada llamada RPC local, así que arrancar la aplicación desde un terminal
+// lo llenaba de ruido —y en un binario publicado no pinta nada—. Siguen disponibles
+// para diagnosticar con:
+//   QT_LOGGING_RULES="zfsmgr.rpc.debug=true" ./zfsmgr_qt
+Q_LOGGING_CATEGORY(lcAgentRpc, "zfsmgr.rpc", QtWarningMsg)
+
 bool tryRunLocalAgentRpc(const QStringList& agentArgs,
                          const QByteArray& serverCertPem,
                          const QByteArray& clientCertPem,
@@ -327,7 +335,7 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     const qint64 ioTimeout = noIoDeadline ? 0 : qMax(800, timeoutMs);
     QElapsedTimer rpcTimer;
     rpcTimer.start();
-    qDebug("[agent-rpc] cmd=%s port=%d connectTimeout=%d", qPrintable(cmd), cfg.port, connectTimeout);
+    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s port=%d connectTimeout=%d", qPrintable(cmd), cfg.port, connectTimeout);
     for (const QString& peerName : peerNames) {
         const qint64 t0 = rpcTimer.elapsed();
         QSslSocket sock;
@@ -344,13 +352,13 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
 
         sock.connectToHostEncrypted(host, cfg.port, peerName);
         if (!sock.waitForEncrypted(connectTimeout)) {
-            qDebug("[agent-rpc] peerName=%s FAILED in %lld ms (err: %s)",
+            qCDebug(lcAgentRpc, "[agent-rpc] peerName=%s FAILED in %lld ms (err: %s)",
                    qPrintable(peerName), rpcTimer.elapsed() - t0,
                    qPrintable(sock.errorString()));
             continue;
         }
         if (!peerCertificateIsPinned(sock, caCerts)) {
-            qDebug("[agent-rpc] peerName=%s certificado del daemon NO coincide con el fijado",
+            qCDebug(lcAgentRpc, "[agent-rpc] peerName=%s certificado del daemon NO coincide con el fijado",
                    qPrintable(peerName));
             sock.abort();
             continue;
@@ -392,12 +400,12 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
             rc = resp.value(QStringLiteral("rc")).toInt(1);
             out = resp.value(QStringLiteral("stdout")).toString();
             err = resp.value(QStringLiteral("stderr")).toString();
-            qDebug("[agent-rpc] cmd=%s OK via peerName=%s total=%lld ms",
+            qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK via peerName=%s total=%lld ms",
                    qPrintable(cmd), qPrintable(peerName), rpcTimer.elapsed());
             return true;
         }
     }
-    qDebug("[agent-rpc] cmd=%s FAILED total=%lld ms", qPrintable(cmd), rpcTimer.elapsed());
+    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FAILED total=%lld ms", qPrintable(cmd), rpcTimer.elapsed());
     return false;
 }
 
