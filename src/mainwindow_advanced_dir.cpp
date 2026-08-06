@@ -558,10 +558,15 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     dirsLay->setContentsMargins(6, 6, 6, 6);
     dirsLay->setSpacing(4);
     QLabel* dirsHint = new QLabel(
-        trk(QStringLiteral("t_advdir_tabs_hint"),
-            QStringLiteral("Marque los directorios a copiar. Se respetará su jerarquía en el dataset destino."),
-            QStringLiteral("Check the directories to copy. Their hierarchy will be preserved in the destination dataset."),
-            QStringLiteral("勾选要复制的目录，目标数据集中会保留层级结构。")),
+        trk(QStringLiteral("t_advdir_tabs_hint2"),
+            QStringLiteral("Marque los directorios a copiar. Si marca uno solo, su CONTENIDO va "
+                           "a la raíz del dataset; si marca varios, cada uno va a un "
+                           "subdirectorio con su nombre."),
+            QStringLiteral("Check the directories to copy. If you check just one, its CONTENTS "
+                           "go to the dataset root; if you check several, each goes into a "
+                           "subdirectory named after it."),
+            QStringLiteral("勾选要复制的目录。只勾选一个时，其内容会放到数据集根目录；勾选多个时，"
+                           "每个会放入以其名称命名的子目录。")),
         dirsGroup);
     dirsHint->setWordWrap(true);
     dirsLay->addWidget(dirsHint);
@@ -846,36 +851,6 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                    "try { %2 } finally { [Console]::SetIn($old); $sr.Dispose(); $ms.Dispose(); }")
             .arg(psSingle(opt.encryptionPassphrase), createCmd);
     }();
-    const auto relativePathFromSource = [&](int connIdx, const QString& sourcePath) -> QString {
-        const bool srcWin = isWindowsConnection(connIdx);
-        QString p = sourcePath.trimmed();
-        if (srcWin) {
-            p.replace('/', '\\');
-            QRegularExpression rx(QStringLiteral("^([A-Za-z]):\\\\?(.*)$"));
-            const QRegularExpressionMatch m = rx.match(p);
-            if (m.hasMatch()) {
-                const QString drive = m.captured(1).toUpper();
-                QString tail = m.captured(2);
-                tail.replace('\\', '/');
-                while (tail.startsWith('/')) {
-                    tail.remove(0, 1);
-                }
-                while (tail.endsWith('/')) {
-                    tail.chop(1);
-                }
-                return tail.isEmpty() ? drive : (drive + QStringLiteral("/") + tail);
-            }
-            p.replace('\\', '/');
-            while (p.startsWith('/')) {
-                p.remove(0, 1);
-            }
-            return p;
-        }
-        while (p.startsWith('/')) {
-            p.remove(0, 1);
-        }
-        return p;
-    };
 
     QHash<int, ConnectionProfile> execProfiles;
     auto profileFor = [&](int connIdx) -> ConnectionProfile {
@@ -898,6 +873,72 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         appLog(QStringLiteral("INFO"), QStringLiteral("Desde Dir cancelado: faltan credenciales sudo locales"));
         return;
     }
+
+    // Dónde cae cada origen DENTRO del dataset.
+    //
+    // Antes se usaba la ruta absoluta sin la barra inicial, así que copiar
+    // /Users/linarese/.chirp reconstruía «Users/linarese/.chirp» entero dentro del
+    // dataset. Eso replica la jerarquía de la máquina de origen, que no es lo que se
+    // pide al elegir un directorio: el dataset ES el directorio.
+    //
+    // La regla ahora:
+    //   - un solo directorio de origen  -> su CONTENIDO va a la raíz del dataset;
+    //   - varios                        -> cada uno a un subdirectorio con su nombre;
+    //   - si dos comparten nombre       -> se le antepone el de su conexión.
+    //
+    // Se registra el mapa completo antes de empezar: es una copia entre máquinas y
+    // adivinar dónde acabó cada cosa no debería hacer falta.
+    QHash<QString, QString> destSubdirByKey;
+    {
+        const auto sourceKey = [](int connIdx, const QString& path) {
+            return QStringLiteral("%1|%2").arg(connIdx).arg(path.trimmed());
+        };
+        const auto baseNameOf = [&](int connIdx, const QString& path) {
+            QString p = path.trimmed();
+            const bool win = isWindowsConnection(connIdx);
+            if (win) {
+                p.replace('\\', '/');
+            }
+            while (p.endsWith(QLatin1Char('/'))) {
+                p.chop(1);
+            }
+            const int slash = p.lastIndexOf(QLatin1Char('/'));
+            const QString base = (slash >= 0) ? p.mid(slash + 1) : p;
+            return base.trimmed();
+        };
+        QHash<QString, int> baseCount;
+        for (const auto& e : std::as_const(selectedSources)) {
+            if (!e.second.trimmed().isEmpty()) {
+                ++baseCount[baseNameOf(e.first, e.second)];
+            }
+        }
+        const bool single = (selectedSources.size() == 1);
+        for (const auto& e : std::as_const(selectedSources)) {
+            if (e.second.trimmed().isEmpty()) {
+                continue;
+            }
+            QString sub;
+            if (!single) {
+                const QString base = baseNameOf(e.first, e.second);
+                const QString connName = (e.first >= 0 && e.first < m_profiles.size())
+                                             ? (m_profiles.at(e.first).name.trimmed().isEmpty()
+                                                    ? m_profiles.at(e.first).id.trimmed()
+                                                    : m_profiles.at(e.first).name.trimmed())
+                                             : QString();
+                sub = (baseCount.value(base) > 1 && !connName.isEmpty())
+                          ? QStringLiteral("%1-%2").arg(connName, base)
+                          : base;
+            }
+            destSubdirByKey.insert(sourceKey(e.first, e.second), sub);
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("[FROMDIR] %1 -> %2")
+                       .arg(e.second.trimmed(),
+                            sub.isEmpty() ? QStringLiteral("(raíz del dataset)") : sub));
+        }
+    }
+    const auto destSubdirFor = [&](int connIdx, const QString& path) {
+        return destSubdirByKey.value(QStringLiteral("%1|%2").arg(connIdx).arg(path.trimmed()));
+    };
 
     QStringList steps;
     // Paso previo por RPC, no por shell: la frase de cifrado iba incrustada en la orden
@@ -953,7 +994,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             return;
         }
 
-        const QString rel = relativePathFromSource(srcConnIdx, srcPath);
+        const QString rel = destSubdirFor(srcConnIdx, srcPath);
         const QString srcTarCmd = mwhelpers::buildTarSourceCommand(isWindowsConnection(srcConnIdx),
                                                                    srcPath,
                                                                    mwhelpers::StreamCodec::None);
