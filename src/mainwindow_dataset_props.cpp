@@ -3164,6 +3164,11 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
         // Paso previo tipado, si lo hay. Va ANTES que la orden de shell y, si falla, no
         // se ejecuta nada más: en Desde Dir este paso crea el dataset destino, y sin él
         // la tubería de tar escribiría en un sitio que no existe.
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("[pendiente] %1: paso previo RPC conn=%2 argv=%3")
+                   .arg(draft.displayLabel.trimmed())
+                   .arg(draft.rpcConnIdx)
+                   .arg(draft.rpcArgv.size()));
         if (!draft.rpcArgv.isEmpty() && draft.rpcConnIdx >= 0
             && draft.rpcConnIdx < m_profiles.size()) {
             QStringList argv = draft.rpcArgv;

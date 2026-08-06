@@ -174,10 +174,18 @@ QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src
 }
 
 bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut) {
-    auto fail = [errorOut](const QString& text) {
+    // El rechazo se registra AQUÍ y no en los llamantes: son nueve y ninguno lo hacía,
+    // así que la acción fallaba con un diálogo y el registro no decía absolutamente
+    // nada. Quien mire el log después no tenía forma de saber que se intentó siquiera.
+    auto fail = [this, errorOut, &draft](const QString& text) {
         if (errorOut) {
             *errorOut = text;
         }
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("[pendientes] no se encoló «%1»: %2")
+                   .arg(draft.displayLabel.trimmed().isEmpty() ? draft.command.trimmed()
+                                                               : draft.displayLabel.trimmed(),
+                        text));
         return false;
     };
     if (draft.command.trimmed().isEmpty()) {
@@ -189,7 +197,10 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
         }
         if (existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
             && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
-            return fail(QStringLiteral("Ese cambio ya está en la lista de pendientes."));
+            // Decir además qué hacer: el usuario ve "error" y no que ya lo tiene ahí.
+            return fail(QStringLiteral(
+                "Ese cambio ya está en la lista de cambios pendientes.\n\n"
+                "Aplíquelo o quítelo de la lista antes de volver a pedirlo."));
         }
     }
     PendingChange change;

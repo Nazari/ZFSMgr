@@ -1018,6 +1018,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("[fromdir] encolado con paso previo RPC: conn=%1 argv=%2 cifrado=%3")
+               .arg(draft.rpcConnIdx)
+               .arg(draft.rpcArgv.size())
+               .arg(draft.rpcSecret.isEmpty() ? QStringLiteral("no") : QStringLiteral("sí")));
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Cambio pendiente añadido: %1  %2")
                .arg(pendingTransferScopeLabel(srcCtx, ctx), displayLabel));
