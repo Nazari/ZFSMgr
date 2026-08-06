@@ -1098,24 +1098,32 @@ private:
                            QStringList& selected,
                            const QString& detail = QString(),
                            const QMap<QString, QString>& invalidItems = {});
-    // `ancestorsRequired`: al marcar un nodo se marcan también sus ascendientes, y al
-    // desmarcarlo se desmarcan sus descendientes. Es la dependencia REAL de Desglosar:
-    // para que exista el dataset <ds>/Disks/Bootables tiene que existir antes
-    // <ds>/Disks, o `zfs rename` falla. Crearlo al vuelo con -p tampoco vale, porque
-    // heredaría el punto de montaje y taparía los datos no seleccionados que siguen
-    // en ese directorio.
+    // Segunda columna con el nombre del dataset de cada fila: el que ya tiene
+    // (Ensamblar) o el que va a tener (Desglosar, editable).
     //
-    // Sin esto el diálogo usaba tristate automático, que impone lo CONTRARIO —un padre
-    // solo se puede marcar marcando algún hijo— y obligaba a desglosar subárboles
-    // enteros: en una prueba real, pedir los 7 directorios de primer nivel creaba 250
-    // datasets anidados y ~170 MB de metadatos.
+    // Antes había aquí un `ancestorsRequired` que marcaba los ascendientes al marcar un
+    // nodo, porque para crear <ds>/Disks/Bootables hace falta que exista <ds>/Disks. La
+    // dependencia es real pero es entre NOMBRES, no entre directorios: `zfs create`
+    // exige que exista el dataset padre, no que el directorio de encima sea un dataset.
+    // Dando el nombre explícitamente —`Disks:Bootables`, hijo directo de <ds>— se puede
+    // convertir un directorio sin convertir ninguno de los de encima, y la obligación
+    // desaparece.
+    struct TreeNameColumn {
+        QString header;
+        bool editable{false};
+        // Nombre propuesto para `path` sabiendo qué rutas están marcadas. Se recalcula
+        // en cada cambio de marca, salvo en las filas que el usuario haya editado.
+        std::function<QString(const QString& path, const QSet<QString>& checked)> propose;
+        QSet<QString> takenNames;      // nombres ya ocupados, para avisar del choque
+        QMap<QString, QString> chosen; // salida: ruta -> nombre elegido
+    };
     bool selectTreeItemsDialog(const QString& title,
                                const QString& intro,
                                const QStringList& items,
                                QStringList& selected,
                                const QString& detail = QString(),
                                const QMap<QString, QString>& invalidItems = {},
-                               bool ancestorsRequired = false);
+                               TreeNameColumn* nameColumn = nullptr);
     bool editInlinePropertiesDialog(const QString& title,
                                     const QString& intro,
                                     const QStringList& items,

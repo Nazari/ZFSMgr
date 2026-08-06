@@ -717,9 +717,14 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
 
 ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
     ExecResult r;
-    if (params.size() < 2) {
+    // Pares (directorio, nombre). El nombre es la ruta BAJO `dataset`, y no tiene por
+    // qué reflejar la ruta del directorio: crear un dataset solo exige que exista su
+    // padre POR NOMBRE, no que el directorio de encima sea un dataset. Así se puede
+    // convertir `a/b/c` sin convertir `a` ni `b`, pidiendo el nombre plano `a:b:c`.
+    if (params.size() < 3 || (params.size() - 1) % 2 != 0) {
         r.rc = 2;
-        r.err = "usage: --mutate-advanced-breakdown <dataset> <dir> [dir...]\n";
+        r.err = "usage: --mutate-advanced-breakdown <dataset> <dir> <nombre> "
+                "[<dir> <nombre>...]\n";
         return r;
     }
     const std::string dataset = params[0];
@@ -754,6 +759,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     // algo falla a mitad, los originales siguen intactos.
     struct Pending {
         std::string rel;       // ruta relativa dentro del mountpoint
+        std::string name;      // nombre elegido, relativo a `dataset` (puede llevar '/')
         std::string tmpName;   // dataset temporal, hijo directo de `dataset`
         std::string tmpMp;     // punto de montaje temporal
         // Cuando el directorio YA es el punto de montaje de un dataset —porque un
@@ -785,11 +791,50 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
 
     // Los seleccionados, normalizados, para calcular exclusiones entre ellos.
     std::vector<std::string> rels;
-    for (std::size_t i = 1; i < params.size(); ++i) {
+    std::vector<std::string> names;
+    std::set<std::string> seenNames;
+    for (std::size_t i = 1; i + 1 < params.size(); i += 2) {
         const std::string rel = trim(params[i]);
-        if (!rel.empty()) {
-            rels.push_back(rel);
+        const std::string name = trim(params[i + 1]);
+        if (rel.empty()) {
+            continue;
         }
+        if (name.empty()) {
+            r.rc = 2;
+            r.err = "nombre de dataset vacío para " + rel + "\n";
+            return r;
+        }
+        // El nombre lo escribe el usuario, así que se valida aquí y no solo en la
+        // interfaz: esto llega por RPC y el daemon no puede fiarse del cliente.
+        if (name.front() == '/' || name.back() == '/'
+            || name.find("//") != std::string::npos
+            || name.find("..") != std::string::npos) {
+            r.rc = 2;
+            r.err = "nombre de dataset no válido: " + name + "\n";
+            return r;
+        }
+        for (const char c : name) {
+            const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                            || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'
+                            || c == ':' || c == ' ' || c == '/';
+            if (!ok) {
+                r.rc = 2;
+                r.err = "carácter no permitido por ZFS en el nombre: " + name + "\n";
+                return r;
+            }
+        }
+        if (!seenNames.insert(name).second) {
+            r.rc = 2;
+            r.err = "dos directorios piden el mismo nombre de dataset: " + name + "\n";
+            return r;
+        }
+        rels.push_back(rel);
+        names.push_back(name);
+    }
+    if (rels.empty()) {
+        r.rc = 2;
+        r.err = "no se indicó ningún directorio\n";
+        return r;
     }
 
     // Datasets ya existentes por su PUNTO DE MONTAJE, no por su nombre. Tras un
@@ -832,7 +877,8 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             r.out += "skip_not_a_directory=" + rel + "\n";
             continue;
         }
-        const std::string child = dataset + "/" + rel;
+        const std::string& name = names[i];
+        const std::string child = dataset + "/" + name;
         if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc == 0) {
             r.out += "child_exists=" + child + "\n";
             continue;
@@ -843,7 +889,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         {
             const auto itMp = dsByMountpoint.find(srcPath.string());
             if (itMp != dsByMountpoint.end()) {
-                pending.push_back(Pending{rel, itMp->second, std::string(), true});
+                pending.push_back(Pending{rel, name, itMp->second, std::string(), true});
                 r.out += "already_dataset=" + itMp->second + " -> " + child + "\n";
                 reportJobProgress("[BREAKDOWN] " + std::to_string(i + 1) + " de "
                                   + std::to_string(rels.size()) + ": " + rel
@@ -882,7 +928,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return create;
         }
         (void)runExecCapture("zfs", {"mount", tmpName});
-        pending.push_back(Pending{rel, tmpName, tmpMp, false});
+        pending.push_back(Pending{rel, name, tmpName, tmpMp, false});
 
         int left = -1;
         {
@@ -997,12 +1043,14 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
 #endif
     }
 
-    // Renombrado de menos profundo a más: `zfs rename` exige que el padre exista.
+    // Renombrado de menos profundo a más, y ahora por profundidad del NOMBRE, no de la
+    // ruta: `zfs rename` exige que exista el padre por nombre, y con nombres planos
+    // (`a:b:c`) la profundidad de la ruta ya no dice nada sobre ese orden.
     std::sort(byDepth.begin(), byDepth.end(), [&](const Pending* a, const Pending* b) {
-        return depthOf(a->rel) < depthOf(b->rel);
+        return depthOf(a->name) < depthOf(b->name);
     });
     for (const Pending* p : byDepth) {
-        const std::string child = dataset + "/" + p->rel;
+        const std::string child = dataset + "/" + p->name;
         const fs::path srcPath = fs::path(mountpoint) / fs::path(p->rel);
         ExecResult ren = runExecCapture("zfs", {"rename", p->tmpName, child});
         if (ren.rc != 0) {
@@ -1013,7 +1061,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             ren.err += "\nLos datos están a salvo en datasets temporales bajo " + dataset
                        + ". Renómbrelos a mano; NO los destruya.\n";
             for (const Pending* q : byDepth) {
-                ren.err += "  " + q->tmpName + "  ->  " + dataset + "/" + q->rel + "\n";
+                ren.err += "  " + q->tmpName + "  ->  " + dataset + "/" + q->name + "\n";
             }
             return ren;
         }
@@ -1200,10 +1248,22 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 return fix;
             }
             (void)runExecCapture("zfs", {"unmount", kid});
-            // Nombre libre bajo el padre: puede haber ya uno que se llame igual.
-            std::string target = dataset + "/" + kidBase;
+            // El nombre codifica DÓNDE queda montado: la ruta bajo el padre con ':' en
+            // lugar de '/', porque ZFS no admite '/' dentro de un componente. Antes se
+            // usaba solo el último tramo con sufijo -2 al chocar, y eso perdía la ruta:
+            // dos hijos homónimos en carpetas distintas quedaban como `X` y `X-2`, sin
+            // nada que dijera de dónde venía cada uno. Con la ruta codificada el viaje
+            // de ida y vuelta no pierde información y Desglosar puede reconstruirla.
+            // (ZFS solo admite [a-zA-Z0-9_.:- ] y espacio: ':' es de los pocos legales
+            // que casi no aparece en nombres de directorio.)
+            std::string encoded = kidBase;
+            if (kidMp.rfind(parentMp + "/", 0) == 0) {
+                encoded = kidMp.substr(parentMp.size() + 1);
+                std::replace(encoded.begin(), encoded.end(), '/', ':');
+            }
+            std::string target = dataset + "/" + encoded;
             for (int n = 2; runExecCapture("zfs", {"list", "-H", "-o", "name", target}).rc == 0; ++n) {
-                target = dataset + "/" + kidBase + "-" + std::to_string(n);
+                target = dataset + "/" + encoded + "-" + std::to_string(n);
             }
             ExecResult mv = runExecCapture("zfs", {"rename", kid, target});
             if (mv.rc != 0) {
@@ -4698,9 +4758,11 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return runGenericMutationCapture("zfs", params[0]);
     }
     if (cmd == "--mutate-advanced-breakdown") {
-        if (params.size() < 2) {
+        if (params.size() < 3) {
             r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " --mutate-advanced-breakdown <dataset> <dir> [dir...]\n";
+            r.err = std::string("usage: ") + argv0
+                    + " --mutate-advanced-breakdown <dataset> <dir> <nombre> "
+                      "[<dir> <nombre>...]\n";
             return r;
         }
         return runMutateAdvancedBreakdownCapture(params);
@@ -6423,7 +6485,7 @@ int main(int argc, char* argv[]) {
         return runGenericMutation("zfs", args[2]);
     }
     if (cmd == "--mutate-advanced-breakdown") {
-        if (args.size() < 4) {
+        if (args.size() < 5) {
             printUsage(args[0].c_str());
             return 2;
         }

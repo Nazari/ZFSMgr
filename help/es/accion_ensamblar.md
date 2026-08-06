@@ -1,6 +1,6 @@
 # Accion: Ensamblar
 
-Objetivo: convertir subdatasets en directorios dentro del dataset padre.
+Objetivo: absorber un subdataset en el dataset padre, dejando su contenido como directorio.
 
 Condiciones:
 
@@ -8,17 +8,31 @@ Condiciones:
 - El dataset padre debe estar **montado**; si no lo está, la operación falla con `mountpoint=none`. Cada subdataset seleccionado lo monta el propio agente.
 - En conexiones Unix requiere el agente `zfsmgr-agent` instalado: no hay alternativa por shell.
 
-Comportamiento:
+## Elegir qué absorber
 
-- Muestra una pantalla para seleccionar subdatasets. El listado es recursivo: incluye descendientes anidados, no solo los hijos directos.
+La pantalla de selección tiene dos columnas: el directorio y **el dataset que es actualmente**. Aquí el nombre es un dato, no una propuesta, así que no se edita.
+
+Los subdatasets se eligen **por separado**: absorber uno no obliga a absorber los que cuelgan de él.
+
+## Qué hace
+
 - Muestra el comando, pide confirmación y se ejecuta en el acto, bloqueando la interfaz mientras dura.
-- Para cada subdataset: copia su contenido a un directorio temporal en `/tmp` del sistema remoto, destruye el subdataset (`zfs destroy -r`) y copia el contenido desde el temporal al directorio correspondiente dentro del padre.
-- El subdataset solo se destruye si la copia **al directorio temporal** ha terminado correctamente.
-- Registra en NORMAL los subdatasets seleccionados antes de empezar y una línea `[ASSEMBLE] ok` por subdataset al terminar. No hay progreso en tiempo real durante la copia.
+- El contenido se copia a una escala **dentro del propio pool**, y el paso final es un cambio de nombre en vez de una segunda copia: los datos no viajan dos veces.
+- **Los subdatasets que cuelgan del absorbido se conservan.** No se destruyen: se reasignan al padre y siguen montados donde estaban, así que su contenido no se toca.
+- Al reasignarlos, el nombre pasa a codificar **dónde quedan montados**: la ruta bajo el padre con `:` en lugar de `/`.
 
-Advertencias importantes:
+```
+testpool/user/bin/Squirrel.app/Contents   (antes)
+testpool/user/bin/Squirrel.app:Contents   (después, montado en el mismo sitio)
+```
 
-- **`zfs destroy -r` arrastra también los descendientes** del subdataset elegido.
-- **Se usa `/tmp` del sistema remoto como almacenamiento intermedio**: debe haber espacio libre suficiente.
-- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).
+Así el nombre conserva la ruta y un Desglosar posterior puede reconstruirla. El nombre del dataset deja de reflejar la estructura de directorios, que es lo esperado: ZFS no exige que coincidan.
+
+- La caja de *Progreso* publica una línea cada dos segundos con el elemento en curso, lo copiado y la velocidad.
+
+## Advertencias importantes
+
+- El espacio intermedio se toma **del propio pool**, no del `/tmp` del sistema. En la mayoría de las distribuciones de Linux `/tmp` está en memoria, y usarlo hacía imposible ensamblar un dataset grande.
 - Antes de destruir el dataset de origen se **verifica que la copia esté completa**; si falta algo, la acción se detiene y el dataset **no se destruye**.
+- Se destruye **solo** el dataset elegido, sin `-r`: sus descendientes ya se han reasignado antes.
+- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).

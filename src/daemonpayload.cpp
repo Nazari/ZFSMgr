@@ -388,11 +388,19 @@ case "$cmd" in
     [ -n "$DATASET" ] || exit 2
     MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
     [ -n "$MP" ] || { echo 'mountpoint=none'; exit 2; }
-    for rel in "$@"; do
+    while [ $# -ge 2 ]; do
+      rel="$1"; name="$2"; shift 2
       [ -n "$rel" ] || continue
+      [ -n "$name" ] || exit 2
       SRC="$MP/$rel"
       [ -d "$SRC" ] || continue
-      CHILD="$DATASET/$rel"
+      # Este respaldo borra el original con rm -rf, que no distingue puntos de montaje.
+      # El agente nativo desmonta antes y remonta despues; aqui no, asi que se aborta.
+      if zfs mount 2>/dev/null | awk -v p="$SRC/" 'index($2,p)==1{f=1} END{exit !f}'; then
+        echo "hay datasets montados dentro de $rel; use el agente nativo" >&2
+        exit 1
+      fi
+      CHILD="$DATASET/$name"
       if zfs list -H -o name "$CHILD" >/dev/null 2>&1; then
         echo "child_exists=$CHILD"
         continue

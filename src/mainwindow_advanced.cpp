@@ -409,6 +409,39 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             invalidDirReasons.insert(dir, reason);
         }
     }
+    // Nombre del dataset en el que se convertirá cada directorio. No tiene por qué
+    // reflejar la ruta: `zfs create` solo exige que exista el dataset PADRE por nombre,
+    // no que el directorio de encima sea un dataset. Así se puede convertir `a/b/c`
+    // dejando `a` y `b` como directorios normales, con el nombre plano `a:b:c`.
+    // Los tramos que sí serán dataset se separan con '/', los que no con ':' — de los
+    // caracteres que ZFS admite ([a-zA-Z0-9_.:- ] y espacio) es el que menos se
+    // confunde con un nombre de directorio corriente.
+    MainWindow::TreeNameColumn nameColumn;
+    nameColumn.header = trk(QStringLiteral("t_col_dataset_001"),
+                            QStringLiteral("Dataset resultante"),
+                            QStringLiteral("Resulting dataset"),
+                            QStringLiteral("生成的数据集"));
+    nameColumn.editable = true;
+    nameColumn.takenNames = childDatasetPathsLower;
+    nameColumn.propose = [childDatasetPathsLower](const QString& path,
+                                                  const QSet<QString>& checked) {
+        const QStringList parts = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        QString name;
+        QString prefix;
+        for (int i = 0; i < parts.size(); ++i) {
+            if (i == 0) {
+                name = parts[0];
+                prefix = parts[0];
+                continue;
+            }
+            const bool prefixIsDataset = checked.contains(prefix)
+                                         || childDatasetPathsLower.contains(prefix.toLower());
+            name += (prefixIsDataset ? QStringLiteral("/") : QStringLiteral(":")) + parts[i];
+            prefix += QStringLiteral("/") + parts[i];
+        }
+        return name;
+    };
+
     if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
                 QStringLiteral("Break down: select directories"),
@@ -423,11 +456,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                 QStringLiteral("Mountpoint used to scan directories: %1").arg(resolvedMp),
                 QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)),
             invalidDirReasons,
-            // Para que exista <ds>/Disks/Bootables tiene que existir antes <ds>/Disks:
-            // marcar un directorio arrastra a sus ascendientes, y desmarcarlo suelta a
-            // sus descendientes. Antes regía el tristate automático, que impone lo
-            // contrario y obligaba a desglosar subárboles enteros.
-            /*ancestorsRequired=*/true)) {
+            isWindowsConnection(p) ? nullptr : &nameColumn)) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),
@@ -435,7 +464,8 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         return;
     }
     for (const QString& d : selectedDirs) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("[BREAKDOWN] pendiente: %1").arg(d));
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("[BREAKDOWN] pendiente: %1 -> %2")
+                                             .arg(d, nameColumn.chosen.value(d, d)));
     }
 
     QString cmd;
@@ -495,7 +525,9 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     } else {
         if (!isWindowsConnection(p)) {
             QStringList argv{QStringLiteral("--mutate-advanced-breakdown"), ds};
-            argv += selectedDirs;
+            for (const QString& d : selectedDirs) {
+                argv << d << nameColumn.chosen.value(d, d);
+            }
             cmd = mwhelpers::agentShellCommand(p, argv);
             executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0,
                                  allowWindowsScript, {}, true, {}, argv);
@@ -666,6 +698,19 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         childPathToDataset.insert(rel, childDataset);
     }
     QStringList selectedChildPaths;
+    // Columna informativa: qué dataset es cada fila. Aquí el nombre es un hecho, no una
+    // propuesta, así que no se edita. Tras absorberlo, los datasets que cuelguen de él
+    // se conservan y pasan a llamarse por su ruta bajo el padre con ':' en lugar de '/'.
+    MainWindow::TreeNameColumn assembleNames;
+    assembleNames.header = trk(QStringLiteral("t_col_dataset_002"),
+                               QStringLiteral("Dataset actual"),
+                               QStringLiteral("Current dataset"),
+                               QStringLiteral("当前数据集"));
+    assembleNames.editable = false;
+    assembleNames.propose = [childPathToDataset](const QString& path, const QSet<QString>&) {
+        return childPathToDataset.value(path);
+    };
+
     if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_ass_tit001"), QStringLiteral("Ensamblar: seleccionar subdatasets"),
                 QStringLiteral("Assemble: select child datasets"),
@@ -674,7 +719,10 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                 QStringLiteral("Select child datasets to assemble into parent dataset."),
                 QStringLiteral("请选择要组装回父数据集的子数据集。")),
             childPaths,
-            selectedChildPaths)) {
+            selectedChildPaths,
+            QString(),
+            {},
+            &assembleNames)) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
                    QStringLiteral("Assemble canceled or no selection."),

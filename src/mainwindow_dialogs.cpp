@@ -27,6 +27,8 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QTabWidget>
+#include <QHeaderView>
+#include <QStyledItemDelegate>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -740,13 +742,35 @@ bool MainWindow::selectItemsDialog(const QString& title,
     return true;
 }
 
+namespace {
+
+// Deja editar una sola columna. Sin esto haría falta poner ItemIsEditable en el item,
+// que vale para la fila entera y dejaría editable también el nombre del directorio.
+class SingleColumnEditableDelegate : public QStyledItemDelegate {
+public:
+    SingleColumnEditableDelegate(int column, QObject* parent)
+        : QStyledItemDelegate(parent), m_column(column) {}
+    QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem& option,
+                          const QModelIndex& index) const override {
+        if (index.column() != m_column) {
+            return nullptr;
+        }
+        return QStyledItemDelegate::createEditor(parent, option, index);
+    }
+
+private:
+    int m_column;
+};
+
+}  // namespace
+
 bool MainWindow::selectTreeItemsDialog(const QString& title,
                                        const QString& intro,
                                        const QStringList& items,
                                        QStringList& selected,
                                        const QString& detail,
                                        const QMap<QString, QString>& invalidItems,
-                                       bool ancestorsRequired) {
+                                       TreeNameColumn* nameColumn) {
     if (items.isEmpty()) {
         return false;
     }
@@ -798,7 +822,26 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     }
 
     auto* tree = new QTreeWidget(&dlg);
-    tree->setHeaderHidden(true);
+    constexpr int nameCol = 1;
+    QPushButton* okBtn = nullptr;  // se crea más abajo; la validación lo habilita
+    if (nameColumn) {
+        tree->setColumnCount(2);
+        tree->setHeaderLabels({trk(QStringLiteral("t_col_directorio_001"),
+                                   QStringLiteral("Directorio"), QStringLiteral("Directory"),
+                                   QStringLiteral("目录")),
+                               nameColumn->header});
+        tree->setHeaderHidden(false);
+        if (nameColumn->editable) {
+            // Solo la columna del nombre es editable. Las banderas de QTreeWidgetItem
+            // valen para toda la fila, así que el filtro tiene que ir en el delegado.
+            tree->setItemDelegate(new SingleColumnEditableDelegate(nameCol, tree));
+            tree->setEditTriggers(QAbstractItemView::DoubleClicked
+                                  | QAbstractItemView::SelectedClicked
+                                  | QAbstractItemView::EditKeyPressed);
+        }
+    } else {
+        tree->setHeaderHidden(true);
+    }
     tree->setRootIsDecorated(true);
     tree->setUniformRowHeights(false);
     tree->setSelectionMode(QAbstractItemView::NoSelection);
@@ -835,9 +878,10 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                 // estado propio —se lo calculaban sus hijos—, así que un nodo con hijos
                 // solo se podía marcar marcando alguno de ellos. Los dos usos quieren lo
                 // contrario:
-                //   Desglosar  -> ancestorsRequired: marcar arrastra a los ascendientes.
-                //   Ensamblar  -> independiente: cada dataset se absorbe por su cuenta y
-                //                 los que cuelgan de él se conservan reasignados.
+                //   Desglosar  -> el nombre se elige; un directorio se puede convertir
+                //                 sin convertir los de encima.
+                //   Ensamblar  -> cada dataset se absorbe por su cuenta y los que
+                //                 cuelgan de él se conservan reasignados.
                 node->setFlags((node->flags() | Qt::ItemIsUserCheckable)
                                & ~Qt::ItemIsSelectable);
                 node->setCheckState(0, Qt::Unchecked);
@@ -875,40 +919,13 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         node->setCheckState(0, initiallySelected.contains(key) ? Qt::Checked : Qt::Unchecked);
     }
 
-    if (ancestorsRequired) {
-        QObject::connect(tree, &QTreeWidget::itemChanged, tree,
-                         [tree](QTreeWidgetItem* item, int column) {
-            if (!item || column != 0) {
-                return;
-            }
-            // Reentrante: cada setCheckState vuelve a emitir itemChanged.
-            static bool applying = false;
-            if (applying) {
-                return;
-            }
-            applying = true;
-            const QSignalBlocker blocker(tree);
-            if (item->checkState(0) == Qt::Checked) {
-                for (QTreeWidgetItem* up = item->parent(); up; up = up->parent()) {
-                    if (!up->isDisabled()) {
-                        up->setCheckState(0, Qt::Checked);
-                    }
-                }
-            } else {
-                std::function<void(QTreeWidgetItem*)> down = [&](QTreeWidgetItem* n) {
-                    for (int i = 0; i < n->childCount(); ++i) {
-                        QTreeWidgetItem* c = n->child(i);
-                        c->setCheckState(0, Qt::Unchecked);
-                        down(c);
-                    }
-                };
-                down(item);
-            }
-            applying = false;
-        });
-    }
-
     tree->expandAll();
+    if (nameColumn) {
+        // Sin esto la columna del nombre nace estrecha y no se lee, que es justo lo que
+        // hay que mirar antes de aceptar.
+        tree->setColumnWidth(0, 380);
+        tree->header()->setStretchLastSection(true);
+    }
 
     auto allNodes = [tree]() {
         QList<QTreeWidgetItem*> nodes;
@@ -949,6 +966,127 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                 QStringLiteral("仅用于定位其中的项目；不可选择。")));
     }
 
+    // ---- Columna del nombre de dataset ----
+    QSet<QString> manuallyEdited;  // filas que tocó el usuario: no se recalculan
+    auto checkedPaths = [&]() {
+        QSet<QString> out;
+        for (QTreeWidgetItem* item : allNodes()) {
+            if (item && !item->isDisabled() && item->checkState(0) == Qt::Checked) {
+                out.insert(item->data(0, fullPathRole).toString().trimmed());
+            }
+        }
+        return out;
+    };
+    auto candidateNodes = [&]() {
+        QList<QTreeWidgetItem*> out;
+        for (QTreeWidgetItem* item : allNodes()) {
+            if (!item || item->isDisabled()) {
+                continue;
+            }
+            const QString key = item->data(0, fullPathRole).toString().trimmed().toLower();
+            if (validItemKeys.contains(key)) {
+                out.push_back(item);
+            }
+        }
+        return out;
+    };
+    // ZFS solo admite [a-zA-Z0-9_.:- ] y espacio en cada componente. La '/' separa
+    // componentes, así que se permite aquí pero no en los extremos ni repetida.
+    auto invalidNameReason = [](const QString& name) -> QString {
+        const QString n = name.trimmed();
+        if (n.isEmpty()) {
+            return QStringLiteral("vacío");
+        }
+        if (n.startsWith('/') || n.endsWith('/') || n.contains(QStringLiteral("//"))) {
+            return QStringLiteral("'/' mal colocada");
+        }
+        if (n.contains(QStringLiteral(".."))) {
+            return QStringLiteral("contiene '..'");
+        }
+        for (const QChar c : n) {
+            const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                            || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'
+                            || c == ':' || c == ' ' || c == '/';
+            if (!ok) {
+                return QStringLiteral("ZFS no admite '%1'").arg(c);
+            }
+        }
+        return QString();
+    };
+    auto refreshNames = [&]() {
+        if (!nameColumn || !nameColumn->propose) {
+            return;
+        }
+        const QSet<QString> checked = checkedPaths();
+        const QSignalBlocker blocker(tree);
+        for (QTreeWidgetItem* item : candidateNodes()) {
+            const QString path = item->data(0, fullPathRole).toString().trimmed();
+            if (manuallyEdited.contains(path)) {
+                continue;
+            }
+            item->setText(nameCol, nameColumn->propose(path, checked));
+        }
+    };
+    auto validateNames = [&]() {
+        if (!nameColumn) {
+            return;
+        }
+        QMap<QString, int> seen;
+        QString firstProblem;
+        const QSignalBlocker blocker(tree);
+        for (QTreeWidgetItem* item : candidateNodes()) {
+            if (item->checkState(0) != Qt::Checked) {
+                continue;
+            }
+            ++seen[item->text(nameCol).trimmed()];
+        }
+        for (QTreeWidgetItem* item : candidateNodes()) {
+            const QString name = item->text(nameCol).trimmed();
+            QString reason;
+            if (item->checkState(0) == Qt::Checked) {
+                reason = invalidNameReason(name);
+                if (reason.isEmpty() && seen.value(name) > 1) {
+                    reason = QStringLiteral("repetido en esta misma selección");
+                }
+                if (reason.isEmpty() && nameColumn->takenNames.contains(name.toLower())) {
+                    reason = QStringLiteral("ya existe un dataset con ese nombre");
+                }
+            }
+            item->setForeground(nameCol, QBrush(QColor(reason.isEmpty()
+                                                           ? QStringLiteral("#1a1a1a")
+                                                           : QStringLiteral("#8b2020"))));
+            item->setToolTip(nameCol, reason);
+            if (!reason.isEmpty() && firstProblem.isEmpty()) {
+                firstProblem = QStringLiteral("%1: %2").arg(name, reason);
+            }
+        }
+        if (okBtn) {
+            okBtn->setEnabled(firstProblem.isEmpty());
+            okBtn->setToolTip(firstProblem);
+        }
+    };
+    if (nameColumn) {
+        if (nameColumn->editable) {
+            const QSignalBlocker blocker(tree);
+            for (QTreeWidgetItem* item : candidateNodes()) {
+                item->setFlags(item->flags() | Qt::ItemIsEditable);
+            }
+        }
+        QObject::connect(tree, &QTreeWidget::itemChanged, tree,
+                         [&](QTreeWidgetItem* item, int column) {
+            if (!item) {
+                return;
+            }
+            if (column == nameCol) {
+                manuallyEdited.insert(item->data(0, fullPathRole).toString().trimmed());
+            } else if (column == 0) {
+                refreshNames();
+            }
+            validateNames();
+        });
+        refreshNames();
+    }
+
     auto* tools = new QHBoxLayout();
     auto* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
                                        QStringLiteral("Seleccionar todo"),
@@ -965,27 +1103,35 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     tools->addStretch(1);
     root->addLayout(tools);
 
-    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [allNodes, validItemKeys]() {
-        const QList<QTreeWidgetItem*> nodes = allNodes();
-        for (QTreeWidgetItem* item : nodes) {
-            if (!item || item->isDisabled()) {
-                continue;
+    // Con el bloqueo, marcar 200 filas recalcula los nombres UNA vez y no doscientas.
+    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [&]() {
+        {
+            const QSignalBlocker blocker(tree);
+            for (QTreeWidgetItem* item : allNodes()) {
+                if (!item || item->isDisabled()) {
+                    continue;
+                }
+                const QString key = item->data(0, fullPathRole).toString().trimmed().toLower();
+                if (!validItemKeys.contains(key)) {
+                    continue;
+                }
+                item->setCheckState(0, Qt::Checked);
             }
-            const QString key = item->data(0, fullPathRole).toString().trimmed().toLower();
-            if (!validItemKeys.contains(key)) {
-                continue;
-            }
-            item->setCheckState(0, Qt::Checked);
         }
+        refreshNames();
+        validateNames();
     });
-    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [allNodes]() {
-        const QList<QTreeWidgetItem*> nodes = allNodes();
-        for (QTreeWidgetItem* item : nodes) {
-            if (!item) {
-                continue;
+    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [&]() {
+        {
+            const QSignalBlocker blocker(tree);
+            for (QTreeWidgetItem* item : allNodes()) {
+                if (item) {
+                    item->setCheckState(0, Qt::Unchecked);
+                }
             }
-            item->setCheckState(0, Qt::Unchecked);
         }
+        refreshNames();
+        validateNames();
     });
 
     auto* box = new QDialogButtonBox(&dlg);
@@ -994,7 +1140,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                          QStringLiteral("Cancel"),
                                          QStringLiteral("取消")),
                                      QDialogButtonBox::RejectRole);
-    auto* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+    okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                      QStringLiteral("Aceptar"),
                                      QStringLiteral("Accept"),
                                      QStringLiteral("确认")),
@@ -1002,12 +1148,16 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    validateNames();
 
     if (dlg.exec() != QDialog::Accepted) {
         return false;
     }
 
     selected.clear();
+    if (nameColumn) {
+        nameColumn->chosen.clear();
+    }
     // Por qué se descarta cada nodo. Si el usuario marcó algo y aun así la lista sale
     // vacía, sin esto no hay manera de saber cuál de los tres filtros lo tiró.
     QStringList rejected;
@@ -1039,6 +1189,9 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
             continue;
         }
         selected.push_back(fullPath);
+        if (nameColumn) {
+            nameColumn->chosen.insert(fullPath, item->text(nameCol).trimmed());
+        }
     }
     if (selected.isEmpty() && !rejected.isEmpty()) {
         appLog(QStringLiteral("WARN"),

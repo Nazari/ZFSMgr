@@ -43,6 +43,7 @@ daemon:log-and-heartbeat
 daemon:log-tail-with-absolute-offset
 gsa:scheduler
 zed:lightweight-poll
+breakdown:dir-name-pairs
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)
