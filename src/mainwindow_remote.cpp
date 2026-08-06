@@ -3077,6 +3077,11 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     return true;
 }
 
+// Cuánto se tolera que una tubería siga viva sin transportar nada. Dos minutos: una
+// copia real puede tardar en arrancar (rsync enumerando, tar abriendo el árbol), pero
+// no dos minutos sin un solo byte.
+constexpr qint64 kStallAbortMs = 120000;
+
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog, bool streamProgress) {
     if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)}, forceConfirmDialog)) {
         return false;
@@ -3094,8 +3099,16 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     localWinProfile.osType = QStringLiteral("Windows");
     proc.start(QStringLiteral("cmd.exe"), QStringList{QStringLiteral("/C"), wrapRemoteCommand(localWinProfile, command)});
 #else
+    // `set -o pipefail`: sin esto el resultado de una tubería es el de su ÚLTIMA orden,
+    // así que un extremo emisor que falla —el `tar` del origen, por ejemplo— daba
+    // resultado correcto mientras el receptor terminara bien, y la operación se contaba
+    // como hecha con los datos a medias. Es POSIX desde la edición de 2024 y lo soportan
+    // dash, bash, zsh y el sh de macOS y FreeBSD; si algún sh no lo admite, el `|| true`
+    // deja la orden exactamente como estaba antes.
     proc.start(QStringLiteral("sh"),
-               QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(command)});
+               QStringList{QStringLiteral("-c"),
+                           QStringLiteral("set -o pipefail 2>/dev/null || true\n")
+                               + mwhelpers::asciiSafeShellCommand(command)});
 #endif
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),
@@ -3116,6 +3129,9 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QString errRemainder;
     QElapsedTimer progressTimer;
     progressTimer.start();
+    QElapsedTimer stallTimer;
+    stallTimer.start();
+    QString lastStallSnippet;
     QElapsedTimer heartbeatTimer;
     heartbeatTimer.start();
     int lastProgressPercent = -1;
@@ -3192,6 +3208,20 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     sawProgressOutput = true;
                     appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(partial));
                 }
+                // Estancamiento: `pv` sigue imprimiendo aunque no pase un solo byte, así
+                // que la línea cambia siempre —cambia el reloj— y el temporizador de
+                // avance nunca salta. Quitando el reloj queda lo que de verdad importa;
+                // si ESO no cambia, la tubería está viva pero no transporta nada. Es lo
+                // que pasa cuando el extremo receptor falla: se queda así para siempre.
+                if (looksLikeProgress) {
+                    static const QRegularExpression clockRx(QStringLiteral("\\d+:\\d\\d:\\d\\d"));
+                    QString withoutClock = partial;
+                    withoutClock.remove(clockRx);
+                    if (withoutClock != lastStallSnippet) {
+                        lastStallSnippet = withoutClock;
+                        stallTimer.restart();
+                    }
+                }
             }
         }
     };
@@ -3218,6 +3248,35 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
             m_cancelActionRequested = false;
+            setActionsLocked(false);
+            return false;
+        }
+        // Sin datos durante dos minutos con la tubería viva: no va a arrancar sola. El
+        // caso real era Desde Dir contra un dataset sin punto de montaje utilizable —el
+        // receptor fallaba al instante y esto seguía "en curso" indefinidamente—, pero
+        // vale para cualquier extremo que muera sin cerrar la tubería.
+        if (streamProgress && sawProgressOutput && stallTimer.elapsed() > kStallAbortMs) {
+            appLog(QStringLiteral("ERROR"),
+                   trk(QStringLiteral("t_pipe_stalled_001"),
+                       QStringLiteral("%1: la transferencia lleva %2 s sin mover datos. Se "
+                                      "aborta: lo habitual es que el extremo receptor haya "
+                                      "fallado sin cerrar la tubería. Revise el registro."),
+                       QStringLiteral("%1: the transfer has moved no data for %2 s. Aborting: "
+                                      "the usual cause is the receiving end failing without "
+                                      "closing the pipe. Check the log."),
+                       QStringLiteral("%1：传输已有 %2 秒没有数据流动，现已中止。常见原因是接收端"
+                                      "失败但未关闭管道。请查看日志。"))
+                       .arg(displayLabel)
+                       .arg(stallTimer.elapsed() / 1000));
+            terminateProcessTree(m_activeLocalPid);
+            proc.terminate();
+            if (!proc.waitForFinished(800)) {
+                proc.kill();
+                proc.waitForFinished(800);
+            }
+            updateStatus(QStringLiteral("%1 (SIN AVANCE)").arg(displayLabel));
+            m_activeLocalProcess = nullptr;
+            m_activeLocalPid = -1;
             setActionsLocked(false);
             return false;
         }
