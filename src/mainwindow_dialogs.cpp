@@ -986,16 +986,43 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     }
 
     selected.clear();
+    // Por qué se descarta cada nodo. Si el usuario marcó algo y aun así la lista sale
+    // vacía, sin esto no hay manera de saber cuál de los tres filtros lo tiró.
+    QStringList rejected;
     const QList<QTreeWidgetItem*> nodes = allNodes();
     for (QTreeWidgetItem* item : nodes) {
-        if (!item || item->isDisabled() || item->checkState(0) != Qt::Checked) {
+        if (!item) {
             continue;
         }
+        const Qt::CheckState state = item->checkState(0);
         const QString fullPath = item->data(0, fullPathRole).toString().trimmed();
-        if (fullPath.isEmpty() || !validItemKeys.contains(fullPath.toLower())) {
+        if (state == Qt::Unchecked) {
+            continue;
+        }
+        const char* why = nullptr;
+        if (item->isDisabled()) {
+            why = "deshabilitado";
+        } else if (state != Qt::Checked) {
+            why = "estado parcial";
+        } else if (fullPath.isEmpty()) {
+            why = "sin ruta";
+        } else if (!validItemKeys.contains(fullPath.toLower())) {
+            why = "no está en la lista de candidatos";
+        }
+        if (why) {
+            rejected << QStringLiteral("%1 (%2, checkState=%3)")
+                            .arg(fullPath.isEmpty() ? item->text(0) : fullPath,
+                                 QString::fromLatin1(why))
+                            .arg(static_cast<int>(state));
             continue;
         }
         selected.push_back(fullPath);
+    }
+    if (selected.isEmpty() && !rejected.isEmpty()) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("[selección] se marcaron %1 elementos y ninguno resultó utilizable: %2")
+                   .arg(rejected.size())
+                   .arg(rejected.join(QStringLiteral("; "))));
     }
     // Aceptar sin marcar nada NO es una selección válida. Antes devolvía "aceptado" con
     // la lista vacía, el llamante armaba la orden sin directorios y el daemon la
