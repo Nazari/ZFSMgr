@@ -853,6 +853,18 @@ bool MainWindow::executeDatasetAction(const QString& side,
                                   QStringLiteral("%1 failed:\n%2"),
                                   QStringLiteral("%1 失败：\n%2"))
                                   .arg(actionName, failureDetail));
+        // Refrescar TAMBIÉN al fallar. Una orden puede fallar después de haber cambiado
+        // cosas —crear el dataset y fallar al montarlo, borrar unos snapshots y morir en
+        // el siguiente—, y si no se refresca el árbol sigue enseñando el estado anterior:
+        // lo hecho no aparece, el usuario lo repite y choca con que ya está.
+        if (ctx.valid && ctx.connIdx >= 0 && !ctx.poolName.trimmed().isEmpty()) {
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+            if (m_connContentTree && m_topDetailConnIdx == ctx.connIdx) {
+                reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            } else {
+                refreshConnectionByIndex(ctx.connIdx);
+            }
+        }
         setActionsLocked(false);
         return false;
     }

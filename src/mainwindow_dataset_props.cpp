@@ -3161,6 +3161,14 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
     }
     if (change.kind == PendingChange::Kind::ShellAction) {
         const PendingShellActionDraft& draft = change.shellDraft;
+        // Al fallar hay que refrescar igualmente. Una orden puede fallar DESPUÉS de haber
+        // cambiado cosas —el caso real: Desde Dir creaba el dataset y luego se rechazaba
+        // por no tener punto de montaje—, y sin refrescar el árbol se queda mintiendo: lo
+        // creado no aparece, el usuario lo vuelve a intentar y choca con que ya existe.
+        auto failAndRefresh = [this, &draft]() {
+            refreshPendingShellActionDraft(draft);
+            return false;
+        };
         // Paso previo tipado, si lo hay. Va ANTES que la orden de shell y, si falla, no
         // se ejecuta nada más: en Desde Dir este paso crea el dataset destino, y sin él
         // la tubería de tar escribiría en un sitio que no existe.
@@ -3182,7 +3190,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                 appLog(QStringLiteral("ERROR"),
                        QStringLiteral("%1: no se pudo crear el dataset destino (%2)")
                            .arg(draft.displayLabel.trimmed(), mwhelpers::oneLine(err)));
-                return false;
+                return failAndRefresh();
             }
             // El dataset puede crearse y aun así no servir: si hereda mountpoint=none
             // del pool, no hay dónde escribir. Antes eso no se detectaba y la tubería
@@ -3211,7 +3219,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                 appLog(QStringLiteral("ERROR"),
                        QStringLiteral("%1: %2").arg(draft.displayLabel.trimmed(), why));
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"), why);
-                return false;
+                return failAndRefresh();
             }
         }
         // Acción de dataset diferida (Desglosar, Ensamblar): se ejecuta por su camino
@@ -3229,7 +3237,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                                                        {},
                                                        draft.datasetActionArgv);
             if (!okAction) {
-                return false;
+                return failAndRefresh();
             }
             for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
                 const PendingChange& existing = m_pendingChangesModel.at(i);
@@ -3246,11 +3254,11 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
         bool handledRemotely = false;
         QString remoteFailure;
         if (!tryExecutePendingShellActionRemotely(draft, &handledRemotely, &remoteFailure)) {
-            return false;
+            return failAndRefresh();
         }
         if (!handledRemotely
             && !runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
-            return false;
+            return failAndRefresh();
         }
         for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
             const PendingChange& existing = m_pendingChangesModel.at(i);
