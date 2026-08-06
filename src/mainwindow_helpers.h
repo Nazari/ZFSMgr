@@ -47,6 +47,7 @@ enum class StreamCodec {
     None,
 };
 
+QString maskCommandSecrets(const QString& input);
 QString oneLine(const QString& v, int maxLen = 220);
 QString sshHostKeyProblemHint(const QString& sshStderr);
 QString shSingleQuote(const QString& s);

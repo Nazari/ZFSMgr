@@ -184,30 +184,9 @@ QString prettifyCommandText(const QString& cmd) {
 }
 
 QString maskSecretsForPreview(const QString& input) {
-    QString out = input;
-
-    const auto replaceAll = [&out](const QRegularExpression& rx, const QString& replacement) {
-        out.replace(rx, replacement);
-    };
-
-    replaceAll(QRegularExpression(QStringLiteral("(SSHPASS=)([^\\s]+)")),
-               QStringLiteral("\\1[secret]"));
-    // `(?:-\w+\s+)*` tolerates flags between `sudo` and `-S`. The real command is
-    // built as `sudo -k -S -p ''` (see withSudoCommand), so a pattern anchored on a
-    // bare `sudo -S` never matched and the password was rendered verbatim in the
-    // confirmation dialog.
-    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo\\s+(?:-\\w+\\s+)*-S)")),
-               QStringLiteral("\\1'[secret]'"));
-    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat\\s*;\\s*}\\s*\\|\\s*sudo\\s+(?:-\\w+\\s+)*-S)")),
-               QStringLiteral("\\1'[secret]'"));
-    // Forma actual: la contraseña va como escapes octales para `%b`, porque en macOS
-    // Qt descomponía los caracteres al pasar la orden al intérprete. Es ASCII, pero
-    // sigue siendo la contraseña: hay que taparla igual en la vista previa, que es
-    // donde se decide si seguir adelante con una operación destructiva.
-    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%b\\\\n'\\s+)'(?:\\\\0[0-7]{1,3})*'")),
-               QStringLiteral("\\1'[secret]'"));
-
-    return out;
+    // Mismos patrones que el registro: un solo sitio, en mwhelpers, y con test. Tenerlos
+    // por duplicado ya dejó escapar dos secretos distintos.
+    return mwhelpers::maskCommandSecrets(input);
 }
 
 QString decodePowerShellEncodedCommand(const QString& encoded) {

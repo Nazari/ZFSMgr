@@ -47,6 +47,41 @@ QString findLocalExecutable(const QString& name) {
     return QString();
 }
 
+// Tapa los secretos que van EMBEBIDOS en una orden, independientemente de dónde se
+// vaya a mostrar. Estaba duplicado en dos sitios —maskSecrets(), para el registro, y
+// maskSecretsForPreview(), para el diálogo de confirmación— con formas distintas y
+// ligeramente desalineadas. Esa duplicación ya ha costado dos fugas: la contraseña de
+// sudo en la 0.90.8, y la frase de cifrado de `zfs create`, que no tapaba NINGUNO de
+// los seis patrones que había porque usa `'%s\n%s\n'` con dos argumentos y la tubería
+// va a `zfs`, no a `sudo`.
+//
+// Un solo sitio, y con test.
+QString maskCommandSecrets(const QString& input) {
+    QString out = input;
+    const auto sub = [&out](const QString& pattern, const QString& replacement) {
+        out.replace(QRegularExpression(pattern), replacement);
+    };
+
+    // Contraseña de sudo, forma antigua (literal) y actual (escapes octales para %b).
+    sub(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo)"),
+        QStringLiteral("\\1'[secret]'"));
+    sub(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat)"),
+        QStringLiteral("\\1'[secret]'"));
+    sub(QStringLiteral("(printf\\s+'%b\\\\n'\\s+)'(?:\\\\0[0-7]{1,3})*'"),
+        QStringLiteral("\\1'[secret]'"));
+
+    // Frase de cifrado al crear un dataset: `zfs create -o keyformat=passphrase` la
+    // pide DOS veces por la entrada estándar, de ahí el formato con dos %s.
+    sub(QStringLiteral("(printf\\s+'%s\\\\n%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'\\s+'(?:[^'\\\\]|\\\\.)*'"),
+        QStringLiteral("\\1'[secret]' '[secret]'"));
+    // Su equivalente en PowerShell, que la mete en una variable.
+    sub(QStringLiteral("(\\$pp\\s*=\\s*)'(?:[^']|'')*'"), QStringLiteral("\\1'[secret]'"));
+
+    // Cualquier `password=` / `password:` suelto.
+    sub(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+"), QStringLiteral("\\1[secret]"));
+    return out;
+}
+
 QString oneLine(const QString& v, int maxLen) {
     QString x = v.simplified();
     return x.left(maxLen);

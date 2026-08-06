@@ -479,23 +479,9 @@ QString MainWindow::maskSecrets(const QString& text) const {
     if (text.isEmpty()) {
         return text;
     }
-    QString out = text;
-    // `(?:-\w+\s+)*` tolerates flags between `sudo` and `-S`: the real command is
-    // `sudo -k -S -p ''` (withSudoCommand), which a pattern anchored on a bare
-    // `sudo -S` never matched.
-    out.replace(
-        QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+.+?\\s+\\|\\s+sudo\\s+(?:-\\w+\\s+)*-S\\s+-p\\s+''")),
-        QStringLiteral("printf '%s\\n' [secret] | sudo -k -S -p ''"));
-    // La contraseña ya no se incrusta literal sino como escapes octales para `%b`
-    // (ver shPrintfOctalEscaped). Sin esta pasada el bucle de más abajo, que busca la
-    // contraseña en claro, no la encontraría y quedaría escrita en el registro —
-    // trivialmente reversible, porque son sus propios bytes en octal.
-    out.replace(
-        QRegularExpression(QStringLiteral("printf\\s+'%b\\\\n'\\s+'(?:\\\\0[0-7]{1,3})*'")),
-        QStringLiteral("printf '%b\\n' [secret]"));
-    out.replace(
-        QRegularExpression(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+")),
-        QStringLiteral("\\1[secret]"));
+    // Los patrones viven en mwhelpers::maskCommandSecrets, compartidos con la vista
+    // previa de confirmación y con test. Aquí solo queda lo que depende del estado.
+    QString out = mwhelpers::maskCommandSecrets(text);
     for (const ConnectionProfile& p : m_profiles) {
         if (!p.password.isEmpty()) {
             out.replace(p.password, QStringLiteral("[secret]"));

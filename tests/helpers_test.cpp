@@ -645,6 +645,46 @@ int main() {
         }
     }
 
+    // ── maskCommandSecrets ────────────────────────────────────────────────────
+    // Dos fugas reales han salido de aquí, las dos por el mismo motivo: los patrones
+    // estaban duplicados y ninguno cubría la forma nueva. Cada caso de abajo es una
+    // orden que la aplicación construye de verdad.
+    {
+        const QString sudoOld =
+            "printf '%s\\n' 'Mi-Clave' | sudo -k -S -p '' sh -c 'zfs list'";
+        const QString sudoOct =
+            "printf '%b\\n' '\\0115\\0151' | sudo -k -S -p '' sh -c 'zfs list'";
+        const QString passphrase =
+            "printf '%s\\n%s\\n' 'Fr4se-Secreta' 'Fr4se-Secreta' | zfs create "
+            "-o encryption=on -o keyformat=passphrase pool/nuevo";
+        const QString passphrasePs =
+            "$pp='Fr4se-Secreta'; $payload=$pp + \"`n\" + $pp; zfs create pool/nuevo";
+
+        struct Case { QString name; QString cmd; QString leak; };
+        const QVector<Case> cases = {
+            {"sudo literal", sudoOld, "Mi-Clave"},
+            {"sudo octal", sudoOct, "\\0115\\0151"},
+            {"frase de cifrado", passphrase, "Fr4se-Secreta"},
+            {"frase de cifrado (PowerShell)", passphrasePs, "Fr4se-Secreta"},
+        };
+        for (const Case& c : cases) {
+            const QString masked = maskCommandSecrets(c.cmd);
+            if (masked.contains(c.leak)) {
+                return fail(qPrintable(QStringLiteral(
+                    "maskCommandSecrets deja escapar el secreto en: %1").arg(c.name)));
+            }
+            if (!masked.contains("[secret]")) {
+                return fail(qPrintable(QStringLiteral(
+                    "maskCommandSecrets no marcó nada en: %1").arg(c.name)));
+            }
+        }
+        // Y no debe tapar de más: una orden sin secretos tiene que salir intacta.
+        const QString innocuous = "zfs list -H -o name,mountpoint -r testpool";
+        if (maskCommandSecrets(innocuous) != innocuous) {
+            return fail("maskCommandSecrets alteró una orden sin secretos");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }
