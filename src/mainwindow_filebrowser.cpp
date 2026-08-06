@@ -15,9 +15,6 @@ constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
 constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
 constexpr int kConnFileBrowserIsDirRole = Qt::UserRole + 55;
 constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
-constexpr int kConnRootInlineFieldRole = Qt::UserRole + 38;
-constexpr int kConnPropRowKindRole = Qt::UserRole + 16;
-constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 
 struct FileBrowserEntry {
     QString permissions;
@@ -147,40 +144,55 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         return;
     }
 
-    // Determine inline property columns available
-    const int propCols = qMax(1, tree->columnCount() - 4);
+    // Las propiedades se escriben en las columnas 4 en adelante. Si el árbol no tiene
+    // tantas, el bucle de abajo sale sin escribir NADA y quedan dos filas vacías bajo
+    // cada entrada: se ve el triángulo, se expande, y no hay nada. El qMax(1,...) de
+    // arriba tapa ese caso, así que se deja dicho en el registro.
+    // Las propiedades se escriben a partir de la columna 4. Si no hay tantas no se
+    // pierden —siguen en el tooltip de la fila— pero conviene que conste.
+    if (tree->columnCount() <= 4) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("[contenido] el árbol solo tiene %1 columnas; las propiedades "
+                              "de fichero solo se verán en el tooltip")
+                   .arg(tree->columnCount()));
+    }
 
-    auto addInlineProps = [&](QTreeWidgetItem* parent, const QVector<QPair<QString, QString>>& props) {
-        for (int base = 0; base < props.size(); base += propCols) {
-            auto* rowNames = new QTreeWidgetItem();
-            rowNames->setData(0, kConnRootInlineFieldRole, true);
-            rowNames->setData(0, kConnPropRowKindRole, 1);
-            rowNames->setData(0, kConnIdxRole, connIdx);
-            rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
-            auto* rowValues = new QTreeWidgetItem();
-            rowValues->setData(0, kConnRootInlineFieldRole, true);
-            rowValues->setData(0, kConnPropRowKindRole, 2);
-            rowValues->setData(0, kConnIdxRole, connIdx);
-            rowValues->setFlags((rowValues->flags() & ~Qt::ItemIsEditable) & ~Qt::ItemIsUserCheckable);
-            rowValues->setSizeHint(0, QSize(0, 33));
-            parent->addChild(rowNames);
-            parent->addChild(rowValues);
-            for (int off = 0; off < propCols; ++off) {
-                const int idx = base + off;
-                if (idx >= props.size()) {
-                    break;
-                }
-                const int col = 4 + off;
-                if (col >= tree->columnCount()) {
-                    break;
-                }
-                rowNames->setData(col, kConnInlineCellUsedRole, true);
-                rowValues->setData(col, kConnInlineCellUsedRole, true);
-                rowNames->setText(col, props.at(idx).first);
-                rowNames->setTextAlignment(col, Qt::AlignCenter);
-                rowValues->setText(col, props.at(idx).second);
-                rowValues->setTextAlignment(col, Qt::AlignCenter);
+    // Las propiedades van en la PROPIA fila de cada entrada, no colgando de ella.
+    // Antes se añadían como dos filas hijas (nombres y valores) a todas las entradas,
+    // ficheros incluidos: eso daba triángulo a los ficheros —que no tienen nada dentro—
+    // y obligaba a expandir para ver algo tan básico como el tamaño. Ahora el triángulo
+    // significa exactamente una cosa: que se puede entrar.
+    //
+    // Las columnas 4 en adelante no tienen rótulo fijo (son C1, C2, ... compartidas con
+    // los datasets), así que cada celda lleva el nombre de la propiedad en su tooltip y
+    // la fila entera lo lleva completo.
+    const QStringList propLabels = {
+        trk(QStringLiteral("t_fb_perms_001"), QStringLiteral("permisos"),
+            QStringLiteral("permissions"), QStringLiteral("权限")),
+        trk(QStringLiteral("t_fb_owner_001"), QStringLiteral("propietario"),
+            QStringLiteral("owner"), QStringLiteral("所有者")),
+        trk(QStringLiteral("t_fb_group_001"), QStringLiteral("grupo"),
+            QStringLiteral("group"), QStringLiteral("组")),
+        trk(QStringLiteral("t_fb_size_001"), QStringLiteral("tamaño"),
+            QStringLiteral("size"), QStringLiteral("大小")),
+        trk(QStringLiteral("t_fb_mtime_001"), QStringLiteral("modificado"),
+            QStringLiteral("modified"), QStringLiteral("修改时间")),
+    };
+    auto setEntryProps = [&](QTreeWidgetItem* item, const QStringList& values) {
+        QStringList tip;
+        for (int i = 0; i < values.size() && i < propLabels.size(); ++i) {
+            tip << QStringLiteral("%1: %2").arg(propLabels.at(i), values.at(i));
+        }
+        item->setToolTip(0, tip.join(QLatin1Char('\n')));
+        for (int i = 0; i < values.size(); ++i) {
+            const int col = 4 + i;
+            if (col >= tree->columnCount()) {
+                break;  // lo que no cabe sigue estando en el tooltip de la fila
             }
+            item->setText(col, values.at(i));
+            item->setToolTip(col, QStringLiteral("%1: %2")
+                                      .arg(propLabels.value(i), values.at(i)));
+            item->setTextAlignment(col, Qt::AlignLeft | Qt::AlignVCenter);
         }
     };
 
@@ -209,14 +221,7 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         entryItem->setData(0, kConnIdxRole, connIdx);
         entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsUserCheckable);
 
-        const QVector<QPair<QString, QString>> props = {
-            {QStringLiteral("permisos"), e.permissions},
-            {QStringLiteral("propietario"), e.owner},
-            {QStringLiteral("grupo"), e.group},
-            {QStringLiteral("tamaño"), e.size},
-            {QStringLiteral("modificado"), e.mtime},
-        };
-        addInlineProps(entryItem, props);
+        setEntryProps(entryItem, {e.permissions, e.owner, e.group, e.size, e.mtime});
 
         if (e.isDir) {
             auto* placeholder = new QTreeWidgetItem(entryItem);
