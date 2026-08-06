@@ -53,7 +53,12 @@ bool MainWindow::actionsLocked() const {
 }
 
 void MainWindow::requestCancelRunningAction() {
-    if (!m_actionsLocked || !m_activeLocalProcess) {
+    // Antes exigía además un proceso local vivo, y eso dejaba fuera justamente las
+    // operaciones largas: Desglosar y Ensamblar se envían como trabajo del daemon, así
+    // que no hay proceso local que matar y la petición se descartaba en silencio. Las
+    // dos esperas —la del proceso local y la del sondeo del trabajo— consumen esta
+    // misma bandera, de modo que basta con que haya una acción en curso.
+    if (!m_actionsLocked) {
         return;
     }
     m_cancelActionRequested = true;

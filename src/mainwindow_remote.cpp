@@ -851,6 +851,27 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     while (true) {
         QThread::msleep(1000);
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+        // Cancelación. Este bucle no la miraba, así que Desglosar y Ensamblar —las dos
+        // que se envían como trabajo— no se podían detener de ninguna manera desde la
+        // interfaz: no hay proceso local que matar, el trabajo vive en el daemon.
+        if (m_cancelActionRequested) {
+            m_cancelActionRequested = false;
+            QString cOut;
+            QString cErr;
+            int cRc = -1;
+            const QStringList cancelArgs = {QStringLiteral("--job-cancel"), jobId};
+            const bool asked = runAgentCommand(p, cancelArgs, 20000, cOut, cErr, cRc);
+            appLog(asked && cRc == 0 ? QStringLiteral("NORMAL") : QStringLiteral("ERROR"),
+                   asked && cRc == 0
+                       ? QStringLiteral("%1: cancelación pedida para el trabajo %2")
+                             .arg(p.name, jobId)
+                       : QStringLiteral("%1: no se pudo cancelar el trabajo %2 (%3). Puede "
+                                        "seguir en curso en el daemon.")
+                             .arg(p.name, jobId, mwhelpers::oneLine(cErr)));
+            err = QStringLiteral("cancelado por el usuario");
+            rc = 125;
+            return false;
+        }
         QString stOut;
         QString stErr;
         int stRc = -1;

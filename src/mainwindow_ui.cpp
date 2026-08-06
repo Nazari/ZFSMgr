@@ -2125,10 +2125,26 @@ void MainWindow::buildUi() {
         QStringLiteral("Eliminar"),
         QStringLiteral("Delete"),
         QStringLiteral("删除")));
-        if (!aExecute && !aDelete) {
+        // Detener lo que está corriendo. No había ninguna forma de hacerlo desde aquí:
+        // "Eliminar" solo quita la entrada de la lista y no toca la operación en curso,
+        // y la cancelación estaba cableada únicamente a cinco botones del panel de
+        // Conexiones —y solo si había sido ese botón el que lanzó la acción—. Todo lo
+        // lanzado desde un menú contextual se quedaba sin manera de pararse.
+        QAction* aStop = actionsLocked()
+                             ? menu.addAction(trk(QStringLiteral("t_ctx_stop001"),
+                                                  QStringLiteral("Detener la acción en curso"),
+                                                  QStringLiteral("Stop the running action"),
+                                                  QStringLiteral("停止正在执行的操作")))
+                             : nullptr;
+        if (!aExecute && !aDelete && !aStop) {
             return;
         }
         QAction* picked = menu.exec(m_pendingChangesList->viewport()->mapToGlobal(pos));
+        if (aStop && picked == aStop) {
+            logUiAction(QStringLiteral("Detener acción en curso (lista de pendientes)"));
+            requestCancelRunningAction();
+            return;
+        }
         if (aExecute && picked == aExecute) {
             executePendingQueuedChangeLine(line);
         } else if (aDelete && picked == aDelete) {
