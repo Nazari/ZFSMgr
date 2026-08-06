@@ -2448,11 +2448,43 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         return r;
     }
 
-    ExecResult rs = runRsyncCopyMoveCapture(srcMp, staging.string());
+    // Avance. Aquí el destino es un DIRECTORIO, no un dataset, así que no se puede
+    // muestrear el dataset de origen —que además no crece, solo se lee—. Se busca el
+    // dataset cuyo punto de montaje contiene el destino: es el que engorda mientras se
+    // copia. Si el destino no cae dentro de ningún dataset, datasetUsedBytes devuelve
+    // -1 y el muestreador se queda callado en vez de mentir.
+    std::string growingDs;
+    {
+        const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint"});
+        std::size_t best = 0;
+        for (const std::string& line : splitLines(ls.out)) {
+            const std::size_t tab = line.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
+            const std::string name = trim(line.substr(0, tab));
+            const std::string mp = trim(line.substr(tab + 1));
+            if (mp.empty() || mp == "-" || mp == "none" || mp[0] != '/') {
+                continue;
+            }
+            const bool contains = (dstDir == mp) || dstDir.rfind(mp + "/", 0) == 0;
+            if (contains && mp.size() > best) {  // el más específico gana
+                best = mp.size();
+                growingDs = name;
+            }
+        }
+    }
+    reportJobProgress("[TODIR] copiando " + dataset + " -> " + dstDir);
+    ExecResult rs;
+    {
+        CopyProgressSampler sampler(growingDs, "[TODIR] " + dataset + " -> " + dstDir);
+        rs = runRsyncCopyMoveCapture(srcMp, staging.string());
+    }
     if (rs.rc != 0) {
         fs::remove_all(staging, ec);
         return rs;
     }
+    reportJobProgress("[TODIR] copia terminada; colocando en su sitio");
 
     // Apartar el destino existente; el guard lo repone si algo falla a partir de aquí.
     DestBackupGuard backupGuard;

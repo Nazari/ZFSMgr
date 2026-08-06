@@ -1069,7 +1069,13 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
                                    deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0")};
             cmd = mwhelpers::agentShellCommand(profile, argv);
             executeDatasetAction(QStringLiteral("conncontent"),
-                                 trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
+                                 // Identificador interno, NO texto de interfaz: aguas abajo
+                                 // se compara con "Hacia Dir" para decidir si la acción se
+                                 // envía como trabajo del daemon y si publica progreso. Al
+                                 // pasar aquí el texto traducido, en inglés valía "To Dir" y
+                                 // las dos cosas se apagaban solas. Desglosar y Ensamblar ya
+                                 // pasan el literal por este mismo motivo.
+                                 QStringLiteral("Hacia Dir"),
                                  ctx,
                                  cmd,
                                  0,
@@ -1232,7 +1238,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     }
 
     executeDatasetAction(QStringLiteral("conncontent"),
-                         trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
+                         QStringLiteral("Hacia Dir"),  // identificador interno; ver arriba
                          ctx,
                          cmd,
                          0,
