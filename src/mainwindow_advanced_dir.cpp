@@ -980,7 +980,29 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
     steps.push_back(QStringLiteral("echo '[FROMDIR] done'"));
     const QString localCmd = steps.join(QStringLiteral(" && "));
-    const QString displayLabel = QStringLiteral("Desde Dir %1::%2").arg(dstProfile.name, opt.datasetPath);
+    // La etiqueta nombraba solo el DESTINO, así que un cambio pendiente que lee de otra
+    // máquina se leía como si fuera todo local: «Local::fc16  Desde Dir Local::fc16/x».
+    // En una operación que copia entre equipos, de dónde salen los datos es justo lo que
+    // hay que poder comprobar antes de aplicar.
+    QMap<int, int> dirsBySourceConn;  // conexión de origen -> nº de directorios
+    for (const auto& srcEntry : std::as_const(selectedSources)) {
+        if (!srcEntry.second.trimmed().isEmpty()) {
+            ++dirsBySourceConn[srcEntry.first];
+        }
+    }
+    QStringList originParts;
+    for (auto it = dirsBySourceConn.cbegin(); it != dirsBySourceConn.cend(); ++it) {
+        const int srcIdx = it.key();
+        const QString srcName = (srcIdx >= 0 && srcIdx < m_profiles.size())
+                                    ? (m_profiles.at(srcIdx).name.trimmed().isEmpty()
+                                           ? m_profiles.at(srcIdx).id.trimmed()
+                                           : m_profiles.at(srcIdx).name.trimmed())
+                                    : QStringLiteral("?");
+        originParts << QStringLiteral("%1 (%2)").arg(srcName).arg(it.value());
+    }
+    const QString displayLabel = QStringLiteral("Desde Dir %1 -> %2::%3")
+                                     .arg(originParts.join(QStringLiteral(" + ")),
+                                          dstProfile.name, opt.datasetPath);
     DatasetSelectionContext srcCtx;
     srcCtx.valid = false;
     QString errorText;

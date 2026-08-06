@@ -4930,11 +4930,24 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             r.err = "unsupported op for --mutate-zfs-create: " + zfsArgs.front() + "\n";
             return r;
         }
-        if (passphrase.empty()) {
-            return runExecCapture("zfs", zfsArgs);
+        ExecResult cr = passphrase.empty()
+                            ? runExecCapture("zfs", zfsArgs)
+                            // `zfs create -o keyformat=passphrase` la pide dos veces.
+                            : runExecCaptureWithStdin("zfs", zfsArgs,
+                                                      passphrase + "\n" + passphrase + "\n");
+        if (cr.rc != 0 || op != "create") {
+            return cr;
         }
-        // `zfs create -o keyformat=passphrase` la pide dos veces.
-        return runExecCaptureWithStdin("zfs", zfsArgs, passphrase + "\n" + passphrase + "\n");
+        // Decir DÓNDE quedó montado. Un dataset creado bajo un pool con mountpoint=none
+        // lo hereda y no se puede montar: "Desde Dir" lo creaba, la tubería de tar no
+        // tenía dónde escribir y se quedaba colgada moviendo cero bytes sin explicar
+        // nada. Con esto el cliente puede plantarse antes de arrancar la copia.
+        const std::string created = trim(zfsArgs.back());
+        (void)runExecCapture("zfs", {"set", "canmount=on", created});
+        (void)runExecCapture("zfs", {"mount", created});
+        const ExecResult mp = getDatasetMountpointCapture(created);
+        cr.out += "MOUNTPOINT=" + ((mp.rc == 0) ? trim(mp.out) : std::string()) + "\n";
+        return cr;
 #else
         r.rc = 2; r.err = "not supported on Windows\n"; return r;
 #endif

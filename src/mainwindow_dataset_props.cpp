@@ -3184,6 +3184,35 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                            .arg(draft.displayLabel.trimmed(), mwhelpers::oneLine(err)));
                 return false;
             }
+            // El dataset puede crearse y aun así no servir: si hereda mountpoint=none
+            // del pool, no hay dónde escribir. Antes eso no se detectaba y la tubería
+            // se quedaba colgada moviendo cero bytes, sin decir por qué.
+            QString mp;
+            for (const QString& line : out.split(QLatin1Char('\n'))) {
+                if (line.startsWith(QStringLiteral("MOUNTPOINT="))) {
+                    mp = line.mid(11).trimmed();
+                }
+            }
+            if (mp.isEmpty() || mp == QStringLiteral("none") || mp == QStringLiteral("-")) {
+                const QString why =
+                    trk(QStringLiteral("t_pending_no_mountpoint_001"),
+                        QStringLiteral("El dataset destino se creó pero no tiene punto de "
+                                       "montaje utilizable (mountpoint=%1). Suele pasar cuando "
+                                       "el pool tiene mountpoint=none: asigne uno al dataset "
+                                       "antes de copiar."),
+                        QStringLiteral("The destination dataset was created but has no usable "
+                                       "mountpoint (mountpoint=%1). This usually happens when "
+                                       "the pool has mountpoint=none: set one on the dataset "
+                                       "before copying."),
+                        QStringLiteral("目标数据集已创建，但没有可用的挂载点（mountpoint=%1）。"
+                                       "通常是因为存储池的 mountpoint=none：请先为该数据集设置"
+                                       "挂载点再进行复制。"))
+                        .arg(mp.isEmpty() ? QStringLiteral("?") : mp);
+                appLog(QStringLiteral("ERROR"),
+                       QStringLiteral("%1: %2").arg(draft.displayLabel.trimmed(), why));
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), why);
+                return false;
+            }
         }
         bool handledRemotely = false;
         QString remoteFailure;
