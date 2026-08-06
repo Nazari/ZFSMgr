@@ -529,9 +529,42 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                 argv << d << nameColumn.chosen.value(d, d);
             }
             cmd = mwhelpers::agentShellCommand(p, argv);
-            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0,
-                                 allowWindowsScript, {}, true, {}, argv);
+            // Encolado, no ejecutado en el acto. Era la única familia de acciones que se
+            // saltaba la lista de cambios pendientes, así que no había forma de revisarla
+            // antes ni de quitarla de la cola. Al aplicarla conserva todo lo suyo:
+            // confirmación, envío como trabajo del daemon y progreso en tiempo real.
+            PendingShellActionDraft draft;
+            // "conexión::pool", como el resto de entradas de la lista.
+            draft.scopeLabel = [&]() {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                    return QString();
+                }
+                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
+                                                                 : cp.name.trimmed();
+                return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+            }();
+            draft.displayLabel = QStringLiteral("Desglosar %1").arg(ds);
+            draft.command = cmd;
+            draft.timeoutMs = 0;
+            draft.streamProgress = true;
+            draft.refreshTarget = ctx;
+            draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+            draft.datasetActionSide = QStringLiteral("conncontent");
+            draft.datasetActionName = QStringLiteral("Desglosar");
+            draft.datasetActionCtx = ctx;
+            draft.datasetActionArgv = argv;
+            QString errorText;
+            if (!queuePendingShellAction(draft, &errorText)) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("Cambio pendiente añadido: %1  %2")
+                       .arg(draft.scopeLabel, draft.displayLabel));
+            updateApplyPropsButtonState();
             return;
+
         }
         QStringList selectedQuoted;
         selectedQuoted.reserve(selectedDirs.size());
@@ -581,8 +614,41 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                            "done")
                 .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
+    // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
+    // acción se comportaría de una forma u otra según la conexión.
+    {
+        PendingShellActionDraft draft;
+        draft.scopeLabel = [&]() {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                return QString();
+            }
+            const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+            const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+            return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+        }();
+        draft.displayLabel = QStringLiteral("Desglosar %1").arg(ds);
+        draft.command = cmd;
+        draft.timeoutMs = 0;
+        draft.streamProgress = true;
+        draft.refreshTarget = ctx;
+        draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+        draft.datasetActionSide = QStringLiteral("conncontent");
+        draft.datasetActionName = QStringLiteral("Desglosar");
+        draft.datasetActionCtx = ctx;
+        draft.datasetActionAllowWindowsScript = allowWindowsScript;
+        draft.datasetActionStdin = QByteArray();
+        QString errorText;
+        if (!queuePendingShellAction(draft, &errorText)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Cambio pendiente añadido: %1  %2")
+                   .arg(draft.scopeLabel, draft.displayLabel));
+        updateApplyPropsButtonState();
+    }
 }
+
 
 void MainWindow::actionAdvancedAssemble() {
     actionAdvancedAssemble(currentConnContentSelection(m_connContentTree));
@@ -803,16 +869,42 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
             QStringList argv{QStringLiteral("--mutate-advanced-assemble"), ds};
             argv += selectedChildren;
             cmd = mwhelpers::agentShellCommand(p, argv);
-            executeDatasetAction(QStringLiteral("conncontent"),
-                                 QStringLiteral("Ensamblar"),
-                                 ctx,
-                                 cmd,
-                                 0,
-                                 allowWindowsScript,
-                                 mountStdinPayload,
-                                 true,
-                                 {},
-                                 argv);
+            // Encolado, no ejecutado en el acto. Era la única familia de acciones que se
+            // saltaba la lista de cambios pendientes, así que no había forma de revisarla
+            // antes ni de quitarla de la cola. Al aplicarla conserva todo lo suyo:
+            // confirmación, envío como trabajo del daemon y progreso en tiempo real.
+            PendingShellActionDraft draft;
+            // "conexión::pool", como el resto de entradas de la lista.
+            draft.scopeLabel = [&]() {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                    return QString();
+                }
+                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
+                                                                 : cp.name.trimmed();
+                return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+            }();
+            draft.displayLabel = QStringLiteral("Ensamblar %1").arg(ds);
+            draft.command = cmd;
+            draft.timeoutMs = 0;
+            draft.streamProgress = true;
+            draft.refreshTarget = ctx;
+            draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+            draft.datasetActionSide = QStringLiteral("conncontent");
+            draft.datasetActionName = QStringLiteral("Ensamblar");
+            draft.datasetActionCtx = ctx;
+            draft.datasetActionArgv = argv;
+            QString errorText;
+            if (!queuePendingShellAction(draft, &errorText)) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("Cambio pendiente añadido: %1  %2")
+                       .arg(draft.scopeLabel, draft.displayLabel));
+            updateApplyPropsButtonState();
+            return;
+
             return;
         }
         QStringList promptKeyDatasets;
@@ -886,11 +978,38 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                            "done")
                 .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    executeDatasetAction(QStringLiteral("conncontent"),
-                         QStringLiteral("Ensamblar"),
-                         ctx,
-                         cmd,
-                         0,
-                         allowWindowsScript,
-                         mountStdinPayload);
+    // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
+    // acción se comportaría de una forma u otra según la conexión.
+    {
+        PendingShellActionDraft draft;
+        draft.scopeLabel = [&]() {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                return QString();
+            }
+            const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+            const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+            return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+        }();
+        draft.displayLabel = QStringLiteral("Ensamblar %1").arg(ds);
+        draft.command = cmd;
+        draft.timeoutMs = 0;
+        draft.streamProgress = true;
+        draft.refreshTarget = ctx;
+        draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+        draft.datasetActionSide = QStringLiteral("conncontent");
+        draft.datasetActionName = QStringLiteral("Ensamblar");
+        draft.datasetActionCtx = ctx;
+        draft.datasetActionAllowWindowsScript = allowWindowsScript;
+        draft.datasetActionStdin = mountStdinPayload;
+        QString errorText;
+        if (!queuePendingShellAction(draft, &errorText)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Cambio pendiente añadido: %1  %2")
+                   .arg(draft.scopeLabel, draft.displayLabel));
+        updateApplyPropsButtonState();
+    }
 }
+

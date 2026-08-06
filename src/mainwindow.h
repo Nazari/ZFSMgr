@@ -318,6 +318,18 @@ private:
         int rpcConnIdx{-1};
         QStringList rpcArgv;   // sin el secreto: se añade al ejecutar
         QString rpcSecret;
+        // Acción de dataset diferida. Desglosar y Ensamblar se ejecutaban en el acto,
+        // a diferencia del resto: no pasaban por la lista de cambios pendientes, así
+        // que no se podían revisar antes ni quitar de la cola. Guardando aquí lo que
+        // necesita executeDatasetAction, se encolan como las demás y al aplicarlas
+        // conservan TODO lo suyo: el envío como trabajo del daemon, el progreso en
+        // tiempo real y la regla de no reintentar una mutación por SSH.
+        QString datasetActionSide;
+        QString datasetActionName;   // no vacío = es una acción de dataset diferida
+        DatasetSelectionContext datasetActionCtx;
+        QStringList datasetActionArgv;   // vacío en los caminos de respaldo por shell
+        QByteArray datasetActionStdin;
+        bool datasetActionAllowWindowsScript{false};
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};

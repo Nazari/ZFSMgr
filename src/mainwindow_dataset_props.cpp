@@ -3214,6 +3214,35 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                 return false;
             }
         }
+        // Acción de dataset diferida (Desglosar, Ensamblar): se ejecuta por su camino
+        // de siempre, con su confirmación, su envío como trabajo y su progreso. Lo
+        // único que cambia respecto a antes es CUÁNDO ocurre.
+        if (!draft.datasetActionName.isEmpty()) {
+            const bool okAction = executeDatasetAction(draft.datasetActionSide,
+                                                       draft.datasetActionName,
+                                                       draft.datasetActionCtx,
+                                                       draft.command,
+                                                       0,
+                                                       draft.datasetActionAllowWindowsScript,
+                                                       draft.datasetActionStdin,
+                                                       true,
+                                                       {},
+                                                       draft.datasetActionArgv);
+            if (!okAction) {
+                return false;
+            }
+            for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
+                const PendingChange& existing = m_pendingChangesModel.at(i);
+                if (existing.kind == PendingChange::Kind::ShellAction
+                    && existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
+                    && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
+                    m_pendingChangesModel.removeAt(i);
+                    break;
+                }
+            }
+            refreshPendingShellActionDraft(draft);
+            return true;
+        }
         bool handledRemotely = false;
         QString remoteFailure;
         if (!tryExecutePendingShellActionRemotely(draft, &handledRemotely, &remoteFailure)) {
