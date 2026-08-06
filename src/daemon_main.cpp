@@ -1154,6 +1154,15 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (bn.empty()) {
             continue;
         }
+        // El contenido tiene que volver a DONDE ESTABA MONTADO. Se comprueba aquí,
+        // antes de copiar y destruir nada: si el dataset está montado fuera del padre,
+        // ensamblarlo escribiría fuera de su sitio.
+        if (childMp.rfind(parentMp + "/", 0) != 0) {
+            r.rc = 1;
+            r.err = "el dataset " + child + " está montado en " + childMp + ", fuera de "
+                    + parentMp + "; no se ensambla\n";
+            return r;
+        }
         // En el dataset PADRE, que es donde los datos tienen que acabar. Antes iba al
         // temporal del sistema: en Linux suele ser tmpfs, así que 27 GB de datos se
         // volcaban en RAM y la operación moría con "No space left on device".
@@ -1282,7 +1291,12 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (destroy.rc != 0) {
             return destroy;
         }
-        const fs::path dst = fs::path(parentMp) / bn;
+        // El destino es el punto de montaje, NO una ruta derivada del nombre. Mientras
+        // el nombre era canónico las dos coincidían y nadie lo notaba; desde que puede
+        // codificar la ruta con ':' (`Squirrel.app:Contents`), derivarlo del nombre
+        // creaba un directorio con dos puntos colgando del padre —visto en el pool de
+        // pruebas— en vez de devolver el contenido a su sitio.
+        const fs::path dst = fs::path(childMp);
         // Renombrado, no segunda copia: la escala está en el mismo sistema de ficheros
         // que el destino, así que esto es instantáneo. Antes se copiaba TODO otra vez
         // —los datos viajaban dos veces por cada hijo ensamblado—.
