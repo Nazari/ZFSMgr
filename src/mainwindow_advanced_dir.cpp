@@ -307,6 +307,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     propsGrid->setVerticalSpacing(4);
 
     const QList<PropSpec> propSpecs = {
+        // El primero, y obligatorio. No estaba: si el pool tiene mountpoint=none —cosa
+        // corriente— el dataset lo heredaba, no había dónde escribir, y la copia se
+        // quedaba colgada moviendo cero bytes sin explicar nada. No se puede dejar a
+        // elección: sin punto de montaje esta acción no puede funcionar.
+        {QStringLiteral("mountpoint"), QStringLiteral("entry"), {}},
         {QStringLiteral("compression"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("lz4"), QStringLiteral("gzip"), QStringLiteral("zstd"), QStringLiteral("zle")}},
         {QStringLiteral("atime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
         {QStringLiteral("relatime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
@@ -339,7 +344,20 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         const PropSpec& spec = propSpecs[i];
         const int r = i / 4;
         const int cBase = (i % 4) * 2;
-        QLabel* lbl = new QLabel(spec.name, propsContainer);
+        const bool required = (spec.name == QStringLiteral("mountpoint"));
+        QLabel* lbl = new QLabel(required ? (spec.name + QStringLiteral(" *")) : spec.name,
+                                 propsContainer);
+        if (required) {
+            QFont lf = lbl->font();
+            lf.setBold(true);
+            lbl->setFont(lf);
+            lbl->setToolTip(trk(QStringLiteral("t_advdir_mp_required_tip001"),
+                                QStringLiteral("Obligatorio: el dataset tiene que quedar montado "
+                                               "en algún sitio para poder copiar dentro."),
+                                QStringLiteral("Required: the dataset must end up mounted "
+                                               "somewhere for the copy to have a destination."),
+                                QStringLiteral("必填：数据集必须挂载到某个位置，复制才有目标。")));
+        }
         propsGrid->addWidget(lbl, r, cBase);
         PropEditor editor;
         editor.name = spec.name;
@@ -354,6 +372,9 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             propsGrid->addWidget(cb, r, cBase + 1);
         } else {
             QLineEdit* le = new QLineEdit(propsContainer);
+            if (required) {
+                le->setPlaceholderText(QStringLiteral("/mnt/datos"));
+            }
             editor.edit = le;
             propsGrid->addWidget(le, r, cBase + 1);
         }
@@ -653,6 +674,24 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                  trk(QStringLiteral("t_advdir_auto022"), QStringLiteral("Debe indicar el path del dataset."),
                                      QStringLiteral("Dataset path is required."),
                                      QStringLiteral("必须指定数据集路径。")));
+            return;
+        }
+        // El punto de montaje decide si esta acción puede funcionar siquiera: la copia
+        // escribe en él. Se exige aquí, con el diálogo abierto y el dato a mano, en vez
+        // de dejar que falle al aplicarse.
+        const QString mp = propValue(QStringLiteral("mountpoint")).trimmed();
+        if (mp.isEmpty() || !mp.startsWith(QLatin1Char('/'))) {
+            QMessageBox::warning(
+                &dlg, QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_advdir_mp_required001"),
+                    QStringLiteral("Indique el punto de montaje (mountpoint) del dataset, con "
+                                   "ruta absoluta.\n\nEs donde se copiarán los directorios: sin "
+                                   "él el dataset se crea pero no hay dónde escribir."),
+                    QStringLiteral("Set the dataset mountpoint, as an absolute path.\n\nIt is "
+                                   "where the directories get copied: without it the dataset is "
+                                   "created but there is nowhere to write."),
+                    QStringLiteral("请填写数据集的挂载点，使用绝对路径。\n\n目录会复制到该位置："
+                                   "没有它，数据集虽然会创建，但没有可写入的地方。")));
             return;
         }
 
