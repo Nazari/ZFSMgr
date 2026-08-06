@@ -16,6 +16,12 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSysInfo>
+#include <QLoggingCategory>
+
+// Medición del arranque. Se dejó por defecto en stderr al perseguir la lentitud de
+// la ventana, y así salía una línea en la terminal en cada ejecución. Misma
+// categoría-interruptor que el resto: QT_LOGGING_RULES="zfsmgr.startup.debug=true"
+Q_LOGGING_CATEGORY(lcStartup, "zfsmgr.startup", QtWarningMsg)
 
 namespace {
 bool isConnectionGroupName(const QString& group) {
@@ -78,7 +84,7 @@ QString currentLocalMachineUid() {
         QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography"),
                       QSettings::NativeFormat);
         const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed().toLower();
-        qDebug("[startup] currentLocalMachineUid (Windows registry): %lld ms", t.elapsed());
+        qCDebug(lcStartup, "[startup] currentLocalMachineUid (Windows registry): %lld ms", t.elapsed());
         if (!guid.isEmpty()) {
             s_cached = guid;
             return s_cached;
@@ -91,14 +97,14 @@ QString currentLocalMachineUid() {
                            QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
     if (proc.waitForFinished(3000)) {
         const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed().toLower();
-        qDebug("[startup] currentLocalMachineUid (ioreg): %lld ms", t.elapsed());
+        qCDebug(lcStartup, "[startup] currentLocalMachineUid (ioreg): %lld ms", t.elapsed());
         if (!out.isEmpty()) {
             s_cached = out;
             return s_cached;
         }
     }
 #endif
-    qDebug("[startup] currentLocalMachineUid (QSysInfo fallback): %lld ms", t.elapsed());
+    qCDebug(lcStartup, "[startup] currentLocalMachineUid (QSysInfo fallback): %lld ms", t.elapsed());
     s_cached = QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed().toLower();
     return s_cached;
 }
