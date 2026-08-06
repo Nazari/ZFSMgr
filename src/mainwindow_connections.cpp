@@ -3834,6 +3834,37 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Daemon deploy %1: usando binario nativo local %2")
                        .arg(p.name, localAgentPath));
+            // El binario empaquetado puede ser más viejo que lo que esta interfaz exige:
+            // pasa cada vez que cambia el marcador de esquema y solo se recompila el
+            // agente de una plataforma. El despliegue "funciona", el daemon queda con la
+            // versión antigua, la conexión sigue marcada como desactualizada y reinstalar
+            // no arregla nada nunca. Decirlo aquí convierte un bucle sin salida en algo
+            // accionable.
+            {
+                const QString expected = agentversion::currentVersion().trimmed();
+                const QString bundled = agentversion::versionFromBinary(localAgentPath).trimmed();
+                if (!expected.isEmpty() && !bundled.isEmpty() && bundled != expected) {
+                    const QString warn =
+                        trk(QStringLiteral("t_daemon_bundle_stale_001"),
+                            QStringLiteral("El agente empaquetado para esta plataforma es %1, "
+                                           "pero esta versión de la aplicación espera %2. Se "
+                                           "instalará de todos modos, pero la conexión seguirá "
+                                           "marcada como desactualizada hasta que se recompile "
+                                           "el agente de esa plataforma."),
+                            QStringLiteral("The bundled agent for this platform is %1, but this "
+                                           "build expects %2. It will be installed anyway, but "
+                                           "the connection will stay flagged as outdated until "
+                                           "that platform's agent is rebuilt."),
+                            QStringLiteral("此平台随附的代理为 %1，而当前版本需要 %2。仍会安装，"
+                                           "但在重新编译该平台的代理之前，连接会一直被标记为过期。"))
+                            .arg(bundled, expected);
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("Daemon deploy %1: %2").arg(p.name, warn));
+                    if (interactive) {
+                        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), warn);
+                    }
+                }
+            }
         } else {
             const QString reason = trk(
                                        QStringLiteral("t_daemon_native_missing_001"),

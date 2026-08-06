@@ -1,5 +1,7 @@
 #include "agentversion.h"
 
+#include <QFile>
+
 #include <QRegularExpression>
 #include <QVector>
 
@@ -53,6 +55,31 @@ int compareVersions(const QString& a, const QString& b) {
         return 0;
     }
     return ka.size() < kb.size() ? -1 : 1;
+}
+
+
+QString versionFromBinary(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    // El sufijo de esquema va detrás de la versión de la aplicación, así que basta con
+    // buscar ese prefijo y leer los dígitos que siguen. Se lee entero: son unos pocos MB
+    // y buscar por trozos podría partir la cadena justo por la mitad.
+    const QByteArray blob = f.readAll();
+    const QByteArray prefix = (QStringLiteral(ZFSMGR_APP_VERSION) + QLatin1Char('.')).toLatin1();
+    int at = blob.indexOf(prefix);
+    while (at >= 0) {
+        int end = at + prefix.size();
+        while (end < blob.size() && blob.at(end) >= '0' && blob.at(end) <= '9') {
+            ++end;
+        }
+        if (end > at + prefix.size()) {
+            return QString::fromLatin1(blob.mid(at, end - at));
+        }
+        at = blob.indexOf(prefix, at + 1);
+    }
+    return QString();
 }
 
 } // namespace agentversion
