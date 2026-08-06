@@ -2416,8 +2416,65 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         return r;
     }
 
-    // Reubicar el dataset a un mountpoint temporal: sin esto, el destino no puede
-    // ser la propia ruta donde el dataset estaba montado, que es el caso principal
+    // Los datasets que hay que absorber, y su sitio relativo dentro del destino. Se
+    // averigua ANTES de reubicar nada, y por PUNTO DE MONTAJE, no por nombre: tras un
+    // Ensamblar que conservó los subdatasets, el que está montado aquí dentro puede ser
+    // un hermano por nombre. Buscar por nombre no lo encontraría, su contenido no se
+    // copiaría, y el borrado se lo llevaría por delante.
+    struct Member {
+        std::string name;
+        std::string rel;  // ruta relativa al mountpoint del dataset raíz
+    };
+    std::vector<Member> members;
+    {
+        ExecResult mp0 = getDatasetMountpointCapture(dataset);
+        const std::string rootMp = (mp0.rc == 0) ? trim(mp0.out) : std::string();
+        if (rootMp.empty()) {
+            r.rc = 1;
+            r.err = "mountpoint=none\n";
+            return r;
+        }
+        const std::string pool = dataset.substr(0, dataset.find('/'));
+        const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint",
+                                                     "-r", pool});
+        for (const std::string& line : splitLines(ls.out)) {
+            const std::size_t tab = line.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
+            const std::string name = trim(line.substr(0, tab));
+            const std::string mp = trim(line.substr(tab + 1));
+            if (mp.empty() || mp == "-" || mp == "none") {
+                continue;
+            }
+            if (mp == rootMp) {
+                if (name == dataset) {
+                    members.push_back(Member{name, std::string()});
+                }
+                continue;
+            }
+            if (mp.rfind(rootMp + "/", 0) == 0) {
+                members.push_back(Member{name, mp.substr(rootMp.size() + 1)});
+            }
+        }
+        if (members.empty()) {
+            r.rc = 1;
+            r.err = "no se pudo resolver el dataset de origen\n";
+            return r;
+        }
+        // De hojas hacia arriba. Así cada dataset se copia SOLO con lo suyo (-x) y, al
+        // borrar, ningún padre tiene hijos vivos: se destruye sin -r, que no puede
+        // llevarse por delante nada que no estuviera en esta lista.
+        std::sort(members.begin(), members.end(), [](const Member& a, const Member& b) {
+            const auto depth = [](const std::string& v) {
+                return v.empty() ? 0 : static_cast<int>(std::count(v.begin(), v.end(), '/')) + 1;
+            };
+            return depth(a.rel) > depth(b.rel);
+        });
+    }
+
+    // Reubicar el dataset a un mountpoint temporal: sin esto, el destino no puede ser
+    // la propia ruta donde el dataset estaba montado, que es el caso principal
     // (convertir un dataset en un directorio en su mismo sitio).
     AltMountGuard mountGuard;
     std::string srcMp;
@@ -2453,6 +2510,11 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
     // dataset cuyo punto de montaje contiene el destino: es el que engorda mientras se
     // copia. Si el destino no cae dentro de ningún dataset, datasetUsedBytes devuelve
     // -1 y el muestreador se queda callado en vez de mentir.
+    //
+    // Esto tiene que ir DESPUÉS de reubicar el dataset: mientras estaba en su sitio, el
+    // punto de montaje más específico que contiene el destino era él mismo, y se habría
+    // muestreado justo el que no crece. Una vez apartado, el que casa es el de encima,
+    // que es donde se está escribiendo la escala.
     std::string growingDs;
     {
         const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint"});
@@ -2474,17 +2536,79 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             }
         }
     }
-    reportJobProgress("[TODIR] copiando " + dataset + " -> " + dstDir);
-    ExecResult rs;
-    {
-        CopyProgressSampler sampler(growingDs, "[TODIR] " + dataset + " -> " + dstDir);
-        rs = runRsyncCopyMoveCapture(srcMp, staging.string());
-    }
-    if (rs.rc != 0) {
-        fs::remove_all(staging, ec);
-        return rs;
+    // Una copia por dataset, con -x, de hojas hacia arriba. Antes se hacía UNA sola
+    // pasada de rsync sin -x desde el dataset raíz: cruzaba los puntos de montaje de
+    // los hijos y arrastraba su contenido, lo cual funcionaba solo si todos seguían
+    // montados debajo. Los que tienen mountpoint explícito —los que deja un Ensamblar
+    // que los conservó— NO se mueven con el padre al reubicarlo, así que su contenido
+    // se quedaba sin copiar y el `destroy -r` posterior lo destruía.
+    for (std::size_t i = 0; i < members.size(); ++i) {
+        const Member& m = members[i];
+        ExecResult mpRes = getDatasetMountpointCapture(m.name);
+        const std::string from = (mpRes.rc == 0) ? trim(mpRes.out) : std::string();
+        if (from.empty()) {
+            fs::remove_all(staging, ec);
+            r.rc = 1;
+            r.err = "no se pudo resolver el mountpoint de " + m.name + "\n";
+            return r;
+        }
+        const fs::path to = m.rel.empty() ? staging : (staging / fs::path(m.rel));
+        fs::create_directories(to, ec);
+        if (ec) {
+            fs::remove_all(staging, ec);
+            r.rc = 1;
+            r.err = "no se pudo crear " + to.string() + "\n";
+            return r;
+        }
+        const std::string label = "[TODIR] " + std::to_string(i + 1) + " de "
+                                  + std::to_string(members.size()) + ": "
+                                  + (m.rel.empty() ? std::string(".") : m.rel);
+        reportJobProgress(label);
+        int left = -1;
+        {
+            CopyProgressSampler sampler(growingDs, label);
+            ExecResult rs = runRsyncCopyMoveCapture(from, to.string(), {}, true);
+            if (rs.rc != 0) {
+                fs::remove_all(staging, ec);
+                return rs;
+            }
+            // Verificado antes de que nadie destruya nada, con reintentos: si la copia
+            // quedó corta, los datos solo están en el dataset original.
+            left = countPendingRsyncTransfers(from, to.string(), {}, true);
+            for (int attempt = 1; left != 0 && attempt < 5; ++attempt) {
+                ExecResult again = runRsyncCopyMoveCapture(from, to.string(), {}, true);
+                if (again.rc != 0) {
+                    fs::remove_all(staging, ec);
+                    return again;
+                }
+                left = countPendingRsyncTransfers(from, to.string(), {}, true);
+            }
+        }
+        if (left != 0) {
+            fs::remove_all(staging, ec);
+            r.rc = 42;
+            r.err = "verify_failed=" + m.name + " pending="
+                    + (left < 0 ? std::string("unknown") : std::to_string(left)) + "\n";
+            return r;
+        }
     }
     reportJobProgress("[TODIR] copia terminada; colocando en su sitio");
+
+    // Desmontar TODOS los miembros antes de tocar el destino. Los que tienen mountpoint
+    // explícito no se movieron al reubicar el raíz, así que siguen montados dentro del
+    // destino; y renombrar un directorio que contiene un punto de montaje da EBUSY. Se
+    // hace aquí, con las copias ya verificadas, para que desmontar no pueda perder nada.
+    for (const Member& m : members) {
+        const ExecResult um = runExecCapture("zfs", {"unmount", m.name});
+        const ExecResult still = getZfsPropertyCapture(m.name, "mounted");
+        if (um.rc != 0 && still.rc == 0 && trim(still.out) == "yes") {
+            fs::remove_all(staging, ec);
+            r.rc = 1;
+            r.err = "no se pudo desmontar " + m.name
+                    + ", que está dentro del destino; no se ha modificado nada\n" + um.err;
+            return r;
+        }
+    }
 
     // Apartar el destino existente; el guard lo repone si algo falla a partir de aquí.
     DestBackupGuard backupGuard;
@@ -2514,17 +2638,30 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
     }
 
     if (deleteSource) {
-        (void)runExecCapture("zfs", {"unmount", dataset});
-        ExecResult d = runExecCapture("zfs", {"destroy", "-r", dataset});
-        if (d.rc != 0) {
-            return d;  // el guard repone el destino: el dataset sigue vivo
+        // De hojas hacia arriba y SIN -r. `members` ya viene en ese orden, así que
+        // cuando le toca a un padre no le queda ningún hijo vivo. Sin -r, la orden no
+        // puede arrastrar nada que no estuviera en la lista que se copió y verificó;
+        // si quedara algo colgando, falla en vez de destruirlo.
+        for (const Member& m : members) {
+            ExecResult d = runExecCapture("zfs", {"destroy", m.name});
+            if (d.rc != 0) {
+                d.err += "\nLos datos ya están copiados en " + dstDir
+                         + "; el dataset " + m.name + " no se pudo destruir y sigue ahí.\n";
+                return d;  // el guard repone el destino anterior
+            }
+            if (m.name == dataset) {
+                mountGuard.active = false;  // ya no existe: no hay nada que restaurar
+            }
         }
-        mountGuard.active = false;  // ya no existe: no hay nada que restaurar
         mountGuard.release();
     } else {
-        mountGuard.release();  // devuelve el dataset a su mountpoint original
-        (void)runExecCapture("zfs", {"unmount", dataset});
-        (void)runExecCapture("zfs", {"set", "canmount=off", dataset});
+        // canmount=off en TODOS los miembros, no solo en el raíz: ya están desmontados,
+        // y sin esto cualquiera de ellos volvería a montarse encima del directorio
+        // recién creado en el siguiente arranque y taparía justo lo que se copió.
+        for (const Member& m : members) {
+            (void)runExecCapture("zfs", {"set", "canmount=off", m.name});
+        }
+        mountGuard.release();  // devuelve el dataset raíz a su mountpoint original
     }
 
     // A partir de aquí la operación es definitiva: se descarta el respaldo.
