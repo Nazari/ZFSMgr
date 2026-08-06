@@ -676,6 +676,45 @@ int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dst
     return pending;
 }
 
+// Borrado que NO cruza puntos de montaje. `fs::remove_all` los ignora: si dentro del
+// árbol hay algo montado —un subdataset, otro pool, cualquier cosa— entra y borra su
+// contenido. Aquí se compara el dispositivo contra el de la raíz y, si cambia, se
+// aborta en vez de destruir. Es un tope duro: aunque el desmontaje previo se deje
+// alguno, lo peor que pasa es que la operación falle.
+#ifndef _WIN32
+bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t dev,
+                                     std::string& err) {
+    namespace fs = std::filesystem;
+    struct stat st {};
+    if (::lstat(node.c_str(), &st) != 0) {
+        err = "no se pudo consultar " + node.string();
+        return false;
+    }
+    if (st.st_dev != dev) {
+        err = "hay un sistema de ficheros montado en " + node.string()
+              + "; se aborta el borrado para no destruir su contenido";
+        return false;
+    }
+    if (S_ISDIR(st.st_mode)) {
+        std::error_code ec;
+        for (fs::directory_iterator it(node, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!removeTreeWithoutCrossingMounts(it->path(), dev, err)) {
+                return false;
+            }
+        }
+        if (ec) {
+            err = "no se pudo listar " + node.string();
+            return false;
+        }
+    }
+    if (::remove(node.c_str()) != 0) {
+        err = "no se pudo borrar " + node.string();
+        return false;
+    }
+    return true;
+}
+#endif
+
 ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
     ExecResult r;
     if (params.size() < 2) {
@@ -880,11 +919,64 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     std::sort(byDepth.begin(), byDepth.end(), [&](const Pending* a, const Pending* b) {
         return depthOf(a->rel) > depthOf(b->rel);
     });
+    // Un directorio a convertir puede tener DENTRO datasets montados: es exactamente lo
+    // que deja un Ensamblar que conservó los subdatasets. `fs::remove_all` no distingue
+    // puntos de montaje —entra en ellos y borra datos vivos—, y esto ocurre incluso
+    // cuando el subdataset también está seleccionado, porque al padre le toca borrar
+    // ANTES de que al hijo le toque renombrarse. Se desmontan antes de tocar nada.
+    std::map<std::string, std::string> nestedByMp;  // punto de montaje -> dataset
+    for (const Pending* p : byDepth) {
+        if (p->alreadyDataset) {
+            continue;
+        }
+        const std::string prefix = (fs::path(mountpoint) / fs::path(p->rel)).string() + "/";
+        for (const auto& kv : dsByMountpoint) {
+            if (kv.first.rfind(prefix, 0) == 0) {
+                nestedByMp.insert(kv);
+            }
+        }
+    }
+    std::vector<std::pair<std::string, std::string>> nested(nestedByMp.begin(), nestedByMp.end());
+    std::sort(nested.begin(), nested.end(), [](const auto& a, const auto& b) {
+        return a.first.size() > b.first.size();  // de más profundo a menos
+    });
+    std::vector<std::pair<std::string, std::string>> unmounted;
+    for (const auto& kv : nested) {
+        ExecResult um = runExecCapture("zfs", {"unmount", kv.second});
+        if (um.rc != 0) {
+            // Nada se ha borrado todavía: se deshace el desmontaje y se aborta. Los
+            // datasets temporales los recoge la limpieza, que sigue armada.
+            for (auto it = unmounted.rbegin(); it != unmounted.rend(); ++it) {
+                (void)runExecCapture("zfs", {"mount", it->second});
+            }
+            r.rc = 1;
+            r.err = "no se pudo desmontar " + kv.second + ", montado en " + kv.first
+                    + ", que queda dentro de un directorio a convertir. No se ha borrado "
+                      "nada.\n" + um.err;
+            return r;
+        }
+        unmounted.push_back(kv);
+    }
+
     for (const Pending* p : byDepth) {
         if (p->alreadyDataset) {
             continue;  // su "origen" es el propio dataset montado: borrarlo sería perderlo
         }
         const fs::path srcPath = fs::path(mountpoint) / fs::path(p->rel);
+#ifndef _WIN32
+        struct stat rootSt {};
+        if (::lstat(srcPath.c_str(), &rootSt) != 0) {
+            r.rc = 1;
+            r.err = "no se pudo consultar " + srcPath.string() + "\n";
+            return r;
+        }
+        std::string rmErr;
+        if (!removeTreeWithoutCrossingMounts(srcPath, rootSt.st_dev, rmErr)) {
+            r.rc = 1;
+            r.err = rmErr + "\n";
+            return r;
+        }
+#else
         std::error_code rmec;
         fs::remove_all(srcPath, rmec);
         if (rmec) {
@@ -892,6 +984,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             r.err = "remove_all failed for " + srcPath.string() + "\n";
             return r;
         }
+#endif
     }
 
     // Renombrado de menos profundo a más: `zfs rename` exige que el padre exista.
@@ -932,6 +1025,25 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
         r.out += "[BREAKDOWN] ok " + p->rel + " -> " + child
                  + (p->alreadyDataset ? " (renombrado, sin copiar)" : "") + "\n";
+    }
+
+    // Devolver a su sitio los que se desmontaron para poder borrar. Los seleccionados ya
+    // se remontaron solos al renombrarlos, y volver a montarlos aquí, con su nombre
+    // viejo, fallaría. De menos profundo a más, que es como se pueden montar.
+    std::set<std::string> renamedNames;
+    for (const Pending& p : pending) {
+        if (p.alreadyDataset) {
+            renamedNames.insert(p.tmpName);
+        }
+    }
+    for (auto it = unmounted.rbegin(); it != unmounted.rend(); ++it) {
+        if (renamedNames.count(it->second)) {
+            continue;
+        }
+        const ExecResult rm = runExecCapture("zfs", {"mount", it->second});
+        if (rm.rc != 0) {
+            r.out += "[BREAKDOWN] aviso: no se pudo volver a montar " + it->second + "\n";
+        }
     }
     cleanup.armed = false;
     r.rc = 0;

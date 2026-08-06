@@ -927,6 +927,28 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         return nodes;
     };
 
+    // `ensureNode` fabrica los nodos intermedios que hagan falta para dibujar una ruta,
+    // así que el árbol puede mostrar un nodo que NO está en la lista de candidatos —el
+    // padre de un candidato profundo—. Marcable, pero descartado luego en silencio: el
+    // usuario marcaba, aceptaba, y la operación decía "sin selección" sin más. Que se
+    // vea deshabilitado y con el motivo, como los nombres no válidos.
+    for (QTreeWidgetItem* item : allNodes()) {
+        if (!item || item->isDisabled()) {
+            continue;
+        }
+        const QString key = item->data(0, fullPathRole).toString().trimmed().toLower();
+        if (validItemKeys.contains(key)) {
+            continue;
+        }
+        item->setDisabled(true);
+        item->setToolTip(0, trk(QStringLiteral("t_not_a_candidate_001"),
+                                QStringLiteral("Solo se muestra para situar a los de dentro; "
+                                               "no está entre los seleccionables."),
+                                QStringLiteral("Shown only to place the ones inside it; "
+                                               "not selectable."),
+                                QStringLiteral("仅用于定位其中的项目；不可选择。")));
+    }
+
     auto* tools = new QHBoxLayout();
     auto* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
                                        QStringLiteral("Seleccionar todo"),
@@ -1012,7 +1034,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         if (why) {
             rejected << QStringLiteral("%1 (%2, checkState=%3)")
                             .arg(fullPath.isEmpty() ? item->text(0) : fullPath,
-                                 QString::fromLatin1(why))
+                                 QString::fromUtf8(why))
                             .arg(static_cast<int>(state));
             continue;
         }

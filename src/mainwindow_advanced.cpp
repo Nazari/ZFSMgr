@@ -315,41 +315,23 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                   }),
                    dirs.end());
     }
-    QStringList mountedDescMountpoints;
-    if (!isWindowsConnection(p)) {
-        QString mountedDescOut;
-        QString mountedDescErr;
-        int mountedDescRc = -1;
-        const QString mountedDescCmd = withSudo(
-            p,
-            QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
-                .arg(shSingleQuote(ds)));
-        if (runSsh(p, mountedDescCmd, 180000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
-            mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
-            for (QString& mp : mountedDescMountpoints) {
-                mp = mp.trimmed();
-            }
-            mountedDescMountpoints.removeAll(QString());
-        }
-    }
-    if (!resolvedMp.isEmpty() && !mountedDescMountpoints.isEmpty()) {
-        QString baseMp = resolvedMp;
-        while (baseMp.endsWith('/')) {
-            baseMp.chop(1);
-        }
-        dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
-                                  [&](const QString& d) {
-                                      const QString dirPath = baseMp + QStringLiteral("/") + d;
-                                      const QString dirPathWithSlash = dirPath + QStringLiteral("/");
-                                      for (const QString& childMp : mountedDescMountpoints) {
-                                          if (childMp == dirPath || childMp.startsWith(dirPathWithSlash)) {
-                                              return true;
-                                          }
-                                      }
-                                      return false;
-                                  }),
-                   dirs.end());
-    }
+    // Aquí había un filtro por punto de montaje que descartaba dos cosas distintas y las
+    // dos hay que ofrecerlas:
+    //
+    //   - el directorio que YA ES el punto de montaje de un subdataset con otro nombre
+    //     —lo que deja un Ensamblar que los conservó—: desglosarlo es justo lo que le
+    //     devuelve el nombre canónico y restaura el paralelismo nombre/ruta;
+    //   - el directorio que CONTIENE uno: se descartaba por `startsWith`, así que tras
+    //     un Ensamblar el padre dejaba de poder desglosarse y el viaje de ida y vuelta
+    //     quedaba cortado a la mitad.
+    //
+    // El filtro tapaba, de paso, que el daemon borraba el original con `remove_all` sin
+    // mirar los puntos de montaje. Eso ya está resuelto allí (desmonta antes, remonta
+    // después, y el borrado se planta si cambia de dispositivo), así que el filtro
+    // sobra. Los subdatasets con nombre canónico los sigue quitando el filtro por
+    // NOMBRE de más arriba, que es donde corresponde: ahí no hay nada que hacer.
+    //
+    // Con el filtro se va también su consulta, que era un `zfs mount | awk` por shell.
     if (dirs.isEmpty()) {
         const QString dirsText = dirs.isEmpty()
                                      ? trk(QStringLiteral("t_none_txt_0001"), QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
