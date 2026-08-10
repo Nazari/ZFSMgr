@@ -1269,22 +1269,39 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
             const QStringList argv{QStringLiteral("--mutate-advanced-todir"), ds, localDir,
                                    deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0")};
             cmd = mwhelpers::agentShellCommand(profile, argv);
-            executeDatasetAction(QStringLiteral("conncontent"),
-                                 // Identificador interno, NO texto de interfaz: aguas abajo
-                                 // se compara con "Hacia Dir" para decidir si la acción se
-                                 // envía como trabajo del daemon y si publica progreso. Al
-                                 // pasar aquí el texto traducido, en inglés valía "To Dir" y
-                                 // las dos cosas se apagaban solas. Desglosar y Ensamblar ya
-                                 // pasan el literal por este mismo motivo.
-                                 QStringLiteral("Hacia Dir"),
-                                 ctx,
-                                 cmd,
-                                 0,
-                                 allowWindowsScript,
-                                 {},
-                                 true,
-                                 {},
-                                 argv);
+            // Encolado como el resto de acciones, igual que Desglosar y Ensamblar. Al
+            // aplicarlo conserva todo lo suyo: confirmación, envío como trabajo del daemon
+            // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
+            PendingShellActionDraft draft;
+            draft.scopeLabel = [&]() {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                    return QString();
+                }
+                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+                return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+            }();
+            draft.displayLabel = QStringLiteral("Hacia Dir %1 -> %2").arg(ds, localDir);
+            draft.command = cmd;
+            draft.timeoutMs = 0;
+            draft.streamProgress = true;
+            draft.refreshTarget = ctx;
+            draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+            draft.datasetActionSide = QStringLiteral("conncontent");
+            draft.datasetActionName = QStringLiteral("Hacia Dir");
+            draft.datasetActionCtx = ctx;
+            draft.datasetActionArgv = argv;
+            draft.datasetActionAllowWindowsScript = allowWindowsScript;
+            QString errorText;
+            if (!queuePendingShellAction(draft, &errorText)) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("Cambio pendiente añadido: %1  %2")
+                       .arg(draft.scopeLabel, draft.displayLabel));
+            updateApplyPropsButtonState();
+            return;
             return;
         }
         cmd = QStringLiteral(
@@ -1438,10 +1455,37 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
                        deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
     }
 
-    executeDatasetAction(QStringLiteral("conncontent"),
-                         QStringLiteral("Hacia Dir"),  // identificador interno; ver arriba
-                         ctx,
-                         cmd,
-                         0,
-                         allowWindowsScript);
+    // Encolado como el resto de acciones, igual que Desglosar y Ensamblar. Al
+    // aplicarlo conserva todo lo suyo: confirmación, envío como trabajo del daemon
+    // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
+    PendingShellActionDraft draft;
+    draft.scopeLabel = [&]() {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+            return QString();
+        }
+        const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+        const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+        return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+    }();
+    draft.displayLabel = QStringLiteral("Hacia Dir %1 -> %2").arg(ds, localDir);
+    draft.command = cmd;
+    draft.timeoutMs = 0;
+    draft.streamProgress = true;
+    draft.refreshTarget = ctx;
+    draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+    draft.datasetActionSide = QStringLiteral("conncontent");
+    draft.datasetActionName = QStringLiteral("Hacia Dir");
+    draft.datasetActionCtx = ctx;
+    draft.datasetActionArgv = QStringList();
+    draft.datasetActionAllowWindowsScript = allowWindowsScript;
+    QString errorText;
+    if (!queuePendingShellAction(draft, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(draft.scopeLabel, draft.displayLabel));
+    updateApplyPropsButtonState();
+    return;
 }
