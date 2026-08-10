@@ -315,7 +315,13 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         {QStringLiteral("dedup"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("verify"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein")}},
         {QStringLiteral("encryption"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("aes-128-ccm"), QStringLiteral("aes-192-ccm"), QStringLiteral("aes-256-ccm"), QStringLiteral("aes-128-gcm"), QStringLiteral("aes-192-gcm"), QStringLiteral("aes-256-gcm")}},
         {QStringLiteral("keyformat"), QStringLiteral("combo"), {QString(), QStringLiteral("passphrase"), QStringLiteral("raw"), QStringLiteral("hex")}},
-        {QStringLiteral("keylocation"), QStringLiteral("entry"), {}},
+        // Desplegable y editable: los valores válidos son un conjunto cerrado de
+        // esquemas —prompt, file://, http://, https://— pero file:// y las URL llevan
+        // detrás una ruta que hay que escribir. Escrito a mano se acierta a la tercera:
+        // en una prueba real salió "invalid keylocation" antes de dar con la forma.
+        {QStringLiteral("keylocation"), QStringLiteral("combo"),
+         {QString(), QStringLiteral("prompt"), QStringLiteral("file:///etc/zfs/key"),
+          QStringLiteral("https://"), QStringLiteral("http://")}},
         {QStringLiteral("normalization"), QStringLiteral("combo"), {QString(), QStringLiteral("none"), QStringLiteral("formC"), QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")}},
         {QStringLiteral("casesensitivity"), QStringLiteral("combo"), {QString(), QStringLiteral("sensitive"), QStringLiteral("insensitive"), QStringLiteral("mixed")}},
         {QStringLiteral("utf8only"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
@@ -334,7 +340,8 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         if (spec.kind == QStringLiteral("combo")) {
             QComboBox* cb = new QComboBox(propsContainer);
             cb->addItems(spec.values);
-            if (spec.name == QStringLiteral("compression")) {
+            if (spec.name == QStringLiteral("compression")
+                || spec.name == QStringLiteral("keylocation")) {
                 cb->setEditable(true);
                 cb->setInsertPolicy(QComboBox::NoInsert);
             }
