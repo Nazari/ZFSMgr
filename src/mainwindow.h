@@ -989,6 +989,18 @@ private:
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
                                   const DatasetSelectionContext& dst,
                                   QString* reasonOut = nullptr) const;
+    // Encola una acción de dataset en vez de ejecutarla. Devuelve si se encoló.
+    //
+    // Las que llevan un secreto por la entrada estándar —montar un dataset cifrado,
+    // crear uno cifrado— NO deben pasar por aquí: encolarlas obliga a sostener la frase
+    // en memoria mientras el cambio espera en la lista, que puede ser minutos.
+    bool queueDatasetAction(const QString& side,
+                            const QString& actionName,
+                            const QString& displayLabel,
+                            const DatasetSelectionContext& ctx,
+                            const QString& cmd,
+                            bool allowWindowsScript = false,
+                            const QStringList& agentArgv = {});
     bool queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
     QString pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const;
     void executeConnectionTransferAction(const QString& action);

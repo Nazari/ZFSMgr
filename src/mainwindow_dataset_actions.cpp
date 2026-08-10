@@ -1706,15 +1706,13 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
         }
     }
     const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
-    return executeDatasetAction(side,
-                                QStringLiteral("Montar"),
-                                ctx,
-                                cmd,
-                                45000,
-                                false,
-                                {},
-                                false,
-                                mountRefresh);
+    // Encolada, como el resto. Devuelve FALSE a propósito aunque se encole bien: quien
+    // llama es la casilla "Montado" del árbol, y con true la marcaría como montada
+    // cuando todavía no lo está. Con false vuelve a su estado real y la intención queda
+    // en la lista de cambios pendientes, que es donde debe verse.
+    queueDatasetAction(side, QStringLiteral("Montar"),
+                       QStringLiteral("Montar %1").arg(ctx.datasetName), ctx, cmd);
+    return false;
 }
 
 bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx) {
@@ -1947,13 +1945,9 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     } else {
         cmd = mwhelpers::buildSingleUmountCommand(isWin, ctx.datasetName);
     }
-    return executeDatasetAction(side,
-                                QStringLiteral("Desmontar"),
-                                ctx,
-                                cmd,
-                                90000,
-                                isWin,
-                                {},
-                                false,
-                                umountRefresh);
+    // Encolada; devuelve false por lo mismo que Montar: la casilla debe seguir diciendo
+    // la verdad hasta que el cambio se aplique.
+    queueDatasetAction(side, QStringLiteral("Desmontar"),
+                       QStringLiteral("Desmontar %1").arg(ctx.datasetName), ctx, cmd, isWin);
+    return false;
 }

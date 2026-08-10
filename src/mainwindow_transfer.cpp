@@ -173,6 +173,45 @@ QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src
     return QStringLiteral("%1 -> %2").arg(srcLabel, dstLabel);
 }
 
+bool MainWindow::queueDatasetAction(const QString& side,
+                                   const QString& actionName,
+                                   const QString& displayLabel,
+                                   const DatasetSelectionContext& ctx,
+                                   const QString& cmd,
+                                   bool allowWindowsScript,
+                                   const QStringList& agentArgv) {
+    PendingShellActionDraft draft;
+    draft.scopeLabel = [&]() {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+            return QString();
+        }
+        const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+        const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+        return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
+    }();
+    draft.displayLabel = displayLabel;
+    draft.command = cmd;
+    draft.timeoutMs = 0;
+    draft.streamProgress = false;
+    draft.refreshTarget = ctx;
+    draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
+    draft.datasetActionSide = side;
+    draft.datasetActionName = actionName;
+    draft.datasetActionCtx = ctx;
+    draft.datasetActionArgv = agentArgv;
+    draft.datasetActionAllowWindowsScript = allowWindowsScript;
+    QString errorText;
+    if (!queuePendingShellAction(draft, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return false;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(draft.scopeLabel, draft.displayLabel));
+    updateApplyPropsButtonState();
+    return true;
+}
+
 bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut) {
     // El rechazo se registra AQUÍ y no en los llamantes: son nueve y ninguno lo hacía,
     // así que la acción fallaba con un diálogo y el registro no decía absolutamente

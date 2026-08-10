@@ -3455,10 +3455,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwCtx.poolName = actx.poolName;
             mwCtx.datasetName = actx.datasetName;
             const QString cmd = QStringLiteral("zfs mount %1").arg(actx.datasetName.trimmed());
-            m_mainWindow->executeDatasetAction(
+            // Encolada, como el resto de acciones que cambian estado.
+            m_mainWindow->queueDatasetAction(
                 QStringLiteral("conncontent"),
-                QStringLiteral("Mount dataset %1").arg(actx.datasetName),
-                mwCtx, cmd, 90000);
+                QStringLiteral("Montar"),
+                QStringLiteral("Montar %1").arg(actx.datasetName),
+                mwCtx, cmd);
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal

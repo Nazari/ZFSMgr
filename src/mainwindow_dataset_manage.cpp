@@ -623,15 +623,24 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
                 reloadDatasetSide(side);
             }
         };
-        if (executeDatasetAction(side,
-                                 actionLabel,
-                                 ctx,
-                                 cmd,
-                                 45000,
-                                 false,
-                                 stdinPayload,
-                                 false,
-                                 refreshAfterCreate)) {
+        // Encolada, salvo si lleva la frase de cifrado por la entrada estándar: eso
+        // obligaría a sostener el secreto en memoria mientras el cambio espera en la
+        // lista. Esas siguen ejecutándose en el acto, con la frase recién escrita.
+        if (stdinPayload.isEmpty()) {
+            if (queueDatasetAction(side, actionLabel,
+                                   QStringLiteral("%1 %2").arg(actionLabel, opt.datasetPath),
+                                   ctx, cmd)) {
+                dlg.accept();
+            }
+        } else if (executeDatasetAction(side,
+                                        actionLabel,
+                                        ctx,
+                                        cmd,
+                                        45000,
+                                        false,
+                                        stdinPayload,
+                                        false,
+                                        refreshAfterCreate)) {
             dlg.accept();
         }
     });
