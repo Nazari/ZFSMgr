@@ -75,6 +75,8 @@ void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
 constexpr int kRoleDevicePath = Qt::UserRole;
 constexpr int kRoleSelectable = Qt::UserRole + 1;
 constexpr int kRoleDevType = Qt::UserRole + 4;
+constexpr int kRolePoolName = Qt::UserRole + 44;
+constexpr int kRolePoolImported = Qt::UserRole + 45;
 constexpr int kRoleNodeKind = Qt::UserRole + 5;
 constexpr int kRoleVdevPrefix = Qt::UserRole + 6;
 constexpr int kRoleIntrinsicSelectable = Qt::UserRole + 7;
@@ -362,6 +364,13 @@ void MainWindow::createPoolForSelectedConnection() {
         bool zfsSignature{false};
         bool synthesized{false};
         bool inPool{false};
+        // Quién lo reclama. Sin esto la fila decía "EN_POOL" a secas, y con eso es
+        // imposible distinguir «es de un pool vivo, ni lo toques» de «son los restos de
+        // un pool muerto, límpialo y sigue». Caso real: un disco marcado en rojo porque
+        // conservaba la etiqueta de un pool de pruebas destruido, sin forma de saberlo.
+        QString poolName;
+        QString poolState;
+        bool poolImported{true};
     };
 
     auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
@@ -771,7 +780,82 @@ void MainWindow::createPoolForSelectedConnection() {
         return partNo.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
                                 : QStringLiteral("physicaldrive%1/partition%2").arg(d, partNo);
     };
-    auto markDevicesInPoolByTokens = [&devicesByPath, &byIdAliasesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
+    // Los tokens de cada pool POR SEPARADO. collectPoolTokens mezcla la salida entera,
+    // así que no se puede saber qué pool reclama qué disco; y con varios pools a la vez
+    // —uno importado y los restos de otro— esa distinción es justo la que falta.
+    struct PoolBlock {
+        QString name;
+        QString state;
+        QSet<QString> tokens;
+    };
+    auto collectPoolBlocks = [](const QString& text) -> QVector<PoolBlock> {
+        static const QSet<QString> skipTok = {
+            QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"),
+            QStringLiteral("RAIDZ1"), QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"),
+            QStringLiteral("SPARE"), QStringLiteral("LOGS"), QStringLiteral("CACHE"),
+            QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"), QStringLiteral("ONLINE"),
+            QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"), QStringLiteral("UNAVAILABLE"),
+            QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"), QStringLiteral("REMOVED"),
+            QStringLiteral("AVAIL"), QStringLiteral("INDIRECT-0")
+        };
+        QVector<PoolBlock> blocks;
+        PoolBlock cur;
+        bool inConfig = false;
+        const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QString t = line.trimmed();
+            if (t.isEmpty()) {
+                continue;
+            }
+            if (t.startsWith(QStringLiteral("pool:"))) {
+                if (!cur.name.isEmpty()) {
+                    blocks.push_back(cur);
+                }
+                cur = PoolBlock{};
+                cur.name = t.mid(5).trimmed();
+                inConfig = false;
+                continue;
+            }
+            if (t.startsWith(QStringLiteral("state:"))) {
+                cur.state = t.mid(6).trimmed();
+                continue;
+            }
+            if (t.startsWith(QStringLiteral("config:"))) {
+                inConfig = true;
+                continue;
+            }
+            if (t.startsWith(QStringLiteral("errors:")) || t.startsWith(QStringLiteral("status:"))
+                || t.startsWith(QStringLiteral("action:")) || t.startsWith(QStringLiteral("see:"))
+                || t.startsWith(QStringLiteral("scan:")) || t.startsWith(QStringLiteral("id:"))
+                || t.startsWith(QStringLiteral("remove:"))) {
+                continue;
+            }
+            if (!inConfig) {
+                continue;   // fuera de config: nada de lo que hay son dispositivos
+            }
+            const QString token = t.split(QRegularExpression(QStringLiteral("\\s+")),
+                                          Qt::SkipEmptyParts).value(0);
+            if (token.isEmpty() || skipTok.contains(token.toUpper())
+                || token.endsWith(QLatin1Char(':')) || token.endsWith(QLatin1Char('-'))
+                || token == cur.name) {
+                continue;
+            }
+            cur.tokens.insert(token);
+            if (token.startsWith(QLatin1Char('/'))) {
+                cur.tokens.insert(QFileInfo(token).fileName());
+            }
+        }
+        if (!cur.name.isEmpty()) {
+            blocks.push_back(cur);
+        }
+        return blocks;
+    };
+
+    auto markDevicesInPoolByTokens = [&devicesByPath, &byIdAliasesByPath, &normalizeWinPhysPart](
+                                         const QSet<QString>& usedTokens,
+                                         const QString& poolName = QString(),
+                                         const QString& poolState = QString(),
+                                         bool poolImported = true) {
         auto canonicalUnixDev = [](QString s) -> QString {
             s = s.trimmed().toLower();
             if (s.startsWith(QStringLiteral("/dev/rdisk"))) {
@@ -834,6 +918,13 @@ void MainWindow::createPoolForSelectedConnection() {
                     || pthCanon.contains(tkCanon) || realCanon.contains(tkCanon)
                     || (!tkNorm.isEmpty() && (tkNorm == pthNorm || tkNorm == realNorm))) {
                     it.value().inPool = true;
+                    // El primero que lo reclama se queda con la explicación, salvo que
+                    // llegue un pool IMPORTADO: ese aviso pesa más que el de unos restos.
+                    if (it.value().poolName.isEmpty() || (poolImported && !it.value().poolImported)) {
+                        it.value().poolName = poolName;
+                        it.value().poolState = poolState;
+                        it.value().poolImported = poolImported;
+                    }
                     break;
                 }
             }
@@ -887,7 +978,9 @@ void MainWindow::createPoolForSelectedConnection() {
     const QString inPoolCmd = withSudo(p, zpoolLocateScript + QStringLiteral(
         "($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null || $ZPOOL status -L 2>/dev/null || $ZPOOL status)"));
     if (runRemote(inPoolCmd, 25000, out)) {
-        markDevicesInPoolByTokens(collectPoolTokens(out));
+        for (const PoolBlock& b : collectPoolBlocks(out)) {
+            markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
+        }
         if (isWindowsConnection(p)) {
             markPhysicalDriveWholeDisk(out);
         }
@@ -895,7 +988,9 @@ void MainWindow::createPoolForSelectedConnection() {
     QString outListV;
     const QString listVCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)"));
     if (runRemote(listVCmd, 25000, outListV)) {
-        markDevicesInPoolByTokens(collectPoolTokens(outListV));
+        for (const PoolBlock& b : collectPoolBlocks(outListV)) {
+            markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
+        }
         if (isWindowsConnection(p)) {
             markPhysicalDriveWholeDisk(outListV);
         }
@@ -926,7 +1021,11 @@ void MainWindow::createPoolForSelectedConnection() {
     QString outImp;
     const QString importProbeCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL import; $ZPOOL import -s)"));
     if (runRemote(importProbeCmd, 25000, outImp)) {
-        markDevicesInPoolByTokens(collectPoolTokens(outImp));
+        // Estos NO están importados: son pools exportados, de otra máquina, o los
+        // restos de uno destruido cuya etiqueta sigue en el disco.
+        for (const PoolBlock& b : collectPoolBlocks(outImp)) {
+            markDevicesInPoolByTokens(b.tokens, b.name, b.state, false);
+        }
         if (isWindowsConnection(p)) {
             markPhysicalDriveWholeDisk(outImp);
         }
@@ -1445,6 +1544,19 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.colorRank = 0;
             rr.selectable = true;
         } else if (protectedMount || e.inPool || macApfsRootBlocked || macImportedPoolVirtualDisk || macSynthesizedDevice) {
+            // Por qué se descarta este dispositivo. Sin esto, un disco marcado como "en
+            // uso" que en realidad está libre no se puede diagnosticar: la decisión sale
+            // de cinco condiciones distintas y ninguna dejaba rastro.
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("[crear pool] %1 descartado: inPool=%2 protegido=%3 "
+                                  "macApfs=%4 macPoolVirtual=%5 macSintetico=%6 fsType='%7'")
+                       .arg(e.path)
+                       .arg(e.inPool ? 1 : 0)
+                       .arg(protectedMount ? 1 : 0)
+                       .arg(macApfsRootBlocked ? 1 : 0)
+                       .arg(macImportedPoolVirtualDisk ? 1 : 0)
+                       .arg(macSynthesizedDevice ? 1 : 0)
+                       .arg(e.fsType.trimmed()));
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
@@ -1465,6 +1577,33 @@ void MainWindow::createPoolForSelectedConnection() {
                 rr.detailText = e.synthesized
                                     ? QStringLiteral("Disco APFS sintetizado por macOS")
                                     : QStringLiteral("Disco contenedor APFS no seleccionable");
+            } else if (!e.poolName.isEmpty() && !e.poolImported) {
+                // Un pool que NO está importado: exportado, de otra máquina, o los restos
+                // de uno destruido cuya etiqueta sigue en el disco. Decir cuál y en qué
+                // estado es la diferencia entre un aviso útil y uno que parece un error:
+                // con "EN_POOL" a secas no hay forma de saber si el disco es intocable o
+                // si basta con limpiarle la etiqueta.
+                rr.stateText = e.poolName;
+                rr.detailText = e.poolState.trimmed().isEmpty()
+                                    ? trk(QStringLiteral("t_poolcrt_notimp_001"),
+                                          QStringLiteral("Pertenece a «%1», que no está importado")
+                                              .arg(e.poolName),
+                                          QStringLiteral("Belongs to \"%1\", which is not imported")
+                                              .arg(e.poolName),
+                                          QStringLiteral("属于「%1」，该池未导入").arg(e.poolName))
+                                    : trk(QStringLiteral("t_poolcrt_notimp_002"),
+                                          QStringLiteral("Pertenece a «%1» (no importado, %2)")
+                                              .arg(e.poolName, e.poolState),
+                                          QStringLiteral("Belongs to \"%1\" (not imported, %2)")
+                                              .arg(e.poolName, e.poolState),
+                                          QStringLiteral("属于「%1」（未导入，%2）")
+                                              .arg(e.poolName, e.poolState));
+            } else if (!e.poolName.isEmpty()) {
+                rr.stateText = e.poolName;
+                rr.detailText = trk(QStringLiteral("t_poolcrt_imported_001"),
+                                    QStringLiteral("En uso por el pool «%1», importado").arg(e.poolName),
+                                    QStringLiteral("In use by pool \"%1\", imported").arg(e.poolName),
+                                    QStringLiteral("正在被已导入的池「%1」使用").arg(e.poolName));
             } else {
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
                                     QStringLiteral("Already part of a pool"),
@@ -1510,6 +1649,8 @@ void MainWindow::createPoolForSelectedConnection() {
         item->setData(0, kRoleSelectable, rr.selectable);
         item->setData(0, kRoleIntrinsicSelectable, rr.selectable);
         item->setData(0, kRoleDevType, e.devType);
+        item->setData(0, kRolePoolName, e.poolName);
+        item->setData(0, kRolePoolImported, e.poolImported);
         Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
         if (rr.selectable) {
             flags |= Qt::ItemIsUserCheckable;
@@ -1606,6 +1747,76 @@ void MainWindow::createPoolForSelectedConnection() {
     lay->addWidget(poolCmdPreview, 0);
 
     bool syncDeviceChecks = false;
+    // Limpiar la etiqueta de un pool que NO está importado. Un disco puede quedar
+    // marcado como ocupado por los restos de un pool destruido —etiqueta que sobrevive
+    // al destroy— y hasta ahora la única salida era irse a un terminal a ejecutar
+    // `zpool labelclear`. Solo se ofrece si el pool no está importado: si lo está, el
+    // disco se está usando de verdad y limpiarlo sería destruir datos vivos.
+    devicesTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(devicesTree, &QTreeWidget::customContextMenuRequested, &dlg,
+            [&, devicesTree](const QPoint& pos) {
+        QTreeWidgetItem* item = devicesTree->itemAt(pos);
+        if (!item) {
+            return;
+        }
+        const QString devPath = item->data(0, kRoleDevicePath).toString().trimmed();
+        const QString poolName = item->data(0, kRolePoolName).toString().trimmed();
+        const bool imported = item->data(0, kRolePoolImported).toBool();
+        if (devPath.isEmpty() || poolName.isEmpty() || imported) {
+            return;
+        }
+        QMenu menu(devicesTree);
+        QAction* aClear = menu.addAction(
+            trk(QStringLiteral("t_poolcrt_labelclear_001"),
+                QStringLiteral("Limpiar la etiqueta de «%1» en %2").arg(poolName, devPath),
+                QStringLiteral("Clear the \"%1\" label on %2").arg(poolName, devPath),
+                QStringLiteral("清除 %2 上「%1」的标签").arg(poolName, devPath)));
+        if (menu.exec(devicesTree->viewport()->mapToGlobal(pos)) != aClear) {
+            return;
+        }
+        const QString warn =
+            trk(QStringLiteral("t_poolcrt_labelclear_confirm001"),
+                QStringLiteral("Se va a borrar la etiqueta ZFS de %1.\n\nEl disco dice pertenecer "
+                               "al pool «%2», que no está importado. Si ese pool aún le importa a "
+                               "alguien, esto lo hace irrecuperable desde este disco.\n\n¿Continuar?")
+                    .arg(devPath, poolName),
+                QStringLiteral("The ZFS label on %1 will be erased.\n\nThe device claims to belong "
+                               "to pool \"%2\", which is not imported. If that pool still matters to "
+                               "anyone, this makes it unrecoverable from this device.\n\nContinue?")
+                    .arg(devPath, poolName),
+                QStringLiteral("即将擦除 %1 上的 ZFS 标签。\n\n该设备声称属于未导入的池「%2」。"
+                               "如果该池仍有价值，此操作将使其无法从该设备恢复。\n\n是否继续？")
+                    .arg(devPath, poolName));
+        if (QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"), warn,
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+            != QMessageBox::Yes) {
+            return;
+        }
+        const QString cmd = withSudo(p, QStringLiteral("zpool labelclear -f %1")
+                                            .arg(mwhelpers::shSingleQuote(devPath)));
+        QString out;
+        QString err;
+        int rc = -1;
+        const bool ok = runSsh(p, cmd, 30000, out, err, rc) && rc == 0;
+        appLog(ok ? QStringLiteral("NORMAL") : QStringLiteral("ERROR"),
+               ok ? QStringLiteral("Etiqueta ZFS borrada en %1 (pool «%2»)").arg(devPath, poolName)
+                  : QStringLiteral("No se pudo borrar la etiqueta ZFS en %1: %2")
+                        .arg(devPath, mwhelpers::oneLine(err)));
+        if (!ok) {
+            QMessageBox::critical(&dlg, QStringLiteral("ZFSMgr"), mwhelpers::oneLine(err));
+            return;
+        }
+        QMessageBox::information(
+            &dlg, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_poolcrt_labelclear_done001"),
+                QStringLiteral("Etiqueta borrada. Cierre y vuelva a abrir «Crear pool» para "
+                               "que %1 aparezca como libre.").arg(devPath),
+                QStringLiteral("Label cleared. Close and reopen \"Create pool\" so %1 shows as "
+                               "free.").arg(devPath),
+                QStringLiteral("标签已清除。请关闭并重新打开「创建池」，%1 才会显示为空闲。")
+                    .arg(devPath)));
+    });
+
     connect(devicesTree, &QTreeWidget::itemChanged, &dlg, [&](QTreeWidgetItem* item, int column) {
         if (!item || column != 0 || syncDeviceChecks) {
             return;
