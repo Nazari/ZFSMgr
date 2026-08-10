@@ -552,6 +552,14 @@ private:
     std::thread worker_;
 };
 
+// ¿Está montado? Se pregunta mucho, y siempre por el mismo motivo: ZFS remonta solo al
+// cambiar el mountpoint o al renombrar, así que un `zfs mount` posterior falla con
+// "filesystem already mounted" aunque todo esté bien. Fallar o avisar por eso es ruido.
+bool datasetIsMounted(const std::string& name) {
+    const ExecResult r = getZfsPropertyCapture(name, "mounted");
+    return r.rc == 0 && trim(r.out) == "yes";
+}
+
 ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
                                    const std::vector<std::string>& excludes = {},
                                    bool oneFileSystem = false) {
@@ -1098,9 +1106,11 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         if (renamedNames.count(it->second)) {
             continue;
         }
-        const ExecResult rm = runExecCapture("zfs", {"mount", it->second});
-        if (rm.rc != 0) {
-            r.out += "[BREAKDOWN] aviso: no se pudo volver a montar " + it->second + "\n";
+        if (!datasetIsMounted(it->second)) {
+            const ExecResult rm = runExecCapture("zfs", {"mount", it->second});
+            if (rm.rc != 0 && !datasetIsMounted(it->second)) {
+                r.out += "[BREAKDOWN] aviso: no se pudo volver a montar " + it->second + "\n";
+            }
         }
     }
     cleanup.armed = false;
@@ -1323,10 +1333,12 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // Con el directorio ya en su sitio, devolver los hijos a su punto de montaje.
         // zfs crea el directorio si falta.
         for (const Reparented& rp : reparented) {
-            ExecResult mnt = runExecCapture("zfs", {"mount", rp.newName});
-            if (mnt.rc != 0) {
-                r.out += "[ASSEMBLE] aviso: no se pudo montar " + rp.newName
-                         + " en " + rp.mountpoint + "\n";
+            if (!datasetIsMounted(rp.newName)) {
+                const ExecResult mnt = runExecCapture("zfs", {"mount", rp.newName});
+                if (mnt.rc != 0 && !datasetIsMounted(rp.newName)) {
+                    r.out += "[ASSEMBLE] aviso: no se pudo montar " + rp.newName
+                             + " en " + rp.mountpoint + "\n";
+                }
             }
         }
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
@@ -2294,9 +2306,24 @@ struct AltMountGuard {
             return false;
         }
         active = true;  // from here on the dataset must be restored
-        const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
-        if (mountRes.rc != 0) {
-            errMsg = mountRes.err.empty() ? "cannot mount on temporary mountpoint\n" : mountRes.err;
+        // `zfs set mountpoint=` YA remonta el dataset si estaba montado, así que montarlo
+        // otra vez falla con "filesystem already mounted" —y eso abortaba la operación
+        // entera por algo que en realidad había salido bien—. Solo se monta si hace falta.
+        if (!datasetIsMounted(ds)) {
+            const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
+            if (mountRes.rc != 0) {
+                errMsg = mountRes.err.empty() ? "cannot mount on temporary mountpoint\n"
+                                              : mountRes.err;
+                return false;
+            }
+        }
+        // Estar montado no basta: tiene que estarlo DONDE toca. Si por lo que sea siguiera
+        // en su sitio anterior, copiar de ahí sería copiar de donde no es.
+        const ExecResult mpNow = getDatasetMountpointCapture(ds);
+        const std::string effective = (mpNow.rc == 0) ? trim(mpNow.out) : std::string();
+        if (effective != tmpDir) {
+            errMsg = "el dataset " + ds + " quedó montado en " + effective + " y no en "
+                     + tmpDir + "\n";
             return false;
         }
         mpOut = tmpDir;
