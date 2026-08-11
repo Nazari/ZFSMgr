@@ -105,7 +105,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 
 ## Cambios pendientes
 
-- `Pending changes` muestra descripciones legibles, no comandos crudos.
+- `Cambios pendientes` muestra descripciones legibles, no comandos crudos.
 - Los cambios se acumulan en orden de inserción.
 - Al hacer clic en una línea, ZFSMgr intenta enfocar el objeto y la sección afectada.
 - Acciones diferidas típicas:
@@ -114,6 +114,38 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
   - `Rename`, `Move`, `Rollback`, `Hold`, `Release`
   - `Copy`, `Level`, `Sync`
   - borrado diferido de datasets/snapshots
+
+### La lista es un plan de trabajo, no una cola que se vacía
+
+Las **acciones** (`Desglosar`, `Ensamblar`, `Desde Dir`, `Hacia Dir`, montar, desmontar,
+crear, borrar…) se comportan así:
+
+- **No se borran al ejecutarse.** Se quedan con su resultado y **se desmarcan solas**.
+  Desmarcarlas, en vez de borrarlas, evita que un segundo `Aplicar cambios` repita por
+  descuido un `Desglosar` o un `Hacia Dir` con borrado.
+- **Casilla `Activa`**: decide si la entrada entra en el próximo `Aplicar cambios`.
+  Volver a marcarla es todo lo que hace falta para repetir la acción.
+- **La lista sobrevive al cierre.** Si sale sin aplicar, al arrancar siguen ahí.
+- **`Poner nombre...`** (menú contextual) para distinguir entradas parecidas.
+- **`Editar...`** (menú contextual) reabre el diálogo con lo que se pidió, en las cuatro
+  acciones avanzadas. Cancelar la edición **no** borra la acción.
+- Para quitar una entrada hay que hacerlo **a mano**: `Eliminar`, o `Descartar` para
+  vaciar la lista entera.
+
+Las **propiedades, los permisos y los renombrados** no funcionan así: siguen
+desapareciendo al aplicarse. Son ediciones de un estado, con un final natural, no
+trabajos que tenga sentido repetir.
+
+### Qué NO se guarda en disco
+
+- **Las contraseñas.** La orden de cada acción lleva dentro la de `sudo`; al guardar se
+  sustituye por un marcador y al cargar se repone desde la conexión, donde vive cifrada.
+  Si cambia la contraseña entre sesiones, la acción restaurada usa la nueva.
+- **Las frases de cifrado.** Una acción que cree un dataset cifrado **no se guarda**:
+  guardarla sin el secreto sería peor, porque al aplicarla crearía el dataset sin cifrar
+  o fallaría a mitad. Al re-editarla, la frase se vuelve a pedir.
+- Una acción cuya **conexión ya no existe** se descarta al arrancar, en vez de quedarse
+  como una línea que falla al pulsarla.
 
 ## Conectividad y logs
 

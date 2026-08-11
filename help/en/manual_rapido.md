@@ -115,6 +115,38 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - `Copy`, `Level`, `Sync`
   - deferred dataset/snapshot deletion
 
+### The list is a work plan, not a queue that drains
+
+**Actions** (`Breakdown`, `Assemble`, `From Dir`, `To Dir`, mount, unmount, create,
+destroy…) behave like this:
+
+- **They are not removed when they run.** They keep their result and **untick
+  themselves**. Unticking rather than deleting is what stops a second `Apply changes`
+  from accidentally repeating a `Breakdown` or a `To Dir` with deletion.
+- **`Active` checkbox**: decides whether the entry takes part in the next
+  `Apply changes`. Ticking it again is all it takes to run the action once more.
+- **The list survives closing the app.** Leave without applying and it is still there
+  next time.
+- **`Set name...`** (context menu) to tell similar entries apart.
+- **`Edit...`** (context menu) reopens the dialog with what you asked for, for all four
+  advanced actions. Cancelling the edit does **not** delete the action.
+- Removing an entry is **manual**: `Delete`, or `Discard` to empty the whole list.
+
+**Properties, permissions and renames** do not work this way: they still disappear once
+applied. They are edits to a state, with a natural end, not jobs worth repeating.
+
+### What is NOT written to disk
+
+- **Passwords.** Each action's command carries the `sudo` password inside it; on save it
+  is replaced by a marker and on load restored from the connection, where it lives
+  encrypted. Change the password between sessions and the restored action uses the new
+  one.
+- **Encryption passphrases.** An action that creates an encrypted dataset **is not
+  saved**: saving it without the secret would be worse, since applying it would create
+  the dataset unencrypted or fail midway. Re-editing it asks for the passphrase again.
+- An action whose **connection no longer exists** is dropped at startup, rather than
+  staying as a line that fails when you click it.
+
 ## Connectivity and logs
 
 - `Check connectivity` is in the main app menu (not under `Logs`).

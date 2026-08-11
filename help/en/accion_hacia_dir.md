@@ -11,7 +11,7 @@ Conditions:
 Behavior:
 
 - Opens a dialog to choose the destination directory.
-- Shows the command, asks for confirmation and runs immediately, blocking the interface while it lasts. It does not go through `Pending changes`.
+- The action is added to `Pending changes` and only runs when you apply the changes. On applying it shows the command, asks for confirmation and blocks the interface while it lasts.
 - Relocates the dataset onto a temporary mountpoint and copies its contents with `rsync` (permissions, hard links, sparse files and, where the system supports them, ACLs and extended attributes). Relocating it is what allows the destination directory to be the very path where the dataset was mounted.
 - If the copy completes successfully:
   - optionally deletes the source dataset (checkbox).

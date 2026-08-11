@@ -11,7 +11,7 @@ Condiciones:
 Comportamiento:
 
 - Abre una ventana para seleccionar el directorio destino.
-- Muestra el comando, pide confirmación y se ejecuta en el acto, bloqueando la interfaz mientras dura. No pasa por `Cambios pendientes`.
+- La acción se añade a `Cambios pendientes` y solo se ejecuta al aplicar los cambios. Al aplicarla muestra el comando, pide confirmación y bloquea la interfaz mientras dura.
 - Reubica el dataset en un punto de montaje temporal y copia su contenido con `rsync` (permisos, enlaces duros, ficheros dispersos y, si el sistema lo soporta, ACLs y atributos extendidos). Reubicarlo permite que el directorio destino sea la propia ruta donde estaba montado.
 - Si la copia termina correctamente:
   - opcionalmente elimina el dataset origen (segun check).
