@@ -1152,6 +1152,9 @@ private:
         // en cada cambio de marca, salvo en las filas que el usuario haya editado.
         std::function<QString(const QString& path, const QSet<QString>& checked)> propose;
         QSet<QString> takenNames;      // nombres ya ocupados, para avisar del choque
+        // Nombres con los que llega el diálogo, al re-editar un cambio encolado: se
+        // respetan tal cual y no se recalculan, porque pueden haberse escrito a mano.
+        QMap<QString, QString> initialNames;
         QMap<QString, QString> chosen; // salida: ruta -> nombre elegido
     };
     bool selectTreeItemsDialog(const QString& title,
@@ -1501,6 +1504,16 @@ private:
     // el bucle que aplica los cambios pendientes no distingue una cosa de la otra y
     // saca "Error ejecutando cambio pendiente" tras una cancelación pedida a propósito.
     bool m_lastActionWasCancelled{false};
+    // Semilla para re-editar un cambio ya encolado: se quita de la lista, se guarda aquí
+    // lo que se le pidió, y se vuelve a abrir su diálogo con eso ya puesto. Las tres
+    // acciones que la usan guardan su entrada completa en datasetActionArgv, así que no
+    // hace falta almacenar nada más; "Desde Dir" no, porque su orden es una tubería de
+    // shell y su diálogo tiene mucho más estado del que cabe en la orden.
+    struct PendingEditSeed {
+        bool active{false};
+        QStringList argv;
+    };
+    PendingEditSeed m_pendingEditSeed;
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
     bool m_busyOnImportRefresh{false};

@@ -2130,16 +2130,52 @@ void MainWindow::buildUi() {
         // y la cancelación estaba cableada únicamente a cinco botones del panel de
         // Conexiones —y solo si había sido ese botón el que lanzó la acción—. Todo lo
         // lanzado desde un menú contextual se quedaba sin manera de pararse.
+        // Re-editar: se quita de la cola y se reabre su diálogo con lo que se pidió.
+        // Solo para las acciones cuya entrada completa está en la orden guardada; las
+        // demás —Desde Dir— tendrían que almacenar aparte el estado de su diálogo.
+        static const QSet<QString> kEditables = {
+            QStringLiteral("Desglosar"), QStringLiteral("Ensamblar"), QStringLiteral("Hacia Dir")
+        };
+        QAction* aEdit = (hasPendingChange && !actionsLocked()
+                          && kEditables.contains(change.shellDraft.datasetActionName.trimmed())
+                          && !change.shellDraft.datasetActionArgv.isEmpty())
+                             ? menu.addAction(trk(QStringLiteral("t_ctx_edit_pending001"),
+                                                  QStringLiteral("Editar..."),
+                                                  QStringLiteral("Edit..."),
+                                                  QStringLiteral("编辑...")))
+                             : nullptr;
         QAction* aStop = actionsLocked()
                              ? menu.addAction(trk(QStringLiteral("t_ctx_stop001"),
                                                   QStringLiteral("Detener la acción en curso"),
                                                   QStringLiteral("Stop the running action"),
                                                   QStringLiteral("停止正在执行的操作")))
                              : nullptr;
-        if (!aExecute && !aDelete && !aStop) {
+        if (!aExecute && !aDelete && !aStop && !aEdit) {
             return;
         }
         QAction* picked = menu.exec(m_pendingChangesList->viewport()->mapToGlobal(pos));
+        if (aEdit && picked == aEdit) {
+            const MainWindow::PendingShellActionDraft draft = change.shellDraft;
+            logUiAction(QStringLiteral("Editar cambio pendiente: %1").arg(draft.displayLabel));
+            if (!removePendingQueuedChangeLine(line)) {
+                m_pendingOrderedDisplayLines.removeAll(line);
+                m_pendingItemStatus.remove(line);
+                updatePendingChangesList();
+            }
+            m_pendingEditSeed.active = true;
+            m_pendingEditSeed.argv = draft.datasetActionArgv;
+            const QString what = draft.datasetActionName.trimmed();
+            if (what == QStringLiteral("Desglosar")) {
+                actionAdvancedBreakdown(draft.datasetActionCtx);
+            } else if (what == QStringLiteral("Ensamblar")) {
+                actionAdvancedAssemble(draft.datasetActionCtx);
+            } else {
+                actionAdvancedToDir(draft.datasetActionCtx);
+            }
+            m_pendingEditSeed.active = false;  // por si el diálogo se canceló antes de usarla
+            m_pendingEditSeed.argv.clear();
+            return;
+        }
         if (aStop && picked == aStop) {
             logUiAction(QStringLiteral("Detener acción en curso (lista de pendientes)"));
             requestCancelRunningAction();

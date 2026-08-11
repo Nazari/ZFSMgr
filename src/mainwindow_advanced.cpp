@@ -423,6 +423,17 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     // Los tramos que sí serán dataset se separan con '/', los que no con ':' — de los
     // caracteres que ZFS admite ([a-zA-Z0-9_.:- ] y espacio) es el que menos se
     // confunde con un nombre de directorio corriente.
+    // Re-edición: la semilla trae los pares (directorio, nombre) que se pidieron.
+    QMap<QString, QString> seededNames;
+    if (m_pendingEditSeed.active
+        && m_pendingEditSeed.argv.value(0) == QStringLiteral("--mutate-advanced-breakdown")) {
+        for (int i = 2; i + 1 < m_pendingEditSeed.argv.size(); i += 2) {
+            selectedDirs << m_pendingEditSeed.argv.at(i);
+            seededNames.insert(m_pendingEditSeed.argv.at(i), m_pendingEditSeed.argv.at(i + 1));
+        }
+        m_pendingEditSeed.active = false;
+    }
+
     MainWindow::TreeNameColumn nameColumn;
     nameColumn.header = trk(QStringLiteral("t_col_dataset_001"),
                             QStringLiteral("Dataset resultante"),
@@ -430,6 +441,8 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                             QStringLiteral("生成的数据集"));
     nameColumn.editable = true;
     nameColumn.takenNames = childDatasetPathsLower;
+    // Los nombres que se habían elegido, para no reproponer otros encima.
+    nameColumn.initialNames = seededNames;
     nameColumn.propose = [childDatasetPathsLower](const QString& path,
                                                   const QSet<QString>& checked) {
         const QStringList parts = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
@@ -731,6 +744,22 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     // Columna informativa: qué dataset es cada fila. Aquí el nombre es un hecho, no una
     // propuesta, así que no se edita. Tras absorberlo, los datasets que cuelguen de él
     // se conservan y pasan a llamarse por su ruta bajo el padre con ':' en lugar de '/'.
+    if (m_pendingEditSeed.active
+        && m_pendingEditSeed.argv.value(0) == QStringLiteral("--mutate-advanced-assemble")) {
+        // La semilla trae nombres COMPLETOS de dataset; el diálogo trabaja con rutas
+        // relativas, así que se invierte el mapa que ya se construyó.
+        for (int i = 2; i < m_pendingEditSeed.argv.size(); ++i) {
+            const QString full = m_pendingEditSeed.argv.at(i).trimmed();
+            for (auto it = childPathToDataset.cbegin(); it != childPathToDataset.cend(); ++it) {
+                if (it.value().trimmed() == full) {
+                    selectedChildPaths << it.key();
+                    break;
+                }
+            }
+        }
+        m_pendingEditSeed.active = false;
+    }
+
     MainWindow::TreeNameColumn assembleNames;
     assembleNames.header = trk(QStringLiteral("t_col_dataset_002"),
                                QStringLiteral("Dataset actual"),

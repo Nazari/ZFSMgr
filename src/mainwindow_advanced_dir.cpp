@@ -1234,10 +1234,21 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     // datos quedan dos veces, una en el directorio nuevo y otra en el dataset que
     // sobrevive desmontado. Para cualquier otro destino se desmarca sola, porque
     // entonces es una copia a otro sitio y borrar el origen es otra decisión.
+    // Re-edición: la semilla trae el directorio elegido y si se pidió borrar el origen.
+    bool seededFromEdit = false;
+    if (m_pendingEditSeed.active
+        && m_pendingEditSeed.argv.value(0) == QStringLiteral("--mutate-advanced-todir")) {
+        dirEdit->setText(m_pendingEditSeed.argv.value(2));
+        deleteSourceDatasetChk->setChecked(m_pendingEditSeed.argv.value(3) == QStringLiteral("1"));
+        m_pendingEditSeed.active = false;
+        m_pendingEditSeed.argv.clear();
+        seededFromEdit = true;
+    }
+
     QString currentMp;
     if (getDatasetProperty(ctx.connIdx, ds, QStringLiteral("mountpoint"), currentMp)) {
         currentMp = currentMp.trimmed();
-        if (currentMp.startsWith(QLatin1Char('/'))) {
+        if (currentMp.startsWith(QLatin1Char('/')) && dirEdit->text().trimmed().isEmpty()) {
             dirEdit->setText(currentMp);
         } else {
             currentMp.clear();
@@ -1245,8 +1256,9 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     } else {
         currentMp.clear();
     }
-    const bool inPlaceByDefault = !currentMp.isEmpty();
-    deleteSourceDatasetChk->setChecked(inPlaceByDefault);
+    if (!seededFromEdit) {
+        deleteSourceDatasetChk->setChecked(!currentMp.isEmpty());
+    }
     QObject::connect(dirEdit, &QLineEdit::textChanged, &dlg,
                      [deleteSourceDatasetChk, currentMp](const QString& text) {
         if (currentMp.isEmpty()) {

@@ -955,6 +955,15 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
 
     // ---- Columna del nombre de dataset ----
     QSet<QString> manuallyEdited;  // filas que tocó el usuario: no se recalculan
+    if (nameColumn) {
+        // Los nombres con los que llega el diálogo cuentan como "tocados a mano": al
+        // re-editar un cambio encolado hay que respetar lo que se eligió, no proponer
+        // otra cosa encima.
+        for (auto it = nameColumn->initialNames.cbegin();
+             it != nameColumn->initialNames.cend(); ++it) {
+            manuallyEdited.insert(it.key());
+        }
+    }
     auto checkedPaths = [&]() {
         QSet<QString> out;
         for (QTreeWidgetItem* item : allNodes()) {
@@ -1129,6 +1138,16 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     });
 
     if (nameColumn) {
+        {
+            const QSignalBlocker blocker(tree);
+            for (QTreeWidgetItem* item : candidateNodes()) {
+                const QString path = item->data(0, fullPathRole).toString().trimmed();
+                const auto it = nameColumn->initialNames.constFind(path);
+                if (it != nameColumn->initialNames.cend()) {
+                    item->setText(nameCol, it.value());
+                }
+            }
+        }
         if (nameColumn->editable) {
             const QSignalBlocker blocker(tree);
             for (QTreeWidgetItem* item : candidateNodes()) {
