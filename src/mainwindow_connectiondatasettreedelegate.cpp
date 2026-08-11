@@ -2496,6 +2496,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aFromDir = nullptr;
     QAction* aToDir = nullptr;
     QAction* aMount = nullptr;
+    QAction* aUnmount = nullptr;
     QAction* aSelectOrigin = nullptr;
     QAction* aSelectDestination = nullptr;
     QAction* aPermNewSet = nullptr;
@@ -2541,6 +2542,20 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                               QStringLiteral("Borrar"),
                               QStringLiteral("Delete"),
                               QStringLiteral("删除")));
+            // Montar y desmontar viven en «Dataset», no en «Acciones»: son estado del
+            // propio dataset, como crear o renombrar, y no operaciones de datos como
+            // Desglosar o Hacia Dir. Desmontar no estaba en ningún menú pese a existir
+            // (umountDataset), así que no había forma de desmontar desde la interfaz.
+            datasetMenuRoot->addSeparator();
+            aMount = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_mount001"),
+                              QStringLiteral("Montar"),
+                              QStringLiteral("Mount"),
+                              QStringLiteral("挂载")));
+            aUnmount = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_unmount001"),
+                              QStringLiteral("Desmontar"),
+                              QStringLiteral("Unmount"),
+                              QStringLiteral("卸载")));
+            datasetMenuRoot->addSeparator();
             mEncryption = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_enc_key001"),
                               QStringLiteral("Clave de encriptación"),
                               QStringLiteral("Encryption key"),
@@ -2588,7 +2603,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                               QStringLiteral("Hacia Dir"),
                               QStringLiteral("To Dir"),
                               QStringLiteral("到目录")));
-            aMount = actionsMenuRoot->addAction(QStringLiteral("Mount"));
 
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
@@ -2646,6 +2660,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (aFromDir) aFromDir->setEnabled(false);
         if (aToDir) aToDir->setEnabled(false);
         if (aMount) aMount->setEnabled(false);
+        if (aUnmount) aUnmount->setEnabled(false);
         if (aSelectOrigin) aSelectOrigin->setEnabled(false);
         if (aSelectDestination) aSelectDestination->setEnabled(false);
         if (aPermNewSet) aPermNewSet->setEnabled(false);
@@ -2823,6 +2838,13 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             const bool alreadyMounted = mwhelpers::isMountedValueTrue(mountedRaw);
             aMount->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap
                                && mountAllowedByProps && !alreadyMounted);
+            if (aUnmount) {
+                // Simétrico: desmontar solo tiene sentido si está montado. No se exige
+                // mountAllowedByProps —un dataset puede estar montado y tener después
+                // canmount=off, y justo entonces hay que poder desmontarlo—.
+                aUnmount->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel
+                                     && !hasConnSnap && alreadyMounted);
+            }
         }
         if (aSelectOrigin) {
             aSelectOrigin->setEnabled(hasConnSel);
@@ -3468,6 +3490,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             // aunque encole bien, porque su otro llamante es la casilla «Montado» del
             // árbol y con true la marcaría como montada antes de estarlo.
             m_mainWindow->mountDataset(QStringLiteral("conncontent"), mwCtx);
+            return;
+        }
+        if (picked == aUnmount) {
+            const SelectionSnapshot actx = selectionForMenuContext();
+            if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
+                return;
+            }
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = true;
+            mwCtx.connIdx = actx.connIdx;
+            mwCtx.poolName = actx.poolName;
+            mwCtx.datasetName = actx.datasetName;
+            // Por umountDataset, igual que Montar va por mountDataset: pregunta si hay
+            // hijos montados debajo y encola con el diagnóstico de «target is busy».
+            m_mainWindow->umountDataset(QStringLiteral("conncontent"), mwCtx);
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal
