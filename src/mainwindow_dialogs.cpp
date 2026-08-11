@@ -890,11 +890,15 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                     QStringLiteral("Invalid dataset name: %1").arg(invalidReason),
                                     QStringLiteral("无效的数据集名称：%1").arg(invalidReason));
             node->setDisabled(true);
+            // Fuera la casilla, no solo apagada: una casilla gris invita a intentar
+            // marcarla. Hay que quitar la bandera Y el dato del estado, porque la vista
+            // dibuja el indicador en cuanto el item tiene CheckStateRole.
+            node->setFlags(node->flags() & ~Qt::ItemIsUserCheckable);
+            node->setData(0, Qt::CheckStateRole, QVariant());
             node->setToolTip(0, tip);
             node->setForeground(0, QBrush(QColor(QStringLiteral("#8b2020"))));
             node->setBackground(0, QBrush(QColor(QStringLiteral("#fff1f1"))));
-            node->setCheckState(0, Qt::Unchecked);
-            continue;
+            continue;  // sin setCheckState: volvería a dibujar la casilla
         }
         node->setCheckState(0, initiallySelected.contains(key) ? Qt::Checked : Qt::Unchecked);
     }
@@ -938,6 +942,8 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
             continue;
         }
         item->setDisabled(true);
+        item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
+        item->setData(0, Qt::CheckStateRole, QVariant());
         item->setToolTip(0, trk(QStringLiteral("t_not_a_candidate_001"),
                                 QStringLiteral("Solo se muestra para situar a los de dentro; "
                                                "no está entre los seleccionables."),
@@ -1054,6 +1060,37 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                         QStringLiteral("无法确认：%1").arg(firstProblem)));
         }
     };
+    // Doble clic en un directorio: arrastra a TODOS sus descendientes. Marcar rama a
+    // rama un árbol de miles de nodos no es viable, y "Seleccionar todo" es demasiado
+    // grueso. Solo en la columna del nombre del directorio: en la del dataset el doble
+    // clic abre el editor, y hacer las dos cosas a la vez sería una trampa.
+    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, tree,
+                     [&](QTreeWidgetItem* item, int column) {
+        if (!item || column != 0 || item->isDisabled()) {
+            return;
+        }
+        const Qt::CheckState target =
+            (item->checkState(0) == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+        {
+            const QSignalBlocker blocker(tree);
+            std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
+                if (!n) {
+                    return;
+                }
+                // Los deshabilitados se saltan: no son candidatos y no tienen casilla.
+                if (!n->isDisabled() && (n->flags() & Qt::ItemIsUserCheckable)) {
+                    n->setCheckState(0, target);
+                }
+                for (int i = 0; i < n->childCount(); ++i) {
+                    apply(n->child(i));
+                }
+            };
+            apply(item);
+        }
+        refreshNames();
+        validateNames();
+    });
+
     if (nameColumn) {
         if (nameColumn->editable) {
             const QSignalBlocker blocker(tree);
