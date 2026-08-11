@@ -1159,8 +1159,35 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         return r;
     }
     namespace fs = std::filesystem;
+    // De más profundo a menos, no en el orden en que vengan.
+    //
+    // Absorber un padre CONSERVA sus subdatasets reasignándolos, así que si va primero,
+    // los hijos que también se habían pedido cambian de nombre y el bucle los salta como
+    // "ya absorbidos". Pasó de verdad: se pidieron 262 y se procesó 1, dejando los otros
+    // 261 renombrados a mmela-bin:XXX y sin absorber.
+    //
+    // Yendo de hojas a raíz, cada hijo se absorbe en el directorio de su padre mientras
+    // el padre todavía es un dataset, y al final el padre sube a su vez. La conservación
+    // queda entonces para lo que de verdad no se pidió absorber, que es su cometido.
+    std::vector<std::string> orderedChildren;
     for (std::size_t i = 1; i < params.size(); ++i) {
-        const std::string child = trim(params[i]);
+        const std::string c = trim(params[i]);
+        if (!c.empty()) {
+            orderedChildren.push_back(c);
+        }
+    }
+    std::sort(orderedChildren.begin(), orderedChildren.end(),
+              [](const std::string& a, const std::string& b) {
+                  const auto depth = [](const std::string& v) {
+                      return std::count(v.begin(), v.end(), '/');
+                  };
+                  if (depth(a) != depth(b)) {
+                      return depth(a) > depth(b);
+                  }
+                  return a < b;
+              });
+    for (std::size_t i = 1; i <= orderedChildren.size(); ++i) {
+        const std::string child = orderedChildren[i - 1];
         if (child.empty()) {
             continue;
         }
@@ -1204,7 +1231,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             return r;
         }
         reportJobProgress("[ASSEMBLE] ensamblando " + std::to_string(i) + " de "
-                          + std::to_string(params.size() - 1) + ": " + bn);
+                          + std::to_string(orderedChildren.size()) + ": " + bn);
         const std::string tmp = makeTempDirIn(parentMp, ".zfsmgr-assemble-");
         if (tmp.empty()) {
             r.rc = 125;
@@ -1298,7 +1325,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
 
         std::unique_ptr<CopyProgressSampler> sampler(new CopyProgressSampler(
             dataset, "[ASSEMBLE] " + std::to_string(i) + " de "
-                         + std::to_string(params.size() - 1) + ": " + bn));
+                         + std::to_string(orderedChildren.size()) + ": " + bn));
         // -x: copiar SOLO lo propio del dataset. Lo que hay bajo los puntos de montaje
         // de sus hijos pertenece a esos hijos y se queda con ellos.
         ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp, {}, /*oneFileSystem=*/true);
@@ -1457,7 +1484,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         remountGuard.armed = false;
         stagingCleanup.armed = false;  // la escala ya se movió a su sitio definitivo
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
-                          + std::to_string(params.size() - 1) + ": " + bn);
+                          + std::to_string(orderedChildren.size()) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
     }
     r.rc = 0;
