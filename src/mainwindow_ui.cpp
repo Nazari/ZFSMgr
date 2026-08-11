@@ -2154,20 +2154,39 @@ void MainWindow::buildUi() {
     // aquí y no con un delegado porque la lista se reconstruye entera en cada refresco:
     // el QSignalBlocker de updatePendingChangesList evita que ese repintado se
     // interprete como clics del usuario.
+    //
+    // DOS REGLAS, y saltarse cualquiera de las dos da violación de segmento:
+    //
+    // 1. Leer TODO lo que haga falta de `item` ANTES de tocar el modelo. Guardar el
+    //    cambio reconstruye la lista, y reconstruirla llama a clear(), que DESTRUYE este
+    //    mismo `item`. Usarlo después es leer memoria liberada.
+    // 2. No reconstruir desde dentro de la señal, ni siquiera al final: `itemChanged` se
+    //    emite desde el modelo, que sigue trabajando con el elemento cuando el manejador
+    //    devuelve. Se aplaza al ciclo de eventos, igual que el doble clic del diálogo de
+    //    selección, que tenía este mismo problema.
     connect(m_pendingChangesList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
         if (!item) {
             return;
         }
-        const QString uid = item->data(Qt::UserRole + 1).toString().trimmed();
-        if (uid.isEmpty() || !(item->flags() & Qt::ItemIsUserCheckable)) {
+        if (!(item->flags() & Qt::ItemIsUserCheckable)) {
             return;
         }
+        const QString uid = item->data(Qt::UserRole + 1).toString().trimmed();
+        const QString line = item->data(Qt::UserRole).toString().trimmed();
         const bool active = (item->checkState() == Qt::Checked);
-        if (setPendingShellActionActive(uid, active)) {
-            logUiAction(QStringLiteral("Cambio pendiente %1: %2")
-                            .arg(item->data(Qt::UserRole).toString().trimmed(),
-                                 active ? QStringLiteral("activado") : QStringLiteral("desactivado")));
+        if (uid.isEmpty()) {
+            return;
         }
+        // A partir de aquí no se vuelve a tocar `item`.
+        QTimer::singleShot(0, this, [this, uid, line, active]() {
+            if (!setPendingShellActionActive(uid, active)) {
+                return;
+            }
+            logUiAction(QStringLiteral("Cambio pendiente %1: %2")
+                            .arg(line,
+                                 active ? QStringLiteral("activado")
+                                        : QStringLiteral("desactivado")));
+        });
     });
     m_pendingChangesList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_pendingChangesList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {

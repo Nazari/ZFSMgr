@@ -251,12 +251,13 @@ void MainWindow::savePendingActions() {
                QStringLiteral("[pendientes] no se pudo guardar la lista: %1").arg(jsonErr));
         return;
     }
-    if (arr.size() > 0 || refused > 0) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("[pendientes] lista guardada: %1 acciones (%2 no guardables)")
-                   .arg(arr.size())
-                   .arg(refused));
-    }
+    // Se registra SIEMPRE, también al quedar en cero. Callar el caso vacío hacía
+    // indistinguible «el usuario vació la lista» de «la lista se perdió sola», que es
+    // exactamente la duda que uno quiere resolver mirando el registro.
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("[pendientes] lista guardada: %1 acciones (%2 no guardables)")
+               .arg(arr.size())
+               .arg(refused));
 }
 
 void MainWindow::loadPendingActions() {
