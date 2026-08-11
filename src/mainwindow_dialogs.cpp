@@ -29,6 +29,7 @@
 #include <QTabWidget>
 #include <QHeaderView>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -1069,6 +1070,13 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         if (!item || column != 0 || item->isDisabled()) {
             return;
         }
+        // APLAZADO al final del ciclo de eventos, a propósito. Qt emite doubleClicked
+        // ANTES de aplicar el cambio de casilla del segundo clic, así que actuando aquí
+        // se marcaba todo el subárbol y acto seguido Qt desmarcaba el padre: los hijos
+        // quedaban seleccionados y él no. Aplazándolo, el estado ya está asentado
+        // cuando se decide y cuando se aplica.
+        QTimer::singleShot(0, tree, [this, tree, item, &refreshNames, &validateNames]() {
+            Q_UNUSED(this);
         // La decisión se toma mirando los DESCENDIENTES, no la casilla de la fila.
         //
         // Invertir el estado de la fila fallaba: el primer clic del doble ya puede
@@ -1115,8 +1123,9 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
             };
             apply(item);
         }
-        refreshNames();
-        validateNames();
+            refreshNames();
+            validateNames();
+        });
     });
 
     if (nameColumn) {

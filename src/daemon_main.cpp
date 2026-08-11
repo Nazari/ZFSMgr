@@ -213,6 +213,20 @@ std::unordered_map<std::string, DaemonJob> g_jobs;
 // usuario mirando la pantalla.
 thread_local std::string t_currentJobId;
 
+// ¿Le han pedido a ESTE trabajo que pare? Los trabajos de copia (desglosar, ensamblar,
+// hacia dir) corren en un hilo dentro del daemon, no en un proceso aparte, así que el
+// SIGTERM de --job-cancel no llega a ninguna parte: el trabajo quedaba marcado como
+// cancelado y seguía hasta el final. Comprobado en vivo: un Desglosar "cancelado" creó
+// igualmente sus 262 datasets. Hay que mirar la bandera y salir por las buenas.
+bool jobCancelRequested() {
+    if (t_currentJobId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    const auto it = g_jobs.find(t_currentJobId);
+    return it != g_jobs.end() && it->second.state == JobState::Cancelled;
+}
+
 void reportJobProgress(const std::string& line) {
     if (t_currentJobId.empty()) {
         return;
@@ -919,6 +933,14 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         // minutos, y avisando solo al acabar la caja de progreso se queda muda justo
         // cuando más falta hace. Medido: en un ensamblado de 27 G se emitió UNA línea,
         // al final, porque un elemento se llevó el 99 % del tiempo.
+        // Salida limpia si se ha pedido cancelar. Aquí es seguro: la fase 1 solo copia
+        // a datasets temporales y no ha tocado un solo original; la limpieza RAII se
+        // lleva los temporales al volver.
+        if (jobCancelRequested()) {
+            r.rc = 125;
+            r.err = "cancelado por el usuario antes de modificar nada\n";
+            return r;
+        }
         reportJobProgress("[BREAKDOWN] copiando " + std::to_string(i + 1) + " de "
                           + std::to_string(rels.size()) + ": " + rel);
         const std::string tmpMp = makeTempDir("zfsmgr-breakdown-child-");
@@ -1176,6 +1198,11 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // En el dataset PADRE, que es donde los datos tienen que acabar. Antes iba al
         // temporal del sistema: en Linux suele ser tmpfs, así que 27 GB de datos se
         // volcaban en RAM y la operación moría con "No space left on device".
+        if (jobCancelRequested()) {
+            r.rc = 125;
+            r.err = "cancelado por el usuario\n";
+            return r;
+        }
         reportJobProgress("[ASSEMBLE] ensamblando " + std::to_string(i) + " de "
                           + std::to_string(params.size() - 1) + ": " + bn);
         const std::string tmp = makeTempDirIn(parentMp, ".zfsmgr-assemble-");
@@ -2727,6 +2754,12 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             fs::remove_all(staging, ec);
             r.rc = 1;
             r.err = "no se pudo crear " + to.string() + "\n";
+            return r;
+        }
+        if (jobCancelRequested()) {
+            fs::remove_all(staging, ec);
+            r.rc = 125;
+            r.err = "cancelado por el usuario antes de modificar nada\n";
             return r;
         }
         const std::string label = "[TODIR] " + std::to_string(i + 1) + " de "

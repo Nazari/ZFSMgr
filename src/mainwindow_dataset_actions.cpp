@@ -788,6 +788,20 @@ bool MainWindow::executeDatasetAction(const QString& side,
     bool jobWasSubmitted = false;
     if (submittableAsJob) {
         ok = runAgentMutationAsJob(p, agentArgv, out, err, rc, progressLogger, &jobWasSubmitted);
+        // Cancelar es una salida NORMAL, no una pérdida de contacto. Salían las dos con
+        // el mismo aviso —"se perdió su seguimiento, puede seguir en curso"—, que asusta
+        // sin motivo justo cuando el usuario acaba de pedir el aborto a propósito.
+        if (!ok && jobWasSubmitted && err.contains(QStringLiteral("cancelado por el usuario"))) {
+            appLog(QStringLiteral("NORMAL"),
+                   trk(QStringLiteral("t_action_cancelled_001"),
+                       QStringLiteral("%1 cancelado por el usuario."),
+                       QStringLiteral("%1 canceled by user."),
+                       QStringLiteral("%1 已被用户取消。"))
+                       .arg(actionName));
+            updateStatus(QStringLiteral("%1 (CANCELADO)").arg(actionName));
+            setActionsLocked(false);
+            return false;
+        }
         if (!ok && jobWasSubmitted) {
             // The daemon accepted the job and is very likely still running it. Falling
             // back to the synchronous path would execute the same destructive command
