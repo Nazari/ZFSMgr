@@ -1057,7 +1057,7 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
     }
     m_propsDirty =
         propertyDraftForObject(m_propsSide, m_propsToken, m_propsDataset).dirty
-        || !m_pendingChangesModel.isEmpty();
+        || hasActivePendingModelWork();
     updateApplyPropsButtonState();
 
     if (!hasPropsTable) {
@@ -1362,7 +1362,7 @@ void MainWindow::applyDatasetPropertyChanges() {
     if (m_propsSide == QStringLiteral("conncontent")
         || hasPendingConnContentDrafts
         || hasPendingPermissionDrafts
-        || !m_pendingChangesModel.isEmpty()) {
+        || hasActivePendingModelWork()) {
         const QStringList gsaProps = {
             QStringLiteral("org.fc16.gsa:activado"),
             QStringLiteral("org.fc16.gsa:recursivo"),
@@ -1950,7 +1950,11 @@ void MainWindow::applyDatasetPropertyChanges() {
             if (pending.kind == PendingChange::Kind::Rename) {
                 pendingRenames.push_back(pending.renameDraft);
             } else if (pending.kind == PendingChange::Kind::ShellAction) {
-                pendingShellActions.push_back(pending.shellDraft);
+                // Las desactivadas se quedan en la lista pero no se aplican: es lo que
+                // significa la casilla «Activa».
+                if (pending.shellDraft.active) {
+                    pendingShellActions.push_back(pending.shellDraft);
+                }
             }
         }
         QStringList renamePreviews;
@@ -2123,7 +2127,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         }
         m_propsDirty = hasPropertyDrafts
                        || hasPermissionDrafts
-                       || !m_pendingChangesModel.isEmpty();
+                       || hasActivePendingModelWork();
         if (m_connContentPropsTable && !m_propsDataset.isEmpty()) {
             m_propsOriginalValues.clear();
             m_propsOriginalInherit.clear();
@@ -2445,6 +2449,72 @@ void MainWindow::clearAllPendingChanges() {
     updateApplyPropsButtonState();
 }
 
+bool MainWindow::hasActivePendingModelWork() const {
+    // Con la lista persistente, "no está vacía" dejó de significar "hay algo que hacer":
+    // lo normal es arrancar con acciones ya ejecutadas y desmarcadas. Quien pregunte por
+    // trabajo pendiente —el botón Aplicar, el aviso al cerrar— tiene que mirar las
+    // ACTIVAS, o la aplicación se declararía sucia para siempre.
+    for (const PendingChange& change : m_pendingChangesModel) {
+        if (change.kind != PendingChange::Kind::ShellAction) {
+            return true;
+        }
+        if (change.shellDraft.active) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::deactivatePendingShellAction(const PendingShellActionDraft& draft) {
+    // Ejecutar YA NO borra la entrada: el usuario pidió conservarla para poder repetirla.
+    // Se desmarca sola porque repetir una acción destructiva —un Desglosar, un Hacia Dir
+    // con borrado— por descuido al pulsar «Aplicar» otra vez sería mucho peor que tener
+    // que volver a marcarla a mano.
+    for (PendingChange& existing : m_pendingChangesModel) {
+        if (existing.kind != PendingChange::Kind::ShellAction) {
+            continue;
+        }
+        const bool sameEntry =
+            !draft.uid.isEmpty() ? existing.shellDraft.uid == draft.uid
+                                 : (existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
+                                    && existing.shellDraft.command.trimmed() == draft.command.trimmed());
+        if (sameEntry) {
+            existing.shellDraft.active = false;
+            return;
+        }
+    }
+}
+
+bool MainWindow::setPendingShellActionActive(const QString& uid, bool active) {
+    if (uid.trimmed().isEmpty()) {
+        return false;
+    }
+    for (PendingChange& existing : m_pendingChangesModel) {
+        if (existing.kind == PendingChange::Kind::ShellAction
+            && existing.shellDraft.uid == uid) {
+            existing.shellDraft.active = active;
+            updateApplyPropsButtonState();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MainWindow::setPendingShellActionUserName(const QString& uid, const QString& name) {
+    if (uid.trimmed().isEmpty()) {
+        return false;
+    }
+    for (PendingChange& existing : m_pendingChangesModel) {
+        if (existing.kind == PendingChange::Kind::ShellAction
+            && existing.shellDraft.uid == uid) {
+            existing.shellDraft.userName = name.trimmed();
+            updateApplyPropsButtonState();
+            return true;
+        }
+    }
+    return false;
+}
+
 bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
     PendingChange change;
     if (!findPendingChangeByDisplayLine(line, &change)) {
@@ -2459,9 +2529,15 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
     if (change.kind == PendingChange::Kind::ShellAction) {
         for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
             const PendingChange& draft = m_pendingChangesModel.at(i);
-            if (draft.kind == PendingChange::Kind::ShellAction
-                && draft.shellDraft.displayLabel.trimmed() == change.shellDraft.displayLabel.trimmed()
-                && draft.shellDraft.command.trimmed() == change.shellDraft.command.trimmed()) {
+            if (draft.kind != PendingChange::Kind::ShellAction) {
+                continue;
+            }
+            const bool sameEntry =
+                !change.shellDraft.uid.isEmpty()
+                    ? draft.shellDraft.uid == change.shellDraft.uid
+                    : (draft.shellDraft.displayLabel.trimmed() == change.shellDraft.displayLabel.trimmed()
+                       && draft.shellDraft.command.trimmed() == change.shellDraft.command.trimmed());
+            if (sameEntry) {
                 m_pendingChangesModel.removeAt(i);
                 m_pendingOrderedDisplayLines.removeAll(line);
                 m_pendingItemStatus.remove(line);
@@ -2927,9 +3003,19 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         change.shellDraft = draft;
         change.removableIndividually = true;
         change.executableIndividually = true;
+        change.activatable = true;
+        change.uid = draft.uid;
+        change.userName = draft.userName;
+        change.active = draft.active;
         change.commandLine = QStringLiteral("%1  %2").arg(scope, trimmed);
         change.displayLine = QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed());
-        change.stableId = QStringLiteral("shell|%1|%2").arg(draft.displayLabel.trimmed(), trimmed);
+        // El nombre del usuario NO entra en `displayLine`: esa cadena es la clave con la
+        // que se localiza la fila en media docena de sitios, y renombrar cambiaría la
+        // clave —la entrada perdería su tick y saltaría al final de la lista—. El nombre
+        // es decoración y se aplica al pintar.
+        change.stableId = draft.uid.isEmpty()
+                              ? QStringLiteral("shell|%1|%2").arg(draft.displayLabel.trimmed(), trimmed)
+                              : QStringLiteral("shell|%1").arg(draft.uid);
         if (!m_pendingChangeOrderByStableId.contains(change.stableId)) {
             m_pendingChangeOrderByStableId.insert(change.stableId, m_nextPendingChangeOrder++);
         }
@@ -2963,6 +3049,12 @@ bool MainWindow::findPendingChangeByDisplayLine(const QString& line, PendingChan
 QStringList MainWindow::pendingConnContentApplyCommands() const {
     QStringList commands;
     for (const PendingChange& change : pendingChanges()) {
+        // Una entrada desactivada sigue en la lista pero no se aplica, así que tampoco
+        // debe encender «Aplicar cambios»: una lista entera de acciones ya ejecutadas
+        // dejaría el botón habilitado sin nada que hacer.
+        if (change.activatable && !change.active) {
+            continue;
+        }
         if (!change.commandLine.trimmed().isEmpty()) {
             commands.push_back(change.commandLine);
         }
@@ -3246,15 +3338,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
             if (!okAction) {
                 return failAndRefresh();
             }
-            for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
-                const PendingChange& existing = m_pendingChangesModel.at(i);
-                if (existing.kind == PendingChange::Kind::ShellAction
-                    && existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
-                    && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
-                    m_pendingChangesModel.removeAt(i);
-                    break;
-                }
-            }
+            deactivatePendingShellAction(draft);
             refreshPendingShellActionDraft(draft);
             return true;
         }
@@ -3267,15 +3351,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
             && !runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
             return failAndRefresh();
         }
-        for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
-            const PendingChange& existing = m_pendingChangesModel.at(i);
-            if (existing.kind == PendingChange::Kind::ShellAction
-                && existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
-                && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
-                m_pendingChangesModel.removeAt(i);
-                break;
-            }
-        }
+        deactivatePendingShellAction(draft);
         refreshPendingShellActionDraft(draft);
         return true;
     }
@@ -3366,17 +3442,21 @@ void MainWindow::updateApplyPropsButtonState() {
     updatePendingChangesList();
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setToolTip(QString());
+        // Descartar mira la lista ENTERA, no solo lo activo: si todo está desmarcado
+        // —el estado normal tras aplicar— el usuario tiene que poder vaciarla igual, sin
+        // ir borrando una a una.
+        const bool hasAnyRow = !pendingConnContentApplyDisplayLines().isEmpty();
         if (m_propsSide == QStringLiteral("conncontent")) {
             m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
             if (m_btnDiscardPendingChanges) {
-                m_btnDiscardPendingChanges->setEnabled(!pendingCommands.isEmpty());
+                m_btnDiscardPendingChanges->setEnabled(hasAnyRow);
             }
             return;
         }
-        if (!pendingCommands.isEmpty()) {
-            m_btnApplyConnContentProps->setEnabled(true);
+        if (!pendingCommands.isEmpty() || hasAnyRow) {
+            m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
             if (m_btnDiscardPendingChanges) {
-                m_btnDiscardPendingChanges->setEnabled(true);
+                m_btnDiscardPendingChanges->setEnabled(hasAnyRow);
             }
             return;
         }

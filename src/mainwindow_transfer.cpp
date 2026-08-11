@@ -19,6 +19,7 @@
 #include <QHBoxLayout>
 #include <QApplication>
 #include <QLineEdit>
+#include <QUuid>
 #include <QMessageBox>
 #include <QPalette>
 #include <QPlainTextEdit>
@@ -230,12 +231,23 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     if (draft.command.trimmed().isEmpty()) {
         return fail(QStringLiteral("No hay comando que añadir a cambios pendientes."));
     }
-    for (const PendingChange& existing : m_pendingChangesModel) {
+    for (PendingChange& existing : m_pendingChangesModel) {
         if (existing.kind != PendingChange::Kind::ShellAction) {
             continue;
         }
         if (existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
             && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
+            // Una entrada ya ejecutada sigue en la lista, desactivada. Pedir otra vez lo
+            // mismo NO es un error entonces: es exactamente querer repetirla. Se reactiva
+            // la que hay en vez de crear una gemela, que dejaría dos líneas idénticas sin
+            // forma de distinguirlas.
+            if (!existing.shellDraft.active) {
+                existing.shellDraft.active = true;
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("[pendientes] «%1» ya estaba en la lista: reactivada")
+                           .arg(draft.displayLabel.trimmed()));
+                return true;
+            }
             // Decir además qué hacer: el usuario ve "error" y no que ya lo tiene ahí.
             return fail(QStringLiteral(
                 "Ese cambio ya está en la lista de cambios pendientes.\n\n"
@@ -245,11 +257,12 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     PendingChange change;
     change.kind = PendingChange::Kind::ShellAction;
     change.shellDraft = draft;
+    change.shellDraft.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    change.shellDraft.active = true;
     change.removableIndividually = true;
     change.executableIndividually = true;
-    change.stableId = QStringLiteral("shell|%1|%2")
-                          .arg(draft.displayLabel.trimmed(),
-                               draft.command.trimmed());
+    change.activatable = true;
+    change.stableId = QStringLiteral("shell|%1").arg(change.shellDraft.uid);
     m_pendingChangesModel.push_back(change);
     return true;
 }

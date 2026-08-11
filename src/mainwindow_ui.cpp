@@ -711,7 +711,26 @@ void MainWindow::updatePendingChangesList() {
     if (!m_pendingChangesList) {
         return;
     }
-    const QStringList currentLines = pendingConnContentApplyDisplayLines();
+    // Se pide el modelo entero, no solo las líneas: hace falta saber por fila si lleva
+    // casilla «Activa», si está marcada y qué nombre le ha puesto el usuario.
+    struct PendingRowMeta {
+        bool activatable{false};
+        bool active{true};
+        QString userName;
+        QString uid;
+    };
+    QHash<QString, PendingRowMeta> metaByLine;
+    QStringList currentLines;
+    for (const PendingChange& change : pendingChanges()) {
+        const QString line = change.displayLine;
+        if (line.trimmed().isEmpty()) {
+            continue;
+        }
+        currentLines.push_back(line);
+        metaByLine.insert(line,
+                          PendingRowMeta{change.activatable, change.active,
+                                         change.userName, change.uid});
+    }
     const QSet<QString> currentSet(currentLines.cbegin(), currentLines.cend());
 
     // Append newly-appearing items to the end of the persistent ordered list.
@@ -719,8 +738,13 @@ void MainWindow::updatePendingChangesList() {
     // treat it as a new queue item instead of reusing previous visual state/order.
     for (const QString& line : currentLines) {
         const PendingItemStatus prevStatus = m_pendingItemStatus.value(line, PendingItemStatus::Pending);
+        // Una acción ya ejecutada SIGUE en el modelo, desmarcada, y su tick es el registro
+        // de cómo fue. Reciclarla aquí —que es lo correcto para una propiedad que se
+        // vuelve a editar— le borraría el resultado y la mandaría al final de la lista en
+        // el primer refresco posterior a aplicarla.
         const bool wasTerminal = (prevStatus == PendingItemStatus::Success
-                                  || prevStatus == PendingItemStatus::Failed);
+                                  || prevStatus == PendingItemStatus::Failed)
+                                 && !metaByLine.value(line).activatable;
         if (wasTerminal) {
             m_pendingOrderedDisplayLines.removeAll(line);
             m_pendingItemStatus.remove(line);
@@ -767,8 +791,33 @@ void MainWindow::updatePendingChangesList() {
             // Item no longer in model: show recorded result (Success/Failed)
             status = m_pendingItemStatus.value(line, PendingItemStatus::Success);
         }
+        const PendingRowMeta meta = metaByLine.value(line);
         auto* item = new QListWidgetItem(m_pendingChangesList);
-        item->setText(line);
+        // El texto lleva el nombre del usuario delante; la CLAVE de la fila va aparte,
+        // en UserRole, porque renombrar no debe mover la fila ni borrarle el resultado.
+        item->setText(meta.userName.trimmed().isEmpty()
+                          ? line
+                          : QStringLiteral("%1  —  %2").arg(meta.userName.trimmed(), line));
+        item->setData(Qt::UserRole, line);
+        item->setData(Qt::UserRole + 1, meta.uid);
+        if (meta.activatable) {
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(meta.active ? Qt::Checked : Qt::Unchecked);
+            item->setToolTip(meta.active
+                                 ? trk(QStringLiteral("t_pending_active_tt001"),
+                                       QStringLiteral("Se ejecutará al pulsar «Aplicar cambios»."),
+                                       QStringLiteral("Will run when you press \"Apply changes\"."),
+                                       QStringLiteral("按下「应用更改」时将会执行。"))
+                                 : trk(QStringLiteral("t_pending_inactive_tt001"),
+                                       QStringLiteral("Guardada en la lista, pero no se ejecutará. "
+                                                      "Marque la casilla para volver a lanzarla."),
+                                       QStringLiteral("Kept in the list, but will not run. "
+                                                      "Tick the box to run it again."),
+                                       QStringLiteral("保留在列表中，但不会执行。勾选后可再次运行。")));
+            if (!meta.active) {
+                item->setForeground(QColor(150, 150, 150));
+            }
+        }
         item->setIcon(QIcon(makePendingStatusPixmap(status, m_pendingSpinnerFrame)));
     }
 }
@@ -1376,7 +1425,9 @@ void MainWindow::activatePendingChangeAtCursor() {
     }
     const QScopedValueRollback<bool> guard(m_pendingChangeActivationInProgress, true);
     QListWidgetItem* current = m_pendingChangesList->currentItem();
-    const QString line = current ? current->text().trimmed() : QString();
+    // La clave es UserRole, no el texto: el texto puede llevar delante el nombre que le
+    // haya puesto el usuario.
+    const QString line = current ? current->data(Qt::UserRole).toString().trimmed() : QString();
     if (line.isEmpty()) {
         return;
     }
@@ -2099,6 +2150,25 @@ void MainWindow::buildUi() {
     connect(m_pendingChangesList, &QListWidget::currentItemChanged, this, [this]() {
         activatePendingChangeAtCursor();
     });
+    // La casilla «Activa» decide si la entrada entra en «Aplicar cambios». Se atiende
+    // aquí y no con un delegado porque la lista se reconstruye entera en cada refresco:
+    // el QSignalBlocker de updatePendingChangesList evita que ese repintado se
+    // interprete como clics del usuario.
+    connect(m_pendingChangesList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        const QString uid = item->data(Qt::UserRole + 1).toString().trimmed();
+        if (uid.isEmpty() || !(item->flags() & Qt::ItemIsUserCheckable)) {
+            return;
+        }
+        const bool active = (item->checkState() == Qt::Checked);
+        if (setPendingShellActionActive(uid, active)) {
+            logUiAction(QStringLiteral("Cambio pendiente %1: %2")
+                            .arg(item->data(Qt::UserRole).toString().trimmed(),
+                                 active ? QStringLiteral("activado") : QStringLiteral("desactivado")));
+        }
+    });
     m_pendingChangesList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_pendingChangesList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         if (!m_pendingChangesList) {
@@ -2108,7 +2178,7 @@ void MainWindow::buildUi() {
         if (!item) {
             return;
         }
-        const QString line = item->text().trimmed();
+        const QString line = item->data(Qt::UserRole).toString().trimmed();
         if (line.isEmpty()) {
             return;
         }
@@ -2144,16 +2214,48 @@ void MainWindow::buildUi() {
                                                   QStringLiteral("Edit..."),
                                                   QStringLiteral("编辑...")))
                              : nullptr;
+        // Ponerle nombre. La lista sobrevive a la ejecución y a los reinicios, así que
+        // pasa a ser un plan de trabajo: "Copia mensual del portátil" dice mucho más que
+        // la etiqueta generada, sobre todo con varias entradas parecidas.
+        QAction* aRename = (hasPendingChange && change.activatable && !change.uid.isEmpty())
+                               ? menu.addAction(trk(QStringLiteral("t_ctx_name_pending001"),
+                                                    QStringLiteral("Poner nombre..."),
+                                                    QStringLiteral("Set name..."),
+                                                    QStringLiteral("设置名称...")))
+                               : nullptr;
         QAction* aStop = actionsLocked()
                              ? menu.addAction(trk(QStringLiteral("t_ctx_stop001"),
                                                   QStringLiteral("Detener la acción en curso"),
                                                   QStringLiteral("Stop the running action"),
                                                   QStringLiteral("停止正在执行的操作")))
                              : nullptr;
-        if (!aExecute && !aDelete && !aStop && !aEdit) {
+        if (!aExecute && !aDelete && !aStop && !aEdit && !aRename) {
             return;
         }
         QAction* picked = menu.exec(m_pendingChangesList->viewport()->mapToGlobal(pos));
+        if (aRename && picked == aRename) {
+            bool okName = false;
+            const QString name = QInputDialog::getText(
+                this,
+                trk(QStringLiteral("t_ctx_name_pending_title001"),
+                    QStringLiteral("Nombre de la acción"),
+                    QStringLiteral("Action name"),
+                    QStringLiteral("操作名称")),
+                trk(QStringLiteral("t_ctx_name_pending_prompt001"),
+                    QStringLiteral("Nombre con el que quiere ver esta acción en la lista\n"
+                                   "(vacío para volver a la etiqueta automática):"),
+                    QStringLiteral("Name to show for this action in the list\n"
+                                   "(empty to go back to the automatic label):"),
+                    QStringLiteral("在列表中显示该操作所用的名称\n（留空则恢复为自动标签）：")),
+                QLineEdit::Normal,
+                change.userName,
+                &okName);
+            if (okName) {
+                setPendingShellActionUserName(change.uid, name);
+                logUiAction(QStringLiteral("Nombre de cambio pendiente: %1").arg(name.trimmed()));
+            }
+            return;
+        }
         if (aEdit && picked == aEdit) {
             const MainWindow::PendingShellActionDraft draft = change.shellDraft;
             logUiAction(QStringLiteral("Editar cambio pendiente: %1").arg(draft.displayLabel));

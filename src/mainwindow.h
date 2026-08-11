@@ -330,6 +330,15 @@ private:
         QStringList datasetActionArgv;   // vacío en los caminos de respaldo por shell
         QByteArray datasetActionStdin;
         bool datasetActionAllowWindowsScript{false};
+        // Identidad propia de la entrada, y lo que el usuario decide sobre ella.
+        //
+        // Antes la entrada se identificaba por su texto —`displayLabel` + `command`—,
+        // que bastaba mientras moría al ejecutarse. Ya no muere: se le puede poner
+        // nombre y se puede volver a lanzar, así que necesita una clave que NO cambie
+        // cuando cambia lo que se ve.
+        QString uid;
+        QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
+        bool active{true};  // ¿entra en «Aplicar cambios»?
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};
@@ -412,6 +421,14 @@ private:
         bool focusPermissionsNode{false};
         bool removableIndividually{false};
         bool executableIndividually{false};
+        // Solo las acciones sobreviven a su ejecución, se nombran y se activan. Las
+        // propiedades, los permisos y los renombrados son EDICIONES de un estado: tienen
+        // un final natural —una vez aplicadas ya no hay nada que reaplicar—, así que
+        // siguen desapareciendo de la lista al aplicarse.
+        bool activatable{false};
+        QString uid;
+        QString userName;
+        bool active{true};
         PendingDatasetRenameDraft renameDraft;
         PendingShellActionDraft shellDraft;
     };
@@ -1047,6 +1064,10 @@ private:
     void updateApplyPropsButtonState();
     void clearAllPendingChanges();
     bool removePendingQueuedChangeLine(const QString& line);
+    bool hasActivePendingModelWork() const;
+    void deactivatePendingShellAction(const PendingShellActionDraft& draft);
+    bool setPendingShellActionActive(const QString& uid, bool active);
+    bool setPendingShellActionUserName(const QString& uid, const QString& name);
     bool executePendingQueuedChangeLine(const QString& line);
     bool executePendingChange(const PendingChange& change);
     void initLogPersistence();
