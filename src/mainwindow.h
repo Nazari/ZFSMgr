@@ -364,6 +364,20 @@ private:
         QString uid;
         QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
         bool active{true};  // ¿entra en «Aplicar cambios»?
+        // Qué binario construyó la orden que hay en `command`.
+        //
+        // Lo encolado guarda la orden YA CONSTRUIDA, así que arreglar el código no
+        // arregla lo que ya está en la lista: sigue ahí la orden de antes, y ahora
+        // además sobrevive a los reinicios. Pasó de verdad —un «Montar» encolado antes
+        // de que Montar aprendiera a cargar la clave de un dataset cifrado se aplicó
+        // días después y falló con «encryption key not loaded», sin que nada indicara
+        // que la orden era vieja—.
+        //
+        // No basta el número de versión: aquel caso tenía la misma a los dos lados
+        // (0.90.14 encoló y 0.90.14 ejecutó, con el arreglo entre medias). Por eso la
+        // huella lleva además la marca de tiempo del ejecutable, que sí cambia en cada
+        // recompilación. Vacío = encolada antes de que esto existiera, o sea vieja.
+        QString createdByBuild;
         // Solo en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
         // para volver a abrir su diálogo.
         FromDirInput fromDirInput;
@@ -457,6 +471,7 @@ private:
         QString uid;
         QString userName;
         bool active{true};
+        bool staleBuild{false};
         PendingDatasetRenameDraft renameDraft;
         PendingShellActionDraft shellDraft;
     };
@@ -1102,6 +1117,9 @@ private:
     DatasetSelectionContext pendingCtxFromJson(const QJsonObject& obj) const;
     QString pendingConnKey(int connIdx) const;
     int pendingConnIndex(const QString& key) const;
+    // Identifica el binario en curso: versión + marca del ejecutable. Ver createdByBuild.
+    static QString currentBuildFingerprint();
+    static QString buildFingerprintVersionPart(const QString& fingerprint);
     QVector<mwhelpers::StorableSecret> pendingStorableSecrets() const;
     QString redactStoredSecrets(const QString& command, bool* okOut) const;
     QString restoreStoredSecrets(const QString& stored) const;

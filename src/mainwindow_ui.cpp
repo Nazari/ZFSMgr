@@ -716,6 +716,7 @@ void MainWindow::updatePendingChangesList() {
     struct PendingRowMeta {
         bool activatable{false};
         bool active{true};
+        bool staleBuild{false};
         QString userName;
         QString uid;
     };
@@ -729,7 +730,7 @@ void MainWindow::updatePendingChangesList() {
         currentLines.push_back(line);
         metaByLine.insert(line,
                           PendingRowMeta{change.activatable, change.active,
-                                         change.userName, change.uid});
+                                         change.staleBuild, change.userName, change.uid});
     }
     const QSet<QString> currentSet(currentLines.cbegin(), currentLines.cend());
 
@@ -800,6 +801,24 @@ void MainWindow::updatePendingChangesList() {
                           : QStringLiteral("%1  —  %2").arg(meta.userName.trimmed(), line));
         item->setData(Qt::UserRole, line);
         item->setData(Qt::UserRole + 1, meta.uid);
+        if (meta.activatable && meta.staleBuild) {
+            // La orden la construyó otro binario: se marca a la vista, porque el aviso
+            // al ejecutar llega cuando ya se ha pulsado Aplicar.
+            item->setText(QStringLiteral("⚠ ") + item->text());
+            item->setToolTip(trk(QStringLiteral("t_pending_stale_tt001"),
+                                 QStringLiteral("Encolada por una versión anterior del "
+                                                "programa. La lista guarda la orden ya "
+                                                "construida, así que no incluye los cambios "
+                                                "posteriores: conviene quitarla y volver a "
+                                                "pedir la acción."),
+                                 QStringLiteral("Queued by an earlier version of the program. "
+                                                "The list stores the command already built, so "
+                                                "it does not include later changes: better to "
+                                                "remove it and request the action again."),
+                                 QStringLiteral("由较早版本的程序加入队列。列表保存的是已构建好的"
+                                                "命令，因此不包含此后的改动：建议删除并重新发起该"
+                                                "操作。")));
+        }
         if (meta.activatable) {
             item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
             item->setCheckState(meta.active ? Qt::Checked : Qt::Unchecked);

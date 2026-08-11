@@ -24,6 +24,9 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -31,6 +34,26 @@
 namespace {
 constexpr auto kPendingRootKey = "pending_actions";
 }  // namespace
+
+QString MainWindow::currentBuildFingerprint() {
+    // Versión + marca de tiempo del ejecutable. La versión sola no vale: el caso que
+    // motivó esto tenía la MISMA a los dos lados —se encoló con 0.90.14 y se ejecutó con
+    // 0.90.14, con el arreglo entre medias—, así que hace falta algo que cambie en cada
+    // recompilación. En una instalación normal la marca es la de instalación y se
+    // mantiene estable entre arranques, que es justo lo que se quiere.
+    static const QString fingerprint = []() {
+        const QString version = QStringLiteral(ZFSMGR_APP_VERSION);
+        const QFileInfo self(QCoreApplication::applicationFilePath());
+        const qint64 stamp = self.exists() ? self.lastModified().toSecsSinceEpoch() : 0;
+        return QStringLiteral("%1+%2").arg(version).arg(stamp);
+    }();
+    return fingerprint;
+}
+
+QString MainWindow::buildFingerprintVersionPart(const QString& fingerprint) {
+    const int plus = fingerprint.indexOf(QLatin1Char('+'));
+    return plus > 0 ? fingerprint.left(plus) : fingerprint;
+}
 
 QString MainWindow::pendingConnKey(int connIdx) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
@@ -108,6 +131,13 @@ QJsonObject MainWindow::pendingShellDraftToJson(const PendingShellActionDraft& d
     if (!draft.rpcSecret.isEmpty()) {
         return refuse(QStringLiteral("lleva una frase de cifrado, que no se guarda en disco"));
     }
+    // Mismo criterio para la entrada estándar: hoy ninguna acción encolada la usa —la
+    // que la necesita, cargar la clave de un dataset cifrado, se ejecuta en el acto—,
+    // pero se escribía en disco en base64 sin mirar qué llevaba dentro. Si algún día
+    // alguien encola algo con un secreto ahí, que no se guarde en vez de filtrarse.
+    if (!draft.datasetActionStdin.isEmpty()) {
+        return refuse(QStringLiteral("lleva datos por entrada estándar, que no se guardan en disco"));
+    }
     bool redactOk = false;
     const QString storedCommand = redactStoredSecrets(draft.command, &redactOk);
     if (!redactOk) {
@@ -117,6 +147,7 @@ QJsonObject MainWindow::pendingShellDraftToJson(const PendingShellActionDraft& d
     obj.insert(QStringLiteral("uid"), draft.uid);
     obj.insert(QStringLiteral("user_name"), draft.userName);
     obj.insert(QStringLiteral("active"), draft.active);
+    obj.insert(QStringLiteral("created_by_build"), draft.createdByBuild);
     obj.insert(QStringLiteral("scope_label"), draft.scopeLabel);
     obj.insert(QStringLiteral("display_label"), draft.displayLabel);
     obj.insert(QStringLiteral("command"), storedCommand);
@@ -165,6 +196,7 @@ bool MainWindow::pendingShellDraftFromJson(const QJsonObject& obj,
     draft.uid = obj.value(QStringLiteral("uid")).toString().trimmed();
     draft.userName = obj.value(QStringLiteral("user_name")).toString();
     draft.active = obj.value(QStringLiteral("active")).toBool(false);
+    draft.createdByBuild = obj.value(QStringLiteral("created_by_build")).toString();
     draft.scopeLabel = obj.value(QStringLiteral("scope_label")).toString();
     draft.displayLabel = obj.value(QStringLiteral("display_label")).toString();
     draft.command = restoreStoredSecrets(obj.value(QStringLiteral("command")).toString());
@@ -268,6 +300,7 @@ void MainWindow::loadPendingActions() {
     }
     int restored = 0;
     int dropped = 0;
+    int stale = 0;
     for (const QJsonValue& v : arr) {
         PendingShellActionDraft draft;
         if (!pendingShellDraftFromJson(v.toObject(), &draft)) {
@@ -283,6 +316,9 @@ void MainWindow::loadPendingActions() {
         change.stableId = QStringLiteral("shell|%1").arg(draft.uid);
         m_pendingChangesModel.push_back(change);
         ++restored;
+        if (draft.createdByBuild != currentBuildFingerprint()) {
+            ++stale;
+        }
     }
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("[pendientes] lista restaurada: %1 acciones%2")
@@ -290,5 +326,13 @@ void MainWindow::loadPendingActions() {
                .arg(dropped > 0 ? QStringLiteral(" (%1 descartadas: su conexión ya no existe)")
                                       .arg(dropped)
                                 : QString()));
+    if (stale > 0) {
+        // Que quede en el registro: una orden encolada por otro binario no lleva los
+        // arreglos posteriores, y eso ya costó un fallo que parecía de ZFS y era de aquí.
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("[pendientes] %1 de esas acciones las encoló otra versión: "
+                              "su orden es la de entonces, no la actual")
+                   .arg(stale));
+    }
     updateApplyPropsButtonState();
 }

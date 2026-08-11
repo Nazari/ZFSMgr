@@ -260,6 +260,9 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     change.shellDraft = draft;
     change.shellDraft.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     change.shellDraft.active = true;
+    // Qué binario construyó esta orden. Ver createdByBuild: lo encolado guarda la orden
+    // ya construida, así que arreglar el código no arregla lo que ya está en la lista.
+    change.shellDraft.createdByBuild = currentBuildFingerprint();
     change.removableIndividually = true;
     change.executableIndividually = true;
     change.activatable = true;

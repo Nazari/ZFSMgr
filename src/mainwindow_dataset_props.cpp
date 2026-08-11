@@ -3012,6 +3012,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         change.uid = draft.uid;
         change.userName = draft.userName;
         change.active = draft.active;
+        change.staleBuild = (draft.createdByBuild != currentBuildFingerprint());
         change.commandLine = QStringLiteral("%1  %2").arg(scope, trimmed);
         change.displayLine = QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed());
         // El nombre del usuario NO entra en `displayLine`: esa cadena es la clave con la
@@ -3265,6 +3266,58 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
     }
     if (change.kind == PendingChange::Kind::ShellAction) {
         const PendingShellActionDraft& draft = change.shellDraft;
+        // Orden construida por otro binario: se avisa ANTES de ejecutarla.
+        //
+        // Lo encolado guarda la orden ya construida, y ahora además sobrevive a los
+        // reinicios, así que puede llevar días esperando. Si entretanto se corrigió cómo
+        // se construye esa orden, la de la lista sigue siendo la vieja. Pasó: un «Montar»
+        // encolado antes de que Montar aprendiera a cargar la clave de un dataset
+        // cifrado se aplicó después y falló con «encryption key not loaded» sin que nada
+        // dijera que la orden era anterior al arreglo.
+        if (draft.createdByBuild != currentBuildFingerprint()) {
+            const QString queuedBy =
+                draft.createdByBuild.trimmed().isEmpty()
+                    ? trk(QStringLiteral("t_pending_stale_unknown001"),
+                          QStringLiteral("una versión anterior"),
+                          QStringLiteral("an earlier version"),
+                          QStringLiteral("较早的版本"))
+                    : buildFingerprintVersionPart(draft.createdByBuild);
+            const auto choice = QMessageBox::question(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_pending_stale_build001"),
+                    QStringLiteral("«%1» se encoló con %2 y se ejecutaría con %3.\n\n"
+                                   "La lista guarda la orden tal y como se construyó "
+                                   "entonces, así que NO incluye los cambios posteriores "
+                                   "del programa. Si algo se corrigió entretanto, esta "
+                                   "orden sigue siendo la de antes.\n\n"
+                                   "Lo más seguro es quitarla y volver a pedir la acción. "
+                                   "¿Ejecutarla de todas formas?"),
+                    QStringLiteral("\"%1\" was queued by %2 and would run under %3.\n\n"
+                                   "The list stores the command exactly as it was built "
+                                   "back then, so it does NOT include later changes to the "
+                                   "program. If something was fixed in between, this "
+                                   "command is still the old one.\n\n"
+                                   "The safe move is to remove it and request the action "
+                                   "again. Run it anyway?"),
+                    QStringLiteral("「%1」由 %2 加入队列，而将以 %3 执行。\n\n"
+                                   "列表保存的是当时构建好的命令，因此**不包含**程序此后的"
+                                   "改动。若期间修复过相关问题，这条命令仍是旧的。\n\n"
+                                   "更稳妥的做法是删除它并重新发起该操作。仍要执行吗？"))
+                    .arg(draft.userName.trimmed().isEmpty() ? draft.displayLabel.trimmed()
+                                                            : draft.userName.trimmed(),
+                         queuedBy,
+                         buildFingerprintVersionPart(currentBuildFingerprint())),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (choice != QMessageBox::Yes) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("[pendientes] «%1» no se ejecuta: la encoló otro binario (%2)")
+                           .arg(draft.displayLabel.trimmed(), queuedBy));
+                m_lastActionWasCancelled = true;
+                return false;
+            }
+        }
         // Al fallar hay que refrescar igualmente. Una orden puede fallar DESPUÉS de haber
         // cambiado cosas —el caso real: Desde Dir creaba el dataset y luego se rechazaba
         // por no tener punto de montaje—, y sin refrescar el árbol se queda mintiendo: lo
