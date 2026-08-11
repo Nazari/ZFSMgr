@@ -3454,13 +3454,20 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwCtx.connIdx = actx.connIdx;
             mwCtx.poolName = actx.poolName;
             mwCtx.datasetName = actx.datasetName;
-            const QString cmd = QStringLiteral("zfs mount %1").arg(actx.datasetName.trimmed());
-            // Encolada, como el resto de acciones que cambian estado.
-            m_mainWindow->queueDatasetAction(
-                QStringLiteral("conncontent"),
-                QStringLiteral("Montar"),
-                QStringLiteral("Montar %1").arg(actx.datasetName),
-                mwCtx, cmd);
+            // Por mountDataset, NO construyendo aquí un "zfs mount" a mano.
+            //
+            // Esta entrada se saltaba todo lo que hay que comprobar antes de montar, y
+            // el caso que lo destapó es el peor: un dataset cifrado con
+            // keylocation=prompt y la clave sin cargar se encolaba como un montaje
+            // corriente, sin pedir la frase, y al aplicarlo fallaba. mountDataset pide la
+            // clave y ejecuta `zfs load-key && zfs mount` con la frase por entrada
+            // estándar; también comprueba que el padre esté montado y que no haya
+            // conflictos de punto de montaje. En el caso normal encola igual que antes.
+            //
+            // Se ignora el valor devuelto a propósito: mountDataset devuelve false
+            // aunque encole bien, porque su otro llamante es la casilla «Montado» del
+            // árbol y con true la marcaría como montada antes de estarlo.
+            m_mainWindow->mountDataset(QStringLiteral("conncontent"), mwCtx);
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal
