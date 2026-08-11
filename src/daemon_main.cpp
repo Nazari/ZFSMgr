@@ -1211,6 +1211,34 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             }
         }
 
+        // Desmontar TODO el subárbol antes de reasignar, de más profundo a menos.
+        //
+        // Se desmontaban solo los hijos DIRECTOS, y uno que tenga a su vez algo montado
+        // dentro no se puede desmontar: `zfs rename` lo intenta y falla con
+        // «cannot unmount ...: pool or dataset is busy». Pasó con Squirrel.app, que
+        // tenía Contents montado debajo, y abortó el Ensamblar entero.
+        {
+            std::vector<std::string> subtree;
+            const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", child});
+            const std::string prefix = child + "/";
+            for (const std::string& line : splitLines(ls.out)) {
+                const std::string ds = trim(line);
+                if (ds.size() > prefix.size() && ds.compare(0, prefix.size(), prefix) == 0) {
+                    subtree.push_back(ds);
+                }
+            }
+            std::sort(subtree.begin(), subtree.end(),
+                      [](const std::string& a, const std::string& b) {
+                          return std::count(a.begin(), a.end(), '/')
+                                 > std::count(b.begin(), b.end(), '/');
+                      });
+            for (const std::string& ds : subtree) {
+                if (datasetIsMounted(ds)) {
+                    (void)runExecCapture("zfs", {"unmount", ds});
+                }
+            }
+        }
+
         std::unique_ptr<CopyProgressSampler> sampler(new CopyProgressSampler(
             dataset, "[ASSEMBLE] " + std::to_string(i) + " de "
                          + std::to_string(params.size() - 1) + ": " + bn));
@@ -1332,12 +1360,32 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         }
         // Con el directorio ya en su sitio, devolver los hijos a su punto de montaje.
         // zfs crea el directorio si falta.
+        // Se remonta el subárbol COMPLETO, no solo el hijo directo: antes de reasignar se
+        // desmontó entero, y sus descendientes viajaron con él al renombrarlo. De menos
+        // profundo a más, que es el único orden en que se pueden montar.
         for (const Reparented& rp : reparented) {
-            if (!datasetIsMounted(rp.newName)) {
-                const ExecResult mnt = runExecCapture("zfs", {"mount", rp.newName});
-                if (mnt.rc != 0 && !datasetIsMounted(rp.newName)) {
-                    r.out += "[ASSEMBLE] aviso: no se pudo montar " + rp.newName
-                             + " en " + rp.mountpoint + "\n";
+            std::vector<std::string> toMount{rp.newName};
+            const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name", "-r",
+                                                         rp.newName});
+            const std::string prefix = rp.newName + "/";
+            for (const std::string& line : splitLines(ls.out)) {
+                const std::string ds = trim(line);
+                if (ds.size() > prefix.size() && ds.compare(0, prefix.size(), prefix) == 0) {
+                    toMount.push_back(ds);
+                }
+            }
+            std::sort(toMount.begin(), toMount.end(),
+                      [](const std::string& a, const std::string& b) {
+                          return std::count(a.begin(), a.end(), '/')
+                                 < std::count(b.begin(), b.end(), '/');
+                      });
+            for (const std::string& ds : toMount) {
+                if (datasetIsMounted(ds)) {
+                    continue;
+                }
+                const ExecResult mnt = runExecCapture("zfs", {"mount", ds});
+                if (mnt.rc != 0 && !datasetIsMounted(ds)) {
+                    r.out += "[ASSEMBLE] aviso: no se pudo montar " + ds + "\n";
                 }
             }
         }
