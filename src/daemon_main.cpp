@@ -1281,8 +1281,15 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         std::vector<Reparented> reparented;
         for (const std::string& kid : directChildren) {
             const std::string kidBase = kid.substr(kid.find_last_of('/') + 1);
-            ExecResult kmp = getDatasetMountpointCapture(kid);
-            const std::string kidMp = (kmp.rc == 0) ? trim(kmp.out) : std::string();
+            // La PROPIEDAD, no el punto de montaje efectivo: getDatasetMountpointCapture
+            // devuelve vacío cuando el dataset no está montado, y aquí llegan todos
+            // desmontados a propósito —hay que desmontar el subárbol antes de poder
+            // renombrar nada—. Lo que hace falta es dónde DEBE quedar, no dónde está.
+            ExecResult kmp = getZfsPropertyCapture(kid, "mountpoint");
+            std::string kidMp = (kmp.rc == 0) ? trim(kmp.out) : std::string();
+            if (kidMp == "-" || kidMp == "none" || kidMp == "legacy") {
+                kidMp.clear();
+            }
             if (kidMp.empty()) {
                 r.rc = 1;
                 r.err = "no se pudo determinar el mountpoint de " + kid + "\n";
