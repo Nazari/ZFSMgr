@@ -850,7 +850,15 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     // it is done. Each individual poll is short, so a dead daemon still surfaces.
     while (true) {
         QThread::msleep(1000);
-        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+        // CON eventos de entrada: sin ellos la ventana se repinta pero ignora los clics,
+        // y entonces no hay forma de pedir la cancelación —el menú contextual que la
+        // ofrece no llega ni a abrirse—. Es decir, la espera de un trabajo largo era
+        // justo el momento en que no se podía detener el trabajo largo.
+        //
+        // Reentrar es aceptable aquí: m_actionsLocked está puesto y las acciones lo
+        // comprueban al entrar, así que lo que el usuario puede hacer mientras tanto es
+        // mirar, desplazarse y cancelar.
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         // Cancelación. Este bucle no la miraba, así que Desglosar y Ensamblar —las dos
         // que se envían como trabajo— no se podían detener de ninguna manera desde la
         // interfaz: no hay proceso local que matar, el trabajo vive en el daemon.

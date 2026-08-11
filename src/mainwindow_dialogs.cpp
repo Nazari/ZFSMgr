@@ -1069,8 +1069,36 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         if (!item || column != 0 || item->isDisabled()) {
             return;
         }
-        const Qt::CheckState target =
-            (item->checkState(0) == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+        // La decisión se toma mirando los DESCENDIENTES, no la casilla de la fila.
+        //
+        // Invertir el estado de la fila fallaba: el primer clic del doble ya puede
+        // haberla cambiado —si se pulsa sobre la casilla—, y entonces el subárbol
+        // acababa al revés. Y propagar su estado tal cual no hace nada cuando se pulsa
+        // sobre el texto, porque ahí los clics no tocan la casilla.
+        //
+        // Regla: si TODO lo de dentro ya está marcado, se desmarca todo; si no, se marca
+        // todo. Sale lo mismo se pulse donde se pulse.
+        bool anyCheckable = false;
+        bool allChecked = true;
+        std::function<void(QTreeWidgetItem*)> survey = [&](QTreeWidgetItem* n) {
+            if (!n) {
+                return;
+            }
+            if (!n->isDisabled() && (n->flags() & Qt::ItemIsUserCheckable)) {
+                anyCheckable = true;
+                if (n->checkState(0) != Qt::Checked) {
+                    allChecked = false;
+                }
+            }
+            for (int i = 0; i < n->childCount(); ++i) {
+                survey(n->child(i));
+            }
+        };
+        survey(item);
+        if (!anyCheckable) {
+            return;
+        }
+        const Qt::CheckState target = allChecked ? Qt::Unchecked : Qt::Checked;
         {
             const QSignalBlocker blocker(tree);
             std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
