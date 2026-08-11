@@ -1224,8 +1224,36 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
             QStringLiteral("Delete source dataset after copy"),
             QStringLiteral("复制后删除源数据集")),
         &dlg);
-    deleteSourceDatasetChk->setChecked(false);
     root->addWidget(deleteSourceDatasetChk);
+
+    // Se propone el punto de montaje actual del dataset: convertirlo en un directorio
+    // EN SU MISMO SITIO es el caso principal —de hecho el daemon lo reubica a un
+    // mountpoint temporal precisamente para que el destino pueda ser esa ruta—.
+    //
+    // Y con ese destino, "borrar el dataset" viene marcado: si no se borra, los mismos
+    // datos quedan dos veces, una en el directorio nuevo y otra en el dataset que
+    // sobrevive desmontado. Para cualquier otro destino se desmarca sola, porque
+    // entonces es una copia a otro sitio y borrar el origen es otra decisión.
+    QString currentMp;
+    if (getDatasetProperty(ctx.connIdx, ds, QStringLiteral("mountpoint"), currentMp)) {
+        currentMp = currentMp.trimmed();
+        if (currentMp.startsWith(QLatin1Char('/'))) {
+            dirEdit->setText(currentMp);
+        } else {
+            currentMp.clear();
+        }
+    } else {
+        currentMp.clear();
+    }
+    const bool inPlaceByDefault = !currentMp.isEmpty();
+    deleteSourceDatasetChk->setChecked(inPlaceByDefault);
+    QObject::connect(dirEdit, &QLineEdit::textChanged, &dlg,
+                     [deleteSourceDatasetChk, currentMp](const QString& text) {
+        if (currentMp.isEmpty()) {
+            return;
+        }
+        deleteSourceDatasetChk->setChecked(text.trimmed() == currentMp);
+    });
 
     QObject::connect(browseBtn, &QPushButton::clicked, &dlg, [&]() {
         const QString picked = QFileDialog::getExistingDirectory(
