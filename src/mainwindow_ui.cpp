@@ -2201,14 +2201,19 @@ void MainWindow::buildUi() {
         // Conexiones —y solo si había sido ese botón el que lanzó la acción—. Todo lo
         // lanzado desde un menú contextual se quedaba sin manera de pararse.
         // Re-editar: se quita de la cola y se reabre su diálogo con lo que se pidió.
-        // Solo para las acciones cuya entrada completa está en la orden guardada; las
-        // demás —Desde Dir— tendrían que almacenar aparte el estado de su diálogo.
+        //
+        // Desglosar, Ensamblar y Hacia Dir se reconstruyen de su orden tipada. Desde Dir
+        // no —su orden es una tubería con la selección ya resuelta—, así que guarda
+        // aparte la entrada de su diálogo y se reconoce por ella.
         static const QSet<QString> kEditables = {
             QStringLiteral("Desglosar"), QStringLiteral("Ensamblar"), QStringLiteral("Hacia Dir")
         };
+        const bool editableByArgv =
+            kEditables.contains(change.shellDraft.datasetActionName.trimmed())
+            && !change.shellDraft.datasetActionArgv.isEmpty();
+        const bool editableFromDir = change.shellDraft.fromDirInput.valid;
         QAction* aEdit = (hasPendingChange && !actionsLocked()
-                          && kEditables.contains(change.shellDraft.datasetActionName.trimmed())
-                          && !change.shellDraft.datasetActionArgv.isEmpty())
+                          && (editableByArgv || editableFromDir))
                              ? menu.addAction(trk(QStringLiteral("t_ctx_edit_pending001"),
                                                   QStringLiteral("Editar..."),
                                                   QStringLiteral("Edit..."),
@@ -2259,15 +2264,35 @@ void MainWindow::buildUi() {
         if (aEdit && picked == aEdit) {
             const MainWindow::PendingShellActionDraft draft = change.shellDraft;
             logUiAction(QStringLiteral("Editar cambio pendiente: %1").arg(draft.displayLabel));
+            // La entrada se guarda ANTES de quitarla. Se quita para que el diálogo no
+            // choque contra su propia copia al volver a encolar, pero si se cancela hay
+            // que reponerla: «Editar...» seguido de «Cancelar» no puede borrar la acción,
+            // y menos ahora que la lista es un plan de trabajo que se conserva.
+            int originalIndex = -1;
+            PendingChange original;
+            for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
+                const PendingChange& candidate = m_pendingChangesModel.at(i);
+                if (candidate.kind == PendingChange::Kind::ShellAction
+                    && !draft.uid.isEmpty()
+                    && candidate.shellDraft.uid == draft.uid) {
+                    originalIndex = i;
+                    original = candidate;
+                    break;
+                }
+            }
             if (!removePendingQueuedChangeLine(line)) {
                 m_pendingOrderedDisplayLines.removeAll(line);
                 m_pendingItemStatus.remove(line);
                 updatePendingChangesList();
             }
+            const int countAfterRemoval = m_pendingChangesModel.size();
             m_pendingEditSeed.active = true;
             m_pendingEditSeed.argv = draft.datasetActionArgv;
+            m_pendingEditSeed.fromDir = draft.fromDirInput;
             const QString what = draft.datasetActionName.trimmed();
-            if (what == QStringLiteral("Desglosar")) {
+            if (draft.fromDirInput.valid) {
+                actionAdvancedCreateFromDir(draft.refreshTarget);
+            } else if (what == QStringLiteral("Desglosar")) {
                 actionAdvancedBreakdown(draft.datasetActionCtx);
             } else if (what == QStringLiteral("Ensamblar")) {
                 actionAdvancedAssemble(draft.datasetActionCtx);
@@ -2276,6 +2301,17 @@ void MainWindow::buildUi() {
             }
             m_pendingEditSeed.active = false;  // por si el diálogo se canceló antes de usarla
             m_pendingEditSeed.argv.clear();
+            m_pendingEditSeed.fromDir = FromDirInput{};
+            // Nada nuevo en la lista = el diálogo se canceló. Se repone donde estaba.
+            if (originalIndex >= 0 && m_pendingChangesModel.size() == countAfterRemoval) {
+                m_pendingChangesModel.insert(
+                    qMin(originalIndex, static_cast<int>(m_pendingChangesModel.size())), original);
+                savePendingActions();
+                updateApplyPropsButtonState();
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("[pendientes] edición cancelada: «%1» sigue en la lista")
+                           .arg(draft.displayLabel.trimmed()));
+            }
             return;
         }
         if (aStop && picked == aStop) {

@@ -439,6 +439,48 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
     updateEncryptionPassphraseUi();
 
+    // Re-edición: se reabre con lo que se pidió. La semilla la deja el menú contextual de
+    // la lista de cambios pendientes al elegir «Editar...».
+    const FromDirInput editSeed =
+        (m_pendingEditSeed.active && m_pendingEditSeed.fromDir.valid)
+            ? m_pendingEditSeed.fromDir
+            : FromDirInput{};
+    if (editSeed.valid) {
+        pathEdit->setText(editSeed.datasetPath);
+        blocksizeEdit->setText(editSeed.blocksize);
+        parentsChk->setChecked(editSeed.parents);
+        extraEdit->setText(editSeed.extraArgs);
+        for (const QString& entry : editSeed.properties) {
+            const int eq = entry.indexOf(QLatin1Char('='));
+            if (eq <= 0) {
+                continue;
+            }
+            const QString name = entry.left(eq).trimmed();
+            const QString value = entry.mid(eq + 1);
+            for (const PropEditor& pe : propEditors) {
+                if (pe.name.compare(name, Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+                if (pe.combo) {
+                    const int idx = pe.combo->findText(value);
+                    if (idx >= 0) {
+                        pe.combo->setCurrentIndex(idx);
+                    } else if (pe.combo->isEditable()) {
+                        // compression y keylocation admiten texto libre: un file:// con su
+                        // ruta no está en la lista y se perdería al reabrir.
+                        pe.combo->setCurrentText(value);
+                    }
+                } else if (pe.edit) {
+                    pe.edit->setText(value);
+                }
+                break;
+            }
+        }
+        // Después de repoblar: si la selección restaurada pide frase, los campos tienen
+        // que aparecer (vacíos, para que se vuelva a escribir).
+        updateEncryptionPassphraseUi();
+    }
+
     enum DataRole {
         RolePath = Qt::UserRole + 1,
         RoleConnIdx,
@@ -655,6 +697,80 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         if (tree->topLevelItemCount() > 0) {
             tree->expandItem(tree->topLevelItem(0));
             loadTreeChildren(tree->topLevelItem(0));
+        }
+    }
+
+    // Volver a marcar los directorios de una acción que se re-edita.
+    //
+    // Es la parte cara de re-editar Desde Dir: los árboles se cargan bajo demanda, así
+    // que para volver a marcar /Users/x/bin hay que ir expandiendo nivel a nivel —una
+    // consulta por nivel y por máquina— hasta llegar. Por eso el diálogo tarda más al
+    // reabrirse que al abrirse en blanco.
+    if (editSeed.valid) {
+        deleteSourceDirChk->setChecked(editSeed.deleteSourceDirs);
+        QStringList unreachable;
+        for (const auto& src : editSeed.sources) {
+            const int connIdx = pendingConnIndex(src.first);
+            const QString wantedPath = src.second.trimmed();
+            if (connIdx < 0 || wantedPath.isEmpty() || !tabIndexByConn.contains(connIdx)) {
+                unreachable << QStringLiteral("%1: %2").arg(src.first, wantedPath);
+                continue;
+            }
+            const DirTab& tab = dirTabs.at(tabIndexByConn.value(connIdx));
+            QTreeWidgetItem* node = nullptr;
+            for (int i = 0; i < tab.tree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* top = tab.tree->topLevelItem(i);
+                if (isAncestorPath(top->data(0, RolePath).toString(), wantedPath, tab.windows)) {
+                    node = top;
+                    break;
+                }
+            }
+            bool arrived = false;
+            while (node) {
+                if (normalizePathForCompare(node->data(0, RolePath).toString(), tab.windows)
+                    == normalizePathForCompare(wantedPath, tab.windows)) {
+                    arrived = true;
+                    break;
+                }
+                loadTreeChildren(node);
+                QTreeWidgetItem* next = nullptr;
+                for (int i = 0; i < node->childCount(); ++i) {
+                    QTreeWidgetItem* child = node->child(i);
+                    if (isAncestorPath(child->data(0, RolePath).toString(), wantedPath, tab.windows)) {
+                        next = child;
+                        break;
+                    }
+                }
+                if (!next) {
+                    break;
+                }
+                node->setExpanded(true);
+                node = next;
+            }
+            if (!arrived || !node) {
+                // El directorio pudo haberse movido o borrado desde que se encoló. Se
+                // dice cuál, en vez de reabrir el diálogo con menos marcas y sin avisar.
+                unreachable << QStringLiteral("%1: %2")
+                                   .arg(m_profiles.value(connIdx).name, wantedPath);
+                continue;
+            }
+            node->setCheckState(0, Qt::Checked);
+            for (QTreeWidgetItem* up = node->parent(); up; up = up->parent()) {
+                up->setExpanded(true);
+            }
+            tab.tree->scrollToItem(node);
+        }
+        if (!unreachable.isEmpty()) {
+            QMessageBox::warning(
+                &dlg,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_fromdir_edit_missing_001"),
+                    QStringLiteral("No se han podido volver a marcar estos directorios; "
+                                   "compruebe si siguen existiendo:\n\n%1"),
+                    QStringLiteral("These directories could not be checked again; "
+                                   "check whether they still exist:\n\n%1"),
+                    QStringLiteral("无法重新勾选以下目录，请确认它们是否仍然存在：\n\n%1"))
+                    .arg(unreachable.join(QStringLiteral("\n"))));
         }
     }
 
@@ -1131,6 +1247,19 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     draft.rpcConnIdx = createArgv.isEmpty() ? -1 : ctx.connIdx;
     draft.rpcArgv = createArgv;
     draft.rpcSecret = createSecret;
+    // Lo que hace falta para volver a abrir este diálogo tal y como se dejó. La orden ya
+    // no sirve para eso: es una tubería con la selección resuelta y las propiedades
+    // convertidas en argumentos. La frase de cifrado se deja fuera a propósito.
+    draft.fromDirInput.valid = true;
+    draft.fromDirInput.datasetPath = opt.datasetPath;
+    draft.fromDirInput.blocksize = opt.blocksize;
+    draft.fromDirInput.parents = opt.parents;
+    draft.fromDirInput.properties = opt.properties;
+    draft.fromDirInput.extraArgs = opt.extraArgs;
+    draft.fromDirInput.deleteSourceDirs = deleteSourceDir;
+    for (const auto& src : std::as_const(selectedSources)) {
+        draft.fromDirInput.sources.push_back(qMakePair(pendingConnKey(src.first), src.second));
+    }
     if (!queuePendingShellAction(draft, &errorText)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;

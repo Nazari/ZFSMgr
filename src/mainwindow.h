@@ -292,6 +292,30 @@ private:
         QString targetName;
     };
 
+    // Entrada del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
+    //
+    // Las otras tres acciones re-editables no necesitan esto: su entrada ES la orden
+    // tipada que ya se guarda (`datasetActionArgv`). La de Desde Dir no se puede
+    // reconstruir de su orden, que es una tubería `tar | ssh | tar` con la selección ya
+    // resuelta y las propiedades ya convertidas en argumentos de `zfs create`.
+    //
+    // Las conexiones van por identificador, no por índice, porque esto se escribe en
+    // disco y los índices se mueven al añadir o borrar una conexión.
+    //
+    // La frase de cifrado NO está aquí a propósito, ni siquiera en memoria: al re-editar
+    // se vuelve a pedir. Es un campo de contraseña con repetición; rellenarlo solo para
+    // que el usuario lo acepte sin mirar sería peor que dejarlo vacío.
+    struct FromDirInput {
+        bool valid{false};
+        QString datasetPath;
+        QString blocksize;
+        bool parents{true};
+        QStringList properties;   // "nombre=valor", tal cual los recoge el diálogo
+        QString extraArgs;
+        QVector<QPair<QString, QString>> sources;   // clave de conexión, ruta
+        bool deleteSourceDirs{false};
+    };
+
     struct PendingShellActionDraft {
         enum class RefreshScope {
             None,
@@ -340,6 +364,9 @@ private:
         QString uid;
         QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
         bool active{true};  // ¿entra en «Aplicar cambios»?
+        // Solo en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
+        // para volver a abrir su diálogo.
+        FromDirInput fromDirInput;
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};
@@ -1547,6 +1574,7 @@ private:
     struct PendingEditSeed {
         bool active{false};
         QStringList argv;
+        FromDirInput fromDir;   // solo para Desde Dir, que no se reconstruye de argv
     };
     PendingEditSeed m_pendingEditSeed;
     QProcess* m_activeLocalProcess{nullptr};

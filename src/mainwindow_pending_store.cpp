@@ -134,6 +134,25 @@ QJsonObject MainWindow::pendingShellDraftToJson(const PendingShellActionDraft& d
     obj.insert(QStringLiteral("action_stdin"),
                QString::fromLatin1(draft.datasetActionStdin.toBase64()));
     obj.insert(QStringLiteral("action_allow_win_script"), draft.datasetActionAllowWindowsScript);
+    if (draft.fromDirInput.valid) {
+        QJsonObject fd;
+        fd.insert(QStringLiteral("dataset_path"), draft.fromDirInput.datasetPath);
+        fd.insert(QStringLiteral("blocksize"), draft.fromDirInput.blocksize);
+        fd.insert(QStringLiteral("parents"), draft.fromDirInput.parents);
+        fd.insert(QStringLiteral("properties"),
+                  QJsonArray::fromStringList(draft.fromDirInput.properties));
+        fd.insert(QStringLiteral("extra_args"), draft.fromDirInput.extraArgs);
+        fd.insert(QStringLiteral("delete_sources"), draft.fromDirInput.deleteSourceDirs);
+        QJsonArray sources;
+        for (const auto& src : draft.fromDirInput.sources) {
+            QJsonObject s;
+            s.insert(QStringLiteral("conn"), src.first);
+            s.insert(QStringLiteral("path"), src.second);
+            sources.append(s);
+        }
+        fd.insert(QStringLiteral("sources"), sources);
+        obj.insert(QStringLiteral("from_dir"), fd);
+    }
     return obj;
 }
 
@@ -170,6 +189,25 @@ bool MainWindow::pendingShellDraftFromJson(const QJsonObject& obj,
         obj.value(QStringLiteral("action_stdin")).toString().toLatin1());
     draft.datasetActionAllowWindowsScript =
         obj.value(QStringLiteral("action_allow_win_script")).toBool(false);
+    if (obj.contains(QStringLiteral("from_dir"))) {
+        const QJsonObject fd = obj.value(QStringLiteral("from_dir")).toObject();
+        draft.fromDirInput.valid = true;
+        draft.fromDirInput.datasetPath = fd.value(QStringLiteral("dataset_path")).toString();
+        draft.fromDirInput.blocksize = fd.value(QStringLiteral("blocksize")).toString();
+        draft.fromDirInput.parents = fd.value(QStringLiteral("parents")).toBool(true);
+        for (const QJsonValue& v : fd.value(QStringLiteral("properties")).toArray()) {
+            draft.fromDirInput.properties << v.toString();
+        }
+        draft.fromDirInput.extraArgs = fd.value(QStringLiteral("extra_args")).toString();
+        draft.fromDirInput.deleteSourceDirs =
+            fd.value(QStringLiteral("delete_sources")).toBool(false);
+        for (const QJsonValue& v : fd.value(QStringLiteral("sources")).toArray()) {
+            const QJsonObject s = v.toObject();
+            draft.fromDirInput.sources.push_back(
+                qMakePair(s.value(QStringLiteral("conn")).toString(),
+                          s.value(QStringLiteral("path")).toString()));
+        }
+    }
     if (draft.uid.isEmpty() || draft.command.trimmed().isEmpty()) {
         return false;
     }
