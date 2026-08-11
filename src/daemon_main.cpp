@@ -2586,6 +2586,39 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         });
     }
 
+    // Los subdatasets montados DENTRO impiden reubicar el raíz: `zfs set mountpoint`
+    // tiene que desmontarlo y falla con "pool or dataset is busy". Se apartan primero,
+    // de hojas a raíz, y se vuelven a montar en cuanto el raíz está en su sitio
+    // temporal —hace falta que estén montados para poder copiar sus datos—.
+    std::vector<std::string> nestedUnmounted;  // de más profundo a menos
+    {
+        std::vector<std::string> nested;
+        for (const Member& m : members) {
+            if (!m.rel.empty()) {
+                nested.push_back(m.name);
+            }
+        }
+        std::sort(nested.begin(), nested.end(), [](const std::string& a, const std::string& b) {
+            return std::count(a.begin(), a.end(), '/') > std::count(b.begin(), b.end(), '/');
+        });
+        for (const std::string& ds : nested) {
+            if (!datasetIsMounted(ds)) {
+                continue;
+            }
+            const ExecResult um = runExecCapture("zfs", {"unmount", ds});
+            if (um.rc != 0 && datasetIsMounted(ds)) {
+                for (auto it = nestedUnmounted.rbegin(); it != nestedUnmounted.rend(); ++it) {
+                    (void)runExecCapture("zfs", {"mount", *it});
+                }
+                r.rc = 1;
+                r.err = "no se pudo desmontar " + ds + ", que está dentro de " + dataset
+                        + "; no se ha modificado nada\n" + um.err;
+                return r;
+            }
+            nestedUnmounted.push_back(ds);
+        }
+    }
+
     // Reubicar el dataset a un mountpoint temporal: sin esto, el destino no puede ser
     // la propia ruta donde el dataset estaba montado, que es el caso principal
     // (convertir un dataset en un directorio en su mismo sitio).
@@ -2596,6 +2629,14 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         r.rc = 1;
         r.err = mountErr.empty() ? "cannot relocate dataset to a temporary mountpoint\n" : mountErr;
         return r;
+    }
+
+    // Devueltos a su sitio, ahora bajo el mountpoint temporal si lo heredaban. Sin esto
+    // la copia leería directorios vacíos y se perderían sus datos.
+    for (auto it = nestedUnmounted.rbegin(); it != nestedUnmounted.rend(); ++it) {
+        if (!datasetIsMounted(*it)) {
+            (void)runExecCapture("zfs", {"mount", *it});
+        }
     }
 
     const fs::path dst(dstDir);
