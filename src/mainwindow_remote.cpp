@@ -469,6 +469,15 @@ bool runSshRawNoLog(const ConnectionProfile& p,
     args << mwhelpers::sshUserHost(p) << mwhelpers::asciiSafeShellCommand(remoteCmd);
 
     QProcess proc;
+    struct ProcessGuard {
+        QProcess* proc;
+        ~ProcessGuard() {
+            if (proc && proc->state() != QProcess::NotRunning) {
+                proc->kill();
+                proc->waitForFinished(2000);
+            }
+        }
+    } processGuard{&proc};  // ídem: que no quede un ssh suelto por ninguna salida
     proc.start(program, args);
     if (!proc.waitForStarted(4000)) {
         err = QStringLiteral("cannot start ssh");
@@ -2210,6 +2219,20 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         args << mwhelpers::asciiSafeShellCommand(wrappedCmd);
 
         QProcess proc;
+        // Garantiza que el hijo no sobreviva al QProcess, salga por donde salga esta
+        // función. Qt avisa —"Destroyed while process is still running"— y el `ssh` o el
+        // `sshpass` se quedan sueltos, reteniendo su socket de multiplexado. Había ramas
+        // que ya mataban y otras que no; en vez de perseguirlas una a una, se cubre el
+        // destructor, que es por donde pasan todas.
+        struct ProcessGuard {
+            QProcess* proc;
+            ~ProcessGuard() {
+                if (proc && proc->state() != QProcess::NotRunning) {
+                    proc->kill();
+                    proc->waitForFinished(2000);
+                }
+            }
+        } processGuard{&proc};
         QElapsedTimer timer;
         timer.start();
         proc.start(program, args);
