@@ -573,53 +573,10 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             return;
 
         }
-        QStringList selectedQuoted;
-        selectedQuoted.reserve(selectedDirs.size());
-        for (const QString& d : selectedDirs) {
-            selectedQuoted << shSingleQuote(d);
-        }
-        const QString selectedList = selectedQuoted.join(' ');
-        cmd =
-                           QStringLiteral("set -e; DATASET=%1; %3"
-                           "RSYNC_OPTS='-aHWS'; "
-                           "RSYNC_PROGRESS='--info=progress2'; "
-                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
-                           "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
-                           "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
-                           "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
-                           "TMP_ROOT=''; "
-                           "cleanup(){ "
-                           "  if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
-                           "}; "
-                           "trap cleanup EXIT INT TERM; "
-                           "MP=$(resolve_mp \"$DATASET\"); "
-                           "if [ -z \"$MP\" ]; then TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; MP=\"$TMP_ROOT\"; fi; "
-                           "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
-                           "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
-                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; [ -L \"$d\" ] && continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
-                           "echo \"[BREAKDOWN] start $bn\"; "
-                           "child=\"$DATASET/$bn\"; "
-                           "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
-                           "FINAL_MP=\"$MP/$bn\"; "
-                           "TMP_CHILD_MP=$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX); "
-                           "zfs create -p -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
-                           "zfs mount \"$child\" >/dev/null 2>&1 || true; "
-                           "try=0; "
-                           "while :; do "
-                           "  rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$d\"/ \"$TMP_CHILD_MP\"/; "
-                           "  PENDING=$(rsync -rni --ignore-existing \"$d\"/ \"$TMP_CHILD_MP\"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==\">\" && substr(c,2,1)==\"f\") n++} END{print n+0}'); "
-                           "  [ \"$PENDING\" = \"0\" ] && break; "
-                           "  try=$((try+1)); "
-                           "  [ \"$try\" -lt 5 ] || break; "
-                           "done; "
-                           "[ \"$PENDING\" = \"0\" ] || { echo \"verify_failed=$child pending=$PENDING\"; exit 42; }; "
-                           "rm -rf \"$d\"; "
-                           "zfs set mountpoint=\"$FINAL_MP\" \"$child\"; "
-                           "zfs mount \"$child\" >/dev/null 2>&1 || true; "
-                           "rmdir \"$TMP_CHILD_MP\" >/dev/null 2>&1 || true; "
-                           "echo \"[BREAKDOWN] ok $bn -> $child\"; "
-                           "done")
-                .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
+        // El respaldo por shell vivía aquí y era INALCANZABLE: el `if` de arriba se
+        // cumple siempre dentro de este `else` y retorna. Además la acción exige daemon
+        // (requiresDaemon), así que sin agente se rechaza antes de llegar. La ayuda ya
+        // decía "no hay alternativa por shell"; ahora el código coincide.
     }
     // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
     // acción se comportaría de una forma u otra según la conexión.
@@ -914,76 +871,8 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
 
             return;
         }
-        QStringList promptKeyDatasets;
-        auto appendPromptDatasetIfNeeded = [&](const QString& datasetName) {
-            QString keyLocation;
-            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keylocation"), keyLocation);
-            keyLocation = keyLocation.trimmed().toLower();
-            QString keyStatus;
-            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keystatus"), keyStatus);
-            keyStatus = keyStatus.trimmed().toLower();
-            if (keyLocation == QStringLiteral("prompt") && keyStatus != QStringLiteral("available")) {
-                promptKeyDatasets << datasetName;
-            }
-        };
-        if (!rootMounted) {
-            appendPromptDatasetIfNeeded(ds);
-        }
-        for (const QString& child : selectedChildren) {
-            appendPromptDatasetIfNeeded(child);
-        }
-        promptKeyDatasets.removeDuplicates();
-        if (!promptKeyDatasets.isEmpty()) {
-            bool ok = false;
-            const QString passphrase = QInputDialog::getText(
-                this,
-                QStringLiteral("Load key"),
-                QStringLiteral("Clave"),
-                QLineEdit::Password,
-                QString(),
-                &ok);
-            if (!ok || passphrase.isEmpty()) {
-                stopBusy();
-                return;
-            }
-            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
-        }
-        QStringList selectedQuoted;
-        selectedQuoted.reserve(selectedChildren.size());
-        for (const QString& c : selectedChildren) {
-            selectedQuoted << shSingleQuote(c);
-        }
-        const QString selectedList = selectedQuoted.join(' ');
-        cmd =
-                           QStringLiteral("set -e; DATASET=%1; %3"
-                           "RSYNC_OPTS='-aHWS'; "
-                           "RSYNC_PROGRESS='--info=progress2'; "
-                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
-                           "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
-                           "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
-                           "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
-                           "TMP_PARENT=''; "
-                           "cleanup(){ if [ -n \"$TMP_PARENT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_PARENT\" >/dev/null 2>&1 || true; rmdir \"$TMP_PARENT\" >/dev/null 2>&1 || true; fi; }; "
-                           "trap cleanup EXIT INT TERM; "
-                           "MP=$(resolve_mp \"$DATASET\"); "
-                           "if [ -z \"$MP\" ]; then load_key_if_needed \"$DATASET\"; TMP_PARENT=$(mktemp -d /tmp/zfsmgr-assemble-parent-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_PARENT\"; MP=\"$TMP_PARENT\"; fi; "
-                           "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
-                           "SELECTED_CHILDREN=(%2); "
-                           "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
-                           "echo \"[ASSEMBLE] start $child\"; "
-                           "CMP=$(resolve_mp \"$child\"); "
-                           "CHILD_TMP=''; "
-                           "if [ -z \"$CMP\" ]; then load_key_if_needed \"$child\"; CHILD_TMP=$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX); mount_alt_zfs \"$child\" \"$CHILD_TMP\"; CMP=\"$CHILD_TMP\"; fi; "
-                           "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
-                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$CMP\"/ \"$TMP\"/; "
-                           "if [ -n \"$CHILD_TMP\" ]; then umount_alt_zfs \"$child\" \"$CHILD_TMP\" >/dev/null 2>&1 || true; rmdir \"$CHILD_TMP\" >/dev/null 2>&1 || true; fi; "
-                           "zfs destroy -r \"$child\"; "
-                           "mkdir -p \"$MP/$bn\"; "
-                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$TMP\"/ \"$MP/$bn\"/; "
-                           "rm -rf \"$TMP\"; "
-                           "echo \"[ASSEMBLE] ok $child -> $MP/$bn\"; "
-                           "done")
-                .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
+        // El respaldo por shell vivía aquí y era INALCANZABLE, por lo mismo que en
+        // Desglosar: el `if` de arriba se cumple siempre dentro de este `else` y retorna.
     }
     // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
     // acción se comportaría de una forma u otra según la conexión.
