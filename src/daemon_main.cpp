@@ -1184,6 +1184,20 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
             return r;
         }
+        // La escala se borra pase lo que pase. Solo se limpiaba en el camino bueno, así
+        // que cada Ensamblar fallido dejaba un `.zfsmgr-assemble-XXXX` dentro del pool.
+        // No es solo basura: un Hacia Dir posterior los copia fielmente al directorio
+        // resultante, y aparecen como ficheros de más que no estaban en el origen.
+        struct StagingCleanup {
+            std::string path;
+            bool armed{true};
+            ~StagingCleanup() {
+                if (armed && !path.empty()) {
+                    std::error_code ec;
+                    std::filesystem::remove_all(path, ec);
+                }
+            }
+        } stagingCleanup{tmp};
         // Descendientes DIRECTOS que son datasets: se conservan en vez de destruirlos.
         //
         // Antes se hacía `zfs destroy -r`, que se llevaba todo el subárbol: ensamblar
@@ -1414,6 +1428,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         }
         // Ya están montados con su nombre nuevo: el guard no debe tocarlos.
         remountGuard.armed = false;
+        stagingCleanup.armed = false;  // la escala ya se movió a su sitio definitivo
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
                           + std::to_string(params.size() - 1) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
