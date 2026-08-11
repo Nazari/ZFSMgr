@@ -1479,6 +1479,10 @@ private:
         QDateTime lastUsedUtc;
     };
     QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
+    // Claves cuyo túnel se está montando ahora mismo. Protege de la reentrancia que
+    // provoca el processEvents de la espera: sin esto se montaban túneles duplicados que
+    // quedaban huérfanos fuera del mapa. Bajo m_sshRuntimeSetsMutex, como el mapa.
+    QSet<QString> m_remoteRpcTunnelsBeingCreated;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;

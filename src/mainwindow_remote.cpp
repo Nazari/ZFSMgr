@@ -1028,6 +1028,39 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                   QPointer<QProcess>& processOut) -> bool {
         localPortOut = 0;
         processOut = nullptr;
+        // Cerrojo por clave contra la REENTRANCIA, que multiplicaba los túneles.
+        //
+        // Montar un túnel espera a que el puerto acepte conexiones, y esa espera bombea
+        // el ciclo de eventos para no congelar la ventana cinco segundos. En ese hueco
+        // salta el temporizador del latido, pide RPC a la MISMA conexión, no encuentra
+        // túnel en el mapa —el de fuera todavía no se ha registrado— y monta un segundo.
+        // Al terminar, el `insert` del de fuera pisaba la entrada del de dentro y lo
+        // dejaba huérfano: vivo, colgando de la ventana y fuera del mapa, así que ni se
+        // reutilizaba ni se cerraba nunca. Medido: 3 túneles por máquina donde debe
+        // haber 1, seis conexiones SSH abiertas y subiendo.
+        //
+        // La llamada reentrante falla en vez de esperar: quien la hace es un sondeo
+        // periódico y volverá a intentarlo, mientras que bloquear aquí sería reentrar
+        // otra vez sobre el mismo ciclo de eventos.
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            if (m_remoteRpcTunnelsBeingCreated.contains(key)) {
+                return false;
+            }
+        }
+        struct CreationLock {
+            MainWindow* self;
+            QString key;
+            ~CreationLock() {
+                QMutexLocker lock(&self->m_sshRuntimeSetsMutex);
+                self->m_remoteRpcTunnelsBeingCreated.remove(key);
+            }
+        };
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            m_remoteRpcTunnelsBeingCreated.insert(key);
+        }
+        CreationLock creationLock{this, key};
         const QDateTime now = QDateTime::currentDateTimeUtc();
         bool needsRecreate = false;
         {

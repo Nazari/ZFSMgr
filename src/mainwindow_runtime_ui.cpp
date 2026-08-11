@@ -21,6 +21,39 @@ MainWindow::~MainWindow() {
     stopAllDaemonEventWatchers();
     closeAllRemoteDaemonRpcTunnels();
 
+    // Barrido final de procesos hijo, y NO es redundante con la línea de arriba: aquella
+    // solo recorre el mapa de túneles, así que cualquier QProcess que no esté registrado
+    // en él sobrevive. Eso es exactamente lo que pasaba con los túneles duplicados por
+    // reentrancia, y el resultado era una violación del montículo confirmada con
+    // AddressSanitizer:
+    //
+    //   ~MainWindow()  → cuerpo del destructor
+    //     → se destruyen los MIEMBROS      (muere m_remoteDaemonRpcTunnelsByConnKey)
+    //     → ~QWidget() → deleteChildren()  (mueren los QProcess que quedaban)
+    //         → ~QProcess() emite finished()
+    //             → la lambda hace .find() sobre el mapa YA LIBERADO
+    //
+    // Es el orden de destrucción de C++: los miembros de la derivada mueren antes que la
+    // base, y los hijos QObject los borra la base. Por eso hay que matarlos AQUÍ, en el
+    // cuerpo del destructor, mientras los miembros siguen vivos; y desconectarlos de
+    // `this` antes, para que morir no dispare nada.
+    //
+    // Se borran en el acto, sin deleteLater: a estas alturas ya no queda ciclo de
+    // eventos que llegue a procesarlo.
+    const QList<QProcess*> strayProcesses = findChildren<QProcess*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QProcess* proc : strayProcesses) {
+        if (!proc) {
+            continue;
+        }
+        disconnect(proc, nullptr, this, nullptr);
+        proc->blockSignals(true);
+        if (proc->state() != QProcess::NotRunning) {
+            proc->kill();
+            proc->waitForFinished(1000);
+        }
+        delete proc;
+    }
+
     auto quiesceObject = [](QObject* obj) {
         if (!obj) {
             return;
