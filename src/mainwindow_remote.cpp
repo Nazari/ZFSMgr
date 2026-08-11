@@ -3104,6 +3104,10 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
 constexpr qint64 kStallAbortMs = 120000;
 // Se considera que `pv` sigue vivo si emitió algo hace menos de esto.
 constexpr qint64 kProgressAliveMs = 15000;
+// Y cuánto se tolera el silencio absoluto una vez que la copia ya había arrancado.
+// Más largo que el otro umbral a propósito: entre un origen y el siguiente no se
+// imprime nada, y ese hueco depende de lo que tarde `tar` en abrir el árbol remoto.
+constexpr qint64 kSilenceAbortMs = 300000;
 
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog, bool streamProgress) {
     if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)}, forceConfirmDialog)) {
@@ -3287,12 +3291,21 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         // caso real era Desde Dir contra un dataset sin punto de montaje utilizable —el
         // receptor fallaba al instante y esto seguía "en curso" indefinidamente—, pero
         // vale para cualquier extremo que muera sin cerrar la tubería.
-        // Solo se aborta con `pv` VIVO y sin avanzar. Si no llega ninguna línea, no se
-        // sabe qué pasa y no es asunto de este temporizador: una copia entre varios
-        // orígenes calla entre tramo y tramo, y abortar ahí mató una transferencia sana.
-        if (streamProgress && sawProgressOutput && sawAnyProgressLine
-            && lastProgressLine.elapsed() < kProgressAliveMs
-            && stallTimer.elapsed() > kStallAbortMs) {
+        // Dos formas de estancarse, y hay que cazar las dos:
+        //
+        //   - `pv` VIVO repitiendo el mismo recuento: el receptor murió y la tubería no
+        //     se entera. Dos minutos bastan.
+        //   - SILENCIO total: `pv` bloqueado escribiendo porque el destino dejó de
+        //     responder. Pasó de verdad —un SSD USB que se cayó a mitad de copia, con
+        //     resets de xhci en el registro del núcleo— y `pv` no volvió a imprimir.
+        //     Aquí se espera más, porque el silencio también aparece entre tramo y
+        //     tramo de una copia con varios orígenes, y abortar ahí sería un error.
+        const bool stalledWithLiveProgress =
+            sawAnyProgressLine && lastProgressLine.elapsed() < kProgressAliveMs
+            && stallTimer.elapsed() > kStallAbortMs;
+        const bool stalledInSilence =
+            sawAnyProgressLine && lastProgressLine.elapsed() > kSilenceAbortMs;
+        if (streamProgress && sawProgressOutput && (stalledWithLiveProgress || stalledInSilence)) {
             appLog(QStringLiteral("ERROR"),
                    trk(QStringLiteral("t_pipe_stalled_001"),
                        QStringLiteral("%1: la transferencia lleva %2 s sin mover datos. Se "
@@ -3304,7 +3317,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                        QStringLiteral("%1：传输已有 %2 秒没有数据流动，现已中止。常见原因是接收端"
                                       "失败但未关闭管道。请查看日志。"))
                        .arg(displayLabel)
-                       .arg(stallTimer.elapsed() / 1000));
+                       .arg((stalledInSilence ? lastProgressLine.elapsed()
+                                              : stallTimer.elapsed()) / 1000));
             terminateProcessTree(m_activeLocalPid);
             proc.terminate();
             if (!proc.waitForFinished(800)) {

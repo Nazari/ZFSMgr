@@ -75,9 +75,31 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
                       QStringList{QStringLiteral("/PID"), QString::number(rootPid),
                                   QStringLiteral("/T"), QStringLiteral("/F")});
 #else
+    // Recorrido COMPLETO del árbol, no solo los hijos directos. `pkill -P` mata a los
+    // hijos y se para ahí, y la cadena real de una transferencia es
+    // sh -> sudo -> sh -> zfsmgr-agent -> tar: al abortar sobrevivía el `tar`, que
+    // seguía escribiendo en el destino y dejaba el punto de montaje ocupado, de modo que
+    // luego no se podía ni borrar el dataset. Visto de verdad tras abortar una copia.
+    //
+    // De hojas a raíz, para que un padre no engendre otro hijo mientras se mata al nieto.
     QProcess::execute(QStringLiteral("sh"), QStringList{
         QStringLiteral("-lc"),
-        QStringLiteral("pkill -TERM -P %1 >/dev/null 2>&1 || true; sleep 0.2; pkill -KILL -P %1 >/dev/null 2>&1 || true")
+        QStringLiteral(
+            "root=%1; "
+            "all=\"\"; frontier=\"$root\"; "
+            "for depth in 1 2 3 4 5 6 7 8; do "
+            "  next=\"\"; "
+            "  for pid in $frontier; do "
+            "    kids=$(pgrep -P \"$pid\" 2>/dev/null); "
+            "    [ -n \"$kids\" ] && next=\"$next $kids\"; "
+            "  done; "
+            "  [ -z \"$next\" ] && break; "
+            "  all=\"$next $all\"; frontier=\"$next\"; "
+            "done; "
+            "for pid in $all; do kill -TERM \"$pid\" >/dev/null 2>&1 || true; done; "
+            "sleep 0.3; "
+            "for pid in $all; do kill -KILL \"$pid\" >/dev/null 2>&1 || true; done; "
+            "true")
             .arg(rootPid)
     });
 #endif
