@@ -2497,36 +2497,6 @@ std::string datasetMountedExactlyAt(const std::string& path) {
     return std::string();
 }
 
-bool pathIsZfsMountpoint(const std::string& path) {
-    const ExecResult mounts = runExecCapture("zfs", {"mount"});
-    if (mounts.rc != 0) {
-        return false;
-    }
-    std::error_code ec;
-    const std::filesystem::path want = std::filesystem::weakly_canonical(path, ec);
-    const std::string wantStr = ec ? path : want.string();
-    for (const std::string& line : splitLines(mounts.out)) {
-        // "<dataset><espacios><mountpoint>"; el mountpoint puede llevar espacios.
-        const std::size_t sep = line.find_first_of(" \t");
-        if (sep == std::string::npos) {
-            continue;
-        }
-        std::size_t mpStart = line.find_first_not_of(" \t", sep);
-        if (mpStart == std::string::npos) {
-            continue;
-        }
-        const std::string mp = trim(line.substr(mpStart));
-        if (mp.empty()) {
-            continue;
-        }
-        std::error_code mec;
-        const std::filesystem::path canon = std::filesystem::weakly_canonical(mp, mec);
-        if ((mec ? mp : canon.string()) == wantStr) {
-            return true;
-        }
-    }
-    return false;
-}
 
 ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params) {
     ExecResult r;
