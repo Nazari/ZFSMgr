@@ -1217,6 +1217,21 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // dentro no se puede desmontar: `zfs rename` lo intenta y falla con
         // «cannot unmount ...: pool or dataset is busy». Pasó con Squirrel.app, que
         // tenía Contents montado debajo, y abortó el Ensamblar entero.
+        // Si algo falla a partir de aquí hay que DEVOLVERLOS a su sitio. Sin esto, un
+        // Ensamblar abortado dejaba cientos de datasets desmontados —227 en una prueba
+        // real— y desde fuera eso se parece demasiado a haber perdido los datos.
+        struct RemountGuard {
+            std::vector<std::string> unmounted;  // de más profundo a menos
+            bool armed{true};
+            ~RemountGuard() {
+                if (!armed) {
+                    return;
+                }
+                for (auto it = unmounted.rbegin(); it != unmounted.rend(); ++it) {
+                    (void)runExecCapture("zfs", {"mount", *it});
+                }
+            }
+        } remountGuard;
         {
             std::vector<std::string> subtree;
             const ExecResult ls = runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", child});
@@ -1235,6 +1250,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             for (const std::string& ds : subtree) {
                 if (datasetIsMounted(ds)) {
                     (void)runExecCapture("zfs", {"unmount", ds});
+                    remountGuard.unmounted.push_back(ds);
                 }
             }
         }
@@ -1396,6 +1412,8 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 }
             }
         }
+        // Ya están montados con su nombre nuevo: el guard no debe tocarlos.
+        remountGuard.armed = false;
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
                           + std::to_string(params.size() - 1) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
