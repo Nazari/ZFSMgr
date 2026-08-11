@@ -2,6 +2,7 @@
 
 #include "connectionstore.h"
 #include "connectiondialog.h"
+#include "mainwindow_helpers.h"
 #include "connectioncapabilities.h"
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreecoordinator.h"
@@ -1064,6 +1065,19 @@ private:
     void updateApplyPropsButtonState();
     void clearAllPendingChanges();
     bool removePendingQueuedChangeLine(const QString& line);
+    // Persistencia de la lista de acciones (mainwindow_pending_store.cpp)
+    void savePendingActions();
+    void loadPendingActions();
+    QJsonObject pendingShellDraftToJson(const PendingShellActionDraft& draft,
+                                        QString* refusalOut) const;
+    bool pendingShellDraftFromJson(const QJsonObject& obj, PendingShellActionDraft* out) const;
+    QJsonObject pendingCtxToJson(const DatasetSelectionContext& ctx) const;
+    DatasetSelectionContext pendingCtxFromJson(const QJsonObject& obj) const;
+    QString pendingConnKey(int connIdx) const;
+    int pendingConnIndex(const QString& key) const;
+    QVector<mwhelpers::StorableSecret> pendingStorableSecrets() const;
+    QString redactStoredSecrets(const QString& command, bool* okOut) const;
+    QString restoreStoredSecrets(const QString& stored) const;
     bool hasActivePendingModelWork() const;
     void deactivatePendingShellAction(const PendingShellActionDraft& draft);
     bool setPendingShellActionActive(const QString& uid, bool active);

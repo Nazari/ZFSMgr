@@ -2402,6 +2402,7 @@ void MainWindow::clearAllPendingChanges() {
         }
     }
     m_pendingChangesModel.clear();
+    savePendingActions();
     m_pendingOrderedDisplayLines.clear();
     m_pendingItemStatus.clear();
     m_propsDirty = false;
@@ -2480,6 +2481,7 @@ void MainWindow::deactivatePendingShellAction(const PendingShellActionDraft& dra
                                     && existing.shellDraft.command.trimmed() == draft.command.trimmed());
         if (sameEntry) {
             existing.shellDraft.active = false;
+            savePendingActions();
             return;
         }
     }
@@ -2493,6 +2495,7 @@ bool MainWindow::setPendingShellActionActive(const QString& uid, bool active) {
         if (existing.kind == PendingChange::Kind::ShellAction
             && existing.shellDraft.uid == uid) {
             existing.shellDraft.active = active;
+            savePendingActions();
             updateApplyPropsButtonState();
             return true;
         }
@@ -2508,6 +2511,7 @@ bool MainWindow::setPendingShellActionUserName(const QString& uid, const QString
         if (existing.kind == PendingChange::Kind::ShellAction
             && existing.shellDraft.uid == uid) {
             existing.shellDraft.userName = name.trimmed();
+            savePendingActions();
             updateApplyPropsButtonState();
             return true;
         }
@@ -2541,6 +2545,7 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
                 m_pendingChangesModel.removeAt(i);
                 m_pendingOrderedDisplayLines.removeAll(line);
                 m_pendingItemStatus.remove(line);
+                savePendingActions();
                 updateApplyPropsButtonState();
                 return true;
             }

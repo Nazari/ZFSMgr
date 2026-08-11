@@ -195,6 +195,10 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     if (!zfsmgrTestModeEnabled()) {
         loadConnections();
         appLog(QStringLiteral("INFO"), QStringLiteral("[startup] loadConnections: %1 ms").arg(startupTimer.elapsed()));
+        // Después de las conexiones, no antes: cada acción guardada apunta a la suya por
+        // identificador, y su orden necesita la contraseña del perfil para reponer lo que
+        // no se escribió en disco.
+        loadPendingActions();
         restoreSplitTreeLayoutFromState(m_splitTreeLayoutState);
         for (const ConnectionProfile& p : std::as_const(m_profiles)) {
             if (!isLocalConnection(p) || p.username.trimmed().isEmpty() || p.password.isEmpty()) {

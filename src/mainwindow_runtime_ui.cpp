@@ -108,6 +108,10 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
 void MainWindow::closeEvent(QCloseEvent* event) {
     m_closing = true;
     flushAppLogFile();
+    // Salir sin aplicar ya no pierde la lista. Se guarda también en cada cambio, así que
+    // esto es la red por si el proceso se va por otro camino; barato y sin secretos
+    // dentro (ver mainwindow_pending_store.cpp).
+    savePendingActions();
     if (m_actionsLocked) {
         m_closing = false;
         QMessageBox::warning(

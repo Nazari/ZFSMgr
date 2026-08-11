@@ -685,6 +685,60 @@ int main() {
         }
     }
 
+    // Redacción para guardar la lista de acciones en disco. Esto es lo único que separa
+    // la contraseña de sudo de quedar escrita en claro en config.json, así que se
+    // comprueba que sale, que vuelve, y que el guardián detecta una fuga.
+    {
+        ConnectionProfile p;
+        p.password = QStringLiteral("rpq231");
+        const QVector<StorableSecret> secrets{StorableSecret{QStringLiteral("fc16"), p.password}};
+
+        // La forma real: la que produce withSudoCommand.
+        const QString real = withSudoCommand(
+            [&]() {
+                ConnectionProfile prof;
+                prof.password = p.password;
+                prof.useSudo = true;
+                prof.osType = QStringLiteral("linux");
+                return prof;
+            }(),
+            QStringLiteral("zfs list -H"));
+        if (!real.contains(shPrintfOctalEscaped(p.password))) {
+            return fail("el caso de prueba no reproduce la forma octal de withSudoCommand");
+        }
+
+        bool ok = false;
+        const QString stored = redactSecretsForStorage(real, secrets, &ok);
+        if (!ok) {
+            return fail("redactSecretsForStorage rechazó una orden que sí puede redactar");
+        }
+        if (stored.contains(p.password) || stored.contains(shPrintfOctalEscaped(p.password))) {
+            return fail("redactSecretsForStorage dejó la contraseña en el texto a guardar");
+        }
+        if (!stored.contains(storedSecretMarkerPrefix())) {
+            return fail("redactSecretsForStorage no dejó marcador");
+        }
+        if (restoreSecretsFromStorage(stored, secrets) != real) {
+            return fail("el ciclo redactar/restaurar no devuelve la orden original");
+        }
+
+        // Un perfil que ya no existe deja el marcador sin resolver: quien restaura tiene
+        // que poder verlo y descartar la entrada en vez de ejecutar el marcador literal.
+        const QString orphan = restoreSecretsFromStorage(stored, {});
+        if (!orphan.contains(storedSecretMarkerPrefix())) {
+            return fail("un marcador sin perfil debería sobrevivir para poder detectarlo");
+        }
+
+        // Y el guardián: si la contraseña aparece de una forma que no se sustituyó, la
+        // función debe negarse en vez de devolver algo casi limpio.
+        const QVector<StorableSecret> wrongKey{StorableSecret{QString(), p.password}};
+        bool ok2 = true;
+        const QString refused = redactSecretsForStorage(real, wrongKey, &ok2);
+        if (ok2 || !refused.isEmpty()) {
+            return fail("redactSecretsForStorage debería negarse si la contraseña sobrevive");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

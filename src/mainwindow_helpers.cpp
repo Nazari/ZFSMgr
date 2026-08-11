@@ -913,6 +913,59 @@ QString shPrintfOctalEscaped(const QString& s) {
     return out;
 }
 
+QString storedSecretMarkerPrefix() {
+    return QStringLiteral("@@ZFSMGR_PW:");
+}
+
+namespace {
+QString storedSecretMarker(const QString& key) {
+    return storedSecretMarkerPrefix() + key + QStringLiteral("@@");
+}
+}  // namespace
+
+QString redactSecretsForStorage(const QString& command,
+                                const QVector<StorableSecret>& secrets,
+                                bool* okOut) {
+    if (okOut) {
+        *okOut = true;
+    }
+    QString out = command;
+    for (const StorableSecret& s : secrets) {
+        if (s.secret.isEmpty() || s.key.trimmed().isEmpty()) {
+            continue;
+        }
+        const QString marker = storedSecretMarker(s.key);
+        // La octal primero: es la que produce withSudoCommand y la que contiene a la
+        // literal como caso raro. Sustituir al revés dejaría trozos de la octal sueltos.
+        out.replace(shPrintfOctalEscaped(s.secret), marker);
+        out.replace(s.secret, marker);
+    }
+    for (const StorableSecret& s : secrets) {
+        if (s.secret.isEmpty()) {
+            continue;
+        }
+        if (out.contains(s.secret) || out.contains(shPrintfOctalEscaped(s.secret))) {
+            if (okOut) {
+                *okOut = false;
+            }
+            return QString();
+        }
+    }
+    return out;
+}
+
+QString restoreSecretsFromStorage(const QString& stored,
+                                  const QVector<StorableSecret>& secrets) {
+    QString out = stored;
+    for (const StorableSecret& s : secrets) {
+        if (s.key.trimmed().isEmpty()) {
+            continue;
+        }
+        out.replace(storedSecretMarker(s.key), shPrintfOctalEscaped(s.secret));
+    }
+    return out;
+}
+
 QString asciiSafeShellCommand(const QString& cmd) {
     bool hasNonAscii = false;
     for (const QChar c : cmd) {

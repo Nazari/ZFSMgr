@@ -109,6 +109,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow_permissions.cpp
     ../src/mainwindow_filebrowser.cpp
     ../src/mainwindow_dataset_props.cpp
+    ../src/mainwindow_pending_store.cpp
     ../src/mainwindow_dataset_actions.cpp
     ../src/mainwindow_dataset_manage.cpp
     ../src/mainwindow_transfer.cpp

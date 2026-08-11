@@ -243,6 +243,7 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
             // forma de distinguirlas.
             if (!existing.shellDraft.active) {
                 existing.shellDraft.active = true;
+                savePendingActions();
                 appLog(QStringLiteral("INFO"),
                        QStringLiteral("[pendientes] «%1» ya estaba en la lista: reactivada")
                            .arg(draft.displayLabel.trimmed()));
@@ -264,6 +265,7 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     change.activatable = true;
     change.stableId = QStringLiteral("shell|%1").arg(change.shellDraft.uid);
     m_pendingChangesModel.push_back(change);
+    savePendingActions();
     return true;
 }
 

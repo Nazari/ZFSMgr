@@ -132,6 +132,32 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 // En ASCII no hay descomposición posible, de ahí la codificación. `\0ddd` con `%b` es
 // POSIX, así que vale igual en macOS, Linux y FreeBSD.
 QString shPrintfOctalEscaped(const QString& s);
+
+// Una contraseña de perfil y la clave con la que se la vuelve a encontrar al restaurar.
+struct StorableSecret {
+    QString key;
+    QString secret;
+};
+
+// Sustituye en `command` cada contraseña por un marcador, para poder escribir la orden
+// en disco sin escribir el secreto. Contempla las DOS formas en que puede aparecer: la
+// octal que produce shPrintfOctalEscaped —la de withSudoCommand— y la literal.
+//
+// Si al terminar alguna contraseña sigue presente, devuelve cadena vacía y pone *okOut a
+// false. Quien llama DEBE respetarlo y no guardar nada: es la última comprobación antes
+// de que un secreto acabe en un fichero de texto.
+QString redactSecretsForStorage(const QString& command,
+                                const QVector<StorableSecret>& secrets,
+                                bool* okOut);
+
+// Inversa de la anterior. Un marcador cuya clave no esté en `secrets` se deja intacto:
+// así quien restaura puede detectar que la orden apuntaba a un perfil que ya no existe,
+// en vez de ejecutarla con un hueco.
+QString restoreSecretsFromStorage(const QString& stored,
+                                  const QVector<StorableSecret>& secrets);
+
+// Prefijo del marcador, expuesto para poder comprobar si quedó alguno sin resolver.
+QString storedSecretMarkerPrefix();
 // Devuelve una orden de shell equivalente cuyo texto es ASCII puro, para que sobreviva
 // al paso por los argumentos de un proceso.
 //
