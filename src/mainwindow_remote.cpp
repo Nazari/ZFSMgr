@@ -980,6 +980,22 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         return false;
     }
     const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
+    // Reentrancia: si el túnel de esta conexión se está montando en un marco anterior de
+    // la pila, NO se monta otro ni se intenta nada.
+    //
+    // Se sale con el motivo reservado, que NO cuenta como fallo: la primera versión de
+    // esto devolvía un false corriente y el llamante lo tomaba por un túnel caído, metía
+    // la conexión en backoff de 30 s y con eso tumbaba el refresco de verdad. Estar
+    // ocupado no es estar roto.
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        if (m_remoteRpcTunnelsBeingCreated.contains(rpcConnKey)) {
+            if (failureReason) {
+                *failureReason = mwhelpers::rpcTunnelBusyReason();
+            }
+            return false;
+        }
+    }
     const auto closeTunnelForKey = [&](const QString& key) {
         QPointer<QProcess> proc;
         {
@@ -1028,7 +1044,9 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                   QPointer<QProcess>& processOut) -> bool {
         localPortOut = 0;
         processOut = nullptr;
-        // Cerrojo por clave contra la REENTRANCIA, que multiplicaba los túneles.
+        // Marca de "montando este túnel ahora mismo", contra la REENTRANCIA que los
+        // multiplicaba. Quien la consulta es rpcTunnelCreationInProgress, arriba del
+        // todo: aquí solo se pone y se quita.
         //
         // Montar un túnel espera a que el puerto acepte conexiones, y esa espera bombea
         // el ciclo de eventos para no congelar la ventana cinco segundos. En ese hueco
@@ -1038,16 +1056,6 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         // dejaba huérfano: vivo, colgando de la ventana y fuera del mapa, así que ni se
         // reutilizaba ni se cerraba nunca. Medido: 3 túneles por máquina donde debe
         // haber 1, seis conexiones SSH abiertas y subiendo.
-        //
-        // La llamada reentrante falla en vez de esperar: quien la hace es un sondeo
-        // periódico y volverá a intentarlo, mientras que bloquear aquí sería reentrar
-        // otra vez sobre el mismo ciclo de eventos.
-        {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            if (m_remoteRpcTunnelsBeingCreated.contains(key)) {
-                return false;
-            }
-        }
         struct CreationLock {
             MainWindow* self;
             QString key;
@@ -1831,6 +1839,18 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                   .arg(reason);
         rc = 124;
         return true;
+    } else if (allowRpcAttempt
+               && rpcFailureReason.trimmed() == mwhelpers::rpcTunnelBusyReason()) {
+        // Ocupado no es roto. El túnel se está montando en un marco anterior de la pila,
+        // así que esta llamada se salta el RPC y sale por el camino de siempre SIN
+        // castigar a la conexión: con el backoff de 30 s, un sondeo que llegara en ese
+        // hueco dejaba sin daemon al refresco que venía detrás.
+        const QString skippedLine =
+            QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
+                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')),
+                     mwhelpers::rpcTunnelBusyReason());
+        appLog(QStringLiteral("INFO"), skippedLine);
+        appendConnectionLog(p.id, skippedLine);
     } else if (allowRpcAttempt) {
         const QString reason = rpcFailureReason.trimmed().isEmpty()
                                    ? QStringLiteral("motivo no especificado")

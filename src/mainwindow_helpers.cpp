@@ -913,6 +913,10 @@ QString shPrintfOctalEscaped(const QString& s) {
     return out;
 }
 
+QString rpcTunnelBusyReason() {
+    return QStringLiteral("túnel daemon-rpc en construcción para esta conexión");
+}
+
 QString storedSecretMarkerPrefix() {
     return QStringLiteral("@@ZFSMGR_PW:");
 }
