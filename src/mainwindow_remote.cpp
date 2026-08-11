@@ -3126,16 +3126,20 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     localWinProfile.osType = QStringLiteral("Windows");
     proc.start(QStringLiteral("cmd.exe"), QStringList{QStringLiteral("/C"), wrapRemoteCommand(localWinProfile, command)});
 #else
-    // `set -o pipefail`: sin esto el resultado de una tubería es el de su ÚLTIMA orden,
-    // así que un extremo emisor que falla —el `tar` del origen, por ejemplo— daba
-    // resultado correcto mientras el receptor terminara bien, y la operación se contaba
-    // como hecha con los datos a medias. Es POSIX desde la edición de 2024 y lo soportan
-    // dash, bash, zsh y el sh de macOS y FreeBSD; si algún sh no lo admite, el `|| true`
-    // deja la orden exactamente como estaba antes.
+    // SIN `set -o pipefail`, y a conciencia.
+    //
+    // Lo puse para que un emisor que falla no diera resultado correcto, y rompió las
+    // transferencias: cuando el `tar` receptor acaba de extraer el archivo sale, y el
+    // `cat` que todavía envía recibe SIGPIPE (141). Eso es normal e inofensivo en una
+    // tubería, pero con pipefail pasa a ser fatal, y como los tramos van encadenados con
+    // `&&`, el primero que "falla" detiene los demás: un Desde Dir de tres orígenes
+    // moría tras el primero.
+    //
+    // El agujero original —un emisor fallido que se contaba como éxito— sigue abierto y
+    // hay que taparlo mirando el resultado de cada extremo, no con una opción del shell
+    // que no sabe distinguir un SIGPIPE benigno de un fallo real.
     proc.start(QStringLiteral("sh"),
-               QStringList{QStringLiteral("-c"),
-                           QStringLiteral("set -o pipefail 2>/dev/null || true\n")
-                               + mwhelpers::asciiSafeShellCommand(command)});
+               QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(command)});
 #endif
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),
