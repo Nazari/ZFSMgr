@@ -391,14 +391,21 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     return QStringLiteral("control character");
                 }
             }
-            if (n.contains(QLatin1Char('@'))) {
-                return QStringLiteral("contains '@'");
-            }
-            if (n.contains(QLatin1Char('#'))) {
-                return QStringLiteral("contains '#'");
-            }
-            if (n.contains(QLatin1Char(','))) {
-                return QStringLiteral("contains ','");
+            // ZFS solo admite [a-zA-Z0-9_.:-] y espacio en un nombre de dataset. Antes
+            // aquí solo se miraban '@', '#' y ',', así que un directorio con apóstrofo o
+            // con acento —«Alessandro D'Avenia», «Canción»— se dejaba seleccionar y
+            // después bloqueaba el botón Aceptar sin explicar por qué. En una biblioteca
+            // de Calibre eso son miles de directorios y el diálogo quedaba inservible.
+            for (const QChar c : n) {
+                const bool ok = (c >= QLatin1Char('a') && c <= QLatin1Char('z'))
+                                || (c >= QLatin1Char('A') && c <= QLatin1Char('Z'))
+                                || (c >= QLatin1Char('0') && c <= QLatin1Char('9'))
+                                || c == QLatin1Char('_') || c == QLatin1Char('.')
+                                || c == QLatin1Char(':') || c == QLatin1Char('-')
+                                || c == QLatin1Char(' ');
+                if (!ok) {
+                    return QStringLiteral("ZFS no admite '%1' en un nombre de dataset").arg(c);
+                }
             }
         }
         return QString();

@@ -803,6 +803,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     auto* tree = new QTreeWidget(&dlg);
     constexpr int nameCol = 1;
     QPushButton* okBtn = nullptr;  // se crea más abajo; la validación lo habilita
+    QLabel* blockLbl = nullptr;    // ídem: dice POR QUÉ no se puede aceptar
     if (nameColumn) {
         tree->setColumnCount(2);
         tree->setHeaderLabels({trk(QStringLiteral("t_col_directorio_001"),
@@ -1043,6 +1044,15 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
             okBtn->setEnabled(firstProblem.isEmpty());
             okBtn->setToolTip(firstProblem);
         }
+        if (blockLbl) {
+            blockLbl->setVisible(!firstProblem.isEmpty());
+            blockLbl->setText(firstProblem.isEmpty()
+                                  ? QString()
+                                  : trk(QStringLiteral("t_sel_blocked_001"),
+                                        QStringLiteral("No se puede aceptar: %1").arg(firstProblem),
+                                        QStringLiteral("Cannot accept: %1").arg(firstProblem),
+                                        QStringLiteral("无法确认：%1").arg(firstProblem)));
+        }
     };
     if (nameColumn) {
         if (nameColumn->editable) {
@@ -1065,6 +1075,14 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         });
         refreshNames();
     }
+
+    // Por qué no se puede aceptar, a la vista. Antes solo estaba en el tooltip del
+    // botón: se quedaba gris y no había forma de saber cuál de las filas lo impedía.
+    blockLbl = new QLabel(&dlg);
+    blockLbl->setWordWrap(true);
+    blockLbl->setStyleSheet(QStringLiteral("QLabel { color: #8b2020; }"));
+    blockLbl->setVisible(false);
+    root->addWidget(blockLbl);
 
     auto* tools = new QHBoxLayout();
     auto* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
