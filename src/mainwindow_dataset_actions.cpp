@@ -645,6 +645,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
                                       bool invalidatePoolCache,
                                       const std::function<void()>& onSuccessRefresh,
                                       const QStringList& agentArgvIn) {
+    m_lastActionWasCancelled = false;
     if (!ctx.valid) {
         return false;
     }
@@ -792,6 +793,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
         // el mismo aviso —"se perdió su seguimiento, puede seguir en curso"—, que asusta
         // sin motivo justo cuando el usuario acaba de pedir el aborto a propósito.
         if (!ok && jobWasSubmitted && err.contains(QStringLiteral("cancelado por el usuario"))) {
+            m_lastActionWasCancelled = true;
             appLog(QStringLiteral("NORMAL"),
                    trk(QStringLiteral("t_action_cancelled_001"),
                        QStringLiteral("%1 cancelado por el usuario."),

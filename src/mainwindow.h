@@ -1497,6 +1497,10 @@ private:
     bool m_closing{false};
     QStringList m_transientStatusStack;
     bool m_cancelActionRequested{false};
+    // La última acción terminó porque el usuario la detuvo, no por un fallo. Sin esto,
+    // el bucle que aplica los cambios pendientes no distingue una cosa de la otra y
+    // saca "Error ejecutando cambio pendiente" tras una cancelación pedida a propósito.
+    bool m_lastActionWasCancelled{false};
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
     bool m_busyOnImportRefresh{false};

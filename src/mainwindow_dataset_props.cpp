@@ -2072,6 +2072,13 @@ void MainWindow::applyDatasetPropertyChanges() {
             shellPending.executableIndividually = true;
             if (!executePendingChange(shellPending)) {
                 markPendingDone(shellDisplayLine, false);
+                // Detener no es fallar. Se para de aplicar —que es lo pedido— pero sin
+                // el diálogo de error, que asustaba justo tras cancelar a propósito.
+                if (m_lastActionWasCancelled) {
+                    m_lastActionWasCancelled = false;
+                    updateApplyPropsButtonState();
+                    return;
+                }
                 QMessageBox::warning(
                     this,
                     QStringLiteral("ZFSMgr"),
