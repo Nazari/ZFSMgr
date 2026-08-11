@@ -260,6 +260,20 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
     if (parts.at(0) != QStringLiteral("zfs")) {
         return plan;
     }
+    // Una orden con VARIAS operaciones no se convierte: aquí solo se sabe traducir una,
+    // y hasta ahora se traducía la primera TIRANDO EL RESTO en silencio.
+    //
+    // Costó un fallo real: «zfs load-key X && zfs mount X» se convertía en la carga de
+    // clave a secas, así que la clave quedaba cargada, el dataset sin montar y la acción
+    // se declaraba terminada con éxito. Además `lastTarget` cogía el último token de la
+    // línea entera —el del `mount`—, de modo que el objetivo podía ser otro dataset.
+    //
+    // No coincidir es seguro: quien llame cae al camino genérico, que ejecuta la orden
+    // entera tal cual.
+    if (parts.contains(QStringLiteral("&&")) || parts.contains(QStringLiteral("||"))
+        || parts.contains(QStringLiteral(";"))) {
+        return plan;
+    }
     const QString op = parts.at(1).trimmed().toLower();
     auto lastTarget = [&]() -> QString {
         for (int i = parts.size() - 1; i >= 2; --i) {
@@ -1670,19 +1684,32 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
             (!encryptionRoot.isEmpty() && encryptionRoot != QStringLiteral("-"))
                 ? encryptionRoot
                 : ctx.datasetName;
-        const QString cmd = QStringLiteral("zfs load-key %1 && %2")
-                                .arg(shSingleQuote(keyTarget),
-                                     mwhelpers::buildSingleMountCommand(ctx.datasetName));
+        // SOLO la carga de clave, nunca "load-key && mount".
+        //
+        // La orden compuesta no llegaba entera: el planificador que la convierte en RPC
+        // tipado analiza UNA operación, veía `load-key`, emitía --mutate-zfs-load-key y
+        // se comía el `&& zfs mount` sin decir nada. Resultado medido: la clave quedaba
+        // cargada y el dataset SIN montar, y la acción se daba por terminada con éxito.
+        //
+        // Peor todavía, tomaba como objetivo el ÚLTIMO token de la línea —que venía del
+        // `mount`—, así que con la raíz de cifrado en un dataset padre habría intentado
+        // cargar la clave del que no era.
+        const QString cmd = QStringLiteral("zfs load-key %1").arg(shSingleQuote(keyTarget));
         const QByteArray stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
-        return executeDatasetAction(side,
-                                    QStringLiteral("Montar"),
-                                    ctx,
-                                    cmd,
-                                    90000,
-                                    false,
-                                    stdinPayload,
-                                    false,
-                                    mountRefresh);
+        if (!executeDatasetAction(side,
+                                  QStringLiteral("Cargar clave"),
+                                  ctx,
+                                  cmd,
+                                  90000,
+                                  false,
+                                  stdinPayload,
+                                  false,
+                                  mountRefresh)) {
+            return false;
+        }
+        // Con la clave ya cargada, el montaje no lleva secreto: sigue el camino normal
+        // —comprobaciones del padre y de conflictos, y a la lista de cambios pendientes—
+        // igual que cualquier otro Montar. Sin `return`: se continúa deliberadamente.
     }
     if (!ensureParentMountedBeforeMount(ctx)) {
         return false;
