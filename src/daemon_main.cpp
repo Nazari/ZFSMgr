@@ -2462,6 +2462,41 @@ struct DestBackupGuard {
     }
 };
 
+// Qué dataset está montado exactamente en esa ruta, o vacío si ninguno. Hace falta
+// distinguirlo del simple "sí/no": convertir un dataset en un directorio EN SU SITIO
+// tiene como destino su propio punto de montaje, y eso es legítimo; lo que no lo es
+// es escribir encima del punto de montaje de OTRO dataset.
+std::string datasetMountedExactlyAt(const std::string& path) {
+    const ExecResult mounts = runExecCapture("zfs", {"mount"});
+    if (mounts.rc != 0) {
+        return std::string();
+    }
+    std::error_code ec;
+    const std::filesystem::path want = std::filesystem::weakly_canonical(path, ec);
+    const std::string wantStr = ec ? path : want.string();
+    for (const std::string& line : splitLines(mounts.out)) {
+        const std::size_t sep = line.find_first_of(" \t");
+        if (sep == std::string::npos) {
+            continue;
+        }
+        const std::string ds = trim(line.substr(0, sep));
+        const std::size_t mpStart = line.find_first_not_of(" \t", sep);
+        if (mpStart == std::string::npos) {
+            continue;
+        }
+        const std::string mp = trim(line.substr(mpStart));
+        if (mp.empty()) {
+            continue;
+        }
+        std::error_code mec;
+        const std::filesystem::path canon = std::filesystem::weakly_canonical(mp, mec);
+        if ((mec ? mp : canon.string()) == wantStr) {
+            return ds;
+        }
+    }
+    return std::string();
+}
+
 bool pathIsZfsMountpoint(const std::string& path) {
     const ExecResult mounts = runExecCapture("zfs", {"mount"});
     if (mounts.rc != 0) {
@@ -2510,10 +2545,18 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         r.err = "destination directory must be an absolute path\n";
         return r;
     }
-    if (pathIsZfsMountpoint(dstDir)) {
-        r.rc = 2;
-        r.err = "destination directory is already a zfs mountpoint\n";
-        return r;
+    // Que el destino sea el punto de montaje del PROPIO dataset es el caso principal
+    // —convertirlo en un directorio en su sitio—, y por eso el guard lo reubica luego a
+    // un mountpoint temporal. Rechazarlo hacía imposible justamente eso. Lo que sigue
+    // vetado es escribir encima del punto de montaje de otro dataset.
+    {
+        const std::string occupant = datasetMountedExactlyAt(dstDir);
+        if (!occupant.empty() && occupant != dataset) {
+            r.rc = 2;
+            r.err = "el destino " + dstDir + " es el punto de montaje del dataset " + occupant
+                    + "\n";
+            return r;
+        }
     }
 
     // Los datasets que hay que absorber, y su sitio relativo dentro del destino. Se
