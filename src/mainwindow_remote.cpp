@@ -3102,6 +3102,8 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
 // copia real puede tardar en arrancar (rsync enumerando, tar abriendo el árbol), pero
 // no dos minutos sin un solo byte.
 constexpr qint64 kStallAbortMs = 120000;
+// Se considera que `pv` sigue vivo si emitió algo hace menos de esto.
+constexpr qint64 kProgressAliveMs = 15000;
 
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog, bool streamProgress) {
     if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)}, forceConfirmDialog)) {
@@ -3153,6 +3155,13 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QElapsedTimer stallTimer;
     stallTimer.start();
     QString lastStallSnippet;
+    // Cuándo llegó la ÚLTIMA línea de avance, cambiara o no. Distingue dos situaciones
+    // que no se parecen en nada: `pv` vivo repitiendo el mismo recuento —el receptor ha
+    // muerto y la tubería no se entera— y silencio total, que puede ser un tramo
+    // terminando y el siguiente arrancando, o un disco escribiendo despacio.
+    QElapsedTimer lastProgressLine;
+    lastProgressLine.start();
+    bool sawAnyProgressLine = false;
     QElapsedTimer heartbeatTimer;
     heartbeatTimer.start();
     int lastProgressPercent = -1;
@@ -3235,6 +3244,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                 // si ESO no cambia, la tubería está viva pero no transporta nada. Es lo
                 // que pasa cuando el extremo receptor falla: se queda así para siempre.
                 if (looksLikeProgress) {
+                    lastProgressLine.restart();
+                    sawAnyProgressLine = true;
                     static const QRegularExpression clockRx(QStringLiteral("\\d+:\\d\\d:\\d\\d"));
                     QString withoutClock = partial;
                     withoutClock.remove(clockRx);
@@ -3276,7 +3287,12 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         // caso real era Desde Dir contra un dataset sin punto de montaje utilizable —el
         // receptor fallaba al instante y esto seguía "en curso" indefinidamente—, pero
         // vale para cualquier extremo que muera sin cerrar la tubería.
-        if (streamProgress && sawProgressOutput && stallTimer.elapsed() > kStallAbortMs) {
+        // Solo se aborta con `pv` VIVO y sin avanzar. Si no llega ninguna línea, no se
+        // sabe qué pasa y no es asunto de este temporizador: una copia entre varios
+        // orígenes calla entre tramo y tramo, y abortar ahí mató una transferencia sana.
+        if (streamProgress && sawProgressOutput && sawAnyProgressLine
+            && lastProgressLine.elapsed() < kProgressAliveMs
+            && stallTimer.elapsed() > kStallAbortMs) {
             appLog(QStringLiteral("ERROR"),
                    trk(QStringLiteral("t_pipe_stalled_001"),
                        QStringLiteral("%1: la transferencia lleva %2 s sin mover datos. Se "
