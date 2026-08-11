@@ -1786,7 +1786,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
             m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
         }
         const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
-                                    .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
+                                    .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs));
         appLog(QStringLiteral("INFO"), cmdLine);
         appendConnectionLog(p.id, cmdLine);
         const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
@@ -1828,7 +1828,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         const QString abortLine =
             QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
                            " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
-                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+                .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
         appLog(QStringLiteral("ERROR"), abortLine);
         appendConnectionLog(p.id, abortLine);
         out.clear();
@@ -1847,7 +1847,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         // hueco dejaba sin daemon al refresco que venía detrás.
         const QString skippedLine =
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
-                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')),
+                .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs),
                      mwhelpers::rpcTunnelBusyReason());
         appLog(QStringLiteral("INFO"), skippedLine);
         appendConnectionLog(p.id, skippedLine);
@@ -1857,7 +1857,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                                    : rpcFailureReason.trimmed();
         const QString fallbackLine =
             QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
-                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+                .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
         appLog(QStringLiteral("INFO"), fallbackLine);
         appendConnectionLog(p.id, fallbackLine);
         QMutexLocker lock(&m_sshRuntimeSetsMutex);
@@ -1868,7 +1868,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     } else if (!suppressedReason.isEmpty()) {
         const QString skippedLine =
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
-                .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
+                .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), suppressedReason);
         appLog(QStringLiteral("INFO"), skippedLine);
         appendConnectionLog(p.id, skippedLine);
     }

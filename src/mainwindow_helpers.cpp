@@ -77,9 +77,37 @@ QString maskCommandSecrets(const QString& input) {
     // Su equivalente en PowerShell, que la mete en una variable.
     sub(QStringLiteral("(\\$pp\\s*=\\s*)'(?:[^']|'')*'"), QStringLiteral("\\1'[secret]'"));
 
+    // Verbos del agente cuyo ÚLTIMO argumento es un secreto en base64. Los separadores
+    // se aceptan como clase de caracteres porque la orden puede venir entrecomillada una
+    // o dos veces —`'"'"'` cuando va dentro de otro shSingleQuote—, y escribir cada
+    // variante a mano es justo lo que ya falló antes con la frase de `zfs create`.
+    sub(QStringLiteral("(--mutate-zfs-(?:load-key|change-key|create)[\'\" \\\\]+"
+                       "[A-Za-z0-9+/=]+[\'\" \\\\]+)[A-Za-z0-9+/=]+"),
+        QStringLiteral("\\1[secret]"));
+
     // Cualquier `password=` / `password:` suelto.
     sub(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+"), QStringLiteral("\\1[secret]"));
     return out;
+}
+
+QString maskedAgentArgvForLog(const QStringList& argv) {
+    QStringList masked = argv;
+    for (int i = 0; i < masked.size(); ++i) {
+        const QString verb = masked.at(i).trimmed();
+        if (verb != QStringLiteral("--mutate-zfs-load-key")
+            && verb != QStringLiteral("--mutate-zfs-change-key")
+            && verb != QStringLiteral("--mutate-zfs-create")) {
+            continue;
+        }
+        // El secreto es el ÚLTIMO argumento del verbo: para load-key/change-key va tras
+        // el dataset, y para create tras el argv de zfs. Se tapa todo lo que siga a ese
+        // primer argumento, que nunca es más de uno.
+        for (int j = i + 2; j < masked.size(); ++j) {
+            masked[j] = QStringLiteral("[secret]");
+        }
+        break;
+    }
+    return masked.join(QLatin1Char(' '));
 }
 
 QString oneLine(const QString& v, int maxLen) {

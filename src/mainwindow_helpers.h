@@ -48,6 +48,12 @@ enum class StreamCodec {
 };
 
 QString maskCommandSecrets(const QString& input);
+// Igual, pero para una invocación del agente que todavía es lista de argumentos.
+//
+// Tres verbos llevan el secreto como ÚLTIMO argumento, en base64: --mutate-zfs-load-key,
+// --mutate-zfs-change-key y --mutate-zfs-create. Base64 no es cifrado: quien lea el
+// registro lo descodifica de cabeza. El camino por RPC registraba argv en crudo.
+QString maskedAgentArgvForLog(const QStringList& argv);
 QString oneLine(const QString& v, int maxLen = 220);
 QString sshHostKeyProblemHint(const QString& sshStderr);
 QString shSingleQuote(const QString& s);

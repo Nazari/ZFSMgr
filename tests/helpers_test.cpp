@@ -685,6 +685,40 @@ int main() {
         }
     }
 
+    // La frase de cifrado viaja como último argumento en base64 de tres verbos. Base64
+    // no es cifrado: apareció en el registro y se descodifica de cabeza.
+    {
+        const QStringList argv{QStringLiteral("--mutate-zfs-load-key"),
+                               QStringLiteral("dGVzdHBvb2wvZmQx"),
+                               QStringLiteral("c2VjcmV0YXNv")};
+        const QString masked = maskedAgentArgvForLog(argv);
+        if (masked.contains(QStringLiteral("c2VjcmV0YXNv"))) {
+            return fail("maskedAgentArgvForLog deja escapar la frase de load-key");
+        }
+        if (!masked.contains(QStringLiteral("dGVzdHBvb2wvZmQx"))) {
+            return fail("maskedAgentArgvForLog no debe tapar el dataset");
+        }
+        const QStringList createArgv{QStringLiteral("--mutate-zfs-create"),
+                                     QStringLiteral("W10="),
+                                     QStringLiteral("c2VjcmV0YXNv")};
+        if (maskedAgentArgvForLog(createArgv).contains(QStringLiteral("c2VjcmV0YXNv"))) {
+            return fail("maskedAgentArgvForLog deja escapar la frase de create");
+        }
+        // Un verbo sin secreto sale intacto.
+        const QStringList plain{QStringLiteral("--dump-zfs-list-all"), QStringLiteral("testpool")};
+        if (maskedAgentArgvForLog(plain) != QStringLiteral("--dump-zfs-list-all testpool")) {
+            return fail("maskedAgentArgvForLog alteró una invocación sin secretos");
+        }
+        // Y la misma orden ya renderizada a cadena, con el entrecomillado anidado que
+        // produce meterla dentro de otro shSingleQuote.
+        const QString rendered =
+            "zfsmgr-agent '\"'\"'--mutate-zfs-load-key'\"'\"' "
+            "'\"'\"'dGVzdHBvb2wvZmQx'\"'\"' '\"'\"'c2VjcmV0YXNv'\"'\"'";
+        if (maskCommandSecrets(rendered).contains(QStringLiteral("c2VjcmV0YXNv"))) {
+            return fail("maskCommandSecrets deja escapar la frase en la orden renderizada");
+        }
+    }
+
     // Redacción para guardar la lista de acciones en disco. Esto es lo único que separa
     // la contraseña de sudo de quedar escrita en claro en config.json, así que se
     // comprueba que sale, que vuelve, y que el guardián detecta una fuga.
