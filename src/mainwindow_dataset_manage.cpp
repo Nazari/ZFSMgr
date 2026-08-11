@@ -377,7 +377,11 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         const bool needsPromptPassphrase =
             (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
             && keyformat == QStringLiteral("passphrase")
-            && keylocation == QStringLiteral("prompt");
+            // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
+            // formato de clave es una frase. Exigirlo explícito escondía los campos de
+            // la contraseña justo en la configuración más natural —cifrado + passphrase
+            // y keylocation sin tocar—, así que no había dónde escribirla.
+            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
         encPassLabel->setVisible(needsPromptPassphrase);
         encPassEdit->setVisible(needsPromptPassphrase);
         encPass2Label->setVisible(needsPromptPassphrase);
@@ -441,7 +445,11 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
         return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
                && keyformat == QStringLiteral("passphrase")
-               && keylocation == QStringLiteral("prompt");
+               // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
+            // formato de clave es una frase. Exigirlo explícito escondía los campos de
+            // la contraseña justo en la configuración más natural —cifrado + passphrase
+            // y keylocation sin tocar—, así que no había dónde escribirla.
+            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
     });
     bindRequiredLineEditLabel(encPass2Edit, encPass2Label, [&, typeCombo]() {
         Q_UNUSED(typeCombo);
@@ -450,7 +458,11 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
         return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
                && keyformat == QStringLiteral("passphrase")
-               && keylocation == QStringLiteral("prompt");
+               // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
+            // formato de clave es una frase. Exigirlo explícito escondía los campos de
+            // la contraseña justo en la configuración más natural —cifrado + passphrase
+            // y keylocation sin tocar—, así que no había dónde escribirla.
+            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
     });
 
     auto setSuggestedPath = [&]() {
@@ -572,7 +584,11 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         const bool needsPromptPassphrase =
             (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
             && keyformat == QStringLiteral("passphrase")
-            && keylocation == QStringLiteral("prompt");
+            // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
+            // formato de clave es una frase. Exigirlo explícito escondía los campos de
+            // la contraseña justo en la configuración más natural —cifrado + passphrase
+            // y keylocation sin tocar—, así que no había dónde escribirla.
+            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
         if (needsPromptPassphrase) {
             if (encPassEdit->text().isEmpty() || encPass2Edit->text().isEmpty()) {
                 QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
