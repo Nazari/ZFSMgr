@@ -258,6 +258,11 @@ prepare_payload() {
   # Copiar DLLs de runtime MinGW
   copy_mingw_runtime "${PAYLOAD_DIR}"
 
+  # El script que activa OpenSSH viaja con el instalador: así puede tener plazo,
+  # registro y lógica, que en una línea de [Run] no caben.
+  cp "${SCRIPT_DIR}/windows-enable-openssh.ps1" "${PAYLOAD_DIR}/" 2>/dev/null || \
+    cp "$(dirname "$0")/windows-enable-openssh.ps1" "${PAYLOAD_DIR}/"
+
   # Incluir bundle multi-OS de agentes, si está disponible.
   if [[ -n "${AGENT_BUNDLE_DIR}" && -d "${AGENT_BUNDLE_DIR}" ]]; then
     mkdir -p "${PAYLOAD_DIR}/agents"
@@ -325,12 +330,56 @@ Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage t
 ;
 ; -WindowStyle Hidden y runhidden: el instalador no debe dejar ventanas negras sueltas.
 ; El "|Out-Null" y el ErrorAction evitan que un aviso pare el paso.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue | Out-Null"""; StatusMsg: "Enabling OpenSSH Server..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service sshd -ErrorAction SilentlyContinue"""; StatusMsg: "Starting the SSH service..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
 ; Regla de firewall: sin ella el servicio arranca pero no se llega desde fuera, que es
 ; exactamente el síntoma más desconcertante —sshd corriendo y la conexión rechazada—.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""if (-not (Get-NetFirewallRule -Name 'sshd' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'sshd' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null }"""; StatusMsg: "Allowing SSH through the firewall..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
+;
+; Sin `if (...) { }` a propósito: en Inno Setup la llave abre una constante, así que un
+; bloque de PowerShell aborta la compilación del instalador. Si la regla ya existe, el
+; comando falla y -ErrorAction se lo traga, que es el mismo efecto.
+; Una sola llamada, a un script que viaja en el paquete. Antes eran tres líneas sueltas
+; y la primera —Add-WindowsCapability— colgó una instalación: es una operación de
+; servicing que puede irse a Windows Update y no volver. El script lleva plazo, registro
+; en %TEMP%\\zfsmgr-openssh.log y sale siempre con 0, de modo que no puede impedir que
+; ZFSMgr quede instalado.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\\windows-enable-openssh.ps1"""; StatusMsg: "Enabling OpenSSH Server (this can take a few minutes)..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
 Filename: "{app}\\${APP_EXE}"; Description: "Run ${APP_NAME}"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser
+
+[Code]
+// Avisar si no está OpenZFS, que es lo que da sentido a todo lo demás.
+//
+// Sin él no hay ni zfs.exe ni zpool.exe, así que ZFSMgr se instala y no puede hacer
+// nada: ni gestionar esta máquina ni ser gestionada desde otra. Y en Windows no hay
+// gestor de paquetes que lo resuelva, viene de un único sitio, así que callarlo deja al
+// usuario buscándolo fuera.
+//
+// Se comprueba al terminar, no al empezar: instalar ZFSMgr es útil igualmente, y abortar
+// por esto sería desproporcionado.
+function OpenZfsInstalado(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{commonpf}\\OpenZFS On Windows\\zfs.exe'))
+         or FileExists(ExpandConstant('{sys}\\zfs.exe'))
+         or FileExists('C:\\Program Files\\OpenZFS On Windows\\zfs.exe');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ErrCode: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if not OpenZfsInstalado() then
+    begin
+      if MsgBox('OpenZFS on Windows was not found on this machine.' + #13#10 + #13#10 +
+                'ZFSMgr needs it to manage pools and datasets: it provides zfs.exe and' + #13#10 +
+                'zpool.exe. Windows has no package manager for it, so it must be' + #13#10 +
+                'downloaded from the project releases page.' + #13#10 + #13#10 +
+                'Open the download page now?',
+                mbConfirmation, MB_YESNO) = IDYES then
+        ShellExec('open', 'https://github.com/openzfsonwindows/openzfs/releases',
+                  '', '', SW_SHOW, ewNoWait, ErrCode);
+    end;
+  end;
+end;
 EOF
 }
 
