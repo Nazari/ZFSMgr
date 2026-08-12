@@ -2764,7 +2764,11 @@ void MainWindow::buildUi() {
     topBottomLayout->setContentsMargins(0, 0, 0, 0);
     topBottomLayout->setSpacing(2);
     topBottomLayout->addWidget(stateProgressRow, 0);
-    topBottomLayout->addWidget(leftPane, 1);
+    // Sin estiramiento: la pestaña de Conexiones se quedó VACÍA al mudarse la lista de
+    // cambios pendientes a las pestañas de abajo, y con estiramiento 1 se llevaba todo el
+    // alto que el divisor tuviera guardado. Eso era la «banda enorme y vacía».
+    topBottomLayout->addWidget(leftPane, 0);
+    topBottomLayout->addStretch(0);
     const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + 2;
     topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
 
@@ -2773,6 +2777,12 @@ void MainWindow::buildUi() {
     m_bottomInfoSplit->setHandleWidth(4);
     m_bottomInfoSplit->addWidget(m_rightStack);
     m_bottomInfoSplit->addWidget(topBottomPane);
+    // Y un techo, porque bajar el contenido no basta: el divisor restaura su posición
+    // guardada de config.json, así que sin esto seguiría repartiendo como antes. Ahora
+    // esa banda no puede pasar de una fila y todo lo demás es del árbol.
+    topBottomPane->setMaximumHeight(stateProgressRow->sizeHint().height() + 8);
+    m_bottomInfoSplit->setStretchFactor(0, 1);
+    m_bottomInfoSplit->setStretchFactor(1, 0);
     m_bottomInfoSplit->setStretchFactor(0, 1);
     m_bottomInfoSplit->setStretchFactor(1, 0);
     m_bottomInfoSplit->setSizes({700, 220});
