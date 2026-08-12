@@ -2753,10 +2753,7 @@ void MainWindow::buildUi() {
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     logLayout->addWidget(appLogBox, 1);
 
-    // Sin el sumando de la caja de acciones, que reservaba la altura de dos filas de
-    // botones ya retirados. Era el grueso de lo que la banda de en medio le quitaba al
-    // árbol sin usarlo para nada.
-    leftPane->setMinimumHeight(stateProgressRow->sizeHint().height() + 2);
+    leftPane->setMinimumHeight(0);
     leftPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     leftPane->setMaximumWidth(QWIDGETSIZE_MAX);
     auto* topBottomPane = new QWidget(topArea);
@@ -2764,11 +2761,13 @@ void MainWindow::buildUi() {
     topBottomLayout->setContentsMargins(0, 0, 0, 0);
     topBottomLayout->setSpacing(2);
     topBottomLayout->addWidget(stateProgressRow, 0);
-    // Sin estiramiento: la pestaña de Conexiones se quedó VACÍA al mudarse la lista de
-    // cambios pendientes a las pestañas de abajo, y con estiramiento 1 se llevaba todo el
-    // alto que el divisor tuviera guardado. Eso era la «banda enorme y vacía».
-    topBottomLayout->addWidget(leftPane, 0);
-    topBottomLayout->addStretch(0);
+    // `leftPane` NO se añade: contiene la pestaña de Conexiones, que se quedó sin un solo
+    // widget cuando la lista de cambios pendientes se mudó a las pestañas de abajo —los
+    // árboles viven en m_connContentPage, en el panel de arriba—. Con estiramiento 1
+    // primero, y con 0 después, seguía siendo un widget vacío al que el divisor le daba
+    // su alto guardado: eso era la banda enorme y vacía. Se oculta en vez de borrarse
+    // porque sigue siendo el padre de widgets que ya se reubicaron.
+    leftPane->hide();
     const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + 2;
     topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
 
