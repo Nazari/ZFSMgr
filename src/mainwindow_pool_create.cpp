@@ -965,7 +965,25 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     };
 
-    const QString zpoolLocateScript = QStringLiteral(
+    // Localizar zpool. DOS variantes, porque esto se ejecuta también en Windows y allí
+    // la de abajo es sintaxis POSIX que PowerShell no entiende:
+    //
+    //   + ... ZPOOL="$(command -v zpool ...)"; if [ -z "$ ...
+    //   Missing '(' after 'if' in if statement.
+    //
+    // Visto en el registro de una máquina Windows real. Las dos consultas que usan este
+    // script fallaban enteras, así que ZFSMgr no podía saber qué discos estaban YA en un
+    // pool y los ofrecía como libres. El tratamiento especial de la salida para Windows
+    // —markPhysicalDriveWholeDisk— llevaba ahí desde el principio, pero nunca recibía nada.
+    const QString zpoolLocateScriptWin = QStringLiteral(
+        "$ErrorActionPreference='SilentlyContinue'; "
+        "$zp=(Get-Command zpool.exe -ErrorAction SilentlyContinue).Source; "
+        "if (-not $zp) { foreach ($c in @("
+        "'C:\\Program Files\\OpenZFS On Windows\\zpool.exe',"
+        "'C:\\Program Files (x86)\\OpenZFS On Windows\\zpool.exe')) "
+        "{ if (Test-Path $c) { $zp=$c; break } } }; "
+        "if (-not $zp) { exit 0 }; ");
+    const QString zpoolLocateScriptUnix = QStringLiteral(
         "PATH=\"/usr/local/zfs/bin:/usr/local/bin:/opt/homebrew/bin:/usr/sbin:/sbin:/usr/bin:$PATH\"; "
         "ZPOOL=\"$(command -v zpool 2>/dev/null || true)\"; "
         "if [ -z \"$ZPOOL\" ]; then "
@@ -974,9 +992,15 @@ void MainWindow::createPoolForSelectedConnection() {
         "  done; "
         "fi; "
         "[ -n \"$ZPOOL\" ] || exit 0; ");
+    const bool poolProbeIsWindows = isWindowsConnection(p);
+    const QString zpoolLocateScript =
+        poolProbeIsWindows ? zpoolLocateScriptWin : zpoolLocateScriptUnix;
     out.clear();
-    const QString inPoolCmd = withSudo(p, zpoolLocateScript + QStringLiteral(
-        "($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null || $ZPOOL status -L 2>/dev/null || $ZPOOL status)"));
+    const QString inPoolCmd = withSudo(p, zpoolLocateScript
+        + (poolProbeIsWindows
+               ? QStringLiteral("& $zp status -LP")
+               : QStringLiteral("($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null "
+                                "|| $ZPOOL status -L 2>/dev/null || $ZPOOL status)")));
     if (runRemote(inPoolCmd, 25000, out)) {
         for (const PoolBlock& b : collectPoolBlocks(out)) {
             markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
@@ -986,7 +1010,10 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
     QString outListV;
-    const QString listVCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)"));
+    const QString listVCmd = withSudo(p, zpoolLocateScript
+        + (poolProbeIsWindows
+               ? QStringLiteral("& $zp list -v -P")
+               : QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)")));
     if (runRemote(listVCmd, 25000, outListV)) {
         for (const PoolBlock& b : collectPoolBlocks(outListV)) {
             markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
@@ -1019,7 +1046,10 @@ void MainWindow::createPoolForSelectedConnection() {
     // Also probe importable (not imported) pools and mark their devices as in-pool.
     out.clear();
     QString outImp;
-    const QString importProbeCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL import; $ZPOOL import -s)"));
+    const QString importProbeCmd = withSudo(p, zpoolLocateScript
+        + (poolProbeIsWindows
+               ? QStringLiteral("& $zp import; & $zp import -s")
+               : QStringLiteral("($ZPOOL import; $ZPOOL import -s)")));
     if (runRemote(importProbeCmd, 25000, outImp)) {
         // Estos NO están importados: son pools exportados, de otra máquina, o los
         // restos de uno destruido cuya etiqueta sigue en el disco.
