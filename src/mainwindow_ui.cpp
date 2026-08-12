@@ -2009,12 +2009,10 @@ void MainWindow::buildUi() {
     // la etiqueta del origen y pierde la altura mínima de tres filas de botones: ese es
     // el espacio que se recupera.
 
-    auto* pendingChangesBox = new QGroupBox(
-        trk(QStringLiteral("t_pending_changes_tab001"),
-            QStringLiteral("Cambios pendientes"),
-            QStringLiteral("Pending changes"),
-            QStringLiteral("待处理更改")),
-        connectionsTab);
+    // Panel sin marco ni título: pasa a ser la primera pestaña de abajo, y ahí el nombre
+    // lo pone la propia pestaña. Sacarlo de la pestaña de Conexiones devuelve toda esa
+    // altura al árbol, que es lo que se mira el 90% del tiempo.
+    auto* pendingChangesBox = new QWidget(connectionsTab);
     auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
@@ -2245,10 +2243,7 @@ void MainWindow::buildUi() {
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    // «Cambios pendientes» ocupa ahora todo el ancho: era lo único que compartía fila con
-    // la caja de acciones, así que el envoltorio horizontal sobra.
     connLayout->addWidget(selectionRow, 0);
-    connLayout->addWidget(pendingChangesBox, 1);
     connectionsTab->setLayout(connLayout);
 
     // Legacy left "Datasets" tab removed from UI.
@@ -2259,7 +2254,7 @@ void MainWindow::buildUi() {
     const int actionsBoxHeight = m_btnApplyConnContentProps
         ? (m_btnApplyConnContentProps->sizeHint().height() * 2) + 28
         : 96;
-    pendingChangesBox->setMinimumHeight(actionsBoxHeight);
+
     m_btnAdvancedBreakdown = nullptr;
     m_btnAdvancedAssemble = nullptr;
     m_btnAdvancedFromDir = nullptr;
@@ -2777,6 +2772,11 @@ void MainWindow::buildUi() {
 
     loadPersistedAppLogToView();
 
+    m_logsTabs->addTab(pendingChangesBox,
+                       trk(QStringLiteral("t_pending_changes_tab001"),
+                           QStringLiteral("Cambios pendientes"),
+                           QStringLiteral("Pending changes"),
+                           QStringLiteral("待处理更改")));
     m_logsTabs->addTab(settingsTab,
                        trk(QStringLiteral("t_settings_tab_001"),
                            QStringLiteral("Ajustes"),
@@ -2839,7 +2839,9 @@ void MainWindow::buildUi() {
         connect(m_jobPollTimer, &QTimer::timeout, this, &MainWindow::pollDaemonJobs);
     }
 
-    m_logsTabs->setCurrentIndex(1);
+    // Por nombre, no por índice: al meter «Cambios pendientes» delante, el 1 dejó de ser
+    // el log combinado.
+    m_logsTabs->setCurrentIndex(qMax(0, m_logsTabs->indexOf(combinedLogTab)));
 
     auto* bottomTabsPane = new QWidget(central);
     auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
@@ -2891,9 +2893,10 @@ void MainWindow::buildUi() {
             minChangesHeight = qMax(minChangesHeight, bottomInfoSizes.at(1));
         }
     }
-    const int targetActionsHeight = actionsBoxHeight;
+    // Ya no se reserva sitio para la lista de cambios pendientes: se fue a las pestañas
+    // de abajo, y la pestaña de Conexiones solo tiene la fila del origen y el árbol.
     const int targetChangesMin =
-        selectionRow->sizeHint().height() + targetActionsHeight + connLayout->spacing();
+        selectionRow->sizeHint().height() + connLayout->spacing();
     minChangesHeight = qMax(1, qMax(minChangesHeight, targetChangesMin));
     topBottomPane->setMinimumHeight(minChangesHeight);
 
