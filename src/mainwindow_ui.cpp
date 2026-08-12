@@ -2904,17 +2904,17 @@ void MainWindow::buildUi() {
     if (m_verticalMainSplit) {
         m_verticalMainSplit->setOrientation(Qt::Vertical);
     }
-    int minChangesHeight = topBottomPane->sizeHint().height();
-    if (m_bottomInfoSplit) {
-        const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
-        if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
-            minChangesHeight = qMax(minChangesHeight, bottomInfoSizes.at(1));
-        }
-    }
-    // La pestaña de Conexiones ya solo tiene el árbol: ni lista de pendientes (se fue a
-    // las pestañas de abajo) ni fila de origen (comparte fila con Estado y Progreso).
-    const int targetChangesMin = connLayout->spacing();
-    minChangesHeight = qMax(1, qMax(minChangesHeight, targetChangesMin));
+    // La altura mínima sale del CONTENIDO, nunca del tamaño restaurado del divisor.
+    //
+    // Aquí se cogía `m_bottomInfoSplit->sizes()[1]` —el alto que esa banda tuviera al
+    // guardarse— y se fijaba como mínimo; y el manejador de más abajo, además, la
+    // devolvía a ese mínimo en cuanto arrastrabas por debajo. Entre las dos cosas el alto
+    // de ayer era el suelo de hoy, se volvía a guardar y no bajaba nunca: por eso encoger
+    // su contenido no cambiaba nada, dieran igual los widgets que se quitaran de dentro.
+    //
+    // Ahora el suelo es lo que ocupa lo que hay dentro, que es lo único que tiene sentido
+    // impedir colapsar.
+    const int minChangesHeight = qMax(1, topBottomPane->sizeHint().height());
     topBottomPane->setMinimumHeight(minChangesHeight);
 
     int minLogsHeight = bottomTabsPane->sizeHint().height();
