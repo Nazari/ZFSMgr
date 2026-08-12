@@ -1973,7 +1973,7 @@ void MainWindow::buildUi() {
     auto* selectionRow = new QWidget(connectionsTab);
     selectionRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* selectionRowLayout = new QHBoxLayout(selectionRow);
-    selectionRowLayout->setContentsMargins(2, 2, 2, 2);
+    selectionRowLayout->setContentsMargins(2, 0, 2, 0);
     selectionRowLayout->setSpacing(6);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
@@ -1981,8 +1981,14 @@ void MainWindow::buildUi() {
             QStringLiteral("Source:(empty)"),
             QStringLiteral("源：（空）")),
         connectionsTab);
-    m_connOriginSelectionLabel->setWordWrap(true);
-    m_connOriginSelectionLabel->setMinimumHeight(18);
+    // Sin ajuste de línea ni altura mínima: es una sola línea, y con wordWrap una ruta
+    // larga hacía crecer la banda de en medio a costa del árbol. Si no cabe, se elide y
+    // el texto completo queda en el tooltip.
+    m_connOriginSelectionLabel->setWordWrap(false);
+    m_connOriginSelectionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // Que no reclame anchura: con una ruta larga la pediría entera y ensancharía la fila.
+    // Se recorta y el texto íntegro vive en el tooltip.
+    m_connOriginSelectionLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_connOriginSelectionLabel->setFont(baseUiFont);
     selectionRowLayout->addWidget(m_connOriginSelectionLabel, 1);
     m_btnApplyConnContentProps = new TooltipPushButton(
@@ -2676,7 +2682,7 @@ void MainWindow::buildUi() {
 
     auto* stateProgressRow = new QWidget(topArea);
     auto* stateProgressLayout = new QHBoxLayout(stateProgressRow);
-    stateProgressLayout->setContentsMargins(0, 3, 0, 0);
+    stateProgressLayout->setContentsMargins(0, 0, 0, 0);
     stateProgressLayout->setSpacing(4);
     auto* statusWrap = new QWidget(stateProgressRow);
     auto* statusLayout = new QHBoxLayout(statusWrap);
@@ -2748,16 +2754,19 @@ void MainWindow::buildUi() {
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     logLayout->addWidget(appLogBox, 1);
 
-    leftPane->setMinimumHeight(stateProgressRow->sizeHint().height() + actionsBoxHeight + 2);
+    // Sin el sumando de la caja de acciones, que reservaba la altura de dos filas de
+    // botones ya retirados. Era el grueso de lo que la banda de en medio le quitaba al
+    // árbol sin usarlo para nada.
+    leftPane->setMinimumHeight(stateProgressRow->sizeHint().height() + 2);
     leftPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     leftPane->setMaximumWidth(QWIDGETSIZE_MAX);
     auto* topBottomPane = new QWidget(topArea);
     auto* topBottomLayout = new QVBoxLayout(topBottomPane);
     topBottomLayout->setContentsMargins(0, 0, 0, 0);
-    topBottomLayout->setSpacing(6);
+    topBottomLayout->setSpacing(2);
     topBottomLayout->addWidget(stateProgressRow, 0);
     topBottomLayout->addWidget(leftPane, 1);
-    const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + actionsBoxHeight + 2;
+    const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + 2;
     topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
 
     m_bottomInfoSplit = new QSplitter(Qt::Vertical, topArea);

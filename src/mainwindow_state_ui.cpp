@@ -357,7 +357,12 @@ void MainWindow::updateConnectionActionsState() {
                 QStringLiteral("Source: %1"),
                 QStringLiteral("源：%1"))
                 .arg(fmtSel(m_connActionOrigin)));
+        // El tooltip lleva el origen COMPLETO delante de la explicación: la etiqueta se
+        // recorta cuando la ruta no cabe, así que este es el único sitio donde se lee
+        // entero.
+        const QString fullOrigin = fmtSel(m_connActionOrigin);
         m_connOriginSelectionLabel->setToolTip(
+            fullOrigin + QStringLiteral("\n\n") +
             trk(QStringLiteral("t_conn_origin_tt001"),
                 QStringLiteral("Marque un origen con el botón derecho sobre un dataset o "
                                "snapshot. Después, el botón derecho sobre otro nodo ofrece "
