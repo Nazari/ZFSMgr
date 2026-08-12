@@ -1964,33 +1964,23 @@ void MainWindow::buildUi() {
     m_connectionsTable = nullptr;
     updateConnectivityMatrixButtonState();
 
-    m_connActionsBox = new QGroupBox(
-        trk(QStringLiteral("t_actions_box_001"),
-            QStringLiteral("Acciones"),
-            QStringLiteral("Actions"),
-            QStringLiteral("操作")),
-        connectionsTab);
-    m_connActionsBox->setFont(QApplication::font());
-    m_connActionsBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto* connActionsLayout = new QVBoxLayout(m_connActionsBox);
-    connActionsLayout->setContentsMargins(6, 8, 6, 6);
-    connActionsLayout->setSpacing(6);
+    // La caja «Acciones» ya no existe. Contenía la rejilla de seis botones de
+    // origen+destino, que pasaron al menú contextual del destino; con ellos fuera se
+    // quedaba vacía —la etiqueta del origen siempre estuvo en su propia fila, no aquí—,
+    // ocupando ancho y una altura mínima a la que además se ajustaba la caja de gestión
+    // de pools.
 
     auto* selectionRow = new QWidget(connectionsTab);
     selectionRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* selectionRowLayout = new QHBoxLayout(selectionRow);
     selectionRowLayout->setContentsMargins(2, 2, 2, 2);
     selectionRowLayout->setSpacing(6);
-    auto* actionButtonsBox = new QWidget(m_connActionsBox);
-    auto* actionButtonsLayout = new QVBoxLayout(actionButtonsBox);
-    actionButtonsLayout->setContentsMargins(0, 0, 0, 0);
-    actionButtonsLayout->setSpacing(6);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
             QStringLiteral("Source:(empty)"),
             QStringLiteral("源：（空）")),
-        m_connActionsBox);
+        connectionsTab);
     m_connOriginSelectionLabel->setWordWrap(true);
     m_connOriginSelectionLabel->setMinimumHeight(18);
     m_connOriginSelectionLabel->setFont(baseUiFont);
@@ -2000,13 +1990,13 @@ void MainWindow::buildUi() {
             QStringLiteral("Aplicar cambios"),
             QStringLiteral("Apply changes"),
             QStringLiteral("应用更改")),
-        m_connActionsBox);
+        connectionsTab);
     m_btnDiscardPendingChanges = new QPushButton(
         trk(QStringLiteral("t_discard_changes_001"),
             QStringLiteral("Vaciar lista"),
             QStringLiteral("Empty list"),
             QStringLiteral("清空列表")),
-        m_connActionsBox);
+        connectionsTab);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnApplyConnContentProps->setFont(baseUiFont);
     m_btnDiscardPendingChanges->setFont(baseUiFont);
@@ -2018,7 +2008,6 @@ void MainWindow::buildUi() {
     // Las seis pasaron al menú contextual del destino, así que la caja se queda solo con
     // la etiqueta del origen y pierde la altura mínima de tres filas de botones: ese es
     // el espacio que se recupera.
-    actionButtonsBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
     auto* pendingChangesBox = new QGroupBox(
         trk(QStringLiteral("t_pending_changes_tab001"),
@@ -2256,32 +2245,20 @@ void MainWindow::buildUi() {
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    connActionsLayout->addWidget(actionButtonsBox, 0, Qt::AlignTop);
-    connActionsLayout->addStretch(1);
-    auto* actionsPendingRow = new QWidget(connectionsTab);
-    auto* actionsPendingRowLayout = new QHBoxLayout(actionsPendingRow);
-    actionsPendingRowLayout->setContentsMargins(0, 0, 0, 0);
-    actionsPendingRowLayout->setSpacing(6);
-    actionsPendingRowLayout->addWidget(m_connActionsBox, 0, Qt::AlignTop);
-    actionsPendingRowLayout->addWidget(pendingChangesBox, 1);
-    actionsPendingRowLayout->setStretch(0, 0);
-    actionsPendingRowLayout->setStretch(1, 1);
+    // «Cambios pendientes» ocupa ahora todo el ancho: era lo único que compartía fila con
+    // la caja de acciones, así que el envoltorio horizontal sobra.
     connLayout->addWidget(selectionRow, 0);
-    connLayout->addWidget(actionsPendingRow, 1);
+    connLayout->addWidget(pendingChangesBox, 1);
     connectionsTab->setLayout(connLayout);
 
     // Legacy left "Datasets" tab removed from UI.
     // Legacy "advanced" layer removed from visible UI.
-    // La altura la marca ahora el contenido, no una constante calculada sobre tres filas
-    // de botones que ya no existen.
-    const int actionsBoxHeight = m_connActionsBox->minimumSizeHint().height();
-    if (m_poolMgmtBox) {
-        m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
-    }
-    if (m_connActionsBox) {
-        m_connActionsBox->setMinimumHeight(actionsBoxHeight);
-        m_connActionsBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    }
+    // La caja de gestión de pools se fijaba a la altura de la de acciones. Sin aquella,
+    // se dimensiona por su propio contenido: forzarla a una altura ajena era lo que la
+    // descuadraba al cambiar lo de al lado.
+    const int actionsBoxHeight = m_btnApplyConnContentProps
+        ? (m_btnApplyConnContentProps->sizeHint().height() * 2) + 28
+        : 96;
     pendingChangesBox->setMinimumHeight(actionsBoxHeight);
     m_btnAdvancedBreakdown = nullptr;
     m_btnAdvancedAssemble = nullptr;
@@ -2914,8 +2891,7 @@ void MainWindow::buildUi() {
             minChangesHeight = qMax(minChangesHeight, bottomInfoSizes.at(1));
         }
     }
-    const int targetActionsHeight = qMax(actionsBoxHeight,
-                                         m_connActionsBox ? m_connActionsBox->minimumSizeHint().height() : 0);
+    const int targetActionsHeight = actionsBoxHeight;
     const int targetChangesMin =
         selectionRow->sizeHint().height() + targetActionsHeight + connLayout->spacing();
     minChangesHeight = qMax(1, qMax(minChangesHeight, targetChangesMin));

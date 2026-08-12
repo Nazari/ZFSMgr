@@ -1379,7 +1379,6 @@ private:
 
     QGroupBox* m_poolMgmtBox{nullptr};
     QAction* m_menuExitAction{nullptr};
-    QGroupBox* m_connActionsBox{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
     DatasetSelectionContext m_connActionOrigin;
     DatasetSelectionContext m_connActionDest;
