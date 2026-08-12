@@ -146,8 +146,44 @@ private:
 };
 }
 
+namespace {
+
+QtMessageHandler g_previousMessageHandler = nullptr;
+
+// Trampa para avisos de Qt, apagada salvo que se pida.
+//
+// Existe porque un aviso como «QAbstractItemModel::endRemoveRows: Invalid index»
+// dice QUÉ está mal pero no QUIÉN lo hizo, y el modelo de un QTreeWidget lo tocan
+// docenas de sitios. Con ZFSMGR_TRAP_WARNING=<texto> el proceso aborta en cuanto
+// aparece ese texto, y el volcado trae la pila del culpable. Mismo método con el que
+// se cazó la referencia colgante del cierre.
+//
+// Sin la variable, no cambia absolutamente nada: se delega en el manejador anterior.
+void zfsmgrMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg) {
+    if (g_previousMessageHandler) {
+        g_previousMessageHandler(type, context, msg);
+    } else {
+        fprintf(stderr, "%s\n", qPrintable(msg));
+    }
+    static const QByteArray trap = qgetenv("ZFSMGR_TRAP_WARNING");
+    if (trap.isEmpty()) {
+        return;
+    }
+    if (!msg.contains(QString::fromLocal8Bit(trap))) {
+        return;
+    }
+    fprintf(stderr,
+            "[zfsmgr] ZFSMGR_TRAP_WARNING coincide (\"%s\"): abortando para dejar volcado\n",
+            trap.constData());
+    fflush(stderr);
+    abort();
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     Q_INIT_RESOURCE(resources);
+    g_previousMessageHandler = qInstallMessageHandler(zfsmgrMessageHandler);
 #ifdef Q_OS_MAC
     // Keep macOS visuals consistent by routing dialogs and widgets through Qt's Fusion style.
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
