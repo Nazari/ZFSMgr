@@ -2003,9 +2003,9 @@ void MainWindow::buildUi() {
         m_connActionsBox);
     m_btnDiscardPendingChanges = new QPushButton(
         trk(QStringLiteral("t_discard_changes_001"),
-            QStringLiteral("Deshacer cambios"),
-            QStringLiteral("Discard changes"),
-            QStringLiteral("撤销更改")),
+            QStringLiteral("Vaciar lista"),
+            QStringLiteral("Empty list"),
+            QStringLiteral("清空列表")),
         m_connActionsBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnConnCopy = new QPushButton(
@@ -4340,49 +4340,74 @@ void MainWindow::buildUi() {
     if (m_btnDiscardPendingChanges) {
         connect(m_btnDiscardPendingChanges, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Deshacer cambios (panel pendientes)"));
-            // Confirmar SOLO si hay acciones encoladas.
+            // Confirmación siempre que haya algo que perder, enumerando QUÉ se lleva.
             //
-            // Este botón nació cuando la lista era una cola que se rehacía en un minuto.
-            // Ya no: las acciones sobreviven a su ejecución y a los reinicios, se les
-            // pone nombre y se re-editan, así que puede haber ahí un plan de trabajo de
-            // días. Un clic lo borraba entero, del modelo y del disco, sin preguntar y
-            // sin vuelta atrás.
-            //
-            // Los borradores de propiedades y permisos no se cuentan: descartarlos es
-            // barato y rehacerlos es inmediato, así que no merecen un diálogo.
+            // El botón vacía tres cosas a la vez y solo una es obvia por su nombre. Y la
+            // lista de acciones se guarda en disco desde que sobrevive a los reinicios,
+            // así que puede haber ahí un plan de días, con nombres y acciones
+            // re-editadas: borrarlo sin decir qué se borra no es aceptable.
             int queuedActions = 0;
             for (const PendingChange& change : m_pendingChangesModel) {
                 if (change.kind == PendingChange::Kind::ShellAction) {
                     ++queuedActions;
                 }
             }
-            if (queuedActions > 0) {
+            const int propertyDrafts = pendingConnContentPropertyDraftsFromModel().size();
+            const int permissionDrafts = dirtyDatasetPermissionsEntriesFromModel().size();
+            if (queuedActions > 0 || propertyDrafts > 0 || permissionDrafts > 0) {
+                QStringList bullets;
+                if (queuedActions > 0) {
+                    bullets << trk(QStringLiteral("t_empty_list_item_actions001"),
+                                   QStringLiteral("  •  %1 acción(es) de la lista, incluida su "
+                                                  "copia guardada en disco"),
+                                   QStringLiteral("  •  %1 action(s) from the list, including "
+                                                  "the copy saved on disk"),
+                                   QStringLiteral("  •  列表中的 %1 项操作，包括保存在磁盘上的副本"))
+                                   .arg(queuedActions);
+                }
+                if (propertyDrafts > 0) {
+                    bullets << trk(QStringLiteral("t_empty_list_item_props001"),
+                                   QStringLiteral("  •  cambios de propiedades sin aplicar en "
+                                                  "%1 objeto(s)"),
+                                   QStringLiteral("  •  unapplied property changes on %1 object(s)"),
+                                   QStringLiteral("  •  %1 个对象上尚未应用的属性更改"))
+                                   .arg(propertyDrafts);
+                }
+                if (permissionDrafts > 0) {
+                    bullets << trk(QStringLiteral("t_empty_list_item_perms001"),
+                                   QStringLiteral("  •  cambios de permisos sin aplicar en "
+                                                  "%1 dataset(s)"),
+                                   QStringLiteral("  •  unapplied permission changes on %1 dataset(s)"),
+                                   QStringLiteral("  •  %1 个数据集上尚未应用的权限更改"))
+                                   .arg(permissionDrafts);
+                }
                 const auto choice = QMessageBox::question(
                     this,
-                    QStringLiteral("ZFSMgr"),
-                    trk(QStringLiteral("t_discard_confirm_001"),
-                        QStringLiteral("Se van a quitar %1 acciones de la lista, además de los "
-                                       "cambios de propiedades y permisos sin aplicar.\n\n"
-                                       "La lista se guarda en disco, así que también se borra "
-                                       "allí y no se puede recuperar.\n\n¿Continuar?"),
-                        QStringLiteral("This will remove %1 action(s) from the list, plus any "
-                                       "unapplied property and permission changes.\n\n"
-                                       "The list is stored on disk, so it is deleted there too "
-                                       "and cannot be recovered.\n\nContinue?"),
-                        QStringLiteral("将从列表中移除 %1 项操作，以及尚未应用的属性和权限更改。\n\n"
-                                       "该列表保存在磁盘上，因此也会一并删除且无法恢复。\n\n是否继续？"))
-                        .arg(queuedActions),
+                    trk(QStringLiteral("t_empty_list_title001"),
+                        QStringLiteral("Vaciar la lista de cambios pendientes"),
+                        QStringLiteral("Empty the pending changes list"),
+                        QStringLiteral("清空待应用更改列表")),
+                    trk(QStringLiteral("t_empty_list_body001"),
+                        QStringLiteral("Se va a descartar:\n\n%1\n\nNo afecta a lo ya "
+                                       "ejecutado, y no se puede deshacer.\n\n¿Vaciar la lista?"),
+                        QStringLiteral("The following will be discarded:\n\n%1\n\nThis does not "
+                                       "affect what has already run, and cannot be undone.\n\n"
+                                       "Empty the list?"),
+                        QStringLiteral("将丢弃以下内容：\n\n%1\n\n这不会影响已执行的操作，且无法"
+                                       "撤销。\n\n是否清空列表？"))
+                        .arg(bullets.join(QStringLiteral("\n"))),
                     QMessageBox::Yes | QMessageBox::No,
                     QMessageBox::No);
                 if (choice != QMessageBox::Yes) {
                     appLog(QStringLiteral("INFO"),
-                           QStringLiteral("[pendientes] descarte cancelado: %1 acciones intactas")
+                           QStringLiteral("[pendientes] vaciado cancelado: %1 acciones intactas")
                                .arg(queuedActions));
                     return;
                 }
                 appLog(QStringLiteral("NORMAL"),
-                       QStringLiteral("[pendientes] descartadas %1 acciones a petición del usuario")
-                           .arg(queuedActions));
+                       QStringLiteral("[pendientes] lista vaciada a petición del usuario: "
+                                      "%1 acciones, %2 borradores de propiedades, %3 de permisos")
+                           .arg(queuedActions).arg(propertyDrafts).arg(permissionDrafts));
             }
             clearAllPendingChanges();
         });
