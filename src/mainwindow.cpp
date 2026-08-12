@@ -825,14 +825,9 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    const bool dsWin = isWindowsConnection(connIdx);
-    const QString propsCmdClassic = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            dsWin
-                ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
-                : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-    // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
+    // Solo por argv al agente: el respaldo por shell se retiró y la orden que se
+    // construía aquí no la usaba nadie. Era, además, la que justificaba la rama TSV de
+    // más abajo, que se comía las propiedades en Windows.
     const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zfs-get-all"), trimmedObject};
     bool propsOk = daemonReadApiOk
           && runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc)
@@ -849,26 +844,18 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
 
     QVector<DatasetPropCacheRow> rows;
     rows.push_back(DatasetPropCacheRow{QStringLiteral("dataset"), trimmedObject, QString(), QStringLiteral("true")});
-    if (dsWin) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            QString prop, val, source, ro;
-            const QStringList parts = raw.split('\t');
-            if (parts.size() >= 4) {
-                prop = parts[0].trimmed(); val = parts[1].trimmed();
-                source = parts[2].trimmed(); ro = parts[3].trimmed().toLower();
-            } else if (parts.size() >= 3) {
-                prop = parts[0].trimmed(); val = parts[1].trimmed();
-                source = parts[2].trimmed(); ro.clear();
-            } else {
-                const QStringList sp = raw.simplified().split(' ');
-                if (sp.size() < 3) { continue; }
-                prop = sp[0].trimmed(); val = sp[1].trimmed(); source = sp[2].trimmed();
-                ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
-            }
-            rows.push_back(DatasetPropCacheRow{prop, val, source, ro});
-        }
-    } else {
+    // JSON SIEMPRE, también en Windows.
+    //
+    // El agente responde a --dump-zfs-get-all con `zfs get -j all`, o sea JSON, en todas
+    // las plataformas. Aquí había una rama que en Windows lo parseaba como TSV, resto de
+    // cuando esa consulta iba por shell con `-o property,value,source`. Al retirarse el
+    // respaldo por shell quedó dándole JSON a un parser de tabulaciones: de 83
+    // propiedades no salvaba ninguna, y el dataset se quedaba con 2 filas.
+    //
+    // Efectos vistos en un Windows real: `canmount` no constaba, así que Montar salía
+    // deshabilitado para siempre, y las propiedades en línea mostraban una etiqueta y un
+    // valor sin sentido, que era lo poco que el parser conseguía sacar.
+    {
         const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
         const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
         const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
@@ -954,22 +941,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
-    QString propsCmdClassic;
-    if (subWin) {
-        propsCmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -H -o property,value,source %1 %2")
-                    .arg(quotedProps.join(QLatin1Char(',')),
-                         mwhelpers::shSingleQuote(trimmedObject))));
-    } else {
-        propsCmdClassic = withSudo(
-            p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -j %1 %2")
-                    .arg(wantedProps.join(QLatin1Char(',')),
-                         mwhelpers::shSingleQuote(trimmedObject))));
-    }
+    // Solo por argv al agente: el respaldo por shell se retiró.
     if (!daemonReadApiOk) {
         requireDaemonForRead(connIdx, QStringLiteral("leer las propiedades de un dataset"));
     }
@@ -995,32 +967,10 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const DatasetPropCacheRow& row : dsInfo->runtime.propertyRows) {
         mergedByKey.insert(normalizedPropKey(row.prop), row);
     }
-    if (subWin) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            QString prop, val, source;
-            const QStringList parts = raw.split('\t');
-            if (parts.size() >= 3) {
-                prop = parts[0].trimmed(); val = parts[1].trimmed(); source = parts[2].trimmed();
-            } else {
-                const QStringList sp = raw.simplified().split(' ');
-                if (sp.size() < 3) { continue; }
-                prop = sp[0].trimmed(); val = sp[1].trimmed();
-                source = sp.mid(2).join(QStringLiteral(" ")).trimmed();
-            }
-            if (prop.isEmpty()) {
-                continue;
-            }
-            val = gsaComparableValue(prop, val);
-            if (source == QStringLiteral("-")) {
-                source.clear();
-            }
-            DatasetPropCacheRow row{prop, val, source, QString()};
-            mergedByKey.insert(normalizedPropKey(prop), row);
-            dsInfo->runtime.properties.insert(prop, val);
-            dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(prop));
-        }
-    } else {
+    // JSON siempre: --dump-zfs-get-json responde `zfs get -j` en todas las plataformas.
+    // La rama TSV para Windows era el mismo resto del respaldo por shell que dejaba sin
+    // propiedades a los datasets y a los pools en esa plataforma.
+    {
         const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
         const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
         const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
@@ -1360,32 +1310,18 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             QString out;
             QString err;
             int rc = -1;
-            const bool poolWin = isWindowsConnection(connIdx);
-            const QString propsCmdClassic = withSudo(
-                profile,
-                mwhelpers::withUnixSearchPathCommand(
-                    poolWin
-                        ? QStringLiteral("zpool get -H -o property,value,source all %1")
-                              .arg(mwhelpers::shSingleQuote(trimmedPool))
-                        : QStringLiteral("zpool get -j all %1")
-                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            // Solo por argv al agente, igual que en las propiedades de dataset.
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList propsCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
             bool propsOk = daemonReadApiOk
                   && runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc)
                   && rc == 0;
             if (propsOk) {
-                if (poolWin) {
-                    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-                    for (const QString& line : lines) {
-                        const QStringList parts = line.split('\t');
-                        if (parts.size() < 3) {
-                            continue;
-                        }
-                        fresh.propsRows.push_back(
-                            QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
-                    }
-                } else {
+                // JSON siempre, igual que en las propiedades de dataset: el agente
+                // responde a --dump-zpool-get-all con `zpool get -j all` en todas las
+                // plataformas, y la rama TSV para Windows era resto del respaldo por
+                // shell ya retirado. Dejaba los pools de Windows sin propiedades.
+                {
                     const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
                     const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
                     const QJsonObject poolObj = pools.value(trimmedPool).toObject();
