@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+
+#include <QFontMetrics>
 #include "mainwindow_helpers.h"
 
 #include <QBrush>
@@ -351,12 +353,17 @@ void MainWindow::updateConnectionActionsState() {
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
     if (m_connOriginSelectionLabel) {
-        m_connOriginSelectionLabel->setText(
+        const QString originText =
             trk(QStringLiteral("t_conn_origin_sel1"),
                 QStringLiteral("Origen: %1"),
                 QStringLiteral("Source: %1"),
                 QStringLiteral("源：%1"))
-                .arg(fmtSel(m_connActionOrigin)));
+                .arg(fmtSel(m_connActionOrigin));
+        // Acortado a lo que quepa: comparte fila con Estado y Progreso, y un nombre largo
+        // no puede robarles sitio ni forzar una segunda línea.
+        const QFontMetrics fm(m_connOriginSelectionLabel->font());
+        const int avail = qMax(60, m_connOriginSelectionLabel->width() - 4);
+        m_connOriginSelectionLabel->setText(fm.elidedText(originText, Qt::ElideMiddle, avail));
         // El tooltip lleva el origen COMPLETO delante de la explicación: la etiqueta se
         // recorta cuando la ruta no cabe, así que este es el único sitio donde se lee
         // entero.

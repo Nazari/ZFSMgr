@@ -1970,11 +1970,6 @@ void MainWindow::buildUi() {
     // ocupando ancho y una altura mínima a la que además se ajustaba la caja de gestión
     // de pools.
 
-    auto* selectionRow = new QWidget(connectionsTab);
-    selectionRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* selectionRowLayout = new QHBoxLayout(selectionRow);
-    selectionRowLayout->setContentsMargins(2, 0, 2, 0);
-    selectionRowLayout->setSpacing(6);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
@@ -1986,11 +1981,12 @@ void MainWindow::buildUi() {
     // el texto completo queda en el tooltip.
     m_connOriginSelectionLabel->setWordWrap(false);
     m_connOriginSelectionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    // Que no reclame anchura: con una ruta larga la pediría entera y ensancharía la fila.
-    // Se recorta y el texto íntegro vive en el tooltip.
-    m_connOriginSelectionLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    // Comparte fila con Estado y Progreso, así que no puede reclamar la anchura de una
+    // ruta larga ni quedarse en cero. Anchura mínima para que siempre se lea algo, y el
+    // texto se acorta con puntos suspensivos al pintarlo; entero, en el tooltip.
+    m_connOriginSelectionLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_connOriginSelectionLabel->setMinimumWidth(140);
     m_connOriginSelectionLabel->setFont(baseUiFont);
-    selectionRowLayout->addWidget(m_connOriginSelectionLabel, 1);
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
@@ -2249,7 +2245,6 @@ void MainWindow::buildUi() {
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    connLayout->addWidget(selectionRow, 0);
     connectionsTab->setLayout(connLayout);
 
     // Legacy left "Datasets" tab removed from UI.
@@ -2702,7 +2697,7 @@ void MainWindow::buildUi() {
     m_statusText->setLineWrapMode(QTextEdit::NoWrap);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_statusText->setFixedHeight(30);
+    m_statusText->setFixedHeight(22);
     m_statusText->setPlainText(trk(QStringLiteral("t_status_loading_001"),
                                    QStringLiteral("Loading..."),
                                    QStringLiteral("Loading..."),
@@ -2728,9 +2723,13 @@ void MainWindow::buildUi() {
     m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_lastDetailText->setFixedHeight(30);
+    m_lastDetailText->setFixedHeight(22);
     detailLayout->addWidget(detailLabel, 0);
     detailLayout->addWidget(m_lastDetailText, 1);
+    // El origen comparte fila con Estado y Progreso en vez de ocupar una tira propia:
+    // eran tres franjas apiladas encima del árbol y ahora es una. Va el último y sin
+    // estirar, que es lo que menos ancho roba a los otros dos.
+    stateProgressLayout->addWidget(m_connOriginSelectionLabel, 1);
     stateProgressLayout->addWidget(statusWrap, 1);
     stateProgressLayout->addWidget(detailWrap, 3);
 
@@ -2902,10 +2901,9 @@ void MainWindow::buildUi() {
             minChangesHeight = qMax(minChangesHeight, bottomInfoSizes.at(1));
         }
     }
-    // Ya no se reserva sitio para la lista de cambios pendientes: se fue a las pestañas
-    // de abajo, y la pestaña de Conexiones solo tiene la fila del origen y el árbol.
-    const int targetChangesMin =
-        selectionRow->sizeHint().height() + connLayout->spacing();
+    // La pestaña de Conexiones ya solo tiene el árbol: ni lista de pendientes (se fue a
+    // las pestañas de abajo) ni fila de origen (comparte fila con Estado y Progreso).
+    const int targetChangesMin = connLayout->spacing();
     minChangesHeight = qMax(1, qMax(minChangesHeight, targetChangesMin));
     topBottomPane->setMinimumHeight(minChangesHeight);
 
