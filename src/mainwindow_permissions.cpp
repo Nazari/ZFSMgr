@@ -118,6 +118,30 @@ QString remainingAfterTokens(const QStringList& parts, int skipCount) {
 
 QString accountListCommand(const QString& kind, const ConnectionProfile& p, const QString& osLine) {
     const QString merged = (p.osType + QStringLiteral(" ") + osLine).toLower();
+    // Windows no tiene /etc/passwd ni getent, y lo que se enviaba era una tubería POSIX
+    // que PowerShell rechaza entera:
+    //
+    //   ((getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null) | cut -d: -f1)
+    //   → «El token '2' no es un separador de instrucciones válido»
+    //
+    // Salía en cada refresco con permisos, y dejaba las listas de usuarios y grupos
+    // VACÍAS: no se podía delegar un permiso a nadie porque no había a quién elegir.
+    //
+    // Se piden a la base de cuentas locales. Get-LocalUser/Get-LocalGroup no están en
+    // ediciones antiguas ni en algunos Server core, de ahí el respaldo por WMI.
+    if (mwhelpers::isWindowsOsType(p.osType) || merged.contains(QStringLiteral("windows"))) {
+        const QString clase = (kind == QStringLiteral("user"))
+                                  ? QStringLiteral("User")
+                                  : QStringLiteral("Group");
+        return QStringLiteral(
+                   "$ErrorActionPreference='SilentlyContinue'; "
+                   "$n=@(Get-Local%1 | Select-Object -ExpandProperty Name); "
+                   "if(-not $n -or $n.Count -eq 0){ "
+                   "  $n=@(Get-CimInstance Win32_%1Account -Filter \"LocalAccount=True\" | "
+                   "      Select-Object -ExpandProperty Name) }; "
+                   "$n | Sort-Object -Unique")
+            .arg(clase);
+    }
     if (merged.contains(QStringLiteral("darwin")) || merged.contains(QStringLiteral("mac"))) {
         if (kind == QStringLiteral("user")) {
             return QStringLiteral("(dscl . -list /Users 2>/dev/null || cut -d: -f1 /etc/passwd 2>/dev/null)");
