@@ -2807,6 +2807,7 @@ void MainWindow::buildUi() {
     // ── Transfer Jobs tab ──────────────────────────────────────────────────
     {
         auto* jobsTab = new QWidget(m_logsTabs);
+        m_jobsTab = jobsTab;
         auto* jobsLay = new QVBoxLayout(jobsTab);
         jobsLay->setContentsMargins(4, 4, 4, 4);
         jobsLay->setSpacing(4);

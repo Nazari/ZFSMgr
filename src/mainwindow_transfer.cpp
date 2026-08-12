@@ -2075,12 +2075,13 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
                .arg(sp.name, srcSnap, recvTarget, jobId));
 
     // Open jobs tab and start poll timer
-    if (m_logsTabs) {
-        for (int i = 0; i < m_logsTabs->count(); ++i) {
-            if (m_logsTabs->tabText(i) == tr("Transferencias")) {
-                m_logsTabs->setCurrentIndex(i);
-                break;
-            }
+    // Por puntero, no por texto: comparar contra el literal español dejaba de encontrar
+    // la pestaña en cuanto se tradujo, y entonces no se saltaba a ella al lanzar el
+    // trabajo. Por índice fijo tampoco: basta con añadir una pestaña delante.
+    if (m_logsTabs && m_jobsTab) {
+        const int jobsIndex = m_logsTabs->indexOf(m_jobsTab);
+        if (jobsIndex >= 0) {
+            m_logsTabs->setCurrentIndex(jobsIndex);
         }
     }
     updateJobsListWidget();

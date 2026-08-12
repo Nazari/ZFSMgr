@@ -179,9 +179,14 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             const auto choice = QMessageBox::question(
                 this,
                 QStringLiteral("ZFSMgr"),
-                tr("%n transferencia(s) siguen ejecutándose en el daemon.\n"
-                   "¿Cerrar de todas formas? Los jobs continuarán en background.",
-                   "", runningJobs),
+                trk(QStringLiteral("t_close_jobs_running001"),
+                    QStringLiteral("Hay %1 transferencia(s) ejecutándose en el daemon.\n"
+                                   "¿Cerrar de todas formas? Seguirán en segundo plano."),
+                    QStringLiteral("%1 transfer(s) are still running in the daemon.\n"
+                                   "Close anyway? They will keep running in the background."),
+                    QStringLiteral("守护进程中仍有 %1 个传输在执行。\n"
+                                   "仍要关闭吗？它们会在后台继续运行。"))
+                    .arg(runningJobs),
                 QMessageBox::Yes | QMessageBox::No,
                 QMessageBox::No);
             if (choice != QMessageBox::Yes) {

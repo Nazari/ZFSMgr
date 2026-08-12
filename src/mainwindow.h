@@ -1377,6 +1377,7 @@ private:
     QAction* m_connectivityMatrixAction{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
+    QWidget* m_jobsTab{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QAction* m_menuExitAction{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
