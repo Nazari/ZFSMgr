@@ -862,9 +862,17 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
                     continue;
                 }
                 const QString prop = row[0].trimmed();
-                if (prop.isEmpty() || prop.startsWith(QStringLiteral("feature@"), Qt::CaseInsensitive)) {
+                if (prop.isEmpty()) {
                     continue;
                 }
+                // Las `feature@` van INCLUIDAS. Se descartaban aquí, y con eso la pestaña
+                // «Todas» de un pool enseñaba 34 de 81 propiedades: justo la mitad larga
+                // se quedaba fuera, sin decirlo, y no había forma de sacar una bandera de
+                // característica a la vista. Para un dataset sí salían todas, así que la
+                // asimetría tampoco tenía explicación desde fuera.
+                //
+                // Aparecer en «Todas» no las hace visibles: lo visible sale de
+                // currentVisible, que viene del orden guardado.
                 allProps.push_back(prop);
             }
         }
