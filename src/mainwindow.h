@@ -1381,11 +1381,6 @@ private:
     QAction* m_menuExitAction{nullptr};
     QGroupBox* m_connActionsBox{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
-    QPushButton* m_btnConnCopy{nullptr};
-    QPushButton* m_btnConnClone{nullptr};
-    QPushButton* m_btnConnDiff{nullptr};
-    QPushButton* m_btnConnLevel{nullptr};
-    QPushButton* m_btnConnSync{nullptr};
     DatasetSelectionContext m_connActionOrigin;
     DatasetSelectionContext m_connActionDest;
     bool m_transferSelectionOverrideActive{false};
@@ -1451,7 +1446,6 @@ private:
     QStackedWidget* m_rightStack{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
     QPushButton* m_btnDiscardPendingChanges{nullptr};
-    QPushButton* m_btnConnMove{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QPushButton* m_btnAdvancedFromDir{nullptr};

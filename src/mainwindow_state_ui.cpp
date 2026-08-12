@@ -329,20 +329,15 @@ void MainWindow::updateConnectionActionsState() {
         m_connActionOrigin = DatasetSelectionContext{};
     }
 
-    if (m_btnConnCopy) m_btnConnCopy->setText(
-        trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
-    if (m_btnConnClone) m_btnConnClone->setText(
-        trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"), QStringLiteral("Clone"), QStringLiteral("克隆")));
-    if (m_btnConnMove) m_btnConnMove->setText(
-        trk(QStringLiteral("t_move_btn_001"), QStringLiteral("Mover"), QStringLiteral("Move"), QStringLiteral("移动")));
-    if (m_btnConnDiff) m_btnConnDiff->setText(
-        trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")));
-    if (m_btnConnLevel) m_btnConnLevel->setText(
-        trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
-    if (m_btnConnSync) m_btnConnSync->setText(
-        trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")));
-
-    const DatasetSelectionContext dctx = currentConnContentSelection(m_connContentTree);
+    // Lo único que queda por pintar es el ORIGEN.
+    //
+    // Antes esta función habilitaba y etiquetaba seis botones, y para eso repetía las
+    // reglas de qué combinación de origen y destino vale para cada acción: 253 líneas.
+    // Las seis viven ahora en el menú contextual del destino y las reglas en
+    // transferActionAvailabilityFor, así que aquí no queda nada de eso.
+    //
+    // Y el destino ya no es un estado que recordar: es el nodo sobre el que se pulsa, de
+    // modo que mostrarlo aquí solo podía mentir —enseñaría el último usado—.
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_profiles.size()) {
             return trk(QStringLiteral("t_empty_sel_001"),
@@ -355,227 +350,25 @@ void MainWindow::updateConnectionActionsState() {
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
-    const QString dstText = trk(QStringLiteral("t_conn_dest_sel01"),
-                                QStringLiteral("Destino:%1"),
-                                QStringLiteral("Target:%1"),
-                                QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
-    const QString originText =
-        trk(QStringLiteral("t_conn_origin_sel1"),
-            QStringLiteral("Origen:%1"),
-            QStringLiteral("Source:%1"),
-            QStringLiteral("源：%1"))
-            .arg(fmtSel(m_connActionOrigin));
     if (m_connOriginSelectionLabel) {
-        m_connOriginSelectionLabel->setText(QStringLiteral("%1    %2").arg(originText, dstText));
+        m_connOriginSelectionLabel->setText(
+            trk(QStringLiteral("t_conn_origin_sel1"),
+                QStringLiteral("Origen: %1"),
+                QStringLiteral("Source: %1"),
+                QStringLiteral("源：%1"))
+                .arg(fmtSel(m_connActionOrigin)));
+        m_connOriginSelectionLabel->setToolTip(
+            trk(QStringLiteral("t_conn_origin_tt001"),
+                QStringLiteral("Marque un origen con el botón derecho sobre un dataset o "
+                               "snapshot. Después, el botón derecho sobre otro nodo ofrece "
+                               "las acciones que lo toman como destino."),
+                QStringLiteral("Mark a source by right-clicking a dataset or snapshot. Then "
+                               "right-clicking another node offers the actions that use it "
+                               "as the target."),
+                QStringLiteral("在数据集或快照上点右键以标记源。之后在另一个节点上点右键，"
+                               "即可看到以该节点为目标的操作。")));
+        m_connOriginSelectionLabel->setStyleSheet(QStringLiteral("QLabel { color: #000000; }"));
     }
-    QString versionTransferReason;
-    const bool transferVersionAllowed = isTransferVersionAllowed(m_connActionOrigin, m_connActionDest, &versionTransferReason);
-    const bool paintActionLabelsRed = (!transferVersionAllowed
-                                       && m_connActionOrigin.valid
-                                       && m_connActionDest.valid);
-    const QString actionLabelsStyle = paintActionLabelsRed
-        ? QStringLiteral("QLabel { color: #b00020; }")
-        : QStringLiteral("QLabel { color: #000000; }");
-    if (m_connOriginSelectionLabel) {
-        m_connOriginSelectionLabel->setStyleSheet(actionLabelsStyle);
-    }
-
-    if (actionsLocked()) {
-        if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
-        if (m_btnConnClone) m_btnConnClone->setEnabled(false);
-        if (m_btnConnDiff) m_btnConnDiff->setEnabled(false);
-        if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
-        if (m_btnConnSync) m_btnConnSync->setEnabled(false);
-        return;
-    }
-
-    const bool srcDs = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
-    const bool srcSnap = srcDs && !m_connActionOrigin.snapshotName.isEmpty();
-    const bool dstDs = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
-    const bool dstSnap = dstDs && !m_connActionDest.snapshotName.isEmpty();
-    const QString srcSel = srcDs ? (srcSnap ? QStringLiteral("%1@%2").arg(m_connActionOrigin.datasetName, m_connActionOrigin.snapshotName)
-                                            : m_connActionOrigin.datasetName)
-                                 : QString();
-    const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_connActionDest.datasetName, m_connActionDest.snapshotName)
-                                            : m_connActionDest.datasetName)
-                                 : QString();
-    auto datasetMountedForCtx = [this](const DatasetSelectionContext& c, QTreeWidget* treeHint) -> bool {
-        if (!c.valid || c.datasetName.isEmpty()) {
-            return false;
-        }
-        QString mountedValue;
-        if (datasetMountedFromModel(c.connIdx, c.poolName, c.datasetName, &mountedValue)) {
-            return isMountedValueTrue(mountedValue);
-        }
-        if (!treeHint) {
-            return false;
-        }
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> recFind = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
-            if (!n) {
-                return nullptr;
-            }
-            if (n->data(0, Qt::UserRole).toString().trimmed() == c.datasetName) {
-                return n;
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                if (QTreeWidgetItem* f = recFind(n->child(i))) {
-                    return f;
-                }
-            }
-            return nullptr;
-        };
-        QTreeWidgetItem* dsItem = nullptr;
-        for (int i = 0; i < treeHint->topLevelItemCount() && !dsItem; ++i) {
-            dsItem = recFind(treeHint->topLevelItem(i));
-        }
-        if (!dsItem) {
-            return false;
-        }
-        const QString mountedText = dsItem->text(2).trimmed().toLower();
-        if (mountedText == QStringLiteral("montado")) {
-            return true;
-        }
-        if (mountedText == QStringLiteral("desmontado")) {
-            return false;
-        }
-        return isMountedValueTrue(mountedText);
-    };
-    const mwhelpers::TransferButtonInputs transferIn{
-        srcDs,
-        srcSnap,
-        dstDs,
-        dstSnap,
-        srcSel,
-        dstSel,
-        srcDs,
-        dstDs,
-        datasetMountedForCtx(m_connActionOrigin, m_connContentTree),
-        datasetMountedForCtx(m_connActionDest, m_connContentTree),
-    };
-    const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
-    if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled && transferVersionAllowed);
-    const bool sameConnForClone = m_connActionOrigin.valid
-        && m_connActionDest.valid
-        && (m_connActionOrigin.connIdx == m_connActionDest.connIdx);
-    const bool samePoolForClone = sameConnForClone
-        && !m_connActionOrigin.poolName.trimmed().isEmpty()
-        && (m_connActionOrigin.poolName.trimmed() == m_connActionDest.poolName.trimmed());
-    const bool cloneEnabled = srcSnap && dstDs && !dstSnap && samePoolForClone;
-    auto datasetIsVolume = [this](const DatasetSelectionContext& ctx) -> bool {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty() || ctx.datasetName.trimmed().isEmpty()) {
-            return false;
-        }
-        const DSInfo* dsInfo = findDsInfo(ctx.connIdx, ctx.poolName, ctx.datasetName);
-        if (!dsInfo) {
-            return false;
-        }
-        const QString mounted = dsInfo->runtime.properties.value(QStringLiteral("mounted")).trimmed();
-        const QString mountpoint = dsInfo->runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
-        return mounted == QStringLiteral("-") && mountpoint == QStringLiteral("-");
-    };
-    const bool sourceDatasetOnly = srcDs && !srcSnap;
-    const bool destDatasetOnly = dstDs && !dstSnap;
-    const QString moveTargetName =
-        (sourceDatasetOnly && destDatasetOnly)
-            ? QStringLiteral("%1/%2").arg(m_connActionDest.datasetName.trimmed(),
-                                          datasetLeafNameStateUi(m_connActionOrigin.datasetName))
-            : QString();
-    const bool moveIntoSelfOrDescendant =
-        sourceDatasetOnly
-        && destDatasetOnly
-        && (m_connActionDest.datasetName.trimmed() == m_connActionOrigin.datasetName.trimmed()
-            || m_connActionDest.datasetName.trimmed().startsWith(
-                   m_connActionOrigin.datasetName.trimmed() + QStringLiteral("/")));
-    const bool moveEnabled = sourceDatasetOnly
-        && destDatasetOnly
-        && samePoolForClone
-        && !datasetIsVolume(m_connActionDest)
-        && !moveIntoSelfOrDescendant
-        && moveTargetName != m_connActionOrigin.datasetName.trimmed();
-    const bool diffEnabled = srcSnap
-        && dstDs
-        && samePoolForClone
-        && m_connActionOrigin.datasetName.trimmed() == m_connActionDest.datasetName.trimmed()
-        && (!dstSnap || m_connActionOrigin.snapshotName.trimmed() != m_connActionDest.snapshotName.trimmed());
-    if (m_btnConnClone) m_btnConnClone->setEnabled(!actionsLocked() && cloneEnabled && transferVersionAllowed);
-    if (m_btnConnMove) m_btnConnMove->setEnabled(!actionsLocked() && moveEnabled);
-    if (m_btnConnDiff) m_btnConnDiff->setEnabled(!actionsLocked() && diffEnabled);
-    if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
-    if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
-    if (m_btnConnSync) {
-        const QString baseSyncTooltip =
-            trk(QStringLiteral("t_tt_sync_001"),
-                QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
-                               "Requiere: dataset seleccionado (no snapshot) en Origen y Destino.\n"
-                               "Si no están montados, en Linux, macOS y FreeBSD puede usarse un montaje temporal."),
-                QStringLiteral("Synchronize Source dataset content to Target with rsync.\n"
-                               "Requires: dataset selected (not snapshot) in Source and Target.\n"
-                               "If datasets are not mounted, Linux/macOS/FreeBSD may use temporary alternate mount."),
-                QStringLiteral("使用 rsync 将源数据集内容同步到目标。\n"
-                               "要求：源和目标都选择数据集（不是快照）。\n"
-                               "若未挂载，在 Linux/macOS/FreeBSD 可使用临时替代挂载。"));
-        QString syncDisabledReason;
-        const bool hasBothSelections = m_connActionOrigin.valid && m_connActionDest.valid
-                                       && !m_connActionOrigin.datasetName.trimmed().isEmpty()
-                                       && !m_connActionDest.datasetName.trimmed().isEmpty();
-        if (hasBothSelections) {
-            if (!transferVersionAllowed) {
-                syncDisabledReason = versionTransferReason.trimmed();
-            } else if (m_connActionOrigin.snapshotName.trimmed().size() > 0
-                       || m_connActionDest.snapshotName.trimmed().size() > 0) {
-                syncDisabledReason =
-                    trk(QStringLiteral("t_sync_disable_reason_snapshot_001"),
-                        QStringLiteral("Sync requiere datasets en Origen y Destino (sin snapshot)."),
-                        QStringLiteral("Sync requires datasets in Source and Target (no snapshot selected)."),
-                        QStringLiteral("Sync 要求源和目标都选择数据集（不能选择快照）。"));
-            } else if (m_connActionOrigin.connIdx == m_connActionDest.connIdx
-                       && m_connActionOrigin.poolName.trimmed() == m_connActionDest.poolName.trimmed()
-                       && m_connActionOrigin.datasetName.trimmed() == m_connActionDest.datasetName.trimmed()) {
-                syncDisabledReason =
-                    trk(QStringLiteral("t_sync_disable_reason_same_001"),
-                        QStringLiteral("Sync requiere Origen y Destino diferentes."),
-                        QStringLiteral("Sync requires Source and Target to be different."),
-                        QStringLiteral("Sync 要求源和目标必须不同。"));
-            } else if (!datasetMountedForCtx(m_connActionOrigin, m_connContentTree)
-                       || !datasetMountedForCtx(m_connActionDest, m_connContentTree)) {
-                syncDisabledReason =
-                    trk(QStringLiteral("t_sync_disable_reason_mounted_001"),
-                        QStringLiteral("Sync inmediato requiere ambos datasets montados (si no, se usará fallback según plataforma al ejecutar)."),
-                        QStringLiteral("Immediate Sync requires both datasets mounted (otherwise platform fallback will be used at execution time)."),
-                        QStringLiteral("立即 Sync 要求两个数据集都已挂载（否则执行时会按平台使用回退方案）。"));
-            }
-        }
-        if (!syncDisabledReason.trimmed().isEmpty() && hasBothSelections && !st.syncEnabled) {
-            m_btnConnSync->setToolTip(baseSyncTooltip
-                                      + QStringLiteral("\n\n")
-                                      + trk(QStringLiteral("t_sync_disabled_prefix_001"),
-                                            QStringLiteral("No disponible ahora: %1"),
-                                            QStringLiteral("Currently unavailable: %1"),
-                                            QStringLiteral("当前不可用：%1"))
-                                            .arg(syncDisabledReason.trimmed()));
-        } else {
-            m_btnConnSync->setToolTip(baseSyncTooltip);
-        }
-    }
-
-    const bool hasConnSel = dctx.valid && !dctx.datasetName.isEmpty();
-    const bool hasConnSnap = hasConnSel && !dctx.snapshotName.isEmpty();
-    const bool alreadyOrigin = hasConnSel
-        && m_connActionOrigin.valid
-        && dctx.connIdx == m_connActionOrigin.connIdx
-        && dctx.poolName == m_connActionOrigin.poolName
-        && dctx.datasetName == m_connActionOrigin.datasetName
-        && dctx.snapshotName == m_connActionOrigin.snapshotName;
-    const bool alreadyDest = hasConnSel
-        && m_connActionDest.valid
-        && dctx.connIdx == m_connActionDest.connIdx
-        && dctx.poolName == m_connActionDest.poolName
-        && dctx.datasetName == m_connActionDest.datasetName
-        && dctx.snapshotName == m_connActionDest.snapshotName;
-    Q_UNUSED(alreadyOrigin);
-    Q_UNUSED(alreadyDest);
-    Q_UNUSED(hasConnSnap);
-    Q_UNUSED(hasConnSel);
 }
 
 bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,

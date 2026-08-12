@@ -2593,7 +2593,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aMount = nullptr;
     QAction* aUnmount = nullptr;
     QAction* aSelectOrigin = nullptr;
-    QAction* aSelectDestination = nullptr;
     QAction* aPermNewSet = nullptr;
     QAction* aPermNewDeleg = nullptr;
 
@@ -2706,11 +2705,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Mark as source"),
                                   QStringLiteral("标记为源")));
             buildTransferMenu(ctx);
-            aSelectDestination = menu.addAction(
-                m_mainWindow->trk(QStringLiteral("t_ctx_select_as_dest_001"),
-                                  QStringLiteral("Seleccionar como destino"),
-                                  QStringLiteral("Select as destination"),
-                                  QStringLiteral("设为目标")));
             if (!item->data(0, kIsSplitRootRole).toBool() && !isPoolRoot) {
                 QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
                 aSplitHorizontal = splitMenu->addAction(
@@ -2759,7 +2753,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (aMount) aMount->setEnabled(false);
         if (aUnmount) aUnmount->setEnabled(false);
         if (aSelectOrigin) aSelectOrigin->setEnabled(false);
-        if (aSelectDestination) aSelectDestination->setEnabled(false);
         if (aPermNewSet) aPermNewSet->setEnabled(false);
         if (aPermNewDeleg) aPermNewDeleg->setEnabled(false);
     }
@@ -2945,9 +2938,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         }
         if (aSelectOrigin) {
             aSelectOrigin->setEnabled(hasConnSel);
-        }
-        if (aSelectDestination) {
-            aSelectDestination->setEnabled(hasConnSel);
         }
         bool scheduleEnabled = false;
         if (!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap
@@ -3308,20 +3298,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->executeConnectionTransferAction(entry.verb);
             return;
         }
-        if (picked == aSelectOrigin || picked == aSelectDestination) {
+        if (picked == aSelectOrigin) {
             MainWindow::DatasetSelectionContext mwCtx;
             mwCtx.valid = ctx.valid;
             mwCtx.connIdx = ctx.connIdx;
             mwCtx.poolName = ctx.poolName;
             mwCtx.datasetName = ctx.datasetName;
             mwCtx.snapshotName = ctx.snapshotName;
-            if (picked == aSelectOrigin) {
-                m_mainWindow->m_topDetailConnIdx = ctx.connIdx;
-                m_mainWindow->setConnectionOriginSelection(mwCtx);
-            } else {
-                mwCtx.snapshotName.clear();
-                m_mainWindow->setConnectionDestinationSelection(mwCtx);
-            }
+            m_mainWindow->m_topDetailConnIdx = ctx.connIdx;
+            m_mainWindow->setConnectionOriginSelection(mwCtx);
             m_mainWindow->updatePoolManagementBoxTitle();
             return;
         }

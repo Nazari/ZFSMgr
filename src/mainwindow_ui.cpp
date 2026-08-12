@@ -2008,132 +2008,16 @@ void MainWindow::buildUi() {
             QStringLiteral("清空列表")),
         m_connActionsBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
-    m_btnConnCopy = new QPushButton(
-        trk(QStringLiteral("t_copy_001"),
-            QStringLiteral("Copiar"),
-            QStringLiteral("Copy"),
-            QStringLiteral("复制")),
-        m_connActionsBox);
-    m_btnConnCopy->setObjectName(QStringLiteral("connCopyButton"));
-    m_btnConnClone = new QPushButton(
-        trk(QStringLiteral("t_clone_btn_001"),
-            QStringLiteral("Clonar"),
-            QStringLiteral("Clone"),
-            QStringLiteral("克隆")),
-        m_connActionsBox);
-    m_btnConnClone->setObjectName(QStringLiteral("connCloneButton"));
-    m_btnConnMove = new QPushButton(
-        trk(QStringLiteral("t_move_btn_001"),
-            QStringLiteral("Mover"),
-            QStringLiteral("Move"),
-            QStringLiteral("移动")),
-        m_connActionsBox);
-    m_btnConnMove->setObjectName(QStringLiteral("connMoveButton"));
-    m_btnConnDiff = new QPushButton(
-        trk(QStringLiteral("t_diff_btn_001"),
-            QStringLiteral("Diff")),
-        m_connActionsBox);
-    m_btnConnDiff->setObjectName(QStringLiteral("connDiffButton"));
-    m_btnConnLevel = new QPushButton(
-        trk(QStringLiteral("t_level_btn_001"),
-            QStringLiteral("Nivelar"),
-            QStringLiteral("Level"),
-            QStringLiteral("同步快照")),
-        m_connActionsBox);
-    m_btnConnLevel->setObjectName(QStringLiteral("connLevelButton"));
     m_btnApplyConnContentProps->setFont(baseUiFont);
     m_btnDiscardPendingChanges->setFont(baseUiFont);
-    m_btnConnCopy->setFont(baseUiFont);
-    m_btnConnClone->setFont(baseUiFont);
-    m_btnConnMove->setFont(baseUiFont);
-    m_btnConnDiff->setFont(baseUiFont);
-    m_btnConnLevel->setFont(baseUiFont);
-    m_btnConnSync = new QPushButton(
-        trk(QStringLiteral("t_sync_btn_001"),
-            QStringLiteral("Sincronizar"),
-            QStringLiteral("Sync"),
-            QStringLiteral("同步文件")),
-        m_connActionsBox);
-    m_btnConnSync->setObjectName(QStringLiteral("connSyncButton"));
-    m_btnConnSync->setFont(baseUiFont);
-    m_btnConnCopy->setToolTip(
-        trk(QStringLiteral("t_tt_copy_001"),
-            QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
-                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
-            QStringLiteral("Send one snapshot from Source to Target using send/recv.\n"
-                           "Requires: snapshot selected in Source and dataset selected in Target."),
-            QStringLiteral("通过 send/recv 将源端快照发送到目标端。\n"
-                           "条件：源端选择快照，目标端选择数据集。")));
-    m_btnConnClone->setToolTip(
-        trk(QStringLiteral("t_tt_clone_001"),
-            QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión y el mismo pool.\n"
-                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino.")));
-    m_btnConnMove->setToolTip(
-        trk(QStringLiteral("t_tt_move_001"),
-            QStringLiteral("Añade un zfs rename pendiente para mover el dataset Origen dentro del dataset Destino.\n"
-                           "Requiere: dataset seleccionado en Origen y Destino, misma conexión y mismo pool."),
-            QStringLiteral("Queue a pending zfs rename to move the Source dataset under the Target dataset.\n"
-                           "Requires: dataset selected in Source and Target, same connection and same pool."),
-            QStringLiteral("添加一个待处理的 zfs rename，将来源数据集移动到目标数据集下面。\n"
-                           "条件：来源和目标都选择数据集，且属于同一连接和同一存储池。")));
-    m_btnConnDiff->setToolTip(
-        trk(QStringLiteral("t_tt_diff_001"),
-            QStringLiteral("Compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset,\n"
-                           "si ambos están en la misma conexión y el mismo pool."),
-            QStringLiteral("Compares a Source snapshot against its current parent dataset or another snapshot from the same dataset,\n"
-                           "when both are in the same connection and the same pool."),
-            QStringLiteral("比较源端快照与其当前父数据集，或与同一数据集中的另一个快照，\n"
-                           "前提是两者位于同一连接和同一存储池。")));
-    m_btnConnLevel->setToolTip(
-        trk(QStringLiteral("t_tt_level_001"),
-            QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
-                           "Requiere: dataset o snapshot seleccionado en Origen y dataset en Destino."),
-            QStringLiteral("Build/apply differential transfer to level Source->Target.\n"
-                           "Requires: dataset or snapshot selected in Source and dataset in Target."),
-            QStringLiteral("生成/应用差异传输以对齐源端到目标端。\n"
-                           "条件：源端选择数据集或快照，目标端选择数据集。")));
-    m_btnConnSync->setToolTip(
-        trk(QStringLiteral("t_tt_sync_001"),
-            QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
-                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino.\n"
-                           "Si no están montados, en Linux, macOS y FreeBSD puede usarse un montaje temporal."),
-            QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
-                           "Requires: dataset selected (not snapshot) in Source and Target.\n"
-                           "If not mounted, Linux, macOS and FreeBSD can use a temporary mount."),
-            QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
-                           "条件：源端和目标端都选择数据集（非快照）。\n"
-                           "若未挂载，在 Linux、macOS 和 FreeBSD 上可使用临时挂载。")));
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnDiscardPendingChanges->setMinimumHeight(stdLeftBtnH);
-    m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
-    m_btnConnClone->setMinimumHeight(stdLeftBtnH);
-    m_btnConnMove->setMinimumHeight(stdLeftBtnH);
-    m_btnConnDiff->setMinimumHeight(stdLeftBtnH);
-    m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
-    m_btnConnSync->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnDiscardPendingChanges->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnMove->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnDiff->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* connRightBtns = new QGridLayout();
-    connRightBtns->setContentsMargins(0, 0, 0, 0);
-    connRightBtns->setHorizontalSpacing(6);
-    connRightBtns->setVerticalSpacing(6);
-    connRightBtns->setColumnStretch(0, 1);
-    connRightBtns->setColumnStretch(1, 1);
-    connRightBtns->addWidget(m_btnConnSync, 0, 0);
-    connRightBtns->addWidget(m_btnConnCopy, 0, 1);
-    connRightBtns->addWidget(m_btnConnClone, 1, 0);
-    connRightBtns->addWidget(m_btnConnMove, 1, 1);
-    connRightBtns->addWidget(m_btnConnLevel, 2, 0);
-    connRightBtns->addWidget(m_btnConnDiff, 2, 1);
-    actionButtonsLayout->addLayout(connRightBtns);
-    const int actionButtonsMinHeight = (stdLeftBtnH * 3) + (connRightBtns->verticalSpacing() * 2);
-    actionButtonsBox->setMinimumHeight(actionButtonsMinHeight);
+    // Aquí vivía una rejilla 3x2 con Sincronizar, Copiar, Clonar, Mover, Nivelar y Diff.
+    // Las seis pasaron al menú contextual del destino, así que la caja se queda solo con
+    // la etiqueta del origen y pierde la altura mínima de tres filas de botones: ese es
+    // el espacio que se recupera.
     actionButtonsBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
     auto* pendingChangesBox = new QGroupBox(
@@ -2388,7 +2272,9 @@ void MainWindow::buildUi() {
 
     // Legacy left "Datasets" tab removed from UI.
     // Legacy "advanced" layer removed from visible UI.
-    const int actionsBoxHeight = qMax(actionButtonsMinHeight + 12, m_connActionsBox->minimumSizeHint().height());
+    // La altura la marca ahora el contenido, no una constante calculada sobre tres filas
+    // de botones que ya no existen.
+    const int actionsBoxHeight = m_connActionsBox->minimumSizeHint().height();
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
@@ -4442,117 +4328,6 @@ void MainWindow::buildUi() {
         if (row < 0) return;
         logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
         destroyPoolFromRow(row);
-    });
-    connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnCopy) {
-                logUiAction(QStringLiteral("Cancelar Copiar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnCopy;
-        m_activeConnActionName = trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"),
-                                     QStringLiteral("Copy"), QStringLiteral("复制"));
-        logUiAction(QStringLiteral("Copiar snapshot (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("copy"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnClone, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnClone) {
-                logUiAction(QStringLiteral("Cancelar Clonar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnClone;
-        m_activeConnActionName = trk(QStringLiteral("t_clone_btn_001"),
-                                     QStringLiteral("Clonar"),
-                                     QStringLiteral("Clone"),
-                                     QStringLiteral("克隆"));
-        logUiAction(QStringLiteral("Clonar snapshot (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("clone"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnMove, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnMove;
-        m_activeConnActionName = trk(QStringLiteral("t_move_btn_001"),
-                                     QStringLiteral("Mover"),
-                                     QStringLiteral("Move"),
-                                     QStringLiteral("移动"));
-        logUiAction(QStringLiteral("Mover dataset (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("move"));
-        m_activeConnActionBtn = nullptr;
-        m_activeConnActionName.clear();
-        updateConnectionActionsState();
-    });
-    connect(m_btnConnDiff, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnDiff) {
-                logUiAction(QStringLiteral("Cancelar Diff (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnDiff;
-        m_activeConnActionName = trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff"));
-        logUiAction(QStringLiteral("Diff snapshot (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("diff"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnLevel, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnLevel) {
-                logUiAction(QStringLiteral("Cancelar Nivelar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnLevel;
-        m_activeConnActionName = trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"),
-                                     QStringLiteral("Level"), QStringLiteral("同步快照"));
-        logUiAction(QStringLiteral("Nivelar snapshot (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("level"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnSync, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnSync) {
-                logUiAction(QStringLiteral("Cancelar Sincronizar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnSync;
-        m_activeConnActionName = trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"),
-                                     QStringLiteral("Sync"), QStringLiteral("同步文件"));
-        logUiAction(QStringLiteral("Sincronizar datasets (botón Conexiones)"));
-        executeConnectionTransferAction(QStringLiteral("sync"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
     });
     updateConnectionActionsState();
 }
