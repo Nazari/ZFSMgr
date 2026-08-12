@@ -479,6 +479,22 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
                           ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                                : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
                           : st.zfsVersionFull.trimmed());
+    // Sin ZFS no hay nada que gestionar, así que decir «-» y callar la dirección de
+    // descarga deja al usuario buscándola fuera. En Windows especialmente: no hay gestor
+    // de paquetes que lo instale, viene de un único sitio.
+    if (st.zfsVersion.trimmed().isEmpty() && st.zfsVersionFull.trimmed().isEmpty()
+        && !disconnected) {
+        if (windowsSshConn) {
+            lines << QStringLiteral("   -> No se detecta OpenZFS. Descárguelo de:");
+            lines << QStringLiteral("      https://github.com/openzfsonwindows/openzfs/releases");
+            lines << QStringLiteral("      Instale el .exe y reinicie; añade zfs.exe y zpool.exe en");
+            lines << QStringLiteral("      C:\\Program Files\\OpenZFS On Windows.");
+        } else {
+            lines << QStringLiteral("   -> No se detecta OpenZFS. Instálelo con el gestor de paquetes");
+            lines << QStringLiteral("      del sistema (zfsutils-linux, openzfs, zfs...) o desde");
+            lines << QStringLiteral("      https://openzfs.github.io/openzfs-docs/Getting%%20Started/");
+        }
+    }
     lines << QStringLiteral("Daemon: %1")
                  .arg(!st.daemonInstalled ? QStringLiteral("no instalado")
                                           : QStringLiteral("%1 | %2 | %3")

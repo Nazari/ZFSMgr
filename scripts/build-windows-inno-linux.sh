@@ -298,6 +298,17 @@ Name: "{autodesktop}\\${APP_NAME}"; Filename: "{app}\\${APP_EXE}"; Tasks: deskto
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
+; Activar OpenSSH Server en ESTA máquina, para poder gestionarla desde otro ZFSMgr.
+;
+; Es el problema del huevo y la gallina de Windows: ZFSMgr habla con una máquina remota
+; SOLO por SSH —el RPC del agente viaja por un túnel sobre esa conexión—, así que sin
+; sshd no hay forma de llegar ni para instalar el agente. Quien monta un Windows nuevo
+; tenía que dar con los tres comandos de PowerShell y ejecutarlos a mano.
+;
+; Marcada por omisión porque es justo a lo que viene quien instala esto en un equipo
+; que va a gestionar en remoto, pero VISIBLE y desmarcable: levantar un servidor SSH
+; cambia la exposición del equipo en la red y eso no se hace en silencio.
+Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage this machine remotely from another ZFSMgr)"; GroupDescription: "Remote access:"
 
 [Run]
 ; shellexec: el ejecutable pide requireAdministrator en su manifiesto, y el lanzamiento
@@ -308,6 +319,17 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 ; sea que correría con la cuenta que consintió el UAC de la instalación. Si es otra
 ; distinta de la del escritorio, la configuración y el registro se escribirían en el
 ; perfil equivocado y al abrir después la aplicación desde su acceso directo no estarían.
+; Los tres pasos que hacían falta a mano. Se ejecutan por separado para que un fallo en
+; uno no impida los siguientes: en un Windows que ya trae la capacidad instalada, el
+; Add-WindowsCapability devuelve error y aun así hay que arrancar y automatizar sshd.
+;
+; -WindowStyle Hidden y runhidden: el instalador no debe dejar ventanas negras sueltas.
+; El "|Out-Null" y el ErrorAction evitan que un aviso pare el paso.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue | Out-Null"""; StatusMsg: "Enabling OpenSSH Server..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service sshd -ErrorAction SilentlyContinue"""; StatusMsg: "Starting the SSH service..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
+; Regla de firewall: sin ella el servicio arranca pero no se llega desde fuera, que es
+; exactamente el síntoma más desconcertante —sshd corriendo y la conexión rechazada—.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""if (-not (Get-NetFirewallRule -Name 'sshd' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'sshd' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null }"""; StatusMsg: "Allowing SSH through the firewall..."; Flags: runhidden waituntilterminated; Tasks: opensshserver
 Filename: "{app}\\${APP_EXE}"; Description: "Run ${APP_NAME}"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser
 EOF
 }
