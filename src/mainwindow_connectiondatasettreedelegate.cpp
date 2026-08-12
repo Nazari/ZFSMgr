@@ -2850,6 +2850,13 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const QString mountedRaw = datasetPropFromModel(ctx, QStringLiteral("mounted")).trimmed().toLower();
     const QString canmountRaw = datasetPropFromModel(ctx, QStringLiteral("canmount")).trimmed().toLower();
     const QString mountpointRaw = datasetPropFromModel(ctx, QStringLiteral("mountpoint")).trimmed();
+    // En Windows el punto de montaje NO es un mountpoint: es una letra de unidad, y vive
+    // en otra propiedad. Un pool importado allí trae `mountpoint=-` y `driveletter=Z`,
+    // de modo que exigir un mountpoint válido dejaba Montar deshabilitado para siempre
+    // —y Desmontar también, porque tampoco figuraba como montado—. Visto en un Windows
+    // real tras importar un pool creado en otra máquina.
+    const QString driveLetterRaw =
+        mwhelpers::normalizeDriveLetterValue(datasetPropFromModel(ctx, QStringLiteral("driveletter")));
     auto isValidMountpointForMenu = [this](const QString& mountpoint, int cidx) -> bool {
         const QString mp = mountpoint.trimmed();
         if (mp.isEmpty()) {
@@ -2924,7 +2931,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             const bool mountAllowedByProps =
                 !canmountRaw.isEmpty()
                 && canmountRaw != QStringLiteral("off")
-                && isValidMountpointForMenu(mountpointRaw, ctx.connIdx);
+                // En Windows NO se exige punto de montaje.
+                //
+                // Allí el destino es una LETRA DE UNIDAD, en otra propiedad, y un pool
+                // recién importado trae `mountpoint=-`, que es su estado normal. Exigir
+                // un mountpoint válido es una suposición de Unix, y dejaba Montar
+                // deshabilitado para siempre en Windows —Desmontar también, porque
+                // tampoco figuraba como montado—. Comprobado sobre un pool importado en
+                // un Windows real.
+                //
+                // Si la letra está puesta, mejor; pero no se exige, porque esa propiedad
+                // solo está en la caché si se han cargado las del dataset, y de eso no
+                // puede depender que el menú funcione.
+                && (m_mainWindow->isWindowsConnection(m_mainWindow->m_profiles.value(ctx.connIdx))
+                    || isValidMountpointForMenu(mountpointRaw, ctx.connIdx)
+                    || !driveLetterRaw.isEmpty());
             const bool alreadyMounted = mwhelpers::isMountedValueTrue(mountedRaw);
             aMount->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap
                                && mountAllowedByProps && !alreadyMounted);
