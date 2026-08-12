@@ -71,6 +71,7 @@
     <file alias="help/zh/accion_clonar.md">../help/zh/accion_clonar.md</file>
     <file alias="help/zh/accion_sincronizar.md">../help/zh/accion_sincronizar.md</file>
     <file alias="help/zh/accion_nivelar.md">../help/zh/accion_nivelar.md</file>
+    <file alias="help/zh/accion_diff.md">../help/zh/accion_diff.md</file>
     <file alias="help/zh/accion_desglosar.md">../help/zh/accion_desglosar.md</file>
     <file alias="help/zh/accion_ensamblar.md">../help/zh/accion_ensamblar.md</file>
     <file alias="help/zh/accion_desde_dir.md">../help/zh/accion_desde_dir.md</file>
