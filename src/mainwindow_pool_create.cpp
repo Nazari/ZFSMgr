@@ -1240,10 +1240,35 @@ void MainWindow::createPoolForSelectedConnection() {
     altrootEd->setText(zdefs.altroot);
     ashiftCb->setCurrentText(zdefs.ashift);
     autotrimCb->setCurrentText(zdefs.autotrim);
-    if (!zdefs.compatibility.isEmpty() && compatibilityCb->findText(zdefs.compatibility) < 0) {
+    // La compatibilidad por omisión SOLO si la máquina destino la tiene.
+    //
+    // Antes se inyectaba en la lista aunque no estuviera y se seleccionaba, de modo que
+    // se enviaba `-o compatibility=<algo que no existe allí>` y zpool create moría con
+    //
+    //   Error: could not read/parse feature file(s): openzfs-2.4-linux
+    //
+    // Visto en un Windows real: el valor por omisión es un fichero de compatibilidad de
+    // LINUX, y OpenZFS on Windows trae `openzfs-2.4` pero no `openzfs-2.4-linux`. El
+    // sondeo ya lista los que hay de verdad; ignorarlo era el error.
+    //
+    // Si el sondeo no devolvió nada —no se pudo listar— se mantiene el comportamiento
+    // anterior: no hay con qué contrastar, y vetar el valor sería peor.
+    const bool compatAvailable =
+        compatibilityNames.isEmpty() || compatibilityNames.contains(zdefs.compatibility);
+    if (!zdefs.compatibility.isEmpty() && compatAvailable
+        && compatibilityCb->findText(zdefs.compatibility) < 0) {
         compatibilityCb->addItem(zdefs.compatibility);
     }
-    compatibilityCb->setCurrentText(zdefs.compatibility);
+    if (compatAvailable) {
+        compatibilityCb->setCurrentText(zdefs.compatibility);
+    } else {
+        // Sin compatibilidad: zpool decide, que es lo correcto cuando no se sabe.
+        compatibilityCb->setCurrentIndex(0);
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("[crear pool] la compatibilidad por omisión «%1» no existe en "
+                              "esta máquina; se deja sin fijar")
+                   .arg(zdefs.compatibility));
+    }
 
     QMap<QString, QString> fsDefaults;
     for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
