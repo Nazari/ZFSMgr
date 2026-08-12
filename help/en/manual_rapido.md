@@ -6,12 +6,14 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 ![Main window](qrc:/help/img/auto/main-window.png)
 
-- Top area: a single unified tree spanning the full width.
-- Middle area:
-  - `Status` and `Progress` row
-  - `Actions` box (includes `Source` and `Target` in one line)
-  - `Pending changes` box to the right of `Actions`
-- Bottom area: log tabs (`Settings`, `Combined log`, `Terminal`, `Daemon`, `Transferencias`).
+- Top area: a single unified tree spanning the full width and nearly the full height.
+- Middle band, a **single line**: `Source`, `Status` and `Progress`.
+- Bottom area: tabs (`Pending changes`, `Settings`, `Combined log`, `Terminal`, `Daemon`,
+  `Transfers`).
+
+The `Actions` box with its six buttons is gone: `Copy`, `Move`, `Clone`, `Sync`, `Level`
+and `Diff` are requested from the target node's context menu (see `Context menus`).
+`Pending changes` became the first tab at the bottom.
 
 ## Unified tree
 
@@ -59,13 +61,12 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 ## Source and target selection
 
-- There are no longer `Source/Target` checks in a connections table.
-- To choose them:
-  - right click a dataset
-  - `Select as source`
-  - `Select as destination`
-- The `Source/Target` line in the `Actions` box reflects that logical selection.
-- The current visual selection in the tree and the logical `Source/Target` selections are independent.
+- Only the **source** is marked: right-click a dataset or snapshot → `Mark as source`.
+- The **target is not marked**. It is the node whose context menu you open to request the
+  action, just like pasting.
+- The `Source:` line in the top band remembers what is marked; its tooltip shows it in
+  full when the name does not fit.
+- The tree's visual selection and the marked source are independent.
 
 ## Context menus
 
@@ -130,7 +131,11 @@ destroy…) behave like this:
 - **`Set name...`** (context menu) to tell similar entries apart.
 - **`Edit...`** (context menu) reopens the dialog with what you asked for, for all four
   advanced actions. Cancelling the edit does **not** delete the action.
-- Removing an entry is **manual**: `Delete`, or `Discard` to empty the whole list.
+- Removing an entry is **manual**: `Delete`, or `Empty list` to discard everything, which
+  asks for confirmation and lists what it takes with it.
+- A queued action stores the command ALREADY BUILT, so it does not pick up later fixes to
+  the program. If another version queued it, the row shows **⚠** and you are asked before
+  it runs: the safe move is to remove it and request the action again.
 
 **Properties, permissions and renames** do not work this way: they still disappear once
 applied. They are edits to a state, with a natural end, not jobs worth repeating.

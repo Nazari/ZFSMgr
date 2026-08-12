@@ -1,5 +1,7 @@
 # Action: Sync
 
+> **How to invoke it.** Right-click the source (`Mark as source`), then open the context menu **on the target node**: the `With source …` submenu offers this action. There is no button any more. If it is greyed out, the reason is in its tooltip. See `Context menus`.
+
 Goal: synchronize source dataset content into target dataset.
 
 Conditions:

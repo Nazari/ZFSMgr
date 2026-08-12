@@ -67,28 +67,59 @@ Un backoff TLS de daemon-rpc marca la conexión para atención pero **no** dispa
   - `Gestionar visualización de propiedades`
   - `Dataset`
   - `Acciones`
-  - `Seleccionar como origen`
-  - `Seleccionar como destino`
+  - `Marcar como origen`
+  - `Con el origen …` (las seis acciones de dos extremos; ver abajo)
   - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
 - Submenú `Dataset`:
   - `Crear`
   - `Renombrar`
   - `Borrar`
+  - `Montar`: solo si el dataset tiene `canmount` distinto de `off`, un `mountpoint`
+    válido y **no** está ya montado.
+  - `Desmontar`: solo si **está** montado. No se le exige `canmount`: un dataset puede
+    estar montado y tener después `canmount=off`, y es justo entonces cuando hace falta.
   - `Clave de Encriptación` (`Cargar Clave`, `Descargar Clave`, `Cambiar Clave`)
   - `Programar snapshots`
   - `Permisos` (`Nuevo Set`, `Nueva Delegación`)
-- Submenú `Acciones`:
+- Submenú `Acciones` (operaciones sobre los DATOS, no sobre el estado del dataset):
   - `Desglosar`
   - `Ensamblar`
   - `Desde Dir`
-  - `Hasta Dir`
-  - `Mount`: solo se habilita si el dataset tiene `canmount` distinto de `off`, un `mountpoint` válido y no está ya montado.
+  - `Hacia Dir`
 - En snapshots:
   - `Gestionar visualización de propiedades`
   - `Borrar snapshot`
   - `Rollback`
   - `Nuevo Hold`
-  - `Seleccionar como origen`
+  - `Marcar como origen`
+  - `Con el origen …`
+
+## Las seis acciones de origen y destino
+
+`Copiar`, `Mover`, `Clonar`, `Sincronizar`, `Nivelar` y `Diff` necesitan **dos** extremos.
+Ya no tienen botones: se piden desde el menú contextual, siguiendo el modelo de
+copiar y pegar.
+
+1. Clic derecho sobre el dataset o snapshot de partida → `Marcar como origen`.
+2. Clic derecho sobre **cualquier otro nodo**: ese nodo es el destino, y el submenú
+   `Con el origen <nombre>` ofrece las seis, nombrando el origen en cada una:
+
+```
+Con el origen datos@lunes ▸
+   Copiar aquí desde datos@lunes
+   Mover aquí desde datos@lunes
+   Clonar aquí desde datos@lunes
+   Sincronizar aquí desde datos@lunes
+   Nivelar con datos@lunes
+   Comparar con datos@lunes
+```
+
+No hay que marcar el destino: es el nodo sobre el que se pulsa. La línea `Origen:` de
+arriba recuerda qué hay marcado, y su tooltip lo muestra completo cuando el nombre no cabe.
+
+Lo que no aplica sale **en gris, con el motivo en el tooltip**: que el origen no es un
+snapshot, que los pools no coinciden, que `Diff` compara dos puntos del mismo dataset, o
+que las versiones de OpenZFS no son compatibles para transferir.
 - En holds:
   - `Release`
 
@@ -103,7 +134,7 @@ En el nodo pool fusionado, `Split and root` aparece justo después del submenú 
 
 - Las acciones destructivas piden confirmación.
 - Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
-- `Seleccionar como origen` y `Seleccionar como destino` actualizan la línea `Source/Target` de la caja `Acciones`.
+- `Marcar como origen` actualiza la línea `Origen:` de la banda superior. El destino no se marca: es el nodo sobre el que se abre el menú.
 - El nodo `@` (agrupador de snapshots) no tiene menú contextual.
 - En `Dataset properties` y `Snapshot properties` el menú contextual contiene únicamente `Gestionar visualización de propiedades`.
 - Los hijos de la raíz de conexión que no son raíz de pool (`Properties`, `Info`) no tienen menú contextual.

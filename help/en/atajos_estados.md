@@ -4,7 +4,7 @@
 - The unified tree is now the main navigation surface.
 - The current tree selection does not replace logical `Source` and `Target`.
 - `Source` and `Target` are set explicitly from the dataset context menu.
-- The `Source/Target` line in `Actions` reflects that logical selection.
+- The `Source:` line in the top band reflects what is marked. The target is not marked: it is the node whose menu you open to request the action.
 - If a connection is disconnected:
   - the connection root stays visible
   - it shows no children

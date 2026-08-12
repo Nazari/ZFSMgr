@@ -2,9 +2,10 @@
 
 - El cursor cambia a ocupado durante acciones y refrescos.
 - El árbol unificado es ahora la fuente principal de navegación.
-- La selección visual del árbol no sustituye a `Origen` y `Destino`.
-- `Origen` y `Destino` se fijan explícitamente desde el menú contextual del dataset.
-- La línea `Source/Target` en la caja `Acciones` refleja esa selección lógica.
+- La selección visual del árbol no sustituye al `Origen` marcado.
+- El `Origen` se fija desde el menú contextual (`Marcar como origen`). El destino no se
+  marca: es el nodo sobre el que se abre el menú para pedir la acción.
+- La línea `Origen:` de la banda superior refleja lo marcado.
 - Si una conexión está desconectada:
   - la conexión sigue visible
   - no muestra hijos

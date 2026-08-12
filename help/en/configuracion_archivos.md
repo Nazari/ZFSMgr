@@ -43,7 +43,11 @@ Inside `app` the following are stored, among others:
 
 ## What is NOT stored
 
-- The `Source` and `Target` selections are per session: they are lost when the application closes.
+- The `Source` mark is per session: it is lost when the application closes. There is no
+  target to store: it is the node you request the action on.
+- The **pending changes list** IS stored (`pending_actions` key), with each action's
+  command and WITHOUT passwords: they are replaced by a marker and restored from the
+  connection on load.
 - Tree column widths are kept when switching connection or panel within the same session, but not across restarts.
 
 ## Loading at startup

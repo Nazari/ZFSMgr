@@ -67,28 +67,58 @@ A daemon-rpc TLS backoff marks the connection as needing attention but does **no
   - `Manage property display`
   - `Dataset`
   - `Actions`
-  - `Select as source`
-  - `Select as target`
+  - `Mark as source`
+  - `With source …` (the six two-endpoint actions; see below)
   - `Split and root` (submenu: `Right`, `Left`, `Down`, `Up`)
 - `Dataset` submenu:
   - `Create`
   - `Rename`
   - `Delete`
+  - `Mount`: only when the dataset has `canmount` other than `off`, a valid
+    `mountpoint`, and is **not** already mounted.
+  - `Unmount`: only when it **is** mounted. `canmount` is not required: a dataset can be
+    mounted and later have `canmount=off`, and that is exactly when you need to unmount it.
   - `Encryption Key` (`Load Key`, `Unload Key`, `Change Key`)
   - `Schedule snapshots`
   - `Permissions` (`New Set`, `New Delegation`)
-- `Actions` submenu:
+- `Actions` submenu (operations on the DATA, not on dataset state):
   - `Breakdown`
   - `Assemble`
   - `From Dir`
   - `To Dir`
-  - `Mount`: only enabled when the dataset has `canmount` other than `off`, a valid `mountpoint`, and is not already mounted.
 - On snapshots:
   - `Manage property display`
   - `Delete snapshot`
   - `Rollback`
   - `New Hold`
-  - `Select as source`
+  - `Mark as source`
+  - `With source …`
+
+## The six source-and-target actions
+
+`Copy`, `Move`, `Clone`, `Sync`, `Level` and `Diff` need **two** endpoints. They no longer
+have buttons: you request them from the context menu, following the copy-and-paste model.
+
+1. Right-click the starting dataset or snapshot → `Mark as source`.
+2. Right-click **any other node**: that node is the target, and the `With source <name>`
+   submenu offers the six, naming the source in each one:
+
+```
+With source datos@lunes ▸
+   Copy here from datos@lunes
+   Move here from datos@lunes
+   Clone here from datos@lunes
+   Sync here from datos@lunes
+   Level with datos@lunes
+   Compare with datos@lunes
+```
+
+There is no target to mark: it is the node you click on. The `Source:` line at the top
+remembers what is marked, and its tooltip shows it in full when the name does not fit.
+
+Whatever does not apply appears **greyed out, with the reason in its tooltip**: the source
+is not a snapshot, the pools do not match, `Diff` compares two points of the same dataset,
+or the OpenZFS versions are not compatible for transfers.
 - On holds:
   - `Release`
 
@@ -103,7 +133,7 @@ On the merged pool node, `Split and root` appears right after the `Pool` submenu
 
 - Destructive actions ask for confirmation.
 - Several actions work in deferred mode and accumulate in `Pending changes`.
-- `Select as source` and `Select as target` update the `Source/Target` line of the `Actions` box.
+- `Mark as source` updates the `Source:` line in the top band. The target is not marked: it is the node whose menu you opened.
 - The `@` node (snapshot grouper) has no context menu.
 - On `Dataset properties` and `Snapshot properties` the context menu contains only `Manage property display`.
 - Children of the connection root that are not pool roots (`Properties`, `Info`) have no context menu.
