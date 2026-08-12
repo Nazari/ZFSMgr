@@ -260,6 +260,18 @@ bool windowsPartitionTypeIsProtected(const QString& rawFsType) {
             return true;
         }
     }
+    // Discos enteros: el de arranque y el del sistema van protegidos.
+    //
+    // Hasta ahora el disco completo solo se ofrecía cuando no tenía nada aprovechable
+    // dentro, así que no hacía falta protegerlo. Al pasar a ofrecerlo siempre —que es lo
+    // que necesita OpenZFS on Windows, incapaz de usar una partición suelta— hay que
+    // distinguir el disco que se puede entregar a ZFS del que arranca el sistema.
+    for (const QString& partRaw : parts) {
+        const QString part = partRaw.trimmed().toLower();
+        if (part == QStringLiteral("isboot=true") || part == QStringLiteral("issystem=true")) {
+            return true;
+        }
+    }
     return false;
 }
 

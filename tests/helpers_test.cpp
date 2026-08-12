@@ -773,6 +773,23 @@ int main() {
         }
     }
 
+    // Discos enteros de Windows: el de arranque y el del sistema, protegidos; un disco
+    // de datos, ofrecible aunque tenga particiones. Es lo que permite dedicarlo a ZFS,
+    // que en Windows es obligatorio: OpenZFS no abre una partición suelta.
+    {
+        if (!windowsPartitionTypeIsProtected(
+                QStringLiteral("diskstyle=GPT|bus=SATA|model=X|isboot=True|issystem=True|parts=4|type=WHOLEDISK"))) {
+            return fail("el disco de arranque debe salir protegido");
+        }
+        if (windowsPartitionTypeIsProtected(
+                QStringLiteral("diskstyle=GPT|bus=SATA|model=X|isboot=False|issystem=False|parts=2|type=WHOLEDISK"))) {
+            return fail("un disco de datos con particiones NO debe salir protegido");
+        }
+        if (!windowsPartitionTypeIsProtected(QStringLiteral("NTFS|gpt=...|type=system|mbr=-"))) {
+            return fail("una partición de sistema debe seguir protegida");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

@@ -431,23 +431,26 @@ void MainWindow::createPoolForSelectedConnection() {
             "  $ptype = ($fs + '|gpt=' + $gpt + '|type=' + $ptypeRaw + '|mbr=' + $mbr); "
             "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
             "}; "
+            // El disco ENTERO se ofrece siempre. Antes solo aparecía si todas sus
+            // particiones eran EFI/reservadas o si no tenía ninguna, de modo que un disco
+            // de datos —justo el que se quiere dedicar a ZFS— no salía nunca en la lista
+            // y solo se podían elegir sus particiones. En Windows eso no vale:
+            // OpenZFS abre el disco completo, y con una partición devuelve
+            // «wosix_open(...): error 31 / cannot open ... Invalid argument».
+            //
+            // No se oculta lo peligroso, se marca: el disco de arranque y el del sistema
+            // llegan con isboot/issystem y el diálogo los pinta protegidos, igual que ya
+            // hace con las particiones del disco 0.
             "Get-Disk | "
-            "Where-Object { "
-            "  $parts = @(Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue); "
-            "  if ($parts.Count -eq 0) { $true } "
-            "  else { "
-            "    $nonEfi = @($parts | Where-Object { "
-            "      $g = if($_.GptType){ $_.GptType.ToString().Trim('{}').ToLower() } else { '' }; "
-            "      $t = if($_.Type){ $_.Type.ToString().Trim().ToLower() } else { '' }; "
-            "      ($g -ne 'c12a7328-f81f-11d2-ba4b-00a0c93ec93b') -and ($g -ne 'e3c9e316-0b5c-4db8-817d-f92df00215ae') -and ($t -ne 'reserved') "
-            "    }); "
-            "    $nonEfi.Count -eq 0 "
-            "  } "
-            "} | "
             "ForEach-Object { "
             "  $path = ('\\\\.\\PhysicalDrive' + $_.Number); "
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
-            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType + '|model=' + [string]$_.FriendlyName + '|type=EFI_OR_RESERVED_ONLY_OR_EMPTY'; "
+            "  $np = @(Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue).Count; "
+            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType "
+            "         + '|model=' + [string]$_.FriendlyName "
+            "         + '|isboot=' + [string]$_.IsBoot + '|issystem=' + [string]$_.IsSystem "
+            "         + '|parts=' + [string]$np "
+            "         + '|type=WHOLEDISK'; "
             "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t\" + $ptype + \"`tdisk\") "
             "}");
     } else {
