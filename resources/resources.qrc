@@ -80,5 +80,6 @@
     <file alias="help/zh/propiedades_inline_columnas.md">../help/zh/propiedades_inline_columnas.md</file>
     <file alias="help/zh/logs_aplicacion.md">../help/zh/logs_aplicacion.md</file>
     <file alias="help/zh/configuracion_archivos.md">../help/zh/configuracion_archivos.md</file>
+    <file alias="help/zh/conexiones_windows.md">../help/zh/conexiones_windows.md</file>
   </qresource>
 </RCC>
