@@ -1593,6 +1593,19 @@ void MainWindow::applyDatasetPropertyChanges() {
                                                  op.displayLine.trimmed());
                 markPendingRunning(displayLine);
                 const QString cmd = op.command;
+                // Registrar ANTES de ejecutar, siempre.
+                //
+                // Un cambio de propiedad aplicado en Windows no dejó NI UNA línea en el
+                // registro: se cambió `driveletter`, el pool se suspendió a continuación
+                // y no había forma de saber qué orden se había enviado ni si había
+                // llegado a enviarse. Toda la depuración de esta jornada se ha apoyado en
+                // el registro; una acción que cambia estado sin dejar rastro no puede
+                // existir.
+                appLog(QStringLiteral("NORMAL"),
+                       QStringLiteral("Aplicar propiedades en %1::%2 -> %3")
+                           .arg(m_profiles.value(item.ctx.connIdx).name,
+                                item.objectName,
+                                mwhelpers::oneLine(mwhelpers::maskCommandSecrets(cmd))));
                 if (!executeDatasetAction(QStringLiteral("conncontent"),
                                           QStringLiteral("Aplicar propiedades"),
                                           item.ctx,
