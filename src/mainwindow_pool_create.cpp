@@ -1270,11 +1270,38 @@ void MainWindow::createPoolForSelectedConnection() {
                    .arg(zdefs.compatibility));
     }
 
+    // Propiedades por omisión que NO existen fuera de Linux.
+    //
+    // Las de abajo son de Linux y en OpenZFS on Windows hacen fallar la creación entera:
+    //
+    //   cannot create 'winpool': invalid argument for this pool operation
+    //
+    // Visto en un Windows real, después de que el disco ya se hubiera bloqueado y
+    // etiquetado: el fallo llegaba al final, cuando parecía que todo había ido bien.
+    //
+    // Se OMITEN en vez de traducirse: acltype tendría equivalente (nfsv4), pero elegirlo
+    // por el usuario en un sistema de permisos distinto es una decisión suya, no nuestra.
+    // Sin ellas, ZFS aplica sus valores por defecto, que en cada plataforma son los suyos.
+    static const QSet<QString> kLinuxOnlyFsProps = {
+        QStringLiteral("acltype"), QStringLiteral("xattr"), QStringLiteral("relatime")
+    };
+    const bool targetIsWindows = isWindowsConnection(p);
+
     QMap<QString, QString> fsDefaults;
     for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
         const QString t = item.trimmed();
         if (t.isEmpty()) {
             continue;
+        }
+        if (targetIsWindows) {
+            const int eqSep = t.indexOf('=');
+            const QString key = (eqSep > 0 ? t.left(eqSep) : t).trimmed().toLower();
+            if (kLinuxOnlyFsProps.contains(key)) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("[crear pool] «%1» se omite: no existe fuera de Linux")
+                           .arg(t));
+                continue;
+            }
         }
         const int eq = t.indexOf('=');
         if (eq <= 0) {
