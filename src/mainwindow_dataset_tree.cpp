@@ -1758,6 +1758,43 @@ bool MainWindow::showAutomaticSnapshots() const {
     return true;
 }
 
+namespace {
+
+// Suelta los widgets de celda de las columnas que van a desaparecer.
+//
+// Las propiedades en línea se pintan con setItemWidget, y cada widget mantiene un índice
+// PERSISTENTE sobre su columna. Si la columna desaparece bajo ellos, ese índice queda
+// colgando dentro del modelo y el primer borrado de filas posterior lo delata:
+//
+//   QAbstractItemModel::endRemoveRows: Invalid index ( 0 , 12 )
+//
+// Reproducido bajando las columnas de propiedades de 10 a 8. Qt se recupera, pero un
+// índice inválido vivo en el modelo no es sitio donde dejar nada.
+void dropItemWidgetsBeyondColumn(QTreeWidget* tree, int keepColumns) {
+    if (!tree || keepColumns >= tree->columnCount()) {
+        return;
+    }
+    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        for (int col = keepColumns; col < tree->columnCount(); ++col) {
+            if (QWidget* w = tree->itemWidget(node, col)) {
+                tree->removeItemWidget(node, col);
+                w->deleteLater();
+            }
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            walk(node->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        walk(tree->topLevelItem(i));
+    }
+}
+
+}  // namespace
+
 void MainWindow::syncConnContentPropertyColumnsFor(QTreeWidget* tree, const QString& token) {
     Q_UNUSED(token);
     syncConnContentPropertyColumns(tree);
@@ -1784,6 +1821,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         headers << QStringLiteral("C%1").arg(i + 1);
     }
     headers[0] = QString();
+    dropItemWidgetsBeyondColumn(tree, headers.size());
     tree->setColumnCount(headers.size());
     tree->setHeaderLabels(headers);
     if (QTreeWidgetItem* hh = tree->headerItem()) {
@@ -2960,6 +2998,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         headers << QStringLiteral("C%1").arg(i + 1);
     }
     headers[0] = QString();
+    dropItemWidgetsBeyondColumn(tree, headers.size());
     tree->setColumnCount(headers.size());
     tree->setHeaderLabels(headers);
     if (QTreeWidgetItem* hh = tree->headerItem()) {
