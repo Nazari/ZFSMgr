@@ -445,6 +445,28 @@ private:
         QStringList missingUnixCommands;
         QMap<QString, bool> packageManagerAvailabilityById;
     };
+    // Disponibilidad de las seis acciones que necesitan origen Y destino.
+    //
+    // Existe para poder preguntar «¿estaría permitido esto SI el destino fuera este
+    // nodo?» sin duplicar las reglas. El menú contextual necesita justo eso: se invoca
+    // sobre un nodo cualquiera y tiene que decidir, ahí mismo, si la acción cabe y qué
+    // decir cuando no. Las reglas viven en un solo sitio o se desincronizan —ya pasó con
+    // los dos validadores del diálogo de selección—.
+    struct TransferActionAvailability {
+        struct Entry {
+            bool enabled{false};
+            QString reason;   // por qué no, cuando enabled es false
+        };
+        Entry copy;
+        Entry clone;
+        Entry move;
+        Entry level;
+        Entry sync;
+        Entry diff;
+    };
+    TransferActionAvailability transferActionAvailabilityFor(const DatasetSelectionContext& src,
+                                                             const DatasetSelectionContext& dst);
+
     struct PendingChange {
         enum class Kind {
             Property,

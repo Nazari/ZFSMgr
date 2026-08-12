@@ -2412,6 +2412,93 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                               QStringLiteral("关闭")));
     }
 
+    // Las seis acciones de origen+destino, invocadas SOBRE el destino.
+    struct TransferEntry {
+        QAction* action{nullptr};
+        QString verb;
+    };
+    QVector<TransferEntry> transferEntries;
+
+    // Construye el grupo «con el origen marcado». Se invoca sobre el nodo pulsado, que
+    // pasa a ser el DESTINO: es el modelo de copiar/pegar, y evita tener que recordar qué
+    // había marcado como destino hace media hora. Cada entrada se lee como una frase
+    // completa y nombra el origen, así que el menú informa por sí solo.
+    auto buildTransferMenu = [this, &menu, &transferEntries](const SelectionSnapshot& target) {
+        const MainWindow::DatasetSelectionContext& origin = m_mainWindow->m_connActionOrigin;
+        const bool hasOrigin = origin.valid && !origin.datasetName.trimmed().isEmpty();
+        const QString originShort =
+            hasOrigin ? (origin.snapshotName.trimmed().isEmpty()
+                             ? origin.datasetName.trimmed()
+                             : QStringLiteral("%1@%2").arg(origin.datasetName.trimmed(),
+                                                           origin.snapshotName.trimmed()))
+                      : QString();
+        QMenu* sub = menu.addMenu(
+            hasOrigin ? m_mainWindow->trk(QStringLiteral("t_ctx_with_origin001"),
+                                          QStringLiteral("Con el origen %1"),
+                                          QStringLiteral("With source %1"),
+                                          QStringLiteral("以 %1 为源")).arg(originShort)
+                      : m_mainWindow->trk(QStringLiteral("t_ctx_with_origin_none001"),
+                                          QStringLiteral("Con el origen marcado"),
+                                          QStringLiteral("With the marked source"),
+                                          QStringLiteral("以已标记的源")));
+        MainWindow::DatasetSelectionContext dst;
+        dst.valid = target.valid;
+        dst.connIdx = target.connIdx;
+        dst.poolName = target.poolName;
+        dst.datasetName = target.datasetName;
+        dst.snapshotName = target.snapshotName;
+        const MainWindow::TransferActionAvailability avail =
+            m_mainWindow->transferActionAvailabilityFor(origin, dst);
+        struct Spec {
+            QString verb;
+            QString es;
+            QString en;
+            QString zh;
+            const MainWindow::TransferActionAvailability::Entry* entry;
+        };
+        const QVector<Spec> specs = {
+            {QStringLiteral("copy"),  QStringLiteral("Copiar aquí desde %1"),
+             QStringLiteral("Copy here from %1"),      QStringLiteral("从 %1 复制到此"),      &avail.copy},
+            {QStringLiteral("move"),  QStringLiteral("Mover aquí desde %1"),
+             QStringLiteral("Move here from %1"),      QStringLiteral("从 %1 移动到此"),      &avail.move},
+            {QStringLiteral("clone"), QStringLiteral("Clonar aquí desde %1"),
+             QStringLiteral("Clone here from %1"),     QStringLiteral("从 %1 克隆到此"),      &avail.clone},
+            {QStringLiteral("sync"),  QStringLiteral("Sincronizar aquí desde %1"),
+             QStringLiteral("Sync here from %1"),      QStringLiteral("从 %1 同步到此"),      &avail.sync},
+            {QStringLiteral("level"), QStringLiteral("Nivelar con %1"),
+             QStringLiteral("Level with %1"),          QStringLiteral("与 %1 同步快照"),      &avail.level},
+            {QStringLiteral("diff"),  QStringLiteral("Comparar con %1"),
+             QStringLiteral("Compare with %1"),        QStringLiteral("与 %1 比较"),          &avail.diff},
+        };
+        for (const Spec& spec : specs) {
+            const QString label =
+                hasOrigin
+                    ? m_mainWindow->trk(QStringLiteral("t_ctx_transfer_%1").arg(spec.verb),
+                                        spec.es, spec.en, spec.zh).arg(originShort)
+                    : m_mainWindow->trk(QStringLiteral("t_ctx_transfer_%1").arg(spec.verb),
+                                        spec.es, spec.en, spec.zh)
+                          .arg(m_mainWindow->trk(QStringLiteral("t_ctx_transfer_nosrc001"),
+                                                 QStringLiteral("(sin origen)"),
+                                                 QStringLiteral("(no source)"),
+                                                 QStringLiteral("（无源）")));
+            QAction* act = sub->addAction(label);
+            const bool ok = spec.entry->enabled && !m_mainWindow->actionsLocked();
+            act->setEnabled(ok);
+            if (!ok) {
+                // El motivo va en el tooltip: una entrada en gris sin explicación es lo
+                // que ya hizo inservible el diálogo de selección en su día.
+                act->setToolTip(m_mainWindow->actionsLocked()
+                                    ? m_mainWindow->trk(QStringLiteral("t_ctx_transfer_busy001"),
+                                                        QStringLiteral("Hay una acción en curso."),
+                                                        QStringLiteral("An action is running."),
+                                                        QStringLiteral("有操作正在执行。"))
+                                    : spec.entry->reason);
+            }
+            transferEntries.push_back(TransferEntry{act, spec.verb});
+        }
+        sub->setToolTipsVisible(true);
+    };
+
     if (item->data(0, kConnSnapshotsNodeRole).toBool()) {
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.skip"),
@@ -2533,9 +2620,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             aNewHold = menu.addAction(m_mainWindow->trk(QStringLiteral("t_new_hold_title001"), QStringLiteral("Nuevo Hold")));
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
-                                  QStringLiteral("Seleccionar como origen"),
-                                  QStringLiteral("Select as source"),
-                                  QStringLiteral("设为源")));
+                                  QStringLiteral("Marcar como origen"),
+                                  QStringLiteral("Mark as source"),
+                                  QStringLiteral("标记为源")));
+            buildTransferMenu(ctx);
         } else {
             datasetMenuRoot = menu.addMenu(QStringLiteral("Dataset"));
             aCreate = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_create001"),
@@ -2614,9 +2702,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
-                                  QStringLiteral("Seleccionar como origen"),
-                                  QStringLiteral("Select as source"),
-                                  QStringLiteral("设为源")));
+                                  QStringLiteral("Marcar como origen"),
+                                  QStringLiteral("Mark as source"),
+                                  QStringLiteral("标记为源")));
+            buildTransferMenu(ctx);
             aSelectDestination = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_dest_001"),
                                   QStringLiteral("Seleccionar como destino"),
@@ -3198,6 +3287,25 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwActx.snapshotName = actx.snapshotName;
             m_mainWindow->logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
             m_mainWindow->actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"), mwActx);
+            return;
+        }
+        // Las seis de origen+destino: el nodo pulsado ES el destino, así que se fija
+        // aquí mismo y se lanza la acción por el mismo camino que usaban los botones.
+        for (const TransferEntry& entry : transferEntries) {
+            if (!entry.action || picked != entry.action) {
+                continue;
+            }
+            MainWindow::DatasetSelectionContext dst;
+            dst.valid = ctx.valid;
+            dst.connIdx = ctx.connIdx;
+            dst.poolName = ctx.poolName;
+            dst.datasetName = ctx.datasetName;
+            dst.snapshotName = ctx.snapshotName;
+            m_mainWindow->setConnectionDestinationSelection(dst);
+            m_mainWindow->logUiAction(
+                QStringLiteral("%1 desde menú contextual (destino %2)")
+                    .arg(entry.verb, ctx.datasetName));
+            m_mainWindow->executeConnectionTransferAction(entry.verb);
             return;
         }
         if (picked == aSelectOrigin || picked == aSelectDestination) {
