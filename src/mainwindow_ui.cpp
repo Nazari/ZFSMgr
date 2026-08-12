@@ -4340,6 +4340,50 @@ void MainWindow::buildUi() {
     if (m_btnDiscardPendingChanges) {
         connect(m_btnDiscardPendingChanges, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Deshacer cambios (panel pendientes)"));
+            // Confirmar SOLO si hay acciones encoladas.
+            //
+            // Este botón nació cuando la lista era una cola que se rehacía en un minuto.
+            // Ya no: las acciones sobreviven a su ejecución y a los reinicios, se les
+            // pone nombre y se re-editan, así que puede haber ahí un plan de trabajo de
+            // días. Un clic lo borraba entero, del modelo y del disco, sin preguntar y
+            // sin vuelta atrás.
+            //
+            // Los borradores de propiedades y permisos no se cuentan: descartarlos es
+            // barato y rehacerlos es inmediato, así que no merecen un diálogo.
+            int queuedActions = 0;
+            for (const PendingChange& change : m_pendingChangesModel) {
+                if (change.kind == PendingChange::Kind::ShellAction) {
+                    ++queuedActions;
+                }
+            }
+            if (queuedActions > 0) {
+                const auto choice = QMessageBox::question(
+                    this,
+                    QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_discard_confirm_001"),
+                        QStringLiteral("Se van a quitar %1 acciones de la lista, además de los "
+                                       "cambios de propiedades y permisos sin aplicar.\n\n"
+                                       "La lista se guarda en disco, así que también se borra "
+                                       "allí y no se puede recuperar.\n\n¿Continuar?"),
+                        QStringLiteral("This will remove %1 action(s) from the list, plus any "
+                                       "unapplied property and permission changes.\n\n"
+                                       "The list is stored on disk, so it is deleted there too "
+                                       "and cannot be recovered.\n\nContinue?"),
+                        QStringLiteral("将从列表中移除 %1 项操作，以及尚未应用的属性和权限更改。\n\n"
+                                       "该列表保存在磁盘上，因此也会一并删除且无法恢复。\n\n是否继续？"))
+                        .arg(queuedActions),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No);
+                if (choice != QMessageBox::Yes) {
+                    appLog(QStringLiteral("INFO"),
+                           QStringLiteral("[pendientes] descarte cancelado: %1 acciones intactas")
+                               .arg(queuedActions));
+                    return;
+                }
+                appLog(QStringLiteral("NORMAL"),
+                       QStringLiteral("[pendientes] descartadas %1 acciones a petición del usuario")
+                           .arg(queuedActions));
+            }
             clearAllPendingChanges();
         });
     }
