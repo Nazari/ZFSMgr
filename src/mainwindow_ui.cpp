@@ -2786,7 +2786,6 @@ void MainWindow::buildUi() {
     m_bottomInfoSplit->setStretchFactor(1, 0);
     m_bottomInfoSplit->setSizes({700, 220});
     topLayout->addWidget(m_bottomInfoSplit, 1);
-
     loadPersistedAppLogToView();
 
     m_logsTabs->addTab(pendingChangesBox,
@@ -2817,14 +2816,24 @@ void MainWindow::buildUi() {
         auto* jobsBtnRow = new QWidget(jobsTab);
         auto* jobsBtnLay = new QHBoxLayout(jobsBtnRow);
         jobsBtnLay->setContentsMargins(0, 0, 0, 0);
-        auto* cancelBtn  = new QPushButton(tr("Cancelar seleccionado"), jobsBtnRow);
-        auto* refreshBtn = new QPushButton(tr("Refrescar"), jobsBtnRow);
+        auto* cancelBtn  = new QPushButton(trk(QStringLiteral("t_jobs_cancel_sel001"),
+                                                QStringLiteral("Cancelar seleccionado"),
+                                                QStringLiteral("Cancel selected"),
+                                                QStringLiteral("取消所选")), jobsBtnRow);
+        auto* refreshBtn = new QPushButton(trk(QStringLiteral("t_jobs_refresh001"),
+                                                QStringLiteral("Refrescar"),
+                                                QStringLiteral("Refresh"),
+                                                QStringLiteral("刷新")), jobsBtnRow);
         jobsBtnLay->addWidget(refreshBtn);
         jobsBtnLay->addWidget(cancelBtn);
         jobsBtnLay->addStretch(1);
         jobsLay->addWidget(m_jobsListWidget, 1);
         jobsLay->addWidget(jobsBtnRow, 0);
-        m_logsTabs->addTab(jobsTab, tr("Transferencias"));
+        m_logsTabs->addTab(jobsTab,
+                           trk(QStringLiteral("t_jobs_tab_001"),
+                               QStringLiteral("Transferencias"),
+                               QStringLiteral("Transfers"),
+                               QStringLiteral("传输")));
 
         connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::pollDaemonJobs);
         connect(cancelBtn, &QPushButton::clicked, this, [this]() {
@@ -2915,6 +2924,25 @@ void MainWindow::buildUi() {
     // impedir colapsar.
     const int minChangesHeight = qMax(1, topBottomPane->sizeHint().height());
     topBottomPane->setMinimumHeight(minChangesHeight);
+
+    // Y el REPARTO del divisor, que es lo que de verdad dejaba el hueco.
+    //
+    // Medido: el divisor asignaba [314, 220] mientras el panel de la banda medía 31 px
+    // por su altura máxima. Los 189 de diferencia no los ocupaba nadie: eran hueco muerto
+    // DENTRO de la asignación, así que daba igual cuánto se encogiera el contenido.
+    // Los 220 venían del setSizes inicial y del estado guardado en config.json, y se
+    // reponían en cada arranque.
+    //
+    // Va después de restoreState a propósito: antes lo pisaría el estado restaurado. A
+    // partir de aquí el reparto correcto se guarda al cerrar y ya se sostiene solo.
+    if (m_bottomInfoSplit) {
+        const QList<int> currentSizes = m_bottomInfoSplit->sizes();
+        if (currentSizes.size() >= 2) {
+            const int total = currentSizes.at(0) + currentSizes.at(1);
+            const int bandHeight = qBound(1, minChangesHeight, total - 1);
+            m_bottomInfoSplit->setSizes({total - bandHeight, bandHeight});
+        }
+    }
 
     int minLogsHeight = bottomTabsPane->sizeHint().height();
     if (m_verticalMainSplit) {
