@@ -1130,6 +1130,7 @@ private:
     void clearAllPendingChanges();
     bool removePendingQueuedChangeLine(const QString& line);
     // Persistencia de la lista de acciones (mainwindow_pending_store.cpp)
+    void updatePendingChangesTabTitle();
     void savePendingActions();
     void loadPendingActions();
     QJsonObject pendingShellDraftToJson(const PendingShellActionDraft& draft,
@@ -1378,6 +1379,7 @@ private:
     QTabWidget* m_rightTabs{nullptr};
 
     QWidget* m_jobsTab{nullptr};
+    QWidget* m_pendingChangesTab{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QAction* m_menuExitAction{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};

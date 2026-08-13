@@ -54,6 +54,9 @@
 #include <QStyledItemDelegate>
 #include <QStyleOptionButton>
 #include <QSplitter>
+#include <QPainter>
+#include <QProxyStyle>
+#include <QStyleOptionTab>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -707,7 +710,68 @@ static QPixmap makePendingStatusPixmap(MainWindow::PendingItemStatus status, int
     return px;
 }
 
+namespace {
+
+// Pone en negrita la pestaña que lleva contador.
+//
+// Qt no ofrece tipografía por pestaña: QTabBar aplica una sola a todas. La vía limpia es
+// interceptar el dibujado de la etiqueta y cambiar la fuente solo para esa, que es lo que
+// hace este estilo. La alternativa —poner en negrita toda la barra— destacaría también
+// las pestañas que no tienen nada pendiente, o sea justo lo contrario de lo que se pide.
+//
+// Se reconoce por el propio contador: una pestaña está en negrita exactamente cuando
+// muestra «… (N)», que es cuando tiene algo pendiente. Ninguna otra lleva paréntesis.
+class CountedTabStyle final : public QProxyStyle {
+public:
+    explicit CountedTabStyle(QStyle* base) : QProxyStyle(base) {}
+
+    void drawControl(ControlElement element,
+                     const QStyleOption* option,
+                     QPainter* painter,
+                     const QWidget* widget) const override {
+        if (element == CE_TabBarTabLabel && painter) {
+            if (const auto* tab = qstyleoption_cast<const QStyleOptionTab*>(option)) {
+                const QString text = tab->text.trimmed();
+                if (text.endsWith(QLatin1Char(')')) && text.contains(QStringLiteral(" ("))) {
+                    QFont bold = painter->font();
+                    bold.setBold(true);
+                    painter->save();
+                    painter->setFont(bold);
+                    QProxyStyle::drawControl(element, option, painter, widget);
+                    painter->restore();
+                    return;
+                }
+            }
+        }
+        QProxyStyle::drawControl(element, option, painter, widget);
+    }
+};
+
+}  // namespace
+
+void MainWindow::updatePendingChangesTabTitle() {
+    if (!m_logsTabs || !m_pendingChangesTab) {
+        return;
+    }
+    const int index = m_logsTabs->indexOf(m_pendingChangesTab);
+    if (index < 0) {
+        return;
+    }
+    const QString base = trk(QStringLiteral("t_pending_changes_tab001"),
+                             QStringLiteral("Cambios pendientes"),
+                             QStringLiteral("Pending changes"),
+                             QStringLiteral("待处理更改"));
+    // Se cuenta lo que se APLICARÍA, no las filas de la lista: desde que las acciones
+    // sobreviven a su ejecución, la lista guarda también las ya hechas y desmarcadas, y
+    // anunciarlas como pendientes sería mentir.
+    const int pending = pendingConnContentApplyCommands().size();
+    m_logsTabs->setTabText(index,
+                           pending > 0 ? QStringLiteral("%1 (%2)").arg(base).arg(pending)
+                                       : base);
+}
+
 void MainWindow::updatePendingChangesList() {
+    updatePendingChangesTabTitle();
     if (!m_pendingChangesList) {
         return;
     }
@@ -2788,6 +2852,7 @@ void MainWindow::buildUi() {
     topLayout->addWidget(m_bottomInfoSplit, 1);
     loadPersistedAppLogToView();
 
+    m_pendingChangesTab = pendingChangesBox;
     m_logsTabs->addTab(pendingChangesBox,
                        trk(QStringLiteral("t_pending_changes_tab001"),
                            QStringLiteral("Cambios pendientes"),
@@ -2874,6 +2939,10 @@ void MainWindow::buildUi() {
     auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
     bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
     bottomTabsLayout->setSpacing(6);
+    if (m_logsTabs->tabBar()) {
+        // El estilo va SOLO en la barra de pestañas, no en toda la aplicación.
+        m_logsTabs->tabBar()->setStyle(new CountedTabStyle(m_logsTabs->tabBar()->style()));
+    }
     bottomTabsLayout->addWidget(m_logsTabs, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
