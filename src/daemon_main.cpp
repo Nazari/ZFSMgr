@@ -4799,6 +4799,126 @@ static void closeTransferSocket(TransferSocket s) {
 #endif
 }
 
+// Lanza un programa y deja su SALIDA colgando de una tubería que lee el llamante.
+//
+// Existe para que el relé de --zfs-send-to-peer sea UNO y no dos: entre plataformas
+// cambia cómo se crea el proceso y cómo se lee, no la lógica de mover los bytes al otro
+// extremo ni la de informar del avance, que es donde estarían los errores de verdad.
+//
+// El error del hijo va a una tubería APARTE, nunca a la de datos. Mezclarlos metería el
+// texto de un fallo de `zfs send` dentro del flujo, y el receptor lo recibiría como si
+// fueran datos: corrupción silenciosa en lugar de un error visible.
+struct SpawnedStdout {
+#ifdef _WIN32
+    HANDLE readEnd{nullptr};
+    HANDLE process{nullptr};
+    std::shared_ptr<std::string> errText;
+    std::shared_ptr<std::thread> errThread;
+#else
+    int readEnd{-1};
+    pid_t pid{-1};
+#endif
+    bool ok{false};
+};
+
+static SpawnedStdout spawnReadingStdout(const std::string& program,
+                                        const std::vector<std::string>& args) {
+    SpawnedStdout s;
+#ifndef _WIN32
+    int fds[2];
+    if (pipe(fds) != 0) { return s; }
+    std::vector<char*> argv;
+    argv.push_back(const_cast<char*>(program.c_str()));
+    for (const std::string& a : args) { argv.push_back(const_cast<char*>(a.c_str())); }
+    argv.push_back(nullptr);
+    const pid_t pid = fork();
+    if (pid < 0) { close(fds[0]); close(fds[1]); return s; }
+    if (pid == 0) {
+        close(fds[0]);
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[1]);
+        execvp(program.c_str(), argv.data());
+        _exit(127);
+    }
+    close(fds[1]);
+    s.readEnd = fds[0];
+    s.pid = pid;
+    s.ok = true;
+#else
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE rd = nullptr, wr = nullptr;
+    HANDLE errRd = nullptr, errWr = nullptr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) { return s; }
+    if (!CreatePipe(&errRd, &errWr, &sa, 0)) { CloseHandle(rd); CloseHandle(wr); return s; }
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(errRd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = nullptr;
+    si.hStdOutput = wr;
+    si.hStdError = errWr;
+    PROCESS_INFORMATION pi{};
+    const std::string cmdLine = winBuildCommandLine(program, args);
+    std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back('\0');
+    const BOOL started = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
+                                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(wr);
+    CloseHandle(errWr);
+    if (!started) { CloseHandle(rd); CloseHandle(errRd); return s; }
+    CloseHandle(pi.hThread);
+    s.readEnd = rd;
+    s.process = pi.hProcess;
+    s.errText = std::make_shared<std::string>();
+    s.errThread = std::make_shared<std::thread>([errRd, txt = s.errText]() {
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(errRd, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            txt->append(buf, n);
+        }
+        CloseHandle(errRd);
+    });
+    s.ok = true;
+#endif
+    return s;
+}
+
+// Devuelve bytes leídos, 0 en fin de datos, negativo en error.
+static long readSpawnedStdout(SpawnedStdout& s, char* buf, std::size_t len) {
+#ifndef _WIN32
+    return static_cast<long>(read(s.readEnd, buf, len));
+#else
+    DWORD n = 0;
+    if (!ReadFile(s.readEnd, buf, static_cast<DWORD>(len), &n, nullptr)) { return 0; }
+    return static_cast<long>(n);
+#endif
+}
+
+static int waitSpawnedStdout(SpawnedStdout& s, std::string* errOut = nullptr) {
+#ifndef _WIN32
+    if (s.readEnd >= 0) { close(s.readEnd); s.readEnd = -1; }
+    int status = 0;
+    if (s.pid > 0) { waitpid(s.pid, &status, 0); s.pid = -1; }
+    return decodeWaitStatus(status);
+#else
+    if (s.readEnd) { CloseHandle(s.readEnd); s.readEnd = nullptr; }
+    if (s.errThread && s.errThread->joinable()) { s.errThread->join(); }
+    if (errOut && s.errText) { *errOut = *s.errText; }
+    DWORD code = 0;
+    if (s.process) {
+        WaitForSingleObject(s.process, INFINITE);
+        GetExitCodeProcess(s.process, &code);
+        CloseHandle(s.process);
+        s.process = nullptr;
+    }
+    return static_cast<int>(code);
+#endif
+}
+
 // Espera al emisor, comprueba el testigo y le da el flujo a `zfs recv`.
 //
 // Se ejecuta en un hilo suelto y no informa a nadie: quien quiera saber si la recepción
@@ -5028,7 +5148,12 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
     return r;
 }
 
-#ifndef _WIN32
+// Conecta con el receptor y le entrega el flujo de `zfs send`.
+//
+// Portable desde la fase 2. La versión POSIX ya bombeaba —lee de una tubería y escribe
+// al socket— en vez de colgar el socket de la salida del hijo, así que la estructura
+// vale tal cual; lo único que cambiaba era crear el proceso y leer de la tubería, y eso
+// vive ahora en spawnReadingStdout.
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params) {
     ExecResult r;
     // params: snap peer_host peer_port token [base_snap [send_flags]]
@@ -5047,6 +5172,11 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     if (snap.empty() || peerHost.empty() || peerPort <= 0 || token.size() != 64) {
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
     }
+
+#ifdef _WIN32
+    ensureWinsock();
+#endif
+
     struct addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -5055,90 +5185,99 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
         r.rc = 1; r.err = "cannot resolve peer host: " + peerHost + "\n"; return r;
     }
-    int sockFd = -1;
+#ifdef _WIN32
+    TransferSocket sockFd = INVALID_SOCKET;
+#else
+    TransferSocket sockFd = -1;
+#endif
     for (struct addrinfo* it = res; it; it = it->ai_next) {
-        int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-        if (fd < 0) continue;
-        if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
-        close(fd);
+        TransferSocket fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+#ifdef _WIN32
+        if (fd == INVALID_SOCKET) { continue; }
+#else
+        if (fd < 0) { continue; }
+#endif
+        if (connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
+        closeTransferSocket(fd);
     }
     freeaddrinfo(res);
-    if (sockFd < 0) { r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r; }
+#ifdef _WIN32
+    const bool noSocket = (sockFd == INVALID_SOCKET);
+#else
+    const bool noSocket = (sockFd < 0);
+#endif
+    if (noSocket) {
+        r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r;
+    }
+
+    // send() en vez de write(): vale para sockets en las dos plataformas, y en Windows
+    // write() ni siquiera acepta un descriptor de socket.
     const std::string tokenLine = token + "\n";
-    (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
+    (void)send(sockFd, tokenLine.c_str(), static_cast<int>(tokenLine.size()), 0);
+
     std::vector<std::string> sendArgs = {"send"};
     if (!flagsStr.empty()) {
         std::istringstream iss(flagsStr);
         std::string tok;
-        while (iss >> tok) sendArgs.push_back(tok);
+        while (iss >> tok) { sendArgs.push_back(tok); }
     }
     if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
     sendArgs.push_back(snap);
-    std::vector<char*> argv2;
-    argv2.push_back(const_cast<char*>("zfs"));
-    for (const std::string& a : sendArgs) argv2.push_back(const_cast<char*>(a.c_str()));
-    argv2.push_back(nullptr);
-    int pipeFds[2];
-    if (pipe(pipeFds) != 0) { close(sockFd); r.rc = 1; r.err = "pipe() failed\n"; return r; }
-    const pid_t sendPid = fork();
-    if (sendPid == 0) {
-        close(pipeFds[0]);
-        dup2(pipeFds[1], STDOUT_FILENO);
-        close(pipeFds[1]);
-        close(sockFd);
-        execvp("zfs", argv2.data());
-        _exit(127);
+
+    SpawnedStdout child = spawnReadingStdout("zfs", sendArgs);
+    if (!child.ok) {
+        closeTransferSocket(sockFd);
+        r.rc = 1; r.err = "no se pudo lanzar zfs send\n"; return r;
     }
-    close(pipeFds[1]);
-    if (sendPid < 0) { close(pipeFds[0]); close(sockFd); r.rc = 1; r.err = "fork() failed\n"; return r; }
-    uint64_t totalBytes = 0;
+
+    std::uint64_t totalBytes = 0;
     const auto t0 = std::chrono::steady_clock::now();
     auto lastReport = t0;
-    char buf[65536];
+    std::vector<char> buf(65536);
     bool relayOk = true;
-    for (;;) {
-        const ssize_t n = read(pipeFds[0], buf, sizeof(buf));
-        if (n <= 0) break;
-        ssize_t done = 0;
-        while (done < n) {
-            const ssize_t w = write(sockFd, buf + done, static_cast<size_t>(n - done));
-            if (w <= 0) { relayOk = false; break; }
-            done += w;
-        }
-        if (!relayOk) break;
-        totalBytes += static_cast<uint64_t>(n);
+    auto reportProgress = [&](bool done) {
         const auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
-            const long elapsed = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
-            const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
-            const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : 0.0;
-            char line[256];
-            snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds\n",
-                     (unsigned long long)totalBytes, mib, rate, elapsed);
-            (void)write(STDOUT_FILENO, line, strlen(line));
-            lastReport = now;
-        }
-    }
-    close(pipeFds[0]);
-    close(sockFd);
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const long elapsed = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
+        const long elapsed = static_cast<long>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
         const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
         const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : mib;
         char line[256];
-        snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds [done]\n",
-                 (unsigned long long)totalBytes, mib, rate, elapsed);
-        (void)write(STDOUT_FILENO, line, strlen(line));
+        snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds%s\n",
+                 (unsigned long long)totalBytes, mib, rate, elapsed, done ? " [done]" : "");
+        std::cout << line << std::flush;
+        lastReport = now;
+    };
+    for (;;) {
+        const long n = readSpawnedStdout(child, buf.data(), buf.size());
+        if (n <= 0) { break; }
+        long done = 0;
+        while (done < n) {
+            const int w = send(sockFd, buf.data() + done, static_cast<int>(n - done), 0);
+            if (w <= 0) { relayOk = false; break; }
+            done += w;
+        }
+        if (!relayOk) { break; }
+        totalBytes += static_cast<std::uint64_t>(n);
+        const auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
+            reportProgress(false);
+        }
     }
-    int status = 0;
-    if (sendPid > 0) waitpid(sendPid, &status, 0);
-    r.rc = decodeWaitStatus(status);
-    if (r.rc != 0) r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
-    else if (!relayOk) { r.rc = 1; r.err = "relay write to peer failed\n"; }
+    closeTransferSocket(sockFd);
+    reportProgress(true);
+
+    std::string childErr;
+    r.rc = waitSpawnedStdout(child, &childErr);
+    if (r.rc != 0) {
+        r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
+        if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
+    } else if (!relayOk) {
+        r.rc = 1; r.err = "relay write to peer failed\n";
+    }
     return r;
 }
 
+#ifndef _WIN32
 // Async variant: runs the same relay loop in a background thread started by
 // the --zfs-send-to-peer-async RPC handler. Updates g_jobs[jobId] in place.
 static void runZfsSendToPeerAsync(const std::string& jobId) {
@@ -5659,8 +5798,11 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // caller already has root and it grants no extra privilege. The CLI handler in
     // main() stays for those flows.
 
-    // Recibir un flujo SÍ funciona en Windows desde la fase 1: el daemon bombea del
-    // socket a una tubería propia en vez de entregarle el descriptor a `zfs recv`.
+    // Recibir y emitir funcionan ya en Windows (fases 1 y 2): el daemon bombea entre el
+    // socket y una tubería propia, en vez de entregarle el descriptor del socket a `zfs`.
+    if (cmd == "--zfs-send-to-peer") {
+        return runZfsSendToPeerCapture(params);
+    }
     if (cmd == "--zfs-recv-listen") {
         // params: dataset [force=0|1]
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
@@ -5679,10 +5821,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         // serve over RPC.
         const bool apply = !params.empty() && toLower(trim(params[0])) == "apply";
         return runRepairAltMountpointsCapture(apply);
-    }
-    // Emitir sigue siendo solo Unix: es la fase 2.
-    if (cmd == "--zfs-send-to-peer") {
-        return runZfsSendToPeerCapture(params);
     }
 #endif
 
@@ -7375,6 +7513,7 @@ int main(int argc, char* argv[]) {
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
     }
+#endif
     if (cmd == "--zfs-send-to-peer") {
         if (args.size() < 6) {
             printUsage(args[0].c_str());
@@ -7386,7 +7525,6 @@ int main(int argc, char* argv[]) {
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
     }
-#endif
     // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
     // vuelve hasta que la transferencia termina: soltar el proceso mataría el hilo que
     // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
