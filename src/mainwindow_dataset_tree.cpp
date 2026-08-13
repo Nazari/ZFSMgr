@@ -6068,10 +6068,26 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                     // dos separadores mezclados: `Z:\subds1/.zfs/snapshot/snap`. Windows
                     // suele tolerarlo, pero depender de eso es innecesario.
                     const bool snapWin = isWindowsConnection(connIdx);
+                    // Sin separador final antes de concatenar: la lista de montajes de
+                    // Windows devuelve «Z:/subds1/», con barra, y pegarle «\.zfs\...»
+                    // dejaba «Z:\subds1\\.zfs\snapshot\snap», con separador doble.
+                    // Windows lo tolera unas veces y otras no, que es justo el peor
+                    // comportamiento posible: un snapshot se veía y el siguiente salía
+                    // vacío sin decir por qué.
+                    QString snapBase = effectiveMp;
+                    while (snapBase.size() > 1
+                           && (snapBase.endsWith(QLatin1Char('/')) || snapBase.endsWith(QLatin1Char('\\')))) {
+                        // Ojo con «Z:\» y «/»: la raíz sí lleva separador y no se toca.
+                        const QString withoutSep = snapBase.left(snapBase.size() - 1);
+                        if (withoutSep.endsWith(QLatin1Char(':')) || withoutSep.isEmpty()) {
+                            break;
+                        }
+                        snapBase = withoutSep;
+                    }
                     const QString snapPath =
                         snapWin
-                            ? (effectiveMp + QStringLiteral("\\.zfs\\snapshot\\") + snapName.trimmed())
-                            : (effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed());
+                            ? (snapBase + QStringLiteral("\\.zfs\\snapshot\\") + snapName.trimmed())
+                            : (snapBase + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed());
                     auto* snapContentNode = new QTreeWidgetItem(snapItem);
                     snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
                                                     QStringLiteral("Contenido"),
