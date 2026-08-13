@@ -549,7 +549,12 @@ void MainWindow::actionCopySnapshot() {
                QStringLiteral("Copiar: modo daemon-a-daemon%4 (%1 -> %2:%3)")
                    .arg(sp.name, dp.name, QString::number(dstPort),
                         resumeRequested ? QStringLiteral(", reanudando") : QString()));
-        return sshExecFromLocal(sp, isWindowsConnection(sp) ? sendCmd2 : withSudo(sp, sendCmd2));
+        // SIN withSudo: agentShellCommand -> agentCommand ya aplica withSudoCommand en
+        // Unix (y en Windows no hay sudo que aplicar). Envolverlo otra vez producía un
+        // sudo DENTRO de otro: el interno se quedaba sin entrada porque el externo ya
+        // había consumido la contraseña, y la copia moría con «sudo: no password was
+        // provided» seguido de «2 incorrect password attempts».
+        return sshExecFromLocal(sp, sendCmd2);
     };
     // Prefer async daemon job: no GUI blocking, survives GUI close.
     // Only when both daemons support JOBS_SUPPORT (or same connection with dst daemon).
@@ -1399,7 +1404,12 @@ void MainWindow::actionLevelSnapshot() {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Nivelar: modo daemon-a-daemon (%1 -> %2:%3)")
                    .arg(sp.name, dp.name, QString::number(dstPort)));
-        return sshExecFromLocal(sp, isWindowsConnection(sp) ? sendCmd2 : withSudo(sp, sendCmd2));
+        // SIN withSudo: agentShellCommand -> agentCommand ya aplica withSudoCommand en
+        // Unix (y en Windows no hay sudo que aplicar). Envolverlo otra vez producía un
+        // sudo DENTRO de otro: el interno se quedaba sin entrada porque el externo ya
+        // había consumido la contraseña, y la copia moría con «sudo: no password was
+        // provided» seguido de «2 incorrect password attempts».
+        return sshExecFromLocal(sp, sendCmd2);
     };
     // Prefer async daemon job (survives GUI close) when both daemons support JOBS_SUPPORT.
     {
