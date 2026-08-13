@@ -7,15 +7,29 @@ there.
 ## What the Windows machine needs
 
 - **OpenSSH Server running.** It is the only supported transport. Windows 10 and 11
-  ship it; if it is not enabled:
+  ship it, but **disabled**.
+
+  If you install ZFSMgr on that same machine, the installer offers to enable it for
+  you: the *Enable the OpenSSH server* task is ticked by default, and it records what
+  it did in `%TEMP%\zfsmgr-openssh.log`. On a machine with no internet access the
+  enabling may not complete; the installer **does not wait forever** and finishes
+  anyway, saying so in that log.
+
+  To do it by hand:
 
   ```powershell
   Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
   Start-Service sshd
   Set-Service -Name sshd -StartupType 'Automatic'
+  New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' `
+      -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
   ```
 
-- **OpenZFS on Windows**, which provides `zfs` and `zpool`.
+  The firewall rule matters: without it the service starts and the connection is still
+  refused from outside, which is the most baffling of the three symptoms.
+
+- **OpenZFS on Windows**, which provides `zfs` and `zpool`. The installer checks for it
+  and, if it is missing, offers to open the download page.
 - **The ZFSMgr agent**, installed from the application itself with *Reinstall/Update
   daemon* in the connection context menu.
 
@@ -55,9 +69,31 @@ its status, so it updates itself once a version covering more is installed.
 
 - **Mountpoints.** A pool created on Linux keeps Unix-style paths (`/mnt/data`), which
   correspond to no drive on Windows. That is the pool's real data, not a misreading.
+- **The drive letter, in UPPERCASE.** On Windows the mountpoint is not a path but the
+  `driveletter` property. Write it as `Z`, not `z`: OpenZFS accepts the lowercase form
+  without complaint, but afterwards the contents cannot be listed and the dataset looks
+  empty or unreachable. It is the likeliest cause when the tree says a mounted dataset
+  has no contents.
+- **`mountpoint` reads `-`.** That is normal: on Windows `driveletter` is what counts.
+  ZFSMgr consults the real mount list rather than deducing the path from that property.
 - **No `sudo`.** Commands run with the session's privileges, and the agent runs as a
   system service.
 - **A pool imported with `-N`** stays unmounted, so an empty mount list is correct.
+
+## Creating pools on Windows
+
+With the preview builds of OpenZFS on Windows available today (`zfswin-2.4.1rc…`),
+**creating a pool may fail for reasons outside ZFSMgr**. This was verified by running,
+by hand and outside the application:
+
+```powershell
+zpool create probepool \\.\PhysicalDrive2
+```
+
+which returns `invalid argument for this pool operation` on a whole, free disk. While
+that remains the case, the route that works is to **create the pool on a Linux or
+FreeBSD machine and import it on Windows**; a virtual disk (VHDX) makes that easy.
+Importing, reading, mounting and working with the pool do work.
 
 ## If something does not respond
 

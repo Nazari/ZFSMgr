@@ -107,6 +107,8 @@ and `Diff` are requested from the target node's context menu (see `Context menus
 ## Pending changes
 
 - `Pending changes` shows readable descriptions, not raw commands.
+- **The tab title carries the count in parentheses, in bold**, whenever something is
+  pending, so it does not go unnoticed while the tab is out of sight.
 - Changes accumulate in insertion order.
 - Clicking one line makes ZFSMgr try to focus the affected object and section.
 - Typical deferred actions:

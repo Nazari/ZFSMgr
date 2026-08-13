@@ -107,6 +107,8 @@ La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar
 ## Cambios pendientes
 
 - `Cambios pendientes` muestra descripciones legibles, no comandos crudos.
+- **El título de la pestaña lleva la cuenta entre paréntesis y en negrita** cuando hay
+  algo pendiente, para que no pase inadvertido con la pestaña sin mirar.
 - Los cambios se acumulan en orden de inserción.
 - Al hacer clic en una línea, ZFSMgr intenta enfocar el objeto y la sección afectada.
 - Acciones diferidas típicas:
