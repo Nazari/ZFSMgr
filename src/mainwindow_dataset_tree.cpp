@@ -6063,7 +6063,15 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                     snapHint->setFlags(snapHint->flags() & ~Qt::ItemIsUserCheckable);
                 }
                 if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
-                    const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
+                    // Separador según la plataforma. En Windows el punto de montaje es
+                    // `Z:\subds1` y concatenar «/.zfs/snapshot/» dejaba una ruta con los
+                    // dos separadores mezclados: `Z:\subds1/.zfs/snapshot/snap`. Windows
+                    // suele tolerarlo, pero depender de eso es innecesario.
+                    const bool snapWin = isWindowsConnection(connIdx);
+                    const QString snapPath =
+                        snapWin
+                            ? (effectiveMp + QStringLiteral("\\.zfs\\snapshot\\") + snapName.trimmed())
+                            : (effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed());
                     auto* snapContentNode = new QTreeWidgetItem(snapItem);
                     snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
                                                     QStringLiteral("Contenido"),
