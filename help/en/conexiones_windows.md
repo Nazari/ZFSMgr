@@ -52,15 +52,14 @@ The Windows agent does not implement some features yet. The application **does n
 attempt them**: they appear disabled with the reason, and the connection card lists
 them under *Unavailable features*.
 
-- Background jobs, and with them daemon-to-daemon transfers.
-- Copy and Level snapshots when either end is Windows.
-- Sync with `rsync`.
-- *To Dir*.
-- Repairing temporary mountpoints.
-- Scheduled automatic snapshots.
+- Sync with `rsync`, which does not exist on Windows.
+- *To Dir*, which relies on `rsync` to verify the copy before deleting the source.
+- Repairing temporary mountpoints, which means nothing against drive letters.
+- Scheduled automatic snapshots: they rely on ZED, and OpenZFS on Windows does not ship it.
 
 What does work: reading and modifying datasets and pools, snapshots, cloning, ZFS
-permissions, *Breakdown* and *Assemble*, and the agent log and heartbeat.
+permissions, *Breakdown* and *Assemble*, **Copy and Level snapshots between machines**,
+**background jobs**, and the agent log and heartbeat.
 
 That list is not written into the application: **the agent declares it** when asked for
 its status, so it updates itself once a version covering more is installed.
@@ -97,9 +96,12 @@ Importing, reading, mounting and working with the pool do work.
 
 ## Bringing a snapshot to Windows
 
-Copying or levelling a snapshot with a Windows end appears disabled, because it chains
-`zfs send | zfs recv` through a pipe and the agent does not implement that yet. There
-is a manual route that **does work**, and it is worth knowing why it is that one:
+Since version 0.90.18 the application does this itself: *Copy here from...* and *Level
+with...* work with a Windows end, in both directions, and if the transfer is cut short
+you are offered to continue from where it stopped.
+
+What follows is no longer needed, but is kept because it explains **how** it works
+underneath, and because it helps when no agent is installed:
 
 ```bash
 # on the source machine (Linux, macOS, FreeBSD)

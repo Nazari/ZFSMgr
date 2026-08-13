@@ -52,15 +52,14 @@ El agente de Windows no implementa aún algunas funciones. La aplicación **no l
 intenta**: aparecen deshabilitadas indicando el motivo, y la ficha de la conexión las
 lista bajo *Funciones no disponibles*.
 
-- Trabajos en segundo plano, y con ellos las transferencias entre daemons.
-- Copiar y Nivelar instantáneas cuando alguno de los dos extremos es Windows.
-- Sincronizar con `rsync`.
-- *Hacia Dir*.
-- Reparar puntos de montaje temporales.
-- Instantáneas automáticas programadas.
+- Sincronizar con `rsync`, que no existe en Windows.
+- *Hacia Dir*, que se apoya en `rsync` para verificar la copia antes de borrar el origen.
+- Reparar puntos de montaje temporales, que contra letras de unidad no significa lo mismo.
+- Instantáneas automáticas programadas: se apoyan en ZED, y OpenZFS on Windows no lo trae.
 
 Lo que sí funciona: leer y modificar datasets y pools, instantáneas, clonar, permisos
-ZFS, *Desglosar* y *Ensamblar*, y el registro y el latido del agente.
+ZFS, *Desglosar* y *Ensamblar*, **Copiar y Nivelar instantáneas entre máquinas**, los
+**trabajos en segundo plano**, y el registro y el latido del agente.
 
 Esa lista no está escrita en la aplicación: **la declara el propio agente** al
 consultarle su estado, así que se pone al día sola cuando se instala una versión que
@@ -100,9 +99,12 @@ Importar, leer, montar y trabajar con el pool sí funcionan.
 
 ## Traer un snapshot a Windows
 
-Copiar o nivelar un snapshot con un extremo en Windows aparece deshabilitado, porque
-encadena `zfs send | zfs recv` por una tubería y el agente todavía no lo implementa.
-Hay una vía manual que **sí funciona**, y merece la pena saber por qué es esa:
+Desde la versión 0.90.18 esto lo hace la propia aplicación: `Copiar aquí desde...` y
+`Nivelar con...` funcionan con un extremo en Windows, en los dos sentidos, y si la
+transferencia se corta se ofrece continuarla donde se quedó.
+
+Lo que sigue no hace falta, pero se conserva porque explica **cómo** funciona por
+dentro, y porque sirve si no hay agente instalado:
 
 ```bash
 # en la máquina de origen (Linux, macOS, FreeBSD)
