@@ -27,6 +27,13 @@ struct FileBrowserEntry {
     bool isLink = false;
 };
 
+// Comillas simples de PowerShell: dentro, la comilla simple se duplica.
+static QString psSingleQuoteForBrowser(const QString& s) {
+    QString out = s;
+    out.replace(QLatin1Char('\''), QStringLiteral("''"));
+    return QLatin1Char('\'') + out + QLatin1Char('\'');
+}
+
 static QString humanReadableSize(qint64 bytes) {
     if (bytes < 1024) {
         return QStringLiteral("%1 B").arg(bytes);
@@ -38,6 +45,40 @@ static QString humanReadableSize(qint64 bytes) {
         return QStringLiteral("%1 MB").arg(bytes / (1024 * 1024));
     }
     return QStringLiteral("%1 GB").arg(bytes / (1024LL * 1024 * 1024));
+}
+
+// Listado de Windows: `Get-ChildItem` con campos separados por tabulador.
+//
+// No se imita la salida de `ls -l` a propósito: fingir un formato ajeno obliga a rellenar
+// permisos, enlaces, propietario y grupo que en Windows no significan lo mismo, y
+// cualquier nombre con espacios rompe el troceo por espacios del parser de Unix.
+static QList<FileBrowserEntry> parseWindowsListing(const QString& out) {
+    QList<FileBrowserEntry> result;
+    for (const QString& rawLine : out.split('\n', Qt::SkipEmptyParts)) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+        const QStringList parts = line.split('\t');
+        if (parts.size() < 4) {
+            continue;
+        }
+        FileBrowserEntry e;
+        e.isDir = (parts.at(0).trimmed() == QStringLiteral("d"));
+        e.permissions = e.isDir ? QStringLiteral("d") : QStringLiteral("-");
+        bool okSize = false;
+        const qint64 raw = parts.at(1).trimmed().toLongLong(&okSize);
+        e.size = e.isDir ? QString() : (okSize ? humanReadableSize(raw) : QString());
+        e.mtime = parts.at(2).trimmed();
+        // El nombre va el ÚLTIMO y se toma entero: puede llevar tabuladores dentro, y
+        // trocear sin más se comería parte del nombre.
+        e.name = parts.mid(3).join(QLatin1Char('\t')).trimmed();
+        if (e.name.isEmpty()) {
+            continue;
+        }
+        result.push_back(e);
+    }
+    return result;
 }
 
 static QList<FileBrowserEntry> parseLsOutput(const QString& out) {
@@ -104,6 +145,10 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
     }
 
     const ConnectionProfile prof = m_profiles[connIdx];
+    // En Windows no hay `sh`: el intérprete respondía
+    //   sh : The term 'sh' is not recognized as the name of a cmdlet
+    // y el nodo Contenido no podía desplegarse. Se lista con Get-ChildItem.
+    const bool browseWindows = isWindowsConnection(prof);
     const QString browserScript = QStringLiteral(
                                       "p=%1; "
                                       "if [ -d \"$p\" ]; then "
@@ -114,7 +159,22 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
                                       "  echo \"path not found: $p\" >&2; exit 3; "
                                       "fi")
                                       .arg(shSingleQuote(dirPath));
-    const QString remoteCmdRaw = QStringLiteral("sh -lc %1").arg(shSingleQuote(browserScript));
+    const QString windowsScript =
+        QStringLiteral(
+            "$ErrorActionPreference='Stop'; "
+            "$p=%1; "
+            "if(-not (Test-Path -LiteralPath $p)){ Write-Error \"path not found: $p\"; exit 3 }; "
+            "if(-not (Test-Path -LiteralPath $p -PathType Container)){ "
+            "  Write-Error \"not a directory: $p\"; exit 2 }; "
+            "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
+            "  $d = if($_.PSIsContainer){'d'}else{'-'}; "
+            "  $z = if($_.PSIsContainer){0}else{$_.Length}; "
+            "  ($d + \"`t\" + $z + \"`t\" + $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') "
+            "     + \"`t\" + $_.Name) }")
+            .arg(psSingleQuoteForBrowser(dirPath));
+    const QString remoteCmdRaw =
+        browseWindows ? windowsScript
+                      : QStringLiteral("sh -lc %1").arg(shSingleQuote(browserScript));
     const QString remoteCmd = withSudo(prof, remoteCmdRaw);
 
     QString out;
@@ -136,7 +196,7 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         return;
     }
 
-    const QList<FileBrowserEntry> entries = parseLsOutput(out);
+    const QList<FileBrowserEntry> entries = (browseWindows ? parseWindowsListing(out) : parseLsOutput(out));
     if (entries.isEmpty()) {
         auto* emptyItem = new QTreeWidgetItem(browserNode);
         emptyItem->setText(0, QStringLiteral("(vacío)"));
