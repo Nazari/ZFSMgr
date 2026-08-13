@@ -918,6 +918,9 @@ private:
     // medias. Se lee con --dump-zfs-get-prop, que ya existía: no hace falta un verbo
     // nuevo, y por tanto tampoco cambiar la versión del esquema del agente.
     QString transferResumeTokenFor(int connIdx, const QString& dataset);
+    // Dirección con la que el ORIGEN ve a este equipo, para que pueda conectar de vuelta
+    // cuando el destino es la conexión Local. Vacío si no se puede averiguar.
+    QString sourceViewOfThisHost(int srcConnIdx);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;

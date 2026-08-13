@@ -292,6 +292,40 @@ QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const
         .arg(actionLabel);
 }
 
+// Con qué dirección ve el origen a este equipo.
+//
+// Se le pregunta a él, en vez de deducirlo aquí: la máquina puede tener varias interfaces,
+// estar detrás de NAT, o llegar por VPN, y solo el otro extremo sabe por dónde entró la
+// conexión. $SSH_CLIENT lo lleva puesto —la pone sshd— y su primer campo es justo la IP
+// del cliente, o sea nosotros.
+QString MainWindow::sourceViewOfThisHost(int srcConnIdx) {
+    if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile sp = m_profiles.at(srcConnIdx);
+    if (isLocalConnection(sp)) {
+        return QStringLiteral("127.0.0.1");
+    }
+    QString out;
+    QString err;
+    int rc = -1;
+    // Sin sudo ni agente: es una variable del entorno de la propia sesión SSH.
+    const bool ok = runSsh(sp,
+                           QStringLiteral("printf '%s\\n' \"${SSH_CLIENT%% *}\""),
+                           8000, out, err, rc)
+                    && rc == 0;
+    if (!ok) {
+        return QString();
+    }
+    const QString addr = out.trimmed().section(QLatin1Char('\n'), 0, 0).trimmed();
+    // Comprobación mínima de forma: si sshd no la puso, no se inventa nada.
+    static const QRegularExpression rxAddr(QStringLiteral("^[0-9a-fA-F:.]+$"));
+    if (addr.isEmpty() || !rxAddr.match(addr).hasMatch()) {
+        return QString();
+    }
+    return addr;
+}
+
 QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.trimmed().isEmpty()) {
         return QString();
@@ -562,8 +596,10 @@ void MainWindow::actionCopySnapshot() {
                            && m_states[src.connIdx].daemonJobsSupported;
     const bool dstJobsOk = dst.connIdx >= 0 && dst.connIdx < m_states.size()
                            && m_states[dst.connIdx].daemonJobsSupported;
-    if (!isWindowsConnection(sp) && !isWindowsConnection(dp)
-        && dstJobsOk && (sameConnection || srcJobsOk)) {
+    // Windows ya no se excluye: los trabajos funcionan allí desde la fase 5. Este resto
+    // se quedó sin quitar, y por eso una copia con un extremo Windows caía al camino
+    // SÍNCRONO por shell, que además necesita sudo en el origen.
+    if (dstJobsOk && (sameConnection || srcJobsOk)) {
         if (launchDaemonJobTransfer(srcSnap, recvTarget, QString(), sendFlags,
                                     src.connIdx, dst.connIdx)) {
             return;
@@ -1417,8 +1453,7 @@ void MainWindow::actionLevelSnapshot() {
                                 && m_states[src.connIdx].daemonJobsSupported;
         const bool dstJobsOk2 = dst.connIdx >= 0 && dst.connIdx < m_states.size()
                                 && m_states[dst.connIdx].daemonJobsSupported;
-        if (!isWindowsConnection(sp) && !isWindowsConnection(dp)
-            && dstJobsOk2 && (sameConnection || srcJobsOk2)) {
+        if (dstJobsOk2 && (sameConnection || srcJobsOk2)) {
             if (launchDaemonJobTransfer(srcSnap, recvTarget, fromSnap, sendFlags,
                                         src.connIdx, dst.connIdx)) {
                 return;
@@ -2143,7 +2178,13 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     recvArgs << QStringLiteral("--zfs-recv-listen") << recvTarget << QStringLiteral("1");
     QString recvOut, recvErr;
     int recvRc = -1;
-    if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc) || recvRc != 0) {
+    // Igual que en el camino síncrono: el destino puede ser la conexión Local, y el RPC
+    // por túnel rechaza de entrada todo lo que no sea SSH.
+    const bool recvOk =
+        isLocalConnection(dp) ? runAgentCommand(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+                              : tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut,
+                                                              recvErr, recvRc);
+    if (!recvOk || recvRc != 0) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Job async: recv-listen falló en %1 (%2) — fallback síncrono")
                    .arg(dp.name, recvErr.trimmed()));
@@ -2162,7 +2203,23 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     }
 
     // Step 2: --zfs-send-to-peer-async on src daemon
-    const QString peerHost = sameConn ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
+    // Con qué dirección tiene que conectar el ORIGEN.
+    //
+    // dp.host no sirve cuando el destino es la conexión Local: vale "localhost", que
+    // desde el origen apunta al propio origen. La copia se quedaba intentando conectar
+    // consigo misma. Se le pregunta al origen con qué dirección nos ve, que es la única
+    // que con seguridad le sirve para volver.
+    QString peerHost = sameConn ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
+    if (!sameConn && isLocalConnection(dp)) {
+        const QString seen = sourceViewOfThisHost(srcConnIdx);
+        if (seen.isEmpty()) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Job async: no se pudo averiguar con qué dirección ve %1 a "
+                                  "este equipo — fallback síncrono").arg(sp.name));
+            return false;
+        }
+        peerHost = seen;
+    }
     QStringList sendArgs;
     sendArgs << QStringLiteral("--zfs-send-to-peer-async")
              << srcSnap
