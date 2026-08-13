@@ -914,6 +914,10 @@ private:
     QString sshExecFromLocal(const ConnectionProfile& p,
                              const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
+    // Testigo de reanudación del destino, o cadena vacía si no hay transferencia a
+    // medias. Se lee con --dump-zfs-get-prop, que ya existía: no hace falta un verbo
+    // nuevo, y por tanto tampoco cambiar la versión del esquema del agente.
+    QString transferResumeTokenFor(int connIdx, const QString& dataset);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;

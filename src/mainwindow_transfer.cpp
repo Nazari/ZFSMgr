@@ -292,6 +292,26 @@ QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const
         .arg(actionLabel);
 }
 
+QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.trimmed().isEmpty()) {
+        return QString();
+    }
+    QString value;
+    if (!getDatasetProperty(connIdx, dataset.trimmed(),
+                            QStringLiteral("receive_resume_token"), value)) {
+        // Que no se pueda leer NO significa que no haya nada a medias: puede que el
+        // dataset aún no exista, que es el caso normal en una copia nueva. Se calla y
+        // se sigue; si de verdad hubiera un envío en suspenso, ZFS lo dirá al recibir.
+        return QString();
+    }
+    value = value.trimmed();
+    // ZFS devuelve "-" cuando no hay ninguno.
+    if (value == QStringLiteral("-")) {
+        return QString();
+    }
+    return value;
+}
+
 bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
                                                      int dstConnIdx,
                                                      const QString& actionLabel) {
@@ -347,8 +367,59 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
+    // ¿Quedó una transferencia a medias en el destino?
+    //
+    // Se recibe con `zfs recv -s`, así que un corte no deja basura: deja un envío en
+    // suspenso y un testigo con el que continuar exactamente donde se quedó. Sin esto,
+    // volver a copiar mandaba el flujo entero otra vez —y encima ZFS lo rechazaba,
+    // porque el destino conserva la recepción a medias—, de modo que el usuario veía un
+    // error incomprensible sobre algo que en realidad era recuperable.
+    const QString resumeToken = transferResumeTokenFor(dst.connIdx, recvTarget);
+    bool resumeRequested = false;
+    if (!resumeToken.isEmpty()) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle(QStringLiteral("ZFSMgr"));
+        box.setText(trk(QStringLiteral("t_resume_title001"),
+                        QStringLiteral("En %1 hay una transferencia sin terminar."),
+                        QStringLiteral("There is an unfinished transfer on %1."),
+                        QStringLiteral("%1 上有一次未完成的传输。"))
+                        .arg(recvTarget));
+        box.setInformativeText(trk(QStringLiteral("t_resume_body001"),
+            QStringLiteral("Se puede continuar desde donde se quedó, sin reenviar lo que ya "
+                           "llegó.\n\nPara empezar de cero hay que descartar antes lo "
+                           "recibido, desde el destino:\n    zfs recv -A %1\nMientras siga "
+                           "ahí, ZFS rechaza un envío nuevo."),
+            QStringLiteral("It can continue from where it stopped, without resending what "
+                           "already arrived.\n\nTo start over, discard the partial data "
+                           "first, on the target:\n    zfs recv -A %1\nWhile it remains, "
+                           "ZFS refuses a fresh stream."),
+            QStringLiteral("可以从中断处继续，无需重新发送已经传输的部分。\n\n"
+                           "若要从头开始，请先在目标端丢弃已接收的数据：\n"
+                           "    zfs recv -A %1\n只要它还在，ZFS 就会拒绝新的数据流。"))
+                                   .arg(recvTarget));
+        QPushButton* bResume = box.addButton(trk(QStringLiteral("t_resume_go001"),
+                                                 QStringLiteral("Continuar"),
+                                                 QStringLiteral("Resume"),
+                                                 QStringLiteral("继续")),
+                                             QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(bResume);
+        box.exec();
+        if (box.clickedButton() != bResume) {
+            return;
+        }
+        resumeRequested = true;
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Copiar: reanudando transferencia a medias en %1").arg(recvTarget));
+    }
+
     ZfsSendOptions sendOpts;
-    if (!showZfsSendOptionsDialog(this, srcSnap, recvTarget, QString{}, &sendOpts)) {
+    // Al reanudar no se preguntan opciones de envío: el testigo ya lleva dentro qué
+    // snapshot y con qué banderas empezó la transferencia, y `zfs send -t` no admite
+    // que se le contradiga.
+    if (!resumeRequested
+        && !showZfsSendOptionsDialog(this, srcSnap, recvTarget, QString{}, &sendOpts)) {
         return;
     }
     const QString sendFlags = buildZfsSendFlags(sendOpts);
@@ -444,19 +515,24 @@ void MainWindow::actionCopySnapshot() {
         // entrecomillado que toca en cada plataforma. Antes se componía a mano con la
         // ruta de Unix y shSingleQuote, lo que en un origen Windows habría enviado una
         // ruta inexistente entrecomillada al estilo POSIX.
+        // Al reanudar, el testigo del destino manda: `zfs send -t` lleva dentro qué
+        // snapshot y desde qué punto continuar, así que snapshot, base y banderas se
+        // envían vacíos a propósito.
         const QStringList sendArgv{
             QStringLiteral("--zfs-send-to-peer"),
-            snap,
+            resumeRequested ? QString() : snap,
             peerHost,
             QString::number(dstPort),
             dstToken,
-            baseSnap.trimmed(),
-            flags.trimmed(),
+            resumeRequested ? QString() : baseSnap.trimmed(),
+            resumeRequested ? QString() : flags.trimmed(),
+            resumeRequested ? resumeToken : QString(),
         };
         const QString sendCmd2 = mwhelpers::agentShellCommand(sp, sendArgv);
         appLog(QStringLiteral("INFO"),
-               QStringLiteral("Copiar: modo daemon-a-daemon (%1 -> %2:%3)")
-                   .arg(sp.name, dp.name, QString::number(dstPort)));
+               QStringLiteral("Copiar: modo daemon-a-daemon%4 (%1 -> %2:%3)")
+                   .arg(sp.name, dp.name, QString::number(dstPort),
+                        resumeRequested ? QStringLiteral(", reanudando") : QString()));
         return sshExecFromLocal(sp, isWindowsConnection(sp) ? sendCmd2 : withSudo(sp, sendCmd2));
     };
     // Prefer async daemon job: no GUI blocking, survives GUI close.
@@ -507,11 +583,15 @@ void MainWindow::actionCopySnapshot() {
 
     QString pendingCommand = pipeline;
     QString displayLabel = QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget);
-    if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
+    // El respaldo por TAR solo entra si NO se pudo montar el camino daemon-a-daemon.
+    //
+    // Antes se metía siempre que hubiera un extremo Windows, DESCARTANDO el pipeline que
+    // se acababa de construir. Mientras Windows no sabía transferir daba igual, porque no
+    // había pipeline; desde la fase 3 sí lo hay, y sin esta condición se tiraba a la
+    // basura para poner en su lugar un guion de shell POSIX que en Windows ni siquiera
+    // puede ejecutarse. Además TAR pierde propiedades, cifrado e incrementales.
+    if (pipeline.isEmpty() && (isWindowsConnection(sp) || isWindowsConnection(dp))) {
         const bool builtFallback = [&]() -> bool {
-            if (!(isWindowsConnection(sp) || isWindowsConnection(dp))) {
-                return false;
-            }
             QString srcScript = QStringLiteral(
                 "set -e; DATASET=%1; SNAP=%2; "
                 "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "

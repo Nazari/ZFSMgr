@@ -5169,8 +5169,20 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     const std::string token    = params[3];
     const std::string baseSnap = (params.size() > 4 && !params[4].empty()) ? params[4] : "";
     const std::string flagsStr = params.size() > 5 ? params[5] : "";
-    if (snap.empty() || peerHost.empty() || peerPort <= 0 || token.size() != 64) {
+    // Séptimo parámetro opcional: el testigo de reanudación que devuelve el receptor
+    // cuando una transferencia se cortó a medias. Con él se emite `zfs send -t`, que
+    // continúa desde donde se quedó en vez de mandarlo todo otra vez.
+    //
+    // Es un añadido al final a propósito: un agente anterior lo ignora y manda el flujo
+    // completo, y entonces el receptor —que conserva el envío a medias— lo rechaza con
+    // un error de ZFS. Es decir, falla de forma visible en lugar de estropear nada, así
+    // que no hace falta cambiar la versión del esquema ni reinstalar agentes por esto.
+    const std::string resumeToken = (params.size() > 6) ? trim(params[6]) : "";
+    if (peerHost.empty() || peerPort <= 0 || token.size() != 64) {
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
+    }
+    if (snap.empty() && resumeToken.empty()) {
+        r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer: sin snapshot ni testigo\n"; return r;
     }
 
 #ifdef _WIN32
@@ -5216,13 +5228,20 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     (void)send(sockFd, tokenLine.c_str(), static_cast<int>(tokenLine.size()), 0);
 
     std::vector<std::string> sendArgs = {"send"};
-    if (!flagsStr.empty()) {
-        std::istringstream iss(flagsStr);
-        std::string tok;
-        while (iss >> tok) { sendArgs.push_back(tok); }
+    if (!resumeToken.empty()) {
+        // `zfs send -t` lleva dentro del testigo qué snapshot y desde dónde continuar,
+        // así que no admite ni snapshot ni base ni banderas: ponerlas sería un error.
+        sendArgs.push_back("-t");
+        sendArgs.push_back(resumeToken);
+    } else {
+        if (!flagsStr.empty()) {
+            std::istringstream iss(flagsStr);
+            std::string tok;
+            while (iss >> tok) { sendArgs.push_back(tok); }
+        }
+        if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
+        sendArgs.push_back(snap);
     }
-    if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
-    sendArgs.push_back(snap);
 
     SpawnedStdout child = spawnReadingStdout("zfs", sendArgs);
     if (!child.ok) {
