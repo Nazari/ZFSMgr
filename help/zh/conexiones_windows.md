@@ -63,12 +63,11 @@ Windows 代理尚未实现部分功能。应用**不会去尝试**它们：这�
 
 - **挂载点。** 在 Linux 上创建的池会保留 Unix 风格的路径（`/mnt/data`），在 Windows 上
   并不对应任何盘符。这是池中真实的数据，并非读取错误。
-- **驱动器盘符必须用大写。** 在 Windows 上挂载点不是路径，而是 `driveletter` 属性。
-  请写成 `Z` 而不是 `z`：OpenZFS 会毫无怨言地接受小写形式，但此后就无法列出内容，
-  数据集看起来像是空的或无法访问。当树状图显示某个已挂载的数据集没有内容时，
-  这是最可能的原因。
-- **`mountpoint` 显示为 `-`。** 这是正常的：在 Windows 上起作用的是 `driveletter`。
-  ZFSMgr 查询真实的挂载列表，而不是从该属性推断路径。
+- **挂载点是一个盘符，而不是路径。** 它保存在 `driveletter` 属性中；`mountpoint`
+  显示为 `-`，这是正常的。ZFSMgr 查询真实的挂载列表，而不是从该属性推断路径。
+  大小写没有区别（`z:` 与 `Z:` 表现一致，已验证）。
+- **在数据集已挂载时修改 `driveletter` 会先卸载再重新挂载。** 原盘符上打开的内容
+  会中断。这不是故障，但在运行中修改之前值得了解。
 - **没有 `sudo`。** 命令以当前会话的权限运行，而代理作为系统服务运行。
 - **使用 `-N` 导入的池**保持未挂载状态，因此挂载列表为空是正常的。
 
@@ -84,6 +83,32 @@ zpool create probepool \\.\PhysicalDrive2
 在一整块空闲磁盘上它会返回 `invalid argument for this pool operation`。在这个问题
 解决之前，可行的做法是**在 Linux 或 FreeBSD 主机上创建池，然后在 Windows 上导入**；
 使用虚拟磁盘（VHDX）会很方便。导入、读取、挂载以及对池的日常操作都是正常的。
+
+## 把快照传到 Windows
+
+当任一端为 Windows 时，复制或同步快照会显示为禁用，因为它需要通过管道串联
+`zfs send | zfs recv`，而代理尚未实现该功能。有一条**确实可行**的手动路径，
+值得了解为什么只能这样做：
+
+```bash
+# 在源主机上（Linux、macOS、FreeBSD）
+zfs send tank/data@snapshot > stream.zfs
+```
+
+把文件传到 Windows 主机（用共享文件夹即可），然后在**`cmd.exe` 中，而不是
+PowerShell 中**执行：
+
+```
+zfs recv -F winpool/data < C:\路径\stream.zfs
+```
+
+两个细节，均已在真实机器上验证：
+
+- **通过文件可行，通过管道不行。** 同一个数据流经 SSH 直接送入 `zfs recv` 会失败并
+  报 `cannot receive new filesystem stream: I/O error`，而从文件接收则完整无误、
+  校验和一致。问题出在 Windows 上读取标准输入，而不是数据流本身。
+- **`<` 重定向属于 `cmd.exe`。** PowerShell 没有这个语法，而且它在传输约 132 KB
+  二进制数据之后就会卡住。
 
 ## 如果没有响应
 

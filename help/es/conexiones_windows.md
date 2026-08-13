@@ -71,13 +71,13 @@ cubra más.
 - **Puntos de montaje.** Un pool creado en Linux conserva rutas de estilo Unix
   (`/mnt/datos`), que en Windows no corresponden a ninguna unidad. Es el dato real del
   pool, no un error de lectura.
-- **La letra de unidad, en MAYÚSCULA.** En Windows el punto de montaje no es una ruta
-  sino la propiedad `driveletter`. Escríbala como `Z`, no como `z`: OpenZFS acepta la
-  minúscula sin protestar, pero después el contenido no se puede listar y el dataset
-  parece vacío o inaccesible. Es la causa más probable si el árbol dice que un dataset
-  montado no tiene contenido.
-- **`mountpoint` sale `-`.** Es lo normal: en Windows manda `driveletter`. ZFSMgr
-  consulta la lista real de montajes, no deduce la ruta de esa propiedad.
+- **El punto de montaje es una LETRA, no una ruta.** Lo lleva la propiedad
+  `driveletter`; `mountpoint` sale `-`, y es lo normal. ZFSMgr consulta la lista real de
+  montajes en vez de deducir la ruta de esa propiedad. Mayúscula y minúscula dan lo
+  mismo (`z:` y `Z:` se comportan igual, comprobado).
+- **Cambiar `driveletter` con el dataset montado lo desmonta y lo vuelve a montar.** Si
+  algo estaba abierto en la letra anterior, se cae. No es un fallo, pero conviene
+  saberlo antes de tocarlo en caliente.
 - **Sin `sudo`.** Las órdenes se ejecutan con los privilegios de la sesión, y el agente
   corre como servicio del sistema.
 - **Un pool importado con `-N`** queda sin montar, así que la lista de montajes sale
@@ -97,6 +97,33 @@ que devuelve `invalid argument for this pool operation` sobre un disco entero li
 Mientras eso siga así, la vía que funciona es **crear el pool en una máquina Linux o
 FreeBSD e importarlo en Windows**; con un disco virtual (VHDX) es cómodo de hacer.
 Importar, leer, montar y trabajar con el pool sí funcionan.
+
+## Traer un snapshot a Windows
+
+Copiar o nivelar un snapshot con un extremo en Windows aparece deshabilitado, porque
+encadena `zfs send | zfs recv` por una tubería y el agente todavía no lo implementa.
+Hay una vía manual que **sí funciona**, y merece la pena saber por qué es esa:
+
+```bash
+# en la máquina de origen (Linux, macOS, FreeBSD)
+zfs send deposito/datos@instantanea > flujo.zfs
+```
+
+Lleve el fichero al equipo Windows (una carpeta compartida vale) y allí, **en
+`cmd.exe`, no en PowerShell**:
+
+```
+zfs recv -F winpool/datos < C:\ruta\flujo.zfs
+```
+
+Dos detalles, los dos comprobados contra una máquina real:
+
+- **Por fichero funciona; por tubería no.** El mismo flujo enviado por SSH directamente
+  a `zfs recv` falla con `cannot receive new filesystem stream: I/O error`, mientras que
+  desde un fichero se recibe entero y con las sumas de verificación intactas. El
+  problema es leer de la entrada estándar en Windows, no el flujo.
+- **La redirección `<` es de `cmd.exe`.** PowerShell no la tiene, y es además quien se
+  atasca al pasar unos 132 KB de datos binarios.
 
 ## Si algo no responde
 

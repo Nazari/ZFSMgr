@@ -69,13 +69,13 @@ its status, so it updates itself once a version covering more is installed.
 
 - **Mountpoints.** A pool created on Linux keeps Unix-style paths (`/mnt/data`), which
   correspond to no drive on Windows. That is the pool's real data, not a misreading.
-- **The drive letter, in UPPERCASE.** On Windows the mountpoint is not a path but the
-  `driveletter` property. Write it as `Z`, not `z`: OpenZFS accepts the lowercase form
-  without complaint, but afterwards the contents cannot be listed and the dataset looks
-  empty or unreachable. It is the likeliest cause when the tree says a mounted dataset
-  has no contents.
-- **`mountpoint` reads `-`.** That is normal: on Windows `driveletter` is what counts.
-  ZFSMgr consults the real mount list rather than deducing the path from that property.
+- **The mountpoint is a LETTER, not a path.** It lives in the `driveletter` property;
+  `mountpoint` reads `-`, and that is normal. ZFSMgr consults the real mount list rather
+  than deducing the path from that property. Case does not matter (`z:` and `Z:` behave
+  identically, verified).
+- **Changing `driveletter` on a mounted dataset unmounts and remounts it.** Anything
+  open on the previous letter breaks. Not a fault, but worth knowing before changing it
+  on a live dataset.
 - **No `sudo`.** Commands run with the session's privileges, and the agent runs as a
   system service.
 - **A pool imported with `-N`** stays unmounted, so an empty mount list is correct.
@@ -94,6 +94,33 @@ which returns `invalid argument for this pool operation` on a whole, free disk. 
 that remains the case, the route that works is to **create the pool on a Linux or
 FreeBSD machine and import it on Windows**; a virtual disk (VHDX) makes that easy.
 Importing, reading, mounting and working with the pool do work.
+
+## Bringing a snapshot to Windows
+
+Copying or levelling a snapshot with a Windows end appears disabled, because it chains
+`zfs send | zfs recv` through a pipe and the agent does not implement that yet. There
+is a manual route that **does work**, and it is worth knowing why it is that one:
+
+```bash
+# on the source machine (Linux, macOS, FreeBSD)
+zfs send tank/data@snapshot > stream.zfs
+```
+
+Move the file to the Windows machine (a shared folder will do) and there, **in
+`cmd.exe`, not PowerShell**:
+
+```
+zfs recv -F winpool/data < C:\path\stream.zfs
+```
+
+Two details, both verified against a real machine:
+
+- **From a file it works; through a pipe it does not.** The same stream sent over SSH
+  straight into `zfs recv` fails with `cannot receive new filesystem stream: I/O error`,
+  while from a file it is received whole with checksums intact. The problem is reading
+  standard input on Windows, not the stream.
+- **The `<` redirection belongs to `cmd.exe`.** PowerShell does not have it, and it is
+  also what stalls past roughly 132 KB of binary data.
 
 ## If something does not respond
 
