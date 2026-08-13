@@ -28,7 +28,6 @@ private Q_SLOTS:
     // actualizar la tabla, este test lo caza.
     void windowsReportsPendingFeaturesAsUnavailable() {
         const Feature pending[] = {
-            Feature::BackgroundJobs,
             Feature::RepairAltMountpoints,
             Feature::DirToDir,
             Feature::ToolAvailability,
@@ -50,6 +49,14 @@ private Q_SLOTS:
     void windowsHasSendRecvStreaming() {
         const Availability a = featureAvailability(Feature::SendRecvStreaming, windowsReady());
         QVERIFY2(a.available, "Windows recibe y emite flujos desde las fases 1 y 2");
+        QCOMPARE(a.reason, Reason::Available);
+    }
+
+    // Los trabajos en segundo plano también, desde la fase 5. Nunca dependieron de fork
+    // —van con std::thread—, y lo que los ataba a Unix ya está portado.
+    void windowsHasBackgroundJobs() {
+        const Availability a = featureAvailability(Feature::BackgroundJobs, windowsReady());
+        QVERIFY2(a.available, "los trabajos van con std::thread, no con fork");
         QCOMPARE(a.reason, Reason::Available);
     }
 

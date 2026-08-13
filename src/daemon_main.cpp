@@ -124,7 +124,11 @@ constexpr const char* kDaemonLogFile = "C:\\ProgramData\\ZFSMgr\\agent\\daemon.l
 constexpr const char* kDaemonLogFile = "/var/lib/zfsmgr/daemon.log";
 #endif
 constexpr long long kDaemonLogMaxBytes = 2 * 1048576LL;
+#ifdef _WIN32
+constexpr const char* kJobsFilePath = "C:\\ProgramData\\ZFSMgr\\agent\\jobs.json";
+#else
 constexpr const char* kJobsFilePath = "/var/lib/zfsmgr/jobs.json";
+#endif
 // Rutas por defecto. En Windows no existe /etc, así que apuntar ahí dejaba al agente
 // sin configuración ni certificados salvo que se le pasara ZFSMGR_AGENT_CONFIG a mano
 // — comprobado en un Windows 11 real, donde --serve moría en silencio por eso.
@@ -359,12 +363,17 @@ std::string agentCapabilityList() {
         "--dump-zfs-allow",
     };
     caps.push_back("--dump-tool-availability");
-#ifndef _WIN32
+    // Transferencias y trabajos en segundo plano, ya en las dos plataformas (fases 1 a 5).
+    //
+    // Esto es lo que de verdad enciende la función: lo que el agente DECLARA manda sobre
+    // la tabla estática del cliente. Dejarlos aquí dentro del #ifndef habría dejado
+    // Copiar y Nivelar apagadas en Windows por mucho que la tabla dijera lo contrario.
     caps.push_back("--job-submit");
+    caps.push_back("--zfs-send-to-peer");
+#ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
     caps.push_back("--mutate-rsync-local");
-    caps.push_back("--zfs-send-to-peer");
 #endif
     // Estas dos compilan en ambos sistemas, pero en Windows dependían de makeTempDir,
     // que devolvía cadena vacía y las hacía fallar siempre con rc=125. Se declaran
@@ -4769,6 +4778,25 @@ static std::string generateTransferToken() {
     return out;
 }
 
+// Identificador de trabajo: 8 bytes en hexadecimal.
+//
+// Estaba escrito dos veces leyendo /dev/urandom, que en Windows no existe. Se unifica
+// aprovechando el generador de OpenSSL que ya usa el testigo de transferencia.
+static std::string generateJobId() {
+    unsigned char buf[8] = {};
+    if (RAND_bytes(buf, static_cast<int>(sizeof(buf))) != 1) {
+        return std::string();
+    }
+    static const char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(16);
+    for (unsigned char c : buf) {
+        out.push_back(hex[(c >> 4) & 0xf]);
+        out.push_back(hex[c & 0xf]);
+    }
+    return out;
+}
+
 #ifdef _WIN32
 // Winsock se inicializa una vez por proceso. runServeLoop ya lo hace, pero este verbo
 // también se puede invocar por línea de comandos, donde no ha pasado por ahí.
@@ -5154,7 +5182,13 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 // al socket— en vez de colgar el socket de la salida del hijo, así que la estructura
 // vale tal cual; lo único que cambiaba era crear el proceso y leer de la tubería, y eso
 // vive ahora en spawnReadingStdout.
-static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params) {
+// Devuelve false para pedir que la transferencia se interrumpa. Se llama en cada vuelta
+// del relé, igual que la comprobación de cancelación que hacía el camino asíncrono.
+using TransferProgressFn =
+    std::function<bool(std::uint64_t totalBytes, long elapsedSecs, double rateMiBs)>;
+
+static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
+                                          const TransferProgressFn& onProgress = nullptr) {
     ExecResult r;
     // params: snap peer_host peer_port token [base_snap [send_flags]]
     if (params.size() < 4) {
@@ -5266,6 +5300,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         std::cout << line << std::flush;
         lastReport = now;
     };
+    bool cancelled = false;
     for (;;) {
         const long n = readSpawnedStdout(child, buf.data(), buf.size());
         if (n <= 0) { break; }
@@ -5278,15 +5313,28 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         if (!relayOk) { break; }
         totalBytes += static_cast<std::uint64_t>(n);
         const auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
+        const long elapsed = static_cast<long>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
+        if (onProgress) {
+            const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+            const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : mib;
+            if (!onProgress(totalBytes, elapsed, rate)) { cancelled = true; break; }
+        } else if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
             reportProgress(false);
         }
     }
     closeTransferSocket(sockFd);
-    reportProgress(true);
+    if (!onProgress) { reportProgress(true); }
 
     std::string childErr;
     r.rc = waitSpawnedStdout(child, &childErr);
+    if (cancelled) {
+        // Cancelar no es fallar: quien pidió parar ya sabe por qué, y `zfs send` sale
+        // con error simplemente porque se le cerró la tubería debajo.
+        r.rc = 0;
+        r.out = "CANCELLED=1\n";
+        return r;
+    }
     if (r.rc != 0) {
         r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
         if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
@@ -5296,16 +5344,21 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     return r;
 }
 
-#ifndef _WIN32
-// Async variant: runs the same relay loop in a background thread started by
-// the --zfs-send-to-peer-async RPC handler. Updates g_jobs[jobId] in place.
+// El mismo relé, en segundo plano y volcando el avance en g_jobs.
+//
+// Era una copia casi literal de runZfsSendToPeerCapture: resolver, conectar, lanzar
+// `zfs send`, bombear, informar. Ahora lo reutiliza. Eso quita ~130 líneas duplicadas,
+// y sobre todo quita la posibilidad de arreglar un fallo del relé en una sola de las
+// dos copias, que es como se acumulan las diferencias silenciosas entre caminos.
+//
+// De paso funciona en Windows, porque el relé ya es portable desde la fase 2.
 static void runZfsSendToPeerAsync(const std::string& jobId) {
     std::string snap, peerHost, baseSnap, sendFlags, token;
     int peerPort = 0;
     {
         std::lock_guard<std::mutex> lock(g_jobsMutex);
         auto it = g_jobs.find(jobId);
-        if (it == g_jobs.end()) return;
+        if (it == g_jobs.end()) { return; }
         snap      = it->second.snap;
         peerHost  = it->second.peerHost;
         peerPort  = it->second.peerPort;
@@ -5314,151 +5367,57 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         sendFlags = it->second.sendFlags;
     }
 
-    auto setFailed = [&](const std::string& msg) {
+    // Avance y cancelación. Devolver false interrumpe el relé: antes se hacía matando
+    // el proceso por su PID, que solo vale en Unix; cerrar la tubería es equivalente y
+    // sirve en las dos plataformas.
+    auto onProgress = [&jobId](std::uint64_t bytes, long elapsed, double rate) -> bool {
         std::lock_guard<std::mutex> lock(g_jobsMutex);
         auto it = g_jobs.find(jobId);
-        if (it == g_jobs.end()) return;
-        it->second.state        = JobState::Failed;
-        it->second.errorText    = msg;
-        it->second.finishedAtUtc = utcNowIsoString();
-        persistJobsLocked();
-    };
-
-    // Resolve and connect
-    struct addrinfo hints{};
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo* res = nullptr;
-    const std::string portStr = std::to_string(peerPort);
-    if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
-        setFailed("cannot resolve peer host: " + peerHost); return;
-    }
-    int sockFd = -1;
-    for (struct addrinfo* it = res; it; it = it->ai_next) {
-        int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-        if (fd < 0) continue;
-        if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
-        close(fd);
-    }
-    freeaddrinfo(res);
-    if (sockFd < 0) { setFailed("cannot connect to peer " + peerHost + ":" + portStr); return; }
-
-    const std::string tokenLine = token + "\n";
-    (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
-
-    // Build zfs send argv
-    std::vector<std::string> sendArgs = {"send"};
-    if (!sendFlags.empty()) {
-        std::istringstream iss(sendFlags);
-        std::string tok;
-        while (iss >> tok) sendArgs.push_back(tok);
-    }
-    if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
-    sendArgs.push_back(snap);
-    std::vector<char*> argv2;
-    argv2.push_back(const_cast<char*>("zfs"));
-    for (const std::string& a : sendArgs) argv2.push_back(const_cast<char*>(a.c_str()));
-    argv2.push_back(nullptr);
-
-    int pipeFds[2];
-    if (pipe(pipeFds) != 0) { close(sockFd); setFailed("pipe() failed"); return; }
-    const pid_t sendPid = fork();
-    if (sendPid < 0) { close(pipeFds[0]); close(pipeFds[1]); close(sockFd); setFailed("fork() failed"); return; }
-    if (sendPid == 0) {
-        close(pipeFds[0]);
-        dup2(pipeFds[1], STDOUT_FILENO);
-        close(pipeFds[1]);
-        close(sockFd);
-        execvp("zfs", argv2.data());
-        _exit(127);
-    }
-    close(pipeFds[1]);
-
-    // Store PID immediately so --job-cancel can kill it
-    {
-        std::lock_guard<std::mutex> lock(g_jobsMutex);
-        auto it = g_jobs.find(jobId);
-        if (it != g_jobs.end()) it->second.sendPid = sendPid;
-    }
-
-    uint64_t totalBytes = 0;
-    const auto t0 = std::chrono::steady_clock::now();
-    auto lastReport = t0;
-    char buf[65536];
-    bool relayOk = true;
-
-    for (;;) {
-        // Check for cancellation
-        {
-            std::lock_guard<std::mutex> lock(g_jobsMutex);
-            auto it = g_jobs.find(jobId);
-            if (it != g_jobs.end() && it->second.state == JobState::Cancelled) break;
-        }
-        const ssize_t n = read(pipeFds[0], buf, sizeof(buf));
-        if (n <= 0) break;
-        ssize_t done = 0;
-        while (done < n) {
-            const ssize_t w = write(sockFd, buf + done, static_cast<size_t>(n - done));
-            if (w <= 0) { relayOk = false; break; }
-            done += w;
-        }
-        if (!relayOk) break;
-        totalBytes += static_cast<uint64_t>(n);
-
-        const auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
-            const long elapsed = static_cast<long>(
-                std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
-            const double mib  = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
-            const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : 0.0;
+        if (it == g_jobs.end()) { return false; }
+        if (it->second.state == JobState::Cancelled) { return false; }
+        // Se informa cada dos segundos: escribir una línea por cada 64 KiB llenaría el
+        // registro y no diría nada nuevo.
+        if (elapsed != it->second.elapsedSecs) {
             char line[256];
             snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds",
-                     (unsigned long long)totalBytes, mib, rate, elapsed);
-            {
-                std::lock_guard<std::mutex> lock(g_jobsMutex);
-                auto it = g_jobs.find(jobId);
-                if (it != g_jobs.end()) {
-                    it->second.bytesTransferred = totalBytes;
-                    it->second.rateMiBs         = rate;
-                    it->second.elapsedSecs      = elapsed;
-                    it->second.progressLines.push_back(line);
-                    if (it->second.progressLines.size() > 5)
-                        it->second.progressLines.erase(it->second.progressLines.begin());
-                }
+                     (unsigned long long)bytes,
+                     static_cast<double>(bytes) / (1024.0 * 1024.0), rate, elapsed);
+            it->second.bytesTransferred = bytes;
+            it->second.rateMiBs         = rate;
+            it->second.elapsedSecs      = elapsed;
+            it->second.progressLines.push_back(line);
+            if (it->second.progressLines.size() > 5) {
+                it->second.progressLines.erase(it->second.progressLines.begin());
             }
-            daemonLog("DEBUG", std::string("job ") + jobId + " " + line);
-            lastReport = now;
         }
-    }
-    close(pipeFds[0]);
-    close(sockFd);
+        return true;
+    };
 
-    int status = 0;
-    if (sendPid > 0) waitpid(sendPid, &status, 0);
-    const int rc = decodeWaitStatus(status);
+    const std::vector<std::string> params{
+        snap, peerHost, std::to_string(peerPort), token, baseSnap, sendFlags};
+    const ExecResult r = runZfsSendToPeerCapture(params, onProgress);
 
     std::lock_guard<std::mutex> lock(g_jobsMutex);
     auto it = g_jobs.find(jobId);
-    if (it == g_jobs.end()) return;
+    if (it == g_jobs.end()) { return; }
     if (it->second.state == JobState::Cancelled) {
-        // already marked cancelled by --job-cancel handler
-    } else if (rc != 0) {
-        it->second.state     = JobState::Failed;
-        it->second.errorText = "zfs send exited " + std::to_string(rc);
-    } else if (!relayOk) {
-        it->second.state     = JobState::Failed;
-        it->second.errorText = "relay write to peer failed";
-    } else {
-        it->second.state = JobState::Done;
+        it->second.finishedAtUtc = utcNowIsoString();
+        persistJobsLocked();
+        daemonLog("INFO", "job " + jobId + " cancelado");
+        return;
     }
-    it->second.bytesTransferred = totalBytes;
-    it->second.finishedAtUtc    = utcNowIsoString();
-    daemonLog("INFO", "job " + jobId + " finished state=" + (it->second.errorText.empty() ? "done" : "failed"));
+    if (r.rc == 0) {
+        it->second.state = JobState::Done;
+    } else {
+        it->second.state     = JobState::Failed;
+        it->second.errorText = trim(r.err);
+    }
+    it->second.finishedAtUtc = utcNowIsoString();
     persistJobsLocked();
+    daemonLog(r.rc == 0 ? "INFO" : "ERROR",
+              "job " + jobId + " finished rc=" + std::to_string(r.rc)
+                  + " bytes=" + std::to_string(it->second.bytesTransferred));
 }
-
-
-#endif // _WIN32
 
 ExecResult executeAgentCommandCapture(const std::string& cmd,
                                       const std::vector<std::string>& params,
@@ -6603,9 +6562,7 @@ int runServeLoop() {
                 if (!lastEvent.empty()) {
                     hs << "ZED_LAST_EVENT_UTC=" << lastEvent << "\n";
                 }
-#ifndef _WIN32
                 hs << "JOBS_SUPPORT=1\n";
-#endif
                 hs << "CAPS=" << agentCapabilityList() << "\n";
                 exec.rc = 0;
                 exec.out = hs.str();
@@ -6641,7 +6598,10 @@ int runServeLoop() {
                     exec.rc = 1;
                     exec.out = "TIMEOUT=1\n";
                 }
-#ifndef _WIN32
+            // Los trabajos en segundo plano YA valen en Windows: se ejecutan con
+            // std::thread, no con fork —eso siempre fue así—, y lo que de verdad los
+            // ataba a Unix era el relé del emisor, /dev/urandom para el identificador y
+            // la ruta del fichero de estado. Las tres cosas están resueltas.
             } else if (cmd == "--zfs-send-to-peer-async") {
                 // args: snap peerHost peerPort token [baseSnap [sendFlags]]
                 if (rpcArgs.size() < 4) {
@@ -6649,17 +6609,7 @@ int runServeLoop() {
                     exec.err = "usage: --zfs-send-to-peer-async <snap> <peerHost> <peerPort> <token> [<baseSnap> [<sendFlags>]]\n";
                 } else {
                     DaemonJob job;
-                    // Generate a 16-hex job ID from /dev/urandom
-                    {
-                        unsigned char rnd[8] = {};
-                        int urfd = open("/dev/urandom", O_RDONLY);
-                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
-                        static const char hx[] = "0123456789abcdef";
-                        for (int i = 0; i < 8; ++i) {
-                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
-                            job.id.push_back(hx[rnd[i] & 0xf]);
-                        }
-                    }
+                    job.id = generateJobId();
                     job.type      = "send-to-peer";
                     job.snap      = rpcArgs[0];
                     job.peerHost  = rpcArgs[1];
@@ -6686,16 +6636,7 @@ int runServeLoop() {
                     exec.err = "usage: --job-submit <async-submittable-mutation> [args...]\n";
                 } else {
                     DaemonJob job;
-                    {
-                        unsigned char rnd[8] = {};
-                        int urfd = open("/dev/urandom", O_RDONLY);
-                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
-                        static const char hx[] = "0123456789abcdef";
-                        for (int i = 0; i < 8; ++i) {
-                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
-                            job.id.push_back(hx[rnd[i] & 0xf]);
-                        }
-                    }
+                    job.id = generateJobId();
                     job.type = "mutation";
                     job.submittedCmd = rpcArgs[0];
                     job.state = JobState::Running;
@@ -6797,7 +6738,11 @@ int runServeLoop() {
                         if (j.state != JobState::Running) {
                             exec.rc = 1; exec.out = "ERROR=job not running\n";
                         } else {
-                            if (j.sendPid > 0) kill(j.sendPid, SIGTERM);
+#ifndef _WIN32
+                            // Marcar el estado basta para que el relé se detenga solo.
+                            // Esto es un empujón extra que solo existe en Unix.
+                            if (j.sendPid > 0) { kill(j.sendPid, SIGTERM); }
+#endif
                             j.state        = JobState::Cancelled;
                             j.finishedAtUtc = utcNowIsoString();
                             persistJobsLocked();
@@ -6807,7 +6752,6 @@ int runServeLoop() {
                         }
                     }
                 }
-#endif // _WIN32
             } else {
             daemonLog("DEBUG", "rpc cmd=" + cmd);
             const bool dumpCmd = isDumpCommand(cmd);
@@ -7036,9 +6980,7 @@ int main(int argc, char* argv[]) {
         std::cout << "RPC_FAILURES=0\n";
         std::cout << "RPC_COMMANDS=\n";
         std::cout << "ZED_ACTIVE=0\n";
-#ifndef _WIN32
         std::cout << "JOBS_SUPPORT=1\n";
-#endif
         std::cout << "CAPS=" << agentCapabilityList() << "\n";
         return 0;
     }

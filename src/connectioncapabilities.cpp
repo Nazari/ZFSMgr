@@ -9,7 +9,10 @@ namespace {
 // --mutate-advanced-todir; --dump-tool-availability tampoco existe allí.
 bool windowsAgentPending(Feature f) {
     switch (f) {
-    case Feature::BackgroundJobs:       // depende de fork/waitpid
+    // BackgroundJobs ya NO está aquí. El comentario que tenía —«depende de fork/waitpid»—
+    // era falso: los trabajos siempre se ejecutaron con std::thread. Lo que de verdad los
+    // ataba a Unix era el relé del emisor, /dev/urandom para el identificador y la ruta
+    // del fichero de estado, y las tres cosas están resueltas.
     case Feature::RepairAltMountpoints:
     case Feature::DirToDir:
     case Feature::ToolAvailability:
