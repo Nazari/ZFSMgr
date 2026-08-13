@@ -1070,6 +1070,14 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
         splitTree->setProperty("zfsmgr.splitTreeKey", splitKey);
         splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
         installConnContentTreeHeaderContextMenu(splitTree);
+        // El panel nace con las 4 columnas base que fija el constructor del panel, y sin
+        // esto nadie le añadía nunca las de propiedades: el split salía sin columnas, el
+        // menú de la cabecera decía «8» —porque ese número sale del ajuste global, no del
+        // árbol— y las propiedades de fichero no se escribían, porque se escriben de la
+        // columna 4 en adelante y no había ninguna. Se sincroniza ANTES de poblarlo para
+        // que las filas nazcan ya con sus celdas.
+        splitTree->setProperty("propColumnsSetting", propColumnCountForTree(nullptr));
+        syncConnContentPropertyColumnsFor(splitTree, connContentTokenForTree(splitTree));
         if (isConnectionLevel) {
             appendSplitDatasetTreeForConnection(splitTree, connIdx);
         } else {

@@ -1850,6 +1850,12 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
     }
 
+    // Las filas de fichero ya cargadas escribieron sus propiedades contra el número de
+    // columnas de ENTONCES. Si ahora hay más, hay que repintarlas o solo se verían los
+    // tamaños de lo que se abriera a partir de ahora. Va aquí, antes de las salidas
+    // tempranas de más abajo, para que ocurra siempre que se toquen las columnas.
+    reapplyFileBrowserPropertyCells(tree);
+
     if (treeGroupsPoolsByConnectionRoots(tree)) {
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem* root = tree->topLevelItem(i);

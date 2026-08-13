@@ -1,3 +1,4 @@
+#include <functional>
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
@@ -15,6 +16,10 @@ constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
 constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
 constexpr int kConnFileBrowserIsDirRole = Qt::UserRole + 55;
 constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
+// Los valores crudos de la entrada (permisos, propietario, grupo, tamaño, modificado).
+// Se guardan porque las columnas de propiedades se pueden ampliar DESPUÉS de haber
+// cargado el directorio, y sin el original no habría con qué rellenar las nuevas.
+constexpr int kConnFileBrowserPropsRole = Qt::UserRole + 57;
 
 struct FileBrowserEntry {
     QString permissions;
@@ -226,36 +231,6 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
     // Las columnas 4 en adelante no tienen rótulo fijo (son C1, C2, ... compartidas con
     // los datasets), así que cada celda lleva el nombre de la propiedad en su tooltip y
     // la fila entera lo lleva completo.
-    const QStringList propLabels = {
-        trk(QStringLiteral("t_fb_perms_001"), QStringLiteral("permisos"),
-            QStringLiteral("permissions"), QStringLiteral("权限")),
-        trk(QStringLiteral("t_fb_owner_001"), QStringLiteral("propietario"),
-            QStringLiteral("owner"), QStringLiteral("所有者")),
-        trk(QStringLiteral("t_fb_group_001"), QStringLiteral("grupo"),
-            QStringLiteral("group"), QStringLiteral("组")),
-        trk(QStringLiteral("t_fb_size_001"), QStringLiteral("tamaño"),
-            QStringLiteral("size"), QStringLiteral("大小")),
-        trk(QStringLiteral("t_fb_mtime_001"), QStringLiteral("modificado"),
-            QStringLiteral("modified"), QStringLiteral("修改时间")),
-    };
-    auto setEntryProps = [&](QTreeWidgetItem* item, const QStringList& values) {
-        QStringList tip;
-        for (int i = 0; i < values.size() && i < propLabels.size(); ++i) {
-            tip << QStringLiteral("%1: %2").arg(propLabels.at(i), values.at(i));
-        }
-        item->setToolTip(0, tip.join(QLatin1Char('\n')));
-        for (int i = 0; i < values.size(); ++i) {
-            const int col = 4 + i;
-            if (col >= tree->columnCount()) {
-                break;  // lo que no cabe sigue estando en el tooltip de la fila
-            }
-            item->setText(col, values.at(i));
-            item->setToolTip(col, QStringLiteral("%1: %2")
-                                      .arg(propLabels.value(i), values.at(i)));
-            item->setTextAlignment(col, Qt::AlignLeft | Qt::AlignVCenter);
-        }
-    };
-
     const QIcon dirIcon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
     const QIcon fileIcon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
     const QIcon linkIcon = QApplication::style()->standardIcon(QStyle::SP_FileLinkIcon);
@@ -281,12 +256,79 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         entryItem->setData(0, kConnIdxRole, connIdx);
         entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsUserCheckable);
 
-        setEntryProps(entryItem, {e.permissions, e.owner, e.group, e.size, e.mtime});
+        writeFileBrowserPropCells(tree, entryItem,
+                                  {e.permissions, e.owner, e.group, e.size, e.mtime});
 
         if (e.isDir) {
             auto* placeholder = new QTreeWidgetItem(entryItem);
             placeholder->setText(0, QStringLiteral("..."));
             placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
         }
+    }
+}
+
+// Las columnas 4 en adelante no tienen rótulo fijo (son C1, C2, ... compartidas con los
+// datasets), así que cada celda lleva el nombre de la propiedad en su tooltip y la fila
+// entera lo lleva completo. Lo que no cabe en las columnas NO se pierde: sigue en el
+// tooltip de la fila.
+void MainWindow::writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* item,
+                                           const QStringList& values) {
+    if (!tree || !item) {
+        return;
+    }
+    const QStringList propLabels = {
+        trk(QStringLiteral("t_fb_perms_001"), QStringLiteral("permisos"),
+            QStringLiteral("permissions"), QStringLiteral("权限")),
+        trk(QStringLiteral("t_fb_owner_001"), QStringLiteral("propietario"),
+            QStringLiteral("owner"), QStringLiteral("所有者")),
+        trk(QStringLiteral("t_fb_group_001"), QStringLiteral("grupo"),
+            QStringLiteral("group"), QStringLiteral("组")),
+        trk(QStringLiteral("t_fb_size_001"), QStringLiteral("tamaño"),
+            QStringLiteral("size"), QStringLiteral("大小")),
+        trk(QStringLiteral("t_fb_mtime_001"), QStringLiteral("modificado"),
+            QStringLiteral("modified"), QStringLiteral("修改时间")),
+    };
+
+    item->setData(0, kConnFileBrowserPropsRole, values);
+
+    QStringList tip;
+    for (int i = 0; i < values.size() && i < propLabels.size(); ++i) {
+        tip << QStringLiteral("%1: %2").arg(propLabels.at(i), values.at(i));
+    }
+    item->setToolTip(0, tip.join(QLatin1Char('\n')));
+    for (int i = 0; i < values.size(); ++i) {
+        const int col = 4 + i;
+        if (col >= tree->columnCount()) {
+            break;  // lo que no cabe sigue estando en el tooltip de la fila
+        }
+        item->setText(col, values.at(i));
+        item->setToolTip(col, QStringLiteral("%1: %2")
+                                  .arg(propLabels.value(i), values.at(i)));
+        item->setTextAlignment(col, Qt::AlignLeft | Qt::AlignVCenter);
+    }
+}
+
+// Ampliar las columnas no bastaba: las propiedades se escriben cuando se carga el
+// directorio, así que las filas ya cargadas se quedaban con las celdas vacías y solo
+// salían los tamaños de lo que se abriera después. Aquí se repintan con los valores
+// que cada fila guardó al cargarse, sin volver a pedir el listado al otro extremo.
+void MainWindow::reapplyFileBrowserPropertyCells(QTreeWidget* tree) {
+    if (!tree) {
+        return;
+    }
+    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        const QVariant stored = node->data(0, kConnFileBrowserPropsRole);
+        if (stored.isValid()) {
+            writeFileBrowserPropCells(tree, node, stored.toStringList());
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            walk(node->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        walk(tree->topLevelItem(i));
     }
 }

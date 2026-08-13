@@ -967,6 +967,13 @@ private:
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
     void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
     void populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* browserNode);
+    // Escribe las propiedades de una entrada de fichero en las columnas 4 en adelante, y
+    // las deja guardadas en la propia fila para poder repintarlas si cambian las columnas.
+    void writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* item,
+                                   const QStringList& values);
+    // Repinta las propiedades de las filas de fichero YA cargadas. Se llama al cambiar el
+    // número de columnas: sin esto, ampliarlas solo surte efecto en lo que se abra después.
+    void reapplyFileBrowserPropertyCells(QTreeWidget* tree);
     QStringList availableDelegablePermissions(const QString& datasetName,
                                               int connIdx,
                                               const QString& poolName,
