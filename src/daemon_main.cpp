@@ -52,6 +52,7 @@ typedef int pid_t;
 #endif
 #include <openssl/err.h>
 #include <openssl/pem.h>
+#include <openssl/rand.h>
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
@@ -4746,6 +4747,287 @@ void runGsaSchedulerThread() {
 }
 
 
+// Testigo de 32 bytes en hexadecimal, para que solo el emisor esperado pueda entregar
+// un flujo al puerto que se acaba de abrir.
+//
+// Con RAND_bytes de OpenSSL, que ya está enlazado, en vez de leer /dev/urandom: había
+// un respaldo a std::rand() que en caso de fallo generaba un testigo adivinable, y era
+// la única fuente de aleatoriedad de todo el mecanismo. Además /dev/urandom no existe
+// en Windows, así que una sola implementación sirve para las dos plataformas.
+static std::string generateTransferToken() {
+    unsigned char buf[32] = {};
+    if (RAND_bytes(buf, static_cast<int>(sizeof(buf))) != 1) {
+        return std::string();  // sin aleatoriedad no se abre el puerto: el llamante aborta
+    }
+    static const char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(64);
+    for (unsigned char c : buf) {
+        out.push_back(hex[(c >> 4) & 0xf]);
+        out.push_back(hex[c & 0xf]);
+    }
+    return out;
+}
+
+#ifdef _WIN32
+// Winsock se inicializa una vez por proceso. runServeLoop ya lo hace, pero este verbo
+// también se puede invocar por línea de comandos, donde no ha pasado por ahí.
+static void ensureWinsock() {
+    static bool done = false;
+    static std::mutex m;
+    std::lock_guard<std::mutex> lk(m);
+    if (done) {
+        return;
+    }
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    done = true;
+}
+#endif
+
+#ifdef _WIN32
+using TransferSocket = SOCKET;
+#else
+using TransferSocket = int;
+#endif
+
+static void closeTransferSocket(TransferSocket s) {
+#ifdef _WIN32
+    if (s != INVALID_SOCKET) { closesocket(s); }
+#else
+    if (s >= 0) { close(s); }
+#endif
+}
+
+// Espera al emisor, comprueba el testigo y le da el flujo a `zfs recv`.
+//
+// Se ejecuta en un hilo suelto y no informa a nadie: quien quiera saber si la recepción
+// fue bien lo consulta después por el estado del dataset.
+static void runTransferReceiveSession(TransferSocket listenFd,
+                                      const std::string& token,
+                                      const std::string& dataset,
+                                      bool force) {
+    // Hasta 300 s esperando a que el emisor se conecte. Sin plazo, un emisor que nunca
+    // llega deja el puerto abierto y el hilo vivo para siempre.
+    struct timeval tv{};
+    tv.tv_sec = 300;
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(listenFd, &rfds);
+    const int sel = select(static_cast<int>(listenFd) + 1, &rfds, nullptr, nullptr, &tv);
+    if (sel <= 0) { closeTransferSocket(listenFd); return; }
+
+    const TransferSocket clientFd = accept(listenFd, nullptr, nullptr);
+    closeTransferSocket(listenFd);
+#ifdef _WIN32
+    if (clientFd == INVALID_SOCKET) { return; }
+#else
+    if (clientFd < 0) { return; }
+#endif
+
+    // Línea del testigo: 64 caracteres hexadecimales y un salto. Se lee con recv(), que
+    // vale igual en las dos plataformas —read() no acepta sockets en Windows—.
+    std::string recvToken;
+    recvToken.reserve(65);
+    char ch = 0;
+    while (recvToken.size() < 65) {
+        const int n = recv(clientFd, &ch, 1, 0);
+        if (n <= 0) { break; }
+        if (ch == '\n') { break; }
+        recvToken.push_back(ch);
+    }
+    if (recvToken != token) { closeTransferSocket(clientFd); return; }
+
+    std::vector<std::string> args = {"recv"};
+    if (force) { args.push_back("-F"); }
+    args.push_back("-u");
+    args.push_back("-s");
+    args.push_back(dataset);
+
+#ifndef _WIN32
+    // En Unix el socket ES la entrada del hijo: un dup2 y listo, sin copiar un byte.
+    std::vector<char*> argv2;
+    argv2.push_back(const_cast<char*>("zfs"));
+    for (const std::string& a : args) { argv2.push_back(const_cast<char*>(a.c_str())); }
+    argv2.push_back(nullptr);
+    const pid_t pid = fork();
+    if (pid == 0) {
+        dup2(clientFd, STDIN_FILENO);
+        close(clientFd);
+        execvp("zfs", argv2.data());
+        _exit(127);
+    }
+    close(clientFd);
+    if (pid > 0) { waitpid(pid, nullptr, 0); }
+#else
+    // En Windows NO se le puede pasar el socket como entrada al proceso.
+    //
+    // Esto no es cautela: está medido. `zfs recv` alimentado por el descriptor que
+    // entrega sshd —también un socket— muere con «cannot receive: I/O error» a los
+    // 132 KiB, mientras que por una tubería anónima recibe el flujo entero con las
+    // sumas de verificación intactas. Así que aquí se BOMBEA: el daemon lee del socket
+    // y escribe en una tubería que es la que ve `zfs`.
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE inRd = nullptr, inWr = nullptr;
+    HANDLE outRd = nullptr, outWr = nullptr;
+    if (!CreatePipe(&inRd, &inWr, &sa, 0)) { closeTransferSocket(clientFd); return; }
+    if (!CreatePipe(&outRd, &outWr, &sa, 0)) {
+        CloseHandle(inRd); CloseHandle(inWr); closeTransferSocket(clientFd); return;
+    }
+    SetHandleInformation(inWr, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(outRd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = inRd;
+    // Salida y error a una tubería propia: el daemon puede correr como servicio, sin
+    // consola donde heredar nada, y lo que diga `zfs recv` al fallar es justo lo que
+    // hace falta para saber por qué. Se registra al terminar.
+    si.hStdOutput = outWr;
+    si.hStdError = outWr;
+    PROCESS_INFORMATION pi{};
+    const std::string cmdLine = winBuildCommandLine("zfs", args);
+    std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back('\0');
+    const BOOL started = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
+                                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(inRd);
+    CloseHandle(outWr);
+    if (!started) {
+        CloseHandle(inWr); CloseHandle(outRd); closeTransferSocket(clientFd);
+        daemonLog("ERROR", "recv-listen: no se pudo lanzar zfs recv");
+        return;
+    }
+
+    std::string childOutput;
+    std::thread drainThread([outRd, &childOutput]() {
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(outRd, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            childOutput.append(buf, n);
+        }
+        CloseHandle(outRd);
+    });
+
+    // El bombeo. 64 KiB por vuelta: el flujo de `zfs send` son megas o gigas, y un búfer
+    // de 4 KiB multiplica por dieciséis las idas y venidas sin ganar nada.
+    std::vector<char> buf(65536);
+    std::uint64_t moved = 0;
+    while (true) {
+        const int n = recv(clientFd, buf.data(), static_cast<int>(buf.size()), 0);
+        if (n <= 0) { break; }  // 0 = el emisor terminó; <0 = se cortó
+        int off = 0;
+        bool writeFailed = false;
+        while (off < n) {
+            DWORD written = 0;
+            if (!WriteFile(inWr, buf.data() + off, static_cast<DWORD>(n - off), &written, nullptr)
+                || written == 0) {
+                writeFailed = true;  // `zfs recv` cerró su entrada: no hay a quién escribir
+                break;
+            }
+            off += static_cast<int>(written);
+        }
+        if (writeFailed) { break; }
+        moved += static_cast<std::uint64_t>(n);
+    }
+    // Cerrar la escritura es lo que le da fin de datos a `zfs recv`. Sin esto se queda
+    // esperando más flujo y no termina nunca.
+    CloseHandle(inWr);
+    closeTransferSocket(clientFd);
+
+    drainThread.join();
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    daemonLog(exitCode == 0 ? "INFO" : "ERROR",
+              "recv-listen " + dataset + ": rc=" + std::to_string(exitCode)
+                  + " bytes=" + std::to_string(moved)
+                  + (childOutput.empty() ? std::string() : (" " + trim(childOutput))));
+#endif
+}
+
+// Abre un puerto efímero, espera al emisor y le entrega el flujo a `zfs recv`.
+//
+// Servido por RPC devuelve PORT y TOKEN de inmediato y recibe en un hilo suelto, porque
+// el daemon sigue vivo para atenderlo.
+//
+// `waitInline` es para la invocación por línea de comandos, donde ese reparto no vale:
+// el proceso terminaría en cuanto imprimiera el puerto y se llevaría por delante el hilo
+// que iba a recibir. Ahí se emiten PORT y TOKEN por la salida —para que el emisor pueda
+// leerlos y conectarse— y se atiende la sesión sin soltar el proceso.
+static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force,
+                                          bool waitInline = false) {
+    ExecResult r;
+    if (trim(dataset).empty()) {
+        r.rc = 2; r.err = "empty dataset\n"; return r;
+    }
+    const std::string token = generateTransferToken();
+    if (token.empty()) {
+        r.rc = 1; r.err = "no se pudo generar el testigo de transferencia\n"; return r;
+    }
+
+#ifdef _WIN32
+    ensureWinsock();
+#endif
+
+    const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
+    const std::string bindAddr = cfg2.transferBindAddr.empty() ? std::string("0.0.0.0")
+                                                               : cfg2.transferBindAddr;
+    struct addrinfo hints2{};
+    hints2.ai_family = AF_INET;
+    hints2.ai_socktype = SOCK_STREAM;
+    hints2.ai_flags = AI_PASSIVE;
+    struct addrinfo* res2 = nullptr;
+    if (getaddrinfo(bindAddr.c_str(), nullptr, &hints2, &res2) != 0 || !res2) {
+        r.rc = 1; r.err = "getaddrinfo failed for transfer bind\n"; return r;
+    }
+#ifdef _WIN32
+    SOCKET listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+    const bool listenBad = (listenFd == INVALID_SOCKET);
+#else
+    int listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+    const bool listenBad = (listenFd < 0);
+#endif
+    if (listenBad) { freeaddrinfo(res2); r.rc = 1; r.err = "socket failed\n"; return r; }
+    int one = 1;
+    setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR,
+               reinterpret_cast<const char*>(&one), sizeof(one));
+    if (bind(listenFd, res2->ai_addr, static_cast<int>(res2->ai_addrlen)) != 0) {
+        closeTransferSocket(listenFd); freeaddrinfo(res2);
+        r.rc = 1; r.err = "bind failed\n"; return r;
+    }
+    freeaddrinfo(res2);
+    if (listen(listenFd, 1) != 0) {
+        closeTransferSocket(listenFd); r.rc = 1; r.err = "listen failed\n"; return r;
+    }
+    struct sockaddr_in bound{};
+    socklen_t blen = sizeof(bound);
+    getsockname(listenFd, reinterpret_cast<struct sockaddr*>(&bound), &blen);
+    const int assignedPort = static_cast<int>(ntohs(bound.sin_port));
+
+    if (waitInline) {
+        // El emisor necesita el puerto ANTES de que empiece la espera, así que se emite
+        // y se vacía el búfer aquí mismo.
+        std::cout << "PORT=" << assignedPort << "\nTOKEN=" << token << "\n" << std::flush;
+        runTransferReceiveSession(listenFd, token, dataset, force);
+        r.rc = 0;
+        return r;
+    }
+
+    std::thread([listenFd, token, dataset, force]() {
+        runTransferReceiveSession(listenFd, token, dataset, force);
+    }).detach();
+
+    r.rc = 0;
+    r.out = "PORT=" + std::to_string(assignedPort) + "\nTOKEN=" + token + "\n";
+    return r;
+}
+
 #ifndef _WIN32
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params) {
     ExecResult r;
@@ -5377,6 +5659,15 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // caller already has root and it grants no extra privilege. The CLI handler in
     // main() stays for those flows.
 
+    // Recibir un flujo SÍ funciona en Windows desde la fase 1: el daemon bombea del
+    // socket a una tubería propia en vez de entregarle el descriptor a `zfs recv`.
+    if (cmd == "--zfs-recv-listen") {
+        // params: dataset [force=0|1]
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
+        const bool force = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
+        return runZfsRecvListenCapture(params[0], force);
+    }
+
 #ifndef _WIN32
     if (cmd == "--zfs-pipe-local") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-pipe-local <payload-b64>\n"; return r; }
@@ -5389,107 +5680,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         const bool apply = !params.empty() && toLower(trim(params[0])) == "apply";
         return runRepairAltMountpointsCapture(apply);
     }
-    if (cmd == "--zfs-recv-listen") {
-        // params: dataset [force=0|1]
-        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
-        const std::string dataset = params[0];
-        const bool force = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
-
-        // Generate 32-byte (64-hex-char) random token
-        auto genToken = []() -> std::string {
-            unsigned char buf[32] = {};
-            int fd = open("/dev/urandom", O_RDONLY);
-            if (fd >= 0) { (void)read(fd, buf, sizeof(buf)); close(fd); }
-            else { for (int i = 0; i < 32; ++i) buf[i] = static_cast<unsigned char>(std::rand() & 0xff); }
-            static const char hex[] = "0123456789abcdef";
-            std::string out; out.reserve(64);
-            for (int i = 0; i < 32; ++i) {
-                out.push_back(hex[(buf[i] >> 4) & 0xf]);
-                out.push_back(hex[buf[i] & 0xf]);
-            }
-            return out;
-        };
-        const std::string token = genToken();
-
-        // Open ephemeral TCP listener
-        const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
-        const std::string bindAddr = cfg2.transferBindAddr.empty() ? std::string("0.0.0.0") : cfg2.transferBindAddr;
-        struct addrinfo hints2{};
-        hints2.ai_family = AF_INET;
-        hints2.ai_socktype = SOCK_STREAM;
-        hints2.ai_flags = AI_PASSIVE;
-        struct addrinfo* res2 = nullptr;
-        if (getaddrinfo(bindAddr.c_str(), nullptr, &hints2, &res2) != 0 || !res2) {
-            r.rc = 1; r.err = "getaddrinfo failed for transfer bind\n"; return r;
-        }
-        int listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
-        if (listenFd < 0) { freeaddrinfo(res2); r.rc = 1; r.err = "socket failed\n"; return r; }
-        int one = 1;
-        setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-        if (bind(listenFd, res2->ai_addr, static_cast<socklen_t>(res2->ai_addrlen)) != 0) {
-            close(listenFd); freeaddrinfo(res2); r.rc = 1; r.err = "bind failed\n"; return r;
-        }
-        freeaddrinfo(res2);
-        if (listen(listenFd, 1) != 0) {
-            close(listenFd); r.rc = 1; r.err = "listen failed\n"; return r;
-        }
-        // Determine actual port
-        struct sockaddr_in bound{};
-        socklen_t blen = sizeof(bound);
-        getsockname(listenFd, reinterpret_cast<struct sockaddr*>(&bound), &blen);
-        const int assignedPort = static_cast<int>(ntohs(bound.sin_port));
-
-        // Spawn background thread: accept one connection, verify token, pipe to zfs recv
-        struct RecvState { int listenFd; std::string token; std::string dataset; bool force; };
-        auto* state = new RecvState{listenFd, token, dataset, force};
-        std::thread([state]() {
-            struct RecvState s = *state;
-            delete state;
-            // Wait up to 300 seconds for source to connect
-            struct timeval tv{}; tv.tv_sec = 300;
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(s.listenFd, &rfds);
-            const int sel = select(s.listenFd + 1, &rfds, nullptr, nullptr, &tv);
-            if (sel <= 0) { close(s.listenFd); return; }
-            const int clientFd = accept(s.listenFd, nullptr, nullptr);
-            close(s.listenFd);
-            if (clientFd < 0) return;
-            // Read token line (64 hex chars + '\n')
-            std::string recvToken;
-            recvToken.reserve(65);
-            char ch = 0;
-            while (recvToken.size() < 65) {
-                const ssize_t n = read(clientFd, &ch, 1);
-                if (n <= 0) break;
-                if (ch == '\n') break;
-                recvToken.push_back(ch);
-            }
-            if (recvToken != s.token) { close(clientFd); return; }
-            // Fork zfs recv with stdin from clientFd
-            std::vector<std::string> args = {"recv"};
-            if (s.force) args.push_back("-F");
-            args.push_back("-u");
-            args.push_back("-s");
-            args.push_back(s.dataset);
-            std::vector<char*> argv2;
-            argv2.push_back(const_cast<char*>("zfs"));
-            for (const std::string& a : args) argv2.push_back(const_cast<char*>(a.c_str()));
-            argv2.push_back(nullptr);
-            const pid_t pid = fork();
-            if (pid == 0) {
-                dup2(clientFd, STDIN_FILENO);
-                close(clientFd);
-                execvp("zfs", argv2.data());
-                _exit(127);
-            }
-            close(clientFd);
-            if (pid > 0) waitpid(pid, nullptr, 0);
-        }).detach();
-
-        r.rc = 0;
-        r.out = "PORT=" + std::to_string(assignedPort) + "\nTOKEN=" + token + "\n";
-        return r;
-    }
-
+    // Emitir sigue siendo solo Unix: es la fase 2.
     if (cmd == "--zfs-send-to-peer") {
         return runZfsSendToPeerCapture(params);
     }
@@ -7196,6 +7387,19 @@ int main(int argc, char* argv[]) {
         return e.rc;
     }
 #endif
+    // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
+    // vuelve hasta que la transferencia termina: soltar el proceso mataría el hilo que
+    // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
+    if (cmd == "--zfs-recv-listen") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const bool force = args.size() > 3 && (args[3] == "1" || toLower(args[3]) == "true");
+        const ExecResult e = runZfsRecvListenCapture(args[2], force, /*waitInline=*/true);
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
 
     printUsage(args[0].c_str());
     return 2;
