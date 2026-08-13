@@ -2874,6 +2874,28 @@ QString MainWindow::effectiveMountPath(int connIdx,
         return normalizePath(mountpointHint);
     }
 
+    // Primero, la lista REAL de montajes, que da el punto de cada dataset por separado.
+    //
+    // El cálculo de más abajo sube por los padres buscando `driveletter`, y esa propiedad
+    // SE HEREDA: un hijo de un pool montado en Z: devuelve Z igual que su padre, así que
+    // se le tomaba por la raíz de la unidad y se le asignaba `Z:\`. Resultado visto en
+    // Windows: el árbol mostraba EL MISMO contenido en winpool y en winpool/subds1.
+    //
+    // La lista de montajes no se hereda ni se deduce: dice dónde está montado cada uno.
+    if (connIdx >= 0 && connIdx < m_states.size()) {
+        for (const QPair<QString, QString>& row : m_states[connIdx].mountedDatasets) {
+            if (row.first.trimmed() != datasetName) {
+                continue;
+            }
+            QString mp = row.second.trimmed();
+            if (mp.isEmpty()) {
+                break;
+            }
+            mp.replace(QLatin1Char('/'), QLatin1Char('\\'));
+            return normalizePath(mp);
+        }
+    }
+
     QString anchor = datasetName;
     QString drive;
     while (!anchor.isEmpty()) {
