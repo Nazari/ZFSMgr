@@ -490,8 +490,24 @@ void MainWindow::actionCopySnapshot() {
         recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
         QString recvOut, recvErr;
         int recvRc = -1;
-        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
-            || recvRc != 0) {
+        // El destino puede ser la conexión LOCAL, y entonces no hay túnel que valga:
+        // tryRunRemoteAgentRpcViaTunnel rechaza de entrada todo lo que no sea SSH. Eso
+        // hacía fallar la copia hacia el propio equipo con el motivo VACÍO, se caía al
+        // respaldo por shell, y ese respaldo mandaba un `printf` de Unix a PowerShell.
+        // El usuario acababa viendo un objeto de error XML de PowerShell sin ninguna
+        // relación aparente con lo que había pedido.
+        QString rpcReason;
+        const bool rpcOk =
+            isLocalConnection(dp)
+                ? runAgentCommand(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+                : tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc,
+                                                &rpcReason);
+        if (!rpcOk || recvRc != 0) {
+            if (recvErr.trimmed().isEmpty()) {
+                recvErr = rpcReason.trimmed().isEmpty()
+                              ? QStringLiteral("sin motivo declarado")
+                              : rpcReason;
+            }
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Copiar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
                        .arg(dp.name, recvErr.trimmed()));
@@ -590,49 +606,38 @@ void MainWindow::actionCopySnapshot() {
     // había pipeline; desde la fase 3 sí lo hay, y sin esta condición se tiraba a la
     // basura para poner en su lugar un guion de shell POSIX que en Windows ni siquiera
     // puede ejecutarse. Además TAR pierde propiedades, cifrado e incrementales.
+    // Con un extremo Windows y sin camino daemon-a-daemon no hay nada que ofrecer, y es
+    // mejor decirlo que fingir.
+    //
+    // El respaldo de abajo es un guion de shell POSIX —`set -e`, `grep`, `cut`— que en
+    // Windows NO puede ejecutarse desde que se retiró MSYS2. Encolarlo igualmente hacía
+    // que PowerShell devolviera su objeto de error en XML, y el usuario veía en pantalla
+    // un `<Objs Version="1.1.0.1">... At line:1 char:860` que no guarda ninguna relación
+    // aparente con la copia que había pedido. Un error claro vale más que un intento que
+    // se sabe imposible.
     if (pipeline.isEmpty() && (isWindowsConnection(sp) || isWindowsConnection(dp))) {
-        const bool builtFallback = [&]() -> bool {
-            QString srcScript = QStringLiteral(
-                "set -e; DATASET=%1; SNAP=%2; "
-                "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
-                "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
-                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
-                "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
-                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
-                "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount source dataset: $DATASET\"; exit 41; }; "
-                "SRC=\"$MP/.zfs/snapshot/$SNAP\"; "
-                "[ -d \"$SRC\" ] || { echo \"[COPY][ERROR] snapshot path unavailable: $SRC\"; exit 42; }; "
-                "tar --acls --xattrs -cpf - -C \"$SRC\" .; RC=$?; "
-                "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
-                "exit $RC")
-                                          .arg(shSingleQuote(src.datasetName), shSingleQuote(src.snapshotName));
-
-            QString dstScript = QStringLiteral(
-                "set -e; DATASET=%1; "
-                "if ! zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then zfs create -u \"$DATASET\"; fi; "
-                "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
-                "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
-                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
-                "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
-                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
-                "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount destination dataset: $DATASET\"; exit 43; }; "
-                "mkdir -p \"$MP\"; tar --acls --xattrs -xpf - -C \"$MP\"; RC=$?; "
-                "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
-                "exit $RC")
-                                          .arg(shSingleQuote(recvTarget));
-            if (directRemoteToRemote) {
-                pendingCommand = sshExecFromLocal(
-                    sp,
-                    buildPipedTransferCommand(withSudo(sp, srcScript),
-                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))));
-            } else {
-                pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
-                                                           sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
-            }
-            displayLabel = QStringLiteral("Copiar snapshot (fallback TAR) %1 -> %2").arg(srcSnap, recvTarget);
-            return true;
-        }();
-        Q_UNUSED(builtFallback);
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_copy_win_nodaemon001"),
+                QStringLiteral("No se pudo preparar la copia con %1.\n\n"
+                               "Copiar entre máquinas necesita el agente en ambos extremos, "
+                               "y no se pudo hablar con el del destino. Compruebe en la ficha "
+                               "de la conexión que está instalado y activo; si viene de una "
+                               "versión anterior, reinstálelo desde el menú contextual."),
+                QStringLiteral("Could not prepare the copy with %1.\n\n"
+                               "Copying between machines needs the agent on both ends, and the "
+                               "target's could not be reached. Check on the connection card that "
+                               "it is installed and running; if it comes from an earlier version, "
+                               "reinstall it from the context menu."),
+                QStringLiteral("无法准备与 %1 之间的复制。\n\n"
+                               "机器间复制需要两端都有代理，而目标端的代理无法访问。请在连接"
+                               "卡片中确认它已安装并正在运行；若来自较早版本，请从右键菜单"
+                               "重新安装。"))
+                .arg(isWindowsConnection(dp) ? dp.name : sp.name));
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Copiar cancelada: sin camino daemon-a-daemon y un extremo es "
+                              "Windows, donde el respaldo por shell no puede ejecutarse"));
+        return;
     }
     QString errorText;
     if (!queuePendingShellAction(PendingShellActionDraft{
@@ -1341,8 +1346,24 @@ void MainWindow::actionLevelSnapshot() {
         recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
         QString recvOut, recvErr;
         int recvRc = -1;
-        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
-            || recvRc != 0) {
+        // El destino puede ser la conexión LOCAL, y entonces no hay túnel que valga:
+        // tryRunRemoteAgentRpcViaTunnel rechaza de entrada todo lo que no sea SSH. Eso
+        // hacía fallar la copia hacia el propio equipo con el motivo VACÍO, se caía al
+        // respaldo por shell, y ese respaldo mandaba un `printf` de Unix a PowerShell.
+        // El usuario acababa viendo un objeto de error XML de PowerShell sin ninguna
+        // relación aparente con lo que había pedido.
+        QString rpcReason;
+        const bool rpcOk =
+            isLocalConnection(dp)
+                ? runAgentCommand(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+                : tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc,
+                                                &rpcReason);
+        if (!rpcOk || recvRc != 0) {
+            if (recvErr.trimmed().isEmpty()) {
+                recvErr = rpcReason.trimmed().isEmpty()
+                              ? QStringLiteral("sin motivo declarado")
+                              : rpcReason;
+            }
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Nivelar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
                        .arg(dp.name, recvErr.trimmed()));
