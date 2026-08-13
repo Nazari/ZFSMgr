@@ -1734,6 +1734,50 @@ int runExecStreaming(const std::string& program, const std::vector<std::string>&
 #endif
 }
 
+#ifdef _WIN32
+// Línea de comandos de Windows a partir de argv.
+//
+// CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así
+// que el entrecomillado es responsabilidad de quien la construye. La regla no es la
+// intuitiva: las barras invertidas solo se duplican cuando preceden a una comilla.
+//
+// Vive aquí, en una sola función, porque la usan runExecCapture y
+// runExecCaptureWithStdin. Copiada dos veces, una corrección en una de ellas dejaría a
+// la otra tratando mal exactamente los mismos argumentos: rutas con espacios y nombres
+// de dataset con comillas.
+static std::string winBuildCommandLine(const std::string& program,
+                                       const std::vector<std::string>& args) {
+    auto quoteArg = [](const std::string& a) -> std::string {
+        if (!a.empty() && a.find_first_of(" \t\"") == std::string::npos) {
+            return a;
+        }
+        std::string q = "\"";
+        size_t slashes = 0;
+        for (char c : a) {
+            if (c == '\\') {
+                ++slashes;
+                q.push_back(c);
+                continue;
+            }
+            if (c == '"') {
+                q.append(slashes + 1, '\\');
+            }
+            slashes = 0;
+            q.push_back(c);
+        }
+        q.append(slashes, '\\');
+        q.push_back('"');
+        return q;
+    };
+    std::string cmd = quoteArg(program);
+    for (const std::string& a : args) {
+        cmd.push_back(' ');
+        cmd += quoteArg(a);
+    }
+    return cmd;
+}
+#endif
+
 ExecResult runExecCapture(const std::string& program, const std::vector<std::string>& args) {
     ExecResult r;
 #ifndef _WIN32
@@ -1832,35 +1876,7 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
     // última comilla de la línea, y hacía falta un par extra envolviéndolo todo para
     // compensarlo. CreateProcess no invoca ningún shell: desaparecen las dos cosas.
     //
-    // El entrecomillado sigue las reglas de la línea de comandos de Windows: las barras
-    // invertidas solo se duplican cuando preceden a una comilla.
-    auto quoteArg = [](const std::string& a) -> std::string {
-        if (!a.empty() && a.find_first_of(" \t\"") == std::string::npos) {
-            return a;
-        }
-        std::string q = "\"";
-        size_t slashes = 0;
-        for (char c : a) {
-            if (c == '\\') {
-                ++slashes;
-                q.push_back(c);
-                continue;
-            }
-            if (c == '"') {
-                q.append(slashes + 1, '\\');
-            }
-            slashes = 0;
-            q.push_back(c);
-        }
-        q.append(slashes, '\\');
-        q.push_back('"');
-        return q;
-    };
-    std::string cmd = quoteArg(program);
-    for (const std::string& a : args) {
-        cmd.push_back(' ');
-        cmd += quoteArg(a);
-    }
+    const std::string cmd = winBuildCommandLine(program, args);
 
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -1927,11 +1943,18 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
 #endif
 }
 
-#ifndef _WIN32
+// Ejecuta un programa alimentando su entrada estándar y capturando salida y error.
+//
+// Durante mucho tiempo esto fue POSIX puro y en Windows no existía en absoluto: sus
+// llamantes estaban dentro de un `#ifndef _WIN32` que devolvía "not supported". Por eso
+// `zfs load-key` y `zfs change-key` no funcionaban allí, y por eso Copiar y Nivelar no
+// tenían por dónde empezar: sin forma de escribir en la entrada de un proceso, no hay
+// forma de darle un flujo a `zfs recv`.
 static ExecResult runExecCaptureWithStdin(const std::string& program,
                                            const std::vector<std::string>& args,
                                            const std::string& stdinData) {
     ExecResult r;
+#ifndef _WIN32
     int inPipe[2]  = {-1, -1};
     int outPipe[2] = {-1, -1};
     int errPipe[2] = {-1, -1};
@@ -1993,8 +2016,100 @@ static ExecResult runExecCaptureWithStdin(const std::string& program,
     if (waitpid(pid, &status, 0) < 0) { r.rc = 125; r.err += "\nwaitpid failed"; return r; }
     r.rc = decodeWaitStatus(status);
     return r;
-}
+#else
+    // Tres tuberías y CreateProcess. Dos decisiones que no son de estilo:
+    //
+    // 1. Al hijo se le da SIEMPRE una tubería anónima nuestra, nunca un socket. Medido
+    //    contra OpenZFS on Windows: `zfs recv` alimentado por el stdio que entrega sshd
+    //    muere con "I/O error" a los 132 KiB, mientras que por una tubería local recibe
+    //    el flujo entero con las sumas intactas. Quien porte el receptor por socket debe
+    //    bombear del socket a una tubería, no entregarle el descriptor al proceso.
+    // 2. La salida se drena en hilos MIENTRAS se escribe la entrada. Escribir todo y
+    //    leer después funciona con una contraseña y se abraza a muerte con un flujo: el
+    //    hijo llena su tubería de salida, deja de leer la de entrada, y los dos esperan.
+    const std::string cmd = winBuildCommandLine(program, args);
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE inRd = nullptr, inWr = nullptr;
+    HANDLE outRd = nullptr, outWr = nullptr;
+    HANDLE errRd = nullptr, errWr = nullptr;
+    auto closeIf = [](HANDLE h) { if (h) { CloseHandle(h); } };
+    if (!CreatePipe(&inRd, &inWr, &sa, 0)) {
+        r.rc = 125; r.err = "CreatePipe failed"; return r;
+    }
+    if (!CreatePipe(&outRd, &outWr, &sa, 0)) {
+        closeIf(inRd); closeIf(inWr);
+        r.rc = 125; r.err = "CreatePipe failed"; return r;
+    }
+    if (!CreatePipe(&errRd, &errWr, &sa, 0)) {
+        closeIf(inRd); closeIf(inWr); closeIf(outRd); closeIf(outWr);
+        r.rc = 125; r.err = "CreatePipe failed"; return r;
+    }
+    // Los extremos que se queda el padre NO se heredan: si el hijo conserva una copia,
+    // la tubería no da nunca EOF y el drenaje no termina.
+    SetHandleInformation(inWr, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(outRd, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(errRd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = inRd;
+    si.hStdOutput = outWr;
+    si.hStdError = errWr;
+    PROCESS_INFORMATION pi{};
+    std::vector<char> mutableCmd(cmd.begin(), cmd.end());
+    mutableCmd.push_back('\0');
+    const BOOL started = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
+                                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    // Los extremos del hijo se cierran en el padre pase lo que pase: mientras el padre
+    // conserve el de escritura de salida, esa tubería tampoco daría EOF.
+    CloseHandle(inRd);
+    CloseHandle(outWr);
+    CloseHandle(errWr);
+    if (!started) {
+        CloseHandle(inWr); CloseHandle(outRd); CloseHandle(errRd);
+        r.rc = 127; r.err = "cannot start " + program; return r;
+    }
+
+    auto drain = [](HANDLE h, std::string* into) {
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            into->append(buf, n);
+        }
+        CloseHandle(h);
+    };
+    std::thread outThread(drain, outRd, &r.out);
+    std::thread errThread(drain, errRd, &r.err);
+
+    std::size_t written = 0;
+    while (written < stdinData.size()) {
+        const std::size_t remaining = stdinData.size() - written;
+        const DWORD chunk = (remaining > 65536u) ? 65536u : static_cast<DWORD>(remaining);
+        DWORD n = 0;
+        if (!WriteFile(inWr, stdinData.data() + written, chunk, &n, nullptr) || n == 0) {
+            break;  // el hijo cerró su entrada; lo dirá su código de salida
+        }
+        written += n;
+    }
+    // Cerrar la escritura es lo que le da EOF al hijo. Sin esto, `zfs load-key` se queda
+    // esperando una línea que no llega y no termina nunca.
+    CloseHandle(inWr);
+
+    outThread.join();
+    errThread.join();
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    r.rc = GetExitCodeProcess(pi.hProcess, &exitCode) ? static_cast<int>(exitCode) : 125;
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return r;
 #endif
+}
 
 bool startsWith(const std::string& s, const std::string& pref) {
     return s.size() >= pref.size() && s.compare(0, pref.size(), pref) == 0;
@@ -5182,7 +5297,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
 #endif
     }
     if (cmd == "--mutate-zfs-load-key") {
-#ifndef _WIN32
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-load-key <dataset-b64> <passphrase-b64>\n"; return r; }
         std::string dataset, passphrase;
         if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase)) {
@@ -5191,12 +5305,8 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         dataset = trim(dataset);
         if (dataset.empty()) { r.rc = 2; r.err = "empty dataset\n"; return r; }
         return runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
-#else
-        r.rc = 2; r.err = "not supported on Windows\n"; return r;
-#endif
     }
     if (cmd == "--mutate-zfs-change-key") {
-#ifndef _WIN32
         if (params.size() < 3) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-change-key <dataset-b64> <passphrase-b64> <flags-b64>\n"; return r; }
         std::string dataset, passphrase, flagsStr;
         if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase) || !decodeBase64(params[2], flagsStr)) {
@@ -5213,9 +5323,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         }
         changeArgs.push_back(dataset);
         return runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
-#else
-        r.rc = 2; r.err = "not supported on Windows\n"; return r;
-#endif
     }
     if (cmd == "--mutate-zfs-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-generic <payload-b64>\n"; return r; }
@@ -6900,7 +7007,6 @@ int main(int argc, char* argv[]) {
         return runExecStreaming("zfs", {"clone", args[2], args[3]});
     }
     if (cmd == "--mutate-zfs-load-key") {
-#ifndef _WIN32
         if (args.size() < 4) { printUsage(args[0].c_str()); return 2; }
         std::string dataset, passphrase;
         if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase)) {
@@ -6912,12 +7018,8 @@ int main(int argc, char* argv[]) {
         if (!e.out.empty()) std::cout << e.out;
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
-#else
-        std::cerr << "not supported on Windows\n"; return 2;
-#endif
     }
     if (cmd == "--mutate-zfs-change-key") {
-#ifndef _WIN32
         if (args.size() < 5) { printUsage(args[0].c_str()); return 2; }
         std::string dataset, passphrase, flagsStr;
         if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase) || !decodeBase64(args[4], flagsStr)) {
@@ -6937,9 +7039,6 @@ int main(int argc, char* argv[]) {
         if (!e.out.empty()) std::cout << e.out;
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
-#else
-        std::cerr << "not supported on Windows\n"; return 2;
-#endif
     }
     if (cmd == "--mutate-zfs-create") {
         // También por CLI: cuando no hay daemon, runAgentCommand cae a SSH y ejecuta el
