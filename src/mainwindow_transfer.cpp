@@ -272,6 +272,26 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     return true;
 }
 
+// La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando eso no
+// aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías de shell Unix.
+// En Windows se ejecutaban a través del bash de MSYS2, que se ha retirado: la aplicación
+// trabaja allí solo con el agente nativo, y el agente aún no implementa el streaming.
+//
+// El texto vive aquí, en un solo sitio, porque lo dicen DOS: el menú al deshabilitar la
+// entrada y esta comprobación al ejecutar. Si divergieran, el usuario leería dos motivos
+// distintos para el mismo impedimento.
+QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const {
+    return trk(QStringLiteral("t_win_stream_na001"),
+               QStringLiteral("%1 entre máquinas no está disponible cuando algún extremo es Windows: "
+                              "necesita transmitir el flujo por una tubería, y el agente de Windows "
+                              "todavía no lo implementa."),
+               QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
+                              "to stream through a pipe, and the Windows agent does not implement that yet."),
+               QStringLiteral("当任一端为 Windows 时，机器间的%1不可用：它需要通过管道传输数据流，"
+                              "而 Windows 代理尚未实现该功能。"))
+        .arg(actionLabel);
+}
+
 bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
                                                      int dstConnIdx,
                                                      const QString& actionLabel) {
@@ -279,21 +299,7 @@ bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
         && featureAvailable(dstConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)) {
         return true;
     }
-    // La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando
-    // eso no aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías
-    // de shell Unix. En Windows se ejecutaban a través del bash de MSYS2, que se ha
-    // retirado: la aplicación trabaja allí solo con el agente nativo, y el agente aún
-    // no implementa el streaming entre máquinas en Windows.
-    const QString reason =
-        trk(QStringLiteral("t_win_stream_na001"),
-            QStringLiteral("%1 entre máquinas no está disponible cuando algún extremo es Windows: "
-                           "necesita transmitir el flujo por una tubería, y el agente de Windows "
-                           "todavía no lo implementa."),
-            QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
-                           "to stream through a pipe, and the Windows agent does not implement that yet."),
-            QStringLiteral("当任一端为 Windows 时，机器间的%1不可用：它需要通过管道传输数据流，"
-                           "而 Windows 代理尚未实现该功能。"))
-            .arg(actionLabel);
+    const QString reason = streamingUnavailableReason(actionLabel);
     appLog(QStringLiteral("WARN"), reason);
     QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
     return false;

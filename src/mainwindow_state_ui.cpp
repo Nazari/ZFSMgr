@@ -2,6 +2,7 @@
 
 #include <QFontMetrics>
 #include "mainwindow_helpers.h"
+#include "connectioncapabilities.h"
 
 #include <QBrush>
 #include <QColor>
@@ -177,6 +178,15 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
     QString versionReason;
     const bool versionOk = isTransferVersionAllowed(src, dst, &versionReason);
 
+    // Copiar y Nivelar encadenan "zfs send | zfs recv" por una tubería, y el agente de
+    // Windows todavía no lo implementa. La tabla de capacidades ya lo sabía, pero solo se
+    // consultaba AL EJECUTAR (requireNonWindowsStreamingEndpoints): la entrada salía
+    // habilitada y el rechazo llegaba después de pulsar. La regla de la casa es la
+    // contraria —no intentarlo y decir por qué—, así que se consulta también aquí.
+    const bool streamingOk =
+        featureAvailable(src.connIdx, zfsmgr::caps::Feature::SendRecvStreaming)
+        && featureAvailable(dst.connIdx, zfsmgr::caps::Feature::SendRecvStreaming);
+
     auto datasetMountedForCtx = [this](const DatasetSelectionContext& c) -> bool {
         if (!c.valid || c.datasetName.trimmed().isEmpty()) {
             return false;
@@ -228,9 +238,15 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
         QStringLiteral("源和目标必须位于同一存储池。"));
 
     // Copiar
-    out.copy.enabled = st.copyEnabled && versionOk;
+    out.copy.enabled = st.copyEnabled && versionOk && streamingOk;
     if (!out.copy.enabled) {
         out.copy.reason = !versionOk ? versionReason.trimmed()
+                        : !streamingOk
+                              ? streamingUnavailableReason(
+                                    trk(QStringLiteral("t_avail_lbl_copy001"),
+                                        QStringLiteral("Copiar snapshot"),
+                                        QStringLiteral("Copy snapshot"),
+                                        QStringLiteral("复制快照")))
                         : !srcSnap   ? needsSnapshotSrc
                         : dstSnap    ? needsDatasetDst
                                      : trk(QStringLiteral("t_avail_copy_generic001"),
@@ -277,9 +293,15 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
     }
 
     // Nivelar y Sincronizar
-    out.level.enabled = st.levelEnabled && versionOk;
+    out.level.enabled = st.levelEnabled && versionOk && streamingOk;
     if (!out.level.enabled) {
         out.level.reason = !versionOk ? versionReason.trimmed()
+                        : !streamingOk
+                              ? streamingUnavailableReason(
+                                    trk(QStringLiteral("t_avail_lbl_level001"),
+                                        QStringLiteral("Nivelar snapshot"),
+                                        QStringLiteral("Level snapshot"),
+                                        QStringLiteral("同步快照")))
                                       : trk(QStringLiteral("t_avail_level_generic001"),
                                             QStringLiteral("Nivelar necesita un snapshot en el origen y su dataset en el destino."),
                                             QStringLiteral("Level needs a snapshot as source and its dataset as target."),

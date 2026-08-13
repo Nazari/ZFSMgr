@@ -1302,6 +1302,9 @@ private:
     bool requireFeature(int connIdx, zfsmgr::caps::Feature f);
     QString capabilityReasonText(zfsmgr::caps::Reason r) const;
 
+    // Motivo único de que Copiar/Nivelar no estén disponibles con un extremo Windows: lo
+    // usan el menú (para deshabilitar con explicación) y la comprobación de ejecución.
+    QString streamingUnavailableReason(const QString& actionLabel) const;
     bool requireNonWindowsStreamingEndpoints(int srcConnIdx,
                                              int dstConnIdx,
                                              const QString& actionLabel);
