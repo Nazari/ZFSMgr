@@ -35,13 +35,22 @@ private Q_SLOTS:
             Feature::DirBreakdown,
             Feature::DirAssemble,
             Feature::RsyncSync,
-            Feature::SendRecvStreaming,
         };
         for (const Feature f : pending) {
             const Availability a = featureAvailability(f, windowsReady());
             QVERIFY(!a.available);
             QCOMPARE(a.reason, Reason::WindowsAgentPending);
         }
+    }
+
+    // Copiar y Nivelar snapshot SÍ están en Windows desde que el agente sabe recibir y
+    // emitir por su cuenta. Se comprueba aparte, y no solo quitándolo de la lista de
+    // arriba, porque es la única función que ha pasado de pendiente a disponible: si
+    // alguien la devolviera a la lista por descuido, esto lo caza.
+    void windowsHasSendRecvStreaming() {
+        const Availability a = featureAvailability(Feature::SendRecvStreaming, windowsReady());
+        QVERIFY2(a.available, "Windows recibe y emite flujos desde las fases 1 y 2");
+        QCOMPARE(a.reason, Reason::Available);
     }
 
     // Distinguir "aún no implementado" de "no aplica" no es cosmético: al usuario le

@@ -25,10 +25,9 @@ bool windowsAgentPending(Feature f) {
     // validación, que exige que empiecen por '/'.
     case Feature::RsyncSync:
         return true;
-    // Transmitir el flujo entre dos máquinas necesita las tuberías que el agente
-    // monta con pipe()/fork(); en Windows ese bloque no se compila.
-    case Feature::SendRecvStreaming:
-        return true;
+    // SendRecvStreaming ya NO está aquí: el agente de Windows recibe y emite desde las
+    // fases 1 y 2. Bombea entre el socket y una tubería propia, en vez de entregarle el
+    // descriptor del socket a `zfs`, que es lo que no funciona allí.
     default:
         return false;
     }

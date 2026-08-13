@@ -615,6 +615,22 @@ QString windowsNativeInstallCommand() {
         // [char]34 en vez de comillas escapadas: este texto atraviesa el literal de
         // C++, el envoltorio de shell y el -Command de PowerShell, y en cada capa se
         // reinterpretan los escapes. Así no depende de ninguna.
+        // Regla de cortafuegos para el propio binario.
+        //
+        // Hace falta para RECIBIR una transferencia: el agente abre un puerto efímero y
+        // el emisor se conecta a él. Sin regla, Windows rechaza esa conexión y la copia
+        // expira sin explicación —comprobado: el cortafuegos viene activo en los tres
+        // perfiles y sin ninguna regla nuestra—.
+        //
+        // Va acotada al PROGRAMA, no a un puerto: los puertos son efímeros y distintos
+        // en cada transferencia, así que abrir un rango sería peor y menos preciso.
+        // Se borra y se recrea para que apunte al binario actual si cambió de sitio, y
+        // no interrumpe la instalación si falla: sin ella el agente sirve igual para
+        // todo lo demás.
+        "Remove-NetFirewallRule -Name 'ZFSMgr-Agent' -ErrorAction SilentlyContinue; "
+        "New-NetFirewallRule -Name 'ZFSMgr-Agent' -DisplayName 'ZFSMgr Agent (transferencias ZFS)' "
+        "-Direction Inbound -Action Allow -Program $bin -Profile Any "
+        "-ErrorAction SilentlyContinue | Out-Null; "
         "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
         "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | Out-Null; "
         "schtasks /Run /TN $task | Out-Null; "

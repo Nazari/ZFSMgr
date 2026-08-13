@@ -412,7 +412,9 @@ void MainWindow::actionCopySnapshot() {
                                                    const QString& flags) -> QString {
         if (!isDaemonReady(dst.connIdx)) return {};
         if (!sameConnection && !isDaemonReady(src.connIdx)) return {};
-        if (isWindowsConnection(sp) || isWindowsConnection(dp)) return {};
+        // Windows ya no queda excluido: el agente sabe recibir y emitir desde las fases
+        // 1 y 2. Recibir además necesita que el cortafuegos deje entrar al binario, y de
+        // eso se encarga la instalación del agente.
         QStringList recvArgs;
         recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
         QString recvOut, recvErr;
@@ -438,19 +440,24 @@ void MainWindow::actionCopySnapshot() {
         }
         // For same-connection transfers, src daemon connects to itself via loopback
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = daemonpayload::unixBinPath();
-        QString sendCmd2 = kAgentBin
-            + QStringLiteral(" --zfs-send-to-peer ")
-            + shSingleQuote(snap)
-            + QStringLiteral(" ") + shSingleQuote(peerHost)
-            + QStringLiteral(" ") + QString::number(dstPort)
-            + QStringLiteral(" ") + shSingleQuote(dstToken)
-            + QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed())
-            + QStringLiteral(" ") + shSingleQuote(flags.trimmed());
+        // La orden la construye agentShellCommand, que pone la ruta del binario y el
+        // entrecomillado que toca en cada plataforma. Antes se componía a mano con la
+        // ruta de Unix y shSingleQuote, lo que en un origen Windows habría enviado una
+        // ruta inexistente entrecomillada al estilo POSIX.
+        const QStringList sendArgv{
+            QStringLiteral("--zfs-send-to-peer"),
+            snap,
+            peerHost,
+            QString::number(dstPort),
+            dstToken,
+            baseSnap.trimmed(),
+            flags.trimmed(),
+        };
+        const QString sendCmd2 = mwhelpers::agentShellCommand(sp, sendArgv);
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Copiar: modo daemon-a-daemon (%1 -> %2:%3)")
                    .arg(sp.name, dp.name, QString::number(dstPort)));
-        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+        return sshExecFromLocal(sp, isWindowsConnection(sp) ? sendCmd2 : withSudo(sp, sendCmd2));
     };
     // Prefer async daemon job: no GUI blocking, survives GUI close.
     // Only when both daemons support JOBS_SUPPORT (or same connection with dst daemon).
@@ -1247,7 +1254,9 @@ void MainWindow::actionLevelSnapshot() {
                                                    const QString& flags) -> QString {
         if (!isDaemonReady(dst.connIdx)) return {};
         if (!sameConnection && !isDaemonReady(src.connIdx)) return {};
-        if (isWindowsConnection(sp) || isWindowsConnection(dp)) return {};
+        // Windows ya no queda excluido: el agente sabe recibir y emitir desde las fases
+        // 1 y 2. Recibir además necesita que el cortafuegos deje entrar al binario, y de
+        // eso se encarga la instalación del agente.
         QStringList recvArgs;
         recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
         QString recvOut, recvErr;
@@ -1272,19 +1281,24 @@ void MainWindow::actionLevelSnapshot() {
             return {};
         }
         const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-        const QString kAgentBin = daemonpayload::unixBinPath();
-        QString sendCmd2 = kAgentBin
-            + QStringLiteral(" --zfs-send-to-peer ")
-            + shSingleQuote(snap)
-            + QStringLiteral(" ") + shSingleQuote(peerHost)
-            + QStringLiteral(" ") + QString::number(dstPort)
-            + QStringLiteral(" ") + shSingleQuote(dstToken)
-            + QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed())
-            + QStringLiteral(" ") + shSingleQuote(flags.trimmed());
+        // La orden la construye agentShellCommand, que pone la ruta del binario y el
+        // entrecomillado que toca en cada plataforma. Antes se componía a mano con la
+        // ruta de Unix y shSingleQuote, lo que en un origen Windows habría enviado una
+        // ruta inexistente entrecomillada al estilo POSIX.
+        const QStringList sendArgv{
+            QStringLiteral("--zfs-send-to-peer"),
+            snap,
+            peerHost,
+            QString::number(dstPort),
+            dstToken,
+            baseSnap.trimmed(),
+            flags.trimmed(),
+        };
+        const QString sendCmd2 = mwhelpers::agentShellCommand(sp, sendArgv);
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Nivelar: modo daemon-a-daemon (%1 -> %2:%3)")
                    .arg(sp.name, dp.name, QString::number(dstPort)));
-        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+        return sshExecFromLocal(sp, isWindowsConnection(sp) ? sendCmd2 : withSudo(sp, sendCmd2));
     };
     // Prefer async daemon job (survives GUI close) when both daemons support JOBS_SUPPORT.
     {
