@@ -125,6 +125,39 @@ Dos detalles, los dos comprobados contra una máquina real:
 - **La redirección `<` es de `cmd.exe`.** PowerShell no la tiene, y es además quien se
   atasca al pasar unos 132 KB de datos binarios.
 
+### Sin duplicar el espacio: por fragmentos
+
+Lo anterior obliga a tener el flujo entero en disco, que en un dataset grande es
+inaceptable. **No hace falta**: ZFS sabe reanudar una recepción interrumpida, y eso
+permite ir por trozos con un solo fragmento en disco cada vez.
+
+La clave es que **no se parte el fichero en trozos**. Cada fragmento lo genera el
+emisor a partir del punto donde se quedó el receptor, así que es un flujo válido por sí
+mismo. Por eso funciona donde trocear bytes a ciegas sería frágil.
+
+1. Primer fragmento, en el origen:
+   ```bash
+   zfs send deposito/datos@instantanea | head -c 268435456 > frag.zfs
+   ```
+2. Se lleva a Windows y se recibe **con `-s`**, que guarda el estado al fallar:
+   ```
+   zfs recv -s -F winpool/datos < C:\ruta\frag.zfs
+   ```
+   Dirá `cannot receive ... I/O error`. **Es lo esperado**: el flujo está cortado.
+3. Se borra el fragmento y se pide el testigo al receptor:
+   ```
+   zfs get -H -o value receive_resume_token winpool/datos
+   ```
+4. Con ese testigo, el origen genera el siguiente fragmento:
+   ```bash
+   zfs send -t <testigo> | head -c 268435456 > frag.zfs
+   ```
+5. Se repiten los pasos 2 a 4 hasta que el testigo salga `-`, que significa terminado.
+
+Comprobado de punta a punta: 20 MB en cuatro fragmentos, con la suma MD5 del fichero
+recibido idéntica a la del original, y sin tener nunca en disco más de un fragmento.
+El tamaño lo decide usted; 256 MB es una elección cómoda.
+
 ## Si algo no responde
 
 La ficha de la conexión indica si el agente está instalado, si está activo, qué versión
