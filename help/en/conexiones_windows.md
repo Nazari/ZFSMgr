@@ -115,10 +115,11 @@ zfs recv -F winpool/data < C:\path\stream.zfs
 
 Two details, both verified against a real machine:
 
-- **From a file it works; through a pipe it does not.** The same stream sent over SSH
-  straight into `zfs recv` fails with `cannot receive new filesystem stream: I/O error`,
-  while from a file it is received whole with checksums intact. The problem is reading
-  standard input on Windows, not the stream.
+- **What fails is SSH's pipe, not pipes.** The stream sent over SSH straight into
+  `zfs recv` fails with `cannot receive new filesystem stream: I/O error`. But a local
+  pipe (`type file | zfs recv`) works fine, and so does a file. In other words,
+  `zfs.exe` reads pipes correctly; what it cannot digest is the handle `sshd` hands to
+  the remote command. All verified.
 - **The `<` redirection belongs to `cmd.exe`.** PowerShell does not have it, and it is
   also what stalls past roughly 132 KB of binary data.
 

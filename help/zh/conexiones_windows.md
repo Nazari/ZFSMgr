@@ -104,9 +104,10 @@ zfs recv -F winpool/data < C:\路径\stream.zfs
 
 两个细节，均已在真实机器上验证：
 
-- **通过文件可行，通过管道不行。** 同一个数据流经 SSH 直接送入 `zfs recv` 会失败并
-  报 `cannot receive new filesystem stream: I/O error`，而从文件接收则完整无误、
-  校验和一致。问题出在 Windows 上读取标准输入，而不是数据流本身。
+- **失败的是 SSH 的管道，而不是管道本身。** 数据流经 SSH 直接送入 `zfs recv` 会失败并
+  报 `cannot receive new filesystem stream: I/O error`。但本地管道
+  （`type 文件 | zfs recv`）完全正常，从文件接收也正常。也就是说，`zfs.exe` 能够正确
+  读取管道；它无法处理的是 `sshd` 交给远程命令的那个句柄。以上均已验证。
 - **`<` 重定向属于 `cmd.exe`。** PowerShell 没有这个语法，而且它在传输约 132 KB
   二进制数据之后就会卡住。
 

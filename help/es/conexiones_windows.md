@@ -118,10 +118,11 @@ zfs recv -F winpool/datos < C:\ruta\flujo.zfs
 
 Dos detalles, los dos comprobados contra una máquina real:
 
-- **Por fichero funciona; por tubería no.** El mismo flujo enviado por SSH directamente
-  a `zfs recv` falla con `cannot receive new filesystem stream: I/O error`, mientras que
-  desde un fichero se recibe entero y con las sumas de verificación intactas. El
-  problema es leer de la entrada estándar en Windows, no el flujo.
+- **Lo que falla es la tubería DE SSH, no las tuberías.** El flujo enviado por SSH
+  directamente a `zfs recv` falla con `cannot receive new filesystem stream: I/O error`.
+  Pero una tubería local (`type fichero | zfs recv`) funciona sin problema, y desde un
+  fichero también. Es decir: `zfs.exe` lee de tuberías correctamente; lo que no digiere
+  es el descriptor que `sshd` entrega al comando remoto. Todo comprobado.
 - **La redirección `<` es de `cmd.exe`.** PowerShell no la tiene, y es además quien se
   atasca al pasar unos 132 KB de datos binarios.
 
