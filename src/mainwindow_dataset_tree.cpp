@@ -5913,10 +5913,29 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         const QString mounted = dsInfo.runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
-        const bool isMounted = (mounted == QStringLiteral("yes")
-                                || mounted == QStringLiteral("on")
-                                || mounted == QStringLiteral("true")
-                                || mounted == QStringLiteral("1"));
+        // El estado de montaje sale de DOS sitios, y hay que mirar los dos.
+        //
+        // `mounted` viene del listado de datasets, que se cachea y NO se rehace al
+        // refrescar la conexión. Si el dataset se monta por fuera —o desde otra ventana—
+        // el árbol se queda con el valor de la última vez que se listó. Visto en Windows:
+        // el disco montado y visible en el Explorador, las propiedades diciendo
+        // mounted=yes, y el árbol insistiendo en «Contenido no disponible: el dataset no
+        // está montado».
+        //
+        // El refresco sí consulta los montajes de verdad (--dump-zfs-mount) y los guarda
+        // en el estado de la conexión, así que esa lista manda cuando dice que sí.
+        bool isMounted = (mounted == QStringLiteral("yes")
+                          || mounted == QStringLiteral("on")
+                          || mounted == QStringLiteral("true")
+                          || mounted == QStringLiteral("1"));
+        if (!isMounted && connIdx >= 0 && connIdx < m_states.size()) {
+            for (const QPair<QString, QString>& row : m_states[connIdx].mountedDatasets) {
+                if (row.first.trimmed() == fullName) {
+                    isMounted = true;
+                    break;
+                }
+            }
+        }
         item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
         const QString mountpoint = dsInfo.runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
         const QString effectiveMp = effectiveMountPath(connIdx, poolName, fullName, mountpoint, mounted);
