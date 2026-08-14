@@ -161,9 +161,18 @@ void copyMetadata(const fs::path& src, const fs::path& dst, bool isDir) {
     if (!isDir || true) {
         (void)::chmod(dst.c_str(), st.st_mode & 07777);
     }
+    // Los nombres de los campos de tiempo NO son los mismos en todas partes: POSIX 2008
+    // dice st_atim, y macOS conserva los de BSD, st_atimespec. Linux y FreeBSD compilaban
+    // sin protestar y macOS no, que es exactamente para lo que el orden de compilación
+    // pone macOS por delante.
     struct timespec times[2];
+#if defined(__APPLE__)
+    times[0] = st.st_atimespec;
+    times[1] = st.st_mtimespec;
+#else
     times[0] = st.st_atim;
     times[1] = st.st_mtim;
+#endif
     (void)::utimensat(AT_FDCWD, dst.c_str(), times, 0);
 }
 
