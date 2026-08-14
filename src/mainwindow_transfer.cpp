@@ -310,9 +310,13 @@ QString MainWindow::sourceViewOfThisHost(int srcConnIdx) {
     QString err;
     int rc = -1;
     // Sin sudo ni agente: es una variable del entorno de la propia sesión SSH.
+    // allowAgentRpc=false a propósito. Con el valor por defecto (true) esta orden se
+    // desviaba AL DAEMON por RPC, y allí $SSH_CLIENT no existe porque no es una sesión
+    // SSH: devolvía vacío y la copia se caía al camino síncrono, que es justo el que no
+    // sirve. Tiene que viajar por SSH de verdad para que sshd ponga la variable.
     const bool ok = runSsh(sp,
                            QStringLiteral("printf '%s\\n' \"${SSH_CLIENT%% *}\""),
-                           8000, out, err, rc)
+                           8000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
                     && rc == 0;
     if (!ok) {
         return QString();
@@ -647,6 +651,40 @@ void MainWindow::actionCopySnapshot() {
     // había pipeline; desde la fase 3 sí lo hay, y sin esta condición se tiraba a la
     // basura para poner en su lugar un guion de shell POSIX que en Windows ni siquiera
     // puede ejecutarse. Además TAR pierde propiedades, cifrado e incrementales.
+#ifdef Q_OS_WIN
+    // Desde un cliente WINDOWS el camino síncrono no puede funcionar, se ponga lo que se
+    // ponga en el pipeline.
+    //
+    // sshExecFromLocal compone una cadena de shell POSIX con shSingleQuote y la ejecuta
+    // la máquina local. En Windows el carácter de comillas es `"`, no `'`, así que las
+    // secuencias '"'"' de escape se destrozan al pasar por ssh.exe y lo que llega al otro
+    // extremo tiene el entrecomillado roto. El síntoma medido: la contraseña de sudo
+    // llegaba corrupta y sudo respondía «Sorry, try again» con la contraseña CORRECTA
+    // guardada. Perseguir eso cuesta horas y apunta siempre al sitio equivocado.
+    if (!pipeline.isEmpty() || isWindowsConnection(sp) || isWindowsConnection(dp)) {
+        if (pipeline.isEmpty()) {
+            QMessageBox::warning(
+                this, QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_copy_needs_daemon001"),
+                    QStringLiteral("No se pudo preparar la copia.\n\n"
+                                   "Desde Windows, copiar entre máquinas se hace siempre a "
+                                   "través del agente, y no se pudo montar ese camino. "
+                                   "Compruebe en la ficha de ambas conexiones que el agente "
+                                   "está instalado y activo."),
+                    QStringLiteral("Could not prepare the copy.\n\n"
+                                   "From Windows, copying between machines always goes through "
+                                   "the agent, and that path could not be set up. Check on both "
+                                   "connection cards that the agent is installed and running."),
+                    QStringLiteral("无法准备复制。\n\n"
+                                   "在 Windows 上，机器间复制始终通过代理进行，而该路径无法"
+                                   "建立。请在两个连接的卡片中确认代理已安装并正在运行。")));
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Copiar cancelada: cliente Windows sin camino por agente; el "
+                                  "camino por shell no es utilizable desde aquí"));
+            return;
+        }
+    }
+#endif
     // Con un extremo Windows y sin camino daemon-a-daemon no hay nada que ofrecer, y es
     // mejor decirlo que fingir.
     //
