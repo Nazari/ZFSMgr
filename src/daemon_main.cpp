@@ -339,6 +339,48 @@ ExecResult getDatasetMountpointCapture(const std::string& dataset) {
         ok.rc = 0;
         return ok;
     }
+    // DÓNDE está montado se le pregunta a `zfs mount`, no a la propiedad `mountpoint`.
+    //
+    // La propiedad dice dónde montaría; `zfs mount` dice dónde ESTÁ. En Windows la
+    // diferencia no es sutil: la propiedad devuelve una ruta de estilo Unix
+    // —/winpool/desglose— que allí no existe, mientras el montaje real es Z:\desglose.
+    // Desglosar construía la ruta con la propiedad y descartaba todos los directorios
+    // con «skip_not_a_directory», así que la operación no hacía nada y decía que sí.
+    //
+    // Es el mismo error que ya se corrigió en el árbol de la interfaz con driveletter:
+    // deducir la ruta de una propiedad heredable en vez de consultar los montajes de
+    // verdad. Si el dataset no aparece en la lista se recurre a la propiedad, que es
+    // mejor que nada.
+    {
+        const ExecResult mnt = runExecCapture("zfs", {"mount"});
+        if (mnt.rc == 0) {
+            for (const std::string& line : splitLines(mnt.out)) {
+                if (line.rfind(dataset, 0) != 0) {
+                    continue;
+                }
+                const std::string rest = line.substr(dataset.size());
+                if (rest.empty() || (rest[0] != ' ' && rest[0] != '\t')) {
+                    continue;  // otro dataset cuyo nombre empieza igual
+                }
+                std::string path = trim(rest);
+                // Windows devuelve «Z:/desglose/», con barra final; concatenar sobre eso
+                // deja separadores dobles, que unas veces se toleran y otras no.
+                while (path.size() > 1 && (path.back() == '/' || path.back() == '\\')) {
+                    const std::string without = path.substr(0, path.size() - 1);
+                    if (!without.empty() && without.back() == ':') {
+                        break;  // la raíz de una unidad sí lleva separador
+                    }
+                    path = without;
+                }
+                if (!path.empty()) {
+                    ExecResult ok;
+                    ok.rc = 0;
+                    ok.out = path;
+                    return ok;
+                }
+            }
+        }
+    }
     ExecResult mp = getZfsPropertyCapture(dataset, "mountpoint");
     if (mp.rc != 0) {
         return mp;
@@ -961,14 +1003,25 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
         reportJobProgress("[BREAKDOWN] copiando " + std::to_string(i + 1) + " de "
                           + std::to_string(rels.size()) + ": " + rel);
-        const std::string tmpMp = makeTempDir("zfsmgr-breakdown-child-");
+        // El dataset temporal se crea distinto en cada plataforma, y no por gusto.
+        //
+        // En Unix se le fija un mountpoint que hemos elegido nosotros. En Windows eso NO
+        // se puede: `zfs create -o mountpoint=C:\...` responde «'mountpoint' must be an
+        // absolute path, 'none', or 'legacy'», porque allí el montaje va por letra de
+        // unidad y la propiedad solo admite rutas de estilo Unix. Así que allí se crea
+        // sin decirle dónde y DESPUÉS se le pregunta dónde ha quedado, que es la misma
+        // regla que arregló el resto de la ruta de Windows: no dictar la ruta, consultarla.
+        std::string tmpMp;
+        std::string tmpName;
+#ifndef _WIN32
+        tmpMp = makeTempDir("zfsmgr-breakdown-child-");
         if (tmpMp.empty()) {
             r.rc = 125;
             r.err = "no se pudo crear el punto de montaje temporal\n";
             return r;
         }
         // Nombre plano: hijo DIRECTO del dataset base, así no hay intermedios que crear.
-        const std::string tmpName = dataset + "/" + fs::path(tmpMp).filename().string();
+        tmpName = dataset + "/" + fs::path(tmpMp).filename().string();
         ExecResult create = runExecCapture("zfs", {"create", "-o", "mountpoint=" + tmpMp, tmpName});
         if (create.rc != 0) {
             std::error_code rmec;
@@ -976,6 +1029,33 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return create;
         }
         (void)runExecCapture("zfs", {"mount", tmpName});
+#else
+        {
+            GUID g;
+            if (CoCreateGuid(&g) != S_OK) {
+                r.rc = 125;
+                r.err = "no se pudo generar el nombre del dataset temporal\n";
+                return r;
+            }
+            char sfx[64];
+            std::snprintf(sfx, sizeof(sfx), "%08lX%04X%04X",
+                          static_cast<unsigned long>(g.Data1), g.Data2, g.Data3);
+            tmpName = dataset + "/zfsmgr-breakdown-child-" + sfx;
+        }
+        ExecResult create = runExecCapture("zfs", {"create", tmpName});
+        if (create.rc != 0) {
+            return create;
+        }
+        (void)runExecCapture("zfs", {"mount", tmpName});
+        const ExecResult where = getDatasetMountpointCapture(tmpName);
+        tmpMp = (where.rc == 0) ? trim(where.out) : std::string();
+        if (tmpMp.empty()) {
+            (void)runExecCapture("zfs", {"destroy", tmpName});
+            r.rc = 125;
+            r.err = "el dataset temporal no quedó montado en ningún sitio\n";
+            return r;
+        }
+#endif
         pending.push_back(Pending{rel, name, tmpName, tmpMp, false});
 
         int left = -1;
@@ -1115,7 +1195,20 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
         // El punto de montaje explícito NO viaja con el renombrado: sigue apuntando al
         // temporal, así que hay que fijarlo al definitivo.
+        //
+        // En Windows NO se fija ninguno, y no es una omisión: allí la propiedad solo
+        // admite rutas de estilo Unix —`zfs set mountpoint=Z:\desglose\fotos` responde
+        // «'mountpoint' must be an absolute path, 'none', or 'legacy'»— y el montaje va
+        // por letra de unidad. El dataset ya queda montado donde OpenZFS lo pone, que es
+        // Z:\<último componente>, porque allí los datasets NO se anidan bajo su padre.
+        // Consecuencia visible para el usuario: el contenido queda en Z:\fotos, no en
+        // Z:\desglose\fotos. Es el modelo de la plataforma, no algo que podamos elegir.
+#ifdef _WIN32
+        ExecResult setMp;
+        setMp.rc = 0;
+#else
         ExecResult setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
+#endif
         if (setMp.rc != 0) {
             // Igual que arriba: el dataset ya tiene su nombre bueno y contiene los
             // únicos datos. Solo le falta el punto de montaje.
