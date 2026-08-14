@@ -1327,12 +1327,27 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // El contenido tiene que volver a DONDE ESTABA MONTADO. Se comprueba aquí,
         // antes de copiar y destruir nada: si el dataset está montado fuera del padre,
         // ensamblarlo escribiría fuera de su sitio.
+        //
+        // En Windows esa comprobación NO puede aplicarse: allí los datasets no se anidan
+        // bajo su padre, se montan planos en la raíz de la unidad —winpool/ens/fotos
+        // acaba en Z:\fotos, hermano de Z:\ens— así que «montado fuera del padre» es el
+        // estado normal y la comprobación no pasaría jamás. Lo que sí se exige es que sea
+        // descendiente por NOMBRE, que es lo que garantiza que el destino calculado
+        // pertenezca al padre.
+#ifdef _WIN32
+        if (child.rfind(dataset + "/", 0) != 0) {
+            r.rc = 1;
+            r.err = "el dataset " + child + " no cuelga de " + dataset + "; no se ensambla\n";
+            return r;
+        }
+#else
         if (childMp.rfind(parentMp + "/", 0) != 0) {
             r.rc = 1;
             r.err = "el dataset " + child + " está montado en " + childMp + ", fuera de "
                     + parentMp + "; no se ensambla\n";
             return r;
         }
+#endif
         // En el dataset PADRE, que es donde los datos tienen que acabar. Antes iba al
         // temporal del sistema: en Linux suele ser tmpfs, así que 27 GB de datos se
         // volcaban en RAM y la operación moría con "No space left on device".
@@ -1536,7 +1551,16 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // codificar la ruta con ':' (`Squirrel.app:Contents`), derivarlo del nombre
         // creaba un directorio con dos puntos colgando del padre —visto en el pool de
         // pruebas— en vez de devolver el contenido a su sitio.
+        // En Windows el destino NO puede ser el punto de montaje del hijo.
+        //
+        // Z:\fotos pertenece a winpool, no a winpool/ens: escribir ahí tras destruir el
+        // hijo dejaría los datos en el dataset EQUIVOCADO, y encima con aspecto de haber
+        // funcionado. Se construye bajo el padre, que es donde tienen que acabar.
+#ifdef _WIN32
+        const fs::path dst = fs::path(parentMp) / fs::path(child.substr(dataset.size() + 1));
+#else
         const fs::path dst = fs::path(childMp);
+#endif
         // Renombrado, no segunda copia: la escala está en el mismo sistema de ficheros
         // que el destino, así que esto es instantáneo. Antes se copiaba TODO otra vez
         // —los datos viajaban dos veces por cada hijo ensamblado—.
