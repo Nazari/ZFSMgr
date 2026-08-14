@@ -1,0 +1,469 @@
+#include "copytree.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <map>
+#include <system_error>
+#include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <aclapi.h>
+#include <winioctl.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
+namespace fs = std::filesystem;
+
+namespace zfsmgr::copytree {
+namespace {
+
+// Identidad de un fichero en su sistema de ficheros.
+//
+// Es lo que permite saber que dos rutas son EL MISMO fichero y recrear el enlace duro en
+// vez de copiar los datos dos veces. En Unix es el par dispositivo+inodo; en Windows, el
+// número de serie del volumen y el índice de fichero.
+struct FileIdentity {
+    std::uint64_t volume = 0;
+    std::uint64_t index = 0;
+    std::uint32_t linkCount = 1;
+    bool valid = false;
+};
+
+#ifdef _WIN32
+std::wstring widen(const std::string& s) {
+    if (s.empty()) {
+        return std::wstring();
+    }
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring out(static_cast<std::size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), out.data(), n);
+    return out;
+}
+
+FileIdentity identityOf(const fs::path& p) {
+    FileIdentity id;
+    const HANDLE h = CreateFileW(p.wstring().c_str(), 0,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                 nullptr, OPEN_EXISTING,
+                                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                                 nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return id;
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (GetFileInformationByHandle(h, &info)) {
+        id.volume = info.dwVolumeSerialNumber;
+        id.index = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        id.linkCount = info.nNumberOfLinks;
+        id.valid = true;
+    }
+    CloseHandle(h);
+    return id;
+}
+
+bool isReparsePoint(const fs::path& p) {
+    const DWORD attr = GetFileAttributesW(p.wstring().c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+// Marcas de tiempo y ACL. En Windows los permisos NO son un modo POSIX: son una lista de
+// control de acceso, y copiar el «modo» equivalente sería inventarse una correspondencia.
+// Se copia la ACL de verdad, junto con propietario y grupo.
+void copyMetadata(const fs::path& src, const fs::path& dst, bool isDir) {
+    const DWORD flags = FILE_FLAG_BACKUP_SEMANTICS;
+    HANDLE hs = CreateFileW(src.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                            OPEN_EXISTING, flags, nullptr);
+    if (hs != INVALID_HANDLE_VALUE) {
+        FILETIME cr{}, ac{}, wr{};
+        if (GetFileTime(hs, &cr, &ac, &wr)) {
+            HANDLE hd = CreateFileW(dst.wstring().c_str(), FILE_WRITE_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                    OPEN_EXISTING, flags, nullptr);
+            if (hd != INVALID_HANDLE_VALUE) {
+                SetFileTime(hd, &cr, &ac, &wr);
+                CloseHandle(hd);
+            }
+        }
+        CloseHandle(hs);
+    }
+    (void)isDir;
+
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    PACL dacl = nullptr;
+    PSID owner = nullptr;
+    PSID group = nullptr;
+    std::wstring srcW = src.wstring();
+    if (GetNamedSecurityInfoW(srcW.c_str(), SE_FILE_OBJECT,
+                              OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION
+                                  | DACL_SECURITY_INFORMATION,
+                              &owner, &group, &dacl, nullptr, &sd)
+        == ERROR_SUCCESS) {
+        std::wstring dstW = dst.wstring();
+        SetNamedSecurityInfoW(dstW.data(), SE_FILE_OBJECT,
+                              OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION
+                                  | DACL_SECURITY_INFORMATION,
+                              owner, group, dacl, nullptr);
+        if (sd) {
+            LocalFree(sd);
+        }
+    }
+}
+
+bool createHardLinkAt(const fs::path& existing, const fs::path& link) {
+    return CreateHardLinkW(link.wstring().c_str(), existing.wstring().c_str(), nullptr) != 0;
+}
+
+// Marca el destino como disperso ANTES de escribir. Sin esto, los huecos que se dejan
+// saltando con seek se materializan como ceros en disco y la copia ocupa más que el
+// original.
+void markSparse(const fs::path& p) {
+    const HANDLE h = CreateFileW(p.wstring().c_str(), GENERIC_WRITE, 0, nullptr,
+                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    DWORD ret = 0;
+    DeviceIoControl(h, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &ret, nullptr);
+    CloseHandle(h);
+}
+
+#else  // POSIX
+
+FileIdentity identityOf(const fs::path& p) {
+    FileIdentity id;
+    struct stat st {};
+    if (::lstat(p.c_str(), &st) == 0) {
+        id.volume = static_cast<std::uint64_t>(st.st_dev);
+        id.index = static_cast<std::uint64_t>(st.st_ino);
+        id.linkCount = static_cast<std::uint32_t>(st.st_nlink);
+        id.valid = true;
+    }
+    return id;
+}
+
+bool isReparsePoint(const fs::path&) { return false; }
+
+void copyMetadata(const fs::path& src, const fs::path& dst, bool isDir) {
+    struct stat st {};
+    if (::lstat(src.c_str(), &st) != 0) {
+        return;
+    }
+    // El propietario primero: en Linux, cambiar el dueño de un fichero con setuid borra
+    // esos bits, así que hacerlo al revés dejaría los permisos mal.
+    (void)::chown(dst.c_str(), st.st_uid, st.st_gid);
+    if (!isDir || true) {
+        (void)::chmod(dst.c_str(), st.st_mode & 07777);
+    }
+    struct timespec times[2];
+    times[0] = st.st_atim;
+    times[1] = st.st_mtim;
+    (void)::utimensat(AT_FDCWD, dst.c_str(), times, 0);
+}
+
+bool createHardLinkAt(const fs::path& existing, const fs::path& link) {
+    return ::link(existing.c_str(), link.c_str()) == 0;
+}
+
+void markSparse(const fs::path&) {}
+
+#endif
+
+// Copia el contenido de un fichero conservando los huecos.
+//
+// No se usa std::filesystem::copy_file: escribiría los ceros de un fichero disperso como
+// datos reales, y una imagen de disco de 100 GB con 2 GB usados llegaría ocupando 100.
+// Aquí, un bloque entero de ceros no se escribe: se salta con seek, y el sistema de
+// ficheros deja el hueco.
+bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytesOut,
+                  std::string& err) {
+    std::FILE* in = std::fopen(src.string().c_str(), "rb");
+    if (!in) {
+        err = "no se pudo leer " + src.string();
+        return false;
+    }
+    std::FILE* out = std::fopen(dst.string().c_str(), "wb");
+    if (!out) {
+        std::fclose(in);
+        err = "no se pudo crear " + dst.string();
+        return false;
+    }
+    // Se marca disperso con el fichero ya creado y antes de escribir nada.
+    std::fclose(out);
+    markSparse(dst);
+    out = std::fopen(dst.string().c_str(), "r+b");
+    if (!out) {
+        std::fclose(in);
+        err = "no se pudo abrir para escribir " + dst.string();
+        return false;
+    }
+
+    constexpr std::size_t kBuf = 256 * 1024;
+    std::vector<char> buf(kBuf);
+    bool ok = true;
+    std::uint64_t written = 0;
+    std::uint64_t holePending = 0;
+    while (true) {
+        const std::size_t n = std::fread(buf.data(), 1, buf.size(), in);
+        if (n == 0) {
+            break;
+        }
+        const bool allZero = std::all_of(buf.begin(), buf.begin() + static_cast<long>(n),
+                                         [](char c) { return c == '\0'; });
+        if (allZero) {
+            holePending += n;
+            continue;
+        }
+        if (holePending > 0) {
+            if (std::fseek(out, static_cast<long>(holePending), SEEK_CUR) != 0) {
+                ok = false;
+                err = "no se pudo dejar el hueco en " + dst.string();
+                break;
+            }
+            holePending = 0;
+        }
+        if (std::fwrite(buf.data(), 1, n, out) != n) {
+            ok = false;
+            err = "no se pudo escribir en " + dst.string();
+            break;
+        }
+        written += n;
+    }
+    // Un fichero que termina en ceros: hay que fijar el tamaño final, porque saltar con
+    // seek sin escribir después no alarga el fichero.
+    if (ok && holePending > 0) {
+        if (std::fseek(out, static_cast<long>(holePending) - 1, SEEK_CUR) == 0) {
+            const char z = '\0';
+            (void)std::fwrite(&z, 1, 1, out);
+        }
+    }
+    std::fclose(in);
+    std::fclose(out);
+    bytesOut += written;
+    return ok;
+}
+
+struct Walker {
+    Options opt;
+    Result res;
+    std::uint64_t rootVolume = 0;
+    // Identidad → primera ruta ya copiada en el destino. Solo entran los ficheros con
+    // más de un enlace, así que la memoria es proporcional a esos y no al total.
+    std::map<std::pair<std::uint64_t, std::uint64_t>, fs::path> hardLinks;
+
+    bool excluded(const std::string& name, int depth) const {
+        if (depth != 0) {
+            return false;
+        }
+        return std::find(opt.excludes.begin(), opt.excludes.end(), name) != opt.excludes.end();
+    }
+
+    bool shouldDescend(const fs::path& p) const {
+        if (!opt.oneFileSystem) {
+            return true;
+        }
+        if (isReparsePoint(p)) {
+            return false;
+        }
+        const FileIdentity id = identityOf(p);
+        return !id.valid || id.volume == rootVolume;
+    }
+
+    bool walk(const fs::path& src, const fs::path& dst, int depth) {
+        std::error_code ec;
+        fs::directory_iterator it(src, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            res.error = "no se pudo listar " + src.string() + ": " + ec.message();
+            return false;
+        }
+        for (const fs::directory_entry& entry : it) {
+            const fs::path from = entry.path();
+            const std::string name = from.filename().string();
+            if (excluded(name, depth)) {
+                continue;
+            }
+            const fs::path to = dst / from.filename();
+            const fs::file_status st = fs::symlink_status(from, ec);
+            if (ec) {
+                continue;
+            }
+            if (fs::is_symlink(st)) {
+                const fs::path target = fs::read_symlink(from, ec);
+                if (!ec) {
+                    fs::remove(to, ec);
+                    fs::create_symlink(target, to, ec);
+                    if (!ec) {
+                        ++res.symlinksCopied;
+                    }
+                }
+                continue;
+            }
+            if (fs::is_directory(st)) {
+                if (!shouldDescend(from)) {
+                    continue;
+                }
+                fs::create_directories(to, ec);
+                if (ec) {
+                    res.error = "no se pudo crear " + to.string() + ": " + ec.message();
+                    return false;
+                }
+                ++res.dirsCreated;
+                if (!walk(from, to, depth + 1)) {
+                    return false;
+                }
+                // Las marcas de tiempo del directorio, DESPUÉS de llenarlo: crear ficheros
+                // dentro las vuelve a tocar.
+                copyMetadata(from, to, true);
+                continue;
+            }
+            if (!fs::is_regular_file(st)) {
+                // Dispositivos, sockets y FIFOs no se copian. rsync tampoco lo hace sin
+                // pedírselo, y en un dataset de datos no deberían estar.
+                continue;
+            }
+
+            const FileIdentity id = identityOf(from);
+            if (id.valid && id.linkCount > 1) {
+                const auto key = std::make_pair(id.volume, id.index);
+                const auto seen = hardLinks.find(key);
+                if (seen != hardLinks.end()) {
+                    fs::remove(to, ec);
+                    if (createHardLinkAt(seen->second, to)) {
+                        ++res.hardLinksRecreated;
+                        continue;
+                    }
+                    // Si el enlace falla —otro volumen, permisos— se copia y no se pierde
+                    // nada salvo el ahorro de espacio.
+                }
+            }
+
+            std::string err;
+            if (!copyFileData(from, to, res.bytesWritten, err)) {
+                res.error = err;
+                return false;
+            }
+            copyMetadata(from, to, false);
+            ++res.filesCopied;
+            if (id.valid && id.linkCount > 1) {
+                hardLinks.emplace(std::make_pair(id.volume, id.index), to);
+            }
+        }
+        return true;
+    }
+};
+
+struct Counter {
+    Options opt;
+    std::uint64_t rootVolume = 0;
+    long long pending = 0;
+
+    bool excluded(const std::string& name, int depth) const {
+        if (depth != 0) {
+            return false;
+        }
+        return std::find(opt.excludes.begin(), opt.excludes.end(), name) != opt.excludes.end();
+    }
+
+    bool shouldDescend(const fs::path& p) const {
+        if (!opt.oneFileSystem) {
+            return true;
+        }
+        if (isReparsePoint(p)) {
+            return false;
+        }
+        const FileIdentity id = identityOf(p);
+        return !id.valid || id.volume == rootVolume;
+    }
+
+    bool walk(const fs::path& src, const fs::path& dst, int depth) {
+        std::error_code ec;
+        fs::directory_iterator it(src, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            return false;
+        }
+        for (const fs::directory_entry& entry : it) {
+            const fs::path from = entry.path();
+            const std::string name = from.filename().string();
+            if (excluded(name, depth)) {
+                continue;
+            }
+            const fs::path to = dst / from.filename();
+            const fs::file_status st = fs::symlink_status(from, ec);
+            if (ec) {
+                continue;
+            }
+            if (fs::is_directory(st) && !fs::is_symlink(st)) {
+                if (!shouldDescend(from)) {
+                    continue;
+                }
+                if (!fs::exists(fs::symlink_status(to, ec))) {
+                    // Un directorio que falta cuenta como pendiente Y hay que seguir
+                    // contando lo que lleva dentro: si no, un subárbol entero ausente
+                    // contaría como un solo pendiente.
+                    ++pending;
+                }
+                if (!walk(from, to, depth + 1)) {
+                    return false;
+                }
+                continue;
+            }
+            if (!fs::exists(fs::symlink_status(to, ec))) {
+                ++pending;
+            }
+        }
+        return true;
+    }
+};
+
+}  // namespace
+
+Result copyTree(const std::string& srcDir, const std::string& dstDir, const Options& opt) {
+    Result r;
+    std::error_code ec;
+    const fs::path src(srcDir);
+    const fs::path dst(dstDir);
+    if (!fs::is_directory(src, ec)) {
+        r.error = "el origen no es un directorio: " + srcDir;
+        return r;
+    }
+    fs::create_directories(dst, ec);
+    if (ec && !fs::is_directory(dst)) {
+        r.error = "no se pudo crear el destino " + dstDir + ": " + ec.message();
+        return r;
+    }
+    Walker w;
+    w.opt = opt;
+    const FileIdentity rootId = identityOf(src);
+    w.rootVolume = rootId.volume;
+    if (!w.walk(src, dst, 0)) {
+        w.res.ok = false;
+        return w.res;
+    }
+    w.res.ok = true;
+    return w.res;
+}
+
+long long countPending(const std::string& srcDir, const std::string& dstDir,
+                       const Options& opt) {
+    std::error_code ec;
+    const fs::path src(srcDir);
+    if (!fs::is_directory(src, ec)) {
+        return -1;
+    }
+    Counter c;
+    c.opt = opt;
+    const FileIdentity rootId = identityOf(src);
+    c.rootVolume = rootId.volume;
+    if (!c.walk(src, fs::path(dstDir), 0)) {
+        return -1;
+    }
+    return c.pending;
+}
+
+}  // namespace zfsmgr::copytree

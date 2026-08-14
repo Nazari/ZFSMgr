@@ -53,6 +53,8 @@ typedef int pid_t;
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/rand.h>
+
+#include "copytree.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
@@ -5825,6 +5827,58 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // caller already has root and it grants no extra privilege. The CLI handler in
     // main() stays for those flows.
 
+    // Copia de árboles sin rsync, en las dos plataformas.
+    //
+    // Los DOS verbos van juntos a propósito: la verificación no es un extra sino la red
+    // que sostiene Desglosar, Ensamblar y Hacia Dir, que borran el origen. Exponer la
+    // copia sin con qué comprobarla sería exponer justo la mitad peligrosa.
+    if (cmd == "--mutate-copy-tree" || cmd == "--dump-copy-tree-pending") {
+        if (params.size() < 2) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " " + cmd
+                    + " <src> <dst> [--one-file-system] [--exclude=<nombre>]...\n";
+            return r;
+        }
+        zfsmgr::copytree::Options opt;
+        for (std::size_t i = 2; i < params.size(); ++i) {
+            const std::string& a = params[i];
+            if (a == "--one-file-system") {
+                opt.oneFileSystem = true;
+            } else if (a.rfind("--exclude=", 0) == 0) {
+                const std::string name = trim(a.substr(10));
+                if (!name.empty()) {
+                    opt.excludes.push_back(name);
+                }
+            } else {
+                r.rc = 2; r.err = "argumento desconocido: " + a + "\n"; return r;
+            }
+        }
+        if (cmd == "--dump-copy-tree-pending") {
+            const long long pending =
+                zfsmgr::copytree::countPending(params[0], params[1], opt);
+            if (pending < 0) {
+                // NO se responde 0: el llamante borra el origen cuando ve un cero, así
+                // que «no se pudo comprobar» tiene que llegar como fallo.
+                r.rc = 1; r.err = "no se pudo verificar la copia\n"; return r;
+            }
+            r.rc = 0;
+            r.out = "PENDING=" + std::to_string(pending) + "\n";
+            return r;
+        }
+        const zfsmgr::copytree::Result cr =
+            zfsmgr::copytree::copyTree(params[0], params[1], opt);
+        if (!cr.ok) {
+            r.rc = 1; r.err = cr.error + "\n"; return r;
+        }
+        r.rc = 0;
+        r.out = "FILES=" + std::to_string(cr.filesCopied)
+                + "\nDIRS=" + std::to_string(cr.dirsCreated)
+                + "\nSYMLINKS=" + std::to_string(cr.symlinksCopied)
+                + "\nHARDLINKS=" + std::to_string(cr.hardLinksRecreated)
+                + "\nBYTES=" + std::to_string(cr.bytesWritten) + "\n";
+        return r;
+    }
+
     // Recibir y emitir funcionan ya en Windows (fases 1 y 2): el daemon bombea entre el
     // socket y una tubería propia, en vez de entregarle el descriptor del socket a `zfs`.
     if (cmd == "--zfs-send-to-peer") {
@@ -7532,6 +7586,19 @@ int main(int argc, char* argv[]) {
         }
         const std::vector<std::string> params(args.begin() + 2, args.end());
         const ExecResult e = runZfsSendToPeerCapture(params);
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
+    // Copia de árboles por línea de comandos. Se delega en el mismo despachador que
+    // atiende el RPC para que no haya dos versiones de la misma orden.
+    if (cmd == "--mutate-copy-tree" || cmd == "--dump-copy-tree-pending") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = executeAgentCommandCapture(cmd, params, args[0].c_str());
         if (!e.out.empty()) std::cout << e.out;
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;

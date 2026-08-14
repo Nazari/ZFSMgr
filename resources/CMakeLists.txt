@@ -72,14 +72,14 @@ find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
 if(ZFSMGR_AGENT_ONLY)
-    add_executable(zfsmgr_agent ../src/daemon_main.cpp)
+    add_executable(zfsmgr_agent ../src/daemon_main.cpp ../src/copytree.cpp)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
         ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
     )
     target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
     if(WIN32)
-        target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+        target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
         # Igual que en la compilación completa: el agente viaja SOLO, así que no puede
         # depender de libgcc, libstdc++ ni las DLL de OpenSSL. Sin esto arranca con
         # 0xC0000135 en cualquier Windows sin esas bibliotecas.
@@ -182,6 +182,7 @@ target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
 
 add_executable(zfsmgr_agent
     ../src/daemon_main.cpp
+    ../src/copytree.cpp
 )
 target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
@@ -189,7 +190,7 @@ target_compile_definitions(zfsmgr_agent PRIVATE
 )
 target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)
-    target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+    target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
     # Enlazado estático del runtime en Windows: sin esto el .exe necesita
     # libgcc_s_seh-1.dll, libstdc++-6.dll y libwinpthread-1.dll a su lado, y al
     # desplegarlo suelto en un Windows real muere con 0xC0000135 (DLL no encontrada)
@@ -348,6 +349,18 @@ if(BUILD_TESTING)
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
+
+    # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite
+    # —enlaces duros, dispersos, exclusiones— y donde un fallo BORRA datos, porque de
+    # ella cuelgan Desglosar, Ensamblar y Hacia Dir.
+    add_executable(zfsmgr_copytree_test
+        ../tests/copytree_test.cpp
+        ../src/copytree.cpp
+    )
+    target_include_directories(zfsmgr_copytree_test PRIVATE ../src)
+    target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(zfsmgr_copytree_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_copytree_test COMMAND zfsmgr_copytree_test)
 
     qt_add_executable(zfsmgr_capabilities_test
         ../tests/capabilities_test.cpp
