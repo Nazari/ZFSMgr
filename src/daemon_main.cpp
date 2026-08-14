@@ -5124,39 +5124,84 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 #endif
 
     const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
-    const std::string bindAddr = cfg2.transferBindAddr.empty() ? std::string("0.0.0.0")
-                                                               : cfg2.transferBindAddr;
-    struct addrinfo hints2{};
-    hints2.ai_family = AF_INET;
-    hints2.ai_socktype = SOCK_STREAM;
-    hints2.ai_flags = AI_PASSIVE;
-    struct addrinfo* res2 = nullptr;
-    if (getaddrinfo(bindAddr.c_str(), nullptr, &hints2, &res2) != 0 || !res2) {
-        r.rc = 1; r.err = "getaddrinfo failed for transfer bind\n"; return r;
-    }
+
+    // Doble pila: se escucha en IPv6 con V6ONLY desactivado, que acepta TAMBIÉN IPv4.
+    //
+    // Antes era AF_INET a secas, y eso rompía la copia entre máquinas que se hablan por
+    // IPv6. Medido: el emisor recibía como dirección de vuelta la que sshd le declara
+    // —una IPv6 link-local, fe80::…%enp1s0f0— y moría con «cannot connect to peer»,
+    // porque el receptor no escuchaba en esa familia. El síntoma era una transferencia
+    // que arrancaba y se quedaba en 0,00 GB.
+    //
+    // V6ONLY hay que ponerlo explícitamente: en Windows viene activado por defecto, así
+    // que sin esta línea el zócalo IPv6 rechazaría a los clientes IPv4.
+    TransferSocket listenFd =
 #ifdef _WIN32
-    SOCKET listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
-    const bool listenBad = (listenFd == INVALID_SOCKET);
+        INVALID_SOCKET;
 #else
-    int listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
-    const bool listenBad = (listenFd < 0);
+        -1;
 #endif
-    if (listenBad) { freeaddrinfo(res2); r.rc = 1; r.err = "socket failed\n"; return r; }
-    int one = 1;
-    setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<const char*>(&one), sizeof(one));
-    if (bind(listenFd, res2->ai_addr, static_cast<int>(res2->ai_addrlen)) != 0) {
-        closeTransferSocket(listenFd); freeaddrinfo(res2);
-        r.rc = 1; r.err = "bind failed\n"; return r;
+    bool boundV6 = false;
+    // "0.0.0.0" es el valor POR DEFECTO de la estructura, no una decisión del usuario:
+    // transferBindAddr nunca llega vacío. Tratarlo como explícito dejaba el receptor en
+    // IPv4 siempre, que es justo lo que rompía la copia entre máquinas por IPv6.
+    const bool wantsExplicitBind = !cfg2.transferBindAddr.empty()
+                                   && cfg2.transferBindAddr != "0.0.0.0";
+
+    auto tryBind = [&](int family, const char* addr) -> bool {
+        struct addrinfo hints2{};
+        hints2.ai_family = family;
+        hints2.ai_socktype = SOCK_STREAM;
+        hints2.ai_flags = AI_PASSIVE;
+        struct addrinfo* res2 = nullptr;
+        if (getaddrinfo(addr, nullptr, &hints2, &res2) != 0 || !res2) {
+            return false;
+        }
+        TransferSocket fd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+#ifdef _WIN32
+        const bool bad = (fd == INVALID_SOCKET);
+#else
+        const bool bad = (fd < 0);
+#endif
+        if (bad) { freeaddrinfo(res2); return false; }
+        int one = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&one), sizeof(one));
+        if (family == AF_INET6) {
+            int off = 0;
+            setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+                       reinterpret_cast<const char*>(&off), sizeof(off));
+        }
+        if (bind(fd, res2->ai_addr, static_cast<int>(res2->ai_addrlen)) != 0
+            || listen(fd, 1) != 0) {
+            closeTransferSocket(fd);
+            freeaddrinfo(res2);
+            return false;
+        }
+        freeaddrinfo(res2);
+        listenFd = fd;
+        boundV6 = (family == AF_INET6);
+        return true;
+    };
+
+    if (wantsExplicitBind) {
+        // Si el usuario fijó una dirección, se respeta tal cual y no se elige familia.
+        if (!tryBind(AF_UNSPEC, cfg2.transferBindAddr.c_str())) {
+            r.rc = 1; r.err = "no se pudo escuchar en " + cfg2.transferBindAddr + "\n"; return r;
+        }
+    } else if (!tryBind(AF_INET6, "::")) {
+        // Sin IPv6 en la máquina, IPv4 a secas: es mejor que no escuchar.
+        if (!tryBind(AF_INET, "0.0.0.0")) {
+            r.rc = 1; r.err = "no se pudo abrir el puerto de transferencia\n"; return r;
+        }
     }
-    freeaddrinfo(res2);
-    if (listen(listenFd, 1) != 0) {
-        closeTransferSocket(listenFd); r.rc = 1; r.err = "listen failed\n"; return r;
-    }
-    struct sockaddr_in bound{};
+
+    struct sockaddr_storage bound{};
     socklen_t blen = sizeof(bound);
     getsockname(listenFd, reinterpret_cast<struct sockaddr*>(&bound), &blen);
-    const int assignedPort = static_cast<int>(ntohs(bound.sin_port));
+    const int assignedPort = static_cast<int>(
+        ntohs(boundV6 ? reinterpret_cast<struct sockaddr_in6*>(&bound)->sin6_port
+                      : reinterpret_cast<struct sockaddr_in*>(&bound)->sin_port));
 
     if (waitInline) {
         // El emisor necesita el puerto ANTES de que empiece la espera, así que se emite
