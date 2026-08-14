@@ -5978,17 +5978,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        // Igual que con el contenido de un snapshot: si el dataset no está montado no
-        // hay nada que listar en su mountpoint, y decirlo es más útil que dejar que el
-        // navegador falle. Antes salía "(error: )", sin siquiera un motivo.
-        if (!isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
-            auto* hint = new QTreeWidgetItem(item);
-            hint->setText(0, trk(QStringLiteral("t_content_unmounted_001"),
-                                 QStringLiteral("Contenido no disponible: el dataset no está montado"),
-                                 QStringLiteral("Content unavailable: the dataset is not mounted"),
-                                 QStringLiteral("内容不可用：数据集未挂载")));
-            hint->setFlags(hint->flags() & ~Qt::ItemIsUserCheckable);
-        }
+        // Sin montar no cuelga NADA del dataset por el lado del contenido: ni el nodo
+        // «Contenido» ni un aviso en su lugar. El estado de montaje ya se ve en la propia
+        // fila, así que la línea explicativa solo añadía ruido en un árbol con muchos
+        // datasets desmontados.
         if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
             auto* contentNode = new QTreeWidgetItem(item);
             contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
@@ -6056,18 +6049,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 }
                 snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
                 // El contenido de un snapshot se lee por <mountpoint>/.zfs/snapshot/<snap>,
-                // y ese directorio solo existe si el dataset está MONTADO. Antes solo se
-                // comprobaba que hubiera mountpoint, así que con el dataset desmontado se
-                // creaba el nodo igual y al abrirlo salía "path not found: ...", que no
-                // dice lo que pasa ni cómo arreglarlo.
-                if (!isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
-                    auto* snapHint = new QTreeWidgetItem(snapItem);
-                    snapHint->setText(0, trk(QStringLiteral("t_content_unmounted_001"),
-                                             QStringLiteral("Contenido no disponible: el dataset no está montado"),
-                                             QStringLiteral("Content unavailable: the dataset is not mounted"),
-                                             QStringLiteral("内容不可用：数据集未挂载")));
-                    snapHint->setFlags(snapHint->flags() & ~Qt::ItemIsUserCheckable);
-                }
+                // y ese directorio solo existe si el dataset está MONTADO. Con el dataset
+                // desmontado no se crea el nodo ni ningún aviso en su lugar, igual que en
+                // el propio dataset.
                 if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
                     // Separador según la plataforma. En Windows el punto de montaje es
                     // `Z:\subds1` y concatenar «/.zfs/snapshot/» dejaba una ruta con los
