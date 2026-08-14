@@ -463,6 +463,14 @@ void MainWindow::actionCopySnapshot() {
     // error incomprensible sobre algo que en realidad era recuperable.
     QString resumeHolder;
     const QString resumeToken = transferResumeTokenFor(dst.connIdx, recvTarget, &resumeHolder);
+    // Se registra siempre, encuentre o no. Sin esta línea, «no salió el aviso» no se
+    // distingue de «no había nada que reanudar» ni de «miré donde no era»: el destino no
+    // es el dataset sobre el que se pulsa, porque se le añade el nombre del origen.
+    appLog(QStringLiteral("INFO"),
+           resumeToken.isEmpty()
+               ? QStringLiteral("Copiar: sin transferencia a medias bajo %1").arg(recvTarget)
+               : QStringLiteral("Copiar: transferencia a medias en %1 (destino %2)")
+                     .arg(resumeHolder, recvTarget));
     bool resumeRequested = false;
     if (!resumeToken.isEmpty()) {
         QMessageBox box(this);
