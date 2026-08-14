@@ -670,8 +670,17 @@ void MainWindow::actionCopySnapshot() {
     // se quedó sin quitar, y por eso una copia con un extremo Windows caía al camino
     // SÍNCRONO por shell, que además necesita sudo en el origen.
     if (dstJobsOk && (sameConnection || srcJobsOk)) {
-        if (launchDaemonJobTransfer(srcSnap, recvTarget, QString(), sendFlags,
-                                    src.connIdx, dst.connIdx)) {
+        // Al REANUDAR, el receptor tiene que escuchar en el dataset que TIENE el testigo,
+        // no en el destino original.
+        //
+        // Medido: con el receptor en el padre se transfirieron 1.520 bytes y el estado no
+        // se movió; apuntando al dataset del testigo, 2,1 GB a 88 MiB/s y transferencia
+        // completa. El flujo de `zfs send -t` pertenece a ESE dataset y solo ahí encaja.
+        const QString jobTarget =
+            (resumeRequested && !resumeHolder.isEmpty()) ? resumeHolder : recvTarget;
+        if (launchDaemonJobTransfer(srcSnap, jobTarget, QString(), sendFlags,
+                                    src.connIdx, dst.connIdx,
+                                    resumeRequested ? resumeToken : QString())) {
             return;
         }
         // fallthrough on failure — continue with synchronous path
@@ -2271,7 +2280,8 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
                                          const QString& fromSnap,
                                          const QString& sendFlags,
                                          int srcConnIdx,
-                                         int dstConnIdx)
+                                         int dstConnIdx,
+                                         const QString& resumeToken)
 {
     if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return false;
     if (dstConnIdx < 0 || dstConnIdx >= m_profiles.size()) return false;
@@ -2328,12 +2338,16 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     }
     QStringList sendArgs;
     sendArgs << QStringLiteral("--zfs-send-to-peer-async")
-             << srcSnap
+             << (resumeToken.isEmpty() ? srcSnap : QString())
              << peerHost
              << QString::number(dstPort)
              << dstToken
-             << fromSnap.trimmed()
-             << sendFlags.trimmed();
+             << (resumeToken.isEmpty() ? fromSnap.trimmed() : QString())
+             << (resumeToken.isEmpty() ? sendFlags.trimmed() : QString())
+             // Séptimo: el testigo. Con él, snapshot, base y banderas van vacíos a
+             // propósito: `zfs send -t` lleva dentro qué continuar y no admite que se
+             // le contradiga.
+             << resumeToken;
     QString sendOut, sendErr;
     int sendRc = -1;
     const ConnectionProfile& sendProfile = sameConn ? dp : sp;

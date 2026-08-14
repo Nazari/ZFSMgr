@@ -185,6 +185,9 @@ struct DaemonJob {
     std::string token;
     std::string baseSnap;
     std::string sendFlags;
+    // Testigo de reanudación. Cuando viene, `zfs send -t` continúa la transferencia
+    // cortada en vez de mandarlo todo otra vez, y snap/baseSnap/sendFlags se ignoran.
+    std::string resumeToken;
     std::string pipeCmd;       // base64-encoded shell command (pipe-local only)
     std::string dstDataset;    // destination dataset (pipe-local only)
     std::string submittedCmd;  // agent command being run (type "mutation")
@@ -5398,7 +5401,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
 //
 // De paso funciona en Windows, porque el relé ya es portable desde la fase 2.
 static void runZfsSendToPeerAsync(const std::string& jobId) {
-    std::string snap, peerHost, baseSnap, sendFlags, token;
+    std::string snap, peerHost, baseSnap, sendFlags, token, resumeToken;
     int peerPort = 0;
     {
         std::lock_guard<std::mutex> lock(g_jobsMutex);
@@ -5410,6 +5413,7 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         token     = it->second.token;
         baseSnap  = it->second.baseSnap;
         sendFlags = it->second.sendFlags;
+        resumeToken = it->second.resumeToken;
     }
 
     // Avance y cancelación. Devolver false interrumpe el relé: antes se hacía matando
@@ -5439,7 +5443,7 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
     };
 
     const std::vector<std::string> params{
-        snap, peerHost, std::to_string(peerPort), token, baseSnap, sendFlags};
+        snap, peerHost, std::to_string(peerPort), token, baseSnap, sendFlags, resumeToken};
     const ExecResult r = runZfsSendToPeerCapture(params, onProgress);
 
     std::lock_guard<std::mutex> lock(g_jobsMutex);
@@ -6662,6 +6666,7 @@ int runServeLoop() {
                     job.token     = rpcArgs[3];
                     job.baseSnap  = (rpcArgs.size() > 4) ? rpcArgs[4] : "";
                     job.sendFlags = (rpcArgs.size() > 5) ? rpcArgs[5] : "";
+                    job.resumeToken = (rpcArgs.size() > 6) ? rpcArgs[6] : "";
                     job.state     = JobState::Running;
                     job.startedAtUtc = utcNowIsoString();
                     const std::string jobId = job.id;

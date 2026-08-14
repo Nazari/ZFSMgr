@@ -1186,7 +1186,10 @@ private:
     void pollDaemonZedAllConnections();
     bool launchDaemonJobTransfer(const QString& srcSnap, const QString& recvTarget,
                                  const QString& fromSnap, const QString& sendFlags,
-                                 int srcConnIdx, int dstConnIdx);
+                                 int srcConnIdx, int dstConnIdx,
+                                 // Testigo de reanudación: cuando viene, el emisor
+                                 // continúa donde se cortó en vez de mandarlo todo.
+                                 const QString& resumeToken = QString());
     void pollDaemonJobs();
     void scanOrphanedJobsForConnection(int connIdx);
     void updateJobsListWidget();
