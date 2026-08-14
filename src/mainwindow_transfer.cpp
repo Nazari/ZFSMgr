@@ -340,24 +340,63 @@ QString MainWindow::sourceViewOfThisHost(int srcConnIdx) {
     return addr;
 }
 
-QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset) {
+QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
+                                           QString* holderOut) {
+    if (holderOut) {
+        holderOut->clear();
+    }
     if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.trimmed().isEmpty()) {
         return QString();
     }
-    QString value;
-    if (!getDatasetProperty(connIdx, dataset.trimmed(),
-                            QStringLiteral("receive_resume_token"), value)) {
-        // Que no se pueda leer NO significa que no haya nada a medias: puede que el
-        // dataset aún no exista, que es el caso normal en una copia nueva. Se calla y
-        // se sigue; si de verdad hubiera un envío en suspenso, ZFS lo dirá al recibir.
+    const QString target = dataset.trimmed();
+
+    auto tokenOf = [&](const QString& ds) -> QString {
+        QString value;
+        if (!getDatasetProperty(connIdx, ds, QStringLiteral("receive_resume_token"), value)) {
+            // Que no se pueda leer NO significa que no haya nada a medias: puede que el
+            // dataset aún no exista, que es el caso normal en una copia nueva.
+            return QString();
+        }
+        value = value.trimmed();
+        // ZFS devuelve "-" cuando no hay ninguno.
+        return (value == QStringLiteral("-")) ? QString() : value;
+    };
+
+    const QString own = tokenOf(target);
+    if (!own.isEmpty()) {
+        if (holderOut) { *holderOut = target; }
+        return own;
+    }
+
+    // Y si no lo tiene él, sus descendientes.
+    //
+    // Las copias van con -R, o sea toda la jerarquía en un solo flujo. Al cortarse, ZFS
+    // deja el testigo en el dataset que estaba recibiendo en ese momento, que casi nunca
+    // es la raíz: medido cortando una copia de 3,4 GB, el padre quedó completo y el
+    // testigo apareció en el hijo. Mirar solo la raíz daba «no hay nada que reanudar»
+    // teniendo 247 MB ya transferidos.
+    const ConnectionProfile p = m_profiles.at(connIdx);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runAgentCommand(p, {QStringLiteral("--dump-zfs-list-children"), target},
+                         15000, out, err, rc)
+        || rc != 0) {
         return QString();
     }
-    value = value.trimmed();
-    // ZFS devuelve "-" cuando no hay ninguno.
-    if (value == QStringLiteral("-")) {
-        return QString();
+    const QStringList children = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString& raw : children) {
+        const QString ds = raw.trimmed();
+        if (ds.isEmpty() || ds == target) {
+            continue;
+        }
+        const QString t = tokenOf(ds);
+        if (!t.isEmpty()) {
+            if (holderOut) { *holderOut = ds; }
+            return t;
+        }
     }
-    return value;
+    return QString();
 }
 
 bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
@@ -422,7 +461,8 @@ void MainWindow::actionCopySnapshot() {
     // volver a copiar mandaba el flujo entero otra vez —y encima ZFS lo rechazaba,
     // porque el destino conserva la recepción a medias—, de modo que el usuario veía un
     // error incomprensible sobre algo que en realidad era recuperable.
-    const QString resumeToken = transferResumeTokenFor(dst.connIdx, recvTarget);
+    QString resumeHolder;
+    const QString resumeToken = transferResumeTokenFor(dst.connIdx, recvTarget, &resumeHolder);
     bool resumeRequested = false;
     if (!resumeToken.isEmpty()) {
         QMessageBox box(this);
@@ -432,20 +472,28 @@ void MainWindow::actionCopySnapshot() {
                         QStringLiteral("En %1 hay una transferencia sin terminar."),
                         QStringLiteral("There is an unfinished transfer on %1."),
                         QStringLiteral("%1 上有一次未完成的传输。"))
-                        .arg(recvTarget));
+                        .arg(resumeHolder.isEmpty() ? recvTarget : resumeHolder));
         box.setInformativeText(trk(QStringLiteral("t_resume_body001"),
             QStringLiteral("Se puede continuar desde donde se quedó, sin reenviar lo que ya "
                            "llegó.\n\nPara empezar de cero hay que descartar antes lo "
                            "recibido, desde el destino:\n    zfs recv -A %1\nMientras siga "
-                           "ahí, ZFS rechaza un envío nuevo."),
+                           "ahí, ZFS rechaza un envío nuevo.\n\nAviso: se continúa el dataset que quedó a "
+                           "medias. Si la copia era de una jerarquía entera, los datasets que aún no "
+                           "habían empezado NO se envían aquí; repita la copia después para "
+                           "completarlos."),
             QStringLiteral("It can continue from where it stopped, without resending what "
                            "already arrived.\n\nTo start over, discard the partial data "
                            "first, on the target:\n    zfs recv -A %1\nWhile it remains, "
-                           "ZFS refuses a fresh stream."),
+                           "ZFS refuses a fresh stream.\n\nNote: this continues the dataset that was left "
+                           "half-received. If the copy covered a whole hierarchy, datasets that had "
+                           "not started yet are NOT sent here; repeat the copy afterwards to "
+                           "complete them."),
             QStringLiteral("可以从中断处继续，无需重新发送已经传输的部分。\n\n"
                            "若要从头开始，请先在目标端丢弃已接收的数据：\n"
-                           "    zfs recv -A %1\n只要它还在，ZFS 就会拒绝新的数据流。"))
-                                   .arg(recvTarget));
+                           "    zfs recv -A %1\n只要它还在，ZFS 就会拒绝新的数据流。\n\n注意：这里继续的是被"
+                           "中断的那个数据集。若复制涉及整个层级，尚未开始的数据集不会在此发送；"
+                           "之后请重复一次复制以补齐。"))
+                                   .arg(resumeHolder.isEmpty() ? recvTarget : resumeHolder));
         QPushButton* bResume = box.addButton(trk(QStringLiteral("t_resume_go001"),
                                                  QStringLiteral("Continuar"),
                                                  QStringLiteral("Resume"),

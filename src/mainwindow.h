@@ -917,7 +917,11 @@ private:
     // Testigo de reanudación del destino, o cadena vacía si no hay transferencia a
     // medias. Se lee con --dump-zfs-get-prop, que ya existía: no hace falta un verbo
     // nuevo, y por tanto tampoco cambiar la versión del esquema del agente.
-    QString transferResumeTokenFor(int connIdx, const QString& dataset);
+    // Devuelve el testigo de reanudación del destino, o vacío. holderOut recibe el
+    // dataset que lo tiene, que NO tiene por qué ser el de destino: en una copia
+    // recursiva el testigo queda en el descendiente que se estaba recibiendo.
+    QString transferResumeTokenFor(int connIdx, const QString& dataset,
+                                   QString* holderOut = nullptr);
     // Dirección con la que el ORIGEN ve a este equipo, para que pueda conectar de vuelta
     // cuando el destino es la conexión Local. Vacío si no se puede averiguar.
     QString sourceViewOfThisHost(int srcConnIdx);
