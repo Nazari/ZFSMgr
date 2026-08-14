@@ -422,9 +422,12 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-advanced-todir");
     caps.push_back("--mutate-rsync-local");
 #endif
-    // Estas dos compilan en ambos sistemas, pero en Windows dependían de makeTempDir,
-    // que devolvía cadena vacía y las hacía fallar siempre con rc=125. Se declaran
-    // porque esa parte ya está resuelta.
+    // Desglosar y Ensamblar, en las dos plataformas. El comentario que había aquí decía
+    // que en Windows habían dependido de makeTempDir y que «esa parte ya está resuelta»;
+    // era cierto a medias y por eso contradecía a la tabla del cliente durante semanas.
+    // makeTempDir sí estaba portado, pero lo que las rompía era otra cosa: la ruta se
+    // deducía de la propiedad `mountpoint`, que allí vale «/pool/ds» y no existe. Ahora
+    // se consultan los montajes reales y ambas están comprobadas contra una máquina.
     caps.push_back("--mutate-advanced-breakdown");
     caps.push_back("--mutate-advanced-assemble");
     std::string out;

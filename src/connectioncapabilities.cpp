@@ -17,13 +17,14 @@ bool windowsAgentPending(Feature f) {
     case Feature::DirToDir:
     case Feature::ToolAvailability:
         return true;
-    // Estas dos SÍ están compiladas y aceptan argumentos, pero fallan siempre al
-    // ejecutarse: makeTempDir() devuelve cadena vacía en Windows y salen con rc=125.
-    // Anunciarlas disponibles sería peor que no tenerlas, porque el fallo aparece a
-    // mitad de una operación destructiva.
-    case Feature::DirBreakdown:
-    case Feature::DirAssemble:
-        return true;
+    // DirBreakdown y DirAssemble ya NO están aquí: funcionan en Windows y está
+    // comprobado ejecutándolas contra una máquina real, no leyendo el código.
+    //
+    // El comentario que había aquí decía que fallaban porque makeTempDir devolvía cadena
+    // vacía. Era falso: makeTempDir estaba portado desde hacía tiempo. Lo que de verdad
+    // las rompía era otra cosa —la ruta se deducía de la propiedad `mountpoint`, que en
+    // Windows vale «/pool/ds» y allí no existe— y encima fallaba en silencio, saltándose
+    // todos los directorios y diciendo que había terminado bien.
     // rsync no viaja con el agente y las rutas de Windows ni siquiera pasan su
     // validación, que exige que empiecen por '/'.
     case Feature::RsyncSync:
@@ -96,12 +97,11 @@ QString featureAgentVerb(Feature f) {
 
 QString featureRequiredTool(Feature f) {
     switch (f) {
-    // rsync no solo mueve datos: también es quien verifica que la copia está completa
-    // antes de borrar el origen en Desglosar, Ensamblar y Hacia Dir.
+    // Solo Sincronizar sigue necesitando rsync. Desglosar, Ensamblar y Hacia Dir ya no:
+    // copian y verifican con la implementación propia del agente, que además es la que
+    // permite hacerlo en Windows, donde rsync no existe. Ver
+    // docs/diseno_tecnico_copia_nativa_sin_rsync.md.
     case Feature::RsyncSync:
-    case Feature::DirBreakdown:
-    case Feature::DirAssemble:
-    case Feature::DirToDir:
         return QStringLiteral("rsync");
     // Las instantáneas programadas con destino remoto salen por ssh desde el agente.
     case Feature::AutoSnapshotsGsa:

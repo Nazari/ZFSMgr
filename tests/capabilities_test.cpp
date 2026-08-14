@@ -31,8 +31,6 @@ private Q_SLOTS:
             Feature::RepairAltMountpoints,
             Feature::DirToDir,
             Feature::ToolAvailability,
-            Feature::DirBreakdown,
-            Feature::DirAssemble,
             Feature::RsyncSync,
         };
         for (const Feature f : pending) {
@@ -50,6 +48,28 @@ private Q_SLOTS:
         const Availability a = featureAvailability(Feature::SendRecvStreaming, windowsReady());
         QVERIFY2(a.available, "Windows recibe y emite flujos desde las fases 1 y 2");
         QCOMPARE(a.reason, Reason::Available);
+    }
+
+    // Desglosar y Ensamblar funcionan en Windows desde que la copia es propia del agente
+    // y la ruta se resuelve consultando los montajes reales. Se comprueba aparte porque
+    // durante mucho tiempo la tabla dijo lo contrario por un motivo que era falso.
+    void windowsHasDirBreakdownAndAssemble() {
+        for (const Feature f : {Feature::DirBreakdown, Feature::DirAssemble}) {
+            const Availability a = featureAvailability(f, windowsReady());
+            QVERIFY2(a.available, "Desglosar y Ensamblar ya no dependen de rsync");
+            QCOMPARE(a.reason, Reason::Available);
+        }
+    }
+
+    // Y en NINGUNA plataforma dependen ya de rsync: solo Sincronizar lo necesita.
+    void dirOperationsNoLongerNeedRsync() {
+        Platform p = unixReady();
+        p.missingTools.insert(QStringLiteral("rsync"));
+        for (const Feature f : {Feature::DirBreakdown, Feature::DirAssemble, Feature::DirToDir}) {
+            QVERIFY2(featureAvailability(f, p).available,
+                     "sin rsync deben seguir disponibles: copian con el agente");
+        }
+        QCOMPARE(featureAvailability(Feature::RsyncSync, p).reason, Reason::MissingTool);
     }
 
     // Los trabajos en segundo plano también, desde la fase 5. Nunca dependieron de fork
@@ -87,12 +107,11 @@ private Q_SLOTS:
     void missingToolDisablesTheFeaturesThatNeedIt() {
         Platform p = unixReady();
         p.missingTools.insert(QStringLiteral("rsync"));
-        for (const Feature f : {Feature::RsyncSync, Feature::DirBreakdown,
-                                Feature::DirAssemble, Feature::DirToDir}) {
-            const Availability a = featureAvailability(f, p);
-            QVERIFY2(!a.available, "sin rsync no puede verificarse la copia antes de borrar");
-            QCOMPARE(a.reason, Reason::MissingTool);
-        }
+        // Solo Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
+        // el agente, y su caso lo cubre dirOperationsNoLongerNeedRsync.
+        const Availability a = featureAvailability(Feature::RsyncSync, p);
+        QVERIFY2(!a.available, "sin rsync no hay con qué sincronizar");
+        QCOMPARE(a.reason, Reason::MissingTool);
         // Y no debe afectar a lo que no lo usa.
         QVERIFY(featureAvailability(Feature::DatasetPermissions, p).available);
 
