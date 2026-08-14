@@ -53,8 +53,9 @@ attempt them**: they appear disabled with the reason, and the connection card li
 them under *Unavailable features*.
 
 - Sync with `rsync`, which does not exist on Windows.
-- *To Dir*, which relies on `rsync` to verify the copy before deleting the source.
-- Repairing temporary mountpoints, which means nothing against drive letters.
+- *To Dir*, which mounts the dataset at a temporary point to pour it out, and that means
+  nothing against drive letters.
+- Repairing temporary mountpoints, for the same reason.
 - Scheduled automatic snapshots: they rely on ZED, and OpenZFS on Windows does not ship it.
 
 What does work: reading and modifying datasets and pools, snapshots, cloning, ZFS
@@ -63,6 +64,28 @@ permissions, *Breakdown* and *Assemble*, **Copy and Level snapshots between mach
 
 That list is not written into the application: **the agent declares it** when asked for
 its status, so it updates itself once a version covering more is installed.
+
+## Breakdown and Assemble: where the content ends up
+
+They work on Windows, but the result **does not look the same as on Unix**, and it is
+worth knowing before using them.
+
+There, datasets **do not nest under their parent**: each one mounts as a link at the
+root of the drive, named after its last component. You can see it in `Z:\`:
+
+```
+Directory of Z:\
+  <JUNCTION>  parent  [\??\Volume{...}\]
+  <JUNCTION>  child   [\??\Volume{...}\]
+```
+
+`winpool/parent/child` lives in `Z:\child`, not inside `Z:\parent`, which looks empty.
+
+In practice: breaking down `Z:\data\photos` leaves the content in `Z:\photos`. It
+still belongs to the dataset `winpool/data/photos` —the ZFS hierarchy is correct— but
+the path in the explorer changes. Assembling puts it back inside the parent.
+
+This is OpenZFS on Windows' model, not a ZFSMgr decision.
 
 ## Differences worth keeping in mind
 

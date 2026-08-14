@@ -53,8 +53,9 @@ intenta**: aparecen deshabilitadas indicando el motivo, y la ficha de la conexi�
 lista bajo *Funciones no disponibles*.
 
 - Sincronizar con `rsync`, que no existe en Windows.
-- *Hacia Dir*, que se apoya en `rsync` para verificar la copia antes de borrar el origen.
-- Reparar puntos de montaje temporales, que contra letras de unidad no significa lo mismo.
+- *Hacia Dir*, que monta el dataset en un punto temporal para volcarlo, y eso contra
+  letras de unidad no significa lo mismo.
+- Reparar puntos de montaje temporales, por la misma razón.
 - Instantáneas automáticas programadas: se apoyan en ZED, y OpenZFS on Windows no lo trae.
 
 Lo que sí funciona: leer y modificar datasets y pools, instantáneas, clonar, permisos
@@ -64,6 +65,29 @@ ZFS, *Desglosar* y *Ensamblar*, **Copiar y Nivelar instantáneas entre máquinas
 Esa lista no está escrita en la aplicación: **la declara el propio agente** al
 consultarle su estado, así que se pone al día sola cuando se instala una versión que
 cubra más.
+
+## Desglosar y Ensamblar: dónde acaba el contenido
+
+Funcionan en Windows, pero el resultado **no se ve igual que en Unix**, y conviene
+saberlo antes de usarlos.
+
+Allí los datasets **no se anidan bajo su padre**: cada uno se monta como un enlace en
+la raíz de la unidad, con el nombre de su último componente. Se ve mirando `Z:\`:
+
+```
+Directory of Z:\
+  <JUNCTION>  padre  [\??\Volume{...}\]
+  <JUNCTION>  hijo   [\??\Volume{...}\]
+```
+
+`winpool/padre/hijo` está en `Z:\hijo`, no dentro de `Z:\padre`, que aparece vacío.
+
+Consecuencia práctica: al **desglosar** `Z:\datos\fotos`, el contenido pasa a estar en
+`Z:\fotos`. Sigue perteneciendo al dataset `winpool/datos/fotos` —la jerarquía de ZFS
+es la correcta— pero la ruta en el explorador cambia. Al **ensamblar**, vuelve a su
+sitio dentro del padre.
+
+Es el modelo de OpenZFS para Windows, no una decisión de ZFSMgr.
 
 ## Diferencias que conviene tener presentes
 
