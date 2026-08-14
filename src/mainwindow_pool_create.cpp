@@ -1296,6 +1296,20 @@ void MainWindow::createPoolForSelectedConnection() {
         if (targetIsWindows) {
             const int eqSep = t.indexOf('=');
             const QString key = (eqSep > 0 ? t.left(eqSep) : t).trimmed().toLower();
+            const QString val = (eqSep > 0 ? t.mid(eqSep + 1) : QString()).trimmed().toLower();
+            // mountpoint=none deja el pool IMPOSIBLE de montar en Windows.
+            //
+            // Allí no se monta por ruta sino por letra de unidad, pero `none` sigue
+            // vetando el montaje: da igual poner driveletter y canmount=on después, el
+            // dataset no monta y nada explica por qué. En Linux es un valor por defecto
+            // deliberado —cada dataset elige su sitio— y ahí se queda; en Windows se
+            // omite para que ZFS aplique el suyo, que es lo que sí permite montar.
+            if (key == QStringLiteral("mountpoint") && val == QStringLiteral("none")) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("Crear pool en Windows: se omite mountpoint=none, que "
+                                      "impediría montar el pool aunque se le ponga letra"));
+                continue;
+            }
             if (kLinuxOnlyFsProps.contains(key)) {
                 appLog(QStringLiteral("INFO"),
                        QStringLiteral("[crear pool] «%1» se omite: no existe fuera de Linux")
