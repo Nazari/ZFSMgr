@@ -1421,7 +1421,6 @@ private:
     QSplitter* m_topMainSplit{nullptr};
     QSplitter* m_rightMainSplit{nullptr};
     QSplitter* m_verticalMainSplit{nullptr};
-    QSplitter* m_bottomInfoSplit{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
@@ -1441,7 +1440,6 @@ private:
     QByteArray m_topMainSplitState;
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
-    QByteArray m_bottomInfoSplitState;
     QString m_splitTreeLayoutState;
     QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
     QMap<int, QString> m_savedBottomSelectedKeyByConn;

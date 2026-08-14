@@ -2843,21 +2843,16 @@ void MainWindow::buildUi() {
     const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + 2;
     topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
 
-    m_bottomInfoSplit = new QSplitter(Qt::Vertical, topArea);
-    m_bottomInfoSplit->setChildrenCollapsible(false);
-    m_bottomInfoSplit->setHandleWidth(4);
-    m_bottomInfoSplit->addWidget(m_rightStack);
-    m_bottomInfoSplit->addWidget(topBottomPane);
-    // Y un techo, porque bajar el contenido no basta: el divisor restaura su posición
-    // guardada de config.json, así que sin esto seguiría repartiendo como antes. Ahora
-    // esa banda no puede pasar de una fila y todo lo demás es del árbol.
+    // UN SOLO divisor horizontal, y la banda de Origen/Estado/Progreso baja con las
+    // pestañas.
+    //
+    // Antes había dos: uno entre el árbol y la banda, y otro entre la banda y las
+    // pestañas. El de arriba no se podía arrastrar —la banda tiene techo de una fila, así
+    // que no había nada que repartir— y quedaba como un asa muerta en medio de la
+    // ventana. Ahora la banda va pegada a las pestañas, en su mismo panel, y el único
+    // divisor separa el árbol de todo lo demás, que es el reparto que de verdad se toca.
     topBottomPane->setMaximumHeight(stateProgressRow->sizeHint().height() + 8);
-    m_bottomInfoSplit->setStretchFactor(0, 1);
-    m_bottomInfoSplit->setStretchFactor(1, 0);
-    m_bottomInfoSplit->setStretchFactor(0, 1);
-    m_bottomInfoSplit->setStretchFactor(1, 0);
-    m_bottomInfoSplit->setSizes({700, 220});
-    topLayout->addWidget(m_bottomInfoSplit, 1);
+    topLayout->addWidget(m_rightStack, 1);
     loadPersistedAppLogToView();
 
     m_pendingChangesTab = pendingChangesBox;
@@ -2951,6 +2946,8 @@ void MainWindow::buildUi() {
         // El estilo va SOLO en la barra de pestañas, no en toda la aplicación.
         m_logsTabs->tabBar()->setStyle(new CountedTabStyle(m_logsTabs->tabBar()->style()));
     }
+    // La banda primero y sin estirar; las pestañas se quedan con el resto.
+    bottomTabsLayout->addWidget(topBottomPane, 0);
     bottomTabsLayout->addWidget(m_logsTabs, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
@@ -2975,33 +2972,19 @@ void MainWindow::buildUi() {
     if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
         m_rightMainSplit->restoreState(m_rightMainSplitState);
     }
-    if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
-        m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
-    }
-    if (m_bottomInfoSplit) {
-        // Older saved states can carry an obsolete horizontal orientation.
-        // Keep this splitter vertical so the actions/pending strip stays
-        // between dataset tree and logs on every platform.
-        m_bottomInfoSplit->setOrientation(Qt::Vertical);
-    }
     if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
         m_verticalMainSplit->restoreState(m_verticalMainSplitState);
     }
     if (m_verticalMainSplit) {
         m_verticalMainSplit->setOrientation(Qt::Vertical);
     }
-    // La altura mínima sale del CONTENIDO, nunca del tamaño restaurado del divisor.
+    // La altura de la banda sale del CONTENIDO y de nada más.
     //
-    // Aquí se cogía `m_bottomInfoSplit->sizes()[1]` —el alto que esa banda tuviera al
-    // guardarse— y se fijaba como mínimo; y el manejador de más abajo, además, la
-    // devolvía a ese mínimo en cuanto arrastrabas por debajo. Entre las dos cosas el alto
-    // de ayer era el suelo de hoy, se volvía a guardar y no bajaba nunca: por eso encoger
-    // su contenido no cambiaba nada, dieran igual los widgets que se quitaran de dentro.
-    //
-    // Ahora el suelo es lo que ocupa lo que hay dentro, que es lo único que tiene sentido
-    // impedir colapsar.
-    const int minChangesHeight = qMax(1, topBottomPane->sizeHint().height());
-    topBottomPane->setMinimumHeight(minChangesHeight);
+    // Antes se tomaba del divisor que la contenía —el alto que tuviera al guardarse— y se
+    // fijaba como mínimo, así que el alto de ayer era el suelo de hoy y no bajaba nunca.
+    // Ese divisor ya no existe: la banda va en el panel de las pestañas con estiramiento
+    // cero, o sea que ocupa exactamente lo que necesita.
+    topBottomPane->setMinimumHeight(qMax(1, topBottomPane->sizeHint().height()));
 
     // Y el REPARTO del divisor, que es lo que de verdad dejaba el hueco.
     //
@@ -3013,14 +2996,6 @@ void MainWindow::buildUi() {
     //
     // Va después de restoreState a propósito: antes lo pisaría el estado restaurado. A
     // partir de aquí el reparto correcto se guarda al cerrar y ya se sostiene solo.
-    if (m_bottomInfoSplit) {
-        const QList<int> currentSizes = m_bottomInfoSplit->sizes();
-        if (currentSizes.size() >= 2) {
-            const int total = currentSizes.at(0) + currentSizes.at(1);
-            const int bandHeight = qBound(1, minChangesHeight, total - 1);
-            m_bottomInfoSplit->setSizes({total - bandHeight, bandHeight});
-        }
-    }
 
     int minLogsHeight = bottomTabsPane->sizeHint().height();
     if (m_verticalMainSplit) {
@@ -3031,29 +3006,6 @@ void MainWindow::buildUi() {
     }
     minLogsHeight = qMax(1, minLogsHeight / 2);
 
-    if (m_bottomInfoSplit) {
-        connect(m_bottomInfoSplit, &QSplitter::splitterMoved, this, [this, minChangesHeight](int, int) {
-            if (!m_bottomInfoSplit || m_bottomInfoSplit->property("_enforcingMinChanges").toBool()) {
-                return;
-            }
-            const QList<int> sizes = m_bottomInfoSplit->sizes();
-            if (sizes.size() < 2) {
-                return;
-            }
-            const int upper = sizes.at(0);
-            const int lower = sizes.at(1);
-            if (lower >= minChangesHeight) {
-                return;
-            }
-            const int total = upper + lower;
-            if (total <= minChangesHeight) {
-                return;
-            }
-            m_bottomInfoSplit->setProperty("_enforcingMinChanges", true);
-            m_bottomInfoSplit->setSizes({total - minChangesHeight, minChangesHeight});
-            m_bottomInfoSplit->setProperty("_enforcingMinChanges", false);
-        });
-    }
     if (m_verticalMainSplit) {
         connect(m_verticalMainSplit, &QSplitter::splitterMoved, this, [this, minLogsHeight](int, int) {
             if (!m_verticalMainSplit || m_verticalMainSplit->property("_enforcingMinLogs").toBool()) {

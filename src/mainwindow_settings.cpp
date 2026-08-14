@@ -238,7 +238,6 @@ void MainWindow::loadUiSettings() {
     m_topMainSplitState = decodeBase64State(appObj, QStringLiteral("top_main_splitter"));
     m_rightMainSplitState = decodeBase64State(appObj, QStringLiteral("right_main_splitter"));
     m_verticalMainSplitState = decodeBase64State(appObj, QStringLiteral("vertical_main_splitter"));
-    m_bottomInfoSplitState = decodeBase64State(appObj, QStringLiteral("bottom_info_splitter"));
     m_splitTreeLayoutState = appObj.value(QStringLiteral("split_tree_layout")).toString();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
@@ -299,8 +298,6 @@ void MainWindow::saveUiSettings() const {
                   QString::fromLatin1((m_rightMainSplit ? m_rightMainSplit->saveState() : QByteArray()).toBase64()));
     appObj.insert(QStringLiteral("vertical_main_splitter"),
                   QString::fromLatin1((m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray()).toBase64()));
-    appObj.insert(QStringLiteral("bottom_info_splitter"),
-                  QString::fromLatin1((m_bottomInfoSplit ? m_bottomInfoSplit->saveState() : QByteArray()).toBase64()));
     appObj.insert(QStringLiteral("split_tree_layout"), serializeSplitTreeLayoutState());
     root.insert(QStringLiteral("app"), appObj);
     QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
