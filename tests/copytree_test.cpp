@@ -147,6 +147,26 @@ private Q_SLOTS:
     }
 #endif
 
+    // Un fichero ENTERAMENTE disperso: todo huecos, sin un solo byte de datos.
+    //
+    // Se añadió tras comparar la copia nativa con la de rsync sobre el mismo árbol: el
+    // tamaño aparente coincidía, pero el nativo ocupaba 4 KiB donde rsync dejaba 0,
+    // porque fijaba el tamaño escribiendo un byte al final en vez de con truncate.
+    void fullySparseFileAllocatesNothing() {
+        const fs::path big = src_ / "vacio.img";
+        {
+            std::ofstream out(big, std::ios::binary);
+            out.seekp(8 * 1024 * 1024 - 1);
+            out.put('\0');
+        }
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(fs::file_size(dst_ / "vacio.img"), fs::file_size(big));
+        struct stat st {};
+        QCOMPARE(::stat((dst_ / "vacio.img").c_str(), &st), 0);
+        QVERIFY2(st.st_blocks == 0, "un fichero todo huecos no debe asignar ni un bloque");
+    }
+
     // La verificación previa al borrado. Es la única red que impide perder datos, así
     // que se prueba tanto que cuenta lo que falta como que llega a cero cuando no falta.
     void countPendingReportsMissingFiles() {

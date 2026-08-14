@@ -589,26 +589,36 @@ bool datasetIsMounted(const std::string& name) {
     return r.rc == 0 && trim(r.out) == "yes";
 }
 
+// Copiar un árbol. Ya NO usa rsync.
+//
+// Conserva el nombre y la firma a propósito: cambia quién copia, no la disciplina de
+// los llamantes —Desglosar, Ensamblar y Hacia Dir—, que copian, verifican y solo
+// entonces borran el origen. Tocar las dos cosas a la vez en operaciones destructivas
+// era pedir problemas.
+//
+// El porqué de quitar rsync está en docs/diseno_tecnico_copia_nativa_sin_rsync.md: no
+// existe en Windows, y las alternativas —cwRsync— reintroducirían la capa Unix que se
+// quitó con MSYS2 y emularían las ACL de NTFS en vez de copiarlas.
 ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
                                    const std::vector<std::string>& excludes = {},
                                    bool oneFileSystem = false) {
-    std::vector<std::string> argv{"-aHWS"};
-    // -x: no bajar a otros sistemas de ficheros. Al ensamblar conservando los
-    // subdatasets hay que copiar SOLO lo propio del dataset; sus hijos están montados
-    // dentro y se quedan donde están.
-    if (oneFileSystem) {
-        argv.push_back("-x");
+    ExecResult r;
+    zfsmgr::copytree::Options opt;
+    opt.oneFileSystem = oneFileSystem;
+    opt.excludes = excludes;
+    const zfsmgr::copytree::Result cr = zfsmgr::copytree::copyTree(srcDir, dstDir, opt);
+    if (!cr.ok) {
+        r.rc = 1;
+        r.err = cr.error + "\n";
+        return r;
     }
-    const std::vector<std::string>& extra = rsyncPreservationFlags();
-    argv.insert(argv.end(), extra.begin(), extra.end());
-    // Anclados con "/" inicial: sin eso, excluir "Tools" se comería CUALQUIER
-    // directorio llamado así en todo el subárbol, no solo el de la raíz de la copia.
-    for (const std::string& ex : excludes) {
-        argv.push_back("--exclude=/" + ex + "/");
-    }
-    argv.push_back(srcDir + "/");
-    argv.push_back(dstDir + "/");
-    return runExecCapture("rsync", argv);
+    r.rc = 0;
+    r.out = "FILES=" + std::to_string(cr.filesCopied)
+            + " DIRS=" + std::to_string(cr.dirsCreated)
+            + " SYMLINKS=" + std::to_string(cr.symlinksCopied)
+            + " HARDLINKS=" + std::to_string(cr.hardLinksRecreated)
+            + " BYTES=" + std::to_string(cr.bytesWritten) + "\n";
+    return r;
 }
 
 ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
@@ -686,31 +696,24 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
 // El formato itemizado de "-i" pone las banderas en los 11 primeros caracteres;
 // ">f" significa fichero que se transferiría. --ignore-existing hace que solo
 // aparezca lo que falta, no lo que difiere.
+// Lo que todavía FALTA en el destino. Ya NO usa rsync.
+//
+// Devuelve -1 si no se pudo comprobar, y esa distinción es la que impide perder datos:
+// el llamante destruye el origen cuando ve un cero, así que «no lo sé» jamás puede
+// contarse como «no falta nada».
 int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir,
                                const std::vector<std::string>& excludes = {},
                                bool oneFileSystem = false) {
     // Las MISMAS exclusiones que la copia: si no, lo que se dejó fuera a propósito
-    // contaría como pendiente y la verificación fallaría siempre.
-    std::vector<std::string> argv{"-rni", "--ignore-existing"};
-    if (oneFileSystem) {
-        argv.push_back("-x");
+    // contaría como pendiente y la verificación no llegaría nunca a cero.
+    zfsmgr::copytree::Options opt;
+    opt.oneFileSystem = oneFileSystem;
+    opt.excludes = excludes;
+    const long long pending = zfsmgr::copytree::countPending(srcDir, dstDir, opt);
+    if (pending < 0) {
+        return -1;
     }
-    for (const std::string& ex : excludes) {
-        argv.push_back("--exclude=/" + ex + "/");
-    }
-    argv.push_back(srcDir + "/");
-    argv.push_back(dstDir + "/");
-    const ExecResult probe = runExecCapture("rsync", argv);
-    if (probe.rc != 0) {
-        return -1;  // no se pudo comprobar: tratar como "no verificado"
-    }
-    int pending = 0;
-    for (const std::string& line : splitLines(probe.out)) {
-        if (line.size() > 11 && line[0] == '>' && line[1] == 'f') {
-            ++pending;
-        }
-    }
-    return pending;
+    return static_cast<int>(pending);
 }
 
 // Borrado que NO cruza puntos de montaje. `fs::remove_all` los ignora: si dentro del

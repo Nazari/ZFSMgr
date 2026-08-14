@@ -235,16 +235,24 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
         }
         written += n;
     }
-    // Un fichero que termina en ceros: hay que fijar el tamaño final, porque saltar con
-    // seek sin escribir después no alarga el fichero.
+    std::fclose(in);
+    const std::uint64_t finalSize = written + holePending;
+    std::fclose(out);
+
+    // Un fichero que TERMINA en ceros: saltar con seek no alarga el fichero, así que hay
+    // que fijar el tamaño final aparte.
+    //
+    // Con truncate y no escribiendo un byte al final, que es lo que se hacía antes: ese
+    // byte materializaba un bloque, y un fichero enteramente disperso acababa ocupando
+    // 4 KiB donde rsync deja 0. Se vio comparando las dos copias del mismo árbol.
     if (ok && holePending > 0) {
-        if (std::fseek(out, static_cast<long>(holePending) - 1, SEEK_CUR) == 0) {
-            const char z = '\0';
-            (void)std::fwrite(&z, 1, 1, out);
+        std::error_code rec;
+        fs::resize_file(dst, finalSize, rec);
+        if (rec) {
+            err = "no se pudo fijar el tamaño de " + dst.string() + ": " + rec.message();
+            return false;
         }
     }
-    std::fclose(in);
-    std::fclose(out);
     bytesOut += written;
     return ok;
 }
