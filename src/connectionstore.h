@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QVector>
 
+#include "base/storewarnings.h"
+
 
 struct ConnectionProfile {
     QString id;
@@ -55,6 +57,11 @@ public:
     static bool migratePsrpProfileToSshForTest(ConnectionProfile& p);
 
 private:
+    QString aviso(zfsmgr::base::store::Motivo m,
+                  const QString& conexion = QString(),
+                  const QString& campo = QString(),
+                  const QString& detalle = QString()) const;
+    QString traduce(const zfsmgr::base::store::Aviso& a) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
                 const QString& en = QString(),

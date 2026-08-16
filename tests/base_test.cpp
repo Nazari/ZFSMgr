@@ -4,6 +4,8 @@
 
 #include "daemonpayload.h"
 #include "connectionjson.h"
+#include "storefiles.h"
+#include "storewarnings.h"
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
@@ -11,6 +13,8 @@
 #include "strutil.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -533,6 +537,56 @@ int main() {
         igual(arr[0]["host"].toString(), "otro", "y se queda el nuevo valor");
         zfsmgr::base::ConnectionProfile sinId;
         comprobar(!CJ::upsertConnectionJson(arr, sinId, ""), "sin id no inserta");
+    }
+
+
+    // --- ficheros del almacen y motivos tipificados
+    {
+        namespace ST = zfsmgr::base::store;
+        const std::string dir = "/tmp/zfsmgr-base-test-store";
+        std::filesystem::remove_all(dir);
+
+        // Que el fichero NO exista es el primer arranque, no un aviso.
+        ST::Aviso a;
+        const auto vacio = ST::leerConfig(dir, a);
+        comprobar(a.vacio(), "un config.json inexistente NO produce aviso");
+        comprobar(vacio.isObject() && vacio.toObject().empty(), "y devuelve un objeto vacio");
+
+        // Escribir crea el directorio y deja el fichero solo para el dueno.
+        zfsmgr::base::json::Value root;
+        root.set("app", zfsmgr::base::json::Value(zfsmgr::base::json::Object{}));
+        comprobar(ST::escribirConfig(dir, root, a) && a.vacio(), "escribe config.json");
+        comprobar(std::filesystem::exists(ST::rutaConfig(dir)), "el fichero esta ahi");
+#ifndef _WIN32
+        const auto permisos = std::filesystem::status(ST::rutaConfig(dir)).permissions();
+        comprobar((permisos & std::filesystem::perms::group_all) == std::filesystem::perms::none
+                      && (permisos & std::filesystem::perms::others_all) == std::filesystem::perms::none,
+                  "config.json queda SOLO para el dueno");
+#endif
+        // Ida y vuelta.
+        const auto leido = ST::leerConfig(dir, a);
+        comprobar(a.vacio() && leido.contains("app"), "se relee lo escrito");
+
+        // Un fichero corrupto tiene que dar motivo, no una configuracion a medias.
+        {
+            std::ofstream f(ST::rutaConfig(dir), std::ios::trunc);
+            f << "{esto no es json";
+        }
+        const auto malo = ST::leerConfig(dir, a);
+        comprobar(a.motivo == ST::Motivo::ConfigNoValido, "un config.json corrupto da motivo");
+        comprobar(!a.detalle.empty(), "y explica por que");
+        comprobar(malo.toObject().empty(), "sin devolver nada a medias");
+
+        // El almacen de confianza usa sus propios motivos, no los de config.
+        {
+            std::ofstream f(ST::rutaTrustStore(dir), std::ios::trunc);
+            f << "[1,2]";  // valido como JSON, pero no es un objeto
+        }
+        ST::leerTrustStore(dir, a);
+        comprobar(a.motivo == ST::Motivo::TrustNoValido,
+                  "el trust-store tiene motivo propio, no el de config");
+
+        std::filesystem::remove_all(dir);
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

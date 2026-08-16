@@ -298,6 +298,38 @@ relectura de los 3.000. **2.238.510 bytes, idénticos.**
 Los secretos van ya cifrados en la muestra a propósito: el cifrado lleva sal e IV
 aleatorios, así que con secretos en claro la salida no sería comparable dos veces.
 
+## Motivos tipificados: cómo se sacó el idioma del almacén
+
+`ConnectionStore` devolvía avisos **ya traducidos**, así que llevárselo a la capa base
+habría significado llevarse también el sistema de traducción. La salida es la misma que
+ya usaba `connectioncapabilities`: **la base devuelve un motivo con sus datos y quien
+tiene interfaz decide cómo se dice.**
+
+`src/base/storewarnings.h` define un `Motivo` (20 valores) y un `Aviso` con **campos con
+nombre** —`conexion`, `campo`, `detalle`— en vez de una lista de argumentos: así el sitio
+que lo construye se lee solo y quien traduce no puede intercambiarlos de orden.
+
+En el lado Qt hay un único `ConnectionStore::traduce()`. Resultado: **cero `trk()` fuera
+del traductor**. Los 28 puntos que antes armaban texto a mano ahora dicen, por ejemplo,
+`error = aviso(BS::Motivo::HostRequerido);`.
+
+Dos motivos se unificaron por el camino: `t_cstore_auto009`/`auto010` eran las variantes
+con «password» escrito a mano de los mismos avisos que ya existían parametrizados. El
+texto resultante es idéntico, y la referencia dorada lo confirma.
+
+## Entrada y salida de ficheros
+
+`src/base/storefiles.{h,cpp}`, con `std::filesystem` y `fstream`. Se lleva `QFile`,
+`QDir`, `QIODevice`, `QFileDevice` y `QJsonParseError`.
+
+**El directorio de configuración se recibe como argumento.** Hoy es `~/.config/<app>`, y
+reimplementar las reglas de cada plataforma para ahorrarse un parámetro sería arriesgar
+que la aplicación deje de encontrar la configuración de la gente a cambio de nada. Mismo
+criterio que con el identificador de máquina.
+
+Que un fichero **no exista no es un aviso**: es el primer arranque. Solo lo es no poder
+abrirlo o que su contenido no sea un objeto JSON.
+
 ## Estado
 
 Hecho y verificado:
@@ -359,8 +391,8 @@ antes de ponerla.
 
 Después de `mainwindow_helpers`:
 
-1. **`connectionstore.cpp`**. Ya están fuera el JSON, el cifrado, la migración y la
-   traducción a `ConnectionProfile`. Lo que queda de la clase es entrada y salida de
-   ficheros y los avisos traducidos, que son las dos cosas que aún atan a Qt.
+1. **`mainwindow_refresh.cpp`** (1.174 líneas, solo 2 métodos de `MainWindow`).
+   `connectionstore` ya no ata a Qt en nada esencial: de 1.565 líneas quedan 1.274, y son
+   el envoltorio Qt de la clase más el traductor de motivos.
 2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
 3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.
