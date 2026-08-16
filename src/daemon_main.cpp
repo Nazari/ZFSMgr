@@ -3119,6 +3119,21 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         return r;  // el guard repone el destino anterior
     }
 
+    // A PARTIR DE AQUÍ NO SE REVIERTE EL DESTINO. Y es lo que impide perder datos.
+    //
+    // El commit estaba al final, después del borrado. Con él allí, cualquier fallo del
+    // bucle de destrucción hacía que el guard repusiera el destino anterior... borrando
+    // la copia recién puesta, cuando los datasets ya destruidos solo existían ahí.
+    //
+    // Medido: con hdtest/ds1 en /a, ds2 heredando /a/ds2 y ds3 con mountpoint /b, el
+    // borrado destruye ds2 (hoja, correcto) y falla al destruir ds1 —«filesystem has
+    // children: ds3»—. Al volver, el guard revertía /a y el contenido de ds2 desaparecía
+    // de los dos sitios a la vez.
+    //
+    // Revertir es correcto mientras solo se han movido directorios; deja de serlo en
+    // cuanto se destruye el primer dataset. Ese es el punto de no retorno, y aquí está.
+    backupGuard.commit();
+
     if (deleteSource) {
         // De hojas hacia arriba y SIN -r. `members` ya viene en ese orden, así que
         // cuando le toca a un padre no le queda ningún hijo vivo. Sin -r, la orden no
@@ -3129,7 +3144,13 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             if (d.rc != 0) {
                 d.err += "\nLos datos ya están copiados en " + dstDir
                          + "; el dataset " + m.name + " no se pudo destruir y sigue ahí.\n";
-                return d;  // el guard repone el destino anterior
+                if (!backupGuard.backup.empty()) {
+                    // El respaldo NO se borra al salir por error, y se dice dónde está:
+                    // es el contenido anterior del destino y ya nadie va a reponerlo.
+                    d.err += "El contenido anterior de " + dstDir + " quedó guardado en "
+                             + backupGuard.backup.string() + "\n";
+                }
+                return d;
             }
             if (m.name == dataset) {
                 mountGuard.active = false;  // ya no existe: no hay nada que restaurar
@@ -3147,7 +3168,8 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
     }
 
     // A partir de aquí la operación es definitiva: se descarta el respaldo.
-    backupGuard.commit();
+    // El commit ya se hizo antes del borrado; aquí solo se retira el respaldo, que a
+    // estas alturas es basura porque todo ha salido bien.
     if (!backupGuard.backup.empty()) {
         fs::remove_all(backupGuard.backup, ec);
     }
