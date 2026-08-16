@@ -166,6 +166,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/helpers.cpp
+    ../src/base/helpers.h
     ../src/base/daemonpayload.h
 )
 target_include_directories(zfsmgr_base PUBLIC ../src/base)

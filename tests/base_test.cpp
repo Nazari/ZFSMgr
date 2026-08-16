@@ -3,6 +3,7 @@
 // arnés de cuatro líneas.
 
 #include "daemonpayload.h"
+#include "helpers.h"
 #include "strutil.h"
 
 #include <cstdio>
@@ -152,6 +153,43 @@ int main() {
     igual(join(split("", "/", false), "|"), "", "split de vacio da un trozo vacio");
     igual(join({"a", "b"}, "-"), "a-b", "join");
     igual(join({}, "-"), "", "join de nada da vacio");
+
+
+    // --- helpers portados a mano desde mwhelpers
+    namespace H = zfsmgr::base::helpers;
+    igual(H::parentDatasetName("pool/a/b"), "pool/a", "parentDatasetName sube un nivel");
+    igual(H::parentDatasetName("pool"), "", "la raiz del pool no tiene padre");
+    igual(H::parentDatasetName("/x"), "", "una barra al principio no cuenta como padre");
+    comprobar(H::isMountedValueTrue(" YES "), "isMountedValueTrue recorta y no distingue caja");
+    comprobar(!H::isMountedValueTrue("no"), "isMountedValueTrue rechaza el no");
+    comprobar(H::isWindowsOsType("Microsoft Windows 11"), "isWindowsOsType reconoce");
+    comprobar(!H::parentMountCheckRequired("none", "on"), "un padre en none no exige montaje");
+    comprobar(!H::parentMountCheckRequired("/m", "off"), "canmount=off no exige montaje");
+    comprobar(H::parentAllowsChildMount("none", "on", "no"), "si no se exige, se permite");
+    comprobar(!H::parentAllowsChildMount("/m", "on", "no"), "padre exigido y sin montar: no");
+
+    // El apostrofo es lo que rompe una orden si se cuela sin citar.
+    igual(H::buildSingleMountCommand("po'ol/ds"), "zfs mount 'po'\"'\"'ol/ds'",
+          "buildSingleMountCommand cita el apostrofo");
+    comprobar(contains(H::buildHasMountedChildrenCommand(true, "a'b"), "$ds='a''b'"),
+              "en PowerShell el apostrofo se duplica");
+    comprobar(contains(H::buildHasMountedChildrenCommand(false, "x"), "DATASET='x'"),
+              "en Unix se cita con comillas simples");
+
+    igual(H::streamCodecName(H::StreamCodec::Zstd), "zstd-fast", "nombre del codec zstd");
+    comprobar(H::chooseStreamCodec(true, true) == H::StreamCodec::Zstd, "zstd gana a gzip");
+    comprobar(H::chooseStreamCodec(false, true) == H::StreamCodec::Gzip, "gzip si no hay zstd");
+    comprobar(H::chooseStreamCodec(false, false) == H::StreamCodec::None, "sin codec si no hay ninguno");
+    // El destino Unix repite %1 dos veces: si format solo sustituyera la primera, el
+    // tar acabaria extrayendo en el directorio equivocado.
+    comprobar(contains(H::buildTarDestinationCommand(false, "/m", H::StreamCodec::None),
+                       "mkdir -p '/m' && tar --acls --xattrs -xpf - -C '/m'"),
+              "buildTarDestinationCommand sustituye las DOS apariciones de %1");
+
+    igual(H::stripToJson("basura {\"a\":1}"), "{\"a\":1}", "stripToJson descarta lo previo");
+    igual(H::stripToJson("sin llave"), "sin llave", "stripToJson devuelve tal cual si no hay");
+    igual(H::oneLine("  a   b  ", 220), "a b", "oneLine colapsa espacios");
+    igual(H::oneLine("\xc3\xa1\xc3\x89", 1), "\xc3\xa1", "oneLine recorta por caracteres");
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;

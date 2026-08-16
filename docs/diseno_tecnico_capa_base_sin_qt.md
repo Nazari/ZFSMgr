@@ -119,25 +119,40 @@ Hecho y verificado:
   contra Qt sobre el mismo corpus.
 - **`daemonpayload`** entero, con 43.837 bytes idénticos.
 
-`mainwindow_helpers.cpp` está **analizado pero no portado todavía**. De sus 58 funciones:
+- **23 funciones de `mainwindow_helpers`**: construcción de órdenes de montaje y de
+  transferencia, predicados sobre valores de ZFS, y `oneLine`/`stripToJson`. Los 631.950
+  bytes de la referencia dorada salieron idénticos. `mainwindow_helpers.cpp` baja de
+  1.224 a 1.075 líneas y las 23 quedan como adaptadores de una línea.
+
+Del resto de `mainwindow_helpers.cpp`, de sus 58 funciones:
 
 | | cuántas | por qué |
 |---|---|---|
-| Movibles | **40** (~680 líneas) | sin nada que las ate |
+| Ya portadas | **23** | órdenes y predicados |
+| Movibles, aún sin portar | 17 | sobre todo por los `.arg()` y los contenedores |
 | Toman `ConnectionProfile` | 13 | hay que mover antes ese struct |
 | Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` |
 | Sistema de ficheros | 1 | `findLocalExecutable` |
 | JSON | 1 | `parseZfsMountJsonOutput` |
 | `QProcess` | 1 | `checkLocalSudoPassword` |
 
-El coste real de esas 40 es mayor de lo que sugiere el recuento de líneas: hay **25
-usos de `.arg()`**, que es postfijo y hay que reestructurar a mano uno por uno, como se
-hizo en `daemonpayload`. La referencia dorada ya está capturada (10.083 líneas, 632 KB,
-con las 1.024 combinaciones de `computeTransferButtonState`).
+### Traducir `.arg()` automáticamente: dos trampas, las dos reales
 
-Y un aviso para quien automatice la traducción: **`.Trim(` y `.ToLower(` aparecen dentro
-de literales de PowerShell**. Un `sed` sobre métodos de `QString` los tocaría y rompería
-los comandos de Windows en silencio.
+`.arg()` es postfijo, así que convertirlo a `format(plantilla, {args})` obliga a
+localizar dónde empieza la plantilla emparejando paréntesis hacia atrás. Al hacerlo
+saltaron dos cosas, y ninguna es teórica:
+
+1. **Los literales llevan paréntesis sueltos.** `"case \"$mounted\" in yes|on|true|1) : ;; *) zfs mount ..."`
+   descuadra cualquier emparejado. Hay que **enmascarar los literales antes** de contar
+   paréntesis.
+2. **`.Trim()` y `.ToLower()` aparecen dentro de literales de PowerShell.** Una
+   traducción de métodos de `QString` sin enmascarar los rompe en silencio, y el fallo
+   solo aparecería contra una máquina Windows.
+
+Y una precaución de método: el bucle de conversión lleva una guarda que exige que el
+número de `.arg(` **baje en cada vuelta**. Sin ella, un caso mal emparejado se convierte
+en un bucle que reescribe el fichero hasta corromperlo — que es exactamente lo que pasó
+antes de ponerla.
 
 Después de `mainwindow_helpers`:
 

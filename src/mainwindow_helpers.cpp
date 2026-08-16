@@ -2,6 +2,11 @@
 
 #include "daemonpayload.h"
 
+#include "base/helpers.h"
+#include "base/strutil.h"
+
+namespace B = zfsmgr::base::helpers;
+
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -13,6 +18,75 @@
 #include <QStandardPaths>
 
 namespace mwhelpers {
+
+// --- Adaptadores hacia la capa base.
+//
+// La lógica de estas funciones vive en `src/base/helpers.cpp`, que no depende de Qt.
+// Aquí solo se convierte en la frontera, para no tener que tocar los puntos de llamada
+// del cliente en el mismo commit. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+namespace {
+inline QString q(const std::string& s) { return QString::fromStdString(s); }
+inline std::string b(const QString& s) { return s.toStdString(); }
+inline B::StreamCodec bc(StreamCodec c) {
+    switch (c) {
+        case StreamCodec::Zstd: return B::StreamCodec::Zstd;
+        case StreamCodec::Gzip: return B::StreamCodec::Gzip;
+        default:                return B::StreamCodec::None;
+    }
+}
+inline StreamCodec qc(B::StreamCodec c) {
+    switch (c) {
+        case B::StreamCodec::Zstd: return StreamCodec::Zstd;
+        case B::StreamCodec::Gzip: return StreamCodec::Gzip;
+        default:                   return StreamCodec::None;
+    }
+}
+}  // namespace
+
+QString shSingleQuote(const QString& s) { return q(zfsmgr::base::shSingleQuote(b(s))); }
+QString oneLine(const QString& v, int maxLen) { return q(B::oneLine(b(v), maxLen)); }
+bool isMountedValueTrue(const QString& value) { return B::isMountedValueTrue(b(value)); }
+QString parentDatasetName(const QString& dataset) { return q(B::parentDatasetName(b(dataset))); }
+bool isWindowsOsType(const QString& osType) { return B::isWindowsOsType(b(osType)); }
+bool parentMountCheckRequired(const QString& mp, const QString& canmount) {
+    return B::parentMountCheckRequired(b(mp), b(canmount));
+}
+bool parentAllowsChildMount(const QString& mp, const QString& canmount, const QString& mounted) {
+    return B::parentAllowsChildMount(b(mp), b(canmount), b(mounted));
+}
+QString buildHasMountedChildrenCommand(bool isWindows, const QString& ds) {
+    return q(B::buildHasMountedChildrenCommand(isWindows, b(ds)));
+}
+QString buildRecursiveUmountCommand(bool isWindows, const QString& ds) {
+    return q(B::buildRecursiveUmountCommand(isWindows, b(ds)));
+}
+QString buildSingleUmountCommand(bool isWindows, const QString& ds) {
+    return q(B::buildSingleUmountCommand(isWindows, b(ds)));
+}
+QString buildSingleMountCommand(const QString& ds) { return q(B::buildSingleMountCommand(b(ds))); }
+QString buildMountChildrenCommand(bool isWindows, const QString& ds) {
+    return q(B::buildMountChildrenCommand(isWindows, b(ds)));
+}
+QString buildWindowsMountPrecheckCommand(const QString& ds, const QString& mp) {
+    return q(B::buildWindowsMountPrecheckCommand(b(ds), b(mp)));
+}
+QString streamProgressPipeFilter() { return q(B::streamProgressPipeFilter()); }
+QString buildPipedTransferCommand(const QString& send, const QString& recv) {
+    return q(B::buildPipedTransferCommand(b(send), b(recv)));
+}
+QString streamCodecName(StreamCodec codec) { return q(B::streamCodecName(bc(codec))); }
+StreamCodec chooseStreamCodec(bool zstd, bool gzip) { return qc(B::chooseStreamCodec(zstd, gzip)); }
+QString buildTarSourceCommand(bool isWindows, const QString& mp, StreamCodec codec) {
+    return q(B::buildTarSourceCommand(isWindows, b(mp), bc(codec)));
+}
+QString buildTarDestinationCommand(bool isWindows, const QString& mp, StreamCodec codec) {
+    return q(B::buildTarDestinationCommand(isWindows, b(mp), bc(codec)));
+}
+QString withUnixSearchPathCommand(const QString& cmd) { return q(B::withUnixSearchPathCommand(b(cmd))); }
+QString rpcTunnelBusyReason() { return q(B::rpcTunnelBusyReason()); }
+QString storedSecretMarkerPrefix() { return q(B::storedSecretMarkerPrefix()); }
+QString stripToJson(const QString& output) { return q(B::stripToJson(b(output))); }
+
 
 QString findLocalExecutable(const QString& name) {
     const QString trimmed = name.trimmed();
@@ -110,32 +184,9 @@ QString maskedAgentArgvForLog(const QStringList& argv) {
     return masked.join(QLatin1Char(' '));
 }
 
-QString oneLine(const QString& v, int maxLen) {
-    QString x = v.simplified();
-    return x.left(maxLen);
-}
 
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
 
-bool isMountedValueTrue(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("yes")
-        || v == QStringLiteral("on")
-        || v == QStringLiteral("true")
-        || v == QStringLiteral("1");
-}
 
-QString parentDatasetName(const QString& dataset) {
-    const int slash = dataset.lastIndexOf('/');
-    if (slash <= 0) {
-        return QString();
-    }
-    return dataset.left(slash);
-}
 
 QString normalizeDriveLetterValue(const QString& raw) {
     QString s = raw.trimmed();
@@ -157,9 +208,6 @@ QString normalizeDriveLetterValue(const QString& raw) {
     return QString(d);
 }
 
-bool isWindowsOsType(const QString& osType) {
-    return osType.trimmed().toLower().contains(QStringLiteral("windows"));
-}
 
 QString windowsGptTypeName(const QString& guid) {
     QString g = guid.trimmed();
@@ -399,24 +447,7 @@ TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
     return out;
 }
 
-bool parentMountCheckRequired(const QString& parentMountpoint, const QString& parentCanmount) {
-    const QString mp = parentMountpoint.trimmed().toLower();
-    const QString canmount = parentCanmount.trimmed().toLower();
-    if (mp.isEmpty() || mp == QStringLiteral("none")) {
-        return false;
-    }
-    if (canmount == QStringLiteral("off")) {
-        return false;
-    }
-    return true;
-}
 
-bool parentAllowsChildMount(const QString& parentMountpoint, const QString& parentCanmount, const QString& parentMounted) {
-    if (!parentMountCheckRequired(parentMountpoint, parentCanmount)) {
-        return true;
-    }
-    return isMountedValueTrue(parentMounted);
-}
 
 QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints) {
     QMap<QString, QStringList> grouped;
@@ -533,115 +564,11 @@ QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text) {
     return out;
 }
 
-QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName) {
-    if (isWindows) {
-        QString dsPs = datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        return QStringLiteral(
-                   "$ds='%1'; "
-                   "$has=$false; "
-                   "$children=@(zfs list -H -o name -r $ds 2>$null); "
-                   "if ($LASTEXITCODE -ne 0) { exit 2 }; "
-                   "foreach ($c in $children) { "
-                   "  if ([string]::IsNullOrWhiteSpace($c) -or $c -eq $ds) { continue }; "
-                   "  $m=(zfs get -H -o value mounted $c 2>$null | Out-String).Trim().ToLower(); "
-                   "  if ($m -eq 'yes' -or $m -eq 'on' -or $m -eq 'true' -or $m -eq '1') { $has=$true; break } "
-                   "}; "
-                   "if ($has) { exit 0 } else { exit 1 }")
-            .arg(dsPs);
-    }
-    return QStringLiteral(
-               "DATASET=%1; zfs mount | "
-               "awk -v ds=\"$DATASET\" '$1!=ds && index($1, ds \"/\")==1 { found=1; exit } END { exit found ? 0 : 1 }'")
-        .arg(shSingleQuote(datasetName));
-}
 
-QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName) {
-    if (isWindows) {
-        QString dsPs = datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        return QStringLiteral(
-                   "$ds='%1'; "
-                   "$list=@(zfs list -H -o name -r $ds 2>$null); "
-                   "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
-                   "$sorted = $list | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object { $_.Length } -Descending; "
-                   "foreach ($d in $sorted) { zfs unmount $d 2>$null | Out-Null }")
-            .arg(dsPs);
-    }
-    return QStringLiteral(
-               "set -e; DATASET=%1; zfs mount | "
-               "awk -v ds=\"$DATASET\" '$1==ds || index($1, ds \"/\")==1 { print $1 }' | "
-               "awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
-               "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
-        .arg(shSingleQuote(datasetName));
-}
 
-QString buildSingleUmountCommand(bool isWindows, const QString& datasetName) {
-    const QString dsQ = shSingleQuote(datasetName);
-    return isWindows ? QStringLiteral("zfs unmount %1").arg(dsQ)
-                     : QStringLiteral("zfs umount %1").arg(dsQ);
-}
 
-QString buildSingleMountCommand(const QString& datasetName) {
-    return QStringLiteral("zfs mount %1").arg(shSingleQuote(datasetName));
-}
 
-QString buildMountChildrenCommand(bool isWindows, const QString& datasetName) {
-    if (isWindows) {
-        QString dsPs = datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        return QStringLiteral(
-                   "$ds='%1'; "
-                   "$items = @(zfs list -H -o name -r $ds 2>$null); "
-                   "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
-                   "foreach ($child in $items) { "
-                   "  if ([string]::IsNullOrWhiteSpace($child)) { continue }; "
-                   "  $m = (zfs get -H -o value mounted $child 2>$null | Out-String).Trim().ToLower(); "
-                   "  if ($m -ne 'yes' -and $m -ne 'on' -and $m -ne 'true' -and $m -ne '1') { "
-                   "    zfs mount $child 2>$null | Out-Null "
-                   "  } "
-                   "}")
-            .arg(dsPs);
-    }
-    return QStringLiteral(
-               "set -e; DATASET=%1; "
-               "zfs list -H -o name -r \"$DATASET\" | "
-               "while IFS= read -r child; do "
-               "  [ -n \"$child\" ] || continue; "
-               "  mounted=$(zfs get -H -o value mounted \"$child\" 2>/dev/null || true); "
-               "  case \"$mounted\" in yes|on|true|1) : ;; *) zfs mount \"$child\" ;; esac; "
-               "done")
-        .arg(shSingleQuote(datasetName));
-}
 
-QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QString& effectiveMountpoint) {
-    QString dsPs = datasetName;
-    dsPs.replace('\'', QStringLiteral("''"));
-    QString mpPs = effectiveMountpoint.trimmed();
-    mpPs.replace('\'', QStringLiteral("''"));
-    return QStringLiteral(
-               "$ds='%1'; "
-               "$mp='%2'; "
-               "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
-               "  throw ('mountpoint efectivo no resuelto para ' + $ds) "
-               "}; "
-               "$exists = Test-Path -LiteralPath $mp; "
-               "$mapped = $false; "
-               "foreach ($line in @(zfs mount 2>$null)) { "
-               "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
-               "    $d = $Matches[1].Trim(); "
-               "    $m = $Matches[2].Trim(); "
-               "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
-               "      if ($d -eq $ds) { $mapped = $true }; "
-               "      break; "
-               "    } "
-               "  } "
-               "}; "
-               "if ($exists -and -not $mapped) { "
-               "  throw ('mountpoint ocupado por ruta existente no-ZFS: ' + $mp) "
-               "}")
-        .arg(dsPs, mpPs);
-}
 
 QString sshControlPath() {
 #ifdef Q_OS_MAC
@@ -767,77 +694,12 @@ QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remo
         + shSingleQuote(remoteCmd);
 }
 
-QString streamProgressPipeFilter() {
-    return QStringLiteral("((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat)");
-}
 
-QString buildPipedTransferCommand(const QString& sendSegment, const QString& recvSegment) {
-    return sendSegment
-        + QStringLiteral(" | ")
-        + streamProgressPipeFilter()
-        + QStringLiteral(" | ")
-        + recvSegment;
-}
 
-QString streamCodecName(StreamCodec codec) {
-    switch (codec) {
-        case StreamCodec::Zstd:
-            return QStringLiteral("zstd-fast");
-        case StreamCodec::Gzip:
-            return QStringLiteral("gzip-fast");
-        case StreamCodec::None:
-        default:
-            return QStringLiteral("none");
-    }
-}
 
-StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth) {
-    if (hasZstdBoth) {
-        return StreamCodec::Zstd;
-    }
-    if (hasGzipBoth) {
-        return StreamCodec::Gzip;
-    }
-    return StreamCodec::None;
-}
 
-QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCodec codec) {
-    switch (codec) {
-        case StreamCodec::Zstd:
-            return isWindows
-                       ? QStringLiteral("$p=%1; tar -cf - -C $p . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath))
-                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath));
-        case StreamCodec::Gzip:
-            return isWindows
-                       ? QStringLiteral("$p=%1; tar -cf - -C $p . | gzip -1 -c").arg(shSingleQuote(mountPath))
-                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | gzip -1 -c").arg(shSingleQuote(mountPath));
-        case StreamCodec::None:
-        default:
-            return isWindows
-                       ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(mountPath))
-                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(mountPath));
-    }
-}
 
-QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec) {
-    const QString decodePipe =
-        (codec == StreamCodec::Zstd) ? QStringLiteral("zstd -d -q -c - | ")
-        : (codec == StreamCodec::Gzip) ? QStringLiteral("gzip -d -c - | ")
-        : QString();
-    if (isWindows) {
-        return QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; %2tar -xpf - -C $p")
-            .arg(shSingleQuote(mountPath), decodePipe);
-    }
-    return QStringLiteral("mkdir -p %1 && %2tar --acls --xattrs -xpf - -C %1")
-        .arg(shSingleQuote(mountPath), decodePipe);
-}
 
-QString withUnixSearchPathCommand(const QString& cmd) {
-    return QStringLiteral(
-               "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
-               "export PATH; %1")
-        .arg(cmd);
-}
 
 // Invocación del agente adaptada a la plataforma.
 //
@@ -953,13 +815,7 @@ QString shPrintfOctalEscaped(const QString& s) {
     return out;
 }
 
-QString rpcTunnelBusyReason() {
-    return QStringLiteral("túnel daemon-rpc en construcción para esta conexión");
-}
 
-QString storedSecretMarkerPrefix() {
-    return QStringLiteral("@@ZFSMGR_PW:");
-}
 
 namespace {
 QString storedSecretMarker(const QString& key) {
@@ -1188,11 +1044,6 @@ SudoCheck checkLocalSudoPassword(const QString& password, QString* detailOut) {
     }
     return SudoCheck::WrongPassword;
 #endif
-}
-
-QString stripToJson(const QString& output) {
-    const int idx = output.indexOf('{');
-    return idx >= 0 ? output.mid(idx) : output;
 }
 
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
