@@ -8,6 +8,8 @@
 #include <QSet>
 #include <QString>
 
+#include <functional>
+
 // Lo que la aplicación mantiene ABIERTO mientras habla con las máquinas remotas: los
 // túneles del RPC y la memoria de los intentos que fallaron.
 //
@@ -29,6 +31,38 @@ struct RemoteRpcTunnelState {
 };
 
 struct TransportSession {
+    // --- A dónde va lo que el transporte cuenta mientras trabaja.
+    //
+    // Se consideró que cada llamada DEVOLVIERA la lista de lo ocurrido y que quien llama
+    // decidiera qué hacer con ella. Es más limpio sobre el papel, pero **habría sido una
+    // regresión**: `appLog()` escribe en la interfaz al momento y `runSsh()` bombea el
+    // bucle de eventos seis veces, así que hoy el registro se llena MIENTRAS la operación
+    // ocurre. Acumular y devolver al final dejaría treinta segundos de silencio y luego
+    // un volcado de golpe.
+    //
+    // Así que se emite sobre la marcha, pero **a algo que se recibe**, no a algo que el
+    // transporte busca: aquí dentro no se nombra `appLog` ni `MainWindow`. La interfaz
+    // pone un destino que escribe en su pestaña; un CLI pondría uno que escriba por la
+    // salida de error.
+    enum class Nivel { Normal, Info, Warn, Error, Debug };
+
+    // `connId` vacío significa «al registro general»; con valor, además al de esa
+    // conexión. Sin destino puesto, no se pierde nada importante: solo no se cuenta.
+    std::function<void(Nivel, const QString& connId, const QString& msg)> sink;
+
+    void log(Nivel n, const QString& msg) const {
+        if (sink) {
+            sink(n, QString(), msg);
+        }
+    }
+    // Al registro general Y al de la conexión, que es la pareja que se repetía a mano en
+    // treinta sitios.
+    void logConn(Nivel n, const QString& connId, const QString& msg) const {
+        if (sink) {
+            sink(n, connId, msg);
+        }
+    }
+
     // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos
     // (QtConcurrent) y estos mapas se tocan desde varios a la vez.
     mutable QMutex mutex;

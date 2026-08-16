@@ -185,6 +185,21 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         m_language = language.trimmed().toLower();
         saveUiSettings();
     }
+    // El transporte no sabe nada del registro de la aplicación: se le dice a dónde
+    // escribir. En un CLI este destino iría a la salida de error.
+    m_transport.sink = [this](TransportSession::Nivel n, const QString& connId, const QString& msg) {
+        static const QMap<TransportSession::Nivel, QString> kNiveles = {
+            {TransportSession::Nivel::Normal, QStringLiteral("NORMAL")},
+            {TransportSession::Nivel::Info, QStringLiteral("INFO")},
+            {TransportSession::Nivel::Warn, QStringLiteral("WARN")},
+            {TransportSession::Nivel::Error, QStringLiteral("ERROR")},
+            {TransportSession::Nivel::Debug, QStringLiteral("DEBUG")},
+        };
+        appLog(kNiveles.value(n, QStringLiteral("INFO")), msg);
+        if (!connId.trimmed().isEmpty()) {
+            appendConnectionLog(connId, msg);
+        }
+    };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);
     initLogPersistence();

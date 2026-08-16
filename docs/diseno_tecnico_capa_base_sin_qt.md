@@ -596,10 +596,28 @@ así que sobreviven a que se reordene la lista. Ese patrón ya era el correcto.
 Queda fuera, y a propósito, `s_remoteDaemonTlsCache`: es una caché **estática de fichero**
 con su propio cerrojo, compartida por todo el proceso. Ya está autocontenida.
 
-**Lo que esto NO da todavía:** los métodos del transporte (`runSsh`,
-`tryRunRemoteAgentRpcViaTunnel`, …) siguen siendo miembros de `MainWindow`. El estado ya
-es una cosa aparte; que las funciones lo reciban por parámetro es el paso siguiente, y es
-el que de verdad desbloquea el CLI.
+### El registro: por qué NO se hizo «devolver lo que pasó»
+
+La idea era que cada llamada devolviera la lista de lo ocurrido y que quien llama
+decidiera si lo escribe en un log o lo pinta. Es más limpio sobre el papel. **Habría sido
+una regresión**, y se vio al medirlo: `appLog()` escribe en la interfaz al momento, y
+`runSsh()` bombea el bucle de eventos seis veces. Hoy el registro se llena **mientras** la
+operación ocurre; acumular y devolver al final dejaría treinta segundos de silencio y
+luego un volcado de golpe.
+
+La versión de «limpio» que no regresa: el transporte **emite sobre la marcha, pero a algo
+que recibe**. `TransportSession` lleva un destino —una función— y dentro de
+`mainwindow_remote.cpp` ya **no se nombra `appLog` ni `appendConnectionLog`**: cero
+apariciones, de 78 que había. La interfaz pone un destino que escribe en su pestaña; un
+CLI pondría uno que escriba por la salida de error.
+
+De paso desaparece una pareja repetida treinta veces: `appLog(...)` seguido de
+`appendConnectionLog(mismo mensaje)` es ahora una sola llamada, `logConn()`.
+
+**Lo que queda por hacer:** los métodos siguen siendo miembros de `MainWindow`; que
+reciban la sesión y el registro por parámetro es el paso que desbloquea el CLI de verdad.
+Y queda un `QMessageBox` en `runLocalCommand`, que no es un descuido: ese método muestra
+un diálogo de progreso y es interfaz por naturaleza, no algo que un CLI reutilizaría.
 
 ## Estado
 

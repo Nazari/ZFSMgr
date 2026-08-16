@@ -850,7 +850,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     if (jobSubmittedOut) {
         *jobSubmittedOut = true;
     }
-    appLog(QStringLiteral("INFO"),
+    m_transport.log(TransportSession::Nivel::Info,
            QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
 
     const QStringList statusArgs = {QStringLiteral("--job-status"), jobId};
@@ -878,7 +878,8 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
             int cRc = -1;
             const QStringList cancelArgs = {QStringLiteral("--job-cancel"), jobId};
             const bool asked = runAgentCommand(p, cancelArgs, 20000, cOut, cErr, cRc);
-            appLog(asked && cRc == 0 ? QStringLiteral("NORMAL") : QStringLiteral("ERROR"),
+            m_transport.log(asked && cRc == 0 ? TransportSession::Nivel::Normal
+                                              : TransportSession::Nivel::Error,
                    asked && cRc == 0
                        ? QStringLiteral("%1: cancelación pedida para el trabajo %2")
                              .arg(p.name, jobId)
@@ -1185,7 +1186,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 const QString why = sshDied
                                         ? QStringLiteral("el ssh del túnel terminó")
                                         : QStringLiteral("agotados los 5 s de espera");
-                appLog(QStringLiteral("WARN"),
+                m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("daemon-rpc: el túnel SSH a %1 no aceptó conexiones (%2, %3 ms)")
                            .arg(p.name, why, QString::number(readyTimer.elapsed())));
                 if (proc->state() != QProcess::NotRunning) {
@@ -1253,7 +1254,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             QString persistErr;
             if (!persistDaemonTlsMaterialForConnection(
                     p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, &persistErr)) {
-                appLog(QStringLiteral("WARN"),
+                m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("daemon-rpc TLS persist fallback %1 -> %2")
                            .arg(p.name, persistErr.isEmpty() ? QStringLiteral("upsert failed") : persistErr));
             }
@@ -1295,11 +1296,11 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             if (before != QStringLiteral("openssl")
                 && QSslSocket::availableBackends().contains(QStringLiteral("openssl"))) {
                 if (QSslSocket::setActiveBackend(QStringLiteral("openssl"))) {
-                    appLog(QStringLiteral("INFO"),
+                    m_transport.log(TransportSession::Nivel::Info,
                            QStringLiteral("TLS: backend cambiado de %1 a openssl").arg(before));
                 }
             }
-            appLog(QStringLiteral("INFO"),
+            m_transport.log(TransportSession::Nivel::Info,
                    QStringLiteral("TLS: backend activo=%1 disponibles=[%2] libssl=%3")
                        .arg(QSslSocket::activeBackend(),
                             QSslSocket::availableBackends().join(QStringLiteral(", ")),
@@ -1448,7 +1449,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         || firstFailure.contains(QStringLiteral("daemon-rpc sin respuesta válida"))
         || firstFailure.contains(QStringLiteral("túnel ssh daemon-rpc finalizado"))) {
         if (tryReviveRemoteDaemonService(p)) {
-            appLog(QStringLiteral("INFO"),
+            m_transport.log(TransportSession::Nivel::Info,
                    QStringLiteral("daemon-rpc revive requested on %1 after failure: %2")
                        .arg(p.name, lastAttemptReason));
         }
@@ -1654,7 +1655,7 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         // así que la lectura directa de arriba basta. Si ha fallado, no queda camino
         // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo,
         // y lanzarlo daría un error que no dice nada. Se explica lo que pasa.
-        appLog(QStringLiteral("WARN"),
+        m_transport.log(TransportSession::Nivel::Warn,
                QStringLiteral("Local: no se pudo leer el material TLS del daemon en %1. "
                               "Reinstale el daemon desde el menú de la conexión.")
                    .arg(cfg.tlsCertPath));
@@ -1686,7 +1687,7 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         sudoProfile.connType = QStringLiteral("LOCAL");
         sudoProfile.useSudo = true;
         if (!ensureLocalSudoCredentials(sudoProfile)) {
-            appLog(QStringLiteral("WARN"),
+            m_transport.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: no se pudo leer el material TLS del daemon (faltan "
                                   "credenciales sudo locales)."));
             return false;
@@ -1699,13 +1700,13 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         int rc = -1;
         if (!runSsh(sudoProfile, cmd, 15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
             || rc != 0) {
-            appLog(QStringLiteral("WARN"),
+            m_transport.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: no se pudo leer el material TLS del daemon -> %1")
                        .arg(mwhelpers::oneLine(err.isEmpty() ? out : err)));
             return false;
         }
         if (!parseRemoteDaemonTlsBundle(out, srv, cli, key, port)) {
-            appLog(QStringLiteral("WARN"),
+            m_transport.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: el material TLS del daemon llegó incompleto."));
             return false;
         }
@@ -1787,8 +1788,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         }
         const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
                                     .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs));
-        appLog(QStringLiteral("INFO"), cmdLine);
-        appendConnectionLog(p.id, cmdLine);
+        m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
         const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
             const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
             for (const QString& rawLine : lines) {
@@ -1800,7 +1800,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    appendConnectionLog(p.id, line);
+                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -1808,12 +1808,12 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         emitLines(err, onStderrLine);
         if (!out.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, oneLine(out));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
             }
         }
         if (!err.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, oneLine(err));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
             }
         }
         return true;
@@ -1829,8 +1829,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
             QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
                            " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
-        appLog(QStringLiteral("ERROR"), abortLine);
-        appendConnectionLog(p.id, abortLine);
+        m_transport.logConn(TransportSession::Nivel::Error, p.id, abortLine);
         out.clear();
         err = QStringLiteral(
                   "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
@@ -1849,8 +1848,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs),
                      mwhelpers::rpcTunnelBusyReason());
-        appLog(QStringLiteral("INFO"), skippedLine);
-        appendConnectionLog(p.id, skippedLine);
+        m_transport.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
     } else if (allowRpcAttempt) {
         const QString reason = rpcFailureReason.trimmed().isEmpty()
                                    ? QStringLiteral("motivo no especificado")
@@ -1858,8 +1856,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         const QString fallbackLine =
             QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
-        appLog(QStringLiteral("INFO"), fallbackLine);
-        appendConnectionLog(p.id, fallbackLine);
+        m_transport.logConn(TransportSession::Nivel::Info, p.id, fallbackLine);
         QMutexLocker lock(&m_transport.mutex);
         constexpr int kDaemonRpcRetryBackoffSec = 30;
         m_transport.retryAfterByConnKey.insert(
@@ -1869,8 +1866,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         const QString skippedLine =
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), suppressedReason);
-        appLog(QStringLiteral("INFO"), skippedLine);
-        appendConnectionLog(p.id, skippedLine);
+        m_transport.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
     }
     return false;
 }
@@ -1984,8 +1980,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if (isLocalConnection(p)) {
         const QString localCmd = remoteCmd.trimmed();
         const QString cmdLine = QStringLiteral("[local] $ %1").arg(localCmd);
-        appLog(QStringLiteral("INFO"), cmdLine);
-        appendConnectionLog(p.id, cmdLine);
+        m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
 
         // stdin no vacío descarta el RPC: el canal no transporta stdin (el daemon lo
         // dice en runExecCaptureWithStdin) y la intercepción no lo miraba, así que la
@@ -2022,7 +2017,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                             cb(line);
                         }
                         if (echoOutputToLog) {
-                            appendConnectionLog(p.id, line);
+                            m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
                         }
                     }
                 };
@@ -2030,12 +2025,12 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 emitLines(err, onStderrLine);
                 if (!out.trimmed().isEmpty()) {
                     if (echoOutputToLog) {
-                        appendConnectionLog(p.id, oneLine(out));
+                        m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
                     }
                 }
                 if (!err.trimmed().isEmpty()) {
                     if (echoOutputToLog) {
-                        appendConnectionLog(p.id, oneLine(err));
+                        m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
                     }
                 }
                 return true;
@@ -2057,7 +2052,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         proc.start(program, args);
         if (!proc.waitForStarted(4000)) {
             err = QStringLiteral("No se pudo iniciar %1").arg(program);
-            appendConnectionLog(p.id, err);
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
         if (!stdinPayload.isEmpty()) {
@@ -2094,7 +2089,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    appendConnectionLog(p.id, line);
+                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -2150,7 +2145,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStdoutLine(line);
             }
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, line);
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
@@ -2159,13 +2154,13 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStderrLine(line);
             }
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, line);
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (timedOut) {
             rc = -1;
             err = QStringLiteral("Timeout");
-            appendConnectionLog(p.id, err);
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
         rc = proc.exitCode();
@@ -2176,18 +2171,18 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             const QString hostKeyHint = mwhelpers::sshHostKeyProblemHint(err);
             if (!hostKeyHint.isEmpty()) {
                 err = hostKeyHint + QStringLiteral("\n\n") + err;
-                appLog(QStringLiteral("WARN"),
+                m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("%1: verificación de host SSH fallida").arg(p.name));
             }
         }
         if (!out.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, oneLine(out));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
             }
         }
         if (!err.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, oneLine(err));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
             }
         }
         return true;
@@ -2232,10 +2227,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
     const QString cmdLine = QStringLiteral("%1 $ %2")
                                 .arg(sshUserHostPort(p), wrappedCmd);
-    appLog(QStringLiteral("INFO"), cmdLine);
-    appendConnectionLog(p.id, cmdLine);
+    m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
     if (hasPassword && !usingSshpass) {
-        appendConnectionLog(p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
+        m_transport.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
     }
 
     auto runSshAttempt = [&](bool enableMultiplexing, QString& attemptOut, QString& attemptErr, int& attemptRc) -> bool {
@@ -2291,7 +2285,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         proc.start(program, args);
         if (!proc.waitForStarted(4000)) {
             attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
-            appendConnectionLog(p.id, attemptErr);
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
             return false;
         }
         if (!stdinPayload.isEmpty()) {
@@ -2328,7 +2322,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    appendConnectionLog(p.id, line);
+                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -2385,7 +2379,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStdoutLine(line);
             }
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, line);
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
@@ -2394,14 +2388,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStderrLine(line);
             }
             if (echoOutputToLog) {
-                appendConnectionLog(p.id, line);
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
 
         if (timedOut) {
             attemptRc = -1;
             attemptErr = QStringLiteral("Timeout");
-            appendConnectionLog(p.id, attemptErr);
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
             return false;
         }
 
@@ -2429,8 +2423,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                                         .arg(p.host,
                                              familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
                                              resolved.errorString());
-                appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, msg));
-                appendConnectionLog(p.id, msg);
+                m_transport.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, msg));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, msg);
             } else {
                 QStringList addresses;
                 for (const QHostAddress& address : resolved.addresses()) {
@@ -2440,8 +2434,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                                         .arg(p.host,
                                              familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
                                              addresses.isEmpty() ? QStringLiteral("sin direcciones") : addresses.join(QStringLiteral(", ")));
-                appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2").arg(p.name, msg));
-                appendConnectionLog(p.id, msg);
+                m_transport.log(TransportSession::Nivel::Info, QStringLiteral("%1: %2").arg(p.name, msg));
+                m_transport.logConn(TransportSession::Nivel::Normal, p.id, msg);
             }
         }
     }
@@ -2469,11 +2463,11 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             m_transport.disableMultiplexKeys.insert(sshConnKey);
         }
         const QString retryMsg = QStringLiteral("SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.");
-        appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, retryMsg));
-        appendConnectionLog(p.id, retryMsg);
+        m_transport.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, retryMsg));
+        m_transport.logConn(TransportSession::Nivel::Normal, p.id, retryMsg);
         startedOk = runSshAttempt(false, out, err, rc);
     } else if (!allowMultiplexing) {
-        appendConnectionLog(p.id, QStringLiteral("SSH multiplexado deshabilitado para esta conexión en la sesión actual."));
+        m_transport.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("SSH multiplexado deshabilitado para esta conexión en la sesión actual."));
     }
 
     if (!startedOk) {
@@ -2485,12 +2479,12 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     }
     if (!out.trimmed().isEmpty()) {
         if (echoOutputToLog) {
-            appendConnectionLog(p.id, oneLine(out));
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
         }
     }
     if (!err.trimmed().isEmpty()) {
         if (echoOutputToLog) {
-            appendConnectionLog(p.id, oneLine(err));
+            m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
         }
     }
     return true;
@@ -2823,7 +2817,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
                             15000, out, err, rc)
                         && rc == 0;
         if (!ok) {
-            appLog(QStringLiteral("WARN"),
+            m_transport.log(TransportSession::Nivel::Warn,
                    QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
                        .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
             return false;
@@ -2984,16 +2978,16 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
-                    appLog(QStringLiteral("DEBUG"),
+                    m_transport.log(TransportSession::Nivel::Debug,
                            QStringLiteral("Loaded missing pool GUID %1::%2 -> %3")
                                .arg(p.name, trimmedPool, guid));
                 } else {
-                    appLog(QStringLiteral("WARN"),
+                    m_transport.log(TransportSession::Nivel::Warn,
                            QStringLiteral("Pool GUID missing after query %1::%2")
                                .arg(p.name, trimmedPool));
                 }
             } else {
-                appLog(QStringLiteral("WARN"),
+                m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("Could not query pool GUID %1::%2 -> %3")
                            .arg(p.name,
                                 trimmedPool,
@@ -3016,7 +3010,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     };
     QMap<QString, QVector<SnapshotMetaRow>> snapshotMetaByDataset;
     bool loadedFromJson = false;
-    appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
+    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
 
     if (!isWin) {
         if (!daemonReadApiOk) {
@@ -3037,7 +3031,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 }
             }
             if (parseErr.error != QJsonParseError::NoError) {
-                appLog(QStringLiteral("WARN"),
+                m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("Invalid JSON from zfsmgr-zfs-list-all %1::%2 (%3)")
                            .arg(p.name,
                                 poolName,
@@ -3100,7 +3094,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         err.clear();
         rc = -1;
         if (!runSsh(p, cmd, 35000, out, err, rc) || rc != 0) {
-            appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
+            m_transport.log(TransportSession::Nivel::Warn, QStringLiteral("Failed datasets %1::%2 -> %3")
                                             .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
             // Anotar el fallo para no reintentarlo en cada reconstrucción del árbol.
             m_conns.poolDatasetCache[key].loadFailed = true;
@@ -3182,13 +3176,13 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             }
             for (auto it = byDrive.constBegin(); it != byDrive.constEnd(); ++it) {
                 if (it.value().size() > 1) {
-                    appLog(QStringLiteral("WARN"),
+                    m_transport.log(TransportSession::Nivel::Warn,
                            QStringLiteral("%1::%2 driveletter duplicado %3 en datasets: %4")
                                .arg(p.name, poolName, it.key(), it.value().join(QStringLiteral(", "))));
                 }
             }
         } else if (!dErr.trimmed().isEmpty()) {
-            appLog(QStringLiteral("INFO"),
+            m_transport.log(TransportSession::Nivel::Info,
                    QStringLiteral("%1: no se pudieron cargar driveletters -> %2").arg(p.name, oneLine(dErr)));
         }
     }
@@ -3197,7 +3191,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // when this wrote through a reference into the map.
     m_conns.poolDatasetCache.insert(key, cache);
     rebuildConnInfoFor(connIdx);
-    appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")
+    m_transport.log(TransportSession::Nivel::Debug, QStringLiteral("Datasets loaded %1::%2 (%3)")
                                      .arg(p.name)
                                      .arg(poolName)
                                      .arg(cache.datasets.size()));
@@ -3220,9 +3214,9 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         return false;
     }
     setActionsLocked(true);
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
+    m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("%1").arg(displayLabel));
     updateStatus(QStringLiteral("%1").arg(displayLabel));
-    appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
+    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("$ %1").arg(command));
     QProcess proc;
     m_cancelActionRequested = false;
     m_activeLocalProcess = &proc;
@@ -3248,7 +3242,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(command)});
 #endif
     if (!proc.waitForStarted(4000)) {
-        appLog(QStringLiteral("NORMAL"),
+        m_transport.log(TransportSession::Nivel::Normal,
                trk(QStringLiteral("t_no_se_pudo_874fae"),
                    QStringLiteral("No se pudo iniciar comando local"),
                    QStringLiteral("Could not start local command"),
@@ -3321,7 +3315,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                             }
                             lastProgressPercent = pct;
                             sawProgressOutput = true;
-                            appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
+                            m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(ln));
                             continue;
                         }
                     }
@@ -3331,11 +3325,18 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     progressTimer.restart();
                     lastProgressSnippet = ln;
                     sawProgressOutput = true;
-                    appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
+                    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(ln));
                     continue;
                 }
             }
-            appLog(level, oneLine(ln));
+            // El nivel viene calculado más arriba a partir de la propia línea, así que
+            // se traduce aquí en vez de en el destino.
+            m_transport.log(level == QStringLiteral("ERROR")   ? TransportSession::Nivel::Error
+                            : level == QStringLiteral("WARN")  ? TransportSession::Nivel::Warn
+                            : level == QStringLiteral("INFO")  ? TransportSession::Nivel::Info
+                            : level == QStringLiteral("DEBUG") ? TransportSession::Nivel::Debug
+                                                               : TransportSession::Nivel::Normal,
+                            oneLine(ln));
         }
         if (progressAware) {
             const QString partial = remainder.trimmed();
@@ -3350,7 +3351,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     progressTimer.restart();
                     lastProgressSnippet = partial;
                     sawProgressOutput = true;
-                    appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(partial));
+                    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(partial));
                 }
                 // Estancamiento: `pv` sigue imprimiendo aunque no pase un solo byte, así
                 // que la línea cambia siempre —cambia el reloj— y el temporizador de
@@ -3376,7 +3377,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     while (proc.state() != QProcess::NotRunning) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         if (m_cancelActionRequested) {
-            appLog(QStringLiteral("NORMAL"), trk(QStringLiteral("t_canceling_act001"),
+            m_transport.log(TransportSession::Nivel::Normal, trk(QStringLiteral("t_canceling_act001"),
                                                  QStringLiteral("Cancelando acción en curso..."),
                                                  QStringLiteral("Canceling running action..."),
                                                  QStringLiteral("正在取消执行中的操作...")));
@@ -3386,7 +3387,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                 proc.kill();
                 proc.waitForFinished(800);
             }
-            appLog(QStringLiteral("NORMAL"), trk(QStringLiteral("t_acc_cancel_usr2"),
+            m_transport.log(TransportSession::Nivel::Normal, trk(QStringLiteral("t_acc_cancel_usr2"),
                                                  QStringLiteral("Acción cancelada por el usuario."),
                                                  QStringLiteral("Action canceled by user."),
                                                  QStringLiteral("操作已被用户取消。")));
@@ -3416,7 +3417,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         const bool stalledInSilence =
             sawAnyProgressLine && lastProgressLine.elapsed() > kSilenceAbortMs;
         if (streamProgress && sawProgressOutput && (stalledWithLiveProgress || stalledInSilence)) {
-            appLog(QStringLiteral("ERROR"),
+            m_transport.log(TransportSession::Nivel::Error,
                    trk(QStringLiteral("t_pipe_stalled_001"),
                        QStringLiteral("%1: la transferencia lleva %2 s sin mover datos. Se "
                                       "aborta: lo habitual es que el extremo receptor haya "
@@ -3445,7 +3446,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             terminateProcessTree(m_activeLocalPid);
             proc.kill();
             proc.waitForFinished(1000);
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
+            m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Timeout en comando local"));
             updateStatus(QStringLiteral("%1 (TIMEOUT)").arg(displayLabel));
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
@@ -3465,7 +3466,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             }
             if (!sawProgressOutput && heartbeatTimer.elapsed() >= 2000) {
                 heartbeatTimer.restart();
-                appLog(QStringLiteral("INFO"), QStringLiteral("[progress] running..."));
+                m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] running..."));
             }
         }
     }
@@ -3478,13 +3479,13 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     const QString out = outBuf.trimmed();
     const QString err = errBuf.trimmed();
     if (!out.isEmpty() && !streamProgress) {
-        appLog(QStringLiteral("INFO"), oneLine(out));
+        m_transport.log(TransportSession::Nivel::Info, oneLine(out));
     }
     if (!err.isEmpty() && !streamProgress) {
-        appLog(QStringLiteral("INFO"), oneLine(err));
+        m_transport.log(TransportSession::Nivel::Info, oneLine(err));
     }
     if (rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
+        m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Comando finalizó con error %1").arg(rc));
         updateStatus(QStringLiteral("%1 (ERROR %2)").arg(displayLabel).arg(rc));
         const QString errorDetail = err.isEmpty() ? out : err;
         if (!errorDetail.isEmpty()) {
@@ -3503,7 +3504,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         setActionsLocked(false);
         return false;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizado correctamente"));
+    m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Comando finalizado correctamente"));
     updateStatus(QStringLiteral("%1 finalizado").arg(displayLabel));
     m_activeLocalProcess = nullptr;
     m_activeLocalPid = -1;
