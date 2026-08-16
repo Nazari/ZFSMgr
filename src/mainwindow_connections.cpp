@@ -534,7 +534,7 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
             {F::DirAssemble, QStringLiteral("Ensamblar")},
             {F::DirToDir, QStringLiteral("Hacia Dir")},
             {F::SendRecvStreaming, QStringLiteral("Copiar/Nivelar entre máquinas")},
-            {F::RsyncSync, QStringLiteral("Sincronizar con rsync")},
+            {F::RsyncSync, QStringLiteral("Sincronizar entre máquinas (rsync)")},
             {F::RepairAltMountpoints, QStringLiteral("Reparar mountpoints temporales")},
             {F::AlternateMount, QStringLiteral("Montaje alternativo")},
         };

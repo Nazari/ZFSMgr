@@ -25,8 +25,15 @@ bool windowsAgentPending(Feature f) {
     // las rompía era otra cosa —la ruta se deducía de la propiedad `mountpoint`, que en
     // Windows vale «/pool/ds» y allí no existe— y encima fallaba en silencio, saltándose
     // todos los directorios y diciendo que había terminado bien.
-    // rsync no viaja con el agente y las rutas de Windows ni siquiera pasan su
-    // validación, que exige que empiecen por '/'.
+    // Solo Sincronizar ENTRE MÁQUINAS, que es donde rsync manda por la red únicamente
+    // las diferencias. rsync no viaja con el agente y en Windows no existe.
+    //
+    // Sincronizar entre dos datasets de la MISMA máquina sí funciona allí: va por la
+    // copia propia del agente (--mutate-copy-tree, con --delete y simulacro), que no
+    // necesita rsync. Por eso la etiqueta de esta entrada dice «entre máquinas».
+    //
+    // La validación de rutas ya no es el obstáculo: exigía que empezaran por '/' y
+    // ahora reconoce también «Z:\...» y UNC.
     case Feature::RsyncSync:
         return true;
     // SendRecvStreaming ya NO está aquí: el agente de Windows recibe y emite desde las

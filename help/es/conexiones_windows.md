@@ -52,7 +52,7 @@ El agente de Windows no implementa aún algunas funciones. La aplicación **no l
 intenta**: aparecen deshabilitadas indicando el motivo, y la ficha de la conexión las
 lista bajo *Funciones no disponibles*.
 
-- Sincronizar con `rsync`, que no existe en Windows.
+- Sincronizar **entre máquinas distintas**, que necesita `rsync` para mandar por la red solo las diferencias, y `rsync` no existe en Windows. Sincronizar entre dos datasets de la **misma** máquina sí funciona: va por la copia propia del agente, con `--delete` y con simulacro.
 - *Hacia Dir*, que monta el dataset en un punto temporal para volcarlo, y eso contra
   letras de unidad no significa lo mismo.
 - Reparar puntos de montaje temporales, por la misma razón.

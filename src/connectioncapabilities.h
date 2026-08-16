@@ -26,7 +26,8 @@ enum class Feature {
     DirAssemble,           // Ensamblar: datasets hijos -> directorios
     DirToDir,              // Hacia Dir
     SendRecvStreaming,     // copiar/nivelar snapshot entre máquinas
-    RsyncSync,             // sincronizar con rsync
+    RsyncSync,             // sincronizar ENTRE MÁQUINAS con rsync; en la misma máquina
+                           // va por la copia del agente y no depende de rsync
     ShellActions,          // acciones que necesitan un shell Unix
     HelperCommandInstall,  // instalar herramientas auxiliares en el host
     ToolAvailability,      // sondeo de herramientas disponibles

@@ -52,7 +52,7 @@ The Windows agent does not implement some features yet. The application **does n
 attempt them**: they appear disabled with the reason, and the connection card lists
 them under *Unavailable features*.
 
-- Sync with `rsync`, which does not exist on Windows.
+- Sync **between different machines**, which needs `rsync` to send only the differences over the network, and `rsync` does not exist on Windows. Syncing two datasets on the **same** machine does work: it goes through the agent's own copy, with `--delete` and with a dry run.
 - *To Dir*, which mounts the dataset at a temporary point to pour it out, and that means
   nothing against drive letters.
 - Repairing temporary mountpoints, for the same reason.

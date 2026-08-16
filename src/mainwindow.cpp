@@ -1917,6 +1917,53 @@ QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
     return {QStringLiteral("--mutate-rsync-local"), payloadB64};
 }
 
+// Sincronizar dos directorios de la MISMA máquina con la copia propia del agente, sin
+// rsync. Es lo que hace posible Sincronizar en Windows, donde rsync no existe y el
+// respaldo por tar/ssh no puede funcionar: el stdio de un comando remoto por SSH se
+// corta a 132 KiB, y además ese respaldo nunca borraba lo que sobraba, así que no
+// sincronizaba, copiaba.
+//
+// Solo para la misma máquina. Entre máquinas distintas rsync manda solo las
+// diferencias por la red, y sustituirlo por esto sería un retroceso.
+QStringList MainWindow::daemonizeCopyTreeSyncArgs(int connIdx,
+                                                  const QString& srcPath,
+                                                  const QString& dstPath,
+                                                  bool useDelete,
+                                                  bool dryRun) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return {};
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return {};
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return {};
+    }
+    const QString src = srcPath.trimmed();
+    const QString dst = dstPath.trimmed();
+    if (src.isEmpty() || dst.isEmpty()) {
+        return {};
+    }
+    // Misma comprobación que isUsableMountPath: en Windows un punto de montaje lleva
+    // letra de unidad y no empieza por '/'.
+    const bool win = isWindowsConnection(m_profiles[connIdx]);
+    const auto absolute = [win](const QString& v) {
+        return win ? v.contains(QLatin1Char(':')) : v.startsWith(QLatin1Char('/'));
+    };
+    if (!absolute(src) || !absolute(dst)) {
+        return {};
+    }
+    QStringList args{QStringLiteral("--mutate-copy-tree"), src, dst};
+    if (useDelete) {
+        args << QStringLiteral("--delete");
+    }
+    if (dryRun) {
+        args << QStringLiteral("--dry-run");
+    }
+    return args;
+}
+
 QStringList MainWindow::daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return {};

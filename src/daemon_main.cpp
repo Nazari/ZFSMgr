@@ -3581,6 +3581,26 @@ int runZfsAllowBatch(const std::string& payloadB64) {
     return rc;
 }
 
+// Una ruta absoluta no tiene la misma forma en las dos plataformas, y darlo por hecho
+// era lo que dejaba fuera a Windows de entrada: allí un punto de montaje es «Z:\\ds»,
+// que no empieza por '/' y por tanto no pasaba ninguna validación.
+bool isAbsolutePathForPlatform(const std::string& p) {
+    if (p.empty()) {
+        return false;
+    }
+#ifdef _WIN32
+    // «Z:\...», «Z:/...» o UNC. La letra sola («Z:») no vale: sin separador no es la
+    // raíz de la unidad sino el directorio actual DE esa unidad, que es otra cosa.
+    if (p.size() >= 3 && std::isalpha(static_cast<unsigned char>(p[0])) && p[1] == ':'
+        && (p[2] == '\\' || p[2] == '/')) {
+        return true;
+    }
+    return p.size() >= 2 && (p[0] == '\\' || p[0] == '/') && (p[1] == '\\' || p[1] == '/');
+#else
+    return p[0] == '/';
+#endif
+}
+
 // --mutate-rsync-local: typed rsync sync. Replaces the shell command that used to
 // probe rsync capabilities inline (`rsync --help | grep ...`) and interpolate the
 // resulting $RSYNC_OPTS into a shell line. The capability probe now runs here, the
@@ -3622,7 +3642,7 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     for (std::size_t i = 4; i + 1 < f.size(); i += 2) {
         const std::string src = trim(f[i]);
         const std::string dst = trim(f[i + 1]);
-        if (src.empty() || dst.empty() || src[0] != '/' || dst[0] != '/') {
+        if (!isAbsolutePathForPlatform(src) || !isAbsolutePathForPlatform(dst)) {
             errMsg = "rsync paths must be absolute\n";
             return false;
         }

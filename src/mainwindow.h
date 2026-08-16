@@ -1029,6 +1029,11 @@ private:
     QStringList daemonizeLocalSendRecvArgs(int connIdx,
                                           const QString& sendRawCmd,
                                           const QString& recvRawCmd) const;
+    QStringList daemonizeCopyTreeSyncArgs(int connIdx,
+                                          const QString& srcPath,
+                                          const QString& dstPath,
+                                          bool useDelete,
+                                          bool dryRun) const;
     QStringList daemonizeRsyncSyncArgs(int connIdx,
                                       const QList<QPair<QString, QString>>& pathPairs,
                                       bool useDelete,

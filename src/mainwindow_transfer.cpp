@@ -1976,6 +1976,36 @@ void MainWindow::actionSyncDatasets() {
                                      .arg(srcEffectiveMp, dstEffectiveMp));
             return;
         }
+        // Misma máquina y sin rsync: la copia propia del agente. Sincroniza de verdad
+        // —salta lo igual, borra lo que sobra y sabe simular— donde el respaldo por
+        // tar/ssh no podía: allí no hay tar, el stdio de un comando remoto por SSH se
+        // corta a 132 KiB, y aquel camino nunca borraba lo que sobraba.
+        if (sameConnection && isWindowsConnection(sp)) {
+            auto buildNativeSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
+                const QStringList args = daemonizeCopyTreeSyncArgs(
+                    src.connIdx, srcEffectiveMp, dstEffectiveMp, useDelete, dryRun);
+                if (args.isEmpty()) {
+                    return QString();
+                }
+                return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, args));
+            };
+            bool useDelete = true;
+            if (buildNativeSyncCommand(false, false).isEmpty()) {
+                QMessageBox::warning(this,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_sync_native_unavail_001"),
+                                         QStringLiteral("Sincronizar en Windows necesita el agente instalado y al día en esta conexión."),
+                                         QStringLiteral("Sync on Windows needs the agent installed and up to date on this connection."),
+                                         QStringLiteral("在 Windows 上同步需要本连接已安装并更新到最新的代理。")));
+                return;
+            }
+            if (!showSyncOptionsDialog(true, buildNativeSyncCommand, &useDelete)) {
+                return;
+            }
+            queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName),
+                             buildNativeSyncCommand(useDelete, false));
+            return;
+        }
         if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
             const mwhelpers::StreamCodec codec = chooseCodec();
             auto buildTarSyncCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
