@@ -161,6 +161,60 @@ a partir de fragmentos elegidos para picar los bordes de cada patrón: comillas 
 Es la técnica a repetir cada vez que se porte algo con expresiones regulares: la
 referencia dorada cubre los casos que uno imagina, y el sorteo cubre los que no.
 
+## JSON propio, sin dependencias
+
+El formato **no cambia**: `config.json` y `trust-store.json` los escribió `QJsonDocument`
+y se siguen leyendo y escribiendo igual. Lo que cambia es quién los analiza.
+
+Se escribió `src/base/json.{h,cpp}` en vez de traer una biblioteca, y el tamaño lo
+justifica: el `config.json` real tiene profundidad 3 y solo cinco tipos —objeto, lista,
+cadena, booleano y entero—. Ni decimales ni nulos.
+
+La serialización imita a `QJsonDocument::Indented` hasta en sus rarezas, y hay dos que
+NO son adorno:
+
+- **Un array vacío se escribe `[\n<sangría>]`, no `[]`.** Es lo que hace Qt.
+- **Los enteros se escriben sin decimales.** Qt guarda los números como `double` pero
+  imprime `47653`, no `47653.0`. El puerto TLS es uno de ellos.
+
+Si cualquiera de las dos se hiciera «bien» en vez de «como Qt», el primer guardado
+reescribiría el fichero entero. No rompería nada, pero ensuciaría las copias
+(`trust-store.json.bak.*`) y confundiría a cualquiera que mire un `diff`.
+
+### Cómo se verificó
+
+1. **Ida y vuelta sobre los ficheros reales del usuario**: `config.json` (32.341 B) y
+   `trust-store.json` (6.693 B). Analizados y reescritos por la capa base, el resultado
+   es **idéntico byte a byte** al que produce Qt y al fichero que ya estaba en disco.
+2. **Sorteo de 20.000 documentos** generados con Qt —con comillas, barras, caracteres de
+   control, acentos, emoji fuera del plano básico, enteros grandes y decimales—,
+   analizados y reescritos por la capa base: **0 fallos de análisis, 0 diferencias**.
+
+El sorteo encontró un fallo que la referencia dorada no podía encontrar, porque la
+configuración real no tiene ningún decimal: **Qt escribe la representación más corta que
+reconstruye el mismo `double`**, y un `%.17g` fijo daba `867811.87520846119` donde Qt
+pone `867811.8752084612`. Ahora se prueban las precisiones 15, 16 y 17 y se toma la
+primera que vuelve a dar el valor exacto.
+
+3. **Regresión sobre la aplicación real**: se cargaron las conexiones del usuario con
+   el `ConnectionStore` ya sin migración. Las dos aparecen, con sus campos, y el fichero
+   queda intacto.
+
+## La migración de los `.ini` se ha eliminado
+
+Decisión del usuario. Los `.ini` por conexión son anteriores a abril de 2026, cuando la
+configuración pasó a JSON (`d345d85`). Con ellos se van `migrateLegacyConnectionsToPerFile`,
+`connectionIniPaths` y las cuatro funciones de carga y guardado por grupos de `QSettings`,
+más siete puntos de llamada: 229 líneas.
+
+`QSettings` sigue incluido en `connectionstore.cpp`, pero **solo para leer el
+`MachineGuid` del registro de Windows**, que no es un formato de fichero.
+
+**Consecuencia que hay que anunciar en las notas de la versión:** quien actualice desde
+una versión anterior a abril de 2026 no verá convertidas sus conexiones guardadas, y no
+habrá aviso. También desaparece el alias `iniPath()`, que devolvía la ruta del JSON y
+solo confundía; sus dos usos pasan a `configPath()`.
+
 ## Estado
 
 Hecho y verificado:
@@ -222,7 +276,7 @@ antes de ponerla.
 
 Después de `mainwindow_helpers`:
 
-1. **`connectionstore.cpp`** (1.463). Clase propia, pero usa `QSettings` y cifrado; hay
-   que sustituir el almacenamiento.
+1. **`connectionstore.cpp`**. El JSON ya está resuelto y la migración fuera; queda
+   portar la clase en sí, y con ella el cifrado de los campos sensibles.
 2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
 3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.

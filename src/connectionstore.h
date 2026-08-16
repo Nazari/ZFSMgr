@@ -5,7 +5,6 @@
 #include <QJsonObject>
 #include <QVector>
 
-class QSettings;
 
 struct ConnectionProfile {
     QString id;
@@ -41,11 +40,9 @@ public:
     QString configDir() const;
     QString configPath() const;
     QString trustStorePath() const;
-    QString iniPath() const; // legacy alias
     QJsonObject loadConfigJson(QString* error = nullptr) const;
     bool saveConfigJson(const QJsonObject& root, QString* error = nullptr) const;
     void ensureAppDefaults() const;
-    QStringList connectionIniPaths() const;
     LoadResult loadConnections() const;
     bool upsertConnection(const ConnectionProfile& profile, QString& error);
     bool deleteConnectionById(const QString& id, QString& error);
@@ -62,12 +59,6 @@ private:
                 const QString& es = QString(),
                 const QString& en = QString(),
                 const QString& zh = QString()) const;
-    bool migrateLegacyConnectionsToPerFile(QString& error) const;
-    static QString connectionGroupNameForId(const QString& id);
-    static QStringList connectionGroups(QSettings& ini);
-    static ConnectionProfile loadProfileFromGroup(QSettings& ini, const QString& groupName);
-    static void saveProfileToGroup(QSettings& ini, const QString& groupName, const ConnectionProfile& profile);
-    static ConnectionProfile loadProfileFromIni(const QString& path);
     QJsonObject loadTrustStoreJson(QString* error = nullptr) const;
     bool saveTrustStoreJson(const QJsonObject& root, QString* error = nullptr) const;
     bool upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const;

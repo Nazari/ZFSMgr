@@ -5,6 +5,7 @@
 #include "daemonpayload.h"
 #include "connectionprofile.h"
 #include "helpers.h"
+#include "json.h"
 #include "strutil.h"
 
 #include <cstdio>
@@ -353,6 +354,49 @@ int main() {
         // Un nombre con espacio no es un nombre de pool valido y se descarta.
         comprobar(H::parseZpoolImportOutput("   pool: mal nombre\n  state: ONLINE\n").empty(),
                   "un nombre invalido se descarta");
+    }
+
+
+    // --- JSON
+    {
+        namespace J = zfsmgr::base::json;
+        J::Value v;
+        std::string err;
+        comprobar(J::parse("{\"b\":1,\"a\":\"x\"}", v, &err), "analiza un objeto simple");
+        comprobar(v.isObject(), "la raiz es objeto");
+        igual(v["a"].toString(), "x", "lee una cadena por clave");
+        comprobar(v["b"].toInt() == 1, "lee un entero");
+        comprobar(v["noexiste"].isNull(), "una clave ausente da nulo, no revienta");
+        // Las claves salen ORDENADAS, que es lo que hace QJsonObject y de lo que depende
+        // que el fichero no cambie en cada guardado.
+        igual(J::toCompact(v), "{\"a\":\"x\",\"b\":1}", "las claves salen ordenadas");
+
+        // La rareza de Qt que hay que replicar: el array vacio NO es «[]».
+        J::Value raiz;
+        raiz.set("vacio", J::Value(J::Array{}));
+        igual(J::toIndented(raiz), "{\n    \"vacio\": [\n    ]\n}\n",
+              "un array vacio se escribe como Qt, no como []");
+
+        // Enteros como enteros: si saliera 47653.0 el fichero dejaria de ser legible.
+        J::Value puerto;
+        puerto.set("port", J::Value(47653));
+        igual(J::toCompact(puerto), "{\"port\":47653}", "un entero no lleva decimales");
+
+        // Escapes de ida y vuelta.
+        J::Value esc;
+        comprobar(J::parse("{\"k\":\"a\\\"b\\\\c\\nd\\u00f1\"}", esc, &err), "analiza escapes");
+        igual(esc["k"].toString(), "a\"b\\c\nd\xc3\xb1", "los escapes se decodifican, \\u incluido");
+        igual(J::toCompact(esc), "{\"k\":\"a\\\"b\\\\c\\nd\xc3\xb1\"}",
+              "al escribir, lo no ASCII va crudo en UTF-8 y los control escapados");
+
+        // Lo que debe RECHAZAR: un fichero corrupto no puede dar una config a medias.
+        for (const char* malo : {"{", "{\"a\":}", "[1,]", "{'a':1}", "{\"a\":01}",
+                                 "{\"a\":1}sobra", "", "nul", "{\"a\":1,}"}) {
+            J::Value x;
+            comprobar(!J::parse(malo, x, &err), std::string("rechaza JSON invalido: ") + malo);
+        }
+        comprobar(J::parse("{}", v, &err) && v.isObject(), "el objeto vacio si es valido");
+        comprobar(J::parse("[]", v, &err) && v.isArray(), "el array vacio si es valido");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

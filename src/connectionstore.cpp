@@ -334,20 +334,12 @@ QString ConnectionStore::trustStorePath() const {
     return configDir() + QStringLiteral("/trust-store.json");
 }
 
-QString ConnectionStore::iniPath() const {
-    return configPath();
-}
 
 QJsonObject ConnectionStore::loadConfigJson(QString* error) const {
     if (error) {
         error->clear();
     }
     QFile file(configPath());
-    if (!file.exists()) {
-        QString migrateErr;
-        migrateLegacyConnectionsToPerFile(migrateErr);
-        file.setFileName(configPath());
-    }
     if (!file.exists()) {
         return QJsonObject();
     }
@@ -626,10 +618,6 @@ bool ConnectionStore::migrateLegacyTlsToTrustStore(const QJsonArray& connections
 
 bool ConnectionStore::validateMasterPassword(QString& error) const {
     error.clear();
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        return false;
-    }
     const QJsonObject root = loadConfigJson(&error);
     if (!error.isEmpty()) {
         return false;
@@ -730,202 +718,12 @@ void ConnectionStore::ensureAppDefaults() const {
     }
 }
 
-QString ConnectionStore::connectionGroupNameForId(const QString& id) {
-    QString clean = id.trimmed();
-    if (clean.isEmpty()) {
-        clean = QStringLiteral("connection");
-    }
-    return QStringLiteral("connection:%1").arg(clean);
-}
 
-QStringList ConnectionStore::connectionIniPaths() const {
-    QDir dir(configDir());
-    const QStringList files = dir.entryList({QStringLiteral("conn*.ini")}, QDir::Files, QDir::Name);
-    QStringList paths;
-    paths.reserve(files.size());
-    for (const QString& f : files) {
-        paths.push_back(dir.filePath(f));
-    }
-    return paths;
-}
 
-QStringList ConnectionStore::connectionGroups(QSettings& ini) {
-    QStringList groupsOut;
-    const QStringList groups = ini.childGroups();
-    for (const QString& group : groups) {
-        if (isConnectionGroupName(group)) {
-            groupsOut.push_back(group);
-        }
-    }
-    return groupsOut;
-}
 
-ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
-    QSettings ini(path, QSettings::IniFormat);
-    ConnectionProfile p;
-    p.id = ini.value(QStringLiteral("id")).toString().trimmed();
-    p.name = ini.value(QStringLiteral("name")).toString();
-    const QString rawMachineUid = ini.value(QStringLiteral("machine_uid")).toString();
-    p.machineUid = rawMachineUid;
-    p.connType = ini.value(QStringLiteral("conn_type")).toString();
-    p.osType = ini.value(QStringLiteral("os_type")).toString();
-    p.host = ini.value(QStringLiteral("host")).toString();
-    p.port = ini.value(QStringLiteral("port"), 22).toInt();
-    p.sshAddressFamily = ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
-    p.username = ini.value(QStringLiteral("username")).toString();
-    p.password = ini.value(QStringLiteral("password")).toString();
-    p.keyPath = ini.value(QStringLiteral("key_path")).toString();
-    p.useSudo = ini.value(QStringLiteral("use_sudo"), false).toBool();
-    if (p.id.isEmpty()) {
-        p.id = QFileInfo(path).completeBaseName();
-    }
-    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    if (shouldForceLocalSudo(p)) {
-        p.useSudo = true;
-    }
-    return p;
-}
 
-ConnectionProfile ConnectionStore::loadProfileFromGroup(QSettings& ini, const QString& groupName) {
-    ConnectionProfile p;
-    ini.beginGroup(groupName);
-    p.id = ini.value(QStringLiteral("id")).toString().trimmed();
-    p.name = ini.value(QStringLiteral("name")).toString();
-    const QString rawMachineUid = ini.value(QStringLiteral("machine_uid")).toString();
-    p.machineUid = rawMachineUid;
-    p.connType = ini.value(QStringLiteral("conn_type")).toString();
-    p.osType = ini.value(QStringLiteral("os_type")).toString();
-    p.host = ini.value(QStringLiteral("host")).toString();
-    p.port = ini.value(QStringLiteral("port"), 22).toInt();
-    p.sshAddressFamily =
-        ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
-    p.username = ini.value(QStringLiteral("username")).toString();
-    p.password = ini.value(QStringLiteral("password")).toString();
-    p.keyPath = ini.value(QStringLiteral("key_path")).toString();
-    p.useSudo = ini.value(QStringLiteral("use_sudo"), false).toBool();
-    ini.endGroup();
-    if (p.id.isEmpty()) {
-        p.id = defaultIdFromGroup(groupName);
-    }
-    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    if (shouldForceLocalSudo(p)) {
-        p.useSudo = true;
-    }
-    return p;
-}
 
-void ConnectionStore::saveProfileToGroup(QSettings& ini, const QString& groupName, const ConnectionProfile& profile) {
-    ConnectionProfile normalized = profile;
-    normalized.machineUid = normalizeMachineUidForStorage(normalized, normalized.machineUid);
-    if (shouldForceLocalSudo(normalized)) {
-        normalized.useSudo = true;
-    }
-    const QString sshFamily = normalized.sshAddressFamily.trimmed().toLower();
-    ini.beginGroup(groupName);
-    ini.remove(QStringLiteral(""));
-    ini.setValue(QStringLiteral("id"), normalized.id.trimmed());
-    ini.setValue(QStringLiteral("name"), normalized.name.trimmed());
-    ini.setValue(QStringLiteral("machine_uid"), normalized.machineUid);
-    ini.setValue(QStringLiteral("conn_type"),
-                 normalized.connType.trimmed().isEmpty() ? QStringLiteral("SSH")
-                                                         : normalized.connType.trimmed());
-    ini.setValue(QStringLiteral("os_type"),
-                 normalized.osType.trimmed().isEmpty() ? QStringLiteral("Linux")
-                                                       : normalized.osType.trimmed());
-    ini.setValue(QStringLiteral("host"), normalized.host.trimmed());
-    ini.setValue(QStringLiteral("port"), ensurePort(normalized.connType, normalized.port));
-    ini.setValue(QStringLiteral("ssh_address_family"),
-                 (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
-                     ? sshFamily
-                     : QStringLiteral("auto"));
-    ini.setValue(QStringLiteral("username"), normalized.username);
-    ini.setValue(QStringLiteral("password"), normalized.password);
-    ini.setValue(QStringLiteral("key_path"), normalized.keyPath.trimmed());
-    ini.setValue(QStringLiteral("use_sudo"), normalized.useSudo);
-    ini.endGroup();
-}
 
-bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
-    error.clear();
-    const QString jsonPath = configPath();
-    const QString cfgDir = configDir();
-    const QString legacyConfigPath = cfgDir + QStringLiteral("/config.ini");
-    const QString legacyConnectionsPath = cfgDir + QStringLiteral("/connections.ini");
-    const QStringList connFiles = connectionIniPaths();
-    const bool hasLegacy = QFile::exists(legacyConfigPath)
-                           || QFile::exists(legacyConnectionsPath)
-                           || !connFiles.isEmpty();
-    if (!hasLegacy) {
-        return true;
-    }
-
-    QJsonObject root = readJsonRootNoMigration(jsonPath);
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    bool changed = false;
-
-    auto mergeFromIni = [&](const QString& path) {
-        if (!QFile::exists(path)) {
-            return;
-        }
-        QSettings ini(path, QSettings::IniFormat);
-        for (const QString& group : connectionGroups(ini)) {
-            ConnectionProfile p = loadProfileFromGroup(ini, group);
-            if (p.id.trimmed().isEmpty()) {
-                p.id = defaultIdFromGroup(group);
-            }
-            if (upsertConnectionJson(connections, p)) {
-                changed = true;
-            }
-        }
-        auto copyGroup = [&](const QString& groupName) {
-            ini.beginGroup(groupName);
-            const QStringList keys = ini.childKeys();
-            if (keys.isEmpty()) {
-                ini.endGroup();
-                return;
-            }
-            QJsonObject groupObj = root.value(groupName).toObject();
-            for (const QString& key : keys) {
-                groupObj.insert(key, jsonValueFromVariant(ini.value(key)));
-            }
-            ini.endGroup();
-            root.insert(groupName, groupObj);
-            changed = true;
-        };
-        copyGroup(QStringLiteral("app"));
-        copyGroup(QStringLiteral("ui"));
-        copyGroup(QStringLiteral("ZPoolCreationDefaults"));
-    };
-
-    mergeFromIni(legacyConfigPath);
-    mergeFromIni(legacyConnectionsPath);
-
-    for (const QString& path : connFiles) {
-        ConnectionProfile p = loadProfileFromIni(path);
-        if (p.id.trimmed().isEmpty()) {
-            p.id = QFileInfo(path).completeBaseName();
-        }
-        if (upsertConnectionJson(connections, p)) {
-            changed = true;
-        }
-    }
-
-    if (changed || !QFile::exists(jsonPath)) {
-        root.insert(QStringLiteral("connections"), connections);
-        QString saveErr;
-        if (!saveConfigJson(root, &saveErr)) {
-            error = saveErr;
-            return false;
-        }
-    }
-
-    QFile::remove(legacyConfigPath);
-    QFile::remove(legacyConnectionsPath);
-    for (const QString& path : connFiles) {
-        QFile::remove(path);
-    }
-    return true;
-}
 
 bool ConnectionStore::migratePsrpProfileToSshForTest(ConnectionProfile& p) {
     return migratePsrpProfileToSsh(p);
@@ -933,12 +731,6 @@ bool ConnectionStore::migratePsrpProfileToSshForTest(ConnectionProfile& p) {
 
 LoadResult ConnectionStore::loadConnections() const {
     LoadResult result;
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        if (!migrationError.trimmed().isEmpty()) {
-            result.warnings.push_back(migrationError);
-        }
-    }
     QString loadErr;
     const QJsonObject root = loadConfigJson(&loadErr);
     if (!loadErr.isEmpty()) {
@@ -1086,11 +878,6 @@ LoadResult ConnectionStore::loadConnections() const {
 
 bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString& error) {
     error.clear();
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        error = migrationError;
-        return false;
-    }
     if (profile.name.trimmed().isEmpty()) {
         error = trk(QStringLiteral("t_cstore_auto006"), QStringLiteral("Nombre requerido"),
                     QStringLiteral("Name required"),
@@ -1262,11 +1049,6 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
 
 bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     error.clear();
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        error = migrationError;
-        return false;
-    }
     const QString clean = id.trimmed();
     if (clean.isEmpty()) {
         error = trk(QStringLiteral("t_cstore_auto012"), QStringLiteral("ID vacío"),
@@ -1296,11 +1078,6 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
 
 bool ConnectionStore::encryptStoredPasswords(QString& error) {
     error.clear();
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        error = migrationError;
-        return false;
-    }
     if (m_masterPassword.isEmpty()) {
         error = trk(QStringLiteral("t_cstore_auto014"), QStringLiteral("Password maestro requerido"),
                     QStringLiteral("Master password required"),
@@ -1418,11 +1195,6 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
 
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
     error.clear();
-    QString migrationError;
-    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
-        error = migrationError;
-        return false;
-    }
     if (newMasterPassword.isEmpty()) {
         error = trk(QStringLiteral("t_cstore_auto016"), QStringLiteral("Nuevo password maestro vacío"),
                     QStringLiteral("New master password is empty"),

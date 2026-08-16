@@ -1235,7 +1235,7 @@ void MainWindow::createPoolForSelectedConnection() {
     dnodesizeCb->addItems({QString(), QStringLiteral("legacy"), QStringLiteral("auto"),
                            QStringLiteral("1k"), QStringLiteral("2k"), QStringLiteral("4k"),
                            QStringLiteral("8k"), QStringLiteral("16k")});
-    const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_store.iniPath());
+    const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_store.configPath());
     forceCb->setChecked(zdefs.force);
     altrootEd->setText(zdefs.altroot);
     ashiftCb->setCurrentText(zdefs.ashift);

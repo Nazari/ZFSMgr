@@ -2703,7 +2703,7 @@ void MainWindow::loadConnections() {
     rebuildConnectionsTable();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
                                    .arg(m_profiles.size())
-                                   .arg(m_store.iniPath()));
+                                   .arg(m_store.configPath()));
     for (const QString& warning : loaded.warnings) {
         appLog(QStringLiteral("WARN"), warning);
     }
