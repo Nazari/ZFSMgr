@@ -73,7 +73,7 @@ int MainWindow::findConnectionIndexByName(const QString& name) const {
     return -1;
 }
 
-MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
+ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
     ConnectionRuntimeState state;
     ConnectionProfile profile = p;
     state.connectionMethod = profile.connType;

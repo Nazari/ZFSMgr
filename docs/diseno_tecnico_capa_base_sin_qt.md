@@ -446,6 +446,25 @@ conjuntos de SSH).
   aplicar— y el marcado de origen/destino son interactivos por diseño. En un CLI pasan a
   ser argumentos explícitos y `--dry-run`. Eso es rediseñar, no portar.
 
+## Paso 1a: el modelo de datos sale de `MainWindow`
+
+Antes de poder extraer el registro de conexiones había un obstáculo que no se veía en la
+medición: **`ConnectionRuntimeState` y compañía estaban declaradas DENTRO de la clase**.
+Mientras siguieran ahí, ningún registro, ningún CLI y ninguna prueba que no levante la
+ventana podía nombrarlas.
+
+`src/connectionmodel.h` recoge las **29 declaraciones** del cierre completo —desde
+`ConnectionRuntimeState`, `DatasetRecord` y las cachés hasta `ConnKey`, `DSInfo` y sus
+estados de edición—. El cierre se calculó a la fuerza bruta: mover, compilar, añadir lo
+que el compilador eche en falta, repetir. Costó cinco rondas.
+
+Sigue usando tipos de Qt, y es a propósito: **este paso desacopla de la CLASE, no todavía
+de Qt.** Son dos ejes distintos y mezclarlos habría hecho el cambio irrevisable.
+
+`mainwindow.h` baja de 1.662 a 1.382 líneas. En los `.cpp` solo hubo que quitar el
+prefijo `MainWindow::` de 36 referencias; el resto de usos no llevaban cualificador y no
+se tocaron.
+
 ## Estado
 
 Hecho y verificado:

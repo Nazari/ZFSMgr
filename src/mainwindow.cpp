@@ -391,7 +391,7 @@ QString MainWindow::dsStableId(const DSKey& key) const {
     return key.fullName.trimmed();
 }
 
-MainWindow::DSKind MainWindow::dsKindFromNames(const QString& fullName, const QString& datasetType) {
+DSKind MainWindow::dsKindFromNames(const QString& fullName, const QString& datasetType) {
     const QString trimmedType = datasetType.trimmed().toLower();
     if (trimmedType == QStringLiteral("filesystem")) {
         return DSKind::Filesystem;
@@ -645,19 +645,19 @@ void MainWindow::rebuildConnInfoModel() {
     }
 }
 
-const MainWindow::ConnInfo* MainWindow::findConnInfo(int connIdx) const {
+const ConnInfo* MainWindow::findConnInfo(int connIdx) const {
     const QString stableId = connStableIdForIndex(connIdx);
     const auto it = m_connInfoById.constFind(stableId);
     return (it == m_connInfoById.cend()) ? nullptr : &it.value();
 }
 
-MainWindow::ConnInfo* MainWindow::findConnInfo(int connIdx) {
+ConnInfo* MainWindow::findConnInfo(int connIdx) {
     const QString stableId = connStableIdForIndex(connIdx);
     const auto it = m_connInfoById.find(stableId);
     return (it == m_connInfoById.end()) ? nullptr : &it.value();
 }
 
-const MainWindow::PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolName) const {
+const PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolName) const {
     const ConnInfo* connInfo = findConnInfo(connIdx);
     if (!connInfo) {
         return nullptr;
@@ -671,7 +671,7 @@ const MainWindow::PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString&
     return nullptr;
 }
 
-MainWindow::PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolName) {
+PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolName) {
     ConnInfo* connInfo = findConnInfo(connIdx);
     if (!connInfo) {
         return nullptr;
@@ -685,7 +685,7 @@ MainWindow::PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolN
     return nullptr;
 }
 
-const MainWindow::DSInfo* MainWindow::findDsInfo(int connIdx, const QString& poolName, const QString& fullName) const {
+const DSInfo* MainWindow::findDsInfo(int connIdx, const QString& poolName, const QString& fullName) const {
     const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName);
     if (!poolInfo) {
         return nullptr;
@@ -694,7 +694,7 @@ const MainWindow::DSInfo* MainWindow::findDsInfo(int connIdx, const QString& poo
     return (it == poolInfo->objectsByFullName.cend()) ? nullptr : &it.value();
 }
 
-MainWindow::DSInfo* MainWindow::findDsInfo(int connIdx, const QString& poolName, const QString& fullName) {
+DSInfo* MainWindow::findDsInfo(int connIdx, const QString& poolName, const QString& fullName) {
     PoolInfo* poolInfo = findPoolInfo(connIdx, poolName);
     if (!poolInfo) {
         return nullptr;
@@ -727,7 +727,7 @@ bool MainWindow::datasetExistsInModel(int connIdx, const QString& poolName, cons
     return findDsInfo(connIdx, poolName, datasetName) != nullptr;
 }
 
-QVector<MainWindow::DatasetPropCacheRow> MainWindow::datasetPropertyRowsFromModelOrCache(int connIdx,
+QVector<DatasetPropCacheRow> MainWindow::datasetPropertyRowsFromModelOrCache(int connIdx,
                                                                                          const QString& poolName,
                                                                                          const QString& objectName) const {
     if (const DSInfo* objectInfo = findDsInfo(connIdx, poolName, objectName);
@@ -738,7 +738,7 @@ QVector<MainWindow::DatasetPropCacheRow> MainWindow::datasetPropertyRowsFromMode
     return {};
 }
 
-QVector<MainWindow::DatasetPropCacheRow> MainWindow::datasetPropertyRowsForNames(int connIdx,
+QVector<DatasetPropCacheRow> MainWindow::datasetPropertyRowsForNames(int connIdx,
                                                                                  const QString& poolName,
                                                                                  const QString& objectName,
                                                                                  const QStringList& propNames) const {
@@ -1240,7 +1240,7 @@ QVector<MainWindow::PendingPropertyDraftEntry> MainWindow::pendingConnContentPro
     return drafts;
 }
 
-const MainWindow::DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntry(int connIdx,
+const DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntry(int connIdx,
                                                                                    const QString& poolName,
                                                                                    const QString& datasetName) const {
     const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
@@ -1252,7 +1252,7 @@ const MainWindow::DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEn
     return (it == m_datasetPermissionsCache.cend()) ? nullptr : &it.value();
 }
 
-const MainWindow::DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermissionsEntryLoaded(int connIdx,
+const DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermissionsEntryLoaded(int connIdx,
                                                                                                const QString& poolName,
                                                                                                const QString& datasetName) {
     if (!ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName)) {
@@ -1261,7 +1261,7 @@ const MainWindow::DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermiss
     return datasetPermissionsEntry(connIdx, poolName, datasetName);
 }
 
-const MainWindow::PoolDetailsCacheEntry* MainWindow::poolDetailsEntry(int connIdx, const QString& poolName) const {
+const PoolDetailsCacheEntry* MainWindow::poolDetailsEntry(int connIdx, const QString& poolName) const {
     const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
     const auto it = m_poolDetailsCache.constFind(cacheKey);
     return (it == m_poolDetailsCache.cend()) ? nullptr : &it.value();
@@ -2211,7 +2211,7 @@ QVector<QPair<QString, QString>> MainWindow::datasetSnapshotHolds(int connIdx, c
     return {};
 }
 
-MainWindow::DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntryMutable(int connIdx,
+DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntryMutable(int connIdx,
                                                                                     const QString& poolName,
                                                                                     const QString& datasetName) {
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);

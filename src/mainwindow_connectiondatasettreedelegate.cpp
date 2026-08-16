@@ -496,7 +496,7 @@ QString MainWindowConnectionDatasetTreeDelegate::deleteLabelForItem(int itemConn
         if (it != m_mainWindow->m_poolDatasetCache.cend()) {
             const auto recIt = it->recordByName.constFind(datasetName);
             if (recIt != it->recordByName.cend()) {
-                const MainWindow::DatasetRecord& rec = recIt.value();
+                const DatasetRecord& rec = recIt.value();
                 if (rec.mounted.trimmed() == QStringLiteral("-")
                     && rec.mountpoint.trimmed() == QStringLiteral("-")) {
                     return QStringLiteral("%1 %2").arg(
@@ -917,9 +917,9 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         if (vit != m_mainWindow->m_connContentPropValuesByObject.cend()) {
             allProps = vit.value().keys();
         } else {
-            const QVector<MainWindow::DatasetPropCacheRow> rows =
+            const QVector<DatasetPropCacheRow> rows =
                 m_mainWindow->datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
-            for (const MainWindow::DatasetPropCacheRow& row : rows) {
+            for (const DatasetPropCacheRow& row : rows) {
                 if (!row.prop.trimmed().isEmpty()) {
                     allProps.push_back(row.prop.trimmed());
                 }
@@ -2047,15 +2047,15 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
             return true;
         }
         bool exists = false;
-        auto appendPending = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
-            for (const MainWindow::DatasetPermissionGrant& g : grants) {
+        auto appendPending = [&](QVector<DatasetPermissionGrant>& grants) {
+            for (const DatasetPermissionGrant& g : grants) {
                 if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
                     exists = true;
                     break;
                 }
             }
             if (!exists) {
-                MainWindow::DatasetPermissionGrant g;
+                DatasetPermissionGrant g;
                 g.scope = scope;
                 g.targetType = targetType;
                 g.targetName = targetName;
@@ -2120,14 +2120,14 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
         if (entry) {
             bool exists = false;
-            for (const MainWindow::DatasetPermissionSet& s : entry->permissionSets) {
+            for (const DatasetPermissionSet& s : entry->permissionSets) {
                 if (s.name.compare(setName, Qt::CaseInsensitive) == 0) {
                     exists = true;
                     break;
                 }
             }
             if (!exists) {
-                MainWindow::DatasetPermissionSet s;
+                DatasetPermissionSet s;
                 s.name = setName;
                 s.permissions = tokens;
                 entry->permissionSets.push_back(s);
@@ -2170,8 +2170,8 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         }
         auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
         if (entry) {
-            auto updateGrant = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
-                for (MainWindow::DatasetPermissionGrant& g : grants) {
+            auto updateGrant = [&](QVector<DatasetPermissionGrant>& grants) {
+                for (DatasetPermissionGrant& g : grants) {
                     if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
                         g.scope = newScope;
                         g.targetType = newTargetType;
@@ -2194,9 +2194,9 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     if (picked == aDeleteGrant) {
         auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
         if (entry) {
-            auto removeGrant = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
+            auto removeGrant = [&](QVector<DatasetPermissionGrant>& grants) {
                 for (int i = grants.size() - 1; i >= 0; --i) {
-                    const MainWindow::DatasetPermissionGrant& g = grants.at(i);
+                    const DatasetPermissionGrant& g = grants.at(i);
                     if (g.scope == permNode->data(0, kConnPermissionsScopeRole).toString()
                         && g.targetType == permNode->data(0, kConnPermissionsTargetTypeRole).toString()
                         && g.targetName == permNode->data(0, kConnPermissionsTargetNameRole).toString()) {
@@ -2239,7 +2239,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         }
         auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
         if (entry) {
-            for (MainWindow::DatasetPermissionSet& s : entry->permissionSets) {
+            for (DatasetPermissionSet& s : entry->permissionSets) {
                 if (s.name.compare(oldSetName, Qt::CaseInsensitive) == 0) {
                     s.name = newSetName;
                     entry->dirty = true;
@@ -2787,9 +2787,9 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
             return QString();
         }
-        const QVector<MainWindow::DatasetPropCacheRow> rows =
+        const QVector<DatasetPropCacheRow> rows =
             m_mainWindow->datasetPropertyRowsFromModelOrCache(c.connIdx, c.poolName, c.datasetName);
-        for (const MainWindow::DatasetPropCacheRow& row : rows) {
+        for (const DatasetPropCacheRow& row : rows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) == 0) {
                 return row.value.trimmed();
             }
@@ -2801,9 +2801,9 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (datasetName.trimmed().isEmpty() || !ctx.valid || ctx.connIdx < 0 || ctx.poolName.isEmpty()) {
             return values;
         }
-        const QVector<MainWindow::DatasetPropCacheRow> rows =
+        const QVector<DatasetPropCacheRow> rows =
             m_mainWindow->datasetPropertyRowsFromModelOrCache(ctx.connIdx, ctx.poolName, datasetName);
-        for (const MainWindow::DatasetPropCacheRow& row : rows) {
+        for (const DatasetPropCacheRow& row : rows) {
             if (isGsaProp(row.prop)) {
                 values[row.prop] = row.value;
             }
@@ -3404,13 +3404,13 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 if (!entry) {
                     return;
                 }
-                auto appendPending = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
-                    for (const MainWindow::DatasetPermissionGrant& g : grants) {
+                auto appendPending = [&](QVector<DatasetPermissionGrant>& grants) {
+                    for (const DatasetPermissionGrant& g : grants) {
                         if (g.scope == newScope && g.targetType == newType && g.targetName == newName) {
                             return;
                         }
                     }
-                    MainWindow::DatasetPermissionGrant g;
+                    DatasetPermissionGrant g;
                     g.scope = newScope;
                     g.targetType = newType;
                     g.targetName = newName;
@@ -3463,12 +3463,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 if (!entry) {
                     return;
                 }
-                for (const MainWindow::DatasetPermissionSet& s : entry->permissionSets) {
+                for (const DatasetPermissionSet& s : entry->permissionSets) {
                     if (s.name.compare(setName, Qt::CaseInsensitive) == 0) {
                         return;
                     }
                 }
-                MainWindow::DatasetPermissionSet s;
+                DatasetPermissionSet s;
                 s.name = setName;
                 s.permissions = selected;
                 entry->permissionSets.push_back(s);

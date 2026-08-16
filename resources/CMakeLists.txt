@@ -127,6 +127,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow_logging.cpp
     ../src/mainwindow_help.cpp
     ../src/mainwindow.h
+    ../src/connectionmodel.h
     ../src/connectiondatasettreepane.cpp
     ../src/connectiondatasettreepane.h
     ../src/connectiondatasettreecontroller.cpp
