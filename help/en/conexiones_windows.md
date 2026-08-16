@@ -87,6 +87,13 @@ the path in the explorer changes. Assembling puts it back inside the parent.
 
 This is OpenZFS on Windows' model, not a ZFSMgr decision.
 
+**A nuance, measured after publishing this:** "do not nest" describes what you see, but
+the cause is **mount order**, not a prohibition. A child mounted while its parent is
+unmounted does appear inside the parent; as soon as the parent mounts, that content is
+**occluded** by the parent's mount and stops being visible. So it is not that ZFS
+forbids nesting: the flat mount at the root of the drive is simply what remains visible
+once everything is mounted, which is the normal case.
+
 ## Differences worth keeping in mind
 
 - **Mountpoints.** A pool created on Linux keeps Unix-style paths (`/mnt/data`), which

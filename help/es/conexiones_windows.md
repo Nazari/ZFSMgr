@@ -89,6 +89,13 @@ sitio dentro del padre.
 
 Es el modelo de OpenZFS para Windows, no una decisión de ZFSMgr.
 
+**Matiz, medido después de publicarlo:** «no se anidan» describe lo que se ve, pero la
+causa es el **orden de montaje**, no una prohibición. Un hijo montado mientras su padre
+está desmontado sí aparece dentro del padre; en cuanto el padre se monta, ese contenido
+queda **ocultado** por el montaje del padre y deja de verse. Es decir: no es que ZFS
+impida anidar, es que el montaje plano en la raíz de la unidad es lo que queda a la
+vista cuando todo está montado, que es el caso normal.
+
 ## Diferencias que conviene tener presentes
 
 - **Puntos de montaje.** Un pool creado en Linux conserva rutas de estilo Unix
