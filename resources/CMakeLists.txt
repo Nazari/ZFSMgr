@@ -166,6 +166,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/refreshparse.cpp
+    ../src/base/refreshparse.h
     ../src/base/storefiles.cpp
     ../src/base/storefiles.h
     ../src/base/storewarnings.h

@@ -9,6 +9,7 @@
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
+#include "refreshparse.h"
 #include "secretcipher.h"
 #include "strutil.h"
 
@@ -587,6 +588,54 @@ int main() {
                   "el trust-store tiene motivo propio, no el de config");
 
         std::filesystem::remove_all(dir);
+    }
+
+
+    // --- analizadores de la respuesta al refrescar
+    {
+        namespace R = zfsmgr::base::refresh;
+        igual(R::normalizeMachineUuid("  {ABCD-1234}  "), "abcd-1234",
+              "quita las llaves del registro de Windows y baja la caja");
+        igual(R::normalizeMachineUuid("{}"), "{}", "unas llaves solas no son un envoltorio");
+
+        igual(R::extractMachineUuid("basura abcd1234-11d3-9d69-0008-c781f39f0000 mas"),
+              "abcd1234-11d3-9d69-0008-c781f39f0000", "encuentra el UUID con guiones");
+        igual(R::extractMachineUuid("0123456789ABCDEF0123456789abcdef"),
+              "0123456789abcdef0123456789abcdef", "y el de 32 digitos seguidos");
+        igual(R::extractMachineUuid("primera\nsegunda"), "primera",
+              "sin UUID reconocible se queda con la primera linea");
+        igual(R::extractMachineUuid("   "), "", "el vacio no inventa");
+
+        {
+            const auto kv = R::parseKeyValueOutput(
+                "OS_LINE=Linux 6.1\n  version  =  0.92.0  \n=sinclave\nsuelta\nK=a=b\n");
+            comprobar(kv.size() == 3, "solo las lineas con clave cuentan");
+            comprobar(kv.at("OS_LINE") == "Linux 6.1", "lee el valor");
+            comprobar(kv.at("VERSION") == "0.92.0", "la clave sube a mayusculas y se recorta");
+            // El valor puede llevar un '=' dentro: solo parte por el PRIMERO.
+            comprobar(kv.at("K") == "a=b", "el valor conserva los '=' que lleve dentro");
+        }
+
+        {
+            const auto ps = R::parsePoolGuidStatusBatch(
+                "__ZFSMGR_POOL__: p1\n__ZFSMGR_GUID__: 123\n__ZFSMGR_STATUS_BEGIN__\n"
+                "  con sangria\n  otra\n__ZFSMGR_STATUS_END__\n"
+                "__ZFSMGR_POOL__:p2\n__ZFSMGR_GUID__:9\n");
+            comprobar(ps.size() == 2, "dos pools");
+            comprobar(ps.at("p1").guid == "123", "el guid del primero");
+            // La sangria INTERIOR se conserva: es parte de lo que ve el usuario en
+            // `zpool status`. Solo se recorta el bloque entero por los extremos.
+            comprobar(contains(ps.at("p1").status, "  otra"),
+                      "la sangria de las lineas de estado se conserva");
+            comprobar(ps.at("p2").status.empty(), "un pool sin bloque de estado queda vacio");
+            comprobar(R::parsePoolGuidStatusBatch("sin marcadores\n").empty(),
+                      "sin marcadores no hay pools");
+            comprobar(R::parsePoolGuidStatusBatch("__ZFSMGR_GUID__:9\n").empty(),
+                      "un guid sin pool se descarta");
+        }
+
+        comprobar(R::zfsmgrUnixCommandSet().size() == 6,
+                  "la lista de herramientas es corta a proposito");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

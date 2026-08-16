@@ -330,6 +330,31 @@ criterio que con el identificador de máquina.
 Que un fichero **no exista no es un aviso**: es el primer arranque. Solo lo es no poder
 abrirlo o que su contenido no sea un objeto JSON.
 
+## Los analizadores del refresco
+
+`src/base/refreshparse.{h,cpp}`: identificador de máquina, pares `CLAVE=valor` y el lote
+de estado de los pools. Son los que interpretan lo que responde el agente, así que son
+exactamente el tipo de código que gana con tener pruebas propias.
+
+**El aviso de siempre, otra vez:** `mainwindow_refresh.cpp` figuraba con «1.174 líneas
+portables y 0% de pintar», pero de esas, **mil son un único método de `MainWindow`**
+(`refreshConnection`). Lo que se ha podido mover son las siete funciones libres, ~145
+líneas. El fichero se queda casi igual de largo porque los adaptadores ocupan lo que
+ocupaban los analizadores; la ganancia no está en las líneas, está en que la lógica ya se
+puede probar sin levantar Qt.
+
+**Y dos de esas siete no se movieron: se borraron.** `refreshCompareAppVersions` y
+`refreshVersionOrderingKey` no las llamaba nadie. Parecen el resto de una función pensada
+—distinguir un agente más viejo de uno más nuevo— que nunca llegó a usarse, porque la
+comprobación de versión que hay hoy es de **igualdad exacta**. Mover código muerto a la
+capa nueva es exactamente como la capa vieja se llenó; están en el historial si algún día
+se quiere esa función.
+
+Verificado comparando contra las implementaciones originales recuperadas de git, sobre
+**6.030 muestras** —30 escritas a mano y 6.000 sorteadas a partir de fragmentos elegidos
+para picar los bordes de cada marcador—, más la comparación de versiones todas contra
+todas: **0 diferencias**.
+
 ## Estado
 
 Hecho y verificado:

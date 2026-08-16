@@ -1,4 +1,8 @@
 #include "mainwindow.h"
+
+#include "base/refreshparse.h"
+
+namespace BR = zfsmgr::base::refresh;
 #include "mainwindow_helpers.h"
 #include "daemonpayload.h"
 #include "helperinstallcatalog.h"
@@ -16,96 +20,32 @@
 namespace {
 using mwhelpers::oneLine;
 
-// Herramientas externas que el AGENTE invoca. Antes eran dieciocho: las que
-// necesitaban las tuberías de shell que la aplicación enviaba, y de las que el daemon
-// no usa ninguna —awk, grep, sort, find, mktemp, printf, cat, gzip, pv, sudo—. Eran
-// residuo del modelo anterior, igual que MSYS2, y sondearlas solo servía para mostrar
-// una lista de "faltantes" que no afectaba a nada.
+// Los analizadores viven en `src/base/refreshparse.cpp`, sin Qt. Aquí solo se convierte.
 //
-// Quien responde es ahora el propio agente, no un shell: él las ejecuta, y lo hace con
-// SU PATH, que no es el de la sesión SSH.
+// De aquí desaparecieron además refreshCompareAppVersions y refreshVersionOrderingKey:
+// no las llamaba nadie. Parecían el resto de una función pensada —distinguir un agente
+// más viejo de uno más nuevo— que nunca llegó a usarse, porque la comprobación de
+// versión que hay hoy es de igualdad exacta. Están en el historial si hacen falta.
+
+QString qs(const std::string& s) { return QString::fromStdString(s); }
+std::string bs(const QString& s) { return s.toStdString(); }
+
 QStringList zfsmgrUnixCommandSet() {
-    return {
-        QStringLiteral("zfs"),
-        QStringLiteral("zpool"),
-        QStringLiteral("rsync"),
-        QStringLiteral("tar"),
-        QStringLiteral("ssh"),
-        QStringLiteral("sh"),
-    };
+    QStringList out;
+    for (const std::string& c : BR::zfsmgrUnixCommandSet()) {
+        out << qs(c);
+    }
+    return out;
 }
 
-QString normalizeMachineUuid(QString s) {
-    s = s.trimmed().toLower();
-    if (s.startsWith('{') && s.endsWith('}') && s.size() > 2) {
-        s = s.mid(1, s.size() - 2);
-    }
-    return s;
-}
-
-QString extractMachineUuid(const QString& text) {
-    const QString t = text.trimmed();
-    if (t.isEmpty()) {
-        return QString();
-    }
-    const QRegularExpression rxDashed(
-        QStringLiteral("([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"));
-    const auto m = rxDashed.match(t);
-    if (m.hasMatch()) {
-        return normalizeMachineUuid(m.captured(1));
-    }
-    const QRegularExpression rxCompact(QStringLiteral("([0-9a-fA-F]{32})"));
-    const auto m2 = rxCompact.match(t);
-    if (m2.hasMatch()) {
-        return normalizeMachineUuid(m2.captured(1));
-    }
-    return normalizeMachineUuid(t.section('\n', 0, 0).trimmed());
-}
+QString extractMachineUuid(const QString& text) { return qs(BR::extractMachineUuid(bs(text))); }
 
 QMap<QString, QString> parseKeyValueOutput(const QString& text) {
     QMap<QString, QString> out;
-    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-    for (const QString& raw : lines) {
-        const int eq = raw.indexOf('=');
-        if (eq <= 0) {
-            continue;
-        }
-        const QString key = raw.left(eq).trimmed().toUpper();
-        const QString value = raw.mid(eq + 1).trimmed();
-        if (!key.isEmpty()) {
-            out.insert(key, value);
-        }
+    for (const auto& kv : BR::parseKeyValueOutput(bs(text))) {
+        out.insert(qs(kv.first), qs(kv.second));
     }
     return out;
-}
-
-QVector<int> refreshVersionOrderingKey(const QString& version) {
-    QVector<int> out;
-    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)\\.(\\d+)(?:rc(\\d+))?(?:[.-](\\d+))?$"),
-                                QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch m = rx.match(version.trimmed());
-    if (!m.hasMatch()) {
-        return out;
-    }
-    out << m.captured(1).toInt()
-        << m.captured(2).toInt()
-        << m.captured(3).toInt();
-    out << (m.captured(4).isEmpty() ? 999999 : m.captured(4).toInt());
-    out << (m.captured(5).isEmpty() ? 0 : m.captured(5).toInt());
-    return out;
-}
-
-int refreshCompareAppVersions(const QString& a, const QString& b) {
-    const QVector<int> ka = refreshVersionOrderingKey(a);
-    const QVector<int> kb = refreshVersionOrderingKey(b);
-    if (ka.isEmpty() || kb.isEmpty()) {
-        return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive);
-    }
-    for (int i = 0; i < qMin(ka.size(), kb.size()); ++i) {
-        if (ka[i] < kb[i]) return -1;
-        if (ka[i] > kb[i]) return 1;
-    }
-    return 0;
 }
 
 struct PoolGuidStatusEntry {
@@ -115,55 +55,9 @@ struct PoolGuidStatusEntry {
 
 QMap<QString, PoolGuidStatusEntry> parsePoolGuidStatusBatch(const QString& text) {
     QMap<QString, PoolGuidStatusEntry> out;
-    QString currentPool;
-    QString currentGuid;
-    QStringList statusLines;
-    bool collectingStatus = false;
-
-    auto flushCurrent = [&]() {
-        const QString pool = currentPool.trimmed();
-        if (pool.isEmpty()) {
-            currentPool.clear();
-            currentGuid.clear();
-            statusLines.clear();
-            collectingStatus = false;
-            return;
-        }
-        PoolGuidStatusEntry entry;
-        entry.guid = currentGuid.trimmed();
-        entry.status = statusLines.join('\n').trimmed();
-        out.insert(pool, entry);
-        currentPool.clear();
-        currentGuid.clear();
-        statusLines.clear();
-        collectingStatus = false;
-    };
-
-    const QStringList lines = text.split('\n');
-    for (const QString& rawLine : lines) {
-        const QString line = rawLine;
-        if (line.startsWith(QStringLiteral("__ZFSMGR_POOL__:"))) {
-            flushCurrent();
-            currentPool = line.mid(QStringLiteral("__ZFSMGR_POOL__:").size()).trimmed();
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("__ZFSMGR_GUID__:"))) {
-            currentGuid = line.mid(QStringLiteral("__ZFSMGR_GUID__:").size()).trimmed();
-            continue;
-        }
-        if (line == QStringLiteral("__ZFSMGR_STATUS_BEGIN__")) {
-            collectingStatus = true;
-            continue;
-        }
-        if (line == QStringLiteral("__ZFSMGR_STATUS_END__")) {
-            collectingStatus = false;
-            continue;
-        }
-        if (collectingStatus) {
-            statusLines.push_back(rawLine);
-        }
+    for (const auto& kv : BR::parsePoolGuidStatusBatch(bs(text))) {
+        out.insert(qs(kv.first), PoolGuidStatusEntry{qs(kv.second.guid), qs(kv.second.status)});
     }
-    flushCurrent();
     return out;
 }
 
