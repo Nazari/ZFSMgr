@@ -1,4 +1,10 @@
 #include "connectionstore.h"
+
+#include "base/connectionjson.h"
+
+namespace CJ = zfsmgr::base::connjson;
+namespace BP = zfsmgr::base;
+namespace BJ = zfsmgr::base::json;
 #include "i18nmanager.h"
 #include "secretcipher.h"
 
@@ -36,39 +42,6 @@ QString defaultIdFromGroup(const QString& group) {
         return group.mid(QStringLiteral("connection%3A").size());
     }
     return group;
-}
-
-int ensurePort(const QString& connType, int port) {
-    Q_UNUSED(connType);
-    return port > 0 ? port : 22;
-}
-
-// PSRP se retiró como transporte: no admite el daemon, porque el RPC viaja por un túnel
-// "ssh -L" y sin SSH no hay túnel. Un perfil guardado con PSRP no puede quedarse como
-// está —fallaría de forma opaca— ni desaparecer sin más, así que se convierte a SSH.
-//
-// El puerto es la parte que se olvida: 5986 es WinRM, y dejarlo convierte una conexión
-// rota en una conexión rota SIN explicación, que es peor que la de partida.
-bool migratePsrpProfileToSsh(ConnectionProfile& p) {
-    if (p.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) != 0) {
-        return false;
-    }
-    p.connType = QStringLiteral("SSH");
-    p.osType = QStringLiteral("Windows");
-    p.useSudo = false;
-    if (p.port == 5986 || p.port <= 0) {
-        p.port = 22;
-    }
-    return true;
-}
-
-bool shouldForceLocalSudo(const ConnectionProfile& p) {
-    const bool isLocal = p.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-        || p.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
-    if (!isLocal) {
-        return false;
-    }
-    return !p.osType.trimmed().toLower().contains(QStringLiteral("windows"));
 }
 
 QString currentLocalMachineUid() {
@@ -109,31 +82,135 @@ QString currentLocalMachineUid() {
     return s_cached;
 }
 
-QString decodeHexAsciiIfUuid(const QString& raw) {
-    const QByteArray bytes = QByteArray::fromHex(raw.trimmed().toLatin1());
-    if (bytes.isEmpty()) {
-        return QString();
-    }
-    const QString decoded = QString::fromLatin1(bytes).trimmed();
-    static const QRegularExpression uuidRx(
-        QStringLiteral("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"));
-    return uuidRx.match(decoded).hasMatch() ? decoded : QString();
+// --- Adaptadores hacia la capa base.
+//
+// La traducción entre ConnectionProfile y JSON vive en `src/base/connectionjson.cpp`,
+// que no depende de Qt. Aquí solo se convierte en la frontera y se le entrega el
+// identificador de máquina local, que la base no puede averiguar por su cuenta:
+// consultarlo cuesta 400-600 ms porque lanza `ioreg` o lee el registro.
+namespace {
+
+QString qs(const std::string& s) { return QString::fromStdString(s); }
+std::string bs(const QString& s) { return s.toStdString(); }
+
+BP::ConnectionProfile aBase(const ConnectionProfile& p) {
+    BP::ConnectionProfile o;
+    o.id = bs(p.id);
+    o.name = bs(p.name);
+    o.machineUid = bs(p.machineUid);
+    o.connType = bs(p.connType);
+    o.osType = bs(p.osType);
+    o.host = bs(p.host);
+    o.port = p.port;
+    o.sshAddressFamily = bs(p.sshAddressFamily);
+    o.username = bs(p.username);
+    o.password = bs(p.password);
+    o.keyPath = bs(p.keyPath);
+    o.useSudo = p.useSudo;
+    o.daemonTlsServerCertPem = bs(p.daemonTlsServerCertPem);
+    o.daemonTlsClientCertPem = bs(p.daemonTlsClientCertPem);
+    o.daemonTlsClientKeyPem = bs(p.daemonTlsClientKeyPem);
+    o.daemonTlsPort = p.daemonTlsPort;
+    return o;
 }
 
-QString normalizeMachineUidForStorage(const ConnectionProfile& p, QString raw) {
-    raw = raw.trimmed();
-    if (!shouldForceLocalSudo(p)) {
-        return raw;
-    }
-    if (raw.isEmpty()) {
-        return currentLocalMachineUid();
-    }
-    const QString decoded = decodeHexAsciiIfUuid(raw);
-    if (!decoded.isEmpty()) {
-        return decoded;
-    }
-    return raw;
+ConnectionProfile deBase(const BP::ConnectionProfile& o) {
+    ConnectionProfile p;
+    p.id = qs(o.id);
+    p.name = qs(o.name);
+    p.machineUid = qs(o.machineUid);
+    p.connType = qs(o.connType);
+    p.osType = qs(o.osType);
+    p.host = qs(o.host);
+    p.port = o.port;
+    p.sshAddressFamily = qs(o.sshAddressFamily);
+    p.username = qs(o.username);
+    p.password = qs(o.password);
+    p.keyPath = qs(o.keyPath);
+    p.useSudo = o.useSudo;
+    p.daemonTlsServerCertPem = qs(o.daemonTlsServerCertPem);
+    p.daemonTlsClientCertPem = qs(o.daemonTlsClientCertPem);
+    p.daemonTlsClientKeyPem = qs(o.daemonTlsClientKeyPem);
+    p.daemonTlsPort = o.daemonTlsPort;
+    return p;
 }
+
+// Puente Qt <-> capa base para el JSON. Se pasa por el texto compacto: es la única forma
+// de que las dos representaciones coincidan sin duplicar el árbol de tipos, y el coste
+// es irrelevante frente a los 40 ms de PBKDF2 que hay en cada campo cifrado.
+QJsonObject aQtJson(const BJ::Value& v) {
+    return QJsonDocument::fromJson(QByteArray::fromStdString(BJ::toCompact(v))).object();
+}
+
+BJ::Value deQtJson(const QJsonObject& o) {
+    BJ::Value v;
+    std::string err;
+    const QByteArray txt = QJsonDocument(o).toJson(QJsonDocument::Compact);
+    BJ::parse(std::string(txt.constData(), static_cast<std::size_t>(txt.size())), v, &err);
+    return v;
+}
+
+int ensurePort(const QString& connType, int port) {
+    return CJ::ensurePort(bs(connType), port);
+}
+
+bool migratePsrpProfileToSsh(ConnectionProfile& p) {
+    BP::ConnectionProfile o = aBase(p);
+    const bool cambio = CJ::migratePsrpProfileToSsh(o);
+    if (cambio) {
+        p = deBase(o);
+    }
+    return cambio;
+}
+
+bool shouldForceLocalSudo(const ConnectionProfile& p) {
+    return CJ::shouldForceLocalSudo(aBase(p));
+}
+
+bool profileHasDaemonTls(const ConnectionProfile& p) {
+    return CJ::profileHasDaemonTls(aBase(p));
+}
+
+bool isLocalProfile(const ConnectionProfile& p) {
+    return CJ::isLocalProfile(aBase(p));
+}
+
+QJsonObject connectionToJson(const ConnectionProfile& p) {
+    return aQtJson(CJ::connectionToJson(aBase(p), bs(currentLocalMachineUid())));
+}
+
+QJsonObject connectionTrustToJson(const ConnectionProfile& p) {
+    return aQtJson(CJ::connectionTrustToJson(aBase(p), bs(currentLocalMachineUid())));
+}
+
+ConnectionProfile connectionFromJson(const QJsonObject& obj) {
+    return deBase(CJ::connectionFromJson(deQtJson(obj), bs(currentLocalMachineUid())));
+}
+
+int indexOfConnectionById(const QJsonArray& connections, const QString& id) {
+    BJ::Array arr;
+    arr.reserve(static_cast<std::size_t>(connections.size()));
+    for (const QJsonValue& v : connections) {
+        arr.push_back(deQtJson(v.toObject()));
+    }
+    return static_cast<int>(CJ::indexOfConnectionById(arr, bs(id)));
+}
+
+bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
+    if (p.id.trimmed().isEmpty()) {
+        return false;
+    }
+    const int idx = indexOfConnectionById(connections, p.id);
+    const QJsonObject obj = connectionToJson(p);
+    if (idx >= 0) {
+        connections[idx] = obj;
+    } else {
+        connections.push_back(obj);
+    }
+    return true;
+}
+
+}  // namespace
 
 QJsonValue jsonValueFromVariant(const QVariant& v) {
     if (!v.isValid()) {
@@ -151,133 +228,6 @@ QJsonValue jsonValueFromVariant(const QVariant& v) {
         return arr;
     }
     return QJsonValue::fromVariant(v);
-}
-
-QJsonObject connectionToJson(const ConnectionProfile& inProfile) {
-    ConnectionProfile p = inProfile;
-    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    if (shouldForceLocalSudo(p)) {
-        p.useSudo = true;
-    }
-    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
-    QJsonObject obj;
-    obj.insert(QStringLiteral("id"), p.id.trimmed());
-    obj.insert(QStringLiteral("name"), p.name.trimmed());
-    obj.insert(QStringLiteral("machine_uid"), p.machineUid);
-    obj.insert(QStringLiteral("conn_type"),
-               p.connType.trimmed().isEmpty() ? QStringLiteral("SSH")
-                                              : p.connType.trimmed());
-    obj.insert(QStringLiteral("os_type"),
-               p.osType.trimmed().isEmpty() ? QStringLiteral("Linux")
-                                            : p.osType.trimmed());
-    obj.insert(QStringLiteral("host"), p.host.trimmed());
-    obj.insert(QStringLiteral("port"), ensurePort(p.connType, p.port));
-    obj.insert(QStringLiteral("ssh_address_family"),
-               (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
-                   ? sshFamily
-                   : QStringLiteral("auto"));
-    obj.insert(QStringLiteral("username"), p.username);
-    obj.insert(QStringLiteral("password"), p.password);
-    obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
-    obj.insert(QStringLiteral("use_sudo"), p.useSudo);
-    return obj;
-}
-
-QJsonObject connectionTrustToJson(const ConnectionProfile& inProfile) {
-    ConnectionProfile p = inProfile;
-    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
-    QJsonObject obj;
-    obj.insert(QStringLiteral("id"), p.id.trimmed());
-    obj.insert(QStringLiteral("name"), p.name.trimmed());
-    obj.insert(QStringLiteral("machine_uid"), p.machineUid);
-    obj.insert(QStringLiteral("conn_type"),
-               p.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : p.connType.trimmed());
-    obj.insert(QStringLiteral("os_type"),
-               p.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : p.osType.trimmed());
-    obj.insert(QStringLiteral("host"), p.host.trimmed());
-    obj.insert(QStringLiteral("port"), ensurePort(p.connType, p.port));
-    obj.insert(QStringLiteral("ssh_address_family"),
-               (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
-                   ? sshFamily
-                   : QStringLiteral("auto"));
-    obj.insert(QStringLiteral("username"), p.username);
-    obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
-    obj.insert(QStringLiteral("use_sudo"), p.useSudo);
-    obj.insert(QStringLiteral("daemon_tls_server_cert_pem"), p.daemonTlsServerCertPem);
-    obj.insert(QStringLiteral("daemon_tls_client_cert_pem"), p.daemonTlsClientCertPem);
-    obj.insert(QStringLiteral("daemon_tls_client_key_pem"), p.daemonTlsClientKeyPem);
-    obj.insert(QStringLiteral("daemon_tls_port"), p.daemonTlsPort > 0 ? p.daemonTlsPort : 47653);
-    return obj;
-}
-
-ConnectionProfile connectionFromJson(const QJsonObject& obj) {
-    ConnectionProfile p;
-    p.id = obj.value(QStringLiteral("id")).toString().trimmed();
-    p.name = obj.value(QStringLiteral("name")).toString();
-    const QString rawMachineUid = obj.value(QStringLiteral("machine_uid")).toString();
-    p.machineUid = rawMachineUid;
-    p.connType = obj.value(QStringLiteral("conn_type")).toString();
-    p.osType = obj.value(QStringLiteral("os_type")).toString();
-    p.host = obj.value(QStringLiteral("host")).toString();
-    p.port = obj.value(QStringLiteral("port")).toInt(22);
-    p.sshAddressFamily =
-        obj.value(QStringLiteral("ssh_address_family")).toString(QStringLiteral("auto")).trimmed().toLower();
-    p.username = obj.value(QStringLiteral("username")).toString();
-    p.password = obj.value(QStringLiteral("password")).toString();
-    p.keyPath = obj.value(QStringLiteral("key_path")).toString();
-    p.useSudo = obj.value(QStringLiteral("use_sudo")).toBool(false);
-    p.daemonTlsServerCertPem = obj.value(QStringLiteral("daemon_tls_server_cert_pem")).toString();
-    p.daemonTlsClientCertPem = obj.value(QStringLiteral("daemon_tls_client_cert_pem")).toString();
-    p.daemonTlsClientKeyPem = obj.value(QStringLiteral("daemon_tls_client_key_pem")).toString();
-    p.daemonTlsPort = obj.value(QStringLiteral("daemon_tls_port")).toInt(47653);
-    if (p.daemonTlsPort <= 0 || p.daemonTlsPort > 65535) {
-        p.daemonTlsPort = 47653;
-    }
-    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    if (shouldForceLocalSudo(p)) {
-        p.useSudo = true;
-    }
-    return p;
-}
-
-int indexOfConnectionById(const QJsonArray& connections, const QString& id) {
-    const QString target = id.trimmed();
-    if (target.isEmpty()) {
-        return -1;
-    }
-    for (int i = 0; i < connections.size(); ++i) {
-        const QJsonObject obj = connections.at(i).toObject();
-        if (obj.value(QStringLiteral("id")).toString().trimmed().compare(target, Qt::CaseInsensitive) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
-    if (p.id.trimmed().isEmpty()) {
-        return false;
-    }
-    const int idx = indexOfConnectionById(connections, p.id);
-    const QJsonObject obj = connectionToJson(p);
-    if (idx >= 0) {
-        connections[idx] = obj;
-    } else {
-        connections.push_back(obj);
-    }
-    return true;
-}
-
-bool profileHasDaemonTls(const ConnectionProfile& p) {
-    return !p.daemonTlsServerCertPem.trimmed().isEmpty()
-        || !p.daemonTlsClientCertPem.trimmed().isEmpty()
-        || !p.daemonTlsClientKeyPem.trimmed().isEmpty();
-}
-
-bool isLocalProfile(const ConnectionProfile& p) {
-    return p.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-        || p.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
 }
 
 QJsonObject readJsonRootNoMigration(const QString& path) {

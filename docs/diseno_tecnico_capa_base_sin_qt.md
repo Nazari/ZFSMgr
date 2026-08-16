@@ -269,6 +269,35 @@ instante con el fichero ya lleno de secretos y los permisos que tocaran.
 - Carga real de las conexiones del usuario con la capa base, y guardado forzado sobre una
   copia: contenido **byte a byte idéntico** y permisos 0666 -> 0600.
 
+## La traducción entre `ConnectionProfile` y el JSON
+
+`src/base/connectionjson.{h,cpp}`: lo que decide qué acaba escrito en `config.json` y en
+`trust-store.json`. Doce funciones, todas lógica pura salvo una dependencia que hubo que
+cortar.
+
+**La dependencia:** `normalizeMachineUidForStorage` llamaba a `currentLocalMachineUid()`,
+que lanza `ioreg` en macOS o lee el registro en Windows —400-600 ms, con caché de proceso—.
+Eso no puede vivir en la capa base. Ahora el identificador de la máquina local **se pasa
+como argumento**, así que la dependencia es explícita en la firma en vez de esconderse
+dentro de una estática.
+
+**Un detalle que había que replicar y no inventar:** `decodeHexAsciiIfUuid` usaba
+`QByteArray::fromHex`, que **se salta los caracteres no hexadecimales** en lugar de
+fallar, y ante un número impar de dígitos actúa como si llevara un `0` delante. Hay
+identificadores guardados que dependen de eso, así que la versión de la base hace lo
+mismo.
+
+### Verificación
+
+La referencia dorada se capturó **por la API pública**, que es lo que de verdad acaba en
+los ficheros del usuario: se dan de alta **3.000 perfiles** —cruce de tipo de conexión,
+sistema operativo, puerto, familia de direcciones e identificador de máquina, con
+espacios sobrantes por todas partes— y se vuelcan los dos ficheros resultantes más la
+relectura de los 3.000. **2.238.510 bytes, idénticos.**
+
+Los secretos van ya cifrados en la muestra a propósito: el cifrado lleva sal e IV
+aleatorios, así que con secretos en claro la salida no sería comparable dos veces.
+
 ## Estado
 
 Hecho y verificado:
@@ -330,7 +359,8 @@ antes de ponerla.
 
 Después de `mainwindow_helpers`:
 
-1. **`connectionstore.cpp`**. El JSON, el cifrado y la migración ya están resueltos;
-   queda portar la clase en sí, que a estas alturas es sobre todo pegamento.
+1. **`connectionstore.cpp`**. Ya están fuera el JSON, el cifrado, la migración y la
+   traducción a `ConnectionProfile`. Lo que queda de la clase es entrada y salida de
+   ficheros y los avisos traducidos, que son las dos cosas que aún atan a Qt.
 2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
 3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.

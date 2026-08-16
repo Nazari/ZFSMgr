@@ -3,6 +3,7 @@
 // arnés de cuatro líneas.
 
 #include "daemonpayload.h"
+#include "connectionjson.h"
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
@@ -449,6 +450,89 @@ int main() {
         // Formato invalido, sin reventar.
         comprobar(!C::decryptEncv1("encv1$solodospartes", "m", mal, err), "rechaza formato invalido");
         comprobar(!C::decryptEncv1("", "m", mal, err), "rechaza la entrada vacia");
+    }
+
+
+    // --- traduccion entre ConnectionProfile y el JSON de disco
+    {
+        namespace CJ = zfsmgr::base::connjson;
+        comprobar(CJ::ensurePort("SSH", 0) == 22, "sin puerto se asume el 22");
+        comprobar(CJ::ensurePort("SSH", -1) == 22, "un puerto negativo tambien");
+        comprobar(CJ::ensurePort("SSH", 2222) == 2222, "un puerto valido se respeta");
+
+        zfsmgr::base::ConnectionProfile loc;
+        loc.id = "local";
+        comprobar(CJ::isLocalProfile(loc), "reconoce el perfil local por id");
+        comprobar(CJ::shouldForceLocalSudo(loc), "el local en Unix va con sudo");
+        loc.osType = "Windows 11";
+        comprobar(!CJ::shouldForceLocalSudo(loc), "en Windows no, porque alli no hay sudo");
+        loc.id = "otro"; loc.connType = "LOCAL"; loc.osType.clear();
+        comprobar(CJ::isLocalProfile(loc), "tambien lo reconoce por conn_type");
+
+        // PSRP: lo que se olvida es el puerto. 5986 es WinRM, y dejarlo convierte una
+        // conexion rota en una conexion rota SIN explicacion.
+        zfsmgr::base::ConnectionProfile ps;
+        ps.connType = "psrp"; ps.port = 5986; ps.useSudo = true;
+        comprobar(CJ::migratePsrpProfileToSsh(ps), "convierte PSRP sin distinguir caja");
+        igual(ps.connType, "SSH", "pasa a SSH");
+        igual(ps.osType, "Windows", "y a Windows");
+        comprobar(ps.port == 22, "el puerto 5986 se corrige al 22");
+        comprobar(!ps.useSudo, "y se quita el sudo");
+        zfsmgr::base::ConnectionProfile ssh;
+        ssh.connType = "SSH"; ssh.port = 2222;
+        comprobar(!CJ::migratePsrpProfileToSsh(ssh) && ssh.port == 2222, "un SSH no se toca");
+
+        // decodeHexAsciiIfUuid imita a QByteArray::fromHex: SALTA lo no hexadecimal.
+        const std::string hexUuid =
+            "34346162636465662d313233342d353637382d396162632d646566303132333435363738";
+        igual(CJ::decodeHexAsciiIfUuid(hexUuid), "44abcdef-1234-5678-9abc-def012345678",
+              "decodifica el hexadecimal ASCII de un UUID");
+        igual(CJ::decodeHexAsciiIfUuid("no es hex"), "", "lo que no da un UUID devuelve vacio");
+        igual(CJ::decodeHexAsciiIfUuid(""), "", "el vacio no revienta");
+
+        // Ida y vuelta por JSON.
+        zfsmgr::base::ConnectionProfile p;
+        p.id = "  c1  "; p.name = "  Mi conexion  "; p.connType = "SSH"; p.osType = "Linux";
+        p.host = "  unib.local  "; p.port = 2222; p.sshAddressFamily = "IPv6";
+        p.username = "linarese"; p.password = "secreto"; p.keyPath = "  /k  ";
+        p.useSudo = true; p.daemonTlsPort = 40000;
+        const auto obj = CJ::connectionToJson(p, "uid-local");
+        igual(obj["id"].toString(), "c1", "el id se recorta al guardar");
+        igual(obj["host"].toString(), "unib.local", "y el host");
+        igual(obj["ssh_address_family"].toString(), "ipv6", "la familia se normaliza a minusculas");
+        igual(obj["password"].toString(), "secreto", "config.json SI lleva la contrasena");
+        const auto tr = CJ::connectionTrustToJson(p, "uid-local");
+        comprobar(!tr.contains("password"),
+                  "el almacen de confianza NO lleva contrasena: es su razon de ser");
+        comprobar(tr.contains("daemon_tls_client_key_pem"), "y si lleva el material TLS");
+
+        const auto vuelta = CJ::connectionFromJson(obj, "uid-local");
+        igual(vuelta.id, "c1", "ida y vuelta del id");
+        igual(vuelta.host, "unib.local", "ida y vuelta del host");
+        comprobar(vuelta.port == 2222, "ida y vuelta del puerto");
+        igual(vuelta.sshAddressFamily, "ipv6", "ida y vuelta de la familia");
+
+        // Una familia desconocida se guarda como «auto», no se propaga la basura.
+        p.sshAddressFamily = "loquesea";
+        igual(CJ::connectionToJson(p, "").
+                  operator[]("ssh_address_family").toString(), "auto",
+              "una familia desconocida se guarda como auto");
+
+        // El puerto TLS fuera de rango vuelve al de siempre.
+        zfsmgr::base::json::Value malo;
+        malo.set("daemon_tls_port", zfsmgr::base::json::Value(999999));
+        comprobar(CJ::connectionFromJson(malo, "").daemonTlsPort == 47653,
+                  "un puerto TLS imposible vuelve al 47653");
+
+        // upsert sustituye por id sin distinguir caja, no duplica.
+        zfsmgr::base::json::Array arr;
+        comprobar(CJ::upsertConnectionJson(arr, p, "") && arr.size() == 1, "inserta");
+        p.id = "C1"; p.host = "otro";
+        comprobar(CJ::upsertConnectionJson(arr, p, "") && arr.size() == 1,
+                  "sustituye por id sin distinguir caja, no duplica");
+        igual(arr[0]["host"].toString(), "otro", "y se queda el nuevo valor");
+        zfsmgr::base::ConnectionProfile sinId;
+        comprobar(!CJ::upsertConnectionJson(arr, sinId, ""), "sin id no inserta");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

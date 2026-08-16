@@ -166,6 +166,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/connectionjson.cpp
+    ../src/base/connectionjson.h
     ../src/base/secretcipher.cpp
     ../src/base/secretcipher.h
     ../src/base/json.cpp
