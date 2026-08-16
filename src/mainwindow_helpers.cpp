@@ -148,6 +148,17 @@ bool windowsPartitionTypeIsProtected(const QString& raw) { return B::windowsPart
 QString asciiSafeShellCommand(const QString& cmd) { return q(B::asciiSafeShellCommand(b(cmd))); }
 bool looksLikeSudoAuthFailure(const QString& text) { return B::looksLikeSudoAuthFailure(b(text)); }
 
+QString maskCommandSecrets(const QString& input) { return q(B::maskCommandSecrets(b(input))); }
+QString parseOpenZfsVersionText(const QString& text) { return q(B::parseOpenZfsVersionText(b(text))); }
+QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
+    QVector<ImportablePoolInfo> out;
+    for (const B::ImportablePoolInfo& r : B::parseZpoolImportOutput(b(text))) {
+        out.push_back(ImportablePoolInfo{q(r.pool), q(r.guid), q(r.state), q(r.reason)});
+    }
+    return out;
+}
+
+
 QStringList posixShellSplitArgs(const QString& s) { return ql(B::posixShellSplitArgs(b(s))); }
 
 TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
@@ -296,39 +307,6 @@ QString findLocalExecutable(const QString& name) {
 // va a `zfs`, no a `sudo`.
 //
 // Un solo sitio, y con test.
-QString maskCommandSecrets(const QString& input) {
-    QString out = input;
-    const auto sub = [&out](const QString& pattern, const QString& replacement) {
-        out.replace(QRegularExpression(pattern), replacement);
-    };
-
-    // Contraseña de sudo, forma antigua (literal) y actual (escapes octales para %b).
-    sub(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo)"),
-        QStringLiteral("\\1'[secret]'"));
-    sub(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat)"),
-        QStringLiteral("\\1'[secret]'"));
-    sub(QStringLiteral("(printf\\s+'%b\\\\n'\\s+)'(?:\\\\0[0-7]{1,3})*'"),
-        QStringLiteral("\\1'[secret]'"));
-
-    // Frase de cifrado al crear un dataset: `zfs create -o keyformat=passphrase` la
-    // pide DOS veces por la entrada estándar, de ahí el formato con dos %s.
-    sub(QStringLiteral("(printf\\s+'%s\\\\n%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'\\s+'(?:[^'\\\\]|\\\\.)*'"),
-        QStringLiteral("\\1'[secret]' '[secret]'"));
-    // Su equivalente en PowerShell, que la mete en una variable.
-    sub(QStringLiteral("(\\$pp\\s*=\\s*)'(?:[^']|'')*'"), QStringLiteral("\\1'[secret]'"));
-
-    // Verbos del agente cuyo ÚLTIMO argumento es un secreto en base64. Los separadores
-    // se aceptan como clase de caracteres porque la orden puede venir entrecomillada una
-    // o dos veces —`'"'"'` cuando va dentro de otro shSingleQuote—, y escribir cada
-    // variante a mano es justo lo que ya falló antes con la frase de `zfs create`.
-    sub(QStringLiteral("(--mutate-zfs-(?:load-key|change-key|create)[\'\" \\\\]+"
-                       "[A-Za-z0-9+/=]+[\'\" \\\\]+)[A-Za-z0-9+/=]+"),
-        QStringLiteral("\\1[secret]"));
-
-    // Cualquier `password=` / `password:` suelto.
-    sub(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+"), QStringLiteral("\\1[secret]"));
-    return out;
-}
 
 
 
@@ -340,112 +318,7 @@ QString maskCommandSecrets(const QString& input) {
 
 
 
-QString parseOpenZfsVersionText(const QString& text) {
-    if (text.trimmed().isEmpty()) {
-        return QString();
-    }
-    const QString lower = text.toLower();
-    const QList<QRegularExpression> patterns = {
-        QRegularExpression(QStringLiteral("\\bzfs(?:-kmod)?[-\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-        QRegularExpression(QStringLiteral("\\bopenzfs(?:[-\\s]+version)?[:\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-        QRegularExpression(QStringLiteral("\\b(?:zfs|zpool)[^\\r\\n]*?\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-    };
-    for (const QRegularExpression& rx : patterns) {
-        const QRegularExpressionMatch m = rx.match(lower);
-        if (m.hasMatch()) {
-            const QString ver = m.captured(1);
-            const int major = ver.section('.', 0, 0).toInt();
-            if (major <= 10) {
-                return ver;
-            }
-        }
-    }
-    return QString();
-}
 
-QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
-    QVector<ImportablePoolInfo> rows;
-    const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
-    QString currentPool;
-    QString currentGuid;
-    QString currentState;
-    QString currentReason;
-    bool collectingStatus = false;
-
-    auto flushCurrent = [&]() {
-        if (currentPool.isEmpty()) {
-            return;
-        }
-        if (!poolNameRx.match(currentPool).hasMatch()) {
-            currentPool.clear();
-            currentGuid.clear();
-            currentState.clear();
-            currentReason.clear();
-            collectingStatus = false;
-            return;
-        }
-        if (currentState.isEmpty() && currentReason.isEmpty()) {
-            currentPool.clear();
-            currentGuid.clear();
-            collectingStatus = false;
-            return;
-        }
-        rows.push_back(ImportablePoolInfo{
-            currentPool,
-            currentGuid,
-            currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
-            currentReason,
-        });
-        currentPool.clear();
-        currentGuid.clear();
-        currentState.clear();
-        currentReason.clear();
-        collectingStatus = false;
-    };
-
-    const QStringList lines = text.split('\n');
-    for (QString line : lines) {
-        line = line.trimmed();
-        if (line.startsWith(QStringLiteral("pool: "))) {
-            flushCurrent();
-            currentPool = line.mid(QStringLiteral("pool: ").size()).trimmed();
-            continue;
-        }
-        if (currentPool.isEmpty()) {
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("state: "))) {
-            currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
-            collectingStatus = false;
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("id: "))) {
-            currentGuid = line.mid(QStringLiteral("id: ").size()).trimmed();
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("status: "))) {
-            currentReason = line.mid(QStringLiteral("status: ").size()).trimmed();
-            collectingStatus = true;
-            continue;
-        }
-        if (collectingStatus) {
-            if (line.startsWith(QStringLiteral("action:")) || line.startsWith(QStringLiteral("see:")) || line.startsWith(QStringLiteral("config:"))) {
-                collectingStatus = false;
-            } else if (!line.isEmpty()) {
-                currentReason = (currentReason + QStringLiteral(" ") + line).trimmed();
-                continue;
-            }
-        }
-        if (line.startsWith(QStringLiteral("cannot import"))) {
-            if (!currentReason.isEmpty()) {
-                currentReason += QStringLiteral(" ");
-            }
-            currentReason += line;
-        }
-    }
-    flushCurrent();
-    return rows;
-}
 
 
 

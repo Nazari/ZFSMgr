@@ -133,6 +133,34 @@ La regla práctica al portar: **`toLowerAscii` para comparar valores de propieda
 nombres de verbo; `toLowerUtf8` en cuanto el texto venga de una persona o de un programa
 traducido.**
 
+## Expresiones regulares: `std::regex`, sin dependencias
+
+Decisión del usuario: no meter bibliotecas. Qt usa PCRE y `std::regex` usa ECMAScript,
+así que hubo que resolver dos diferencias, las dos comprobadas:
+
+- **El modificador en línea `(?i)` no existe** en `std::regex`. Va como bandera
+  `std::regex::icase`. Si se hubiera copiado tal cual, el patrón habría dejado de casar
+  y `PASSWORD: hunter2` habría acabado en el registro con el valor a la vista.
+- **El reemplazo se escribe `$1`, no `\1`.**
+
+Lo que sí existe en ECMAScript, y era la duda de fondo, es la **anticipación** `(?=...)`,
+de la que dependen dos de los siete patrones de `maskCommandSecrets`. La retrospección
+`(?<=...)` no existe, pero no se usaba.
+
+### Cómo se comprobó, que aquí importa más que de costumbre
+
+`maskCommandSecrets` es lo que impide que una contraseña acabe escrita en el registro,
+así que una referencia dorada de 2 KB no bastaba. Se comparó la implementación **vieja
+de Qt** —recuperada de git— contra la nueva sobre **200.000 entradas generadas al azar**
+a partir de fragmentos elegidos para picar los bordes de cada patrón: comillas sueltas,
+`'"'"'`, escapes octales a medias, `%` sin nada detrás, saltos de línea.
+
+    maskCommandSecrets:      200.000 casos, 0 diferencias
+    parseOpenZfsVersionText: 200.000 casos, 0 diferencias
+
+Es la técnica a repetir cada vez que se porte algo con expresiones regulares: la
+referencia dorada cubre los casos que uno imagina, y el sorteo cubre los que no.
+
 ## Estado
 
 Hecho y verificado:
@@ -161,14 +189,15 @@ Hecho y verificado:
 - **Las 15 últimas sin bloqueo**: secretos, letras de unidad, particiones de Windows,
   troceo POSIX, estado de los botones de transferencia y conflictos de punto de montaje.
 
-`mainwindow_helpers.cpp` queda en **669 líneas** de las 1.224 iniciales, y **53 de sus
-58 funciones** viven ya en la capa base. De las cinco que quedan:
+- **Las tres de expresiones regulares**, con `std::regex`.
+
+`mainwindow_helpers.cpp` queda en **542 líneas** de las 1.224 iniciales, y **56 de sus
+58 funciones** viven ya en la capa base. Solo quedan dos:
 
 | | cuántas | por qué |
 |---|---|---|
 | Ya portadas | **38** | órdenes, predicados, SSH, `scp`, `sudo` y agente |
 | Movibles, aún sin portar | 15 | sobre todo por los contenedores (`QMap`, `QVector`) |
-| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` — **la decisión pendiente de más peso**: `std::regex` o una biblioteca |
 | Sistema de ficheros | 1 | `findLocalExecutable` |
 | JSON | 1 | `parseZfsMountJsonOutput` |
 | `QProcess` | 1 | `checkLocalSudoPassword` |

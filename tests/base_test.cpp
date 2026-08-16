@@ -313,6 +313,48 @@ int main() {
         comprobar(contains(m, "[secret]"), "y deja el marcador");
     }
 
+
+    // --- lo que ahora va con std::regex
+    // Enmascarado: la orden real que construye withSudoCommand con la clave en octal.
+    {
+        const std::string oct = H::shPrintfOctalEscaped("rpq231");
+        const std::string cmd = "printf '%b\\n' '" + oct + "' | sudo -k -S -p '' sh -c 'zfs list'";
+        const std::string m = H::maskCommandSecrets(cmd);
+        comprobar(!contains(m, oct), "el secreto en octal no sobrevive al enmascarado");
+        comprobar(contains(m, "'[secret]'"), "queda el marcador");
+        comprobar(contains(m, "sudo -k -S"), "el resto de la orden se conserva");
+    }
+    comprobar(!contains(H::maskCommandSecrets("printf '%s\\n' 'rpq231' | sudo -S x"), "rpq231"),
+              "tambien tapa la forma literal");
+    // La bandera icase sustituye al (?i) de PCRE, que std::regex no entiende.
+    comprobar(contains(H::maskCommandSecrets("PASSWORD: hunter2"), "[secret]"),
+              "password en mayusculas tambien se tapa (icase, no (?i))");
+    comprobar(!contains(H::maskCommandSecrets("PASSWORD: hunter2"), "hunter2"),
+              "y el valor no queda");
+    // La anticipacion (?=...) SI existe en ECMAScript: sin ella este caso no casaria.
+    comprobar(contains(H::maskCommandSecrets("{ printf '%s\\n' 'x'; cat; } | sudo y"), "[secret]"),
+              "la forma con ; cat depende de la anticipacion");
+
+    igual(H::parseOpenZfsVersionText("zfs-2.3.3"), "2.3.3", "version de zfs");
+    igual(H::parseOpenZfsVersionText("OpenZFS version: 2.4.1"), "2.4.1", "version de openzfs");
+    // Un mayor absurdo delata que se ha pescado otra cosa.
+    igual(H::parseOpenZfsVersionText("zpool 99.0.0"), "", "un mayor por encima de 10 se descarta");
+    igual(H::parseOpenZfsVersionText("nada"), "", "sin version no inventa");
+    igual(H::parseOpenZfsVersionText(""), "", "el vacio no revienta");
+
+    {
+        const auto rows = H::parseZpoolImportOutput(
+            "   pool: p1\n     id: 1\n  state: FAULTED\n status: metadata corrupta\n"
+            "         y sigue\n action: x\n\n   pool: p2\n     id: 2\n  state: ONLINE\n");
+        comprobar(rows.size() == 2, "dos pools");
+        comprobar(rows[0].pool == "p1" && rows[0].state == "FAULTED", "el primero");
+        comprobar(contains(rows[0].reason, "y sigue"), "el status continuado se concatena");
+        comprobar(rows[1].pool == "p2" && rows[1].guid == "2", "el segundo");
+        // Un nombre con espacio no es un nombre de pool valido y se descarta.
+        comprobar(H::parseZpoolImportOutput("   pool: mal nombre\n  state: ONLINE\n").empty(),
+                  "un nombre invalido se descarta");
+    }
+
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }

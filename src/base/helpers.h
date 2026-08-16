@@ -170,6 +170,25 @@ std::string asciiSafeShellCommand(const std::string& cmd);
 // teclearla no arregla nada y por tanto no se ofrece reintentar.
 bool looksLikeSudoAuthFailure(const std::string& text);
 
+struct ImportablePoolInfo {
+    std::string pool;
+    std::string guid;
+    std::string state;
+    std::string reason;
+};
+
+// Tapa los secretos de una orden para poder escribirla en el registro. Contempla las
+// formas concretas que construye esta aplicación —no un «password» genérico— y de ahí
+// que sean siete patrones.
+std::string maskCommandSecrets(const std::string& input);
+
+// Saca la versión de OpenZFS de una salida en texto libre. Vacío si no la encuentra o
+// si el número mayor pasa de 10, que delata una coincidencia falsa.
+std::string parseOpenZfsVersionText(const std::string& text);
+
+// Trocea la salida de `zpool import`.
+std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
+
 // --- Invocación por SSH y del agente.
 //
 // Se apoyan en ConnectionProfile, que es lo que las mantenía atadas a Qt.

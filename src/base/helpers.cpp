@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdio>
 #include <map>
+#include <regex>
 #include <filesystem>
 #include <system_error>
 
@@ -26,6 +27,7 @@ using zfsmgr::base::toLowerAscii;
 using zfsmgr::base::isLetterAt;
 using zfsmgr::base::join;
 using zfsmgr::base::split;
+using zfsmgr::base::startsWith;
 using zfsmgr::base::toUpperUtf8;
 using zfsmgr::base::toLowerUtf8;
 using zfsmgr::base::trim;
@@ -864,6 +866,161 @@ bool looksLikeSudoAuthFailure(const std::string& text) {
         }
     }
     return false;
+}
+
+std::string maskCommandSecrets(const std::string& input) {
+    std::string out = input;
+    // std::regex con ECMAScript en vez de la PCRE de Qt. Las dos diferencias que había
+    // que resolver, y que están comprobadas contra la salida de Qt:
+    //   - el modificador en línea (?i) NO existe: va como bandera icase;
+    //   - el reemplazo se escribe $1, no \1.
+    // La anticipación (?=...) sí existe en ECMAScript, que era lo que podía faltar.
+    const auto sub = [&out](const char* pattern, const char* replacement,
+                            std::regex::flag_type extra = std::regex::ECMAScript) {
+        out = std::regex_replace(out, std::regex(pattern, extra), replacement);
+    };
+
+    // Contraseña de sudo, forma antigua (literal) y actual (escapes octales para %b).
+    sub("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo)", "$1'[secret]'");
+    sub("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat)", "$1'[secret]'");
+    sub("(printf\\s+'%b\\\\n'\\s+)'(?:\\\\0[0-7]{1,3})*'", "$1'[secret]'");
+
+    // Frase de cifrado al crear un dataset: `zfs create -o keyformat=passphrase` la
+    // pide DOS veces por la entrada estándar, de ahí el formato con dos %s.
+    sub("(printf\\s+'%s\\\\n%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'\\s+'(?:[^'\\\\]|\\\\.)*'",
+        "$1'[secret]' '[secret]'");
+    // Su equivalente en PowerShell, que la mete en una variable.
+    sub("(\\$pp\\s*=\\s*)'(?:[^']|'')*'", "$1'[secret]'");
+
+    // Verbos del agente cuyo ÚLTIMO argumento es un secreto en base64. Los separadores
+    // se aceptan como clase de caracteres porque la orden puede venir entrecomillada una
+    // o dos veces —`'"'"'` cuando va dentro de otro shSingleQuote—, y escribir cada
+    // variante a mano es justo lo que ya falló antes con la frase de `zfs create`.
+    sub("(--mutate-zfs-(?:load-key|change-key|create)['\" \\\\]+"
+        "[A-Za-z0-9+/=]+['\" \\\\]+)[A-Za-z0-9+/=]+",
+        "$1[secret]");
+
+    // Cualquier `password=` / `password:` suelto.
+    sub("(password\\s*[:=]\\s*)\\S+", "$1[secret]",
+        std::regex::ECMAScript | std::regex::icase);
+    return out;
+}
+
+std::string parseOpenZfsVersionText(const std::string& text) {
+    if (trim(text).empty()) {
+        return std::string();
+    }
+    const std::string lower = toLowerUtf8(text);
+    static const std::regex patterns[] = {
+        std::regex("\\bzfs(?:-kmod)?[-\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b"),
+        std::regex("\\bopenzfs(?:[-\\s]+version)?[:\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b"),
+        std::regex("\\b(?:zfs|zpool)[^\\r\\n]*?\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"),
+    };
+    for (const std::regex& rx : patterns) {
+        std::smatch m;
+        if (!std::regex_search(lower, m, rx)) {
+            continue;
+        }
+        const std::string ver = m[1].str();
+        // Un mayor por encima de 10 delata que se ha pescado otra cosa, no una versión.
+        // Se convierte a mano: stoi lanza donde QString::toInt devolvía 0.
+        const std::string mayorTxt = split(ver, ".", false).front();
+        int mayor = 0;
+        for (const char c : mayorTxt) {
+            if (!std::isdigit(static_cast<unsigned char>(c))) {
+                mayor = -1;
+                break;
+            }
+            mayor = mayor * 10 + (c - '0');
+            if (mayor > 1000) {
+                break;
+            }
+        }
+        if (mayor >= 0 && mayor <= 10) {
+            return ver;
+        }
+    }
+    return std::string();
+}
+
+std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) {
+    std::vector<ImportablePoolInfo> rows;
+    const std::regex poolNameRx("^[A-Za-z0-9_.:-]+$");
+    std::string currentPool, currentGuid, currentState, currentReason;
+    bool collectingStatus = false;
+
+    auto flushCurrent = [&]() {
+        if (currentPool.empty()) {
+            return;
+        }
+        if (!std::regex_search(currentPool, poolNameRx)) {
+            currentPool.clear();
+            currentGuid.clear();
+            currentState.clear();
+            currentReason.clear();
+            collectingStatus = false;
+            return;
+        }
+        if (currentState.empty() && currentReason.empty()) {
+            currentPool.clear();
+            currentGuid.clear();
+            collectingStatus = false;
+            return;
+        }
+        rows.push_back(ImportablePoolInfo{
+            currentPool,
+            currentGuid,
+            currentState.empty() ? std::string("UNKNOWN") : currentState,
+            currentReason,
+        });
+        currentPool.clear();
+        currentGuid.clear();
+        currentState.clear();
+        currentReason.clear();
+        collectingStatus = false;
+    };
+
+    for (const std::string& lineRaw : split(text, "\n", false)) {
+        const std::string line = trim(lineRaw);
+        if (startsWith(line, "pool: ")) {
+            flushCurrent();
+            currentPool = trim(mid(line, 6));
+            continue;
+        }
+        if (currentPool.empty()) {
+            continue;
+        }
+        if (startsWith(line, "state: ")) {
+            currentState = trim(mid(line, 7));
+            collectingStatus = false;
+            continue;
+        }
+        if (startsWith(line, "id: ")) {
+            currentGuid = trim(mid(line, 4));
+            continue;
+        }
+        if (startsWith(line, "status: ")) {
+            currentReason = trim(mid(line, 8));
+            collectingStatus = true;
+            continue;
+        }
+        if (collectingStatus) {
+            if (startsWith(line, "action:") || startsWith(line, "see:") || startsWith(line, "config:")) {
+                collectingStatus = false;
+            } else if (!line.empty()) {
+                currentReason = trim(currentReason + " " + line);
+                continue;
+            }
+        }
+        if (startsWith(line, "cannot import")) {
+            if (!currentReason.empty()) {
+                currentReason += " ";
+            }
+            currentReason += line;
+        }
+    }
+    flushCurrent();
+    return rows;
 }
 
 }  // namespace zfsmgr::base::helpers
