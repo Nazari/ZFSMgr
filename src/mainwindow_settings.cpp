@@ -157,7 +157,7 @@ QString MainWindow::trk(const QString& key, const QString& es, const QString& en
 }
 
 void MainWindow::loadUiSettings() {
-    const QJsonObject root = m_store.loadConfigJson();
+    const QJsonObject root = m_conns.store.loadConfigJson();
     const QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
     QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
     const QString langUi = uiObj.value(QStringLiteral("language")).toString().trimmed().toLower();
@@ -253,7 +253,7 @@ void MainWindow::loadUiSettings() {
 
 void MainWindow::saveUiSettings() const {
     QString jsonErr;
-    QJsonObject root = m_store.loadConfigJson(&jsonErr);
+    QJsonObject root = m_conns.store.loadConfigJson(&jsonErr);
     QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
     appObj.insert(QStringLiteral("language"), m_language);
     appObj.insert(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
@@ -303,7 +303,7 @@ void MainWindow::saveUiSettings() const {
     QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
     uiObj.remove(QStringLiteral("language"));
     root.insert(QStringLiteral("ui"), uiObj);
-    m_store.saveConfigJson(root, &jsonErr);
+    m_conns.store.saveConfigJson(root, &jsonErr);
 }
 
 void MainWindow::applyLanguageLive() {

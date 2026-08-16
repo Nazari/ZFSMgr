@@ -23,6 +23,17 @@
 // verdad porque alguno de esos valores acaba dentro de una orden que se ejecuta con
 // sudo—. La regla sigue siendo copiar por valor antes de abrir nada modal.
 struct ConnectionRegistry {
+    // De dónde salen las conexiones y adónde vuelven. Vive aquí porque `loadConnections()`
+    // era ya una danza entre el almacén y estos dos vectores repartida en dos campos
+    // distintos de la ventana.
+    //
+    // Sin constructor por defecto, así que el registro tiene el suyo: es lo que obliga a
+    // decir de qué aplicación se están cargando las conexiones, en vez de que se dé por
+    // sabido.
+    ConnectionStore store;
+
+    explicit ConnectionRegistry(const QString& appName) : store(appName) {}
+
     QVector<ConnectionProfile> profiles;
     QVector<ConnectionRuntimeState> states;
 

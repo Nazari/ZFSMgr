@@ -1119,7 +1119,6 @@ private:
     void removeDatasetPermissionsEntriesForPool(int connIdx, const QString& poolName);
     void resetAllDatasetPermissionDrafts();
 
-    ConnectionStore m_store;
     // Perfiles y estados van juntos: son vectores paralelos indexados por connIdx y
     // el invariante vive en el propio registro. Ver connectionregistry.h.
     ConnectionRegistry m_conns;

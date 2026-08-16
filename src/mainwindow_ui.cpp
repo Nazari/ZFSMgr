@@ -1822,7 +1822,7 @@ void MainWindow::buildUi() {
             return;
         }
         m_language = newLang;
-        m_store.setLanguage(m_language);
+        m_conns.store.setLanguage(m_language);
         saveUiSettings();
         appLog(QStringLiteral("INFO"), QStringLiteral("Idioma cambiado a %1").arg(m_language));
         applyLanguageLive();

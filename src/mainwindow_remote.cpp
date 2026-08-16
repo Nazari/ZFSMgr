@@ -1511,7 +1511,7 @@ bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& 
     QString storeErr;
     {
         QMutexLocker lock(&s_remoteDaemonTlsPersistMutex);
-        if (!m_store.upsertConnection(updated, storeErr)) {
+        if (!m_conns.store.upsertConnection(updated, storeErr)) {
             if (errorOut) {
                 *errorOut = storeErr;
             }

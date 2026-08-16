@@ -576,7 +576,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         localCfg.useSudo = true;
     }
     QString storeErr;
-    if (!m_store.upsertConnection(localCfg, storeErr)) {
+    if (!m_conns.store.upsertConnection(localCfg, storeErr)) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("No se pudieron persistir credenciales sudo locales en config.json: %1").arg(oneLine(storeErr)));
     } else {

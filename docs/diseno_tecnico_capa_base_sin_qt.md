@@ -521,6 +521,33 @@ vaciarla ahí habría sido una regresión introducida por el propio arreglo.
 ya hace `connInfoById`. Mientras eso no se haga, cualquier caché nueva con clave por
 índice reintroduce el mismo fallo.
 
+## Paso 1d: el almacén, y el resultado de las tres tandas
+
+`m_store` entra en el registro (29 referencias). Encaja: `loadConnections()` era ya una
+danza entre el almacén y los dos vectores repartida en campos distintos de la ventana.
+`ConnectionStore` no tiene constructor por defecto, así que el registro tiene el suyo —lo
+cual obliga a decir de qué aplicación se cargan las conexiones, en vez de darlo por
+sabido—.
+
+### Lo que dieron las tres tandas, medido igual que antes
+
+| | lógica | mixto | pintar |
+|---|---|---|---|
+| libre de estado | 1.386 | 221 | 1.897 |
+| poco acoplado (≤2 campos) | **5.489** | 7.462 | 4.091 |
+| atado | 6.017 | 5.111 | 4.384 |
+
+**Movible: de 3.575 líneas (9%) a 6.875 (19%).**
+
+Y el dato que más importa: **198 métodos dependen ahora de UNA cosa bien definida
+(`m_conns`) en lugar de ocho campos dispersos.** El siguiente escalón —que esos métodos
+reciban el registro como parámetro en vez de leerlo de la ventana— es lo que los llevaría
+a «libre», y ya es un cambio mecánico en vez de una excavación.
+
+Los campos que quedan por detrás son mucho más pequeños: `m_connContentTree` (44
+métodos, y es un widget: eso es interfaz, no lógica), `m_topDetailConnIdx` (16),
+`m_pendingChangesModel` (14).
+
 ## Estado
 
 Hecho y verificado:

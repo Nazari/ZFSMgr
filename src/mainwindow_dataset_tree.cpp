@@ -4914,7 +4914,7 @@ bool MainWindow::applyConnectionInlineFieldValue(int connIdx,
     }
 
     QString saveError;
-    if (!m_store.upsertConnection(updated, saveError)) {
+    if (!m_conns.store.upsertConnection(updated, saveError)) {
         if (errorOut) {
             *errorOut = saveError.trimmed().isEmpty() ? QStringLiteral("No se pudo guardar la conexión.") : saveError;
         }
@@ -6969,7 +6969,7 @@ void MainWindow::applyUserExpandedState(QTreeWidget* tree) {
 
 void MainWindow::loadUserExpandedState() {
     m_userNodeExpanded.clear();
-    const QJsonObject root = m_store.loadConfigJson();
+    const QJsonObject root = m_conns.store.loadConfigJson();
     const QJsonObject map = root[QStringLiteral("tree_expanded")].toObject();
     for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
         if (it.value().isBool()) {
@@ -6983,13 +6983,13 @@ void MainWindow::saveUserExpandedState() {
         m_userExpandedSaveTimer = new QTimer(this);
         m_userExpandedSaveTimer->setSingleShot(true);
         connect(m_userExpandedSaveTimer, &QTimer::timeout, this, [this]() {
-            QJsonObject root = m_store.loadConfigJson();
+            QJsonObject root = m_conns.store.loadConfigJson();
             QJsonObject map;
             for (auto it = m_userNodeExpanded.cbegin(); it != m_userNodeExpanded.cend(); ++it) {
                 map.insert(it.key(), QJsonValue(it.value()));
             }
             root[QStringLiteral("tree_expanded")] = map;
-            m_store.saveConfigJson(root);
+            m_conns.store.saveConfigJson(root);
         });
     }
     m_userExpandedSaveTimer->start(500);

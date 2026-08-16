@@ -172,7 +172,7 @@ bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
 
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
     : QMainWindow(parent)
-    , m_store(QStringLiteral("ZFSMgr")) {
+    , m_conns(QStringLiteral("ZFSMgr")) {
     QElapsedTimer startupTimer;
     startupTimer.start();
     setObjectName(QStringLiteral("mainWindow"));
@@ -185,8 +185,8 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         m_language = language.trimmed().toLower();
         saveUiSettings();
     }
-    m_store.setLanguage(m_language);
-    m_store.setMasterPassword(masterPassword);
+    m_conns.store.setLanguage(m_language);
+    m_conns.store.setMasterPassword(masterPassword);
     initLogPersistence();
     appLog(QStringLiteral("INFO"), QStringLiteral("[startup] initLogPersistence: %1 ms").arg(startupTimer.elapsed()));
     buildUi();

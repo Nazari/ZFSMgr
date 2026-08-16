@@ -275,7 +275,7 @@ void scrollLogViewToLatest(QPlainTextEdit* view) {
 } // namespace
 
 void MainWindow::initLogPersistence() {
-    const QString dir = m_store.configDir();
+    const QString dir = m_conns.store.configDir();
     if (dir.isEmpty()) {
         return;
     }

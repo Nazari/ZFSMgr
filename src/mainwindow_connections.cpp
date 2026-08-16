@@ -912,7 +912,7 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
     }
     for (int k = 0; k < toRemove.size(); ++k) {
         QString err;
-        if (m_store.deleteConnectionById(toRemove[k], err)) {
+        if (m_conns.store.deleteConnectionById(toRemove[k], err)) {
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Deduplicación: eliminada conexión '%1' (misma máquina que '%2')")
                        .arg(toRemoveNames[k], m_conns.profiles[keepIdx].name.trimmed()));
@@ -1784,7 +1784,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
             ConnectionProfile persisted = m_conns.profiles[targetIdx];
             persisted.machineUid = newMachineUid;
             QString persistErr;
-            if (m_store.upsertConnection(persisted, persistErr)) {
+            if (m_conns.store.upsertConnection(persisted, persistErr)) {
                 m_conns.profiles[targetIdx].machineUid = newMachineUid;
                 appLog(QStringLiteral("INFO"),
                        QStringLiteral("machine_uid persistido para %1: %2")
@@ -2667,7 +2667,7 @@ void MainWindow::loadConnections() {
         }
     }
 
-    const LoadResult loaded = m_store.loadConnections();
+    const LoadResult loaded = m_conns.store.loadConnections();
     // setProfiles ajusta los estados en el mismo paso. Antes se asignaban los perfiles
     // aquí y los estados veinte líneas más abajo, y entre medias quedaba una ventana con
     // los dos vectores de distinto tamaño: hoy nadie la aprovecha —lo único que corre en
@@ -2705,7 +2705,7 @@ void MainWindow::loadConnections() {
     rebuildConnectionsTable();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
                                    .arg(m_conns.profiles.size())
-                                   .arg(m_store.configPath()));
+                                   .arg(m_conns.store.configPath()));
     for (const QString& warning : loaded.warnings) {
         appLog(QStringLiteral("WARN"), warning);
     }
@@ -2884,7 +2884,7 @@ void MainWindow::createConnection() {
         createdId.replace('/', '_');
     }
     QString err;
-    if (!m_store.upsertConnection(created, err)) {
+    if (!m_conns.store.upsertConnection(created, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_conn_create_er1"),
                                   QStringLiteral("No se pudo crear conexión:\n%1"),
@@ -3061,11 +3061,11 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
         return;
     }
 
-    const QString trustPath = m_store.trustStorePath();
+    const QString trustPath = m_conns.store.trustStorePath();
     QFile trustFile(trustPath);
     if (!trustFile.exists()) {
         // Fuerza migración de TLS legacy desde config.json si existe.
-        const LoadResult loaded = m_store.loadConnections();
+        const LoadResult loaded = m_conns.store.loadConnections();
         for (const QString& warning : loaded.warnings) {
             appLog(QStringLiteral("WARN"), warning);
         }
@@ -3350,7 +3350,7 @@ void MainWindow::changeLocalSudoCredentials() {
         updated.password = pass;
         updated.useSudo = true;
         QString storeErr;
-        if (!m_store.upsertConnection(updated, storeErr)) {
+        if (!m_conns.store.upsertConnection(updated, storeErr)) {
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
@@ -3437,7 +3437,7 @@ void MainWindow::editConnection() {
     }
     const QString editedId = edited.id.trimmed();
     QString err;
-    if (!m_store.upsertConnection(edited, err)) {
+    if (!m_conns.store.upsertConnection(edited, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_conn_update_er"),
                                   QStringLiteral("No se pudo actualizar conexión:\n%1"),
@@ -4125,7 +4125,7 @@ void MainWindow::deleteConnection() {
         return;
     }
     QString err;
-    if (!m_store.deleteConnectionById(m_conns.profiles[idx].id, err)) {
+    if (!m_conns.store.deleteConnectionById(m_conns.profiles[idx].id, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_del_conn_err1"),
                                   QStringLiteral("No se pudo borrar conexión:\n%1"),

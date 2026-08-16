@@ -259,7 +259,7 @@ bool MainWindow::pendingShellDraftFromJson(const QJsonObject& obj,
 
 void MainWindow::savePendingActions() {
     QString jsonErr;
-    QJsonObject root = m_store.loadConfigJson(&jsonErr);
+    QJsonObject root = m_conns.store.loadConfigJson(&jsonErr);
     QJsonArray arr;
     int refused = 0;
     for (const PendingChange& change : m_pendingChangesModel) {
@@ -278,7 +278,7 @@ void MainWindow::savePendingActions() {
         arr.append(obj);
     }
     root.insert(QString::fromLatin1(kPendingRootKey), arr);
-    if (!m_store.saveConfigJson(root, &jsonErr)) {
+    if (!m_conns.store.saveConfigJson(root, &jsonErr)) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("[pendientes] no se pudo guardar la lista: %1").arg(jsonErr));
         return;
@@ -293,7 +293,7 @@ void MainWindow::savePendingActions() {
 }
 
 void MainWindow::loadPendingActions() {
-    const QJsonObject root = m_store.loadConfigJson();
+    const QJsonObject root = m_conns.store.loadConfigJson();
     const QJsonArray arr = root.value(QString::fromLatin1(kPendingRootKey)).toArray();
     if (arr.isEmpty()) {
         return;
