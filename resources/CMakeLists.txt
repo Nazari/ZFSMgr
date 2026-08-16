@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
-project(ZFSMgrQt VERSION 0.91.0 LANGUAGES CXX)
+project(ZFSMgrQt VERSION 0.92.0 LANGUAGES CXX)
 include(CTest)
-set(ZFSMGR_APP_VERSION_STRING "0.91.0")
+set(ZFSMGR_APP_VERSION_STRING "0.92.0")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
 string(SUBSTRING "${ZFSMGR_GSA_SOURCE_SHA}" 0 9 ZFSMGR_GSA_VERSION_SUFFIX)
@@ -47,6 +47,9 @@ breakdown:dir-name-pairs
 todir:progress-and-per-dataset
 cmd:--mutate-zfs-create
 create:reports-mountpoint
+cmd:--mutate-copy-tree
+cmd:--dump-copy-tree-pending
+copytree:skip-unchanged-delete-dryrun
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)
