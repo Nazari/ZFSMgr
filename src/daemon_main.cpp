@@ -6028,7 +6028,8 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 2) {
             r.rc = 2;
             r.err = std::string("usage: ") + argv0 + " " + cmd
-                    + " <src> <dst> [--one-file-system] [--exclude=<nombre>]...\n";
+                    + " <src> <dst> [--one-file-system] [--delete] [--dry-run]"
+                      " [--no-skip-unchanged] [--exclude=<nombre>]...\n";
             return r;
         }
         zfsmgr::copytree::Options opt;
@@ -6036,6 +6037,15 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             const std::string& a = params[i];
             if (a == "--one-file-system") {
                 opt.oneFileSystem = true;
+            } else if (a == "--delete") {
+                // Borra del destino lo que no está en el origen. Solo para sincronizar.
+                opt.deleteExtraneous = true;
+            } else if (a == "--dry-run") {
+                opt.dryRun = true;
+            } else if (a == "--no-skip-unchanged") {
+                // Rehacer la copia entera aunque ya coincida. Por omisión se salta lo
+                // igual, que es lo que hace rsync.
+                opt.skipUnchanged = false;
             } else if (a.rfind("--exclude=", 0) == 0) {
                 const std::string name = trim(a.substr(10));
                 if (!name.empty()) {
@@ -6067,6 +6077,8 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
                 + "\nDIRS=" + std::to_string(cr.dirsCreated)
                 + "\nSYMLINKS=" + std::to_string(cr.symlinksCopied)
                 + "\nHARDLINKS=" + std::to_string(cr.hardLinksRecreated)
+                + "\nSKIPPED=" + std::to_string(cr.filesSkipped)
+                + "\nDELETED=" + std::to_string(cr.entriesDeleted)
                 + "\nBYTES=" + std::to_string(cr.bytesWritten) + "\n";
         return r;
     }

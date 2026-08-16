@@ -193,6 +193,83 @@ private Q_SLOTS:
         QVERIFY2(st.st_blocks == 0, "un fichero todo huecos no debe asignar ni un bloque");
     }
 
+    // Lo que ya está igual no se reescribe. Es el comportamiento por omisión de rsync,
+    // y sin él una sincronización rehace el árbol entero en cada pasada.
+    void skipsWhatIsAlreadyThere() {
+        writeFile(src_ / "a.txt", "uno");
+        writeFile(src_ / "sub" / "b.txt", "dos");
+
+        const Result first = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(first.ok, first.error.c_str());
+        QCOMPARE(first.filesCopied, static_cast<std::uint64_t>(2));
+        QCOMPARE(first.filesSkipped, static_cast<std::uint64_t>(0));
+
+        // Segunda pasada sin cambios: no debe copiarse nada.
+        const Result second = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(second.ok, second.error.c_str());
+        QCOMPARE(second.filesCopied, static_cast<std::uint64_t>(0));
+        QCOMPARE(second.filesSkipped, static_cast<std::uint64_t>(2));
+        QCOMPARE(second.bytesWritten, static_cast<std::uint64_t>(0));
+
+        // Y lo que cambia SÍ se vuelve a copiar.
+        writeFile(src_ / "a.txt", "uno pero mas largo");
+        const Result third = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(third.ok, third.error.c_str());
+        QCOMPARE(third.filesCopied, static_cast<std::uint64_t>(1));
+        QCOMPARE(readFile(dst_ / "a.txt"), std::string("uno pero mas largo"));
+    }
+
+    void deleteExtraneousRemovesWhatIsNotInSource() {
+        writeFile(src_ / "queda.txt", "1");
+        writeFile(dst_ / "sobra.txt", "2");
+        writeFile(dst_ / "dirsobra" / "x.txt", "3");
+
+        Options opt;
+        opt.deleteExtraneous = true;
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QVERIFY(fs::exists(dst_ / "queda.txt"));
+        QVERIFY2(!fs::exists(dst_ / "sobra.txt"), "lo que no está en el origen se borra");
+        QVERIFY2(!fs::exists(dst_ / "dirsobra"), "también los directorios");
+        QCOMPARE(r.entriesDeleted, static_cast<std::uint64_t>(2));
+    }
+
+    // Lo excluido NO se borra. Dejarlo fuera de la copia a propósito y que el borrado se
+    // lo lleve por delante sería lo peor de los dos mundos.
+    void deleteExtraneousSpareExcluded() {
+        writeFile(src_ / "datos.txt", "1");
+        writeFile(dst_ / "Tools" / "x.txt", "no me toques");
+
+        Options opt;
+        opt.deleteExtraneous = true;
+        opt.excludes = {"Tools"};
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QVERIFY2(fs::exists(dst_ / "Tools" / "x.txt"), "lo excluido se protege del borrado");
+        QCOMPARE(r.entriesDeleted, static_cast<std::uint64_t>(0));
+    }
+
+    // El simulacro cuenta pero no toca. Es lo que alimenta la vista previa, así que un
+    // simulacro que modificara algo sería exactamente lo contrario de lo que promete.
+    void dryRunTouchesNothing() {
+        writeFile(src_ / "nuevo.txt", "1");
+        writeFile(src_ / "sub" / "otro.txt", "2");
+        writeFile(dst_ / "sobra.txt", "3");
+
+        Options opt;
+        opt.dryRun = true;
+        opt.deleteExtraneous = true;
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(r.filesCopied, static_cast<std::uint64_t>(2));
+        QCOMPARE(r.entriesDeleted, static_cast<std::uint64_t>(1));
+        QCOMPARE(r.bytesWritten, static_cast<std::uint64_t>(0));
+
+        QVERIFY2(!fs::exists(dst_ / "nuevo.txt"), "el simulacro no debe copiar");
+        QVERIFY2(!fs::exists(dst_ / "sub"), "ni crear directorios");
+        QVERIFY2(fs::exists(dst_ / "sobra.txt"), "ni borrar");
+    }
+
     // La verificación previa al borrado. Es la única red que impide perder datos, así
     // que se prueba tanto que cuenta lo que falta como que llega a cero cuando no falta.
     void countPendingReportsMissingFiles() {

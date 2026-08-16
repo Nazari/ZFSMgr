@@ -344,6 +344,28 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
     return ok;
 }
 
+// ¿El destino ya tiene este fichero, igual? Tamaño y fecha, que es el criterio de
+// rsync por omisión. No compara contenido: dos ficheros del mismo tamaño y la misma
+// fecha con datos distintos existen, pero comprobarlo obligaría a leerlo todo en cada
+// pasada y entonces saltárselo no ahorraría nada.
+bool sameAlreadyThere(const fs::path& src, const fs::path& dst) {
+    std::error_code e1;
+    std::error_code e2;
+    const auto dstSize = fs::file_size(dst, e1);
+    if (e1) {
+        return false;
+    }
+    const auto srcSize = fs::file_size(src, e2);
+    if (e2 || dstSize != srcSize) {
+        return false;
+    }
+    std::error_code e3;
+    std::error_code e4;
+    const auto dstTime = fs::last_write_time(dst, e3);
+    const auto srcTime = fs::last_write_time(src, e4);
+    return !e3 && !e4 && dstTime == srcTime;
+}
+
 struct Walker {
     Options opt;
     Result res;
@@ -391,6 +413,10 @@ struct Walker {
             if (fs::is_symlink(st)) {
                 const fs::path target = fs::read_symlink(from, ec);
                 if (!ec) {
+                    if (opt.dryRun) {
+                        ++res.symlinksCopied;
+                        continue;
+                    }
                     fs::remove(to, ec);
                     fs::create_symlink(target, to, ec);
                     if (!ec) {
@@ -403,18 +429,22 @@ struct Walker {
                 if (!shouldDescend(from)) {
                     continue;
                 }
-                fs::create_directories(to, ec);
-                if (ec) {
-                    res.error = "no se pudo crear " + to.string() + ": " + ec.message();
-                    return false;
+                if (!opt.dryRun) {
+                    fs::create_directories(to, ec);
+                    if (ec) {
+                        res.error = "no se pudo crear " + to.string() + ": " + ec.message();
+                        return false;
+                    }
                 }
                 ++res.dirsCreated;
                 if (!walk(from, to, depth + 1)) {
                     return false;
                 }
-                // Las marcas de tiempo del directorio, DESPUÉS de llenarlo: crear ficheros
-                // dentro las vuelve a tocar.
-                copyMetadata(from, to, true);
+                if (!opt.dryRun) {
+                    // Las marcas de tiempo del directorio, DESPUÉS de llenarlo: crear
+                    // ficheros dentro las vuelve a tocar.
+                    copyMetadata(from, to, true);
+                }
                 continue;
             }
             if (!fs::is_regular_file(st)) {
@@ -438,6 +468,19 @@ struct Walker {
                 }
             }
 
+            if (opt.skipUnchanged && sameAlreadyThere(from, to)) {
+                ++res.filesSkipped;
+                // Se apunta igualmente para los enlaces duros: si otra ruta apunta al
+                // mismo fichero, tiene que enlazar contra este, no copiarse aparte.
+                if (id.valid && id.linkCount > 1) {
+                    hardLinks.emplace(std::make_pair(id.volume, id.index), to);
+                }
+                continue;
+            }
+            if (opt.dryRun) {
+                ++res.filesCopied;
+                continue;
+            }
             std::string err;
             if (!copyFileData(from, to, res.bytesWritten, err)) {
                 res.error = err;
@@ -447,6 +490,44 @@ struct Walker {
             ++res.filesCopied;
             if (id.valid && id.linkCount > 1) {
                 hardLinks.emplace(std::make_pair(id.volume, id.index), to);
+            }
+        }
+        if (opt.deleteExtraneous && !removeExtraneous(src, dst, depth)) {
+            return false;
+        }
+        return true;
+    }
+
+    // Lo que hay en el destino y no en el origen. Es el `--delete` de rsync, y se hace
+    // DESPUÉS de copiar: si se hiciera antes, un fallo a mitad dejaría el destino con
+    // menos de lo que tenía y sin lo nuevo.
+    //
+    // Lo excluido no se toca, igual que en rsync: dejarlo fuera de la copia a propósito
+    // y que el borrado se lo llevara sería lo peor de los dos mundos.
+    bool removeExtraneous(const fs::path& src, const fs::path& dst, int depth) {
+        std::error_code ec;
+        fs::directory_iterator it(dst, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            return true;  // el destino puede no existir aún; no es un fallo
+        }
+        for (const fs::directory_entry& entry : it) {
+            const fs::path victim = entry.path();
+            const std::string name = victim.filename().string();
+            if (excluded(name, depth)) {
+                continue;
+            }
+            if (fs::exists(fs::symlink_status(src / victim.filename(), ec))) {
+                continue;
+            }
+            ++res.entriesDeleted;
+            if (opt.dryRun) {
+                continue;
+            }
+            std::error_code rmec;
+            fs::remove_all(victim, rmec);
+            if (rmec) {
+                res.error = "no se pudo borrar " + victim.string() + ": " + rmec.message();
+                return false;
             }
         }
         return true;

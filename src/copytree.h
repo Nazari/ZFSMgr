@@ -24,6 +24,25 @@ struct Options {
     // Nombres de PRIMER NIVEL que no se copian. Anclados a propósito: sin eso, excluir
     // "Tools" se comería cualquier directorio con ese nombre en todo el subárbol.
     std::vector<std::string> excludes;
+
+    // Saltar lo que ya está igual en el destino, comparando tamaño y fecha.
+    //
+    // Por defecto SÍ, que es lo que hacía rsync: `rsync -a` no reescribe lo que no ha
+    // cambiado. Sin esto, la copia rehacía el árbol entero en cada pasada —da igual en
+    // un destino vacío, pero convierte en absurdo cualquier sincronización, y encarece
+    // los reintentos de Ensamblar, que repiten la copia hasta cinco veces.
+    bool skipUnchanged = true;
+
+    // Borrar del destino lo que no está en el origen (el `--delete` de rsync).
+    //
+    // Solo tiene sentido al sincronizar. Lo excluido NO se borra, igual que en rsync:
+    // dejarlo fuera de la copia a propósito y que el borrado se lo lleve sería lo peor
+    // de los dos mundos.
+    bool deleteExtraneous = false;
+
+    // No tocar nada: recorrer y contar lo que se haría. Es lo que alimenta la vista
+    // previa de la interfaz antes de aplicar.
+    bool dryRun = false;
 };
 
 struct Result {
@@ -36,6 +55,10 @@ struct Result {
     // principal con robocopy, que los duplicaría en silencio.
     std::uint64_t hardLinksRecreated = 0;
     std::uint64_t bytesWritten = 0;
+    // Ya estaban iguales en el destino.
+    std::uint64_t filesSkipped = 0;
+    // Sobraban en el destino y se borraron (o se borrarían, en simulacro).
+    std::uint64_t entriesDeleted = 0;
 };
 
 // Copia el CONTENIDO de srcDir dentro de dstDir, como `rsync src/ dst/`.
