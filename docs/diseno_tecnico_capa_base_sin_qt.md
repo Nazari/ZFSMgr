@@ -355,6 +355,97 @@ Verificado comparando contra las implementaciones originales recuperadas de git,
 para picar los bordes de cada marcador—, más la comparación de versiones todas contra
 todas: **0 diferencias**.
 
+## Qué queda: la medición de `MainWindow`
+
+Hasta aquí portar era traducir tipos. Lo que queda está atado a `MainWindow`, así que
+antes de seguir se midió de qué depende realmente: para cada uno de sus **402 métodos**,
+qué campos de la clase toca.
+
+**La clase no es una bola enredada**, que era la sospecha razonable:
+
+| campos que toca un método | métodos |
+|---|---|
+| ninguno | **114** (3.742 líneas) |
+| uno | 105 |
+| dos | 78 |
+| tres o más | 105 |
+
+Y hay **un solo centro, pequeño**: `m_profiles` lo tocan 167 métodos (41%) y `m_states`
+70 (17%). El siguiente ya baja a 39. Sus tipos son triviales —`QVector<ConnectionProfile>`,
+`QVector<ConnectionRuntimeState>`, `ConnectionStore`— y el tercero **ya está portado**.
+
+### El efecto de extraer una sola cosa
+
+Métodos que quedarían libres de todo estado de la clase:
+
+| escenario | libres |
+|---|---|
+| hoy | 3.742 líneas / 114 métodos |
+| sacando `m_profiles` | 5.591 / 157 |
+| sacando `m_profiles` + `m_states` | 8.565 / 185 |
+| **+ `m_store` y las cinco cachés** | **16.051 / 226** |
+
+### Pero «libre de estado» no es «portable»
+
+Cruzando con el análisis de proximidad a widgets —la corrección que este documento ya ha
+tenido que hacer tres veces—:
+
+| | lógica | mixto | pintar |
+|---|---|---|---|
+| hoy, libre de estado | 1.386 | 221 | 1.897 |
+| hoy, atado | 9.321 | 11.525 | 7.269 |
+| tras extraer el registro, libre | 4.481 | 6.679 | 3.917 |
+
+**Movible de verdad: de 3.575 líneas (9%) a 7.937 (22%).** Cuatro veces más, no cuarenta.
+
+Dos métodos que conviene tener presentes: **`buildUi`** son 2.652 líneas y **71 campos**
+—es el nudo, y es presentación pura: si cambia la interfaz **se borra, no se porta**— y
+**`applyDatasetPropertyChanges`**, 1.072 líneas y 16 campos, que cae en el peor cuadrante:
+grande, atado y medio pintar.
+
+El techo honesto: aun después de la extracción quedan **11.525 líneas en «atado + mixto»**.
+Ese cuadrante no se desenreda portando; se resuelve cuando se decida qué interfaz habrá,
+o no se resuelve.
+
+## Antes de la interfaz web, un CLI
+
+Decidido el 2026-08-16. **Un CLI es la versión ejecutable de la medición de arriba:** si
+puede hacer algo, la lógica está fuera de la interfaz; si no puede, señala dónde sigue
+metida. Hoy nada obliga a la capa base a estar completa —solo la usan los tests y el
+cliente Qt a través de adaptadores—.
+
+Y es un **subconjunto estricto** del trabajo web: el CLI necesita la capa de lógica; la
+web necesita eso **más** servidor HTTP, sesión e interfaz. Si el CLI funciona, la web es
+los mismos verbos con otra cara.
+
+El agente ya es un CLI con 45 verbos; lo que falta es el del **cliente**, el que sabe de
+varias máquinas y orquesta entre ellas.
+
+### Lo que hace falta antes
+
+El transporte (`mainwindow_remote.cpp`) son **2.528 líneas en 38 métodos y 0% de pintar**,
+y su estado se agrupa en **dos** cosas: el registro de conexiones, y una **sesión de
+transporte** con los túneles y los reintentos (`m_remoteDaemonRpcTunnelsByConnKey`,
+`m_daemonRpcRetryAfterByConnKey`, `m_daemonRpcRetryReasonByConnKey`, el mutex y los
+conjuntos de SSH).
+
+### Orden acordado
+
+1. Registro de conexiones (vale aunque no haya CLI ni web: hoy no se puede probar casi
+   nada de `MainWindow` sin levantar Qt entero).
+2. Sesión de transporte.
+3. CLI de **solo lectura**: conexiones, pools, datasets, snapshots, propiedades. Sin
+   riesgo, y ejercita toda la pila.
+4. Mutaciones, con `--dry-run` y confirmación explícita.
+
+### Dos cosas pendientes de decidir, no de implementar
+
+- **La contraseña maestra en el CLI**: por terminal, por descriptor, o llavero. **Nunca
+  por variable de entorno ni por argumento**: quedan visibles en `ps`.
+- **Lo que no se traduce solo**: la cola de *Cambios pendientes* —revisar y luego
+  aplicar— y el marcado de origen/destino son interactivos por diseño. En un CLI pasan a
+  ser argumentos explícitos y `--dry-run`. Eso es rediseñar, no portar.
+
 ## Estado
 
 Hecho y verificado:
