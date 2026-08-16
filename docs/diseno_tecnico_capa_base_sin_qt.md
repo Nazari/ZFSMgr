@@ -702,13 +702,25 @@ La de sudo **sale ya cifrada de la configuración** una vez abierta la maestra. 
 la práctica el CLI necesita **una sola** entrada de secreto, y quien tiene la maestra
 tiene todo lo demás — que es también el motivo de que no deba pasar por `ps`.
 
-### Consecuencia para el transporte
+### Consecuencia para el transporte, ya implementada
 
-`ensureLocalSudoCredentials` es lo que hoy impide convertir la cadena de `runSsh` en
-funciones libres, porque **pregunta**. Con esto decidido, la forma es la misma que la del
-destino del registro: **un proveedor de credenciales que se recibe, no que se busca**. La
-interfaz pone uno que abre un diálogo; el CLI, uno que lee del descriptor o pregunta por
-terminal.
+`ensureLocalSudoCredentials` era lo que impedía convertir la cadena de `runSsh` en
+funciones libres, porque **pregunta**. Ahora `TransportSession` lleva un
+`credentialProvider` con la misma forma que el destino del registro: **se recibe, no se
+busca**. El diálogo salió de esa función —cero widgets ahí dentro— y la interfaz lo pone
+desde su constructor.
+
+Sin proveedor puesto, `askCredentials()` devuelve **false**, y es lo prudente: intentar
+una operación con `sudo` sin credenciales es peor que no intentarla, porque a los tres
+fallos `pam_faillock` bloquea la cuenta diez minutos.
+
+Con esto, las dos cosas que el transporte necesita del exterior —**a dónde contar** y
+**cómo preguntar**— se reciben, y ninguna se busca.
+
+**Ese camino no tenía ninguna prueba automática.** Ahora tiene dos, en el test de la
+ventana: que sin proveedor no se intenta, que se le pasa el motivo y devuelve lo tecleado,
+y que cancelar se propaga. Lo mismo para el destino del registro. No cubren el diálogo en
+sí —eso sigue sin probarse— pero sí el punto de unión, que es lo que acaba de cambiar.
 
 ## Estado
 

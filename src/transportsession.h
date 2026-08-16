@@ -83,6 +83,27 @@ struct TransportSession {
     AgentTransportForTest transportForTest;
     QVector<AgentCallForTest> callsForTest;
 
+    // --- Cómo se piden credenciales cuando hacen falta.
+    //
+    // Es la segunda cosa que el transporte necesita del exterior, junto al destino del
+    // registro: **a dónde contar** y **cómo preguntar**. Las dos se reciben, ninguna se
+    // busca — y por eso aquí dentro no hay ni un widget.
+    //
+    // La interfaz pone uno que abre un diálogo. Un CLI pondría uno que lee del descriptor
+    // que se le pasó y, si no hay, pregunta por terminal. Ver
+    // docs/diseno_tecnico_capa_base_sin_qt.md, «Cómo entran los secretos sin ventana».
+    //
+    // Devuelve false si no se pudo obtener —el usuario canceló, o no había descriptor en
+    // un contexto no interactivo—. Sin proveedor puesto devuelve false, que es lo
+    // prudente: mejor no hacer nada que intentarlo sin credenciales.
+    using CredentialProvider =
+        std::function<bool(const QString& motivo, QString& usuario, QString& clave)>;
+    CredentialProvider credentialProvider;
+
+    bool askCredentials(const QString& motivo, QString& usuario, QString& clave) const {
+        return credentialProvider ? credentialProvider(motivo, usuario, clave) : false;
+    }
+
     // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos
     // (QtConcurrent) y estos mapas se tocan desde varios a la vez.
     mutable QMutex mutex;

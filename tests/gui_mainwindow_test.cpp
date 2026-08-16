@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "connectionstore.h"
+#include "transportsession.h"
 
 #include <QApplication>
 #include <QPlainTextEdit>
@@ -520,6 +521,57 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("no debe considerarse mutante: %1").arg(c)));
         }
         QVERIFY(!MainWindow::isMutatingAgentCommandForTest({}));
+    }
+
+    // El punto de unión por el que se piden credenciales sin depender de que haya una
+    // ventana. Es lo que permite que la cadena del transporte pueda usarse desde un CLI.
+    //
+    // Sin proveedor puesto debe decir que NO: intentar una operación con sudo sin
+    // credenciales es peor que no intentarla, porque a los tres fallos pam_faillock
+    // bloquea la cuenta diez minutos.
+    void credentialProviderIsAskedAndCancelIsHonoured() {
+        TransportSession ses;
+        QString usuario;
+        QString clave;
+        QVERIFY2(!ses.askCredentials(QStringLiteral("motivo"), usuario, clave),
+                 "sin proveedor puesto NO debe intentarlo");
+
+        QString motivoVisto;
+        ses.credentialProvider = [&motivoVisto](const QString& motivo, QString& u, QString& c) {
+            motivoVisto = motivo;
+            u = QStringLiteral("linarese");
+            c = QStringLiteral("secreta");
+            return true;
+        };
+        QVERIFY(ses.askCredentials(QStringLiteral("por qué se piden"), usuario, clave));
+        QCOMPARE(motivoVisto, QStringLiteral("por qué se piden"));
+        QCOMPARE(usuario, QStringLiteral("linarese"));
+        QCOMPARE(clave, QStringLiteral("secreta"));
+
+        // Cancelar tiene que propagarse tal cual: quien llama debe poder abortar.
+        ses.credentialProvider = [](const QString&, QString&, QString&) { return false; };
+        QString u2;
+        QString c2;
+        QVERIFY(!ses.askCredentials(QStringLiteral("x"), u2, c2));
+    }
+
+    // El destino del registro, por el mismo motivo: el transporte cuenta lo que hace sin
+    // nombrar appLog. Sin destino puesto no debe reventar, solo no contarlo.
+    void logSinkReceivesLevelAndConnection() {
+        TransportSession ses;
+        ses.log(TransportSession::Nivel::Info, QStringLiteral("nadie escucha"));  // no revienta
+
+        QVector<QStringList> visto;
+        ses.sink = [&visto](TransportSession::Nivel n, const QString& connId, const QString& msg) {
+            visto.push_back({QString::number(static_cast<int>(n)), connId, msg});
+        };
+        ses.log(TransportSession::Nivel::Warn, QStringLiteral("general"));
+        ses.logConn(TransportSession::Nivel::Error, QStringLiteral("unib"), QStringLiteral("de conexión"));
+        QCOMPARE(visto.size(), 2);
+        QVERIFY(visto[0][1].isEmpty());
+        QCOMPARE(visto[0][2], QStringLiteral("general"));
+        QCOMPARE(visto[1][1], QStringLiteral("unib"));
+        QCOMPARE(visto[1][2], QStringLiteral("de conexión"));
     }
 };
 

@@ -1,4 +1,9 @@
 #include "mainwindow.h"
+
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLineEdit>
 #include "mainwindow_helpers.h"
 #include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
@@ -199,6 +204,39 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         if (!connId.trimmed().isEmpty()) {
             appendConnectionLog(connId, msg);
         }
+    };
+    // Cómo se piden credenciales cuando no las hay. En la interfaz, un diálogo; un CLI
+    // pondría aquí uno que lee del descriptor o pregunta por terminal.
+    m_transport.credentialProvider =
+        [this](const QString& motivo, QString& usuario, QString& clave) -> bool {
+        QDialog dlg(this);
+        dlg.setWindowTitle(motivo);
+        dlg.setModal(true);
+        auto* form = new QFormLayout(&dlg);
+        auto* userEdit = new QLineEdit(&dlg);
+        auto* passEdit = new QLineEdit(&dlg);
+        passEdit->setEchoMode(QLineEdit::Password);
+        const QString envUser = qEnvironmentVariable("USER").trimmed();
+        const QString envUserWin = qEnvironmentVariable("USERNAME").trimmed();
+        userEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
+        form->addRow(trk(QStringLiteral("t_usuario_d31f58"),
+                         QStringLiteral("Usuario"), QStringLiteral("User"),
+                         QStringLiteral("用户")),
+                     userEdit);
+        form->addRow(trk(QStringLiteral("t_password_8be3c9"),
+                         QStringLiteral("Password"), QStringLiteral("Password"),
+                         QStringLiteral("密码")),
+                     passEdit);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        form->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        if (dlg.exec() != QDialog::Accepted) {
+            return false;
+        }
+        usuario = userEdit->text();
+        clave = passEdit->text();
+        return true;
     };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);

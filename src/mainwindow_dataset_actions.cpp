@@ -492,38 +492,20 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         return true;
     }
 
-    QDialog dlg(this);
-    dlg.setWindowTitle(trk(QStringLiteral("t_local_sudo_dlg1"),
-                           QStringLiteral("Credenciales sudo locales"),
-                           QStringLiteral("Local sudo credentials"),
-                           QStringLiteral("本地 sudo 凭据")));
-    dlg.setModal(true);
-    auto* form = new QFormLayout(&dlg);
-    auto* userEdit = new QLineEdit(&dlg);
-    auto* passEdit = new QLineEdit(&dlg);
-    passEdit->setEchoMode(QLineEdit::Password);
-    const QString envUser = qEnvironmentVariable("USER").trimmed();
-    const QString envUserWin = qEnvironmentVariable("USERNAME").trimmed();
-    userEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
-    form->addRow(trk(QStringLiteral("t_usuario_d31f58"),
-                     QStringLiteral("Usuario"),
-                     QStringLiteral("User"),
-                     QStringLiteral("用户")),
-                 userEdit);
-    form->addRow(trk(QStringLiteral("t_password_8be3c9"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("密码")),
-                 passEdit);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    form->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-
-    if (dlg.exec() != QDialog::Accepted) {
+    // Aquí se PREGUNTA, y preguntar es lo único que ataba esta cadena a que hubiera una
+    // ventana. Ahora se pide al proveedor de la sesión: la interfaz pone uno que abre un
+    // diálogo; un CLI, uno que lee del descriptor o pregunta por terminal.
+    QString usuarioPedido;
+    QString clavePedida;
+    if (!m_transport.askCredentials(
+            trk(QStringLiteral("t_local_sudo_dlg1"),
+                QStringLiteral("Credenciales sudo locales"),
+                QStringLiteral("Local sudo credentials"),
+                QStringLiteral("本地 sudo 凭据")),
+            usuarioPedido, clavePedida)) {
         return false;
     }
-    if (userEdit->text().trimmed().isEmpty() || passEdit->text().isEmpty()) {
+    if (usuarioPedido.trimmed().isEmpty() || clavePedida.isEmpty()) {
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_local_sudo_req1"),
@@ -532,8 +514,8 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
                                  QStringLiteral("必须提供 sudo 用户和密码。")));
         return false;
     }
-    m_localSudoUsername = userEdit->text().trimmed();
-    m_localSudoPassword = passEdit->text();
+    m_localSudoUsername = usuarioPedido.trimmed();
+    m_localSudoPassword = clavePedida;
     profile.username = m_localSudoUsername;
     profile.password = m_localSudoPassword;
     appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales guardadas en memoria"));
