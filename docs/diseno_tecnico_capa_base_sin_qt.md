@@ -440,8 +440,7 @@ conjuntos de SSH).
 
 ### Dos cosas pendientes de decidir, no de implementar
 
-- **La contraseña maestra en el CLI**: por terminal, por descriptor, o llavero. **Nunca
-  por variable de entorno ni por argumento**: quedan visibles en `ps`.
+- ~~La contraseña maestra en el CLI~~ — **decidido, ver abajo**.
 - **Lo que no se traduce solo**: la cola de *Cambios pendientes* —revisar y luego
   aplicar— y el marcado de origen/destino son interactivos por diseño. En un CLI pasan a
   ser argumentos explícitos y `--dry-run`. Eso es rediseñar, no portar.
@@ -640,6 +639,76 @@ credenciales locales y preguntar. El resto de la cadena ya solo depende de la se
 
 Y queda un `QMessageBox` en `runLocalCommand`, que no es un descuido: ese método muestra
 un diálogo de progreso, es interfaz por naturaleza y no es algo que un CLI reutilice.
+
+## Cómo entran los secretos sin ventana
+
+Decidido el 2026-08-16, y en la misma dirección que ya apuntaba
+`docs/diseno_tecnico_endurecimiento_gsa.md` («Fase 1: config protegida en disco»).
+
+**Por descriptor de fichero, con el terminal como alternativa interactiva. Sin llavero.**
+
+    zfsmgr --password-fd 3   3< /ruta/al/secreto      # fichero 0600
+    zfsmgr                                            # sin él, pregunta por terminal
+
+**Nunca por variable de entorno ni por argumento:** los dos quedan visibles en `ps` para
+cualquier usuario de la máquina.
+
+### Por qué no el llavero del sistema
+
+Falla justo donde el CLI sirve. Un CLI existe sobre todo para guiones, `cron` e
+integración continua, es decir máquinas sin sesión gráfica — y ahí el Secret Service de
+Linux necesita D-Bus de sesión y el llavero desbloqueado, el de macOS no está desbloqueado
+en una sesión SSH, y el de Windows va por sesión interactiva.
+
+Añade además **tres implementaciones** (`libsecret`, `Security.framework`, `wincred`) y en
+Linux una dependencia, para fallar en el escenario que lo justificaba.
+
+Y un matiz que suele darse por bueno sin mirarlo: **un llavero desbloqueado lo lee
+cualquier proceso de ese usuario**. No es una frontera más fuerte que un fichero 0600; es
+la misma frontera con más maquinaria.
+
+### Por qué no solo el terminal
+
+Es correcto y sin dependencias, pero **es interactivo**, y un `cron` no teclea. Si el CLI
+solo sabe preguntar, mata su propio caso de uso principal.
+
+### Lo que gana el descriptor
+
+No sale en `ps`; funciona headless; una implementación, cero dependencias, las cuatro
+plataformas. Y es el idioma que el proyecto **ya usa**: `/etc/zfsmgr` a 700, el material
+TLS a 600, `config.json` y `trust-store.json` a 0600.
+
+El argumento fuerte: **así no hay que implementar ningún llavero, pero se soportan
+todos.**
+
+    zfsmgr --password-fd 3  3< <(pass show zfsmgr)
+    zfsmgr --password-fd 3  3< <(secret-tool lookup app zfsmgr)
+    zfsmgr --password-fd 3  3< <(security find-generic-password -w -s zfsmgr)
+
+Quien lo use enchufa **su** gestor de secretos sin que la aplicación conozca ninguno. La
+«fase 2» que contemplaba el documento de endurecimiento se vuelve innecesaria: la
+resuelve la composición.
+
+### Un solo secreto, no dos
+
+Hay dos en juego y conviene no confundirlos:
+
+| | qué abre | cuántas veces |
+|---|---|---|
+| **contraseña maestra** | descifra `config.json`: contraseñas de conexión y PEM de TLS | una por ejecución |
+| **contraseña de sudo** | eleva en cada máquina | por operación |
+
+La de sudo **sale ya cifrada de la configuración** una vez abierta la maestra. Así que en
+la práctica el CLI necesita **una sola** entrada de secreto, y quien tiene la maestra
+tiene todo lo demás — que es también el motivo de que no deba pasar por `ps`.
+
+### Consecuencia para el transporte
+
+`ensureLocalSudoCredentials` es lo que hoy impide convertir la cadena de `runSsh` en
+funciones libres, porque **pregunta**. Con esto decidido, la forma es la misma que la del
+destino del registro: **un proveedor de credenciales que se recibe, no que se busca**. La
+interfaz pone uno que abre un diálogo; el CLI, uno que lee del descriptor o pregunta por
+terminal.
 
 ## Estado
 

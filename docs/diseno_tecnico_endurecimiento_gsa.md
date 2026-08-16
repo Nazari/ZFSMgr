@@ -237,7 +237,18 @@ Opciones de almacenamiento:
 Recomendación:
 
 - Fase 1: config protegida en disco
-- Fase 2: opcionalmente backend de secretos del sistema
+- ~~Fase 2: opcionalmente backend de secretos del sistema~~
+
+**Actualización (2026-08-16): la fase 2 queda descartada, y la fase 1 confirmada.** El
+llavero del sistema falla justo donde haría falta —máquinas sin sesión gráfica, que son
+las de `cron` e integración continua—, cuesta tres implementaciones y una dependencia en
+Linux, y un llavero desbloqueado no es una frontera más fuerte que un fichero 0600.
+
+En su lugar, los secretos entran **por descriptor de fichero**, con el terminal como
+alternativa interactiva. Eso permite enchufar CUALQUIER gestor de secretos sin conocer
+ninguno: `--password-fd 3 3< <(pass show zfsmgr)`. Ver
+`docs/diseno_tecnico_capa_base_sin_qt.md`, sección «Cómo entran los secretos sin
+ventana».
 
 ## Permisos y ownership
 
