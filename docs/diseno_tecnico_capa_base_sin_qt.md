@@ -722,6 +722,27 @@ ventana: que sin proveedor no se intenta, que se le pasa el motivo y devuelve lo
 y que cancelar se propaga. Lo mismo para el destino del registro. No cubren el diálogo en
 sí —eso sigue sin probarse— pero sí el punto de unión, que es lo que acaba de cambiar.
 
+## Paso 3: `transport::`, las primeras funciones libres
+
+`src/transport.h` abre el espacio de nombres donde vive lo que un CLI llamaría. De
+momento tres funciones —`isLocalConnection`, `isWindowsConnection` y `wrapRemoteCommand`—
+y `MainWindow` conserva métodos del mismo nombre que delegan, así que ningún punto de
+llamada cambió.
+
+Son pocas líneas y es a propósito: lo que fija esta tanda es **el patrón** —espacio de
+nombres, cabecera, envoltorios— no el volumen.
+
+**Lo que enseñó el intento:** `ensureLocalDaemonTlsMaterial` parecía una hoja y no lo es.
+Llama a `runSsh` y a la resolución de credenciales de `sudo`, así que entra cuando entre
+esa cadena. Está anotado en la cabecera para que nadie lo intente otra vez creyendo que
+se olvidó.
+
+Queda por convertir la cadena grande —`runSsh` (547 líneas), `tryRunRemoteAgentRpcViaTunnel`
+(521) y `tryAgentRpcOverSsh` (135)—, que ya no tiene muros conceptuales: el estado está en
+la sesión, el registro sale por su destino y las credenciales por su proveedor. Falta
+además llevar `ensureLocalSudoCredentials` a la sesión como política, porque la cadena la
+llama.
+
 ## Estado
 
 Hecho y verificado:

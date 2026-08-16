@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+
+#include "transport.h"
 #include "mainwindow_helpers.h"
 #include "agentversion.h"
 #include "daemonpayload.h"
@@ -2643,7 +2645,22 @@ QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QStrin
     return mwhelpers::withSudoStreamInputCommand(p, cmd);
 }
 
+// --- Envoltorios: la lógica vive en `transport::`, que no depende de la ventana. Estos
+// existen para no tocar los puntos de llamada en el mismo cambio, y desaparecen cuando
+// migren.
 bool MainWindow::isLocalConnection(const ConnectionProfile& p) const {
+    return transport::isLocalConnection(p);
+}
+
+bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
+    return transport::isWindowsConnection(p);
+}
+
+QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
+    return transport::wrapRemoteCommand(p, remoteCmd);
+}
+
+bool transport::isLocalConnection(const ConnectionProfile& p) {
     return p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
 }
 
@@ -2654,7 +2671,7 @@ bool MainWindow::isLocalConnection(int connIdx) const {
     return isLocalConnection(m_conns.profiles[connIdx]);
 }
 
-bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
+bool transport::isWindowsConnection(const ConnectionProfile& p) {
     return mwhelpers::isWindowsOsType(p.osType);
 }
 
@@ -2681,8 +2698,8 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
            || os.contains(QStringLiteral("os x"));
 }
 
-QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
-                                      const QString& remoteCmd) const {
+QString transport::wrapRemoteCommand(const ConnectionProfile& p,
+                                      const QString& remoteCmd) {
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }

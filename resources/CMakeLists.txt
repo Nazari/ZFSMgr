@@ -130,6 +130,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/connectionmodel.h
     ../src/connectionregistry.h
     ../src/transportsession.h
+    ../src/transport.h
     ../src/connectiondatasettreepane.cpp
     ../src/connectiondatasettreepane.h
     ../src/connectiondatasettreecontroller.cpp
