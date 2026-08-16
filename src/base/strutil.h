@@ -72,6 +72,23 @@ std::string mid(const std::string& s, std::size_t posChars, std::size_t nChars);
 // Índice del byte donde empieza el carácter número `nChars`, o el tamaño si se pasa.
 std::size_t byteOfChar(const std::string& s, std::size_t nChars);
 
+// Caja consciente de UTF-8, para cuando el texto NO es ASCII y la decisión depende de
+// ello. El caso que lo obligó: `looksLikeSudoAuthFailure` compara contra frases con
+// acento, y con «SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO» la versión ASCII devolvía
+// que no había fallo de contraseña. Un rechazo se habría clasificado como «no se pudo
+// comprobar», que es el fallo que los comentarios de esa función dicen haber sufrido ya.
+//
+// Cubre ASCII, el suplemento Latin-1 y Latin Extended-A: español, francés, alemán,
+// portugués y buena parte del este de Europa. NO cubre griego, cirílico, la I turca ni
+// la expansión ß->SS; ahí devuelve el carácter sin tocar. Contrastado contra Qt en todo
+// el rango U+0000..U+017F.
+std::string toLowerUtf8(const std::string& s);
+std::string toUpperUtf8(const std::string& s);
+
+// ¿Es letra el carácter que empieza en el byte `pos`? ASCII más los mismos rangos
+// latinos de arriba.
+bool isLetterAt(const std::string& s, std::size_t pos);
+
 // `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.
 std::vector<std::string> split(const std::string& s, const std::string& sep, bool skipEmpty);
 std::string join(const std::vector<std::string>& parts, const std::string& sep);

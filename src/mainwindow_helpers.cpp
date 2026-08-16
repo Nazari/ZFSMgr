@@ -2,6 +2,9 @@
 
 #include "daemonpayload.h"
 
+#include <map>
+#include <vector>
+
 #include "base/connectionprofile.h"
 #include "base/helpers.h"
 #include "base/strutil.h"
@@ -134,6 +137,89 @@ QStringList ql(const std::vector<std::string>& v) {
 }  // namespace
 
 QString shPrintfOctalEscaped(const QString& s) { return q(B::shPrintfOctalEscaped(b(s))); }
+
+QString maskedAgentArgvForLog(const QStringList& argv) { return q(B::maskedAgentArgvForLog(bl(argv))); }
+QString normalizeDriveLetterValue(const QString& raw) { return q(B::normalizeDriveLetterValue(b(raw))); }
+QString sshHostKeyProblemHint(const QString& e) { return q(B::sshHostKeyProblemHint(b(e))); }
+bool isCliOnlyAgentCommand(const QString& verb) { return B::isCliOnlyAgentCommand(b(verb)); }
+QString windowsGptTypeName(const QString& guid) { return q(B::windowsGptTypeName(b(guid))); }
+QString formatWindowsFsTypeDetail(const QString& raw) { return q(B::formatWindowsFsTypeDetail(b(raw))); }
+bool windowsPartitionTypeIsProtected(const QString& raw) { return B::windowsPartitionTypeIsProtected(b(raw)); }
+QString asciiSafeShellCommand(const QString& cmd) { return q(B::asciiSafeShellCommand(b(cmd))); }
+bool looksLikeSudoAuthFailure(const QString& text) { return B::looksLikeSudoAuthFailure(b(text)); }
+
+QStringList posixShellSplitArgs(const QString& s) { return ql(B::posixShellSplitArgs(b(s))); }
+
+TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
+    B::TransferButtonInputs bi;
+    bi.srcDatasetSelected = in.srcDatasetSelected;
+    bi.srcSnapshotSelected = in.srcSnapshotSelected;
+    bi.dstDatasetSelected = in.dstDatasetSelected;
+    bi.dstSnapshotSelected = in.dstSnapshotSelected;
+    bi.srcSelectionKey = b(in.srcSelectionKey);
+    bi.dstSelectionKey = b(in.dstSelectionKey);
+    bi.srcSelectionConsistent = in.srcSelectionConsistent;
+    bi.dstSelectionConsistent = in.dstSelectionConsistent;
+    bi.srcDatasetMounted = in.srcDatasetMounted;
+    bi.dstDatasetMounted = in.dstDatasetMounted;
+    const B::TransferButtonState bs = B::computeTransferButtonState(bi);
+    TransferButtonState out;
+    out.copyEnabled = bs.copyEnabled;
+    out.levelEnabled = bs.levelEnabled;
+    out.syncEnabled = bs.syncEnabled;
+    return out;
+}
+
+namespace {
+std::map<std::string, std::string> bm(const QMap<QString, QString>& m) {
+    std::map<std::string, std::string> o;
+    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {
+        o.emplace(b(it.key()), b(it.value()));
+    }
+    return o;
+}
+std::map<std::string, std::vector<std::string>> bml(const QMap<QString, QStringList>& m) {
+    std::map<std::string, std::vector<std::string>> o;
+    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {
+        o.emplace(b(it.key()), bl(it.value()));
+    }
+    return o;
+}
+std::vector<B::StorableSecret> bs(const QVector<StorableSecret>& v) {
+    std::vector<B::StorableSecret> o;
+    o.reserve(static_cast<std::size_t>(v.size()));
+    for (const StorableSecret& s : v) {
+        o.push_back(B::StorableSecret{b(s.key), b(s.secret)});
+    }
+    return o;
+}
+}  // namespace
+
+QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints) {
+    QMap<QString, QStringList> out;
+    for (const auto& [mp, datasets] : B::duplicateMountpoints(bm(datasetMountpoints))) {
+        out.insert(q(mp), ql(datasets));
+    }
+    return out;
+}
+
+QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& target,
+                                                        const QMap<QString, QStringList>& mounted) {
+    QVector<MountpointConflict> out;
+    for (const B::MountpointConflict& c : B::externalMountpointConflicts(bm(target), bml(mounted))) {
+        out.push_back(MountpointConflict{q(c.mountpoint), q(c.mountedDataset), q(c.requestedDataset)});
+    }
+    return out;
+}
+
+QString redactSecretsForStorage(const QString& command, const QVector<StorableSecret>& secrets, bool* okOut) {
+    return q(B::redactSecretsForStorage(b(command), bs(secrets), okOut));
+}
+
+QString restoreSecretsFromStorage(const QString& stored, const QVector<StorableSecret>& secrets) {
+    return q(B::restoreSecretsFromStorage(b(stored), bs(secrets)));
+}
+
 QString sshControlPath() { return q(B::sshControlPath()); }
 QString sshUserHost(const ConnectionProfile& p) { return q(B::sshUserHost(toBase(p))); }
 QString sshUserHostPort(const ConnectionProfile& p) { return q(B::sshUserHostPort(toBase(p))); }
@@ -244,164 +330,15 @@ QString maskCommandSecrets(const QString& input) {
     return out;
 }
 
-QString maskedAgentArgvForLog(const QStringList& argv) {
-    QStringList masked = argv;
-    for (int i = 0; i < masked.size(); ++i) {
-        const QString verb = masked.at(i).trimmed();
-        if (verb != QStringLiteral("--mutate-zfs-load-key")
-            && verb != QStringLiteral("--mutate-zfs-change-key")
-            && verb != QStringLiteral("--mutate-zfs-create")) {
-            continue;
-        }
-        // El secreto es el ÚLTIMO argumento del verbo: para load-key/change-key va tras
-        // el dataset, y para create tras el argv de zfs. Se tapa todo lo que siga a ese
-        // primer argumento, que nunca es más de uno.
-        for (int j = i + 2; j < masked.size(); ++j) {
-            masked[j] = QStringLiteral("[secret]");
-        }
-        break;
-    }
-    return masked.join(QLatin1Char(' '));
-}
 
 
 
 
 
-QString normalizeDriveLetterValue(const QString& raw) {
-    QString s = raw.trimmed();
-    if (s.isEmpty() || s == QStringLiteral("-") || s.compare(QStringLiteral("none"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
-    s.replace(QStringLiteral(":\\"), QString());
-    s.replace(':', QString());
-    s.replace('\\', QString());
-    s.replace('/', QString());
-    s = s.trimmed().toUpper();
-    if (s.isEmpty()) {
-        return QString();
-    }
-    const QChar d = s[0];
-    if (!d.isLetter()) {
-        return QString();
-    }
-    return QString(d);
-}
 
 
-QString windowsGptTypeName(const QString& guid) {
-    QString g = guid.trimmed();
-    if (g.startsWith('{') && g.endsWith('}') && g.size() > 2) {
-        g = g.mid(1, g.size() - 2);
-    }
-    g = g.toLower();
-    static const QMap<QString, QString> kMap = {
-        {QStringLiteral("00000000-0000-0000-0000-000000000000"), QStringLiteral("Unused entry")},
-        {QStringLiteral("024dee41-33e7-11d3-9d69-0008c781f39f"), QStringLiteral("MBR partition scheme")},
-        {QStringLiteral("c12a7328-f81f-11d2-ba4b-00a0c93ec93b"), QStringLiteral("EFI System Partition")},
-        {QStringLiteral("21686148-6449-6e6f-744e-656564454649"), QStringLiteral("BIOS Boot Partition")},
-        {QStringLiteral("b334117e-118d-11de-9b0f-001cc0952d53"), QStringLiteral("gdisk unknown")},
-        {QStringLiteral("e3c9e316-0b5c-4db8-817d-f92df00215ae"), QStringLiteral("Windows/Reserved")},
-        {QStringLiteral("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"), QStringLiteral("Windows/Basic Data / Linux/Data")},
-        {QStringLiteral("5808c8aa-7e8f-42e0-85d2-e1e90434cfb3"), QStringLiteral("Windows/LDM metadata")},
-        {QStringLiteral("af9b60a0-1431-4f62-bc68-3311714a69ad"), QStringLiteral("Windows/LDM data")},
-        {QStringLiteral("75894c1e-3aeb-11d3-b7c1-7b03a0000000"), QStringLiteral("HP-UX/Data")},
-        {QStringLiteral("e2a1e728-32e3-11d6-a682-7b03a0000000"), QStringLiteral("HP-UX/Service")},
-        {QStringLiteral("a19d880f-05fc-4d3b-a006-743f0f84911e"), QStringLiteral("Linux/RAID")},
-        {QStringLiteral("0657fd6d-a4ab-43c4-84e5-0933c84b4f4f"), QStringLiteral("Linux/Swap")},
-        {QStringLiteral("e6d6d379-f507-44c2-a23c-238f2a3df928"), QStringLiteral("Linux/LVM")},
-        {QStringLiteral("8da63339-0007-60c0-c436-083ac8230908"), QStringLiteral("Linux/Reserved")},
-        {QStringLiteral("83bd6b9d-7f41-11dc-be0b-001560b84f0f"), QStringLiteral("FreeBSD/Boot")},
-        {QStringLiteral("516e7cb4-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Data")},
-        {QStringLiteral("516e7cb5-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Swap")},
-        {QStringLiteral("516e7cb6-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/UFS")},
-        {QStringLiteral("516e7cb8-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Vinum")},
-        {QStringLiteral("516e7cba-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/ZFS")},
-        {QStringLiteral("48465300-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/HFS+")},
-        {QStringLiteral("55465300-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Apple UFS")},
-        {QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"), QStringLiteral("Mac OS X/ZFS / Solaris/usr")},
-        {QStringLiteral("52414944-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/RAID")},
-        {QStringLiteral("52414944-5f4f-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Offline RAID")},
-        {QStringLiteral("426f6f74-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Boot")},
-        {QStringLiteral("4c616265-6c00-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Label")},
-        {QStringLiteral("5265636f-7665-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Apple TV Recovery")},
-        {QStringLiteral("6a82cb45-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Boot")},
-        {QStringLiteral("6a85cf4d-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Root")},
-        {QStringLiteral("6a87c46f-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Swap")},
-        {QStringLiteral("6a8b642b-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Backup")},
-        {QStringLiteral("6a8ef2e9-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/var")},
-        {QStringLiteral("6a90ba39-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/home")},
-        {QStringLiteral("6a9283a5-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/EFI_ALTSCTR")},
-        {QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
-        {QStringLiteral("6a9630d1-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
-        {QStringLiteral("6a980767-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
-        {QStringLiteral("6a96237f-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
-        {QStringLiteral("6a8d2ac7-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
-        {QStringLiteral("49f48d32-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/Swap")},
-        {QStringLiteral("49f48d5a-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/FFS")},
-        {QStringLiteral("49f48d82-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/LFS")},
-        {QStringLiteral("49f48daa-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/RAID")},
-        {QStringLiteral("2db519c4-b10f-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/concatenated")},
-        {QStringLiteral("2db519ec-b10f-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/encrypted")},
-    };
-    return kMap.value(g);
-}
 
-QString formatWindowsFsTypeDetail(const QString& rawFsType) {
-    const QString raw = rawFsType.trimmed();
-    if (raw.isEmpty() || raw == QStringLiteral("-")) {
-        return rawFsType;
-    }
-    QStringList parts = raw.split('|');
-    bool changed = false;
-    for (QString& part : parts) {
-        const QString p = part.trimmed();
-        if (!p.startsWith(QStringLiteral("gpt="), Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString guidRaw = p.mid(4).trimmed();
-        if (guidRaw.isEmpty() || guidRaw == QStringLiteral("-")) {
-            continue;
-        }
-        const QString name = windowsGptTypeName(guidRaw);
-        if (name.isEmpty()) {
-            continue;
-        }
-        part = QStringLiteral("gpt=%1").arg(name);
-        changed = true;
-    }
-    return changed ? parts.join('|') : rawFsType;
-}
 
-bool windowsPartitionTypeIsProtected(const QString& rawFsType) {
-    if (rawFsType.trimmed().isEmpty()) {
-        return false;
-    }
-    const QStringList parts = rawFsType.split('|');
-    for (const QString& partRaw : parts) {
-        const QString part = partRaw.trimmed();
-        if (!part.startsWith(QStringLiteral("type="), Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString v = part.mid(5).trimmed().toLower();
-        if (v == QStringLiteral("system") || v == QStringLiteral("recovery") || v == QStringLiteral("reserved")) {
-            return true;
-        }
-    }
-    // Discos enteros: el de arranque y el del sistema van protegidos.
-    //
-    // Hasta ahora el disco completo solo se ofrecía cuando no tenía nada aprovechable
-    // dentro, así que no hacía falta protegerlo. Al pasar a ofrecerlo siempre —que es lo
-    // que necesita OpenZFS on Windows, incapaz de usar una partición suelta— hay que
-    // distinguir el disco que se puede entregar a ZFS del que arranca el sistema.
-    for (const QString& partRaw : parts) {
-        const QString part = partRaw.trimmed().toLower();
-        if (part == QStringLiteral("isboot=true") || part == QStringLiteral("issystem=true")) {
-            return true;
-        }
-    }
-    return false;
-}
 
 QString parseOpenZfsVersionText(const QString& text) {
     if (text.trimmed().isEmpty()) {
@@ -510,64 +447,10 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
     return rows;
 }
 
-TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
-    TransferButtonState out;
-    const bool sameSelection = !in.srcSelectionKey.isEmpty() && (in.srcSelectionKey == in.dstSelectionKey);
-    out.copyEnabled = in.srcDatasetSelected && in.srcSnapshotSelected && in.dstDatasetSelected && !in.dstSnapshotSelected;
-    out.levelEnabled = in.srcDatasetSelected && in.dstDatasetSelected && !in.dstSnapshotSelected && !sameSelection;
-    out.syncEnabled = in.srcDatasetSelected
-        && !in.srcSnapshotSelected
-        && in.dstDatasetSelected
-        && !in.dstSnapshotSelected
-        && !sameSelection
-        && in.srcSelectionConsistent
-        && in.dstSelectionConsistent
-        && in.srcDatasetMounted
-        && in.dstDatasetMounted;
-    return out;
-}
 
 
 
-QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints) {
-    QMap<QString, QStringList> grouped;
-    for (auto it = datasetMountpoints.constBegin(); it != datasetMountpoints.constEnd(); ++it) {
-        const QString dataset = it.key();
-        const QString mp = it.value().trimmed();
-        const QString mpl = mp.toLower();
-        if (dataset.isEmpty() || mp.isEmpty() || mpl == QStringLiteral("none") || mpl == QStringLiteral("-")) {
-            continue;
-        }
-        grouped[mp].push_back(dataset);
-    }
-    QMap<QString, QStringList> out;
-    for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
-        if (it.value().size() > 1) {
-            out.insert(it.key(), it.value());
-        }
-    }
-    return out;
-}
 
-QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
-                                                        const QMap<QString, QStringList>& mountedByMountpoint) {
-    QVector<MountpointConflict> out;
-    for (auto it = targetDatasetMountpoints.constBegin(); it != targetDatasetMountpoints.constEnd(); ++it) {
-        const QString requestedDataset = it.key();
-        const QString mountpoint = it.value().trimmed();
-        if (requestedDataset.isEmpty() || mountpoint.isEmpty()) {
-            continue;
-        }
-        const QStringList mountedDatasets = mountedByMountpoint.value(mountpoint);
-        for (const QString& mountedDs : mountedDatasets) {
-            if (mountedDs.isEmpty() || mountedDs == requestedDataset) {
-                continue;
-            }
-            out.push_back(MountpointConflict{mountpoint, mountedDs, requestedDataset});
-        }
-    }
-    return out;
-}
 
 QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text) {
     QVector<QPair<QString, QString>> out;
@@ -660,21 +543,6 @@ QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text) {
 // solo deja un "Host key verification failed" y sale con 255. Sin explicación, eso
 // parece una avería de red. Y es justo el caso que importa: o el host se reinstaló,
 // o alguien se está haciendo pasar por él.
-QString sshHostKeyProblemHint(const QString& sshStderr) {
-    if (sshStderr.contains(QStringLiteral("REMOTE HOST IDENTIFICATION HAS CHANGED"))
-        || sshStderr.contains(QStringLiteral("Host key verification failed"))) {
-        return QStringLiteral(
-            "La clave del host SSH no coincide con la registrada en ~/.ssh/known_hosts. "
-            "Si reinstaló o reemplazó esa máquina, elimine su línea de ese fichero "
-            "(ssh-keygen -R <host>) y vuelva a conectar. Si no ha cambiado nada, "
-            "no continúe: alguien podría estar suplantando al host.");
-    }
-    if (sshStderr.contains(QStringLiteral("Bad configuration option: stricthostkeychecking"))) {
-        return QStringLiteral(
-            "Su cliente SSH es demasiado antiguo para 'accept-new' (necesita OpenSSH 7.6 o superior).");
-    }
-    return QString();
-}
 
 
 
@@ -698,171 +566,21 @@ QString sshHostKeyProblemHint(const QString& sshStderr) {
 // Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
 // QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
 // cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
-QStringList posixShellSplitArgs(const QString& s) {
-    QStringList result;
-    QString current;
-    bool inSQ = false, inDQ = false, started = false;
-    for (int i = 0; i < s.size(); ++i) {
-        const QChar c = s.at(i);
-        if (inSQ) {
-            if (c == QLatin1Char('\'')) { inSQ = false; }
-            else { current += c; }
-        } else if (inDQ) {
-            if (c == QLatin1Char('"')) { inDQ = false; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                const QChar next = s.at(++i);
-                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
-                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
-                    current += next;
-                } else {
-                    current += c;
-                    current += next;
-                }
-            } else {
-                current += c;
-            }
-        } else {
-            // "started" distingue un token vacío ESCRITO ('') de la ausencia de token.
-            // Sin esto, un argumento vacío desaparecía al recuperarlo, y --zfs-send-to-peer
-            // pasa vacíos a menudo (snapshot base y flags), con lo que los siguientes
-            // argumentos se corrían de posición.
-            if (c == QLatin1Char('\'')) { inSQ = true; started = true; }
-            else if (c == QLatin1Char('"')) { inDQ = true; started = true; }
-            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
-                current += s.at(++i);
-            } else if (c.isSpace()) {
-                if (!current.isEmpty() || started) { result += current; current.clear(); started = false; }
-            } else {
-                current += c;
-            }
-        }
-    }
-    if (!current.isEmpty() || started) { result += current; }
-    return result;
-}
 
 
 
-bool isCliOnlyAgentCommand(const QString& verb) {
-    // Estos cuatro no se sirven por RPC a propósito: transportan flujos por la entrada
-    // y la salida estándar, que el canal RPC no lleva.
-    static const QSet<QString> kCliOnly = {
-        QStringLiteral("--mutate-shell-generic"),
-        QStringLiteral("--mutate-advanced-fromdir"),
-        QStringLiteral("--mutate-sync-temp-tar-source"),
-        QStringLiteral("--mutate-sync-temp-tar-dest"),
-    };
-    return kCliOnly.contains(verb.trimmed());
-}
 
 
 
 
 namespace {
-QString storedSecretMarker(const QString& key) {
-    return storedSecretMarkerPrefix() + key + QStringLiteral("@@");
-}
 }  // namespace
 
-QString redactSecretsForStorage(const QString& command,
-                                const QVector<StorableSecret>& secrets,
-                                bool* okOut) {
-    if (okOut) {
-        *okOut = true;
-    }
-    QString out = command;
-    for (const StorableSecret& s : secrets) {
-        if (s.secret.isEmpty() || s.key.trimmed().isEmpty()) {
-            continue;
-        }
-        const QString marker = storedSecretMarker(s.key);
-        // La octal primero: es la que produce withSudoCommand y la que contiene a la
-        // literal como caso raro. Sustituir al revés dejaría trozos de la octal sueltos.
-        out.replace(shPrintfOctalEscaped(s.secret), marker);
-        out.replace(s.secret, marker);
-    }
-    for (const StorableSecret& s : secrets) {
-        if (s.secret.isEmpty()) {
-            continue;
-        }
-        if (out.contains(s.secret) || out.contains(shPrintfOctalEscaped(s.secret))) {
-            if (okOut) {
-                *okOut = false;
-            }
-            return QString();
-        }
-    }
-    return out;
-}
-
-QString restoreSecretsFromStorage(const QString& stored,
-                                  const QVector<StorableSecret>& secrets) {
-    QString out = stored;
-    for (const StorableSecret& s : secrets) {
-        if (s.key.trimmed().isEmpty()) {
-            continue;
-        }
-        out.replace(storedSecretMarker(s.key), shPrintfOctalEscaped(s.secret));
-    }
-    return out;
-}
-
-QString asciiSafeShellCommand(const QString& cmd) {
-    bool hasNonAscii = false;
-    for (const QChar c : cmd) {
-        if (c.unicode() > 127) {
-            hasNonAscii = true;
-            break;
-        }
-    }
-    if (!hasNonAscii) {
-        return cmd;
-    }
-    // `eval "$(printf '%b' '...')"`: los escapes octales son ASCII, printf reconstruye
-    // los bytes originales y eval ejecuta la orden tal cual era. La entrada estándar
-    // queda libre, que hace falta porque por ahí viajan cargas útiles (el binario del
-    // agente, la passphrase de un dataset cifrado).
-    return QStringLiteral("eval \"$(printf '%b' '%1')\"").arg(shPrintfOctalEscaped(cmd));
-}
 
 
 
-bool looksLikeSudoAuthFailure(const QString& text) {
-    const QString t = text.trimmed().toLower();
-    if (t.isEmpty()) {
-        return false;
-    }
-    // "no está en sudoers" y "no se permite ejecutar" son de autorización, no de
-    // autenticación: reintroducir la contraseña no los arregla, así que no se ofrece.
-    if (t.contains(QStringLiteral("not in the sudoers"))
-        || t.contains(QStringLiteral("no está en el fichero sudoers"))
-        || t.contains(QStringLiteral("is not allowed to execute"))) {
-        return false;
-    }
-    // Cadenas OBSERVADAS, no supuestas. Las de español salen de un sudo 1.9 real en
-    // Ubuntu con LANG=es_ES.UTF-8: dice "Lo siento, pruebe otra vez", no "inténtelo
-    // de nuevo", que es lo que había aquí escrito de memoria y no casaba con nada.
-    // El resultado era que un rechazo de contraseña se clasificaba como "no se pudo
-    // comprobar" y el usuario no recibía el aviso.
-    static const QStringList kNeedles = {
-        QStringLiteral("sorry, try again"),
-        QStringLiteral("incorrect password attempt"),
-        QStringLiteral("authentication failure"),
-        QStringLiteral("a password is required"),
-        QStringLiteral("lo siento, pruebe otra vez"),
-        QStringLiteral("intento de contraseña incorrecto"),
-        QStringLiteral("intentos de contraseña incorrectos"),
-        QStringLiteral("se requiere una contraseña"),
-        QStringLiteral("se necesita una contraseña"),
-        QStringLiteral("fallo de autenticación"),
-    };
-    for (const QString& needle : kNeedles) {
-        if (t.contains(needle)) {
-            return true;
-        }
-    }
-    return false;
-}
+
+
 
 SudoCheck checkLocalSudoPassword(const QString& password, QString* detailOut) {
     if (detailOut) {

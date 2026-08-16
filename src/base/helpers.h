@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <map>
+
 #include "connectionprofile.h"
 
 // Construcción de órdenes y predicados sobre valores de ZFS, SIN Qt.
@@ -15,6 +17,36 @@
 // `ConnectionProfile`, las que usan expresiones regulares, JSON, procesos o el sistema
 // de ficheros.
 namespace zfsmgr::base::helpers {
+
+struct TransferButtonInputs {
+    bool srcDatasetSelected{false};
+    bool srcSnapshotSelected{false};
+    bool dstDatasetSelected{false};
+    bool dstSnapshotSelected{false};
+    std::string srcSelectionKey;
+    std::string dstSelectionKey;
+    bool srcSelectionConsistent{false};
+    bool dstSelectionConsistent{false};
+    bool srcDatasetMounted{false};
+    bool dstDatasetMounted{false};
+};
+
+struct TransferButtonState {
+    bool copyEnabled{false};
+    bool levelEnabled{false};
+    bool syncEnabled{false};
+};
+
+struct MountpointConflict {
+    std::string mountpoint;
+    std::string mountedDataset;
+    std::string requestedDataset;
+};
+
+struct StorableSecret {
+    std::string key;
+    std::string secret;
+};
 
 enum class StreamCodec {
     Zstd,
@@ -81,6 +113,62 @@ std::string shPrintfOctalEscaped(const std::string& s);
 // Ruta del socket de multiplexado de SSH. Lleva el marcador %C, que expande el propio
 // ssh con un resumen de usuario/host/puerto.
 std::string sshControlPath();
+
+// Qué botones de transferencia deben quedar activos, dada la selección.
+TransferButtonState computeTransferButtonState(const TransferButtonInputs& in);
+
+// Puntos de montaje repetidos entre datasets: los agrupa por punto y devuelve solo los
+// que tienen más de uno.
+std::map<std::string, std::vector<std::string>> duplicateMountpoints(
+    const std::map<std::string, std::string>& datasetMountpoints);
+
+// Puntos de montaje que ya ocupa OTRO dataset distinto del que se pide.
+std::vector<MountpointConflict> externalMountpointConflicts(
+    const std::map<std::string, std::string>& targetDatasetMountpoints,
+    const std::map<std::string, std::vector<std::string>>& mountedByMountpoint);
+
+// Tapa el secreto de los verbos que lo llevan, para poder escribir la invocación en el
+// registro.
+std::string maskedAgentArgvForLog(const std::vector<std::string>& argv);
+
+// Deja solo la LETRA de unidad, en mayúscula. Vacío si no hay ninguna.
+std::string normalizeDriveLetterValue(const std::string& raw);
+
+// Explica los dos fallos de clave de host que tienen remedio conocido. Vacío si el
+// error es otro.
+std::string sshHostKeyProblemHint(const std::string& sshStderr);
+
+// Nombre legible de un GUID de tipo de partición GPT. Vacío si no se conoce.
+std::string windowsGptTypeName(const std::string& guid);
+std::string formatWindowsFsTypeDetail(const std::string& rawFsType);
+// Particiones y discos que NO deben ofrecerse a ZFS: sistema, recuperación, reservada,
+// y el disco de arranque.
+bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
+
+// Verbos que solo existen en la línea de comandos del agente, nunca por RPC.
+bool isCliOnlyAgentCommand(const std::string& verb);
+
+// Trocea como lo haría un shell POSIX. Solo sobrevive como oráculo de los tests del
+// renderizado a cadena.
+std::vector<std::string> posixShellSplitArgs(const std::string& s);
+
+// Sustituye cada contraseña por un marcador, para escribir la orden en disco sin
+// escribir el secreto. Contempla las DOS formas: la octal de shPrintfOctalEscaped y la
+// literal. Si tras sustituir el secreto SIGUE apareciendo, devuelve vacío y pone
+// `okOut` a false: es preferible perder la orden que escribir una contraseña.
+std::string redactSecretsForStorage(const std::string& command,
+                                    const std::vector<StorableSecret>& secrets,
+                                    bool* okOut);
+std::string restoreSecretsFromStorage(const std::string& stored,
+                                      const std::vector<StorableSecret>& secrets);
+
+// Si la orden tiene algo fuera de ASCII, la reescribe como `eval "$(printf '%b' '...')"`.
+// Ver shPrintfOctalEscaped: en macOS Qt descomponía los caracteres al pasarlos.
+std::string asciiSafeShellCommand(const std::string& cmd);
+
+// ¿Es un rechazo de CONTRASEÑA? Distinto de un fallo de autorización, donde volver a
+// teclearla no arregla nada y por tanto no se ofrece reintentar.
+bool looksLikeSudoAuthFailure(const std::string& text);
 
 // --- Invocación por SSH y del agente.
 //

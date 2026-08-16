@@ -248,6 +248,71 @@ int main() {
     igual(H::shPrintfOctalEscaped("\xc3\xb1"), "\\0303\\0261", "escapado octal byte a byte");
     comprobar(contains(H::sshControlPath(), "%C"), "sshControlPath lleva el marcador %C");
 
+
+    // --- caja UTF-8: el caso que obligo a implementarla
+    // Con toLowerAscii esto devolvia false y un rechazo de contrasena se habria
+    // clasificado como «no se pudo comprobar», sin avisar al usuario.
+    comprobar(H::looksLikeSudoAuthFailure("SUDO: 1 INTENTO DE CONTRASE\xc3\x91""A INCORRECTO"),
+              "detecta el rechazo aunque venga en mayusculas CON acento");
+    comprobar(H::looksLikeSudoAuthFailure("FALLO DE AUTENTICACI\xc3\x93N"),
+              "detecta el fallo de autenticacion en mayusculas");
+    comprobar(H::looksLikeSudoAuthFailure("Sorry, try again."), "detecta el mensaje en ingles");
+    // Autorizacion, NO autenticacion: volver a teclear la clave no arregla nada.
+    comprobar(!H::looksLikeSudoAuthFailure("user is not in the sudoers file"),
+              "no confunde sudoers con contrasena mala");
+    comprobar(!H::looksLikeSudoAuthFailure("EL USUARIO NO EST\xc3\x81 EN EL FICHERO SUDOERS"),
+              "tampoco en mayusculas con acento");
+    comprobar(!H::looksLikeSudoAuthFailure(""), "el vacio no es un fallo");
+    igual(toLowerUtf8("CONTRASE\xc3\x91""A"), "contrase\xc3\xb1""a", "toLowerUtf8 baja la enye");
+    igual(toUpperUtf8("ni\xc3\xb1o"), "NI\xc3\x91O", "toUpperUtf8 sube la enye");
+
+    // --- secretos: lo que NUNCA debe acabar en disco
+    {
+        std::vector<H::StorableSecret> ss{{"k1", "rpq231"}};
+        bool ok = false;
+        const std::string red = H::redactSecretsForStorage("echo rpq231 | sudo -S x", ss, &ok);
+        comprobar(ok, "redactSecretsForStorage dice que pudo");
+        comprobar(!contains(red, "rpq231"), "el secreto NO queda en el texto guardado");
+        comprobar(contains(red, H::storedSecretMarkerPrefix()), "queda el marcador");
+        igual(H::restoreSecretsFromStorage(red, ss),
+              "echo " + H::shPrintfOctalEscaped("rpq231") + " | sudo -S x",
+              "restoreSecretsFromStorage devuelve la forma octal");
+        // Y la forma octal tambien se tapa, que es la que produce withSudoCommand.
+        bool ok2 = false;
+        const std::string red2 = H::redactSecretsForStorage(H::shPrintfOctalEscaped("rpq231"), ss, &ok2);
+        comprobar(ok2 && !contains(red2, H::shPrintfOctalEscaped("rpq231")),
+                  "tambien tapa el secreto escapado en octal");
+    }
+
+    // --- letras de unidad
+    igual(H::normalizeDriveLetterValue("Z:\\"), "Z", "normaliza Z:\\");
+    igual(H::normalizeDriveLetterValue(" y: "), "Y", "recorta y sube la caja");
+    igual(H::normalizeDriveLetterValue("none"), "", "none no es letra");
+    igual(H::normalizeDriveLetterValue("12"), "", "un digito no es letra");
+    igual(H::normalizeDriveLetterValue(""), "", "el vacio no es letra");
+
+    // --- particiones protegidas: ofrecer a ZFS el disco de arranque seria destructivo
+    comprobar(H::windowsPartitionTypeIsProtected("type=System"), "la particion de sistema esta protegida");
+    comprobar(H::windowsPartitionTypeIsProtected("type=RECOVERY"), "recuperacion, sin distinguir caja");
+    comprobar(H::windowsPartitionTypeIsProtected("isBoot=True|type=Basic"), "el disco de arranque");
+    comprobar(!H::windowsPartitionTypeIsProtected("type=Basic"), "una basica no esta protegida");
+    comprobar(!H::windowsPartitionTypeIsProtected(""), "el vacio no protege nada");
+
+    // --- troceo POSIX: el token vacio ESCRITO no es lo mismo que no haberlo
+    {
+        const auto v = H::posixShellSplitArgs("a '' b");
+        comprobar(v.size() == 3 && v[1].empty(), "un '' escrito cuenta como argumento vacio");
+        const auto v2 = H::posixShellSplitArgs("  ");
+        comprobar(v2.empty(), "solo espacios no da ningun argumento");
+    }
+
+    // --- el secreto no debe llegar al registro
+    {
+        const std::string m = H::maskedAgentArgvForLog({"--mutate-zfs-load-key", "ds", "SECRETO"});
+        comprobar(!contains(m, "SECRETO"), "maskedAgentArgvForLog tapa la passphrase");
+        comprobar(contains(m, "[secret]"), "y deja el marcador");
+    }
+
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }

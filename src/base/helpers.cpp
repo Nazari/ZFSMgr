@@ -3,7 +3,9 @@
 #include "daemonpayload.h"
 #include "strutil.h"
 
+#include <cctype>
 #include <cstdio>
+#include <map>
 #include <filesystem>
 #include <system_error>
 
@@ -21,7 +23,11 @@ using zfsmgr::base::replaceAll;
 using zfsmgr::base::shSingleQuote;
 using zfsmgr::base::simplify;
 using zfsmgr::base::toLowerAscii;
+using zfsmgr::base::isLetterAt;
 using zfsmgr::base::join;
+using zfsmgr::base::split;
+using zfsmgr::base::toUpperUtf8;
+using zfsmgr::base::toLowerUtf8;
 using zfsmgr::base::trim;
 namespace daemonpayload = zfsmgr::base::daemonpayload;
 
@@ -466,6 +472,398 @@ std::string agentShellCommandStreamInput(const ConnectionProfile& p,
     }
     return withSudoStreamInputCommand(
         p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + " " + join(quoted, " ")));
+}
+
+namespace {
+
+std::string storedSecretMarker(const std::string& key) {
+    return storedSecretMarkerPrefix() + key + "@@";
+}
+
+// startsWith sin distinguir caja, solo para prefijos ASCII como «gpt=» o «type=».
+bool empiezaPorNoCaseAscii(const std::string& s, const std::string& pre) {
+    return s.size() >= pre.size() && toLowerAscii(s.substr(0, pre.size())) == toLowerAscii(pre);
+}
+
+}  // namespace
+
+std::string maskedAgentArgvForLog(const std::vector<std::string>& argv) {
+    std::vector<std::string> masked = argv;
+    for (std::size_t i = 0; i < masked.size(); ++i) {
+        const std::string verb = trim(masked[i]);
+        if (verb != "--mutate-zfs-load-key" && verb != "--mutate-zfs-change-key"
+            && verb != "--mutate-zfs-create") {
+            continue;
+        }
+        // El secreto es el ÚLTIMO argumento del verbo: para load-key/change-key va tras
+        // el dataset, y para create tras el argv de zfs. Se tapa todo lo que siga a ese
+        // primer argumento, que nunca es más de uno.
+        for (std::size_t j = i + 2; j < masked.size(); ++j) {
+            masked[j] = "[secret]";
+        }
+        break;
+    }
+    return join(masked, " ");
+}
+
+std::string normalizeDriveLetterValue(const std::string& raw) {
+    std::string s = trim(raw);
+    if (s.empty() || s == "-" || toLowerAscii(s) == "none") {
+        return std::string();
+    }
+    replaceAll(s, ":\\", "");
+    replaceAll(s, ":", "");
+    replaceAll(s, "\\", "");
+    replaceAll(s, "/", "");
+    // toUpperUtf8 y no la variante ASCII: Qt sube la caja también a las acentuadas, y
+    // esta función decide si el primer carácter es una letra.
+    s = toUpperUtf8(trim(s));
+    if (s.empty() || !isLetterAt(s, 0)) {
+        return std::string();
+    }
+    return left(s, 1);
+}
+
+std::string sshHostKeyProblemHint(const std::string& sshStderr) {
+    if (contains(sshStderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
+        || contains(sshStderr, "Host key verification failed")) {
+        return "La clave del host SSH no coincide con la registrada en ~/.ssh/known_hosts. "
+               "Si reinstaló o reemplazó esa máquina, elimine su línea de ese fichero "
+               "(ssh-keygen -R <host>) y vuelva a conectar. Si no ha cambiado nada, "
+               "no continúe: alguien podría estar suplantando al host.";
+    }
+    if (contains(sshStderr, "Bad configuration option: stricthostkeychecking")) {
+        return "Su cliente SSH es demasiado antiguo para 'accept-new' (necesita OpenSSH 7.6 o superior).";
+    }
+    return std::string();
+}
+
+bool isCliOnlyAgentCommand(const std::string& verb) {
+    // Estos cuatro no se sirven por RPC a propósito: transportan flujos por la entrada
+    // y la salida estándar, que el canal RPC no lleva.
+    const std::string v = trim(verb);
+    return v == "--mutate-shell-generic" || v == "--mutate-advanced-fromdir"
+        || v == "--mutate-sync-temp-tar-source" || v == "--mutate-sync-temp-tar-dest";
+}
+
+std::string windowsGptTypeName(const std::string& guid) {
+    std::string g = trim(guid);
+    if (g.size() > 2 && g.front() == '{' && g.back() == '}') {
+        g = g.substr(1, g.size() - 2);
+    }
+    g = toLowerAscii(g);  // un GUID es hexadecimal: ASCII basta
+    static const std::map<std::string, std::string> kMap = {
+        {"00000000-0000-0000-0000-000000000000", "Unused entry"},
+        {"024dee41-33e7-11d3-9d69-0008c781f39f", "MBR partition scheme"},
+        {"c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "EFI System Partition"},
+        {"21686148-6449-6e6f-744e-656564454649", "BIOS Boot Partition"},
+        {"b334117e-118d-11de-9b0f-001cc0952d53", "gdisk unknown"},
+        {"e3c9e316-0b5c-4db8-817d-f92df00215ae", "Windows/Reserved"},
+        {"ebd0a0a2-b9e5-4433-87c0-68b6b72699c7", "Windows/Basic Data / Linux/Data"},
+        {"5808c8aa-7e8f-42e0-85d2-e1e90434cfb3", "Windows/LDM metadata"},
+        {"af9b60a0-1431-4f62-bc68-3311714a69ad", "Windows/LDM data"},
+        {"75894c1e-3aeb-11d3-b7c1-7b03a0000000", "HP-UX/Data"},
+        {"e2a1e728-32e3-11d6-a682-7b03a0000000", "HP-UX/Service"},
+        {"a19d880f-05fc-4d3b-a006-743f0f84911e", "Linux/RAID"},
+        {"0657fd6d-a4ab-43c4-84e5-0933c84b4f4f", "Linux/Swap"},
+        {"e6d6d379-f507-44c2-a23c-238f2a3df928", "Linux/LVM"},
+        {"8da63339-0007-60c0-c436-083ac8230908", "Linux/Reserved"},
+        {"83bd6b9d-7f41-11dc-be0b-001560b84f0f", "FreeBSD/Boot"},
+        {"516e7cb4-6ecf-11d6-8ff8-00022d09712b", "FreeBSD/Data"},
+        {"516e7cb5-6ecf-11d6-8ff8-00022d09712b", "FreeBSD/Swap"},
+        {"516e7cb6-6ecf-11d6-8ff8-00022d09712b", "FreeBSD/UFS"},
+        {"516e7cb8-6ecf-11d6-8ff8-00022d09712b", "FreeBSD/Vinum"},
+        {"516e7cba-6ecf-11d6-8ff8-00022d09712b", "FreeBSD/ZFS"},
+        {"48465300-0000-11aa-aa11-00306543ecac", "Mac OS X/HFS+"},
+        {"55465300-0000-11aa-aa11-00306543ecac", "Mac OS X/Apple UFS"},
+        {"6a898cc3-1dd2-11b2-99a6-080020736631", "Mac OS X/ZFS / Solaris/usr"},
+        {"52414944-0000-11aa-aa11-00306543ecac", "Mac OS X/RAID"},
+        {"52414944-5f4f-11aa-aa11-00306543ecac", "Mac OS X/Offline RAID"},
+        {"426f6f74-0000-11aa-aa11-00306543ecac", "Mac OS X/Boot"},
+        {"4c616265-6c00-11aa-aa11-00306543ecac", "Mac OS X/Label"},
+        {"5265636f-7665-11aa-aa11-00306543ecac", "Mac OS X/Apple TV Recovery"},
+        {"6a82cb45-1dd2-11b2-99a6-080020736631", "Solaris/Boot"},
+        {"6a85cf4d-1dd2-11b2-99a6-080020736631", "Solaris/Root"},
+        {"6a87c46f-1dd2-11b2-99a6-080020736631", "Solaris/Swap"},
+        {"6a8b642b-1dd2-11b2-99a6-080020736631", "Solaris/Backup"},
+        {"6a8ef2e9-1dd2-11b2-99a6-080020736631", "Solaris/var"},
+        {"6a90ba39-1dd2-11b2-99a6-080020736631", "Solaris/home"},
+        {"6a9283a5-1dd2-11b2-99a6-080020736631", "Solaris/EFI_ALTSCTR"},
+        {"6a945a3b-1dd2-11b2-99a6-080020736631", "Solaris/Reserved"},
+        {"6a9630d1-1dd2-11b2-99a6-080020736631", "Solaris/Reserved"},
+        {"6a980767-1dd2-11b2-99a6-080020736631", "Solaris/Reserved"},
+        {"6a96237f-1dd2-11b2-99a6-080020736631", "Solaris/Reserved"},
+        {"6a8d2ac7-1dd2-11b2-99a6-080020736631", "Solaris/Reserved"},
+        {"49f48d32-b10e-11dc-b99b-0019d1879648", "NetBSD/Swap"},
+        {"49f48d5a-b10e-11dc-b99b-0019d1879648", "NetBSD/FFS"},
+        {"49f48d82-b10e-11dc-b99b-0019d1879648", "NetBSD/LFS"},
+        {"49f48daa-b10e-11dc-b99b-0019d1879648", "NetBSD/RAID"},
+        {"2db519c4-b10f-11dc-b99b-0019d1879648", "NetBSD/concatenated"},
+        {"2db519ec-b10f-11dc-b99b-0019d1879648", "NetBSD/encrypted"}
+    };
+    const auto it = kMap.find(g);
+    return it == kMap.end() ? std::string() : it->second;
+}
+
+std::string formatWindowsFsTypeDetail(const std::string& rawFsType) {
+    const std::string raw = trim(rawFsType);
+    if (raw.empty() || raw == "-") {
+        return rawFsType;
+    }
+    std::vector<std::string> parts = split(raw, "|", false);
+    bool changed = false;
+    for (std::string& part : parts) {
+        const std::string p = trim(part);
+        if (!empiezaPorNoCaseAscii(p, "gpt=")) {
+            continue;
+        }
+        const std::string guidRaw = trim(mid(p, 4));
+        if (guidRaw.empty() || guidRaw == "-") {
+            continue;
+        }
+        const std::string name = windowsGptTypeName(guidRaw);
+        if (name.empty()) {
+            continue;
+        }
+        part = "gpt=" + name;
+        changed = true;
+    }
+    return changed ? join(parts, "|") : rawFsType;
+}
+
+bool windowsPartitionTypeIsProtected(const std::string& rawFsType) {
+    if (trim(rawFsType).empty()) {
+        return false;
+    }
+    const std::vector<std::string> parts = split(rawFsType, "|", false);
+    for (const std::string& partRaw : parts) {
+        const std::string part = trim(partRaw);
+        if (!empiezaPorNoCaseAscii(part, "type=")) {
+            continue;
+        }
+        const std::string v = toLowerAscii(trim(mid(part, 5)));
+        if (v == "system" || v == "recovery" || v == "reserved") {
+            return true;
+        }
+    }
+    // Discos enteros: el de arranque y el del sistema van protegidos.
+    //
+    // Hasta ahora el disco completo solo se ofrecía cuando no tenía nada aprovechable
+    // dentro. Al pasar a ofrecerlo siempre —que es lo que necesita OpenZFS on Windows,
+    // incapaz de usar una partición suelta— hay que distinguir el disco que se puede
+    // entregar a ZFS del que arranca el sistema.
+    for (const std::string& partRaw : parts) {
+        const std::string part = toLowerAscii(trim(partRaw));
+        if (part == "isboot=true" || part == "issystem=true") {
+            return true;
+        }
+    }
+    return false;
+}
+
+TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
+    TransferButtonState out;
+    const bool sameSelection = !in.srcSelectionKey.empty()
+                            && (in.srcSelectionKey == in.dstSelectionKey);
+    out.copyEnabled = in.srcDatasetSelected && in.srcSnapshotSelected && in.dstDatasetSelected
+                   && !in.dstSnapshotSelected;
+    out.levelEnabled = in.srcDatasetSelected && in.dstDatasetSelected && !in.dstSnapshotSelected
+                    && !sameSelection;
+    out.syncEnabled = in.srcDatasetSelected && !in.srcSnapshotSelected && in.dstDatasetSelected
+                   && !in.dstSnapshotSelected && !sameSelection && in.srcSelectionConsistent
+                   && in.dstSelectionConsistent && in.srcDatasetMounted && in.dstDatasetMounted;
+    return out;
+}
+
+std::map<std::string, std::vector<std::string>> duplicateMountpoints(
+    const std::map<std::string, std::string>& datasetMountpoints) {
+    // std::map recorre ordenado por clave, igual que QMap: el orden del resultado no
+    // depende del de entrada, que es lo que hace comparable la salida.
+    std::map<std::string, std::vector<std::string>> grouped;
+    for (const auto& [dataset, mpRaw] : datasetMountpoints) {
+        const std::string mp = trim(mpRaw);
+        const std::string mpl = toLowerAscii(mp);
+        if (dataset.empty() || mp.empty() || mpl == "none" || mpl == "-") {
+            continue;
+        }
+        grouped[mp].push_back(dataset);
+    }
+    std::map<std::string, std::vector<std::string>> out;
+    for (const auto& [mp, datasets] : grouped) {
+        if (datasets.size() > 1) {
+            out.insert({mp, datasets});
+        }
+    }
+    return out;
+}
+
+std::vector<MountpointConflict> externalMountpointConflicts(
+    const std::map<std::string, std::string>& targetDatasetMountpoints,
+    const std::map<std::string, std::vector<std::string>>& mountedByMountpoint) {
+    std::vector<MountpointConflict> out;
+    for (const auto& [requestedDataset, mpRaw] : targetDatasetMountpoints) {
+        const std::string mountpoint = trim(mpRaw);
+        if (requestedDataset.empty() || mountpoint.empty()) {
+            continue;
+        }
+        const auto it = mountedByMountpoint.find(mountpoint);
+        if (it == mountedByMountpoint.end()) {
+            continue;
+        }
+        for (const std::string& mountedDs : it->second) {
+            if (mountedDs.empty() || mountedDs == requestedDataset) {
+                continue;
+            }
+            out.push_back(MountpointConflict{mountpoint, mountedDs, requestedDataset});
+        }
+    }
+    return out;
+}
+
+std::vector<std::string> posixShellSplitArgs(const std::string& s) {
+    std::vector<std::string> result;
+    std::string current;
+    bool inSQ = false, inDQ = false, started = false;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (inSQ) {
+            if (c == '\'') { inSQ = false; }
+            else { current += c; }
+        } else if (inDQ) {
+            if (c == '"') { inDQ = false; }
+            else if (c == '\\' && i + 1 < s.size()) {
+                const char next = s[++i];
+                if (next == '"' || next == '\\' || next == '$' || next == '`') {
+                    current += next;
+                } else {
+                    current += c;
+                    current += next;
+                }
+            } else {
+                current += c;
+            }
+        } else {
+            // "started" distingue un token vacío ESCRITO ('') de la ausencia de token.
+            // Sin esto, un argumento vacío desaparecía al recuperarlo, y
+            // --zfs-send-to-peer pasa vacíos a menudo (snapshot base y flags), con lo
+            // que los siguientes argumentos se corrían de posición.
+            if (c == '\'') { inSQ = true; started = true; }
+            else if (c == '"') { inDQ = true; started = true; }
+            else if (c == '\\' && i + 1 < s.size()) { current += s[++i]; }
+            else if (std::isspace(static_cast<unsigned char>(c))) {
+                if (!current.empty() || started) {
+                    result.push_back(current);
+                    current.clear();
+                    started = false;
+                }
+            } else {
+                current += c;
+            }
+        }
+    }
+    if (!current.empty() || started) { result.push_back(current); }
+    return result;
+}
+
+std::string redactSecretsForStorage(const std::string& command,
+                                    const std::vector<StorableSecret>& secrets,
+                                    bool* okOut) {
+    if (okOut) {
+        *okOut = true;
+    }
+    std::string out = command;
+    for (const StorableSecret& s : secrets) {
+        if (s.secret.empty() || trim(s.key).empty()) {
+            continue;
+        }
+        const std::string marker = storedSecretMarker(s.key);
+        // La octal primero: es la que produce withSudoCommand y la que contiene a la
+        // literal como caso raro. Sustituir al revés dejaría trozos de la octal sueltos.
+        replaceAll(out, shPrintfOctalEscaped(s.secret), marker);
+        replaceAll(out, s.secret, marker);
+    }
+    for (const StorableSecret& s : secrets) {
+        if (s.secret.empty()) {
+            continue;
+        }
+        if (contains(out, s.secret) || contains(out, shPrintfOctalEscaped(s.secret))) {
+            if (okOut) {
+                *okOut = false;
+            }
+            return std::string();
+        }
+    }
+    return out;
+}
+
+std::string restoreSecretsFromStorage(const std::string& stored,
+                                      const std::vector<StorableSecret>& secrets) {
+    std::string out = stored;
+    for (const StorableSecret& s : secrets) {
+        if (trim(s.key).empty()) {
+            continue;
+        }
+        replaceAll(out, storedSecretMarker(s.key), shPrintfOctalEscaped(s.secret));
+    }
+    return out;
+}
+
+std::string asciiSafeShellCommand(const std::string& cmd) {
+    bool hasNonAscii = false;
+    for (const char c : cmd) {
+        if (static_cast<unsigned char>(c) > 127) {
+            hasNonAscii = true;
+            break;
+        }
+    }
+    if (!hasNonAscii) {
+        return cmd;
+    }
+    // `eval "$(printf '%b' '...')"`: los escapes octales son ASCII, printf reconstruye
+    // los bytes originales y eval ejecuta la orden tal cual era. La entrada estándar
+    // queda libre, que hace falta porque por ahí viajan cargas útiles (el binario del
+    // agente, la passphrase de un dataset cifrado).
+    return format("eval \"$(printf '%b' '%1')\"", {shPrintfOctalEscaped(cmd)});
+}
+
+bool looksLikeSudoAuthFailure(const std::string& text) {
+    // toLowerUtf8, no la variante ASCII: las agujas llevan acento y con
+    // «SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO» la versión ASCII respondía que no
+    // había fallo de contraseña. Ver el comentario de más abajo: ese error exacto ya
+    // ocurrió una vez por otro motivo.
+    const std::string t = toLowerUtf8(trim(text));
+    if (t.empty()) {
+        return false;
+    }
+    // "no está en sudoers" y "no se permite ejecutar" son de autorización, no de
+    // autenticación: reintroducir la contraseña no los arregla, así que no se ofrece.
+    if (contains(t, "not in the sudoers") || contains(t, "no está en el fichero sudoers")
+        || contains(t, "is not allowed to execute")) {
+        return false;
+    }
+    // Cadenas OBSERVADAS, no supuestas. Las de español salen de un sudo 1.9 real en
+    // Ubuntu con LANG=es_ES.UTF-8: dice "Lo siento, pruebe otra vez", no "inténtelo de
+    // nuevo", que es lo que había escrito de memoria y no casaba con nada. El resultado
+    // era que un rechazo de contraseña se clasificaba como "no se pudo comprobar" y el
+    // usuario no recibía el aviso.
+    static const std::vector<std::string> kNeedles = {
+        "sorry, try again",
+        "incorrect password attempt",
+        "authentication failure",
+        "a password is required",
+        "lo siento, pruebe otra vez",
+        "intento de contraseña incorrecto",
+        "intentos de contraseña incorrectos",
+        "se requiere una contraseña",
+        "se necesita una contraseña",
+        "fallo de autenticación"
+    };
+    for (const std::string& needle : kNeedles) {
+        if (contains(t, needle)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace zfsmgr::base::helpers

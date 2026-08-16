@@ -190,4 +190,122 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
     return out;
 }
 
+namespace {
+
+// Decodifica el carácter que empieza en `pos`. Devuelve el punto de código y, por
+// `largo`, cuántos bytes ocupa. Ante un byte inválido devuelve ese byte con largo 1,
+// para que el recorrido siempre avance y nunca se atasque.
+unsigned decodeUtf8(const std::string& s, std::size_t pos, std::size_t& largo) {
+    const unsigned char c0 = static_cast<unsigned char>(s[pos]);
+    auto cont = [&](std::size_t k) {
+        return pos + k < s.size() && (static_cast<unsigned char>(s[pos + k]) & 0xC0) == 0x80;
+    };
+    if (c0 < 0x80) { largo = 1; return c0; }
+    if ((c0 & 0xE0) == 0xC0 && cont(1)) {
+        largo = 2;
+        return ((c0 & 0x1Fu) << 6) | (static_cast<unsigned char>(s[pos + 1]) & 0x3Fu);
+    }
+    if ((c0 & 0xF0) == 0xE0 && cont(1) && cont(2)) {
+        largo = 3;
+        return ((c0 & 0x0Fu) << 12) | ((static_cast<unsigned char>(s[pos + 1]) & 0x3Fu) << 6)
+             | (static_cast<unsigned char>(s[pos + 2]) & 0x3Fu);
+    }
+    if ((c0 & 0xF8) == 0xF0 && cont(1) && cont(2) && cont(3)) {
+        largo = 4;
+        return ((c0 & 0x07u) << 18) | ((static_cast<unsigned char>(s[pos + 1]) & 0x3Fu) << 12)
+             | ((static_cast<unsigned char>(s[pos + 2]) & 0x3Fu) << 6)
+             | (static_cast<unsigned char>(s[pos + 3]) & 0x3Fu);
+    }
+    largo = 1;
+    return c0;
+}
+
+void encodeUtf8(unsigned cp, std::string& out) {
+    if (cp < 0x80) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp < 0x800) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+}
+
+unsigned aMinuscula(unsigned cp) {
+    if (cp >= 'A' && cp <= 'Z') return cp + 32;
+    if (cp == 0x0178) return 0x00FF;  // Ÿ está fuera de su bloque, su minúscula es ÿ
+    // Suplemento Latin-1: se salta 0xD7, que es el signo de multiplicar, no una letra.
+    if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) return cp + 32;
+    // Latin Extended-A: pares (mayúscula, minúscula) consecutivos, con dos tramos que
+    // van desfasados por una letra suelta en medio.
+    if (cp >= 0x0100 && cp <= 0x0137) return (cp % 2 == 0) ? cp + 1 : cp;
+    if (cp >= 0x0139 && cp <= 0x0148) return (cp % 2 == 1) ? cp + 1 : cp;
+    if (cp >= 0x014A && cp <= 0x0177) return (cp % 2 == 0) ? cp + 1 : cp;
+    if (cp >= 0x0179 && cp <= 0x017E) return (cp % 2 == 1) ? cp + 1 : cp;
+    return cp;
+}
+
+unsigned aMayuscula(unsigned cp) {
+    if (cp >= 'a' && cp <= 'z') return cp - 32;
+    if (cp == 0x00FF) return 0x0178;  // la mayúscula de ÿ no es contigua
+    // 0xDF es la ß, cuya mayúscula es «SS» y por tanto cambia de longitud: se deja.
+    // 0xF7 es el signo de dividir.
+    if (cp >= 0xE0 && cp <= 0xFE && cp != 0xF7) return cp - 32;
+    if (cp >= 0x0100 && cp <= 0x0137) return (cp % 2 == 1) ? cp - 1 : cp;
+    if (cp >= 0x0139 && cp <= 0x0148) return (cp % 2 == 0) ? cp - 1 : cp;
+    if (cp >= 0x014A && cp <= 0x0177) return (cp % 2 == 1) ? cp - 1 : cp;
+    if (cp >= 0x0179 && cp <= 0x017E) return (cp % 2 == 0) ? cp - 1 : cp;
+    return cp;
+}
+
+bool esLetra(unsigned cp) {
+    if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z')) return true;
+    // Indicadores ordinales (ª º) y el signo micro: Qt los cuenta como letras, y los dos
+    // primeros salen en texto español corriente.
+    if (cp == 0xAA || cp == 0xBA || cp == 0xB5) return true;
+    if (cp >= 0xC0 && cp <= 0xFF && cp != 0xD7 && cp != 0xF7) return true;
+    return cp >= 0x0100 && cp <= 0x017F;
+}
+
+std::string mapearCaja(const std::string& s, unsigned (*f)(unsigned)) {
+    std::string out;
+    out.reserve(s.size());
+    std::size_t i = 0;
+    while (i < s.size()) {
+        std::size_t largo = 1;
+        const unsigned cp = decodeUtf8(s, i, largo);
+        if (largo == 1 && cp > 0x7F) {
+            out.push_back(s[i]);  // byte inválido: se conserva tal cual
+        } else {
+            encodeUtf8(f(cp), out);
+        }
+        i += largo;
+    }
+    return out;
+}
+
+}  // namespace
+
+std::string toLowerUtf8(const std::string& s) { return mapearCaja(s, aMinuscula); }
+std::string toUpperUtf8(const std::string& s) { return mapearCaja(s, aMayuscula); }
+
+bool isLetterAt(const std::string& s, std::size_t pos) {
+    if (pos >= s.size()) {
+        return false;
+    }
+    std::size_t largo = 1;
+    const unsigned cp = decodeUtf8(s, pos, largo);
+    if (largo == 1 && cp > 0x7F) {
+        return false;
+    }
+    return esLetra(cp);
+}
+
 }  // namespace zfsmgr::base

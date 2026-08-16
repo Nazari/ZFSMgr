@@ -109,6 +109,30 @@ comportamiento con entrada acentuada. Hay que mirarla una por una, no a bulto.
 Este proyecto ya se llevó un disgusto con Unicode —la descomposición NFD de macOS—, así
 que la comparación contra Qt no es una formalidad.
 
+## La caja de las letras acentuadas SÍ decidía cosas
+
+Al capturar la referencia de las últimas 15 con mensajes reales de `sudo` salió algo
+que la banda ASCII habría dejado pasar:
+
+    looksLikeSudoAuthFailure("SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO")
+      Qt          -> true
+      toLowerAscii -> false
+
+Es decir: un rechazo de contraseña se habría clasificado como «no se pudo comprobar» y
+el usuario no habría recibido el aviso. **Ese error exacto ya ocurrió una vez** por otro
+motivo, y está documentado en los comentarios de esa misma función.
+
+Así que `strutil` tiene ahora `toLowerUtf8`, `toUpperUtf8` e `isLetterAt`, que cubren
+ASCII, el suplemento Latin-1 y Latin Extended-A. **Contrastadas contra Qt en todo el
+rango U+0000..U+017F**: `isLetter` coincide al 100%, y de la caja solo divergen seis
+puntos de código, todos declarados fuera de alcance —la I turca (U+0130/U+0131), `ß→SS`,
+`ŉ→ʼN`, `ſ→S` y el signo micro—, que son los que cambian de longitud o pertenecen a
+otro alfabeto.
+
+La regla práctica al portar: **`toLowerAscii` para comparar valores de propiedad, GUID y
+nombres de verbo; `toLowerUtf8` en cuanto el texto venga de una persona o de un programa
+traducido.**
+
 ## Estado
 
 Hecho y verificado:
@@ -134,14 +158,17 @@ Hecho y verificado:
   silenciosamente vacío, y eso es peor que copiar unas cadenas de más al construir una
   orden que va a lanzar un proceso.
 
-`mainwindow_helpers.cpp` queda en **951 líneas** de las 1.224 iniciales. De sus 58
-funciones:
+- **Las 15 últimas sin bloqueo**: secretos, letras de unidad, particiones de Windows,
+  troceo POSIX, estado de los botones de transferencia y conflictos de punto de montaje.
+
+`mainwindow_helpers.cpp` queda en **669 líneas** de las 1.224 iniciales, y **53 de sus
+58 funciones** viven ya en la capa base. De las cinco que quedan:
 
 | | cuántas | por qué |
 |---|---|---|
 | Ya portadas | **38** | órdenes, predicados, SSH, `scp`, `sudo` y agente |
 | Movibles, aún sin portar | 15 | sobre todo por los contenedores (`QMap`, `QVector`) |
-| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` — es la decisión pendiente de más peso: `std::regex` o una biblioteca |
+| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` — **la decisión pendiente de más peso**: `std::regex` o una biblioteca |
 | Sistema de ficheros | 1 | `findLocalExecutable` |
 | JSON | 1 | `parseZfsMountJsonOutput` |
 | `QProcess` | 1 | `checkLocalSudoPassword` |
