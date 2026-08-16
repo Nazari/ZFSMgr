@@ -576,6 +576,31 @@ Los campos que quedan por detrás son mucho más pequeños: `m_connContentTree` 
 métodos, y es un widget: eso es interfaz, no lógica), `m_topDetailConnIdx` (16),
 `m_pendingChangesModel` (14).
 
+## Paso 2: la sesión de transporte
+
+`src/transportsession.h`: los túneles `ssh -L` vivos, las claves cuyo túnel se está
+montando, la memoria de los reintentos que fallaron y los conjuntos de SSH. 67
+referencias, y casi todas confinadas a `mainwindow_remote.cpp` — es el grupo más limpio
+de todos los que se han movido.
+
+**El motivo de hoy pesa más que el del CLI:** el cerrojo y lo que protege **estaban
+separados**, y solo un comentario decía cuáles iban juntos. Ahora `mutex` es el primer
+campo de la estructura y todo lo demás va debajo. El refresco corre en hilos
+(`QtConcurrent`) y estos mapas se tocan desde varios a la vez, así que esa relación no
+debería depender de que alguien lea un comentario.
+
+Buena noticia de la revisión: **las claves del transporte nunca sufrieron el fallo de la
+posición**. Salen de las coordenadas de conexión —usuario, host, puerto, ruta de clave—,
+así que sobreviven a que se reordene la lista. Ese patrón ya era el correcto.
+
+Queda fuera, y a propósito, `s_remoteDaemonTlsCache`: es una caché **estática de fichero**
+con su propio cerrojo, compartida por todo el proceso. Ya está autocontenida.
+
+**Lo que esto NO da todavía:** los métodos del transporte (`runSsh`,
+`tryRunRemoteAgentRpcViaTunnel`, …) siguen siendo miembros de `MainWindow`. El estado ya
+es una cosa aparte; que las funciones lo reciban por parámetro es el paso siguiente, y es
+el que de verdad desbloquea el CLI.
+
 ## Estado
 
 Hecho y verificado:

@@ -988,8 +988,8 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     // la conexión en backoff de 30 s y con eso tumbaba el refresco de verdad. Estar
     // ocupado no es estar roto.
     {
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
-        if (m_remoteRpcTunnelsBeingCreated.contains(rpcConnKey)) {
+        QMutexLocker lock(&m_transport.mutex);
+        if (m_transport.tunnelsBeingCreated.contains(rpcConnKey)) {
             if (failureReason) {
                 *failureReason = mwhelpers::rpcTunnelBusyReason();
             }
@@ -999,13 +999,13 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     const auto closeTunnelForKey = [&](const QString& key) {
         QPointer<QProcess> proc;
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
-            if (it == m_remoteDaemonRpcTunnelsByConnKey.end()) {
+            QMutexLocker lock(&m_transport.mutex);
+            const auto it = m_transport.tunnelsByConnKey.find(key);
+            if (it == m_transport.tunnelsByConnKey.end()) {
                 return;
             }
             proc = it->process;
-            m_remoteDaemonRpcTunnelsByConnKey.erase(it);
+            m_transport.tunnelsByConnKey.erase(it);
         }
         if (proc && proc->state() != QProcess::NotRunning) {
             proc->terminate();
@@ -1022,9 +1022,9 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         const QDateTime now = QDateTime::currentDateTimeUtc();
         QStringList staleKeys;
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            for (auto it = m_remoteDaemonRpcTunnelsByConnKey.cbegin();
-                 it != m_remoteDaemonRpcTunnelsByConnKey.cend(); ++it) {
+            QMutexLocker lock(&m_transport.mutex);
+            for (auto it = m_transport.tunnelsByConnKey.cbegin();
+                 it != m_transport.tunnelsByConnKey.cend(); ++it) {
                 const bool running = it.value().process && it.value().process->state() != QProcess::NotRunning;
                 const bool tooIdle = it.value().lastUsedUtc.isValid() && it.value().lastUsedUtc.secsTo(now) > 60;
                 if (!running || tooIdle) {
@@ -1060,21 +1060,21 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             MainWindow* self;
             QString key;
             ~CreationLock() {
-                QMutexLocker lock(&self->m_sshRuntimeSetsMutex);
-                self->m_remoteRpcTunnelsBeingCreated.remove(key);
+                QMutexLocker lock(&self->m_transport.mutex);
+                self->m_transport.tunnelsBeingCreated.remove(key);
             }
         };
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            m_remoteRpcTunnelsBeingCreated.insert(key);
+            QMutexLocker lock(&m_transport.mutex);
+            m_transport.tunnelsBeingCreated.insert(key);
         }
         CreationLock creationLock{this, key};
         const QDateTime now = QDateTime::currentDateTimeUtc();
         bool needsRecreate = false;
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
-            if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+            QMutexLocker lock(&m_transport.mutex);
+            const auto it = m_transport.tunnelsByConnKey.find(key);
+            if (it != m_transport.tunnelsByConnKey.end()) {
                 const bool running = it->process && it->process->state() != QProcess::NotRunning;
                 const bool remoteMatches = (it->remotePort == remotePort);
                 const bool tooIdle = it->lastUsedUtc.isValid() && it->lastUsedUtc.secsTo(now) > 45;
@@ -1205,23 +1205,23 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this,
             [this, key, proc](int, QProcess::ExitStatus) {
-                QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
-                if (it != m_remoteDaemonRpcTunnelsByConnKey.end() && it->process == proc) {
-                    m_remoteDaemonRpcTunnelsByConnKey.erase(it);
+                QMutexLocker lock(&m_transport.mutex);
+                auto it = m_transport.tunnelsByConnKey.find(key);
+                if (it != m_transport.tunnelsByConnKey.end() && it->process == proc) {
+                    m_transport.tunnelsByConnKey.erase(it);
                 }
                 proc->deleteLater();
             });
 
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            QMutexLocker lock(&m_transport.mutex);
             RemoteRpcTunnelState st;
             st.process = proc;
             st.localPort = localPort;
             st.remotePort = remotePort;
             st.startedAtUtc = now;
             st.lastUsedUtc = now;
-            m_remoteDaemonRpcTunnelsByConnKey.insert(key, st);
+            m_transport.tunnelsByConnKey.insert(key, st);
         }
 
         localPortOut = localPort;
@@ -1405,9 +1405,9 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 out = resp.value(QStringLiteral("stdout")).toString();
                 err = resp.value(QStringLiteral("stderr")).toString();
                 {
-                    QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                    auto it = m_remoteDaemonRpcTunnelsByConnKey.find(rpcConnKey);
-                    if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+                    QMutexLocker lock(&m_transport.mutex);
+                    auto it = m_transport.tunnelsByConnKey.find(rpcConnKey);
+                    if (it != m_transport.tunnelsByConnKey.end()) {
                         it->lastUsedUtc = QDateTime::currentDateTimeUtc();
                     }
                 }
@@ -1750,9 +1750,9 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     bool allowRpcAttempt = true;
     QString suppressedReason;
     {
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
-        const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
-        if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
+        QMutexLocker lock(&m_transport.mutex);
+        const auto it = m_transport.retryAfterByConnKey.constFind(rpcConnKey);
+        if (it != m_transport.retryAfterByConnKey.constEnd()
             && it.value().isValid()
             && QDateTime::currentDateTimeUtc() < it.value()) {
             allowRpcAttempt = false;
@@ -1781,9 +1781,9 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     }
     if (rpcAttemptOk) {
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
-            m_daemonRpcRetryReasonByConnKey.remove(rpcConnKey);
+            QMutexLocker lock(&m_transport.mutex);
+            m_transport.retryAfterByConnKey.remove(rpcConnKey);
+            m_transport.retryReasonByConnKey.remove(rpcConnKey);
         }
         const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
                                     .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs));
@@ -1860,11 +1860,11 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
         appLog(QStringLiteral("INFO"), fallbackLine);
         appendConnectionLog(p.id, fallbackLine);
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        QMutexLocker lock(&m_transport.mutex);
         constexpr int kDaemonRpcRetryBackoffSec = 30;
-        m_daemonRpcRetryAfterByConnKey.insert(
+        m_transport.retryAfterByConnKey.insert(
             rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
-        m_daemonRpcRetryReasonByConnKey.insert(rpcConnKey, reason);
+        m_transport.retryReasonByConnKey.insert(rpcConnKey, reason);
     } else if (!suppressedReason.isEmpty()) {
         const QString skippedLine =
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
@@ -2416,9 +2416,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         || (familyLower == QStringLiteral("ipv6"))) {
         bool shouldLogResolution = false;
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            if (!m_loggedSshResolutionKeys.contains(sshResolutionKey)) {
-                m_loggedSshResolutionKeys.insert(sshResolutionKey);
+            QMutexLocker lock(&m_transport.mutex);
+            if (!m_transport.loggedResolutionKeys.contains(sshResolutionKey)) {
+                m_transport.loggedResolutionKeys.insert(sshResolutionKey);
                 shouldLogResolution = true;
             }
         }
@@ -2458,15 +2458,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 #else
     bool allowMultiplexing = true;
     {
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
-        allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
+        QMutexLocker lock(&m_transport.mutex);
+        allowMultiplexing = !m_transport.disableMultiplexKeys.contains(sshConnKey);
     }
 #endif
     bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
     if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
         {
-            QMutexLocker lock(&m_sshRuntimeSetsMutex);
-            m_sshDisableMultiplexKeys.insert(sshConnKey);
+            QMutexLocker lock(&m_transport.mutex);
+            m_transport.disableMultiplexKeys.insert(sshConnKey);
         }
         const QString retryMsg = QStringLiteral("SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.");
         appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, retryMsg));
@@ -2546,15 +2546,15 @@ void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
     // Close the SSH tunnel so a fresh one is opened after daemon restart.
     QPointer<QProcess> proc;
     {
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
-        const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
-        if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+        QMutexLocker lock(&m_transport.mutex);
+        const auto it = m_transport.tunnelsByConnKey.find(key);
+        if (it != m_transport.tunnelsByConnKey.end()) {
             proc = it->process;
-            m_remoteDaemonRpcTunnelsByConnKey.erase(it);
+            m_transport.tunnelsByConnKey.erase(it);
         }
         // Clear backoff so the first RPC after restart is not suppressed.
-        m_daemonRpcRetryAfterByConnKey.remove(key);
-        m_daemonRpcRetryReasonByConnKey.remove(key);
+        m_transport.retryAfterByConnKey.remove(key);
+        m_transport.retryReasonByConnKey.remove(key);
     }
     if (proc && proc->state() != QProcess::NotRunning) {
         proc->terminate();
@@ -2575,22 +2575,22 @@ void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
 
 void MainWindow::clearDaemonRpcBackoffForConnection(const ConnectionProfile& p) {
     const QString key = remoteDaemonTlsCacheKey(p);
-    QMutexLocker lock(&m_sshRuntimeSetsMutex);
-    m_daemonRpcRetryAfterByConnKey.remove(key);
-    m_daemonRpcRetryReasonByConnKey.remove(key);
+    QMutexLocker lock(&m_transport.mutex);
+    m_transport.retryAfterByConnKey.remove(key);
+    m_transport.retryReasonByConnKey.remove(key);
 }
 
 void MainWindow::closeAllRemoteDaemonRpcTunnels() {
     QVector<QPointer<QProcess>> procs;
     {
-        QMutexLocker lock(&m_sshRuntimeSetsMutex);
-        for (auto it = m_remoteDaemonRpcTunnelsByConnKey.cbegin();
-             it != m_remoteDaemonRpcTunnelsByConnKey.cend(); ++it) {
+        QMutexLocker lock(&m_transport.mutex);
+        for (auto it = m_transport.tunnelsByConnKey.cbegin();
+             it != m_transport.tunnelsByConnKey.cend(); ++it) {
             if (it.value().process) {
                 procs.push_back(it.value().process);
             }
         }
-        m_remoteDaemonRpcTunnelsByConnKey.clear();
+        m_transport.tunnelsByConnKey.clear();
     }
     for (const QPointer<QProcess>& proc : procs) {
         if (!proc) {
@@ -2609,16 +2609,16 @@ void MainWindow::closeAllRemoteDaemonRpcTunnels() {
 
 QString MainWindow::daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const {
     const QString key = remoteDaemonTlsCacheKey(p);
-    QMutexLocker lock(&m_sshRuntimeSetsMutex);
-    const auto retryIt = m_daemonRpcRetryAfterByConnKey.constFind(key);
-    if (retryIt == m_daemonRpcRetryAfterByConnKey.constEnd() || !retryIt.value().isValid()) {
+    QMutexLocker lock(&m_transport.mutex);
+    const auto retryIt = m_transport.retryAfterByConnKey.constFind(key);
+    if (retryIt == m_transport.retryAfterByConnKey.constEnd() || !retryIt.value().isValid()) {
         return QString();
     }
     const qint64 seconds = QDateTime::currentDateTimeUtc().secsTo(retryIt.value());
     if (seconds <= 0) {
         return QString();
     }
-    const QString reason = m_daemonRpcRetryReasonByConnKey.value(key).trimmed();
+    const QString reason = m_transport.retryReasonByConnKey.value(key).trimmed();
     const bool tlsRelated =
         reason.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)
         || reason.contains(QStringLiteral("cert"), Qt::CaseInsensitive)

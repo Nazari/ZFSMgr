@@ -2,6 +2,7 @@
 
 #include "connectionmodel.h"
 #include "connectionregistry.h"
+#include "transportsession.h"
 #include "connectiondialog.h"
 #include "mainwindow_helpers.h"
 #include "connectioncapabilities.h"
@@ -1252,24 +1253,10 @@ private:
     QMap<QString, ConnCompactState> m_connCompactState;
     QMap<QString, ConnCompactState> m_connGsaCompactState;
     QMap<QString, qint64> m_connectionDaemonLogOffset;
-    QSet<QString> m_sshDisableMultiplexKeys;
-    QSet<QString> m_loggedSshResolutionKeys;
     QSet<QString> m_daemonBootstrapPromptedConnIds;
-    QMap<QString, QDateTime> m_daemonRpcRetryAfterByConnKey;
-    QMap<QString, QString> m_daemonRpcRetryReasonByConnKey;
-    struct RemoteRpcTunnelState {
-        QPointer<QProcess> process;
-        quint16 localPort{0};
-        quint16 remotePort{0};
-        QDateTime startedAtUtc;
-        QDateTime lastUsedUtc;
-    };
-    QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
-    // Claves cuyo túnel se está montando ahora mismo. Protege de la reentrancia que
-    // provoca el processEvents de la espera: sin esto se montaban túneles duplicados que
-    // quedaban huérfanos fuera del mapa. Bajo m_sshRuntimeSetsMutex, como el mapa.
-    QSet<QString> m_remoteRpcTunnelsBeingCreated;
-    mutable QMutex m_sshRuntimeSetsMutex;
+    // Túneles, reintentos y el cerrojo que los protege, todo junto. Antes el cerrojo y
+    // lo que protegía estaban separados y solo un comentario decía cuáles iban juntos.
+    TransportSession m_transport;
     QMap<QString, RefreshRuntimeCacheEntry> m_refreshRuntimeCacheByConnId;
     QMap<QString, QStringList> m_connSystemUsersCacheByKey;
     QMap<QString, QStringList> m_connSystemGroupsCacheByKey;

@@ -28,7 +28,7 @@ MainWindow::~MainWindow() {
     // AddressSanitizer:
     //
     //   ~MainWindow()  → cuerpo del destructor
-    //     → se destruyen los MIEMBROS      (muere m_remoteDaemonRpcTunnelsByConnKey)
+    //     → se destruyen los MIEMBROS      (muere m_transport.tunnelsByConnKey)
     //     → ~QWidget() → deleteChildren()  (mueren los QProcess que quedaban)
     //         → ~QProcess() emite finished()
     //             → la lambda hace .find() sobre el mapa YA LIBERADO
