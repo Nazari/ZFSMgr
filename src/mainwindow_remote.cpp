@@ -1171,7 +1171,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 //
                 // ExcludeUserInputEvents a propósito: deja pasar los repintados pero NO
                 // las acciones del usuario, así que no puede colarse por aquí nada que
-                // mute m_profiles/m_states y deje colgando las referencias que sostiene
+                // mute m_conns.profiles/m_conns.states y deje colgando las referencias que sostiene
                 // quien nos llamó. Es más estricto que el processEvents de runSsh.
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 40);
                 QThread::msleep(10);
@@ -1480,7 +1480,7 @@ bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& 
     }
     ConnectionProfile updated;
     bool found = false;
-    for (const ConnectionProfile& cp : std::as_const(m_profiles)) {
+    for (const ConnectionProfile& cp : std::as_const(m_conns.profiles)) {
         if (cp.id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
             updated = cp;
             found = true;
@@ -1498,12 +1498,12 @@ bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& 
     // Actualizar el estado en memoria antes de intentar el persist a disco:
     // así la sesión actual usa siempre el material TLS recién obtenido del
     // daemon remoto, aunque el upsertConnection falle por cualquier motivo.
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
-            m_profiles[i].daemonTlsServerCertPem = updated.daemonTlsServerCertPem;
-            m_profiles[i].daemonTlsClientCertPem = updated.daemonTlsClientCertPem;
-            m_profiles[i].daemonTlsClientKeyPem = updated.daemonTlsClientKeyPem;
-            m_profiles[i].daemonTlsPort = updated.daemonTlsPort;
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
+            m_conns.profiles[i].daemonTlsServerCertPem = updated.daemonTlsServerCertPem;
+            m_conns.profiles[i].daemonTlsClientCertPem = updated.daemonTlsClientCertPem;
+            m_conns.profiles[i].daemonTlsClientKeyPem = updated.daemonTlsClientKeyPem;
+            m_conns.profiles[i].daemonTlsPort = updated.daemonTlsPort;
             break;
         }
     }
@@ -2497,11 +2497,11 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 }
 
 void MainWindow::closeAllSshControlMasters() {
-    if (m_profiles.isEmpty()) {
+    if (m_conns.profiles.isEmpty()) {
         return;
     }
     QSet<QString> seen;
-    for (const ConnectionProfile& p : m_profiles) {
+    for (const ConnectionProfile& p : m_conns.profiles) {
         if (isLocalConnection(p)) {
             continue;
         }
@@ -2635,10 +2635,10 @@ QString MainWindow::daemonRpcBackoffTextForConnection(const ConnectionProfile& p
 }
 
 QString MainWindow::daemonRpcBackoffTextForConnection(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    return daemonRpcBackoffTextForConnection(m_profiles[connIdx]);
+    return daemonRpcBackoffTextForConnection(m_conns.profiles[connIdx]);
 }
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
@@ -2654,10 +2654,10 @@ bool MainWindow::isLocalConnection(const ConnectionProfile& p) const {
 }
 
 bool MainWindow::isLocalConnection(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return false;
     }
-    return isLocalConnection(m_profiles[connIdx]);
+    return isLocalConnection(m_conns.profiles[connIdx]);
 }
 
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
@@ -2665,17 +2665,17 @@ bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
 }
 
 bool MainWindow::isWindowsConnection(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return false;
     }
-    return isWindowsConnection(m_profiles[connIdx]);
+    return isWindowsConnection(m_conns.profiles[connIdx]);
 }
 
 bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return false;
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     if (!featureAvailable(connIdx, zfsmgr::caps::Feature::AlternateMount)) {
         return false;
     }
@@ -2747,16 +2747,16 @@ QString MainWindow::sshExecFromLocal(const ConnectionProfile& p,
 
 bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut) {
     valueOut.clear();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
         return false;
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     const bool daemonReadApiOk =
         connIdx >= 0
-        && connIdx < m_states.size()
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (!daemonReadApiOk
         && !requireDaemonForRead(connIdx, QStringLiteral("leer una propiedad de dataset"))) {
         return false;
@@ -2783,7 +2783,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
     }
     const QString trimmedPool = poolName.trimmed();
     const QString trimmedObject = objectName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
         return false;
     }
     if (!ensureDatasetsLoaded(connIdx, trimmedPool, true)) {
@@ -2802,18 +2802,18 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         guid = cacheIt->objectGuidByName.value(trimmedObject).trimmed();
     }
     if (guid.isEmpty() || guid == QStringLiteral("-")) {
-        // Copy, not a reference: m_profiles is reassigned wholesale by
+        // Copy, not a reference: m_conns.profiles is reassigned wholesale by
         // loadConnections(), which a queued event can trigger during runSsh().
-        const ConnectionProfile p = m_profiles[connIdx];
+        const ConnectionProfile p = m_conns.profiles[connIdx];
         QString out;
         QString err;
         int rc = -1;
         const bool daemonReadApiOk =
             connIdx >= 0
-            && connIdx < m_states.size()
-            && m_states[connIdx].daemonInstalled
-            && m_states[connIdx].daemonActive
-            && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+            && connIdx < m_conns.states.size()
+            && m_conns.states[connIdx].daemonInstalled
+            && m_conns.states[connIdx].daemonActive
+            && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         if (!daemonReadApiOk
             && !requireDaemonForRead(connIdx, QStringLiteral("leer el GUID de un objeto"))) {
             return false;
@@ -2882,8 +2882,8 @@ QString MainWindow::effectiveMountPath(int connIdx,
     // Windows: el árbol mostraba EL MISMO contenido en winpool y en winpool/subds1.
     //
     // La lista de montajes no se hereda ni se deduce: dice dónde está montado cada uno.
-    if (connIdx >= 0 && connIdx < m_states.size()) {
-        for (const QPair<QString, QString>& row : m_states[connIdx].mountedDatasets) {
+    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
+        for (const QPair<QString, QString>& row : m_conns.states[connIdx].mountedDatasets) {
             if (row.first.trimmed() != datasetName) {
                 continue;
             }
@@ -2938,7 +2938,7 @@ QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const 
 }
 
 bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return false;
     }
     const QString key = datasetCacheKey(connIdx, poolName);
@@ -2959,19 +2959,19 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     if (!allowRemoteLoadIfMissing) {
         return false;
     }
-    // Copy, not a reference: loadConnections() reassigns m_profiles wholesale and can
+    // Copy, not a reference: loadConnections() reassigns m_conns.profiles wholesale and can
     // be dispatched from the event loop while runSsh() pumps it.
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     const bool daemonReadApiOk =
         connIdx >= 0
-        && connIdx < m_states.size()
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    if (connIdx >= 0 && connIdx < m_states.size()) {
+        && connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
         const QString trimmedPool = poolName.trimmed();
         if (!trimmedPool.isEmpty()
-            && m_states[connIdx].poolGuidByName.value(trimmedPool).trimmed().isEmpty()) {
+            && m_conns.states[connIdx].poolGuidByName.value(trimmedPool).trimmed().isEmpty()) {
             QString gOut;
             QString gErr;
             int gRc = -1;
@@ -2983,7 +2983,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
-                    m_states[connIdx].poolGuidByName.insert(trimmedPool, guid);
+                    m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
                     appLog(QStringLiteral("DEBUG"),
                            QStringLiteral("Loaded missing pool GUID %1::%2 -> %3")
                                .arg(p.name, trimmedPool, guid));

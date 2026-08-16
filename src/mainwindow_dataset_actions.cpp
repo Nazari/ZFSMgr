@@ -407,11 +407,11 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         localUid = currentLocalMachineUidFallback();
     }
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (isLocalConnection(i) || i >= m_states.size()) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (isLocalConnection(i) || i >= m_conns.states.size()) {
             continue;
         }
-        const ConnectionProfile candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_conns.profiles[i];
         if (!isConnectionRedirectedToLocal(i)) {
             continue;
         }
@@ -427,8 +427,8 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         return true;
     }
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile candidate = m_profiles[i];
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        const ConnectionProfile candidate = m_conns.profiles[i];
         if (!isLocalConnection(candidate)) {
             continue;
         }
@@ -448,8 +448,8 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     }
 
     bool hasConfiguredRedirect = false;
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile candidate = m_profiles[i];
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        const ConnectionProfile candidate = m_conns.profiles[i];
         if (isLocalConnection(candidate)) {
             continue;
         }
@@ -540,7 +540,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
 
     ConnectionProfile localCfg;
     bool foundLocal = false;
-    for (const ConnectionProfile& p : m_profiles) {
+    for (const ConnectionProfile& p : m_conns.profiles) {
         if (!isLocalConnection(p)) {
             continue;
         }
@@ -584,7 +584,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
                QStringLiteral("Credenciales sudo locales persistidas en config.json para machine_uid=%1")
                    .arg(localUid.isEmpty() ? QStringLiteral("-") : localUid));
         bool updated = false;
-        for (ConnectionProfile& p : m_profiles) {
+        for (ConnectionProfile& p : m_conns.profiles) {
             if (!isLocalConnection(p)) {
                 continue;
             }
@@ -596,7 +596,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
             break;
         }
         if (!updated) {
-            m_profiles.push_front(localCfg);
+            m_conns.profiles.push_front(localCfg);
         }
     }
     return true;
@@ -608,7 +608,7 @@ bool MainWindow::hasEquivalentLocalSshConnection() const {
         localUid = currentLocalMachineUidFallback();
     }
 
-    for (const ConnectionProfile& candidate : m_profiles) {
+    for (const ConnectionProfile& candidate : m_conns.profiles) {
         if (isLocalConnection(candidate)) {
             continue;
         }
@@ -632,8 +632,8 @@ void MainWindow::ensureStartupLocalSudoConnection() {
     }
     m_startupLocalSudoChecked = true;
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        ConnectionProfile& localProfile = m_profiles[i];
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        ConnectionProfile& localProfile = m_conns.profiles[i];
         if (!isLocalConnection(localProfile) || isWindowsConnection(localProfile) || !localProfile.useSudo) {
             continue;
         }
@@ -666,7 +666,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
     if (isPoolSuspended(ctx.connIdx, ctx.poolName)) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Bloqueada acción %1 en %2::%3 (pool suspended)")
-                   .arg(actionName, m_profiles.value(ctx.connIdx).name, ctx.poolName));
+                   .arg(actionName, m_conns.profiles.value(ctx.connIdx).name, ctx.poolName));
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -676,7 +676,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
                 QStringLiteral("存储池处于 suspended 状态，已禁用操作。")));
         return false;
     }
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
     if (isWindowsConnection(p) && !allowWindowsScript) {
         // Lista ampliada: mientras existió MSYS2 esto era una cortesía, porque lo que
         // se colara acababa en bash y funcionaba. Retirado MSYS no hay red debajo, así
@@ -724,10 +724,10 @@ bool MainWindow::executeDatasetAction(const QString& side,
     // (comprobado por RPC contra un Windows 11 real).
     const bool daemonMutateApiOk =
         ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const bool usesStreamInput = !stdinPayload.isEmpty();
     QString effectiveCmd =
         isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
@@ -1056,7 +1056,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
                                                      const QString& datasetName) {
     const QString trimmedPool = poolName.trimmed();
     const QString trimmedDataset = datasetName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedDataset.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty() || trimmedDataset.isEmpty()) {
         return false;
     }
 
@@ -1083,7 +1083,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         refreshedSomething = true;
     }
 
-    const ConnectionProfile profile = m_profiles.at(connIdx);
+    const ConnectionProfile profile = m_conns.profiles.at(connIdx);
     QString out;
     QString err;
     int rc = -1;
@@ -1093,10 +1093,10 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const bool daemonReadApiOk =
         !poolWin
         && connIdx >= 0
-        && connIdx < m_states.size()
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
     const QStringList poolCmdDaemonArgv = {QStringLiteral("--dump-zpool-get-all"), trimmedPool};
     bool poolPropsOk = daemonReadApiOk
@@ -1170,7 +1170,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     } else {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("No se pudieron refrescar propiedades de tamaño del pool %1::%2: %3")
-                   .arg(m_profiles.at(connIdx).name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
+                   .arg(m_conns.profiles.at(connIdx).name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
     }
 
     return refreshedSomething;
@@ -1179,7 +1179,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
 bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
                                                   bool interactiveErrorDialog,
                                                   QString* failureDetailOut) {
-    if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+    if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()
         || draft.poolName.trimmed().isEmpty()
         || draft.sourceName.trimmed().isEmpty()
         || draft.targetName.trimmed().isEmpty()) {
@@ -1188,7 +1188,7 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         }
         return false;
     }
-    const ConnectionProfile p = m_profiles.at(draft.connIdx);
+    const ConnectionProfile p = m_conns.profiles.at(draft.connIdx);
     ConnectionProfile sudoProfile = p;
     if (!ensureLocalSudoCredentials(sudoProfile)) {
         const QString msg = QStringLiteral("faltan credenciales sudo locales");
@@ -1248,10 +1248,10 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
 }
 
 QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
-    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
     QString mp;
     QString mpHint;
     QString mountedValue;
@@ -1451,7 +1451,7 @@ void MainWindow::flushPendingReloads() {
     }
 
     for (int connIdx : refreshIdxs) {
-        if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
             continue;
         }
         refreshConnectionByIndex(connIdx);
@@ -1460,7 +1460,7 @@ void MainWindow::flushPendingReloads() {
 
 void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
 
@@ -1603,7 +1603,7 @@ void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) 
 
 void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
     m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool));
@@ -1613,7 +1613,7 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
 void MainWindow::reloadDatasetSide(const QString& side) {
     if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
         const DatasetSelectionContext ctx = currentDatasetSelection(side);
-        if (ctx.valid && ctx.connIdx >= 0 && ctx.connIdx < m_profiles.size()) {
+        if (ctx.valid && ctx.connIdx >= 0 && ctx.connIdx < m_conns.profiles.size()) {
             m_pendingConnectionRefreshIndices.insert(ctx.connIdx);
             scheduleReloadFlush();
         }
@@ -1631,7 +1631,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             bool ok = false;
             const int connIdx = token.left(sep).toInt(&ok);
             const QString poolName = token.mid(sep + 2).trimmed();
-            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            if (!ok || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
                 return false;
             }
             m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(poolName));
@@ -1718,7 +1718,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
         return false;
     }
     if (isWindowsConnection(ctx.connIdx)) {
-        const ConnectionProfile p = m_profiles[ctx.connIdx];
+        const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
         QString effectiveMp = effectiveMountPath(ctx.connIdx,
                                                  ctx.poolName,
                                                  ctx.datasetName,
@@ -1764,7 +1764,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
     }
     int resolvedConnIdx = ctx.connIdx;
     auto datasetExistsInConn = [&](int idx) -> bool {
-        if (idx < 0 || idx >= m_profiles.size() || ctx.poolName.isEmpty()) {
+        if (idx < 0 || idx >= m_conns.profiles.size() || ctx.poolName.isEmpty()) {
             return false;
         }
         if (!ensureDatasetsLoaded(idx, ctx.poolName)) {
@@ -1773,7 +1773,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
         return datasetExistsInModel(idx, ctx.poolName, ctx.datasetName);
     };
     if (!datasetExistsInConn(resolvedConnIdx)) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (i == resolvedConnIdx) {
                 continue;
             }
@@ -1781,8 +1781,8 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
                 appLog(QStringLiteral("WARN"),
                        QStringLiteral("Contexto de conexión ajustado para montar %1: %2 -> %3")
                            .arg(ctx.datasetName)
-                           .arg((ctx.connIdx >= 0 && ctx.connIdx < m_profiles.size()) ? m_profiles[ctx.connIdx].name : QStringLiteral("<?>"))
-                           .arg(m_profiles[i].name));
+                           .arg((ctx.connIdx >= 0 && ctx.connIdx < m_conns.profiles.size()) ? m_conns.profiles[ctx.connIdx].name : QStringLiteral("<?>"))
+                           .arg(m_conns.profiles[i].name));
                 resolvedConnIdx = i;
                 break;
             }
@@ -1829,10 +1829,10 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
 }
 
 bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants) {
-    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.datasetName.isEmpty()) {
+    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size() || ctx.datasetName.isEmpty()) {
         return false;
     }
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
 
     if (!ensureDatasetsLoaded(ctx.connIdx, ctx.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -1898,10 +1898,10 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     const bool daemonReadApiOk =
         !isWinConn
         && ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-mount")});
     QVector<QPair<QString, QString>> mountedRows;
     const bool mountListOk =
@@ -1968,7 +1968,7 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     QString out;
     QString err;
     int rc = -1;
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
     QString checkCmd = withSudo(p, isWin ? hasChildrenCmd : mwhelpers::withUnixSearchPathCommand(hasChildrenCmd));
     const bool ran = runSsh(p, checkCmd, 12000, out, err, rc);
     bool hasChildrenMounted = ran && rc == 0;

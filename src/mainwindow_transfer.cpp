@@ -156,10 +156,10 @@ QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers
 
 QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const {
     auto connPoolLabel = [this](const DatasetSelectionContext& ctx) {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.poolName.trimmed().isEmpty()) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size() || ctx.poolName.trimmed().isEmpty()) {
             return QString();
         }
-        const ConnectionProfile p = m_profiles.at(ctx.connIdx);
+        const ConnectionProfile p = m_conns.profiles.at(ctx.connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, ctx.poolName.trimmed());
     };
@@ -183,10 +183,10 @@ bool MainWindow::queueDatasetAction(const QString& side,
                                    const QStringList& agentArgv) {
     PendingShellActionDraft draft;
     draft.scopeLabel = [&]() {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
             return QString();
         }
-        const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+        const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
         const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
         return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
     }();
@@ -299,10 +299,10 @@ QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const
 // conexión. $SSH_CLIENT lo lleva puesto —la pone sshd— y su primer campo es justo la IP
 // del cliente, o sea nosotros.
 QString MainWindow::sourceViewOfThisHost(int srcConnIdx) {
-    if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) {
+    if (srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    const ConnectionProfile sp = m_profiles.at(srcConnIdx);
+    const ConnectionProfile sp = m_conns.profiles.at(srcConnIdx);
     if (isLocalConnection(sp)) {
         return QStringLiteral("127.0.0.1");
     }
@@ -345,7 +345,7 @@ QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
     if (holderOut) {
         holderOut->clear();
     }
-    if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.trimmed().isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || dataset.trimmed().isEmpty()) {
         return QString();
     }
     const QString target = dataset.trimmed();
@@ -375,7 +375,7 @@ QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
     // es la raíz: medido cortando una copia de 3,4 GB, el padre quedó completo y el
     // testigo apareció en el hijo. Mirar solo la raíz daba «no hay nada que reanudar»
     // teniendo 247 MB ya transferidos.
-    const ConnectionProfile p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_conns.profiles.at(connIdx);
     QString out;
     QString err;
     int rc = -1;
@@ -424,8 +424,8 @@ void MainWindow::actionCopySnapshot() {
         appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
-    ConnectionProfile sp = m_profiles[src.connIdx];
-    ConnectionProfile dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_conns.profiles[src.connIdx];
+    ConnectionProfile dp = m_conns.profiles[dst.connIdx];
     if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Copiar snapshot"))) {
         return;
     }
@@ -576,9 +576,9 @@ void MainWindow::actionCopySnapshot() {
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
     const auto isDaemonReady = [&](int idx) {
-        return idx >= 0 && idx < m_states.size()
-               && m_states[idx].daemonInstalled && m_states[idx].daemonActive
-               && m_states[idx].daemonApiVersion.trimmed()
+        return idx >= 0 && idx < m_conns.states.size()
+               && m_conns.states[idx].daemonInstalled && m_conns.states[idx].daemonActive
+               && m_conns.states[idx].daemonApiVersion.trimmed()
                       == agentversion::expectedApiVersion().trimmed();
     };
     auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
@@ -662,10 +662,10 @@ void MainWindow::actionCopySnapshot() {
     };
     // Prefer async daemon job: no GUI blocking, survives GUI close.
     // Only when both daemons support JOBS_SUPPORT (or same connection with dst daemon).
-    const bool srcJobsOk = src.connIdx >= 0 && src.connIdx < m_states.size()
-                           && m_states[src.connIdx].daemonJobsSupported;
-    const bool dstJobsOk = dst.connIdx >= 0 && dst.connIdx < m_states.size()
-                           && m_states[dst.connIdx].daemonJobsSupported;
+    const bool srcJobsOk = src.connIdx >= 0 && src.connIdx < m_conns.states.size()
+                           && m_conns.states[src.connIdx].daemonJobsSupported;
+    const bool dstJobsOk = dst.connIdx >= 0 && dst.connIdx < m_conns.states.size()
+                           && m_conns.states[dst.connIdx].daemonJobsSupported;
     // Windows ya no se excluye: los trabajos funcionan allí desde la fase 5. Este resto
     // se quedó sin quitar, y por eso una copia con un extremo Windows caía al camino
     // SÍNCRONO por shell, que además necesita sudo en el origen.
@@ -935,7 +935,7 @@ void MainWindow::actionCloneSnapshot() {
     }
     cmd += QStringLiteral(" %1 %2").arg(shSingleQuote(sourceSnapshot), shSingleQuote(targetDataset));
 
-    ConnectionProfile cp = m_profiles[src.connIdx];
+    ConnectionProfile cp = m_conns.profiles[src.connIdx];
     if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
         cp.useSudo = true;
         if (!ensureLocalSudoCredentials(cp)) {
@@ -1018,7 +1018,7 @@ void MainWindow::actionDiffSnapshot() {
         return;
     }
 
-    ConnectionProfile profile = m_profiles[src.connIdx];
+    ConnectionProfile profile = m_conns.profiles[src.connIdx];
     if (isLocalConnection(profile) && !isWindowsConnection(profile)) {
         profile.useSudo = true;
         if (!ensureLocalSudoCredentials(profile)) {
@@ -1035,11 +1035,11 @@ void MainWindow::actionDiffSnapshot() {
     const QString rawCmd = QStringLiteral("zfs diff -H %1 %2")
                                .arg(shSingleQuote(srcObj),
                                     shSingleQuote(dstObj));
-    const bool daemonReadApiOk = src.connIdx >= 0 && src.connIdx < static_cast<int>(m_states.size())
-        && m_states[src.connIdx].daemonInstalled
-        && m_states[src.connIdx].daemonActive
-        && m_states[src.connIdx].daemonNativeBinary
-        && m_states[src.connIdx].daemonApiVersion.trimmed()
+    const bool daemonReadApiOk = src.connIdx >= 0 && src.connIdx < static_cast<int>(m_conns.states.size())
+        && m_conns.states[src.connIdx].daemonInstalled
+        && m_conns.states[src.connIdx].daemonActive
+        && m_conns.states[src.connIdx].daemonNativeBinary
+        && m_conns.states[src.connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
     const QString remoteCmd = daemonReadApiOk
         ? daemonpayload::unixBinPath() + QStringLiteral(" --dump-zfs-diff %1 %2")
@@ -1405,8 +1405,8 @@ void MainWindow::actionLevelSnapshot() {
         return;
     }
 
-    ConnectionProfile sp = m_profiles[src.connIdx];
-    ConnectionProfile dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_conns.profiles[src.connIdx];
+    ConnectionProfile dp = m_conns.profiles[dst.connIdx];
     if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Nivelar snapshot"))) {
         return;
     }
@@ -1484,9 +1484,9 @@ void MainWindow::actionLevelSnapshot() {
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
     const auto isDaemonReady = [&](int idx) {
-        return idx >= 0 && idx < m_states.size()
-               && m_states[idx].daemonInstalled && m_states[idx].daemonActive
-               && m_states[idx].daemonApiVersion.trimmed()
+        return idx >= 0 && idx < m_conns.states.size()
+               && m_conns.states[idx].daemonInstalled && m_conns.states[idx].daemonActive
+               && m_conns.states[idx].daemonApiVersion.trimmed()
                       == agentversion::expectedApiVersion().trimmed();
     };
     auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
@@ -1564,10 +1564,10 @@ void MainWindow::actionLevelSnapshot() {
     };
     // Prefer async daemon job (survives GUI close) when both daemons support JOBS_SUPPORT.
     {
-        const bool srcJobsOk2 = src.connIdx >= 0 && src.connIdx < m_states.size()
-                                && m_states[src.connIdx].daemonJobsSupported;
-        const bool dstJobsOk2 = dst.connIdx >= 0 && dst.connIdx < m_states.size()
-                                && m_states[dst.connIdx].daemonJobsSupported;
+        const bool srcJobsOk2 = src.connIdx >= 0 && src.connIdx < m_conns.states.size()
+                                && m_conns.states[src.connIdx].daemonJobsSupported;
+        const bool dstJobsOk2 = dst.connIdx >= 0 && dst.connIdx < m_conns.states.size()
+                                && m_conns.states[dst.connIdx].daemonJobsSupported;
         if (dstJobsOk2 && (sameConnection || srcJobsOk2)) {
             if (launchDaemonJobTransfer(srcSnap, recvTarget, fromSnap, sendFlags,
                                         src.connIdx, dst.connIdx)) {
@@ -1637,8 +1637,8 @@ void MainWindow::actionSyncDatasets() {
         appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
-    ConnectionProfile sp = m_profiles[src.connIdx];
-    ConnectionProfile dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_conns.profiles[src.connIdx];
+    ConnectionProfile dp = m_conns.profiles[dst.connIdx];
     const bool sameConnection = (src.connIdx == dst.connIdx);
 
     QString srcMp;
@@ -1715,10 +1715,10 @@ void MainWindow::actionSyncDatasets() {
         return pth.startsWith('/');
     };
     auto remoteHasTool = [&](int connIdx, const QString& tool) -> bool {
-        if (connIdx < 0 || connIdx >= m_profiles.size() || tool.trimmed().isEmpty()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size() || tool.trimmed().isEmpty()) {
             return false;
         }
-        const ConnectionProfile p = m_profiles[connIdx];
+        const ConnectionProfile p = m_conns.profiles[connIdx];
         QString out;
         QString err;
         int rc = -1;
@@ -1773,15 +1773,15 @@ void MainWindow::actionSyncDatasets() {
         auto* root = new QVBoxLayout(&dlg);
         auto* form = new QFormLayout();
         auto* srcEd = new QLineEdit(QStringLiteral("%1::%2")
-                                        .arg((src.connIdx >= 0 && src.connIdx < m_profiles.size())
-                                                 ? m_profiles[src.connIdx].name
+                                        .arg((src.connIdx >= 0 && src.connIdx < m_conns.profiles.size())
+                                                 ? m_conns.profiles[src.connIdx].name
                                                  : QStringLiteral("?"),
                                              src.datasetName),
                                     &dlg);
         srcEd->setReadOnly(true);
         auto* dstEd = new QLineEdit(QStringLiteral("%1::%2")
-                                        .arg((dst.connIdx >= 0 && dst.connIdx < m_profiles.size())
-                                                 ? m_profiles[dst.connIdx].name
+                                        .arg((dst.connIdx >= 0 && dst.connIdx < m_conns.profiles.size())
+                                                 ? m_conns.profiles[dst.connIdx].name
                                                  : QStringLiteral("?"),
                                              dst.datasetName),
                                     &dlg);
@@ -2313,10 +2313,10 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
                                          int dstConnIdx,
                                          const QString& resumeToken)
 {
-    if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return false;
-    if (dstConnIdx < 0 || dstConnIdx >= m_profiles.size()) return false;
-    const ConnectionProfile sp = m_profiles[srcConnIdx];
-    const ConnectionProfile dp = m_profiles[dstConnIdx];
+    if (srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) return false;
+    if (dstConnIdx < 0 || dstConnIdx >= m_conns.profiles.size()) return false;
+    const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
+    const ConnectionProfile dp = m_conns.profiles[dstConnIdx];
     const bool sameConn = (srcConnIdx == dstConnIdx);
 
     // Step 1: --zfs-recv-listen on dest daemon
@@ -2439,8 +2439,8 @@ void MainWindow::pollDaemonJobs() {
         anyRunning = true;
         const QString pollJobId = m_activeDaemonJobs[i].jobId;
         const int srcConnIdx = m_activeDaemonJobs[i].srcConnIdx;
-        if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) continue;
-        const ConnectionProfile sp = m_profiles[srcConnIdx];
+        if (srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) continue;
+        const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
         QStringList args;
         args << QStringLiteral("--job-status") << pollJobId;
         QString out, err;
@@ -2470,7 +2470,7 @@ void MainWindow::pollDaemonJobs() {
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Job %1 completado: %2").arg(job.jobId, job.displayLabel));
             // Trigger dataset tree refresh on destination
-            if (job.dstConnIdx >= 0 && job.dstConnIdx < m_profiles.size()) {
+            if (job.dstConnIdx >= 0 && job.dstConnIdx < m_conns.profiles.size()) {
                 QTimer::singleShot(0, this, [this, dstIdx = job.dstConnIdx]() {
                     refreshConnectionByIndex(dstIdx);
                 });
@@ -2487,8 +2487,8 @@ void MainWindow::pollDaemonJobs() {
 }
 
 void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) return;
-    const ConnectionProfile sp = m_profiles[connIdx];
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) return;
+    const ConnectionProfile sp = m_conns.profiles[connIdx];
     QStringList args;
     args << QStringLiteral("--job-list");
     QString out, err;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connectionmodel.h"
+#include "connectionregistry.h"
 #include "connectiondialog.h"
 #include "mainwindow_helpers.h"
 #include "connectioncapabilities.h"
@@ -1119,8 +1120,9 @@ private:
     void resetAllDatasetPermissionDrafts();
 
     ConnectionStore m_store;
-    QVector<ConnectionProfile> m_profiles;
-    QVector<ConnectionRuntimeState> m_states;
+    // Perfiles y estados van juntos: son vectores paralelos indexados por connIdx y
+    // el invariante vive en el propio registro. Ver connectionregistry.h.
+    ConnectionRegistry m_conns;
     QMap<QString, ConnInfo> m_connInfoById;
 
     QTableWidget* m_connectionsTable{nullptr};

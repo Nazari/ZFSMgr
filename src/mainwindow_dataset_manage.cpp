@@ -792,7 +792,7 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
                             : QStringLiteral("zfs destroy %1 %2")
                                   .arg(flags.join(QLatin1Char(' ')),
                                        shSingleQuote(target));
-    ConnectionProfile cp = m_profiles[ctx.connIdx];
+    ConnectionProfile cp = m_conns.profiles[ctx.connIdx];
     if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
         cp.useSudo = true;
         if (!ensureLocalSudoCredentials(cp)) {
@@ -802,10 +802,10 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     }
     const bool daemonMutateApiOk =
         ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString queueCmd = cmd;
     if (daemonMutateApiOk && target.contains(QLatin1Char('@'))) {
         queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-destroy %1 %2 %3")
@@ -815,10 +815,10 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     }
     const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     auto connPoolLabel = [this](const DatasetSelectionContext& selCtx) {
-        if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
+        if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_conns.profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
             return QString();
         }
-        const ConnectionProfile p = m_profiles.at(selCtx.connIdx);
+        const ConnectionProfile p = m_conns.profiles.at(selCtx.connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, selCtx.poolName.trimmed());
     };

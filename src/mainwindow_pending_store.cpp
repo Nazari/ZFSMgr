@@ -56,10 +56,10 @@ QString MainWindow::buildFingerprintVersionPart(const QString& fingerprint) {
 }
 
 QString MainWindow::pendingConnKey(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const ConnectionProfile& p = m_conns.profiles.at(connIdx);
     const QString id = p.id.trimmed();
     return id.isEmpty() ? p.name.trimmed().toLower() : id.toLower();
 }
@@ -69,7 +69,7 @@ int MainWindow::pendingConnIndex(const QString& key) const {
     if (wanted.isEmpty()) {
         return -1;
     }
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (pendingConnKey(i) == wanted) {
             return i;
         }
@@ -79,13 +79,13 @@ int MainWindow::pendingConnIndex(const QString& key) const {
 
 QVector<mwhelpers::StorableSecret> MainWindow::pendingStorableSecrets() const {
     QVector<mwhelpers::StorableSecret> secrets;
-    secrets.reserve(m_profiles.size());
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    secrets.reserve(m_conns.profiles.size());
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         const QString key = pendingConnKey(i);
         if (key.isEmpty()) {
             continue;
         }
-        secrets.push_back(mwhelpers::StorableSecret{key, m_profiles.at(i).password});
+        secrets.push_back(mwhelpers::StorableSecret{key, m_conns.profiles.at(i).password});
     }
     return secrets;
 }

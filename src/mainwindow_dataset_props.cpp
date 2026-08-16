@@ -707,7 +707,7 @@ bool MainWindow::queuePendingDatasetRename(const PendingDatasetRenameDraft& draf
         }
         return false;
     };
-    if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()) {
+    if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()) {
         return fail(QStringLiteral("Conexión inválida para renombrado pendiente."));
     }
     const QString poolName = draft.poolName.trimmed();
@@ -911,9 +911,9 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         }
     }
     const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     const DatasetPlatformFamily platform =
-        datasetPlatformFamilyFromStrings(p.osType, (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString());
+        datasetPlatformFamilyFromStrings(p.osType, (connIdx >= 0 && connIdx < m_conns.states.size()) ? m_conns.states[connIdx].osLine : QString());
 
     struct PropRow {
         QString prop;
@@ -1450,10 +1450,10 @@ void MainWindow::applyDatasetPropertyChanges() {
         };
         PendingApplySuppressionGuard pendingApplyGuard(this);
         auto pendingLinePrefix = [this](int connIdx, const QString& poolName) {
-            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
                 return QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
             }
-            const ConnectionProfile p = m_profiles.at(connIdx);
+            const ConnectionProfile p = m_conns.profiles.at(connIdx);
             const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
             return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
         };
@@ -1603,7 +1603,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                 // existir.
                 appLog(QStringLiteral("NORMAL"),
                        QStringLiteral("Aplicar propiedades en %1::%2 -> %3")
-                           .arg(m_profiles.value(item.ctx.connIdx).name,
+                           .arg(m_conns.profiles.value(item.ctx.connIdx).name,
                                 item.objectName,
                                 mwhelpers::oneLine(mwhelpers::maskCommandSecrets(cmd))));
                 if (!executeDatasetAction(QStringLiteral("conncontent"),
@@ -1972,13 +1972,13 @@ void MainWindow::applyDatasetPropertyChanges() {
         }
         QStringList renamePreviews;
         for (const PendingDatasetRenameDraft& draft : pendingRenames) {
-            if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+            if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()
                 || draft.poolName.trimmed().isEmpty()
                 || draft.sourceName.trimmed().isEmpty()
                 || draft.targetName.trimmed().isEmpty()) {
                 continue;
             }
-            const ConnectionProfile p = m_profiles.at(draft.connIdx);
+            const ConnectionProfile p = m_conns.profiles.at(draft.connIdx);
             ConnectionProfile sudoProfile = p;
             if (!ensureLocalSudoCredentials(sudoProfile)) {
                 appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
@@ -1998,7 +1998,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             setActionsLocked(true);
         }
         for (const PendingDatasetRenameDraft& draft : pendingRenames) {
-            if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+            if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()
                 || draft.poolName.trimmed().isEmpty()
                 || draft.sourceName.trimmed().isEmpty()
                 || draft.targetName.trimmed().isEmpty()) {
@@ -2112,7 +2112,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         }
 
         for (int connIdx : std::as_const(connectionsToRefresh)) {
-            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
                 continue;
             }
             refreshConnectionByIndex(connIdx);
@@ -2606,7 +2606,7 @@ bool MainWindow::executePendingQueuedChangeLine(const QString& line) {
 QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
     QVector<PendingChange> changes;
     auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
-        const ConnectionProfile p = m_profiles.at(connIdx);
+        const ConnectionProfile p = m_conns.profiles.at(connIdx);
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
     };
@@ -2708,7 +2708,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         const QString poolName = item.poolName;
         const QString objectName = item.objectName;
         const DatasetPropsDraft& draft = item.draft;
-        if (connIdx < 0 || connIdx >= m_profiles.size()
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size()
             || poolName.isEmpty()
             || objectName.isEmpty()
             || objectName.contains(QLatin1Char('@'))) {
@@ -2837,7 +2837,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         const int connIdx = item.connIdx;
         const QString poolName = item.poolName;
         const QString datasetName = item.datasetName;
-        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
             continue;
         }
         QStringList permissionSubcommands;
@@ -2988,7 +2988,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
             continue;
         }
         const PendingDatasetRenameDraft& draft = pending.renameDraft;
-        if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+        if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()
             || draft.poolName.trimmed().isEmpty()
             || draft.sourceName.trimmed().isEmpty()
             || draft.targetName.trimmed().isEmpty()) {
@@ -3103,7 +3103,7 @@ int MainWindow::pendingShellSingleConnectionIdx(const PendingShellActionDraft& d
         return -1;
     }
     const int connIdx = *connIdxs.cbegin();
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return -1;
     }
     return connIdx;
@@ -3116,13 +3116,13 @@ bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDr
         *handledOut = false;
     }
     const int connIdx = pendingShellSingleConnectionIdx(draft);
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         appLog(QStringLiteral("DEBUG"),
                QStringLiteral("Pending shell daemon-rpc skip: conexión no resolvible (single-conn) para \"%1\"")
                    .arg(draft.displayLabel.trimmed()));
         return true;
     }
-    const ConnectionProfile p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_conns.profiles.at(connIdx);
     if (isWindowsConnection(p)) {
         appLog(QStringLiteral("DEBUG"),
                QStringLiteral("Pending shell daemon-rpc skip: Windows no soportado para \"%1\" en %2")
@@ -3348,13 +3348,13 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                    .arg(draft.rpcConnIdx)
                    .arg(draft.rpcArgv.size()));
         if (!draft.rpcArgv.isEmpty() && draft.rpcConnIdx >= 0
-            && draft.rpcConnIdx < m_profiles.size()) {
+            && draft.rpcConnIdx < m_conns.profiles.size()) {
             QStringList argv = draft.rpcArgv;
             argv << QString::fromLatin1(draft.rpcSecret.toUtf8().toBase64());
             QString out;
             QString err;
             int rc = -1;
-            const bool ok = runAgentCommand(m_profiles.at(draft.rpcConnIdx), argv, 60000,
+            const bool ok = runAgentCommand(m_conns.profiles.at(draft.rpcConnIdx), argv, 60000,
                                             out, err, rc);
             if (!ok || rc != 0) {
                 appLog(QStringLiteral("ERROR"),
@@ -3428,7 +3428,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
     }
     if (change.kind == PendingChange::Kind::Rename) {
         const PendingDatasetRenameDraft& draft = change.renameDraft;
-        if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()) {
+        if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()) {
             return false;
         }
         if (!executePendingDatasetRenameDraft(draft, true, nullptr)) {

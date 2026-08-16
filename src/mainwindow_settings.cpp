@@ -280,7 +280,7 @@ void MainWindow::saveUiSettings() const {
     appObj.insert(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
     appObj.insert(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
     appObj.insert(QStringLiteral("top_detail_connection"),
-                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
+                  connPersistKeyFromProfiles(m_conns.profiles, m_topDetailConnIdx));
     appObj.insert(QStringLiteral("dataset_inline_props_order"), toJsonArray(m_datasetInlinePropsOrder));
     appObj.insert(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
     appObj.insert(QStringLiteral("pool_inline_props_order"), toJsonArray(m_poolInlinePropsOrder));
@@ -309,8 +309,8 @@ void MainWindow::saveUiSettings() const {
 void MainWindow::applyLanguageLive() {
     QString selectedConnId;
     const int selectedConnIdx = currentConnectionIndexFromUi();
-    if (selectedConnIdx >= 0 && selectedConnIdx < m_profiles.size()) {
-        selectedConnId = m_profiles[selectedConnIdx].id;
+    if (selectedConnIdx >= 0 && selectedConnIdx < m_conns.profiles.size()) {
+        selectedConnId = m_conns.profiles[selectedConnIdx].id;
     }
 
     const QString appLogText = m_logView ? m_logView->toPlainText() : QString();
@@ -335,7 +335,7 @@ void MainWindow::applyLanguageLive() {
 
     buildUi();
     // Al cambiar de idioma los perfiles y estados ya están en memoria: reutilizarlos
-    // sin releer config.json evita el I/O y el reset completo de m_states.
+    // sin releer config.json evita el I/O y el reset completo de m_conns.states.
     rebuildConnInfoModel();
     rebuildConnectionsTable();
     syncConnectionLogTabs();
@@ -361,8 +361,8 @@ void MainWindow::applyLanguageLive() {
     }
 
     if (!selectedConnId.isEmpty()) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
-            if (m_profiles[i].id.trimmed().compare(selectedConnId, Qt::CaseInsensitive) == 0) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
+            if (m_conns.profiles[i].id.trimmed().compare(selectedConnId, Qt::CaseInsensitive) == 0) {
                 setCurrentConnectionInUi(i);
                 break;
             }

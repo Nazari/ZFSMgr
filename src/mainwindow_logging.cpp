@@ -464,7 +464,7 @@ void MainWindow::copyAppLogToClipboard() {
         const QString connId = it.key();
         const QPlainTextEdit* view = it.value();
         QString connName = connId;
-        for (const auto& p : m_profiles) {
+        for (const auto& p : m_conns.profiles) {
             if (p.id == connId) {
                 connName = p.name;
                 break;
@@ -482,13 +482,13 @@ QString MainWindow::maskSecrets(const QString& text) const {
     // Los patrones viven en mwhelpers::maskCommandSecrets, compartidos con la vista
     // previa de confirmación y con test. Aquí solo queda lo que depende del estado.
     QString out = mwhelpers::maskCommandSecrets(text);
-    for (const ConnectionProfile& p : m_profiles) {
+    for (const ConnectionProfile& p : m_conns.profiles) {
         if (!p.password.isEmpty()) {
             out.replace(p.password, QStringLiteral("[secret]"));
         }
     }
     // The sudo password entered at runtime for the local connection is not part of
-    // m_profiles, so the loop above would miss it.
+    // m_conns.profiles, so the loop above would miss it.
     if (!m_localSudoPassword.isEmpty()) {
         out.replace(m_localSudoPassword, QStringLiteral("[secret]"));
     }
@@ -648,13 +648,13 @@ void MainWindow::syncConnectionLogTabs() {
         return;
     }
     QSet<QString> wanted;
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
         }
-        const auto& p = m_profiles[i];
+        const auto& p = m_conns.profiles[i];
         const bool localConn = isLocalConnection(p);
-        const QString st = (i < m_states.size()) ? m_states[i].status.trimmed().toUpper() : QString();
+        const QString st = (i < m_conns.states.size()) ? m_conns.states[i].status.trimmed().toUpper() : QString();
         const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForLogs(p.host));
         if (redirectedLocal) {
             continue;
@@ -748,18 +748,18 @@ void MainWindow::syncConnectionLogTabs() {
         it = m_connectionLogViews.erase(it);
     }
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
         }
-        const QString id = m_profiles[i].id;
+        const QString id = m_conns.profiles[i].id;
         if (!wanted.contains(id)) {
             continue;
         }
         QWidget* tab = m_connectionLogTabs.value(id, nullptr);
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
-            m_logsTabs->setTabText(idx, m_profiles[i].name);
+            m_logsTabs->setTabText(idx, m_conns.profiles[i].name);
         }
     }
 }
@@ -772,7 +772,7 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
         return;
     }
     QString connName = connId;
-    for (const auto& p : m_profiles) {
+    for (const auto& p : m_conns.profiles) {
         if (p.id == connId) {
             connName = p.name.trimmed().isEmpty() ? p.id : p.name;
             break;
@@ -820,10 +820,10 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
 
 void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
 {
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
-    const QString connId = m_profiles[idx].id;
+    const QString connId = m_conns.profiles[idx].id;
     QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
     if (!view) {
         return;
@@ -831,7 +831,7 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
     if (isConnectionDisconnected(idx)) {
         return;
     }
-    const ConnectionProfile profile = m_profiles[idx];
+    const ConnectionProfile profile = m_conns.profiles[idx];
     // La conexión Local queda fuera del refresco AUTOMÁTICO del log, y no por ser
     // local: la tarea en segundo plano captura la ventana y puede sobrevivirla, lo que
     // es un uso después de liberar. Con conexiones remotas no se manifiesta porque el
@@ -930,8 +930,8 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
 void MainWindow::runDaemonHeartbeat(const QString& connId)
 {
     int idx = -1;
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id == connId) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id == connId) {
             idx = i;
             break;
         }
@@ -943,7 +943,7 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
     if (view) {
         view->appendPlainText(QStringLiteral("--- heartbeat ---"));
     }
-    const ConnectionProfile profile = m_profiles[idx];
+    const ConnectionProfile profile = m_conns.profiles[idx];
 
     const QString hbCmd = mwhelpers::agentCommand(profile, QStringLiteral("--heartbeat"));
 

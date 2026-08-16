@@ -87,7 +87,7 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
         return ctx;
     }
     const int connIdx = token.left(sep).toInt();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || ds.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || ds.isEmpty()) {
         return ctx;
     }
     ctx.valid = true;
@@ -141,7 +141,7 @@ MainWindow::DatasetSelectionContext MainWindow::currentConnContentSelection(cons
         return ctx;
     }
     const int connIdx = token.left(sep).toInt();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || ds.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || ds.isEmpty()) {
         return ctx;
     }
     ctx.valid = true;

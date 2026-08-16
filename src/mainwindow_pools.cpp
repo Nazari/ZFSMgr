@@ -110,7 +110,7 @@ bool MainWindow::isPoolSuspendedByStatusText(const QString& statusText) const {
 
 bool MainWindow::isPoolSuspended(int connIdx, const QString& poolName) const {
     const QString trimmedPool = poolName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
         return false;
     }
     if (const PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool)) {
@@ -118,8 +118,8 @@ bool MainWindow::isPoolSuspended(int connIdx, const QString& poolName) const {
             return true;
         }
     }
-    if (connIdx >= 0 && connIdx < m_states.size()) {
-        if (isPoolSuspendedByStatusText(m_states[connIdx].poolStatusByName.value(trimmedPool))) {
+    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
+        if (isPoolSuspendedByStatusText(m_conns.states[connIdx].poolStatusByName.value(trimmedPool))) {
             return true;
         }
     }
@@ -143,7 +143,7 @@ void MainWindow::applyPoolRootTooltipForTree(QTreeWidget* tree,
     const QString poolKey = poolName.trimmed();
     const QString tooltipHtml = formatPoolStatusTooltipHtml(statusText);
     const QString fallbackText = QStringLiteral("%1::%2")
-        .arg((connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QString(),
+        .arg((connIdx >= 0 && connIdx < m_conns.profiles.size()) ? m_conns.profiles[connIdx].name : QString(),
              poolKey);
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* root = tree->topLevelItem(i);
@@ -167,7 +167,7 @@ void MainWindow::applyPoolRootTooltipToVisibleTrees(int connIdx,
 }
 
 void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
     for (auto it = state.poolStatusByName.cbegin(); it != state.poolStatusByName.cend(); ++it) {
@@ -201,18 +201,18 @@ int MainWindow::findPoolRow(const QString& connection, const QString& pool) cons
 }
 
 QString MainWindow::poolDetailsCacheKey(int connIdx, const QString& poolName) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return QString();
     }
     return QStringLiteral("%1::%2")
-        .arg(m_profiles[connIdx].name.trimmed().toLower(), poolName.trimmed().toLower());
+        .arg(m_conns.profiles[connIdx].name.trimmed().toLower(), poolName.trimmed().toLower());
 }
 
 void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    const QString prefix = QStringLiteral("%1::").arg(m_profiles[connIdx].name.trimmed().toLower());
+    const QString prefix = QStringLiteral("%1::").arg(m_conns.profiles[connIdx].name.trimmed().toLower());
     if (prefix.isEmpty()) {
         return;
     }
@@ -245,7 +245,7 @@ int MainWindow::selectedPoolRowFromTabs() const {
 
 void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
 
@@ -262,16 +262,16 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         }
     } busyGuard{this};
 
-    const ConnectionProfile profile = m_profiles[connIdx];
+    const ConnectionProfile profile = m_conns.profiles[connIdx];
     QString out;
     QString err;
     int rc = -1;
     const bool daemonReadApiOk =
         connIdx >= 0
-        && connIdx < m_states.size()
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (!daemonReadApiOk
         && !requireDaemonForRead(connIdx, QStringLiteral("leer el estado de un pool"))) {
         return;
@@ -300,8 +300,8 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     entry.loaded = true;
     entry.statusText = out.trimmed();
     m_poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), entry);
-    if (connIdx >= 0 && connIdx < m_states.size()) {
-        m_states[connIdx].poolStatusByName.insert(trimmedPool, entry.statusText);
+    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
+        m_conns.states[connIdx].poolStatusByName.insert(trimmedPool, entry.statusText);
     }
     rebuildConnInfoFor(connIdx);
     applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, entry.statusText);
@@ -390,7 +390,7 @@ void MainWindow::exportPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -482,10 +482,10 @@ void MainWindow::importPoolFromRow(int row) {
     }
 
     auto poolNameInUseForConnection = [this](int connIdx, const QString& candidate, const QString& originalPoolName) -> bool {
-        if (connIdx < 0 || connIdx >= m_states.size()) {
+        if (connIdx < 0 || connIdx >= m_conns.states.size()) {
             return false;
         }
-        const ConnectionRuntimeState& st = m_states[connIdx];
+        const ConnectionRuntimeState& st = m_conns.states[connIdx];
         QStringList importedPools;
         for (const PoolImported& pool : st.importedPools) {
             importedPools.push_back(pool.pool);
@@ -639,7 +639,7 @@ void MainWindow::importPoolFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -721,8 +721,8 @@ void MainWindow::importPoolFromRow(int row) {
         }
         endTransientUiBusy();
         QString osHint = p.osType.trimmed().toLower();
-        if (idx >= 0 && idx < m_states.size()) {
-            osHint += QStringLiteral(" ") + m_states[idx].osLine.trimmed().toLower();
+        if (idx >= 0 && idx < m_conns.states.size()) {
+            osHint += QStringLiteral(" ") + m_conns.states[idx].osLine.trimmed().toLower();
         }
         const bool isMacLike = osHint.contains(QStringLiteral("darwin"))
                                || osHint.contains(QStringLiteral("mac"));
@@ -778,15 +778,15 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         return;
     }
     const int idx = findConnectionIndexByName(connName);
-    if (idx < 0 || idx >= m_states.size()) {
+    if (idx < 0 || idx >= m_conns.states.size()) {
         return;
     }
 
     auto poolNameInUseForConnection = [this](int connIdx, const QString& candidate, const QString& originalPoolName) -> bool {
-        if (connIdx < 0 || connIdx >= m_states.size()) {
+        if (connIdx < 0 || connIdx >= m_conns.states.size()) {
             return false;
         }
-        const ConnectionRuntimeState& st = m_states[connIdx];
+        const ConnectionRuntimeState& st = m_conns.states[connIdx];
         QStringList importedPools;
         for (const PoolImported& pool : st.importedPools) {
             importedPools.push_back(pool.pool);
@@ -964,7 +964,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1043,8 +1043,8 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         }
         endTransientUiBusy();
         QString osHint = p.osType.trimmed().toLower();
-        if (idx >= 0 && idx < m_states.size()) {
-            osHint += QStringLiteral(" ") + m_states[idx].osLine.trimmed().toLower();
+        if (idx >= 0 && idx < m_conns.states.size()) {
+            osHint += QStringLiteral(" ") + m_conns.states[idx].osLine.trimmed().toLower();
         }
         const bool isMacLike = osHint.contains(QStringLiteral("darwin"))
                                || osHint.contains(QStringLiteral("mac"));
@@ -1162,7 +1162,7 @@ void MainWindow::scrubPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1293,7 +1293,7 @@ void MainWindow::upgradePoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1414,7 +1414,7 @@ void MainWindow::reguidPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1538,7 +1538,7 @@ void MainWindow::clearPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1692,7 +1692,7 @@ void MainWindow::destroyPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1811,7 +1811,7 @@ void MainWindow::syncPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -1976,7 +1976,7 @@ void MainWindow::trimPoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -2136,7 +2136,7 @@ void MainWindow::initializePoolFromRow(int row) {
         return;
     }
 
-    ConnectionProfile p = m_profiles[idx];
+    ConnectionProfile p = m_conns.profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
         if (!ensureLocalSudoCredentials(p)) {
@@ -2212,17 +2212,17 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         return;
     }
     const int idx = findConnectionIndexByName(connName);
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
 
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     const bool daemonReadApiOk =
         idx >= 0
-        && idx < m_states.size()
-        && m_states[idx].daemonInstalled
-        && m_states[idx].daemonActive
-        && m_states[idx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && idx < m_conns.states.size()
+        && m_conns.states[idx].daemonInstalled
+        && m_conns.states[idx].daemonActive
+        && m_conns.states[idx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (!daemonReadApiOk
         && !requireDaemonForRead(idx, QStringLiteral("leer el historial de un pool"))) {
         return;
@@ -2289,17 +2289,17 @@ void MainWindow::populateAllPoolsTables() {
     }
     ++m_uiRebuildCounts.pools;
     m_poolListEntries.clear();
-    for (int i = 0; i < m_states.size(); ++i) {
-        if (i < m_profiles.size() && isConnectionDisconnected(i)) {
+    for (int i = 0; i < m_conns.states.size(); ++i) {
+        if (i < m_conns.profiles.size() && isConnectionDisconnected(i)) {
             continue;
         }
-        if (i < m_profiles.size()) {
+        if (i < m_conns.profiles.size()) {
             const bool redirectedLocal = isConnectionRedirectedToLocal(i);
             if (redirectedLocal) {
                 continue;
             }
         }
-        const auto& st = m_states[i];
+        const auto& st = m_conns.states[i];
         for (const PoolImported& pool : st.importedPools) {
             PoolListEntry e;
             e.connection = pool.connection;
@@ -2392,11 +2392,11 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         return;
     }
     const int idx = findConnectionIndexByName(connName);
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     const QString cacheKey = poolDetailsCacheKey(idx, poolName);
 
     auto loadFromCache = [this, &cacheKey, idx, poolName]() -> bool {

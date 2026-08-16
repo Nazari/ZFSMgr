@@ -140,7 +140,7 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
 
     const int connIdx = browserNode->data(0, kConnIdxRole).toInt();
     const QString dirPath = browserNode->data(0, kConnFileBrowserPathRole).toString().trimmed();
-    if (dirPath.isEmpty() || connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (dirPath.isEmpty() || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
 
@@ -149,7 +149,7 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         delete browserNode->takeChild(0);
     }
 
-    const ConnectionProfile prof = m_profiles[connIdx];
+    const ConnectionProfile prof = m_conns.profiles[connIdx];
     // En Windows no hay `sh`: el intérprete respondía
     //   sh : The term 'sh' is not recognized as the name of a cmdlet
     // y el nodo Contenido no podía desplegarse. Se lista con Get-ChildItem.

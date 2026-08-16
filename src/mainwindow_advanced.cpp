@@ -75,13 +75,13 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             busyActive = false;
         }
     };
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
     const bool daemonReadApiOk =
         ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
@@ -556,10 +556,10 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             PendingShellActionDraft draft;
             // "conexión::pool", como el resto de entradas de la lista.
             draft.scopeLabel = [&]() {
-                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
                     return QString();
                 }
-                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
                 const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
                                                                  : cp.name.trimmed();
                 return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
@@ -596,10 +596,10 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     {
         PendingShellActionDraft draft;
         draft.scopeLabel = [&]() {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
                 return QString();
             }
-            const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+            const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
             const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
             return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
         }();
@@ -661,13 +661,13 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
             busyActive = false;
         }
     };
-    const ConnectionProfile p = m_profiles[ctx.connIdx];
+    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
     const bool daemonReadApiOk =
         ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
@@ -869,10 +869,10 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
             PendingShellActionDraft draft;
             // "conexión::pool", como el resto de entradas de la lista.
             draft.scopeLabel = [&]() {
-                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
                     return QString();
                 }
-                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
                 const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
                                                                  : cp.name.trimmed();
                 return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
@@ -908,10 +908,10 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     {
         PendingShellActionDraft draft;
         draft.scopeLabel = [&]() {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
                 return QString();
             }
-            const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+            const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
             const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
             return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
         }();

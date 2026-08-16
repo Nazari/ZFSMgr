@@ -1031,14 +1031,14 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
 void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool insertBefore,
                                           int connIdx, const QString& poolName,
                                           const QString& rootDataset, QTreeWidget* sourceTree) {
-    if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (!m_connContentPage || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
     const bool isConnectionLevel = poolName.trimmed().isEmpty();
     if (!isConnectionLevel && rootDataset.trimmed().isEmpty()) {
         return;
     }
-    const ConnectionProfile p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_conns.profiles.at(connIdx);
     const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
     const QString trimmedRoot = rootDataset.trimmed();
     const QString trimmedPool = poolName.trimmed();
@@ -1371,7 +1371,7 @@ void MainWindow::restoreSplitTreeLayoutFromState(const QString& state) {
         if (wanted.isEmpty()) {
             return -1;
         }
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             const QString k = connectionPersistKey(i).trimmed().toLower();
             if (!k.isEmpty() && k == wanted) {
                 return i;
@@ -1423,10 +1423,10 @@ void MainWindow::restoreSplitTreeLayoutFromState(const QString& state) {
             const int connIdx = connIdxByPersistKey(node.value(QStringLiteral("conn")).toString());
             const QString pool = node.value(QStringLiteral("pool")).toString().trimmed();
             const QString dataset = node.value(QStringLiteral("dataset")).toString().trimmed();
-            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
                 return nullptr;
             }
-            const ConnectionProfile p = m_profiles.at(connIdx);
+            const ConnectionProfile p = m_conns.profiles.at(connIdx);
             const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
             const bool isConnectionLevel = pool.isEmpty();
             const QString displayRoot = isConnectionLevel
@@ -1530,12 +1530,12 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     if (!findPendingChangeByDisplayLine(line, &change)) {
         return false;
     }
-    if (change.connIdx < 0 || change.connIdx >= m_profiles.size() || change.poolName.trimmed().isEmpty()) {
+    if (change.connIdx < 0 || change.connIdx >= m_conns.profiles.size() || change.poolName.trimmed().isEmpty()) {
         return false;
     }
     const int connIdx = change.connIdx;
     const QString poolName = change.poolName.trimmed();
-    const ConnectionProfile p = m_profiles.at(connIdx);
+    const ConnectionProfile p = m_conns.profiles.at(connIdx);
     const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
 
     auto visiblePoolRoot = [&](QTreeWidget* tree) -> QTreeWidgetItem* {
@@ -2911,8 +2911,8 @@ void MainWindow::buildUi() {
             if (!item) return;
             const QString jobId   = item->data(Qt::UserRole).toString();
             const int srcConnIdx  = item->data(Qt::UserRole + 1).toInt();
-            if (jobId.isEmpty() || srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return;
-            const ConnectionProfile sp = m_profiles[srcConnIdx];
+            if (jobId.isEmpty() || srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) return;
+            const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
             QStringList args;
             args << QStringLiteral("--job-cancel") << jobId;
             QString out, err;
@@ -3044,7 +3044,7 @@ void MainWindow::buildUi() {
         }
         const int connIdx = owner->data(0, kConnIdxRole).toInt();
         const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
         return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -3087,7 +3087,7 @@ void MainWindow::buildUi() {
         bool ok = false;
         const int connIdx = token.left(sep).toInt(&ok);
         const QString poolName = token.mid(sep + 2).trimmed();
-        if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+        if (!ok || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
             return;
         }
         rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);
@@ -4033,7 +4033,7 @@ void MainWindow::buildUi() {
         }
         const int connIdx = owner->data(0, kConnIdxRole).toInt();
         const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
         return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);

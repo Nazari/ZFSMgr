@@ -490,11 +490,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     QHash<int, int> tabIndexByConn;
 
     auto listRemoteDirs = [&](int connIdx, const QString& basePath, QStringList& children, QString& errorMsg) -> bool {
-        if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
             errorMsg = QStringLiteral("invalid connection");
             return false;
         }
-        const ConnectionProfile prof = m_profiles[connIdx];
+        const ConnectionProfile prof = m_conns.profiles[connIdx];
         const bool isWinRemote = isWindowsConnection(connIdx);
         QString remoteCmd;
         if (isWinRemote) {
@@ -565,11 +565,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_advdir_tree_list_err"),
                     QStringLiteral("No se pudieron listar directorios para %1:\n%2")
-                        .arg(m_profiles.value(connIdx).name, err),
+                        .arg(m_conns.profiles.value(connIdx).name, err),
                     QStringLiteral("Could not list directories for %1:\n%2")
-                        .arg(m_profiles.value(connIdx).name, err),
+                        .arg(m_conns.profiles.value(connIdx).name, err),
                     QStringLiteral("无法列出 %1 的目录：\n%2")
-                        .arg(m_profiles.value(connIdx).name, err)));
+                        .arg(m_conns.profiles.value(connIdx).name, err)));
             return;
         }
         while (parent->childCount() > 0) {
@@ -636,7 +636,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     dirsLay->addWidget(dirTabsWidget, 1);
     root->addWidget(dirsGroup, 1);
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
         }
@@ -648,7 +648,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         tree->setSelectionMode(QAbstractItemView::SingleSelection);
         tree->setAlternatingRowColors(true);
         pageLay->addWidget(tree);
-        dirTabsWidget->addTab(page, m_profiles[i].name);
+        dirTabsWidget->addTab(page, m_conns.profiles[i].name);
 
         DirTab t;
         t.connIdx = i;
@@ -751,7 +751,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                 // El directorio pudo haberse movido o borrado desde que se encoló. Se
                 // dice cuál, en vez de reabrir el diálogo con menos marcas y sin avisar.
                 unreachable << QStringLiteral("%1: %2")
-                                   .arg(m_profiles.value(connIdx).name, wantedPath);
+                                   .arg(m_conns.profiles.value(connIdx).name, wantedPath);
                 continue;
             }
             node->setCheckState(0, Qt::Checked);
@@ -988,7 +988,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         if (execProfiles.contains(connIdx)) {
             return execProfiles.value(connIdx);
         }
-        ConnectionProfile p = m_profiles.value(connIdx);
+        ConnectionProfile p = m_conns.profiles.value(connIdx);
         if (isLocalConnection(p) && !isWindowsConnection(p)) {
             p.useSudo = true;
             if (!ensureLocalSudoCredentials(p)) {
@@ -1051,10 +1051,10 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             QString sub;
             if (!single) {
                 const QString base = baseNameOf(e.first, e.second);
-                const QString connName = (e.first >= 0 && e.first < m_profiles.size())
-                                             ? (m_profiles.at(e.first).name.trimmed().isEmpty()
-                                                    ? m_profiles.at(e.first).id.trimmed()
-                                                    : m_profiles.at(e.first).name.trimmed())
+                const QString connName = (e.first >= 0 && e.first < m_conns.profiles.size())
+                                             ? (m_conns.profiles.at(e.first).name.trimmed().isEmpty()
+                                                    ? m_conns.profiles.at(e.first).id.trimmed()
+                                                    : m_conns.profiles.at(e.first).name.trimmed())
                                              : QString();
                 sub = (baseCount.value(base) > 1 && !connName.isEmpty())
                           ? QStringLiteral("%1-%2").arg(connName, base)
@@ -1204,10 +1204,10 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     QStringList originParts;
     for (auto it = dirsBySourceConn.cbegin(); it != dirsBySourceConn.cend(); ++it) {
         const int srcIdx = it.key();
-        const QString srcName = (srcIdx >= 0 && srcIdx < m_profiles.size())
-                                    ? (m_profiles.at(srcIdx).name.trimmed().isEmpty()
-                                           ? m_profiles.at(srcIdx).id.trimmed()
-                                           : m_profiles.at(srcIdx).name.trimmed())
+        const QString srcName = (srcIdx >= 0 && srcIdx < m_conns.profiles.size())
+                                    ? (m_conns.profiles.at(srcIdx).name.trimmed().isEmpty()
+                                           ? m_conns.profiles.at(srcIdx).id.trimmed()
+                                           : m_conns.profiles.at(srcIdx).name.trimmed())
                                     : QStringLiteral("?");
         originParts << QStringLiteral("%1 (%2)").arg(srcName).arg(it.value());
     }
@@ -1227,8 +1227,8 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         ctx,
         PendingShellActionDraft::RefreshScope::TargetOnly};
     if (!createSecret.isEmpty()
-        && (ctx.connIdx < 0 || ctx.connIdx >= m_states.size()
-            || !m_states[ctx.connIdx].daemonActive)) {
+        && (ctx.connIdx < 0 || ctx.connIdx >= m_conns.states.size()
+            || !m_conns.states[ctx.connIdx].daemonActive)) {
         // Sin daemon, runAgentCommand cae a SSH y la frase volvería a viajar en argv.
         // Mejor no dejar hacerlo que hacerlo de forma insegura sin decirlo.
         QMessageBox::warning(
@@ -1431,7 +1431,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     const bool deleteSourceDataset = deleteSourceDatasetChk->isChecked();
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
-    const ConnectionProfile profile = m_profiles[ctx.connIdx];
+    const ConnectionProfile profile = m_conns.profiles[ctx.connIdx];
     // Única exclusión por plataforma que sobrevive al barrido, y con motivo: el daemon
     // de Windows no conoce --mutate-advanced-todir (responde "unknown command",
     // comprobado por RPC). La tabla de capacidades ya rechaza la acción antes de llegar
@@ -1439,10 +1439,10 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     const bool daemonReadApiOk =
         !isWindowsConnection(profile)
         && ctx.connIdx >= 0
-        && ctx.connIdx < m_states.size()
-        && m_states[ctx.connIdx].daemonInstalled
-        && m_states[ctx.connIdx].daemonActive
-        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && ctx.connIdx < m_conns.states.size()
+        && m_conns.states[ctx.connIdx].daemonInstalled
+        && m_conns.states[ctx.connIdx].daemonActive
+        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
@@ -1458,10 +1458,10 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
             // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
             PendingShellActionDraft draft;
             draft.scopeLabel = [&]() {
-                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
                     return QString();
                 }
-                const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+                const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
                 const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
                 return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
             }();
@@ -1644,10 +1644,10 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
     PendingShellActionDraft draft;
     draft.scopeLabel = [&]() {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
             return QString();
         }
-        const ConnectionProfile& cp = m_profiles.at(ctx.connIdx);
+        const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
         const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
         return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
     }();

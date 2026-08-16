@@ -2202,8 +2202,8 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     const QString recursiveGsaAncestor = objectIsSnapshot ? QString() : recursiveGsaAncestorForDataset(obj);
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(
-            (itemConnIdx >= 0 && itemConnIdx < m_profiles.size()) ? m_profiles[itemConnIdx].osType : QString(),
-            (itemConnIdx >= 0 && itemConnIdx < m_states.size()) ? m_states[itemConnIdx].osLine : QString());
+            (itemConnIdx >= 0 && itemConnIdx < m_conns.profiles.size()) ? m_conns.profiles[itemConnIdx].osType : QString(),
+            (itemConnIdx >= 0 && itemConnIdx < m_conns.states.size()) ? m_conns.states[itemConnIdx].osLine : QString());
     auto isReadonlyFlag = [](const QString& v) {
         const QString s = v.trimmed().toLower();
         return s == QStringLiteral("true") || s == QStringLiteral("on")
@@ -3257,8 +3257,8 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         if (const PoolInfo* pinfo = findPoolInfo(connIdx, poolName)) {
             poolGuid = pinfo->key.poolGuid.trimmed();
         }
-        if (poolGuid.isEmpty() && connIdx >= 0 && connIdx < m_states.size()) {
-            poolGuid = m_states[connIdx].poolGuidByName.value(poolName.trimmed()).trimmed();
+        if (poolGuid.isEmpty() && connIdx >= 0 && connIdx < m_conns.states.size()) {
+            poolGuid = m_conns.states[connIdx].poolGuidByName.value(poolName.trimmed()).trimmed();
         }
         if (poolGuid.isEmpty()) {
             appLog(QStringLiteral("WARN"),
@@ -3307,10 +3307,10 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         };
         backfillGuidsRec(root);
         const bool poolImported = [&]() -> bool {
-            if (connIdx < 0 || connIdx >= m_states.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.states.size()) {
                 return false;
             }
-            const ConnectionRuntimeState& st = m_states[connIdx];
+            const ConnectionRuntimeState& st = m_conns.states[connIdx];
             for (const PoolImported& p : st.importedPools) {
                 if (p.pool.trimmed() == poolName.trimmed()) {
                     return true;
@@ -4809,7 +4809,7 @@ bool MainWindow::applyConnectionInlineFieldValue(int connIdx,
     if (errorOut) {
         errorOut->clear();
     }
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         if (errorOut) {
             *errorOut = QStringLiteral("Índice de conexión inválido.");
         }
@@ -4823,7 +4823,7 @@ bool MainWindow::applyConnectionInlineFieldValue(int connIdx,
         return false;
     }
 
-    ConnectionProfile updated = m_profiles[connIdx];
+    ConnectionProfile updated = m_conns.profiles[connIdx];
     auto boolFromText = [](const QString& text, bool* okOut) -> bool {
         const QString v = text.trimmed().toLower();
         if (v == QStringLiteral("1") || v == QStringLiteral("on") || v == QStringLiteral("yes")
@@ -4920,7 +4920,7 @@ bool MainWindow::applyConnectionInlineFieldValue(int connIdx,
         }
         return false;
     }
-    m_profiles[connIdx] = updated;
+    m_conns.profiles[connIdx] = updated;
     if (normalizedOut) {
         *normalizedOut = normalized;
     }
@@ -4928,7 +4928,7 @@ bool MainWindow::applyConnectionInlineFieldValue(int connIdx,
 }
 
 void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem* connRoot, int connIdx) {
-    if (!tree || !connRoot || connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+    if (!tree || !connRoot || connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
         return;
     }
     if (isConnectionDisconnected(connIdx)) {
@@ -4980,7 +4980,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         delete propsNode->takeChild(0);
     }
 
-    const ConnectionProfile cp = m_profiles[connIdx];
+    const ConnectionProfile cp = m_conns.profiles[connIdx];
     const bool localConnection = isLocalConnection(connIdx);
     const bool osIsWindows = cp.osType.trimmed().toLower().contains(QStringLiteral("windows"));
     const QVector<QPair<QString, QString>> fields = {
@@ -5132,7 +5132,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         delete infoNode->takeChild(0);
     }
 
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionRuntimeState& st = m_conns.states[connIdx];
     auto appendReadOnlyInlineProps = [&](QTreeWidgetItem* parent,
                                          const QVector<QPair<QString, QString>>& props) {
         if (!parent || props.isEmpty()) {
@@ -5194,7 +5194,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     const QString colorReason = connectionStateColorReason(connIdx).trimmed();
     const QString osText = st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed();
     const QString methodText = st.connectionMethod.trimmed().isEmpty()
-                                   ? m_profiles[connIdx].connType.trimmed()
+                                   ? m_conns.profiles[connIdx].connType.trimmed()
                                    : st.connectionMethod.trimmed();
     const QString zfsText = st.zfsVersionFull.trimmed().isEmpty()
                                 ? (st.zfsVersion.trimmed().isEmpty()
@@ -5540,10 +5540,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     }
     QPointer<QTreeWidget> safeTree(tree);
     const bool poolImported = [&]() -> bool {
-        if (connIdx < 0 || connIdx >= m_states.size()) {
+        if (connIdx < 0 || connIdx >= m_conns.states.size()) {
             return false;
         }
-        const ConnectionRuntimeState& st = m_states[connIdx];
+        const ConnectionRuntimeState& st = m_conns.states[connIdx];
         for (const PoolImported& p : st.importedPools) {
             if (p.pool.trimmed() == poolName.trimmed()) {
                 return true;
@@ -5552,7 +5552,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         return false;
     }();
     auto poolRootTitle = [&]() -> QString {
-        QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
+        QString connName = (connIdx >= 0 && connIdx < m_conns.profiles.size()) ? m_conns.profiles[connIdx].name : QStringLiteral("?");
         const bool groupedByConnection = treeGroupsPoolsByConnectionRoots(safeTree.data());
         const bool poolSuspended = isPoolSuspended(connIdx, poolName);
         const QString poolPrefix =
@@ -5576,8 +5576,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                                    : QStringLiteral("%1 %2::%3 [%4]").arg(poolPrefix, connName, poolName, stateText);
     };
     auto connectionRootTitle = [&]() -> QString {
-        QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
-        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
+        QString connName = (connIdx >= 0 && connIdx < m_conns.profiles.size()) ? m_conns.profiles[connIdx].name : QStringLiteral("?");
+        if (connIdx >= 0 && connIdx < m_conns.states.size() && m_conns.states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
         const QString daemonBackoff = daemonRpcBackoffTextForConnection(connIdx);
@@ -5701,16 +5701,16 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             return false;
         }
         const QString trimmedPool = poolName.trimmed();
-        if (trimmedPool.isEmpty() || connIdx < 0 || connIdx >= m_profiles.size()) {
+        if (trimmedPool.isEmpty() || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
             return false;
         }
-        ConnectionProfile p = m_profiles[connIdx];
+        ConnectionProfile p = m_conns.profiles[connIdx];
         const bool daemonReadApiOk =
             connIdx >= 0
-            && connIdx < m_states.size()
-            && m_states[connIdx].daemonInstalled
-            && m_states[connIdx].daemonActive
-            && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+            && connIdx < m_conns.states.size()
+            && m_conns.states[connIdx].daemonInstalled
+            && m_conns.states[connIdx].daemonActive
+            && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         bool changed = false;
         if (poolInfo->key.poolGuid.trimmed().isEmpty()) {
             QString out;
@@ -5734,8 +5734,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
-                    if (connIdx >= 0 && connIdx < m_states.size()) {
-                        m_states[connIdx].poolGuidByName.insert(trimmedPool, guid);
+                    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
+                        m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
                     }
                     if (poolInfo && poolInfo->key.poolGuid.trimmed().isEmpty()) {
                         poolInfo->key.poolGuid = guid;
@@ -5934,8 +5934,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                           || mounted == QStringLiteral("on")
                           || mounted == QStringLiteral("true")
                           || mounted == QStringLiteral("1"));
-        if (!isMounted && connIdx >= 0 && connIdx < m_states.size()) {
-            for (const QPair<QString, QString>& row : m_states[connIdx].mountedDatasets) {
+        if (!isMounted && connIdx >= 0 && connIdx < m_conns.states.size()) {
+            for (const QPair<QString, QString>& row : m_conns.states[connIdx].mountedDatasets) {
                 if (row.first.trimmed() == fullName) {
                     isMounted = true;
                     break;
@@ -6281,7 +6281,7 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
                                          const QString& poolName,
                                          const QString& rootDataset,
                                          const QString& displayRoot) {
-    if (!tree || connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+    if (!tree || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()) {
         return;
     }
 
@@ -6350,10 +6350,10 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
 }
 
 void MainWindow::appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx) {
-    if (!tree || connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+    if (!tree || connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
         return;
     }
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionRuntimeState& st = m_conns.states[connIdx];
     // Use ConnectionContent for full interactivity (same as the main tree).
     // The tree must have groupPoolsByConnectionRoots = true so that each call to
     // appendDatasetTreeForPool creates/reuses the connection root item and hangs
@@ -6487,14 +6487,14 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 return;
             }
             int connIdx = item->data(0, kConnIdxRole).toInt();
-            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
                 QTreeWidgetItem* p = item->parent();
-                while (p && (connIdx < 0 || connIdx >= m_profiles.size())) {
+                while (p && (connIdx < 0 || connIdx >= m_conns.profiles.size())) {
                     connIdx = p->data(0, kConnIdxRole).toInt();
                     p = p->parent();
                 }
             }
-            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
                 return;
             }
             QString requestedValue = item->data(col, kConnRootInlineRawValueRole).toString();
@@ -6509,7 +6509,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                                                  &normalizedValue,
                                                  &errorText)) {
                 const QString fallbackRawValue = [this, connIdx, fieldKey]() -> QString {
-                    const ConnectionProfile cp = m_profiles[connIdx];
+                    const ConnectionProfile cp = m_conns.profiles[connIdx];
                     const QString k = fieldKey.toLower();
                     if (k == QStringLiteral("name")) return cp.name;
                     if (k == QStringLiteral("machine_uid")) return cp.machineUid;
@@ -6548,9 +6548,9 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                     appLog(QStringLiteral("ERROR"),
                            QStringLiteral("No se pudo guardar '%1' para la conexión %2: %3")
                                .arg(fieldKey,
-                                    m_profiles[connIdx].name.trimmed().isEmpty()
-                                        ? m_profiles[connIdx].id.trimmed()
-                                        : m_profiles[connIdx].name.trimmed(),
+                                    m_conns.profiles[connIdx].name.trimmed().isEmpty()
+                                        ? m_conns.profiles[connIdx].id.trimmed()
+                                        : m_conns.profiles[connIdx].name.trimmed(),
                                     errorText));
                 }
                 return;
@@ -6579,10 +6579,10 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 }
             }
             if (QTreeWidgetItem* connRoot = findConnectionRootItem(tree, connIdx)) {
-                QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
-                                       ? m_profiles[connIdx].id.trimmed()
-                                       : m_profiles[connIdx].name.trimmed();
-                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
+                QString connName = m_conns.profiles[connIdx].name.trimmed().isEmpty()
+                                       ? m_conns.profiles[connIdx].id.trimmed()
+                                       : m_conns.profiles[connIdx].name.trimmed();
+                if (connIdx >= 0 && connIdx < m_conns.states.size() && m_conns.states[connIdx].daemonNeedsAttention) {
                     connName += QStringLiteral(" (*)");
                 }
                 const QString connPrefix =

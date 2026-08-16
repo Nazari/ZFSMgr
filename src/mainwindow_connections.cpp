@@ -353,14 +353,14 @@ int MainWindow::currentConnectionIndexFromUnifiedTree() const {
 
 int MainWindow::currentConnectionIndexFromUi() const {
     const int treeIdx = currentConnectionIndexFromUnifiedTree();
-    if (treeIdx >= 0 && treeIdx < m_profiles.size()) {
+    if (treeIdx >= 0 && treeIdx < m_conns.profiles.size()) {
         return treeIdx;
     }
     return -1;
 }
 
 void MainWindow::setCurrentConnectionInUi(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
     if (m_connContentTree
@@ -380,13 +380,13 @@ void MainWindow::setCurrentConnectionInUi(int connIdx) {
 
 QColor MainWindow::connectionStateRowColor(int connIdx) const {
     const QColor baseColor = palette().base().color();
-    if (connIdx < 0 || connIdx >= m_states.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.states.size()) {
         return baseColor;
     }
     if (isConnectionDisconnected(connIdx)) {
         return QColor(QStringLiteral("#eef1f4"));
     }
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionRuntimeState& st = m_conns.states[connIdx];
     const QString status = st.status.trimmed().toUpper();
     const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
     const QRegularExpressionMatch m = rx.match(st.zfsVersion.trimmed());
@@ -409,10 +409,10 @@ QColor MainWindow::connectionStateRowColor(int connIdx) const {
 }
 
 QString MainWindow::connectionStateColorReason(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
         return QString();
     }
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionRuntimeState& st = m_conns.states[connIdx];
     if (isConnectionDisconnected(connIdx)) {
         return trk(QStringLiteral("t_conn_color_reason_off_001"),
                    QStringLiteral("La conexión está marcada como desconectada."),
@@ -452,11 +452,11 @@ QString MainWindow::connectionStateColorReason(int connIdx) const {
 }
 
 QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
         return QString();
     }
-    const ConnectionProfile p = m_profiles[connIdx];
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
+    const ConnectionRuntimeState& st = m_conns.states[connIdx];
     const bool disconnected = isConnectionDisconnected(connIdx);
     const QString osHint = (p.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
     const bool windowsSshConn =
@@ -613,14 +613,14 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
 }
 
 QString MainWindow::connectionPersistKey(int idx) const {
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return QString();
     }
-    const QString id = m_profiles[idx].id.trimmed();
+    const QString id = m_conns.profiles[idx].id.trimmed();
     if (!id.isEmpty()) {
         return id.toLower();
     }
-    return m_profiles[idx].name.trimmed().toLower();
+    return m_conns.profiles[idx].name.trimmed().toLower();
 }
 
 bool MainWindow::isConnectionDisconnected(int idx) const {
@@ -642,24 +642,24 @@ void MainWindow::setConnectionDisconnected(int idx, bool disconnected) {
 }
 
 bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
-    if (idx < 0 || idx >= m_profiles.size() || idx >= m_states.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size() || idx >= m_conns.states.size()) {
         return false;
     }
     if (isLocalConnection(idx)) {
         return false;
     }
-    const ConnectionRuntimeState& st = m_states[idx];
+    const ConnectionRuntimeState& st = m_conns.states[idx];
     if (st.status.trimmed().toUpper() != QStringLiteral("OK")) {
         return false;
     }
 
     QString localUuid = m_localMachineUuid.trimmed().toLower();
     if (localUuid.isEmpty()) {
-        for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
             if (!isLocalConnection(i)) {
                 continue;
             }
-            const QString cand = m_states[i].machineUuid.trimmed().toLower();
+            const QString cand = m_conns.states[i].machineUuid.trimmed().toLower();
             if (!cand.isEmpty()) {
                 localUuid = cand;
                 break;
@@ -670,7 +670,7 @@ bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
     if (!localUuid.isEmpty() && !remoteUuid.isEmpty()) {
         return localUuid == remoteUuid;
     }
-    return isLocalHostForUi(m_profiles[idx].host);
+    return isLocalHostForUi(m_conns.profiles[idx].host);
 }
 
 namespace {
@@ -804,8 +804,8 @@ int MainWindow::connectionIndexByNameOrId(const QString& value) const {
     if (wanted.isEmpty()) {
         return -1;
     }
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile p = m_profiles[i];
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        const ConnectionProfile p = m_conns.profiles[i];
         if (p.name.trimmed().compare(wanted, Qt::CaseInsensitive) == 0
             || p.id.trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
             return i;
@@ -815,16 +815,16 @@ int MainWindow::connectionIndexByNameOrId(const QString& value) const {
 }
 
 bool MainWindow::connectionsReferToSameMachine(int a, int b) const {
-    if (a < 0 || a >= m_profiles.size() || b < 0 || b >= m_profiles.size()) {
+    if (a < 0 || a >= m_conns.profiles.size() || b < 0 || b >= m_conns.profiles.size()) {
         return false;
     }
-    QString ua = m_profiles[a].machineUid.trimmed().toLower();
-    QString ub = m_profiles[b].machineUid.trimmed().toLower();
-    if (ua.isEmpty() && a < m_states.size()) {
-        ua = m_states[a].machineUuid.trimmed().toLower();
+    QString ua = m_conns.profiles[a].machineUid.trimmed().toLower();
+    QString ub = m_conns.profiles[b].machineUid.trimmed().toLower();
+    if (ua.isEmpty() && a < m_conns.states.size()) {
+        ua = m_conns.states[a].machineUuid.trimmed().toLower();
     }
-    if (ub.isEmpty() && b < m_states.size()) {
-        ub = m_states[b].machineUuid.trimmed().toLower();
+    if (ub.isEmpty() && b < m_conns.states.size()) {
+        ub = m_conns.states[b].machineUuid.trimmed().toLower();
     }
     return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
 }
@@ -849,18 +849,18 @@ void MainWindow::withConnContentContext(QTreeWidget* tree,
 }
 
 int MainWindow::equivalentSshForLocal(int localIdx) const {
-    if (localIdx < 0 || localIdx >= m_profiles.size() || !isLocalConnection(localIdx)) {
+    if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
         return -1;
     }
-    QString localUid = m_profiles[localIdx].machineUid.trimmed().toLower();
-    if (localUid.isEmpty() && localIdx < m_states.size()) {
-        localUid = m_states[localIdx].machineUuid.trimmed().toLower();
+    QString localUid = m_conns.profiles[localIdx].machineUid.trimmed().toLower();
+    if (localUid.isEmpty() && localIdx < m_conns.states.size()) {
+        localUid = m_conns.states[localIdx].machineUuid.trimmed().toLower();
     }
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (i == localIdx || isLocalConnection(i)) {
             continue;
         }
-        const ConnectionProfile candidate = m_profiles[i];
+        const ConnectionProfile candidate = m_conns.profiles[i];
         if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
             continue;
         }
@@ -876,21 +876,21 @@ int MainWindow::equivalentSshForLocal(int localIdx) const {
 }
 
 void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
-    if (keepIdx < 0 || keepIdx >= m_profiles.size()) {
+    if (keepIdx < 0 || keepIdx >= m_conns.profiles.size()) {
         return;
     }
-    QString keepUid = m_profiles[keepIdx].machineUid.trimmed().toLower();
-    if (keepUid.isEmpty() && keepIdx < m_states.size()) {
-        keepUid = m_states[keepIdx].machineUuid.trimmed().toLower();
+    QString keepUid = m_conns.profiles[keepIdx].machineUid.trimmed().toLower();
+    if (keepUid.isEmpty() && keepIdx < m_conns.states.size()) {
+        keepUid = m_conns.states[keepIdx].machineUuid.trimmed().toLower();
     }
     if (keepUid.isEmpty()) {
         return;
     }
-    const QString keepId = m_profiles[keepIdx].id.trimmed();
+    const QString keepId = m_conns.profiles[keepIdx].id.trimmed();
     const bool keepIsLocal = isLocalConnection(keepIdx);
     QStringList toRemove;
     QStringList toRemoveNames;
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (i == keepIdx) {
             continue;
         }
@@ -898,13 +898,13 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
         if (isLocalConnection(i) && !keepIsLocal) {
             continue;
         }
-        QString uid = m_profiles[i].machineUid.trimmed().toLower();
-        if (uid.isEmpty() && i < m_states.size()) {
-            uid = m_states[i].machineUuid.trimmed().toLower();
+        QString uid = m_conns.profiles[i].machineUid.trimmed().toLower();
+        if (uid.isEmpty() && i < m_conns.states.size()) {
+            uid = m_conns.states[i].machineUuid.trimmed().toLower();
         }
-        if (!uid.isEmpty() && uid == keepUid && m_profiles[i].id.trimmed() != keepId) {
-            toRemove << m_profiles[i].id.trimmed();
-            toRemoveNames << m_profiles[i].name.trimmed();
+        if (!uid.isEmpty() && uid == keepUid && m_conns.profiles[i].id.trimmed() != keepId) {
+            toRemove << m_conns.profiles[i].id.trimmed();
+            toRemoveNames << m_conns.profiles[i].name.trimmed();
         }
     }
     if (toRemove.isEmpty()) {
@@ -915,7 +915,7 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
         if (m_store.deleteConnectionById(toRemove[k], err)) {
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Deduplicación: eliminada conexión '%1' (misma máquina que '%2')")
-                       .arg(toRemoveNames[k], m_profiles[keepIdx].name.trimmed()));
+                       .arg(toRemoveNames[k], m_conns.profiles[keepIdx].name.trimmed()));
         } else {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Deduplicación: no se pudo eliminar '%1': %2")
@@ -935,11 +935,11 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
         }
         return false;
     };
-    if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
+    if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
         return fail(QStringLiteral("indices inválidos"));
     }
-    const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-    const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+    const bool srcOk = rowIdx < m_conns.states.size() && m_conns.states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+    const bool dstOk = colIdx < m_conns.states.size() && m_conns.states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
     if (!srcOk || !dstOk) {
         return fail(trk(QStringLiteral("t_connectivity_notready_001"),
                         QStringLiteral("La conexión origen o destino no está en estado OK."),
@@ -966,8 +966,8 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
         }
         return true;
     }
-    const ConnectionProfile src = m_profiles[rowIdx];
-    const ConnectionProfile effectiveDst = m_profiles[effectiveIdx];
+    const ConnectionProfile src = m_conns.profiles[rowIdx];
+    const ConnectionProfile effectiveDst = m_conns.profiles[effectiveIdx];
     if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         return fail(trk(QStringLiteral("t_connectivity_unsupported_target_001"),
                         QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
@@ -1003,7 +1003,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void MainWindow::openConnectivityMatrixDialog() {
-    if (m_profiles.isEmpty()) {
+    if (m_conns.profiles.isEmpty()) {
         QMessageBox::information(this,
                                  trk(QStringLiteral("t_connectivity_title_001"),
                                      QStringLiteral("Conectividad"),
@@ -1017,26 +1017,26 @@ void MainWindow::openConnectivityMatrixDialog() {
     }
 
     auto sameMachine = [this](int a, int b) -> bool {
-        if (a < 0 || a >= m_profiles.size() || b < 0 || b >= m_profiles.size()) {
+        if (a < 0 || a >= m_conns.profiles.size() || b < 0 || b >= m_conns.profiles.size()) {
             return false;
         }
-        const QString ua = m_profiles[a].machineUid.trimmed().toLower();
-        const QString ub = m_profiles[b].machineUid.trimmed().toLower();
+        const QString ua = m_conns.profiles[a].machineUid.trimmed().toLower();
+        const QString ub = m_conns.profiles[b].machineUid.trimmed().toLower();
         return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
     };
     auto equivalentSshForLocal = [this](int localIdx) -> int {
-        if (localIdx < 0 || localIdx >= m_profiles.size() || !isLocalConnection(localIdx)) {
+        if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
             return -1;
         }
-        QString localUid = m_profiles[localIdx].machineUid.trimmed().toLower();
-        if (localUid.isEmpty() && localIdx < m_states.size()) {
-            localUid = m_states[localIdx].machineUuid.trimmed().toLower();
+        QString localUid = m_conns.profiles[localIdx].machineUid.trimmed().toLower();
+        if (localUid.isEmpty() && localIdx < m_conns.states.size()) {
+            localUid = m_conns.states[localIdx].machineUuid.trimmed().toLower();
         }
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (i == localIdx || isLocalConnection(i)) {
                 continue;
             }
-            const ConnectionProfile candidate = m_profiles[i];
+            const ConnectionProfile candidate = m_conns.profiles[i];
             if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
                 continue;
             }
@@ -1111,14 +1111,14 @@ void MainWindow::openConnectivityMatrixDialog() {
                        QStringLiteral("原因：探测以退出码 %1 结束。"))
                 .arg(rc);
         };
-        if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
+        if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
         }
-        const ConnectionProfile src = m_profiles[rowIdx];
-        const ConnectionProfile dst = m_profiles[colIdx];
-        const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-        const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+        const ConnectionProfile src = m_conns.profiles[rowIdx];
+        const ConnectionProfile dst = m_conns.profiles[colIdx];
+        const bool srcOk = rowIdx < m_conns.states.size() && m_conns.states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+        const bool dstOk = colIdx < m_conns.states.size() && m_conns.states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         if (!srcOk || !dstOk) {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
@@ -1143,8 +1143,8 @@ void MainWindow::openConnectivityMatrixDialog() {
         if (dst.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
             const int sshIdx = equivalentSshForLocal(colIdx);
             if (sshIdx >= 0) {
-                effectiveDst = m_profiles[sshIdx];
-                targetLabel = m_profiles[sshIdx].name;
+                effectiveDst = m_conns.profiles[sshIdx];
+                targetLabel = m_conns.profiles[sshIdx].name;
                 if (rowIdx == sshIdx || sameMachine(rowIdx, sshIdx)) {
                     result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
                     result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
@@ -1282,10 +1282,10 @@ void MainWindow::openConnectivityMatrixDialog() {
     layout->addWidget(scopeLabel);
 
     auto* matrix = new QTableWidget(&dlg);
-    matrix->setColumnCount(m_profiles.size());
-    matrix->setRowCount(m_profiles.size());
+    matrix->setColumnCount(m_conns.profiles.size());
+    matrix->setRowCount(m_conns.profiles.size());
     QStringList labels;
-    for (const ConnectionProfile& p : m_profiles) {
+    for (const ConnectionProfile& p : m_conns.profiles) {
         labels << (p.name.trimmed().isEmpty() ? p.id : p.name);
     }
     matrix->setHorizontalHeaderLabels(labels);
@@ -1313,8 +1313,8 @@ void MainWindow::openConnectivityMatrixDialog() {
     beginUiBusy();
     m_connectivityMatrixInProgress = true;
     updateConnectivityMatrixButtonState();
-    for (int r = 0; r < m_profiles.size(); ++r) {
-        for (int c = 0; c < m_profiles.size(); ++c) {
+    for (int r = 0; r < m_conns.profiles.size(); ++r) {
+        for (int c = 0; c < m_conns.profiles.size(); ++c) {
             const ConnectivityProbeResult probe = probeConnectivity(r, c);
             auto* item = new QTableWidgetItem(probe.text);
             item->setTextAlignment(Qt::AlignCenter);
@@ -1353,7 +1353,7 @@ void MainWindow::openConnectivityMatrixDialog() {
 
 void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos, QTreeWidget* sourceTree) {
     const auto endBusy = [this]() { endUiBusy(); };
-    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
+    const bool hasConn = (connIdx >= 0 && connIdx < m_conns.profiles.size());
     if (hasConn) {
         setCurrentConnectionInUi(connIdx);
     }
@@ -1435,7 +1435,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Export trust-store to this connection"),
             QStringLiteral("将 trust-store 导出到此连接")));
     const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
-                               && m_profiles[connIdx].connType.compare(
+                               && m_conns.profiles[connIdx].connType.compare(
                                       QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
     QMenu* aAuthorizeKeyMenu = menu.addMenu(
         trk(QStringLiteral("t_authorize_key_menu_001"),
@@ -1444,17 +1444,17 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("授权 SSH 密钥到...")));
     QList<QPair<int, QAction*>> authorizeKeyActions;
     if (isThisSshConn && !isDisconnected && !actionsLocked()) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (i == connIdx) {
                 continue;
             }
-            if (m_profiles[i].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            if (m_conns.profiles[i].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
                 continue;
             }
             if (isConnectionDisconnected(i)) {
                 continue;
             }
-            QAction* a = aAuthorizeKeyMenu->addAction(m_profiles[i].name);
+            QAction* a = aAuthorizeKeyMenu->addAction(m_conns.profiles[i].name);
             authorizeKeyActions.append({i, a});
         }
     }
@@ -1466,8 +1466,8 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     aDisconnect->setEnabled(menuState.canDisconnect);
     const bool canInstallHelpers =
         hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && m_states[connIdx].helperInstallSupported;
+        && connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
     // Sin !isDisconnected a propósito: reinstalar el daemon es justamente lo que hace
     // falta cuando una conexión ha quedado marcada como desconectada, y exigir que
@@ -1550,16 +1550,16 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             trk(QStringLiteral("t_connecting_conn_busy_001"),
                 QStringLiteral("Conectando %1..."),
                 QStringLiteral("Connecting %1..."),
-                QStringLiteral("正在连接 %1...")).arg(m_profiles[connIdx].name));
+                QStringLiteral("正在连接 %1...")).arg(m_conns.profiles[connIdx].name));
         setConnectionDisconnected(connIdx, false);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_conns.profiles[connIdx].name));
         rebuildConnectionsTable();
         populateAllPoolsTables();
         refreshConnectionByIndex(connIdx);
         endTransientUiBusy();
     } else if (chosen == aDisconnect && hasConn) {
         setConnectionDisconnected(connIdx, true);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_conns.profiles[connIdx].name));
         rebuildConnectionsTable();
         populateAllPoolsTables();
     } else if (chosen == aRefresh) {
@@ -1579,7 +1579,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         installHelperCommandsForSelectedConnection();
     } else if (chosen == aInstallDaemon) {
         logUiAction(QStringLiteral("Reinstalar/Actualizar daemon (menú conexiones)"));
-        if (connIdx >= 0 && connIdx < m_profiles.size()) {
+        if (connIdx >= 0 && connIdx < m_conns.profiles.size()) {
             (void)installOrUpdateDaemonForConnectionInternal(connIdx, true);
         }
     } else if (chosen == aRepairAltMountpoints) {
@@ -1610,7 +1610,7 @@ void MainWindow::syncConnectionDisplaySelectors() {
 }
 
 void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
     const QString mode = modeRaw.trimmed().toLower();
@@ -1627,9 +1627,9 @@ void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw)
     }
     m_topDetailConnIdx = connIdx;
     m_forceRestoreTopStateConnIdx = connIdx;
-    m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
+    m_userSelectedConnectionKey = m_conns.profiles[connIdx].id.trimmed().toLower();
     if (m_userSelectedConnectionKey.isEmpty()) {
-        m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
+        m_userSelectedConnectionKey = m_conns.profiles[connIdx].name.trimmed().toLower();
     }
     rebuildConnectionEntityTabs();
     refreshConnectionNodeDetails();
@@ -1650,7 +1650,7 @@ void MainWindow::refreshAllConnections() {
                QStringLiteral("Refrescar todas las conexiones"),
                QStringLiteral("Refresh all connections"),
                QStringLiteral("刷新所有连接")));
-    if (m_profiles.isEmpty()) {
+    if (m_conns.profiles.isEmpty()) {
         if (!m_initialRefreshCompleted) {
             m_initialRefreshCompleted = true;
         }
@@ -1664,7 +1664,7 @@ void MainWindow::refreshAllConnections() {
     }
     const int generation = ++m_refreshGeneration;
     int refreshable = 0;
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (!isConnectionDisconnected(i)) {
             ++refreshable;
         }
@@ -1685,10 +1685,10 @@ void MainWindow::refreshAllConnections() {
     }
 
     auto launchRefreshForIndex = [this, generation](int idx) {
-        if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+        if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
             return;
         }
-        const ConnectionProfile profile = m_profiles[idx];
+        const ConnectionProfile profile = m_conns.profiles[idx];
         (void)QtConcurrent::run([this, generation, idx, profile]() {
             const ConnectionRuntimeState state = refreshConnection(profile);
             QMetaObject::invokeMethod(this, [this, generation, idx, state, profile]() {
@@ -1706,7 +1706,7 @@ void MainWindow::refreshAllConnections() {
     };
     appendUnique(currentConnectionIndexFromUi());
     appendUnique(m_topDetailConnIdx);
-    for (int i = 0; i < m_profiles.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (!isConnectionDisconnected(i)) {
             appendUnique(i);
         }
@@ -1730,7 +1730,7 @@ void MainWindow::refreshSelectedConnection() {
         return;
     }
     const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+    if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     const int generation = ++m_refreshGeneration;
@@ -1739,7 +1739,7 @@ void MainWindow::refreshSelectedConnection() {
     m_refreshInProgress = true;
     updateBusyCursor();
     updateConnectivityMatrixButtonState();
-    const ConnectionProfile profile = m_profiles[idx];
+    const ConnectionProfile profile = m_conns.profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
         QMetaObject::invokeMethod(this, [this, generation, idx, state, profile]() {
@@ -1755,17 +1755,17 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         return;
     }
     int targetIdx = -1;
-    if (idx >= 0 && idx < m_profiles.size() && m_profiles[idx].id == connId) {
+    if (idx >= 0 && idx < m_conns.profiles.size() && m_conns.profiles[idx].id == connId) {
         targetIdx = idx;
     } else if (!connId.trimmed().isEmpty()) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
-            if (m_profiles[i].id == connId) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
+            if (m_conns.profiles[i].id == connId) {
                 targetIdx = i;
                 break;
             }
         }
     }
-    if (targetIdx < 0 || targetIdx >= m_states.size()) {
+    if (targetIdx < 0 || targetIdx >= m_conns.states.size()) {
         if (m_refreshPending > 0) {
             --m_refreshPending;
         }
@@ -1778,17 +1778,17 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
         && !state.machineUuid.trimmed().isEmpty()
         && (isLocalConnection(targetIdx)
-            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0)) {
+            || m_conns.profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0)) {
         const QString newMachineUid = state.machineUuid.trimmed();
-        if (m_profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
-            ConnectionProfile persisted = m_profiles[targetIdx];
+        if (m_conns.profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
+            ConnectionProfile persisted = m_conns.profiles[targetIdx];
             persisted.machineUid = newMachineUid;
             QString persistErr;
             if (m_store.upsertConnection(persisted, persistErr)) {
-                m_profiles[targetIdx].machineUid = newMachineUid;
+                m_conns.profiles[targetIdx].machineUid = newMachineUid;
                 appLog(QStringLiteral("INFO"),
                        QStringLiteral("machine_uid persistido para %1: %2")
-                           .arg(m_profiles[targetIdx].name,
+                           .arg(m_conns.profiles[targetIdx].name,
                                 newMachineUid));
                 const int dedupIdx = targetIdx;
                 QTimer::singleShot(0, this, [this, dedupIdx]() {
@@ -1797,28 +1797,28 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
             } else {
                 appLog(QStringLiteral("WARN"),
                        QStringLiteral("No se pudo persistir machine_uid para %1: %2")
-                           .arg(m_profiles[targetIdx].name,
+                           .arg(m_conns.profiles[targetIdx].name,
                                 persistErr.simplified()));
             }
         }
     }
-    // ZED detection: compare previous daemonLastSeenZedEvent (from persisted m_states)
+    // ZED detection: compare previous daemonLastSeenZedEvent (from persisted m_conns.states)
     // against the new value returned by refreshConnection(). The "@" sentinel means
     // "never polled" — once a first poll establishes any baseline (even empty),
     // subsequent ZED timestamps trigger an immediate follow-up refresh.
     {
-        const QString prevZed = m_states[targetIdx].daemonLastSeenZedEvent;
+        const QString prevZed = m_conns.states[targetIdx].daemonLastSeenZedEvent;
         const QString newZed = state.daemonLastSeenZedEvent;
         if (!newZed.isEmpty()
             && newZed != prevZed
             && prevZed != QStringLiteral("@")) {
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("%1: ZED event detectado (ts=%2), programando refresh")
-                       .arg(m_profiles[targetIdx].name, newZed));
-            const QString profileId = m_profiles[targetIdx].id;
+                       .arg(m_conns.profiles[targetIdx].name, newZed));
+            const QString profileId = m_conns.profiles[targetIdx].id;
             QTimer::singleShot(0, this, [this, profileId]() {
-                for (int i = 0; i < m_profiles.size(); ++i) {
-                    if (m_profiles[i].id == profileId) {
+                for (int i = 0; i < m_conns.profiles.size(); ++i) {
+                    if (m_conns.profiles[i].id == profileId) {
                         refreshConnectionByIndex(i);
                         refreshConnectionDaemonLogAsync(i);
                         break;
@@ -1827,11 +1827,11 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
             });
         }
     }
-    m_states[targetIdx] = state;
+    m_conns.states[targetIdx] = state;
     {
-        const QString connKey = m_profiles[targetIdx].id.trimmed().isEmpty()
-                                    ? m_profiles[targetIdx].name.trimmed().toLower()
-                                    : m_profiles[targetIdx].id.trimmed().toLower();
+        const QString connKey = m_conns.profiles[targetIdx].id.trimmed().isEmpty()
+                                    ? m_conns.profiles[targetIdx].name.trimmed().toLower()
+                                    : m_conns.profiles[targetIdx].id.trimmed().toLower();
         if (state.daemonInstalled && !state.daemonNeedsAttention) {
             m_daemonBootstrapPromptedConnIds.remove(connKey);
         } else if (m_refreshTotal <= 1
@@ -1841,7 +1841,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                    && !m_daemonBootstrapPromptedConnIds.contains(connKey)) {
             m_daemonBootstrapPromptedConnIds.insert(connKey);
             QTimer::singleShot(0, this, [this, targetIdx]() {
-                if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
+                if (targetIdx < 0 || targetIdx >= m_conns.profiles.size()) {
                     return;
                 }
                 // Ver la nota de arriba: fallar aquí no debe dejar la conexión en un
@@ -1849,7 +1849,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                 if (!installOrUpdateDaemonForConnectionInternal(targetIdx, false)) {
                     appLog(QStringLiteral("WARN"),
                            QStringLiteral("No se pudo actualizar el daemon en \"%1\" automáticamente.")
-                               .arg(m_profiles[targetIdx].name));
+                               .arg(m_conns.profiles[targetIdx].name));
                 }
             });
         }
@@ -1870,7 +1870,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
     // Scan for orphaned running jobs when the connection first becomes active with job support
     if (state.daemonActive && state.daemonJobsSupported
-        && !m_states[targetIdx].daemonActive) {
+        && !m_conns.states[targetIdx].daemonActive) {
         QTimer::singleShot(0, this, [this, targetIdx]() {
             scanOrphanedJobsForConnection(targetIdx);
         });
@@ -1895,11 +1895,11 @@ void MainWindow::pollDaemonZedAllConnections() {
     if (m_zedPollPending > 0) return;
 
     QVector<int> toCheck;
-    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
-        if (m_states[i].daemonActive
+    for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
+        if (m_conns.states[i].daemonActive
             && !isLocalConnection(i)
-            && !isWindowsConnection(m_profiles[i])
-            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+            && !isWindowsConnection(m_conns.profiles[i])
+            && m_conns.profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
             toCheck.append(i);
         }
     }
@@ -1914,7 +1914,7 @@ void MainWindow::pollDaemonZedAllConnections() {
     m_zedPollPending = toCheck.size();
 
     for (int idx : std::as_const(toCheck)) {
-        const ConnectionProfile profile = m_profiles[idx];
+        const ConnectionProfile profile = m_conns.profiles[idx];
         const QString healthCmd = mwhelpers::agentShellCommand(profile, {QStringLiteral("--health")});
         const QString connId = profile.id;
 
@@ -1938,29 +1938,29 @@ void MainWindow::pollDaemonZedAllConnections() {
 
             QMetaObject::invokeMethod(this, [this, idx, connId, newZed, healthFailed]() {
                 int targetIdx = -1;
-                if (idx >= 0 && idx < m_profiles.size() && m_profiles[idx].id == connId) {
+                if (idx >= 0 && idx < m_conns.profiles.size() && m_conns.profiles[idx].id == connId) {
                     targetIdx = idx;
                 } else {
-                    for (int i = 0; i < m_profiles.size(); ++i) {
-                        if (m_profiles[i].id == connId) { targetIdx = i; break; }
+                    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+                        if (m_conns.profiles[i].id == connId) { targetIdx = i; break; }
                     }
                 }
 
-                if (targetIdx >= 0 && targetIdx < m_states.size()) {
+                if (targetIdx >= 0 && targetIdx < m_conns.states.size()) {
                     if (healthFailed) {
                         appLog(QStringLiteral("INFO"),
                                QStringLiteral("%1: ZED poll: health falló, forzando refresh")
-                                   .arg(m_profiles[targetIdx].name));
+                                   .arg(m_conns.profiles[targetIdx].name));
                         refreshConnectionByIndex(targetIdx);
                     } else {
-                        const QString prevZed = m_states[targetIdx].daemonLastSeenZedEvent;
+                        const QString prevZed = m_conns.states[targetIdx].daemonLastSeenZedEvent;
                         if (prevZed == QStringLiteral("@")) {
-                            m_states[targetIdx].daemonLastSeenZedEvent = newZed;
+                            m_conns.states[targetIdx].daemonLastSeenZedEvent = newZed;
                         } else if (!newZed.isEmpty() && newZed != prevZed) {
                             appLog(QStringLiteral("INFO"),
                                    QStringLiteral("%1: ZED poll detectó evento (ts=%2)")
-                                       .arg(m_profiles[targetIdx].name, newZed));
-                            m_states[targetIdx].daemonLastSeenZedEvent = newZed;
+                                       .arg(m_conns.profiles[targetIdx].name, newZed));
+                            m_conns.states[targetIdx].daemonLastSeenZedEvent = newZed;
                             refreshConnectionByIndex(targetIdx);
                             refreshConnectionDaemonLogAsync(targetIdx);
                         }
@@ -1993,7 +1993,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     populateAllPoolsTables();
 
     if (currentConnectionIndexFromUi() < 0) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (!isConnectionDisconnected(i)) {
                 setCurrentConnectionInUi(i);
                 break;
@@ -2017,11 +2017,11 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     // decir "2 de 4": desplegar el agente lleva su tiempo y durante el lote el árbol
     // ya no se repinta, así que sin este aviso la aplicación parecería colgada.
     QVector<int> daemonsToAutoUpdate;
-    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+    for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
         if (isConnectionDisconnected(i)) {
             continue;
         }
-        const ConnectionRuntimeState& st = m_states[i];
+        const ConnectionRuntimeState& st = m_conns.states[i];
         if (!st.daemonInstalled || !st.daemonNeedsAttention) {
             continue;
         }
@@ -2039,12 +2039,12 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         const int total = daemonsToAutoUpdate.size();
         for (int n = 0; n < total; ++n) {
             const int i = daemonsToAutoUpdate[n];
-            if (i >= m_profiles.size() || i >= m_states.size()) {
+            if (i >= m_conns.profiles.size() || i >= m_conns.states.size()) {
                 continue;
             }
-            const QString connName = m_profiles[i].name.trimmed().isEmpty()
-                                         ? m_profiles[i].id.trimmed()
-                                         : m_profiles[i].name.trimmed();
+            const QString connName = m_conns.profiles[i].name.trimmed().isEmpty()
+                                         ? m_conns.profiles[i].id.trimmed()
+                                         : m_conns.profiles[i].name.trimmed();
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Daemon requiere actualización en \"%1\": actualización automática (%2 de %3)")
                        .arg(connName)
@@ -2074,10 +2074,10 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     // poll can detect ZED events (daemon zedThread updates zedLastEventUtc;
     // health poll sees the change and schedules an immediate follow-up refresh).
     bool hasDaemonSshConn = false;
-    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
-        if (m_states[i].daemonActive
+    for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
+        if (m_conns.states[i].daemonActive
             && !isLocalConnection(i)
-            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+            && m_conns.profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
             hasDaemonSshConn = true;
             break;
         }
@@ -2184,19 +2184,19 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     tree->clear();
     const bool unifiedTree = tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
     if (!unifiedTree
-        && (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
+        && (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()
             || isConnectionDisconnected(connIdx))) {
         syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
         return;
     }
     if (unifiedTree) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             const ConnectionRuntimeState state =
-                (i < m_states.size()) ? m_states[i] : ConnectionRuntimeState{};
+                (i < m_conns.states.size()) ? m_conns.states[i] : ConnectionRuntimeState{};
             populateConnectionPoolsIntoTree(tree, i, state);
         }
     } else {
-        const ConnectionRuntimeState st = m_states[connIdx];
+        const ConnectionRuntimeState st = m_conns.states[connIdx];
         populateConnectionPoolsIntoTree(tree, connIdx, st);
     }
     if (tree->topLevelItemCount() == 0) {
@@ -2232,7 +2232,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     QString token;
     if (tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
         token = connContentTokenForTree(tree);
-    } else if (connIdx >= 0 && connIdx < m_profiles.size()) {
+    } else if (connIdx >= 0 && connIdx < m_conns.profiles.size()) {
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem* root = tree->topLevelItem(i);
             if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
@@ -2290,7 +2290,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
 void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                                  int connIdx,
                                                  const ConnectionRuntimeState& st) {
-    if (!tree || connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (!tree || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
     const bool unifiedTree = tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
@@ -2314,10 +2314,10 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
             connRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
             tree->addTopLevelItem(connRoot);
         }
-        QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
-                               ? m_profiles[connIdx].id.trimmed()
-                               : m_profiles[connIdx].name.trimmed();
-        if (connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
+        QString connName = m_conns.profiles[connIdx].name.trimmed().isEmpty()
+                               ? m_conns.profiles[connIdx].id.trimmed()
+                               : m_conns.profiles[connIdx].name.trimmed();
+        if (connIdx < m_conns.states.size() && m_conns.states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
         const QString connPrefix =
@@ -2483,7 +2483,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     };
 
     int connIdx = m_topDetailConnIdx;
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         setConnectionActionButtonsVisible(false);
         setPoolActionButtonsVisible(false);
         if (m_connPropsStack && m_connContentPage) {
@@ -2530,7 +2530,7 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
 
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
     const int idx = currentConnectionIndexFromUi();
-    if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
+    if (idx >= 0 && idx < m_conns.profiles.size() && !isConnectionDisconnected(idx)) {
         return idx;
     }
     return -1;
@@ -2538,8 +2538,8 @@ int MainWindow::selectedConnectionIndexForPoolManagement() const {
 
 void MainWindow::updatePoolManagementBoxTitle() {
     const int idx = selectedConnectionIndexForPoolManagement();
-    const QString connText = (idx >= 0 && idx < m_profiles.size())
-                                 ? m_profiles[idx].name
+    const QString connText = (idx >= 0 && idx < m_conns.profiles.size())
+                                 ? m_conns.profiles[idx].name
                                  : trk(QStringLiteral("t_empty_brkt_01"), QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setTitle(
@@ -2552,7 +2552,7 @@ void MainWindow::updatePoolManagementBoxTitle() {
 }
 
 void MainWindow::refreshConnectionByIndex(int idx) {
-    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+    if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     // Guard against re-entrant calls for the same connection index.
@@ -2606,10 +2606,10 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             }
         }
         if (connRootItem) {
-            const QString connName = (idx < m_profiles.size())
-                ? (m_profiles[idx].name.trimmed().isEmpty()
-                       ? m_profiles[idx].id.trimmed()
-                       : m_profiles[idx].name.trimmed())
+            const QString connName = (idx < m_conns.profiles.size())
+                ? (m_conns.profiles[idx].name.trimmed().isEmpty()
+                       ? m_conns.profiles[idx].id.trimmed()
+                       : m_conns.profiles[idx].name.trimmed())
                 : QStringLiteral("?");
             const QString prefix = trk(QStringLiteral("t_tree_connection_prefix_001"),
                                        QStringLiteral("Conexión"),
@@ -2625,8 +2625,8 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     }
     // Copy, not a direct binding to the vector element: refreshConnection() holds its
     // parameter across ~16 runSsh() calls, each pumping the event loop, and
-    // loadConnections() can reassign m_profiles wholesale meanwhile.
-    const ConnectionProfile profileForRefresh = m_profiles[idx];
+    // loadConnections() can reassign m_conns.profiles wholesale meanwhile.
+    const ConnectionProfile profileForRefresh = m_conns.profiles[idx];
     const QString refreshedConnId = profileForRefresh.id.trimmed();
     const ConnectionRuntimeState refreshedState = refreshConnection(profileForRefresh);
     // Re-resolve the index before applying the result: a dedup pass can remove
@@ -2634,11 +2634,11 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     // stale index would apply this state to a different connection.
     const int targetIdx =
         refreshedConnId.isEmpty() ? idx : connectionIndexByNameOrId(refreshedConnId);
-    if (targetIdx < 0 || targetIdx >= m_states.size()) {
+    if (targetIdx < 0 || targetIdx >= m_conns.states.size()) {
         return;
     }
-    m_states[targetIdx] = refreshedState;
-    cachePoolStatusTextsForConnection(targetIdx, m_states[targetIdx]);
+    m_conns.states[targetIdx] = refreshedState;
+    cachePoolStatusTextsForConnection(targetIdx, m_conns.states[targetIdx]);
     rebuildConnInfoFor(targetIdx);
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
     rebuildConnectionsTable();
@@ -2648,30 +2648,34 @@ void MainWindow::loadConnections() {
     QString prevSelectedConnId;
     {
         const int prevIdx = currentConnectionIndexFromUi();
-        if (prevIdx >= 0 && prevIdx < m_profiles.size()) {
-            prevSelectedConnId = m_profiles[prevIdx].id.trimmed();
+        if (prevIdx >= 0 && prevIdx < m_conns.profiles.size()) {
+            prevSelectedConnId = m_conns.profiles[prevIdx].id.trimmed();
         }
     }
 
     QMap<QString, ConnectionRuntimeState> prevById;
     QMap<QString, ConnectionRuntimeState> prevByName;
-    const int oldCount = qMin(m_profiles.size(), m_states.size());
+    const int oldCount = qMin(m_conns.profiles.size(), m_conns.states.size());
     for (int i = 0; i < oldCount; ++i) {
-        const QString idKey = m_profiles[i].id.trimmed().toLower();
-        const QString nameKey = m_profiles[i].name.trimmed().toLower();
+        const QString idKey = m_conns.profiles[i].id.trimmed().toLower();
+        const QString nameKey = m_conns.profiles[i].name.trimmed().toLower();
         if (!idKey.isEmpty()) {
-            prevById[idKey] = m_states[i];
+            prevById[idKey] = m_conns.states[i];
         }
         if (!nameKey.isEmpty()) {
-            prevByName[nameKey] = m_states[i];
+            prevByName[nameKey] = m_conns.states[i];
         }
     }
 
     const LoadResult loaded = m_store.loadConnections();
-    m_profiles = loaded.profiles;
+    // setProfiles ajusta los estados en el mismo paso. Antes se asignaban los perfiles
+    // aquí y los estados veinte líneas más abajo, y entre medias quedaba una ventana con
+    // los dos vectores de distinto tamaño: hoy nadie la aprovecha —lo único que corre en
+    // medio comprueba límites— pero es la clase de hueco que muerde al añadir código.
+    m_conns.setProfiles(loaded.profiles);
     {
         QSet<QString> validKeys;
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             const QString key = connectionPersistKey(i);
             if (!key.isEmpty()) {
                 validKeys.insert(key);
@@ -2685,24 +2689,22 @@ void MainWindow::loadConnections() {
             }
         }
     }
-    m_states.clear();
-    m_states.resize(m_profiles.size());
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const QString idKey = m_profiles[i].id.trimmed().toLower();
-        const QString nameKey = m_profiles[i].name.trimmed().toLower();
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        const QString idKey = m_conns.profiles[i].id.trimmed().toLower();
+        const QString nameKey = m_conns.profiles[i].name.trimmed().toLower();
         if (!idKey.isEmpty() && prevById.contains(idKey)) {
-            m_states[i] = prevById.value(idKey);
+            m_conns.states[i] = prevById.value(idKey);
             continue;
         }
         if (!nameKey.isEmpty() && prevByName.contains(nameKey)) {
-            m_states[i] = prevByName.value(nameKey);
+            m_conns.states[i] = prevByName.value(nameKey);
         }
     }
     rebuildConnInfoModel();
 
     rebuildConnectionsTable();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
-                                   .arg(m_profiles.size())
+                                   .arg(m_conns.profiles.size())
                                    .arg(m_store.configPath()));
     for (const QString& warning : loaded.warnings) {
         appLog(QStringLiteral("WARN"), warning);
@@ -2710,15 +2712,15 @@ void MainWindow::loadConnections() {
 
     int targetConnIdx = -1;
     if (!prevSelectedConnId.trimmed().isEmpty()) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
-            if (m_profiles[i].id.trimmed().compare(prevSelectedConnId, Qt::CaseInsensitive) == 0) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
+            if (m_conns.profiles[i].id.trimmed().compare(prevSelectedConnId, Qt::CaseInsensitive) == 0) {
                 targetConnIdx = i;
                 break;
             }
         }
     }
     if (targetConnIdx < 0 && m_initialRefreshCompleted) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (!isConnectionDisconnected(i)) {
                 targetConnIdx = i;
                 break;
@@ -2732,8 +2734,8 @@ void MainWindow::loadConnections() {
     syncConnectionLogTabs();
     updatePoolManagementBoxTitle();
 
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (isLocalConnection(i) && !m_profiles[i].machineUid.trimmed().isEmpty()) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (isLocalConnection(i) && !m_conns.profiles[i].machineUid.trimmed().isEmpty()) {
             QTimer::singleShot(0, this, [this, i]() {
                 removeDuplicateMachineConnections(i);
             });
@@ -2800,11 +2802,11 @@ void MainWindow::rebuildConnectionsTable() {
         if (wanted.isEmpty()) {
             return -1;
         }
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (isConnectionDisconnected(i)) {
                 continue;
             }
-            const QString key = connPersistKeyFromProfiles(m_profiles, i);
+            const QString key = connPersistKeyFromProfiles(m_conns.profiles, i);
             if (!key.isEmpty() && key == wanted) {
                 return i;
             }
@@ -2812,7 +2814,7 @@ void MainWindow::rebuildConnectionsTable() {
         return -1;
     };
     auto firstConnectedIndex = [this]() -> int {
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (!isConnectionDisconnected(i)) {
                 return i;
             }
@@ -2823,14 +2825,14 @@ void MainWindow::rebuildConnectionsTable() {
         if (m_topDetailConnIdx < 0) {
             m_topDetailConnIdx = connIdxFromPersistedKey(m_persistedTopDetailConnectionKey);
         }
-        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_profiles.size()
+        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_conns.profiles.size()
             || isConnectionDisconnected(m_topDetailConnIdx)) {
             m_topDetailConnIdx = firstConnectedIndex();
         }
         m_bottomDetailConnIdx = -1;
         m_connSelectorDefaultsInitialized = true;
     } else {
-        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_profiles.size()
+        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_conns.profiles.size()
             || isConnectionDisconnected(m_topDetailConnIdx)) {
             m_topDetailConnIdx = -1;
             m_topDetailConnIdx = firstConnectedIndex();
@@ -2863,7 +2865,7 @@ void MainWindow::createConnection() {
     ConnectionProfile created = dlg.profile();
     {
         const QString newName = created.name.trimmed();
-        for (const ConnectionProfile& cp : m_profiles) {
+        for (const ConnectionProfile& cp : m_conns.profiles) {
             if (cp.name.trimmed().compare(newName, Qt::CaseInsensitive) == 0) {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_conn_name_unique_01"),
@@ -2891,18 +2893,18 @@ void MainWindow::createConnection() {
         return;
     }
     loadConnections();
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id.trimmed().compare(createdId, Qt::CaseInsensitive) == 0) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id.trimmed().compare(createdId, Qt::CaseInsensitive) == 0) {
             removeDuplicateMachineConnections(i);
             break;
         }
     }
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id == createdId) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id == createdId) {
             setCurrentConnectionInUi(i);
             if (!isLocalConnection(i)) {
                 QTimer::singleShot(0, this, [this, i]() {
-                    if (i < 0 || i >= m_profiles.size()) {
+                    if (i < 0 || i >= m_conns.profiles.size()) {
                         return;
                     }
                     // Un fallo aquí NO desconecta la conexión. Marcarla desconectada
@@ -2915,7 +2917,7 @@ void MainWindow::createConnection() {
                         appLog(QStringLiteral("WARN"),
                                QStringLiteral("No se pudo instalar o actualizar el daemon en \"%1\" "
                                               "automáticamente. Use \"Reinstalar/Actualizar daemon\".")
-                                   .arg(m_profiles[i].name));
+                                   .arg(m_conns.profiles[i].name));
                     }
                 });
             } else {
@@ -2928,10 +2930,10 @@ void MainWindow::createConnection() {
 
 void MainWindow::repairAltMountpointsForSelectedConnection() {
     const int connIdx = selectedConnectionIndexForPoolManagement();
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     if (!requireFeature(connIdx, zfsmgr::caps::Feature::RepairAltMountpoints)) {
         return;
     }
@@ -3045,7 +3047,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
         return;
     }
     const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+    if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     if (isLocalConnection(idx)) {
@@ -3091,7 +3093,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
         return;
     }
 
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     const int confirm = QMessageBox::question(
         this,
         QStringLiteral("ZFSMgr"),
@@ -3245,9 +3247,9 @@ void MainWindow::changeLocalSudoCredentials() {
         return;
     }
     int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size() || !isLocalConnection(idx)) {
+    if (idx < 0 || idx >= m_conns.profiles.size() || !isLocalConnection(idx)) {
         idx = -1;
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (isLocalConnection(i)) {
                 idx = i;
                 break;
@@ -3278,7 +3280,7 @@ void MainWindow::changeLocalSudoCredentials() {
         QDialog dlg(this);
         dlg.setWindowTitle(title);
         auto* form = new QFormLayout(&dlg);
-        auto* userEdit = new QLineEdit(m_profiles[idx].username.trimmed(), &dlg);
+        auto* userEdit = new QLineEdit(m_conns.profiles[idx].username.trimmed(), &dlg);
         auto* passEdit = new QLineEdit(&dlg);
         passEdit->setEchoMode(QLineEdit::Password);
         passEdit->setPlaceholderText(trk(QStringLiteral("t_local_pwd_ph_001"),
@@ -3343,7 +3345,7 @@ void MainWindow::changeLocalSudoCredentials() {
                 continue;
             }
         }
-        ConnectionProfile updated = m_profiles[idx];
+        ConnectionProfile updated = m_conns.profiles[idx];
         updated.username = user;
         updated.password = pass;
         updated.useSudo = true;
@@ -3358,7 +3360,7 @@ void MainWindow::changeLocalSudoCredentials() {
                     QStringLiteral("无法保存本地凭据。\n%1")).arg(storeErr));
             return;
         }
-        m_profiles[idx] = updated;
+        m_conns.profiles[idx] = updated;
         // El material TLS local se leyó elevando con la contraseña anterior; si no se
         // descarta, el RPC local seguiría usando lo cacheado y el cambio parecería no
         // haber surtido efecto.
@@ -3386,7 +3388,7 @@ void MainWindow::editConnection() {
         return;
     }
     const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
     if (isLocalConnection(idx)) {
@@ -3411,19 +3413,19 @@ void MainWindow::editConnection() {
         return;
     }
     ConnectionDialog dlg(m_language, this);
-    dlg.setProfile(m_profiles[idx]);
+    dlg.setProfile(m_conns.profiles[idx]);
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
     ConnectionProfile edited = dlg.profile();
-    edited.id = m_profiles[idx].id;
+    edited.id = m_conns.profiles[idx].id;
     {
         const QString editedName = edited.name.trimmed();
-        for (int i = 0; i < m_profiles.size(); ++i) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
             if (i == idx) {
                 continue;
             }
-            if (m_profiles[i].name.trimmed().compare(editedName, Qt::CaseInsensitive) == 0) {
+            if (m_conns.profiles[i].name.trimmed().compare(editedName, Qt::CaseInsensitive) == 0) {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_conn_name_unique_01"),
                                          QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
@@ -3444,8 +3446,8 @@ void MainWindow::editConnection() {
         return;
     }
     loadConnections();
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id.trimmed().compare(editedId, Qt::CaseInsensitive) == 0) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id.trimmed().compare(editedId, Qt::CaseInsensitive) == 0) {
             removeDuplicateMachineConnections(i);
             break;
         }
@@ -3458,10 +3460,10 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         return;
     }
     const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     if (isConnectionDisconnected(idx)) {
         QMessageBox::information(
             this,
@@ -3472,16 +3474,17 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
                 QStringLiteral("该连接已断开。")));
         return;
     }
-    if (idx >= m_states.size()) {
+    if (idx >= m_conns.states.size()) {
         return;
     }
     // Copia por valor, no referencia: más abajo hay un diálogo modal (`dlg.exec()`)
     // y `st.helperInstallCommandPreview` se vuelve a leer DESPUÉS de cerrarlo para
     // construir la orden que se ejecuta con sudo. Un modal bombea el bucle de eventos,
-    // y por ahí puede colarse loadConnections(), que hace `m_states.clear(); resize()`:
-    // la referencia quedaría colgando y se leería memoria liberada para montar una
-    // orden privilegiada. Mismo idioma que el `const ConnectionProfile p` de arriba.
-    const ConnectionRuntimeState st = m_states[idx];
+    // y por ahí puede colarse loadConnections(), que rehace el registro entero con
+    // setProfiles(): la referencia quedaría colgando y se leería memoria liberada para
+    // montar una orden privilegiada. El registro NO protege de esto: copiar por valor
+    // antes de abrir un modal sigue siendo la regla.
+    const ConnectionRuntimeState st = m_conns.states[idx];
     if (!requireFeature(idx, zfsmgr::caps::Feature::HelperCommandInstall)) {
         return;
     }
@@ -3637,7 +3640,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     if (actionsLocked()) {
         return false;
     }
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return false;
     }
     // Una conexión desconectada SÍ puede reinstalar el daemon si el usuario lo pide
@@ -3647,7 +3650,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         return false;
     }
 
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     if (interactive) {
         const auto confirm = QMessageBox::question(
             this,
@@ -3773,7 +3776,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         remoteCmd = daemonpayload::windowsNativeInstallCommand();
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
-                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                + ((idx < m_conns.states.size()) ? m_conns.states[idx].osLine : QString()))
                                    .trimmed()
                                    .toLower();
         isMac = osHint.contains(QStringLiteral("darwin"))
@@ -4086,7 +4089,7 @@ void MainWindow::deleteConnection() {
         return;
     }
     const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
     if (isLocalConnection(idx)) {
@@ -4115,14 +4118,14 @@ void MainWindow::deleteConnection() {
         trk(QStringLiteral("t_del_conn_tit1"), QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection"), QStringLiteral("删除连接")),
         trk(QStringLiteral("t_del_conn_q001"), QStringLiteral("¿Borrar conexión \"%1\"?"),
             QStringLiteral("Delete connection \"%1\"?"),
-            QStringLiteral("删除连接“%1”？")).arg(m_profiles[idx].name),
+            QStringLiteral("删除连接“%1”？")).arg(m_conns.profiles[idx].name),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm != QMessageBox::Yes) {
         return;
     }
     QString err;
-    if (!m_store.deleteConnectionById(m_profiles[idx].id, err)) {
+    if (!m_store.deleteConnectionById(m_conns.profiles[idx].id, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_del_conn_err1"),
                                   QStringLiteral("No se pudo borrar conexión:\n%1"),
@@ -4143,11 +4146,11 @@ void MainWindow::deleteConnection() {
 
 void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
 {
-    if (srcIdx < 0 || srcIdx >= m_profiles.size() || dstIdx < 0 || dstIdx >= m_profiles.size()) {
+    if (srcIdx < 0 || srcIdx >= m_conns.profiles.size() || dstIdx < 0 || dstIdx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile sp = m_profiles[srcIdx];
-    const ConnectionProfile dp = m_profiles[dstIdx];
+    const ConnectionProfile sp = m_conns.profiles[srcIdx];
+    const ConnectionProfile dp = m_conns.profiles[dstIdx];
 
     beginUiBusy();
     struct BusyGuard { MainWindow* w; ~BusyGuard() { w->endUiBusy(); } } g{this};

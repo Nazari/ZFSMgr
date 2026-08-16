@@ -325,7 +325,7 @@ void MainWindow::createPoolForSelectedConnection() {
         return;
     }
     const int idx = selectedConnectionIndexForPoolManagement();
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
@@ -334,7 +334,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 QStringLiteral("请选择一个连接来管理池。")));
         return;
     }
-    const ConnectionProfile p = m_profiles[idx];
+    const ConnectionProfile p = m_conns.profiles[idx];
     const bool isMacConn = p.osType.trimmed().toLower().contains(QStringLiteral("mac"));
     beginUiBusy();
     struct UiBusyGuard {
@@ -1552,8 +1552,8 @@ void MainWindow::createPoolForSelectedConnection() {
         return fs.contains(QStringLiteral("apfs"));
     };
     QSet<QString> importedPoolNames;
-    if (idx >= 0 && idx < m_states.size()) {
-        for (const PoolImported& pool : m_states[idx].importedPools) {
+    if (idx >= 0 && idx < m_conns.states.size()) {
+        for (const PoolImported& pool : m_conns.states[idx].importedPools) {
             const QString name = pool.pool.trimmed().toLower();
             if (!name.isEmpty()) {
                 importedPoolNames.insert(name);

@@ -65,8 +65,8 @@ QMap<QString, PoolGuidStatusEntry> parsePoolGuidStatusBatch(const QString& text)
 
 int MainWindow::findConnectionIndexByName(const QString& name) const {
     const QString key = name.trimmed();
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].name.compare(key, Qt::CaseInsensitive) == 0) {
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].name.compare(key, Qt::CaseInsensitive) == 0) {
             return i;
         }
     }
@@ -794,7 +794,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                 }
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
                 // Store current ZED_LAST_EVENT_UTC for comparison in onAsyncRefreshResult
-                // (where m_states[targetIdx] holds the persisted previous value).
+                // (where m_conns.states[targetIdx] holds the persisted previous value).
                 state.daemonLastSeenZedEvent = zedLast;
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
                     || !cacheInvalidations.isEmpty() || !poolInvalidations.isEmpty() || !reconcilePruned.isEmpty()

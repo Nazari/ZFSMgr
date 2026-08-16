@@ -496,10 +496,10 @@ QString MainWindow::datasetPermissionsCacheKey(int connIdx, const QString& poolN
 }
 
 QString MainWindow::connectionAccountCacheKey(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     QString key = p.id.trimmed().toLower();
     if (key.isEmpty()) {
         key = p.name.trimmed().toLower();
@@ -641,10 +641,10 @@ void MainWindow::invalidateDatasetPermissionsCacheForPool(int connIdx, const QSt
 }
 
 bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName) {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
         return false;
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
     // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
     // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
@@ -664,11 +664,11 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
     QString out;
     QString detail;
     const bool daemonReadApiOk =
-        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonNativeBinary
-        && m_states[connIdx].daemonApiVersion.trimmed()
+        connIdx >= 0 && connIdx < static_cast<int>(m_conns.states.size())
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonNativeBinary
+        && m_conns.states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
     // La rama del daemon iba sin sudo ni PATH, apoyándose en que la intercepción del
     // RPC se la llevara antes de ejecutarse por shell. Es decir: su respaldo estaba
@@ -738,7 +738,7 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         entry.permissionSets.push_back(ps);
         entry.originalPermissionSets.push_back(ps);
     }
-    const QString osLine = (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString();
+    const QString osLine = (connIdx >= 0 && connIdx < m_conns.states.size()) ? m_conns.states[connIdx].osLine : QString();
     auto queryAccounts = [this, connIdx, &p, &osLine](const QString& kind) {
         QString listOut;
         QString listDetail;
@@ -797,10 +797,10 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
                                                      const QString& poolName,
                                                      const QStringList& datasetNames) {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()) {
         return false;
     }
-    const ConnectionProfile p = m_profiles[connIdx];
+    const ConnectionProfile p = m_conns.profiles[connIdx];
     // Windows ya no queda fuera por ser Windows: su daemon sirve --dump-zfs-allow
     // (comprobado por RPC contra un Windows 11 real). Lo decide la tabla de
     // capacidades, que además sabe distinguir "no lo hay" de "el daemon no está".
@@ -831,7 +831,7 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         return true;
     }
 
-    const QString osLine = (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString();
+    const QString osLine = (connIdx >= 0 && connIdx < m_conns.states.size()) ? m_conns.states[connIdx].osLine : QString();
     auto queryAccounts = [this, connIdx, &p, &osLine](const QString& kind) {
         QString listOut;
         QString listDetail;
@@ -892,11 +892,11 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
                                     "done")
                                     .arg(quoted.join(QLatin1Char(' ')));
     const bool daemonReadApiOk =
-        connIdx >= 0 && connIdx < static_cast<int>(m_states.size())
-        && m_states[connIdx].daemonInstalled
-        && m_states[connIdx].daemonActive
-        && m_states[connIdx].daemonNativeBinary
-        && m_states[connIdx].daemonApiVersion.trimmed()
+        connIdx >= 0 && connIdx < static_cast<int>(m_conns.states.size())
+        && m_conns.states[connIdx].daemonInstalled
+        && m_conns.states[connIdx].daemonActive
+        && m_conns.states[connIdx].daemonNativeBinary
+        && m_conns.states[connIdx].daemonApiVersion.trimmed()
                == agentversion::expectedApiVersion().trimmed();
     // Igual que la versión de un solo dataset: la rama del daemon no llevaba envoltorio
     // y su respaldo por shell no habría funcionado.

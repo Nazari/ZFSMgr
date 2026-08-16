@@ -348,7 +348,7 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
 }
 
 void MainWindow::updateConnectionActionsState() {
-    if (!(m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
+    if (!(m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_conns.profiles.size()
           && !isConnectionDisconnected(m_topDetailConnIdx))) {
         m_connActionOrigin = DatasetSelectionContext{};
     }
@@ -363,7 +363,7 @@ void MainWindow::updateConnectionActionsState() {
     // Y el destino ya no es un estado que recordar: es el nodo sobre el que se pulsa, de
     // modo que mostrarlo aquí solo podía mentir —enseñaría el último usado—.
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
-        if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_profiles.size()) {
+        if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_conns.profiles.size()) {
             return trk(QStringLiteral("t_empty_sel_001"),
                        QStringLiteral("(vacío)"),
                        QStringLiteral("(empty)"),
@@ -372,7 +372,7 @@ void MainWindow::updateConnectionActionsState() {
         const QString base = c.snapshotName.isEmpty()
                                  ? c.datasetName
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
-        return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
+        return QStringLiteral("%1::%2").arg(m_conns.profiles[c.connIdx].name, base);
     };
     if (m_connOriginSelectionLabel) {
         const QString originText =
@@ -420,10 +420,10 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
         return true;
     };
     auto isTooOld = [&](const DatasetSelectionContext& ctx, QString* connNameOut, QString* verOut) -> bool {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.connIdx >= m_states.size()) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size() || ctx.connIdx >= m_conns.states.size()) {
             return false;
         }
-        const QString ver = m_states[ctx.connIdx].zfsVersion.trimmed();
+        const QString ver = m_conns.states[ctx.connIdx].zfsVersion.trimmed();
         if (ver.isEmpty()) {
             return false;
         }
@@ -432,7 +432,7 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
             return false;
         }
         if (connNameOut) {
-            *connNameOut = m_profiles[ctx.connIdx].name;
+            *connNameOut = m_conns.profiles[ctx.connIdx].name;
         }
         if (verOut) {
             *verOut = ver;
@@ -493,7 +493,7 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
         }
         appLog(QStringLiteral("NORMAL"),
                QStringLiteral("Cambio pendiente añadido: %1::%2  %3")
-                   .arg(m_profiles.at(src.connIdx).name,
+                   .arg(m_conns.profiles.at(src.connIdx).name,
                         src.poolName.trimmed(),
                         pendingDatasetRenameCommand(PendingDatasetRenameDraft{src.connIdx, src.poolName, src.datasetName, targetName})));
         updateApplyPropsButtonState();

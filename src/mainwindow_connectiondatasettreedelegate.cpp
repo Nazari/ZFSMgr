@@ -217,7 +217,7 @@ QString MainWindowConnectionDatasetTreeDelegate::tokenForOwnerItem(QTreeWidgetIt
     }
     const int connIdx = owner->data(0, kConnIdxRole).toInt();
     const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-    if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return QString();
     }
     return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -442,7 +442,7 @@ void MainWindowConnectionDatasetTreeDelegate::rebuildAndRestoreDatasetNode(QTree
                                                                            const QString& snapshotName,
                                                                            bool refreshProperties) {
     if (!m_mainWindow || !tree || datasetName.isEmpty() || poolName.isEmpty() || connIdx < 0
-        || connIdx >= m_mainWindow->m_profiles.size()) {
+        || connIdx >= m_mainWindow->m_conns.profiles.size()) {
         return;
     }
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -605,7 +605,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         }
         const int connIdx = owner->data(0, kConnIdxRole).toInt();
         const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-        if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+        if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
         return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -644,7 +644,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         bool ok = false;
         const int connIdx = token.left(sep).toInt(&ok);
         const QString poolName = token.mid(sep + 2).trimmed();
-        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
             return;
         }
         m_mainWindow->rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);
@@ -664,7 +664,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             const int pipe = rest.indexOf(QLatin1Char('|'));
             connIdx = (pipe >= 0 ? rest.left(pipe) : rest).toInt(&ok);
         }
-        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size()) {
+        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size()) {
             return;
         }
         if (tree == m_mainWindow->m_connContentTree) {
@@ -789,7 +789,7 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     }
     const int connIdx = owner->data(0, kConnIdxRole).toInt();
     const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-    if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return;
     }
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -1139,7 +1139,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
     const QString snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
     const int connIdx = item->data(0, kConnIdxRole).toInt();
     const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
-    if (datasetName.isEmpty() || snapshotName.isEmpty() || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size()
+    if (datasetName.isEmpty() || snapshotName.isEmpty() || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size()
         || poolName.isEmpty()) {
         return;
     }
@@ -1168,7 +1168,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
         return QStringLiteral("'%1'").arg(s);
     };
     const QString cmd = QStringLiteral("zfs hold %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    ConnectionProfile cp = m_mainWindow->m_profiles[connIdx];
+    ConnectionProfile cp = m_mainWindow->m_conns.profiles[connIdx];
     if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
         cp.useSudo = true;
         if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
@@ -1178,10 +1178,10 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
     }
     const bool daemonMutateApiOk =
         connIdx >= 0
-        && connIdx < m_mainWindow->m_states.size()
-        && m_mainWindow->m_states[connIdx].daemonInstalled
-        && m_mainWindow->m_states[connIdx].daemonActive
-        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && connIdx < m_mainWindow->m_conns.states.size()
+        && m_mainWindow->m_conns.states[connIdx].daemonInstalled
+        && m_mainWindow->m_conns.states[connIdx].daemonActive
+        && m_mainWindow->m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString queueCmd = cmd;
     if (daemonMutateApiOk) {
         QJsonArray arr;
@@ -1244,7 +1244,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
     const int connIdx = snapshotItem->data(0, kConnIdxRole).toInt();
     const QString poolName = snapshotItem->data(0, kPoolNameRole).toString().trimmed();
     if (holdName.isEmpty() || datasetName.isEmpty() || snapshotName.isEmpty()
-        || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+        || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return;
     }
     const auto confirm = QMessageBox::question(
@@ -1271,7 +1271,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
     };
     const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
     const QString cmd = QStringLiteral("zfs release %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    ConnectionProfile cp = m_mainWindow->m_profiles[connIdx];
+    ConnectionProfile cp = m_mainWindow->m_conns.profiles[connIdx];
     if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
         cp.useSudo = true;
         if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
@@ -1281,10 +1281,10 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
     }
     const bool daemonMutateApiOk =
         connIdx >= 0
-        && connIdx < m_mainWindow->m_states.size()
-        && m_mainWindow->m_states[connIdx].daemonInstalled
-        && m_mainWindow->m_states[connIdx].daemonActive
-        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        && connIdx < m_mainWindow->m_conns.states.size()
+        && m_mainWindow->m_conns.states[connIdx].daemonInstalled
+        && m_mainWindow->m_conns.states[connIdx].daemonActive
+        && m_mainWindow->m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString queueCmd = cmd;
     if (daemonMutateApiOk) {
         QJsonArray arr;
@@ -1452,7 +1452,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
     }
     QTreeWidgetItem* sel = tree->currentItem();
     const int selectedConnIdx = sel ? sel->data(0, kConnIdxRole).toInt() : -1;
-    if (selectedConnIdx >= 0 && selectedConnIdx < m_mainWindow->m_profiles.size()) {
+    if (selectedConnIdx >= 0 && selectedConnIdx < m_mainWindow->m_conns.profiles.size()) {
         m_mainWindow->m_topDetailConnIdx = selectedConnIdx;
     }
     if (sel && sel->data(0, kIsConnectionRootRole).toBool()) {
@@ -1680,7 +1680,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     }
     const int connIdx = item->data(0, kConnIdxRole).toInt();
     const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
-    if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+    if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("autoSnapshots.fallback"),
                            QStringLiteral("invalid pool context"),
@@ -2341,8 +2341,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     zfsmgr::uilogic::PoolRootMenuState poolMenuState;
     PoolRootMenuActions poolActions;
     if (isPoolRoot) {
-        if (connIdx >= 0 && connIdx < m_mainWindow->m_profiles.size() && !poolName.isEmpty()) {
-            poolRow = m_mainWindow->findPoolRow(m_mainWindow->m_profiles[connIdx].name.trimmed(), poolName);
+        if (connIdx >= 0 && connIdx < m_mainWindow->m_conns.profiles.size() && !poolName.isEmpty()) {
+            poolRow = m_mainWindow->findPoolRow(m_mainWindow->m_conns.profiles[connIdx].name.trimmed(), poolName);
         }
         poolAction =
             (poolRow >= 0 && poolRow < m_mainWindow->m_poolListEntries.size())
@@ -2866,7 +2866,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (mpl == QStringLiteral("-") || mpl == QStringLiteral("none")) {
             return false;
         }
-        if (m_mainWindow->isWindowsConnection(m_mainWindow->m_profiles.value(cidx))) {
+        if (m_mainWindow->isWindowsConnection(m_mainWindow->m_conns.profiles.value(cidx))) {
             return mp.contains(QLatin1Char(':')) || mp.startsWith(QStringLiteral("\\\\"));
         }
         if (mpl == QStringLiteral("legacy")) {
@@ -2943,7 +2943,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 // Si la letra está puesta, mejor; pero no se exige, porque esa propiedad
                 // solo está en la caché si se han cargado las del dataset, y de eso no
                 // puede depender que el menú funcione.
-                && (m_mainWindow->isWindowsConnection(m_mainWindow->m_profiles.value(ctx.connIdx))
+                && (m_mainWindow->isWindowsConnection(m_mainWindow->m_conns.profiles.value(ctx.connIdx))
                     || isValidMountpointForMenu(mountpointRaw, ctx.connIdx)
                     || !driveLetterRaw.isEmpty());
             const bool alreadyMounted = mwhelpers::isMountedValueTrue(mountedRaw);
@@ -3157,7 +3157,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwActx.poolName = actx.poolName;
             mwActx.datasetName = actx.datasetName;
             mwActx.snapshotName = actx.snapshotName;
-            ConnectionProfile cp = m_mainWindow->m_profiles[actx.connIdx];
+            ConnectionProfile cp = m_mainWindow->m_conns.profiles[actx.connIdx];
             if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
                 cp.useSudo = true;
                 if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
@@ -3167,10 +3167,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             }
             const bool daemonMutateApiOk =
                 actx.connIdx >= 0
-                && actx.connIdx < m_mainWindow->m_states.size()
-                && m_mainWindow->m_states[actx.connIdx].daemonInstalled
-                && m_mainWindow->m_states[actx.connIdx].daemonActive
-                && m_mainWindow->m_states[actx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+                && actx.connIdx < m_mainWindow->m_conns.states.size()
+                && m_mainWindow->m_conns.states[actx.connIdx].daemonInstalled
+                && m_mainWindow->m_conns.states[actx.connIdx].daemonActive
+                && m_mainWindow->m_conns.states[actx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
             QString queueCmd = cmd;
             if (daemonMutateApiOk) {
                 queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-rollback %1 %2 %3")

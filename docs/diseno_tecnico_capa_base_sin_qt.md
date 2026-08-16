@@ -465,6 +465,29 @@ de Qt.** Son dos ejes distintos y mezclarlos habría hecho el cambio irrevisable
 prefijo `MainWindow::` de 36 referencias; el resto de usos no llevaban cualificador y no
 se tocaron.
 
+## Paso 1b: el registro de conexiones (primera tanda)
+
+`src/connectionregistry.h`. Van juntos **`profiles` y `states`**, y no por comodidad: son
+vectores **paralelos** indexados los dos por `connIdx`, y separarlos hacía que mantener
+ese invariante fuera cosa de acordarse. Ahora el único camino para cambiar el número de
+conexiones es `setProfiles()`, que ajusta los dos a la vez.
+
+Eso cerró una ventana que estaba abierta: `loadConnections()` asignaba los perfiles
+nuevos y ajustaba los estados **veinte líneas más abajo**, y entre medias corría un
+bloque con los dos vectores de distinto tamaño. Se comprobó y hoy nadie la aprovecha —lo
+único que corre en medio comprueba límites—, pero es exactamente la clase de hueco que
+muerde en cuanto alguien añade una línea.
+
+**Lo que el registro NO resuelve, y está anotado en su cabecera:** guardar una
+*referencia* a un elemento sigue siendo peligroso. Un modal bombea el bucle de eventos,
+por ahí puede colarse una recarga, y la referencia queda colgando —lo cual importa de
+verdad porque alguno de esos valores acaba dentro de una orden con `sudo`—. La regla
+sigue siendo copiar por valor antes de abrir nada modal.
+
+**781 referencias renombradas en 23 ficheros**, y compiló a la primera: es un cambio que
+el compilador verifica punto por punto, aunque el diff no se pueda leer línea a línea.
+Quedan dos tandas: las cinco cachés y `m_store`.
+
 ## Estado
 
 Hecho y verificado:
