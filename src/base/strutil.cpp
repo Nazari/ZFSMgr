@@ -308,4 +308,76 @@ bool isLetterAt(const std::string& s, std::size_t pos) {
     return esLetra(cp);
 }
 
+namespace {
+
+const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+int deBase64(unsigned char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+}  // namespace
+
+std::string base64Encode(const std::string& data) {
+    std::string out;
+    out.reserve(((data.size() + 2) / 3) * 4);
+    std::size_t i = 0;
+    while (i + 2 < data.size()) {
+        const unsigned v = (static_cast<unsigned char>(data[i]) << 16)
+                         | (static_cast<unsigned char>(data[i + 1]) << 8)
+                         | static_cast<unsigned char>(data[i + 2]);
+        out.push_back(kB64[(v >> 18) & 0x3F]);
+        out.push_back(kB64[(v >> 12) & 0x3F]);
+        out.push_back(kB64[(v >> 6) & 0x3F]);
+        out.push_back(kB64[v & 0x3F]);
+        i += 3;
+    }
+    const std::size_t resto = data.size() - i;
+    if (resto == 1) {
+        const unsigned v = static_cast<unsigned>(static_cast<unsigned char>(data[i])) << 16;
+        out.push_back(kB64[(v >> 18) & 0x3F]);
+        out.push_back(kB64[(v >> 12) & 0x3F]);
+        out += "==";
+    } else if (resto == 2) {
+        const unsigned v = (static_cast<unsigned>(static_cast<unsigned char>(data[i])) << 16)
+                         | (static_cast<unsigned>(static_cast<unsigned char>(data[i + 1])) << 8);
+        out.push_back(kB64[(v >> 18) & 0x3F]);
+        out.push_back(kB64[(v >> 12) & 0x3F]);
+        out.push_back(kB64[(v >> 6) & 0x3F]);
+        out.push_back('=');
+    }
+    return out;
+}
+
+bool base64Decode(const std::string& text, std::string& out) {
+    out.clear();
+    int val = 0;
+    int bits = -8;
+    for (const char ch : text) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (std::isspace(c)) {
+            continue;
+        }
+        if (c == '=') {
+            break;
+        }
+        const int d = deBase64(c);
+        if (d < 0) {
+            return false;
+        }
+        val = (val << 6) + d;
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back(static_cast<char>((val >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+    return true;
+}
+
 }  // namespace zfsmgr::base

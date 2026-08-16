@@ -215,6 +215,60 @@ una versión anterior a abril de 2026 no verá convertidas sus conexiones guarda
 habrá aviso. También desaparece el alias `iniPath()`, que devolvía la ruta del JSON y
 solo confundía; sus dos usos pasan a `configPath()`.
 
+## El cifrado de los secretos
+
+El formato es `encv1$<sal>$<token>`: **Fernet** —versión 0x80, marca de tiempo, IV,
+AES-128-CBC y HMAC-SHA256— con la clave derivada por PBKDF2-HMAC-SHA256, 390.000
+iteraciones y **sal propia de cada valor**. Se porta tal cual: usa OpenSSL directamente,
+y Qt solo aparecía en las cadenas y en la fecha.
+
+Se revisó antes de tocarlo y **está bien**: verifica el HMAC ANTES de mirar la versión y
+de descifrar, compara las firmas en tiempo constante, y parte los 32 bytes derivados en
+firma y cifrado como manda la especificación (AES-128 ahí no es un recorte, es el
+diseño). Se fue a buscar dos huecos concretos y no están: la rotación de contraseña
+maestra cubre también `trust-store.json`, y `validateMasterPassword` valida los dos
+ficheros antes de dejar entrar.
+
+Ese último punto importa más de lo que parece. **Cuando el descifrado falla, el campo
+conserva el texto cifrado.** Si se pudiera llegar a la ventana principal en ese estado,
+la aplicación mandaría `encv1$…` como contraseña de sudo y, a los tres intentos,
+`pam_faillock` bloquearía la cuenta diez minutos. No es alcanzable por el camino normal
+porque el arranque está cerrado, pero conviene no abrir esa puerta al reorganizar nada.
+
+### El coste, medido
+
+**40 ms por derivación**, y con sal por valor eso se paga en cada campo cifrado —hasta
+cinco por conexión— tanto al cargar como al guardar: ~0,3 s con dos conexiones, ~2 s con
+diez, y el doble al rotar la contraseña maestra. **Se deja como está** (decisión del
+usuario): una sal única por fichero sería más rápida pero menos conservadora, y cambiarla
+obligaría a migrar.
+
+### Lo que sí se mejoró de paso
+
+- **Los secretos se borran de memoria** (`OPENSSL_cleanse`) antes de soltarla. No se
+  hacía.
+- Se quitó una fragilidad: la llamada a PBKDF2 al descifrar usaba `masterPassword.toUtf8()`
+  **dos veces**, tomando el puntero de un temporal y el tamaño de otro. Era C++ válido,
+  pero estaba a un refactor de convertirse en un fallo de memoria.
+
+### Permisos de los ficheros de configuración
+
+**Nadie los fijaba.** Que `trust-store.json` saliera 0600 y `config.json` 0664 era
+casualidad del umask del momento en que se crearon. Ahora los dos se fijan
+explícitamente a **0600**, y **antes** de escribir el contenido: al revés quedaría un
+instante con el fichero ya lleno de secretos y los permisos que tocaran.
+
+### Verificación
+
+- **Compatibilidad cruzada** con la implementación de Qt, en los DOS sentidos y sobre un
+  cruce de claves y textos —vacíos, con acentos, con comillas, un PEM entero y 5.000
+  caracteres—: lo que cifra una lo descifra la otra. Es la prueba que aplica aquí, porque
+  el cifrado lleva sal e IV aleatorios y los criptogramas nunca son iguales.
+- Clave equivocada: **falla y no deja salida**. Token con un byte cambiado: rechazado por
+  firma.
+- Carga real de las conexiones del usuario con la capa base, y guardado forzado sobre una
+  copia: contenido **byte a byte idéntico** y permisos 0666 -> 0600.
+
 ## Estado
 
 Hecho y verificado:
@@ -276,7 +330,7 @@ antes de ponerla.
 
 Después de `mainwindow_helpers`:
 
-1. **`connectionstore.cpp`**. El JSON ya está resuelto y la migración fuera; queda
-   portar la clase en sí, y con ella el cifrado de los campos sensibles.
+1. **`connectionstore.cpp`**. El JSON, el cifrado y la migración ya están resueltos;
+   queda portar la clase en sí, que a estas alturas es sobre todo pegamento.
 2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
 3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.

@@ -89,6 +89,11 @@ std::string toUpperUtf8(const std::string& s);
 // latinos de arriba.
 bool isLetterAt(const std::string& s, std::size_t pos);
 
+// Base64 estándar (RFC 4648) con relleno. `base64Decode` devuelve false si aparece un
+// carácter que no pertenece al alfabeto; los espacios se ignoran y el relleno corta.
+std::string base64Encode(const std::string& data);
+bool base64Decode(const std::string& text, std::string& out);
+
 // `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.
 std::vector<std::string> split(const std::string& s, const std::string& sep, bool skipEmpty);
 std::string join(const std::vector<std::string>& parts, const std::string& sep);

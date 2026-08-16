@@ -166,6 +166,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/secretcipher.cpp
+    ../src/base/secretcipher.h
     ../src/base/json.cpp
     ../src/base/json.h
     ../src/base/helpers.cpp
@@ -173,6 +175,9 @@ add_library(zfsmgr_base STATIC
     ../src/base/daemonpayload.h
 )
 target_include_directories(zfsmgr_base PUBLIC ../src/base)
+# OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
+# la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
+target_link_libraries(zfsmgr_base PUBLIC OpenSSL::Crypto)
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
@@ -378,7 +383,7 @@ if(BUILD_TESTING)
     # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
     # sale en el commit que lo introduce, no meses después.
     add_executable(zfsmgr_base_test ../tests/base_test.cpp)
-    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_base)
+    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_base OpenSSL::Crypto)
     add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
     # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite

@@ -390,6 +390,12 @@ bool ConnectionStore::saveConfigJson(const QJsonObject& root, QString* error) co
         }
         return false;
     }
+    // Solo el dueño. Se fija ANTES de escribir: al revés quedaría un instante con el
+    // fichero ya lleno de secretos cifrados y los permisos que dejara el umask.
+    //
+    // Nadie los fijaba hasta ahora. Que trust-store.json saliera 0600 y config.json 0664
+    // era casualidad del umask del momento en que se crearon, no una decisión.
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     file.close();
     return true;
@@ -450,6 +456,12 @@ bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error
         }
         return false;
     }
+    // Solo el dueño. Se fija ANTES de escribir: al revés quedaría un instante con el
+    // fichero ya lleno de secretos cifrados y los permisos que dejara el umask.
+    //
+    // Nadie los fijaba hasta ahora. Que trust-store.json saliera 0600 y config.json 0664
+    // era casualidad del umask del momento en que se crearon, no una decisión.
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     file.close();
     return true;

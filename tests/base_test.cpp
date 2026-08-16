@@ -6,6 +6,7 @@
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
+#include "secretcipher.h"
 #include "strutil.h"
 
 #include <cstdio>
@@ -397,6 +398,57 @@ int main() {
         }
         comprobar(J::parse("{}", v, &err) && v.isObject(), "el objeto vacio si es valido");
         comprobar(J::parse("[]", v, &err) && v.isArray(), "el array vacio si es valido");
+    }
+
+
+    // --- base64
+    {
+        igual(base64Encode(""), "", "base64 de vacio");
+        igual(base64Encode("f"), "Zg==", "relleno de dos");
+        igual(base64Encode("fo"), "Zm8=", "relleno de uno");
+        igual(base64Encode("foo"), "Zm9v", "sin relleno");
+        igual(base64Encode("\xff\xfe\xfd"), "//79", "bytes altos");
+        std::string d;
+        comprobar(base64Decode("Zm9vYmFy", d) && d == "foobar", "descodifica");
+        comprobar(base64Decode("Zg==", d) && d == "f", "descodifica con relleno");
+        comprobar(!base64Decode("Zm9v*", d), "rechaza un caracter fuera del alfabeto");
+        // Ida y vuelta con todos los bytes posibles.
+        std::string todos;
+        for (int i = 0; i < 256; ++i) { todos.push_back(static_cast<char>(i)); }
+        comprobar(base64Decode(base64Encode(todos), d) && d == todos,
+                  "ida y vuelta con los 256 bytes");
+    }
+
+    // --- cifrado de los secretos de la configuracion
+    {
+        using C = zfsmgr::base::SecretCipher;
+        comprobar(C::isEncrypted("encv1$a$b"), "reconoce el prefijo");
+        comprobar(!C::isEncrypted("una contrasena normal"), "no confunde texto en claro");
+
+        std::string enc, err;
+        comprobar(C::encryptEncv1("rpq231", "maestra", enc, err), "cifra");
+        comprobar(C::isEncrypted(enc), "lo cifrado lleva el prefijo");
+        comprobar(!contains(enc, "rpq231"), "el texto en claro NO aparece en la salida");
+        std::string dec;
+        comprobar(C::decryptEncv1(enc, "maestra", dec, err) && dec == "rpq231", "descifra");
+
+        // Con la clave equivocada debe FALLAR y no dejar salida: si devolviera basura,
+        // acabaria enviandose como contrasena de sudo.
+        std::string mal;
+        comprobar(!C::decryptEncv1(enc, "otra", mal, err), "rechaza la clave equivocada");
+        comprobar(mal.empty(), "y no deja nada en la salida");
+
+        // Manipular un byte del token invalida la firma. Se comprueba ANTES de descifrar.
+        std::string roto = enc;
+        roto[roto.size() - 3] = (roto[roto.size() - 3] == 'a') ? 'b' : 'a';
+        comprobar(!C::decryptEncv1(roto, "maestra", mal, err), "rechaza un token manipulado");
+
+        // Clave maestra vacia: cifrar asi seria una falsa sensacion de proteccion.
+        comprobar(!C::encryptEncv1("x", "", enc, err), "rechaza cifrar sin clave maestra");
+
+        // Formato invalido, sin reventar.
+        comprobar(!C::decryptEncv1("encv1$solodospartes", "m", mal, err), "rechaza formato invalido");
+        comprobar(!C::decryptEncv1("", "m", mal, err), "rechaza la entrada vacia");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
