@@ -1,6 +1,11 @@
 #include "helpers.h"
 
+#include "daemonpayload.h"
 #include "strutil.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <system_error>
 
 // Portado a mano desde `mwhelpers`. Los literales llevan dentro código de PowerShell y
 // de shell POSIX, con paréntesis y con `.Trim()`/`.ToLower()`: cualquier traducción
@@ -16,7 +21,9 @@ using zfsmgr::base::replaceAll;
 using zfsmgr::base::shSingleQuote;
 using zfsmgr::base::simplify;
 using zfsmgr::base::toLowerAscii;
+using zfsmgr::base::join;
 using zfsmgr::base::trim;
+namespace daemonpayload = zfsmgr::base::daemonpayload;
 
 std::string oneLine(const std::string& v, int maxLen) {
     std::string x = simplify(v);
@@ -237,6 +244,228 @@ std::string storedSecretMarkerPrefix() {
 std::string stripToJson(const std::string& output) {
     const int idx = indexOf(output, "{");
     return idx >= 0 ? mid(output, idx) : output;
+}
+
+std::string shPrintfOctalEscaped(const std::string& s) {
+    // Byte a byte, no carácter a carácter: `printf '%b'` interpreta \0ddd como UN byte,
+    // así que un carácter multibyte sale como varias secuencias y se reensambla al otro
+    // lado tal cual se tecleó.
+    std::string out;
+    out.reserve(s.size() * 4);
+    for (const char rawByte : s) {
+        const unsigned b = static_cast<unsigned char>(rawByte);
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "\\0%03o", b);
+        out += buf;
+    }
+    return out;
+}
+
+std::string sshControlPath() {
+#ifdef __APPLE__
+    // Ruta corta a propósito: el socket de dominio Unix tiene un límite de ~104 bytes
+    // en la longitud de la ruta, y el directorio temporal de macOS es largo.
+    return "/tmp/zfsmgr-%C";
+#else
+    std::error_code ec;
+    const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec);
+    const std::string base = ec ? std::string("/tmp") : tmp.string();
+    return base + "/zfsmgr-ssh-%C";
+#endif
+}
+
+std::string sshUserHost(const ConnectionProfile& p) {
+    return p.username + "@" + p.host;
+}
+
+std::string sshUserHostPort(const ConnectionProfile& p) {
+    const std::string port = (p.port > 0) ? std::to_string(p.port) : std::string("22");
+    return sshUserHost(p) + ":" + port;
+}
+
+std::string sshAddressFamilyOption(const ConnectionProfile& p) {
+    const std::string family = toLowerAscii(trim(p.sshAddressFamily));
+    if (family == "ipv4") {
+        return "-4";
+    }
+    if (family == "ipv6") {
+        return "-6";
+    }
+    return std::string();
+}
+
+std::string sshBaseCommand(const ConnectionProfile& p) {
+    // accept-new y SIN UserKnownHostsFile: se usa el ~/.ssh/known_hosts del usuario.
+    // Antes iba StrictHostKeyChecking=no con UserKnownHostsFile=/dev/null, que no solo
+    // no verifica al host: descarta la memoria, así que cada conexión aceptaba
+    // cualquier clave para siempre. Como el material TLS del daemon se trae POR SSH,
+    // eso permitía que un intermediario entregara su propio certificado, que la
+    // aplicación fijaría tan tranquila.
+    // Sin multiplexado cuando la aplicación corre en Windows: su OpenSSH responde
+    // `getsockname failed: Not a socket`, y ControlPersist deja un maestro de fondo que
+    // no suelta las tuberías heredadas.
+#ifdef _WIN32
+    std::string cmd = "ssh -o BatchMode=yes -o LogLevel=ERROR"
+                      " -o StrictHostKeyChecking=accept-new";
+#else
+    std::string cmd = format("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
+                             " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1",
+                             {shSingleQuote(sshControlPath())});
+#endif
+    const std::string familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.empty()) {
+        cmd += " " + familyOpt;
+    }
+    if (p.port > 0) {
+        cmd += " -p " + std::to_string(p.port);
+    }
+    if (!p.keyPath.empty()) {
+        cmd += " -i " + shSingleQuote(p.keyPath);
+    }
+    return cmd;
+}
+
+std::string buildSshTargetPrefix(const ConnectionProfile& p) {
+    return sshBaseCommand(p) + " " + shSingleQuote(sshUserHost(p));
+}
+
+std::string buildSimpleSshInvocation(const ConnectionProfile& p, const std::string& remoteCmd) {
+    return buildSshTargetPrefix(p) + " " + shSingleQuote(remoteCmd);
+}
+
+std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::string& remoteCmd) {
+    std::vector<std::string> parts;
+    parts.push_back("ssh");
+    const std::string familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.empty()) {
+        parts.push_back(familyOpt);
+    }
+    parts.push_back("-o BatchMode=yes");
+    parts.push_back("-o ConnectTimeout=10");
+    parts.push_back("-o LogLevel=ERROR");
+    // Ver la nota en sshBaseCommand: se verifica contra ~/.ssh/known_hosts.
+    parts.push_back("-o StrictHostKeyChecking=accept-new");
+    parts.push_back("-o ControlMaster=auto");
+    parts.push_back("-o ControlPersist=yes");
+    parts.push_back(format("-o ControlPath=%1", {shSingleQuote(sshControlPath())}));
+    if (p.port > 0) {
+        parts.push_back(format("-p %1", {std::to_string(p.port)}));
+    }
+    if (!p.keyPath.empty()) {
+        parts.push_back(format("-i %1", {shSingleQuote(p.keyPath)}));
+    }
+    parts.push_back(sshUserHost(p));
+    parts.push_back(shSingleQuote(remoteCmd));
+    return join(parts, " ");
+}
+
+std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
+                                       const std::string& localPath,
+                                       const std::string& remotePath,
+                                       bool multiplex) {
+    std::vector<std::string> args{"-q",
+                                  "-o", "BatchMode=yes",
+                                  "-o", "LogLevel=ERROR",
+                                  "-o", "StrictHostKeyChecking=accept-new"};
+    if (multiplex) {
+        args.push_back("-o");
+        args.push_back("ControlMaster=auto");
+        args.push_back("-o");
+        args.push_back("ControlPersist=yes");
+        args.push_back("-o");
+        args.push_back("ControlPath=" + sshControlPath());
+    }
+    const std::string familyOpt = trim(sshAddressFamilyOption(p));
+    if (!familyOpt.empty()) {
+        args.push_back(familyOpt);
+    }
+    if (p.port > 0) {
+        // scp usa -P mayúscula para el puerto, no -p como ssh.
+        args.push_back("-P");
+        args.push_back(std::to_string(p.port));
+    }
+    if (!p.keyPath.empty()) {
+        args.push_back("-i");
+        args.push_back(p.keyPath);
+    }
+    args.push_back(localPath);
+    args.push_back(sshUserHost(p) + ":" + remotePath);
+    return args;
+}
+
+std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) {
+    if (isWindowsOsType(p.osType)) {
+        return cmd;
+    }
+    const std::string preparedCmd = withUnixSearchPathCommand(cmd);
+    if (!p.useSudo) {
+        return preparedCmd;
+    }
+    if (!p.password.empty()) {
+        // %b + escapes octales: la contraseña viaja en ASCII puro. Ver
+        // shPrintfOctalEscaped: en macOS, Qt descompone los caracteres al pasar la
+        // orden al intérprete y sudo recibía otros bytes.
+        return format("printf '%b\\n' '%1' | sudo -k -S -p '' sh -c %2",
+                      {shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd)});
+    }
+    // `sh -c` con la orden entrecomillada. Concatenar `sudo -n ` delante no valía:
+    // withUnixSearchPathCommand antepone `PATH="..."; export PATH; `, y los punto y coma
+    // partían la línea en tres, dejando el agente SIN sudo y respondiendo «Permiso
+    // denegado» porque el binario es 0700 root. La aplicación concluía entonces que el
+    // agente no estaba instalado en una máquina donde sí lo está.
+    return format("sudo -n sh -c %1", {shSingleQuote(preparedCmd)});
+}
+
+std::string withSudoStreamInputCommand(const ConnectionProfile& p, const std::string& cmd) {
+    if (isWindowsOsType(p.osType)) {
+        return cmd;
+    }
+    const std::string preparedCmd = withUnixSearchPathCommand(cmd);
+    if (!p.useSudo) {
+        return preparedCmd;
+    }
+    if (!p.password.empty()) {
+        return format("{ printf '%b\\n' '%1'; cat; } | sudo -k -S -p '' sh -c %2",
+                      {shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd)});
+    }
+    return format("sudo -n sh -c %1", {shSingleQuote(preparedCmd)});
+}
+
+std::string agentCommand(const ConnectionProfile& p, const std::string& agentArgs) {
+    if (isWindowsOsType(p.osType)) {
+        // El "&" no es decorativo: en PowerShell una cadena entrecomillada al principio
+        // de una sentencia es una expresión, no un comando, así que sin el operador de
+        // llamada la ruta se evalúa como texto y el primer argumento revienta el parseo.
+        return std::string("& \"") + daemonpayload::windowsBinPath() + "\" " + agentArgs;
+    }
+    // Sin withUnixSearchPathCommand aquí: withSudoCommand ya lo aplica, y hacerlo dos
+    // veces dejaba el prefijo PATH duplicado en la orden y en el diálogo de
+    // confirmación, donde no ayuda a decidir nada.
+    return withSudoCommand(p, daemonpayload::unixBinPath() + " " + agentArgs);
+}
+
+std::string agentShellCommand(const ConnectionProfile& p,
+                              const std::vector<std::string>& agentArgs) {
+    std::vector<std::string> quoted;
+    quoted.reserve(agentArgs.size());
+    for (const std::string& a : agentArgs) {
+        quoted.push_back(isWindowsOsType(p.osType) ? a : shSingleQuote(a));
+    }
+    return agentCommand(p, join(quoted, " "));
+}
+
+std::string agentShellCommandStreamInput(const ConnectionProfile& p,
+                                         const std::vector<std::string>& agentArgs) {
+    if (isWindowsOsType(p.osType)) {
+        return agentShellCommand(p, agentArgs);
+    }
+    std::vector<std::string> quoted;
+    quoted.reserve(agentArgs.size());
+    for (const std::string& a : agentArgs) {
+        quoted.push_back(shSingleQuote(a));
+    }
+    return withSudoStreamInputCommand(
+        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + " " + join(quoted, " ")));
 }
 
 }  // namespace zfsmgr::base::helpers

@@ -3,6 +3,7 @@
 // arnés de cuatro líneas.
 
 #include "daemonpayload.h"
+#include "connectionprofile.h"
 #include "helpers.h"
 #include "strutil.h"
 
@@ -190,6 +191,62 @@ int main() {
     igual(H::stripToJson("sin llave"), "sin llave", "stripToJson devuelve tal cual si no hay");
     igual(H::oneLine("  a   b  ", 220), "a b", "oneLine colapsa espacios");
     igual(H::oneLine("\xc3\xa1\xc3\x89", 1), "\xc3\xa1", "oneLine recorta por caracteres");
+
+
+    // --- lo que se apoya en ConnectionProfile
+    {
+        zfsmgr::base::ConnectionProfile p;
+        p.username = "linarese";
+        p.host = "unib.local";
+        igual(H::sshUserHost(p), "linarese@unib.local", "sshUserHost");
+        igual(H::sshUserHostPort(p), "linarese@unib.local:22", "sin puerto se asume el 22");
+        p.port = 2222;
+        igual(H::sshUserHostPort(p), "linarese@unib.local:2222", "con puerto explicito");
+        igual(H::sshAddressFamilyOption(p), "", "sin familia no se pasa opcion");
+        p.sshAddressFamily = " IPv6 ";
+        igual(H::sshAddressFamilyOption(p), "-6", "la familia se recorta y no distingue caja");
+        p.sshAddressFamily = "raro";
+        igual(H::sshAddressFamilyOption(p), "", "una familia desconocida no inventa opcion");
+
+        // scp usa -P mayuscula, no -p. Confundirlas es un fallo silencioso: -p conserva
+        // marcas de tiempo y el puerto se va al 22.
+        p.sshAddressFamily.clear();
+        const auto args = H::scpUploadArgs(p, "/l/a b", "/r/c", false);
+        bool tieneMayus = false;
+        for (const auto& a : args) {
+            if (a == "-P") { tieneMayus = true; }
+            comprobar(a != "-p", "scpUploadArgs NO usa -p minuscula");
+        }
+        comprobar(tieneMayus, "scpUploadArgs usa -P mayuscula para el puerto");
+        comprobar(args.back() == "linarese@unib.local:/r/c", "el destino va al final");
+        // Sin multiplexado no debe aparecer ControlPath.
+        for (const auto& a : args) {
+            comprobar(!contains(a, "ControlPath"), "sin multiplexado no hay ControlPath");
+        }
+
+        // sudo: sin contrasena va -n; con contrasena, la clave viaja en octal y NUNCA
+        // en claro dentro de la orden.
+        p.osType = "linux";
+        p.useSudo = true;
+        comprobar(contains(H::withSudoCommand(p, "zfs list"), "sudo -n sh -c"),
+                  "sin contrasena se usa sudo -n");
+        p.password = "rpq231";
+        const std::string conPw = H::withSudoCommand(p, "zfs list");
+        comprobar(!contains(conPw, "rpq231"), "la contrasena NO aparece en claro");
+        comprobar(contains(conPw, H::shPrintfOctalEscaped("rpq231")), "va escapada en octal");
+        // En Windows no hay sudo: la orden sale intacta.
+        p.osType = "Windows 11";
+        igual(H::withSudoCommand(p, "zfs list"), "zfs list", "en Windows no se envuelve en sudo");
+        // Y el agente se invoca con el operador de llamada de PowerShell.
+        comprobar(startsWith(H::agentCommand(p, "--health"), "& \""),
+                  "en Windows el agente lleva el operador &");
+    }
+
+    igual(H::shPrintfOctalEscaped("A"), "\\0101", "escapado octal de un ASCII");
+    igual(H::shPrintfOctalEscaped(""), "", "escapado octal de vacio");
+    // Un caracter multibyte sale como VARIOS escapes, uno por byte.
+    igual(H::shPrintfOctalEscaped("\xc3\xb1"), "\\0303\\0261", "escapado octal byte a byte");
+    comprobar(contains(H::sshControlPath(), "%C"), "sshControlPath lleva el marcador %C");
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;

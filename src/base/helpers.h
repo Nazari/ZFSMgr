@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
+#include "connectionprofile.h"
 
 // Construcción de órdenes y predicados sobre valores de ZFS, SIN Qt.
 //
@@ -67,5 +70,43 @@ std::string storedSecretMarkerPrefix();
 
 // Descarta lo que preceda al primer '{': algunas órdenes escriben avisos antes del JSON.
 std::string stripToJson(const std::string& output);
+
+// Codifica cada BYTE UTF-8 como \0ddd para `printf '%b'`, de modo que el resultado es
+// ASCII puro.
+//
+// Existe por la contraseña de sudo en macOS: Qt descompone los caracteres al pasar la
+// orden al intérprete y sudo recibía otros bytes de los tecleados.
+std::string shPrintfOctalEscaped(const std::string& s);
+
+// Ruta del socket de multiplexado de SSH. Lleva el marcador %C, que expande el propio
+// ssh con un resumen de usuario/host/puerto.
+std::string sshControlPath();
+
+// --- Invocación por SSH y del agente.
+//
+// Se apoyan en ConnectionProfile, que es lo que las mantenía atadas a Qt.
+std::string sshUserHost(const ConnectionProfile& p);
+std::string sshUserHostPort(const ConnectionProfile& p);
+std::string sshAddressFamilyOption(const ConnectionProfile& p);
+std::string sshBaseCommand(const ConnectionProfile& p);
+std::string buildSshTargetPrefix(const ConnectionProfile& p);
+std::string buildSimpleSshInvocation(const ConnectionProfile& p, const std::string& remoteCmd);
+std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::string& remoteCmd);
+
+// Los mismos argumentos, pero como lista para lanzar `scp` DIRECTAMENTE, sin intérprete.
+// `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
+// Windows no admite multiplexado.
+std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
+                                       const std::string& localPath,
+                                       const std::string& remotePath,
+                                       bool multiplex);
+
+std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd);
+std::string withSudoStreamInputCommand(const ConnectionProfile& p, const std::string& cmd);
+std::string agentCommand(const ConnectionProfile& p, const std::string& agentArgs);
+std::string agentShellCommand(const ConnectionProfile& p,
+                              const std::vector<std::string>& agentArgs);
+std::string agentShellCommandStreamInput(const ConnectionProfile& p,
+                                         const std::vector<std::string>& agentArgs);
 
 }  // namespace zfsmgr::base::helpers

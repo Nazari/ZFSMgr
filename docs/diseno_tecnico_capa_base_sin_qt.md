@@ -124,14 +124,24 @@ Hecho y verificado:
   bytes de la referencia dorada salieron idénticos. `mainwindow_helpers.cpp` baja de
   1.224 a 1.075 líneas y las 23 quedan como adaptadores de una línea.
 
-Del resto de `mainwindow_helpers.cpp`, de sus 58 funciones:
+- **`ConnectionProfile`** y las **15 funciones** que se apoyaban en él: invocación por
+  SSH, `scp`, `sudo` y el agente. Referencia dorada de **1.598.953 bytes sobre 648
+  perfiles** —cruce de sistema operativo, sudo, contraseña, puerto, familia de
+  direcciones y ruta de clave—: idénticas.
+
+  El struct se copia **entero, los 16 campos**, aunque la capa base no use hoy los PEM
+  de TLS. Un espejo parcial invita a que alguien lea más adelante un campo que llega
+  silenciosamente vacío, y eso es peor que copiar unas cadenas de más al construir una
+  orden que va a lanzar un proceso.
+
+`mainwindow_helpers.cpp` queda en **951 líneas** de las 1.224 iniciales. De sus 58
+funciones:
 
 | | cuántas | por qué |
 |---|---|---|
-| Ya portadas | **23** | órdenes y predicados |
-| Movibles, aún sin portar | 17 | sobre todo por los `.arg()` y los contenedores |
-| Toman `ConnectionProfile` | 13 | hay que mover antes ese struct |
-| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` |
+| Ya portadas | **38** | órdenes, predicados, SSH, `scp`, `sudo` y agente |
+| Movibles, aún sin portar | 15 | sobre todo por los contenedores (`QMap`, `QVector`) |
+| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` — es la decisión pendiente de más peso: `std::regex` o una biblioteca |
 | Sistema de ficheros | 1 | `findLocalExecutable` |
 | JSON | 1 | `parseZfsMountJsonOutput` |
 | `QProcess` | 1 | `checkLocalSudoPassword` |

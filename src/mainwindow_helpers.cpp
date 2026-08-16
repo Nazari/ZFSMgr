@@ -2,10 +2,13 @@
 
 #include "daemonpayload.h"
 
+#include "base/connectionprofile.h"
 #include "base/helpers.h"
 #include "base/strutil.h"
 
 namespace B = zfsmgr::base::helpers;
+namespace BP = zfsmgr::base;
+
 
 #include <QDir>
 #include <QFileInfo>
@@ -86,6 +89,83 @@ QString withUnixSearchPathCommand(const QString& cmd) { return q(B::withUnixSear
 QString rpcTunnelBusyReason() { return q(B::rpcTunnelBusyReason()); }
 QString storedSecretMarkerPrefix() { return q(B::storedSecretMarkerPrefix()); }
 QString stripToJson(const QString& output) { return q(B::stripToJson(b(output))); }
+
+// --- Adaptadores de las funciones que toman ConnectionProfile.
+//
+// `toBase` copia los 16 campos. Es un espejo completo a propósito: uno parcial invita a
+// que alguien lea más adelante un campo silenciosamente vacío.
+namespace {
+BP::ConnectionProfile toBase(const ConnectionProfile& p) {
+    BP::ConnectionProfile o;
+    o.id = b(p.id);
+    o.name = b(p.name);
+    o.machineUid = b(p.machineUid);
+    o.connType = b(p.connType);
+    o.osType = b(p.osType);
+    o.host = b(p.host);
+    o.port = p.port;
+    o.sshAddressFamily = b(p.sshAddressFamily);
+    o.username = b(p.username);
+    o.password = b(p.password);
+    o.keyPath = b(p.keyPath);
+    o.useSudo = p.useSudo;
+    o.daemonTlsServerCertPem = b(p.daemonTlsServerCertPem);
+    o.daemonTlsClientCertPem = b(p.daemonTlsClientCertPem);
+    o.daemonTlsClientKeyPem = b(p.daemonTlsClientKeyPem);
+    o.daemonTlsPort = p.daemonTlsPort;
+    return o;
+}
+std::vector<std::string> bl(const QStringList& v) {
+    std::vector<std::string> o;
+    o.reserve(static_cast<std::size_t>(v.size()));
+    for (const QString& x : v) {
+        o.push_back(b(x));
+    }
+    return o;
+}
+QStringList ql(const std::vector<std::string>& v) {
+    QStringList o;
+    o.reserve(static_cast<int>(v.size()));
+    for (const std::string& x : v) {
+        o << q(x);
+    }
+    return o;
+}
+}  // namespace
+
+QString shPrintfOctalEscaped(const QString& s) { return q(B::shPrintfOctalEscaped(b(s))); }
+QString sshControlPath() { return q(B::sshControlPath()); }
+QString sshUserHost(const ConnectionProfile& p) { return q(B::sshUserHost(toBase(p))); }
+QString sshUserHostPort(const ConnectionProfile& p) { return q(B::sshUserHostPort(toBase(p))); }
+QString sshAddressFamilyOption(const ConnectionProfile& p) { return q(B::sshAddressFamilyOption(toBase(p))); }
+QString sshBaseCommand(const ConnectionProfile& p) { return q(B::sshBaseCommand(toBase(p))); }
+QString buildSshTargetPrefix(const ConnectionProfile& p) { return q(B::buildSshTargetPrefix(toBase(p))); }
+QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
+    return q(B::buildSimpleSshInvocation(toBase(p), b(remoteCmd)));
+}
+QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
+    return q(B::buildSshPreviewCommandText(toBase(p), b(remoteCmd)));
+}
+QStringList scpUploadArgs(const ConnectionProfile& p, const QString& localPath,
+                          const QString& remotePath, bool multiplex) {
+    return ql(B::scpUploadArgs(toBase(p), b(localPath), b(remotePath), multiplex));
+}
+QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
+    return q(B::withSudoCommand(toBase(p), b(cmd)));
+}
+QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {
+    return q(B::withSudoStreamInputCommand(toBase(p), b(cmd)));
+}
+QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
+    return q(B::agentCommand(toBase(p), b(agentArgs)));
+}
+QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentArgs) {
+    return q(B::agentShellCommand(toBase(p), bl(agentArgs)));
+}
+QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs) {
+    return q(B::agentShellCommandStreamInput(toBase(p), bl(agentArgs)));
+}
+
 
 
 QString findLocalExecutable(const QString& name) {
@@ -570,33 +650,9 @@ QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text) {
 
 
 
-QString sshControlPath() {
-#ifdef Q_OS_MAC
-    return QStringLiteral("/tmp/zfsmgr-%C");
-#else
-    return QDir::tempPath() + QStringLiteral("/zfsmgr-ssh-%C");
-#endif
-}
 
-QString sshUserHost(const ConnectionProfile& p) {
-    return QStringLiteral("%1@%2").arg(p.username, p.host);
-}
 
-QString sshUserHostPort(const ConnectionProfile& p) {
-    const QString port = (p.port > 0) ? QString::number(p.port) : QStringLiteral("22");
-    return QStringLiteral("%1:%2").arg(sshUserHost(p), port);
-}
 
-QString sshAddressFamilyOption(const ConnectionProfile& p) {
-    const QString family = p.sshAddressFamily.trimmed().toLower();
-    if (family == QStringLiteral("ipv4")) {
-        return QStringLiteral("-4");
-    }
-    if (family == QStringLiteral("ipv6")) {
-        return QStringLiteral("-6");
-    }
-    return QString();
-}
 
 // Traduce el fallo de verificación de host de ssh a algo accionable.
 //
@@ -620,79 +676,10 @@ QString sshHostKeyProblemHint(const QString& sshStderr) {
     return QString();
 }
 
-QString sshBaseCommand(const ConnectionProfile& p) {
-    // accept-new y SIN UserKnownHostsFile: se usa el ~/.ssh/known_hosts del usuario.
-    // Antes iba StrictHostKeyChecking=no con UserKnownHostsFile=/dev/null, que no solo
-    // no verifica al host: descarta la memoria, así que cada conexión aceptaba
-    // cualquier clave para siempre. Como el material TLS del daemon se trae POR SSH,
-    // eso permitía que un intermediario entregara su propio certificado, que la
-    // aplicación fijaría tan tranquila.
-    // Sin multiplexado cuando la aplicación corre en Windows: su OpenSSH responde
-    // `getsockname failed: Not a socket`, y ControlPersist deja un maestro de fondo que
-    // no suelta las tuberías heredadas. Mismo motivo que en runSsh.
-#ifdef Q_OS_WIN
-    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR"
-                                 " -o StrictHostKeyChecking=accept-new");
-#else
-    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
-                                 " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
-                      .arg(shSingleQuote(sshControlPath()));
-#endif
-    const QString familyOpt = sshAddressFamilyOption(p);
-    if (!familyOpt.isEmpty()) {
-        cmd += QStringLiteral(" ") + familyOpt;
-    }
-    if (p.port > 0) {
-        cmd += QStringLiteral(" -p ") + QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        cmd += QStringLiteral(" -i ") + shSingleQuote(p.keyPath);
-    }
-    return cmd;
-}
 
 
-QStringList scpUploadArgs(const ConnectionProfile& p,
-                          const QString& localPath,
-                          const QString& remotePath,
-                          bool multiplex) {
-    QStringList args;
-    args << QStringLiteral("-q")
-         << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
-         << QStringLiteral("-o") << QStringLiteral("LogLevel=ERROR")
-         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
-    if (multiplex) {
-        args << QStringLiteral("-o") << QStringLiteral("ControlMaster=auto")
-             << QStringLiteral("-o") << QStringLiteral("ControlPersist=yes")
-             << QStringLiteral("-o") << QStringLiteral("ControlPath=%1").arg(sshControlPath());
-    }
-    const QString familyOpt = sshAddressFamilyOption(p).trimmed();
-    if (!familyOpt.isEmpty()) {
-        args << familyOpt;
-    }
-    if (p.port > 0) {
-        // scp usa -P mayúscula para el puerto, no -p como ssh.
-        args << QStringLiteral("-P") << QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        args << QStringLiteral("-i") << p.keyPath;
-    }
-    args << localPath
-         << QStringLiteral("%1:%2").arg(sshUserHost(p), remotePath);
-    return args;
-}
 
-QString buildSshTargetPrefix(const ConnectionProfile& p) {
-    return sshBaseCommand(p)
-        + QStringLiteral(" ")
-        + shSingleQuote(sshUserHost(p));
-}
 
-QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
-    return buildSshTargetPrefix(p)
-        + QStringLiteral(" ")
-        + shSingleQuote(remoteCmd);
-}
 
 
 
@@ -707,21 +694,6 @@ QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remo
 // lugar y NO lleva sudo ni PATH de Unix; olvidarlo en un solo punto deja esa función
 // muda o con rc=127, que es lo que pasó con el log del daemon, el latido y la
 // comprobación de salud, cada uno descubierto por separado.
-QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
-    if (isWindowsOsType(p.osType)) {
-        // El "&" no es decorativo: en PowerShell una cadena entrecomillada al principio
-        // de una sentencia es una expresión, no un comando, así que sin el operador de
-        // llamada la ruta se evalúa como texto y el primer argumento revienta el parseo
-        // ("Token 'health' inesperado"). Además, quien invoque esto debe forzar
-        // WindowsCommandMode::PowerShellNative: en Auto el envoltorio lo toma por shell
-        // Unix y lo ejecuta con el bash de MSYS2, que se come las barras invertidas.
-        return QStringLiteral("& \"") + daemonpayload::windowsBinPath() + QStringLiteral("\" ") + agentArgs;
-    }
-    // Sin withUnixSearchPathCommand aquí: withSudoCommand ya lo aplica, y hacerlo dos
-    // veces dejaba el prefijo PATH duplicado en la orden y, de paso, en el diálogo de
-    // confirmación, donde no ayuda a decidir nada.
-    return withSudoCommand(p, daemonpayload::unixBinPath() + QStringLiteral(" ") + agentArgs);
-}
 
 // Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
 // QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
@@ -769,28 +741,7 @@ QStringList posixShellSplitArgs(const QString& s) {
     return result;
 }
 
-QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentArgs) {
-    QStringList quoted;
-    quoted.reserve(agentArgs.size());
-    for (const QString& a : agentArgs) {
-        quoted << (isWindowsOsType(p.osType) ? a : shSingleQuote(a));
-    }
-    return agentCommand(p, quoted.join(QLatin1Char(' ')));
-}
 
-QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs) {
-    if (isWindowsOsType(p.osType)) {
-        return agentShellCommand(p, agentArgs);
-    }
-    QStringList quoted;
-    quoted.reserve(agentArgs.size());
-    for (const QString& a : agentArgs) {
-        quoted << shSingleQuote(a);
-    }
-    return withSudoStreamInputCommand(
-        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + QStringLiteral(" ")
-                                     + quoted.join(QLatin1Char(' '))));
-}
 
 bool isCliOnlyAgentCommand(const QString& verb) {
     // Estos cuatro no se sirven por RPC a propósito: transportan flujos por la entrada
@@ -804,16 +755,6 @@ bool isCliOnlyAgentCommand(const QString& verb) {
     return kCliOnly.contains(verb.trimmed());
 }
 
-QString shPrintfOctalEscaped(const QString& s) {
-    const QByteArray utf8 = s.toUtf8();
-    QString out;
-    out.reserve(utf8.size() * 4);
-    for (const char rawByte : utf8) {
-        const unsigned char b = static_cast<unsigned char>(rawByte);
-        out += QStringLiteral("\\0%1").arg(static_cast<uint>(b), 3, 8, QLatin1Char('0'));
-    }
-    return out;
-}
 
 
 
@@ -884,47 +825,7 @@ QString asciiSafeShellCommand(const QString& cmd) {
     return QStringLiteral("eval \"$(printf '%b' '%1')\"").arg(shPrintfOctalEscaped(cmd));
 }
 
-QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
-    if (isWindowsOsType(p.osType)) {
-        return cmd;
-    }
-    const QString preparedCmd = withUnixSearchPathCommand(cmd);
-    if (!p.useSudo) {
-        return preparedCmd;
-    }
-    if (!p.password.isEmpty()) {
-        // %b + escapes octales: la contraseña viaja en ASCII puro. Ver
-        // shPrintfOctalEscaped: en macOS, Qt descompone los caracteres al pasar la
-        // orden al intérprete y sudo recibía otros bytes.
-        return QStringLiteral("printf '%b\\n' '%1' | sudo -k -S -p '' sh -c %2")
-            .arg(shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd));
-    }
-    // `sh -c` con la orden entrecomillada, igual que withSudoStreamInputCommand.
-    // Concatenar `sudo -n ` delante no valía: withUnixSearchPathCommand antepone
-    // `PATH="..."; export PATH; `, y los punto y coma partían la línea en tres —
-    //   sudo -n PATH="..."      <- sudo sin mandato: responde con su mensaje de uso
-    //   export PATH
-    //   /usr/local/libexec/zfsmgr-agent --health   <- SIN sudo: "Permiso denegado",
-    //                                                 porque el binario es 0700 root
-    // Con lo que la aplicación concluía que el agente no estaba instalado en una
-    // máquina donde sí lo está. Afectaba a toda conexión con sudo sin contraseña.
-    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
-}
 
-QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {
-    if (isWindowsOsType(p.osType)) {
-        return cmd;
-    }
-    const QString preparedCmd = withUnixSearchPathCommand(cmd);
-    if (!p.useSudo) {
-        return preparedCmd;
-    }
-    if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%b\\n' '%1'; cat; } | sudo -k -S -p '' sh -c %2")
-            .arg(shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd));
-    }
-    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
-}
 
 bool looksLikeSudoAuthFailure(const QString& text) {
     const QString t = text.trimmed().toLower();
@@ -1046,30 +947,5 @@ SudoCheck checkLocalSudoPassword(const QString& password, QString* detailOut) {
 #endif
 }
 
-QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
-    QStringList parts;
-    parts << QStringLiteral("ssh");
-    const QString familyOpt = sshAddressFamilyOption(p);
-    if (!familyOpt.isEmpty()) {
-        parts << familyOpt;
-    }
-    parts << QStringLiteral("-o BatchMode=yes");
-    parts << QStringLiteral("-o ConnectTimeout=10");
-    parts << QStringLiteral("-o LogLevel=ERROR");
-    // Ver la nota en sshBaseCommand: se verifica contra ~/.ssh/known_hosts.
-    parts << QStringLiteral("-o StrictHostKeyChecking=accept-new");
-    parts << QStringLiteral("-o ControlMaster=auto");
-    parts << QStringLiteral("-o ControlPersist=yes");
-    parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));
-    if (p.port > 0) {
-        parts << QStringLiteral("-p %1").arg(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        parts << QStringLiteral("-i %1").arg(shSingleQuote(p.keyPath));
-    }
-    parts << sshUserHost(p);
-    parts << shSingleQuote(remoteCmd);
-    return parts.join(' ');
-}
 
 } // namespace mwhelpers
