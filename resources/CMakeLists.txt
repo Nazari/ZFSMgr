@@ -154,6 +154,23 @@ set(ZFSMGR_CORE_SOURCES
     resources.qrc
 )
 
+# Capa base: lógica del cliente SIN Qt.
+#
+# La regla que le da sentido es la de enlazado: este objetivo NO enlaza contra Qt, así
+# que si alguien mete aquí un QString el build falla en el sitio, no meses después
+# cuando ya haya media biblioteca contaminada. Esa es toda la garantía; el resto son
+# buenas intenciones.
+#
+# Lo usan tanto la GUI como el agente. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+add_library(zfsmgr_base STATIC
+    ../src/base/strutil.cpp
+    ../src/base/strutil.h
+    ../src/base/daemonpayload.cpp
+    ../src/base/daemonpayload.h
+)
+target_include_directories(zfsmgr_base PUBLIC ../src/base)
+set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
 # OpenSSL::SSL además de Crypto aunque el código no la use directamente: hace que
@@ -161,7 +178,7 @@ qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 # despliegue de macOS. Sin ella, el plugin TLS de OpenSSL de Qt no puede cargarse y
 # en macOS solo queda SecureTransport, que pide la clave del cliente en el llavero e
 # ignora la CA que se le pasa.
-target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto zfsmgr_base)
 
 if(WIN32)
     # OpenSSL static builds on MinGW may require explicit Win32 system libs.
@@ -346,12 +363,19 @@ if(BUILD_TESTING)
         ../src/daemonpayload.cpp
     )
     target_include_directories(zfsmgr_helpers_test PRIVATE ../src)
-    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
+    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets zfsmgr_base)
     target_compile_definitions(zfsmgr_helpers_test PRIVATE
         QT_NO_KEYWORDS
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
+
+    # SIN Qt a propósito: ni Qt6::Core. Es la comprobación de que la capa base está
+    # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
+    # sale en el commit que lo introduce, no meses después.
+    add_executable(zfsmgr_base_test ../tests/base_test.cpp)
+    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_base)
+    add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
     # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite
     # —enlaces duros, dispersos, exclusiones— y donde un fallo BORRA datos, porque de
