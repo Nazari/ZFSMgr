@@ -614,10 +614,32 @@ CLI pondría uno que escriba por la salida de error.
 De paso desaparece una pareja repetida treinta veces: `appLog(...)` seguido de
 `appendConnectionLog(mismo mensaje)` es ahora una sola llamada, `logConn()`.
 
-**Lo que queda por hacer:** los métodos siguen siendo miembros de `MainWindow`; que
-reciban la sesión y el registro por parámetro es el paso que desbloquea el CLI de verdad.
+### Dónde se para la conversión a funciones libres, y por qué
+
+Los ganchos del transporte de mentira (`transportForTest`, `callsForTest`) entran también
+en la sesión: son una propiedad DEL TRANSPORTE, no de la ventana. Con eso, `runSsh`
+—547 líneas— pasa a depender de **un solo campo**, `m_transport`.
+
+Se intentó convertirla en función libre y **se paró a propósito**, porque la cadena lleva
+a un sitio que no es mecánico:
+
+    runSsh -> tryAgentRpcOverSsh -> ensureLocalSudoCredentials -> PREGUNTA LA CONTRASEÑA
+
+El transporte no está atado al *estado* de la ventana —eso ya está resuelto— sino a
+**preguntarle cosas al usuario**. Y eso no se convierte renombrando: hay que decidir cómo
+se piden credenciales cuando no hay ventana, que es la misma pregunta que ya estaba
+anotada para el CLI y que corresponde al usuario, no al código.
+
+La forma que encaja con lo ya hecho es la del destino del registro: **un proveedor de
+credenciales que se recibe**, no que se busca. La interfaz pondría uno que abre un
+diálogo; un CLI, uno que pregunta por terminal. Pero es una decisión, no un refactor.
+
+Medido: de los métodos del transporte, `tryRunRemoteAgentRpcViaTunnel` (521 líneas)
+necesita sesión y registro, `ensureLocalSudoCredentials` (204) necesita además las
+credenciales locales y preguntar. El resto de la cadena ya solo depende de la sesión.
+
 Y queda un `QMessageBox` en `runLocalCommand`, que no es un descuido: ese método muestra
-un diálogo de progreso y es interfaz por naturaleza, no algo que un CLI reutilizaría.
+un diálogo de progreso, es interfaz por naturaleza y no es algo que un CLI reutilice.
 
 ## Estado
 

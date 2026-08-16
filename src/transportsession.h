@@ -6,7 +6,10 @@
 #include <QPointer>
 #include <QProcess>
 #include <QSet>
+#include <QByteArray>
 #include <QString>
+#include <QStringList>
+#include <QVector>
 
 #include <functional>
 
@@ -62,6 +65,23 @@ struct TransportSession {
             sink(n, connId, msg);
         }
     }
+
+    // --- Transporte de mentira, para los tests.
+    //
+    // Vive aquí y no en la ventana porque es una propiedad DEL TRANSPORTE: mientras está
+    // puesto no se abre ninguna conexión, las órdenes por argv van a esa función, y las
+    // que salgan como cadena de shell se anotan y fracasan —para que un test pueda
+    // afirmar que algo NO se fue por ese camino—.
+    struct AgentCallForTest {
+        QStringList argv;      // vacío si la orden salió como cadena de shell
+        QString shellCommand;  // no vacío solo en ese caso
+        QByteArray stdinPayload;
+    };
+    using AgentTransportForTest =
+        std::function<bool(const QStringList& argv, QString& out, QString& err, int& rc)>;
+
+    AgentTransportForTest transportForTest;
+    QVector<AgentCallForTest> callsForTest;
 
     // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos
     // (QtConcurrent) y estos mapas se tocan desde varios a la vez.

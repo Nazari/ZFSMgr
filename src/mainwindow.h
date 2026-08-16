@@ -106,13 +106,10 @@ public:
     // Mientras está puesto NO se abre ninguna conexión: las órdenes por argv van a la
     // función que se le pase, y las que salgan como cadena de shell se registran y
     // fracasan, para que un test pueda afirmar que algo NO se fue por ese camino.
-    struct AgentCallForTest {
-        QStringList argv;        // vacío si la orden salió como cadena de shell
-        QString shellCommand;    // no vacío solo en ese caso
-        QByteArray stdinPayload;
-    };
-    using AgentTransportForTest =
-        std::function<bool(const QStringList& argv, QString& out, QString& err, int& rc)>;
+    // Alias de los de TransportSession: los tests ya los nombran así y no hay motivo
+    // para hacerles cambiar por una reorganización interna.
+    using AgentCallForTest = TransportSession::AgentCallForTest;
+    using AgentTransportForTest = TransportSession::AgentTransportForTest;
     // Deja la conexión con un daemon sano, que es la precondición de casi todo desde
     // que no hay respaldo por shell.
     void setConnectionDaemonStateForTest(int connIdx, bool installed, bool active);
@@ -581,8 +578,6 @@ private:
                                       QByteArray& clientKeyPem,
                                       quint16& daemonPort);
 
-    AgentTransportForTest m_agentTransportForTest;
-    QVector<AgentCallForTest> m_agentCallsForTest;
 
     bool tryAgentRpcOverSsh(const ConnectionProfile& p,
                             const QStringList& agentArgs,

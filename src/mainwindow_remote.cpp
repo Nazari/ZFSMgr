@@ -1886,16 +1886,16 @@ bool MainWindow::getDatasetPropertyForTest(int connIdx, const QString& dataset,
 }
 
 void MainWindow::setAgentTransportForTest(AgentTransportForTest fn) {
-    m_agentTransportForTest = std::move(fn);
-    m_agentCallsForTest.clear();
+    m_transport.transportForTest = std::move(fn);
+    m_transport.callsForTest.clear();
 }
 
 QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
-    return m_agentCallsForTest;
+    return m_transport.callsForTest;
 }
 
 void MainWindow::clearAgentCallsForTest() {
-    m_agentCallsForTest.clear();
+    m_transport.callsForTest.clear();
 }
 
 bool MainWindow::runAgentCommand(const ConnectionProfile& p,
@@ -1911,9 +1911,9 @@ bool MainWindow::runAgentCommand(const ConnectionProfile& p,
     if (agentArgs.isEmpty()) {
         return false;
     }
-    if (m_agentTransportForTest) {
-        m_agentCallsForTest.push_back(AgentCallForTest{agentArgs, QString(), stdinPayload});
-        return m_agentTransportForTest(agentArgs, out, err, rc);
+    if (m_transport.transportForTest) {
+        m_transport.callsForTest.push_back(AgentCallForTest{agentArgs, QString(), stdinPayload});
+        return m_transport.transportForTest(agentArgs, out, err, rc);
     }
     const QString verb = agentArgs.first().trimmed();
     // stdin no vacío descarta el RPC: el canal no lo transporta. Antes esto no se
@@ -1962,15 +1962,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     // una invocación del agente construida como cadena, se atiende igual —para que los
     // sitios aún sin migrar funcionen en los tests—; si no lo es, se registra y fracasa,
     // que es lo que permite afirmar "esto NO debía irse por shell".
-    if (m_agentTransportForTest) {
+    if (m_transport.transportForTest) {
         QStringList parsedArgs;
         if (allowAgentRpc && stdinPayload.isEmpty()
             && extractLocalAgentArgs(remoteCmd.trimmed(), parsedArgs)) {
-            m_agentCallsForTest.push_back(
+            m_transport.callsForTest.push_back(
                 AgentCallForTest{parsedArgs, remoteCmd.trimmed(), stdinPayload});
-            return m_agentTransportForTest(parsedArgs, out, err, rc);
+            return m_transport.transportForTest(parsedArgs, out, err, rc);
         }
-        m_agentCallsForTest.push_back(
+        m_transport.callsForTest.push_back(
             AgentCallForTest{QStringList(), remoteCmd.trimmed(), stdinPayload});
         err = QStringLiteral("transporte de prueba: no se ejecuta shell");
         rc = 127;
