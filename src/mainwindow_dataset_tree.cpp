@@ -5774,8 +5774,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;
-                auto cacheIt = m_poolDatasetCache.find(cacheKey);
-                if (cacheIt != m_poolDatasetCache.end()) {
+                auto cacheIt = m_conns.poolDatasetCache.find(cacheKey);
+                if (cacheIt != m_conns.poolDatasetCache.end()) {
                     cache = &cacheIt.value();
                 }
                 const QStringList lines = out.split('\n', Qt::SkipEmptyParts);

@@ -787,7 +787,7 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         *mutableEntry = entry;
         mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
     } else {
-        m_datasetPermissionsCache.insert(key, entry);
+        m_conns.datasetPermissionsCache.insert(key, entry);
         mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
     }
     rebuildConnInfoFor(connIdx);
@@ -1010,7 +1010,7 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
             *mutableEntry = entry;
             mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
         } else {
-            m_datasetPermissionsCache.insert(datasetPermissionsCacheKey(connIdx, poolName, datasetName), entry);
+            m_conns.datasetPermissionsCache.insert(datasetPermissionsCacheKey(connIdx, poolName, datasetName), entry);
             mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
         }
         anyLoaded = true;

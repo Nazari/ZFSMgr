@@ -491,7 +491,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
     };
 
     QMap<QString, GsaState> statesByKey;
-    for (auto itConn = m_connInfoById.cbegin(); itConn != m_connInfoById.cend(); ++itConn) {
+    for (auto itConn = m_conns.connInfoById.cbegin(); itConn != m_conns.connInfoById.cend(); ++itConn) {
         for (auto itPool = itConn->poolsByStableId.cbegin(); itPool != itConn->poolsByStableId.cend(); ++itPool) {
             const int connIdx = itConn->connIdx;
             const QString poolName = itPool->key.poolName.trimmed();
@@ -1786,7 +1786,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             DatasetPermissionsCacheEntry entry;
         };
         QVector<PendingPermissionEntry> pendingPermissions;
-        for (auto itConn = m_connInfoById.cbegin(); itConn != m_connInfoById.cend(); ++itConn) {
+        for (auto itConn = m_conns.connInfoById.cbegin(); itConn != m_conns.connInfoById.cend(); ++itConn) {
             const ConnInfo& connInfo = itConn.value();
             for (auto itPool = connInfo.poolsByStableId.cbegin(); itPool != connInfo.poolsByStableId.cend(); ++itPool) {
                 const PoolInfo& poolInfo = itPool.value();
@@ -2128,7 +2128,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         bool hasPropertyDrafts = false;
         hasPropertyDrafts = !pendingConnContentPropertyDraftsFromModel().isEmpty();
         bool hasPermissionDrafts = false;
-        for (auto itConn = m_connInfoById.cbegin(); itConn != m_connInfoById.cend() && !hasPermissionDrafts; ++itConn) {
+        for (auto itConn = m_conns.connInfoById.cbegin(); itConn != m_conns.connInfoById.cend() && !hasPermissionDrafts; ++itConn) {
             for (auto itPool = itConn->poolsByStableId.cbegin(); itPool != itConn->poolsByStableId.cend() && !hasPermissionDrafts; ++itPool) {
                 for (auto itDs = itPool->objectsByFullName.cbegin(); itDs != itPool->objectsByFullName.cend(); ++itDs) {
                     if (itDs->permissionsCache.loaded && itDs->permissionsCache.dirty) {
@@ -2407,7 +2407,7 @@ void MainWindow::clearAllPendingChanges() {
         storePropertyDraftForObject(QStringLiteral("conncontent"), item.token, item.objectName, DatasetPropsDraft{});
     }
     resetAllDatasetPermissionDrafts();
-    for (auto itConn = m_connInfoById.begin(); itConn != m_connInfoById.end(); ++itConn) {
+    for (auto itConn = m_conns.connInfoById.begin(); itConn != m_conns.connInfoById.end(); ++itConn) {
         for (auto itPool = itConn->poolsByStableId.begin(); itPool != itConn->poolsByStableId.end(); ++itPool) {
             for (auto itDs = itPool->objectsByFullName.begin(); itDs != itPool->objectsByFullName.end(); ++itDs) {
                 itDs->editSession.clear();

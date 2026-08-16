@@ -87,8 +87,8 @@ QString MainWindow::cachedPoolStatusTooltipHtml(int connIdx, const QString& pool
     if (cacheKey.isEmpty()) {
         return QString();
     }
-    const auto it = m_poolDetailsCache.constFind(cacheKey);
-    if (it == m_poolDetailsCache.cend()) {
+    const auto it = m_conns.poolDetailsCache.constFind(cacheKey);
+    if (it == m_conns.poolDetailsCache.cend()) {
         return QString();
     }
     return formatPoolStatusTooltipHtml(it->statusText);
@@ -125,8 +125,8 @@ bool MainWindow::isPoolSuspended(int connIdx, const QString& poolName) const {
     }
     const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
     if (!cacheKey.isEmpty()) {
-        const auto it = m_poolDetailsCache.constFind(cacheKey);
-        if (it != m_poolDetailsCache.cend() && isPoolSuspendedByStatusText(it->statusText)) {
+        const auto it = m_conns.poolDetailsCache.constFind(cacheKey);
+        if (it != m_conns.poolDetailsCache.cend() && isPoolSuspendedByStatusText(it->statusText)) {
             return true;
         }
     }
@@ -179,9 +179,9 @@ void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const Connection
         if (cacheKey.isEmpty()) {
             continue;
         }
-        PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
+        PoolDetailsCacheEntry entry = m_conns.poolDetailsCache.value(cacheKey);
         entry.statusText = it.value().trimmed();
-        m_poolDetailsCache.insert(cacheKey, entry);
+        m_conns.poolDetailsCache.insert(cacheKey, entry);
         rebuildConnInfoFor(connIdx);
         applyPoolRootTooltipToVisibleTrees(connIdx, poolName, entry.statusText);
     }
@@ -190,8 +190,8 @@ void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const Connection
 int MainWindow::findPoolRow(const QString& connection, const QString& pool) const {
     const QString connKey = connection.trimmed();
     const QString poolKey = pool.trimmed();
-    for (int i = 0; i < m_poolListEntries.size(); ++i) {
-        const auto& e = m_poolListEntries[i];
+    for (int i = 0; i < m_conns.poolListEntries.size(); ++i) {
+        const auto& e = m_conns.poolListEntries[i];
         if (e.connection.compare(connKey, Qt::CaseInsensitive) == 0
             && e.pool.compare(poolKey, Qt::CaseInsensitive) == 0) {
             return i;
@@ -216,10 +216,10 @@ void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
     if (prefix.isEmpty()) {
         return;
     }
-    auto it = m_poolDetailsCache.begin();
-    while (it != m_poolDetailsCache.end()) {
+    auto it = m_conns.poolDetailsCache.begin();
+    while (it != m_conns.poolDetailsCache.end()) {
         if (it.key().startsWith(prefix)) {
-            it = m_poolDetailsCache.erase(it);
+            it = m_conns.poolDetailsCache.erase(it);
         } else {
             ++it;
         }
@@ -296,10 +296,10 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         return;
     }
 
-    PoolDetailsCacheEntry entry = m_poolDetailsCache.value(poolDetailsCacheKey(connIdx, trimmedPool));
+    PoolDetailsCacheEntry entry = m_conns.poolDetailsCache.value(poolDetailsCacheKey(connIdx, trimmedPool));
     entry.loaded = true;
     entry.statusText = out.trimmed();
-    m_poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), entry);
+    m_conns.poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), entry);
     if (connIdx >= 0 && connIdx < m_conns.states.size()) {
         m_conns.states[connIdx].poolStatusByName.insert(trimmedPool, entry.statusText);
     }
@@ -318,10 +318,10 @@ void MainWindow::exportPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString action = pe.action;
@@ -456,10 +456,10 @@ void MainWindow::importPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString importTarget = importTargetForPoolEntry(pe.guid, pe.pool);
@@ -761,10 +761,10 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection.trimmed();
     const QString poolName = pe.pool.trimmed();
     const QString importTarget = importTargetForPoolEntry(pe.guid, pe.pool);
@@ -1083,10 +1083,10 @@ void MainWindow::scrubPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -1226,10 +1226,10 @@ void MainWindow::upgradePoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -1356,10 +1356,10 @@ void MainWindow::reguidPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -1471,10 +1471,10 @@ void MainWindow::clearPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -1600,10 +1600,10 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString action = pe.action;
@@ -1748,10 +1748,10 @@ void MainWindow::syncPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolAction = pe.action.trimmed();
@@ -1874,10 +1874,10 @@ void MainWindow::trimPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -2048,10 +2048,10 @@ void MainWindow::initializePoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -2202,10 +2202,10 @@ void MainWindow::showPoolHistoryFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection.trimmed();
     const QString poolName = pe.pool.trimmed();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
@@ -2288,7 +2288,7 @@ void MainWindow::populateAllPoolsTables() {
         return;
     }
     ++m_uiRebuildCounts.pools;
-    m_poolListEntries.clear();
+    m_conns.poolListEntries.clear();
     for (int i = 0; i < m_conns.states.size(); ++i) {
         if (i < m_conns.profiles.size() && isConnectionDisconnected(i)) {
             continue;
@@ -2308,7 +2308,7 @@ void MainWindow::populateAllPoolsTables() {
             e.imported = QStringLiteral("Sí");
             e.reason.clear();
             e.action = QStringLiteral("Exportar");
-            m_poolListEntries.push_back(std::move(e));
+            m_conns.poolListEntries.push_back(std::move(e));
         }
         for (const PoolImportable& pool : st.importablePools) {
             const QString up = pool.state.trimmed().toUpper();
@@ -2320,7 +2320,7 @@ void MainWindow::populateAllPoolsTables() {
             e.imported = QStringLiteral("No");
             e.reason = pool.reason;
             e.action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
-            m_poolListEntries.push_back(std::move(e));
+            m_conns.poolListEntries.push_back(std::move(e));
         }
     }
     refreshSelectedPoolDetails(false, false);
@@ -2353,11 +2353,11 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     }
 
     const int row = selectedPoolRowFromTabs();
-    if (row < 0 || row >= m_poolListEntries.size()) {
+    if (row < 0 || row >= m_conns.poolListEntries.size()) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
-    const auto& pe = m_poolListEntries[row];
+    const auto& pe = m_conns.poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
     const QString poolState = pe.state.trimmed().toUpper();
@@ -2400,8 +2400,8 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     const QString cacheKey = poolDetailsCacheKey(idx, poolName);
 
     auto loadFromCache = [this, &cacheKey, idx, poolName]() -> bool {
-        const auto it = m_poolDetailsCache.constFind(cacheKey);
-        if (it == m_poolDetailsCache.constEnd() || !it->loaded) {
+        const auto it = m_conns.poolDetailsCache.constFind(cacheKey);
+        if (it == m_conns.poolDetailsCache.constEnd() || !it->loaded) {
             return false;
         }
         const PoolDetailsCacheEntry& cached = it.value();

@@ -1104,7 +1104,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
           && rc == 0;
     if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
-        PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
+        PoolDetailsCacheEntry entry = m_conns.poolDetailsCache.value(cacheKey);
         QMap<QString, QStringList> rowsByProp;
         for (const QStringList& row : std::as_const(entry.propsRows)) {
             if (row.size() >= 2) {
@@ -1145,7 +1145,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         }
         entry.loaded = true;
         entry.propsRows = mergedRows;
-        m_poolDetailsCache.insert(cacheKey, entry);
+        m_conns.poolDetailsCache.insert(cacheKey, entry);
 
         if (PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool)) {
             poolInfo->runtime.detailsState = LoadState::Loaded;
@@ -1381,7 +1381,7 @@ void MainWindow::invalidatePoolDatasetListingCache(int connIdx, const QString& p
     if (connIdx < 0 || trimmedPool.isEmpty()) {
         return;
     }
-    m_poolDatasetCache.remove(datasetCacheKey(connIdx, trimmedPool));
+    m_conns.poolDatasetCache.remove(datasetCacheKey(connIdx, trimmedPool));
     removeDatasetPropertyEntriesForPool(connIdx, trimmedPool);
     removeDatasetPermissionsEntriesForPool(connIdx, trimmedPool);
     const QString uiPrefix =
@@ -1398,8 +1398,8 @@ void MainWindow::invalidatePoolDatasetListingCache(int connIdx, const QString& p
 }
 
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
-    m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
-    m_poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
+    m_conns.poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
+    m_conns.poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
     invalidateDatasetPermissionsCacheForPool(connIdx, poolName);
     removeDatasetPropertyEntriesForPool(connIdx, poolName);
     const QString uiPrefix =
@@ -1842,15 +1842,15 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         return false;
     }
     const QString key = datasetCacheKey(ctx.connIdx, ctx.poolName);
-    const auto cacheIt = m_poolDatasetCache.constFind(key);
-    if (cacheIt == m_poolDatasetCache.constEnd() || !cacheIt->loaded) {
+    const auto cacheIt = m_conns.poolDatasetCache.constFind(key);
+    if (cacheIt == m_conns.poolDatasetCache.constEnd() || !cacheIt->loaded) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mp_conf_chk01"), QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
                                  QStringLiteral("Could not validate mountpoint conflicts."),
                                  QStringLiteral("无法检查挂载点冲突。")));
         return false;
     }
-    // Copy the record map instead of holding a reference into m_poolDatasetCache: the
+    // Copy the record map instead of holding a reference into m_conns.poolDatasetCache: the
     // effectiveMountPath() call in the loop below reaches runSsh() on Windows
     // connections, and a queued refresh erases entries from that map, which would
     // dangle both the reference and the loop iterator.

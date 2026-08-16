@@ -2794,9 +2794,9 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
     {
         // Scoped so the iterator cannot survive the runSsh() below: runSsh pumps
         // the event loop, and a queued refresh can erase entries from
-        // m_poolDatasetCache, leaving the iterator dangling.
-        auto cacheIt = m_poolDatasetCache.find(key);
-        if (cacheIt == m_poolDatasetCache.end()) {
+        // m_conns.poolDatasetCache, leaving the iterator dangling.
+        auto cacheIt = m_conns.poolDatasetCache.find(key);
+        if (cacheIt == m_conns.poolDatasetCache.end()) {
             return false;
         }
         guid = cacheIt->objectGuidByName.value(trimmedObject).trimmed();
@@ -2833,8 +2833,8 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
             return false;
         }
         // Re-look up after the yield: the entry may have been erased or replaced.
-        auto refreshedIt = m_poolDatasetCache.find(key);
-        if (refreshedIt != m_poolDatasetCache.end()) {
+        auto refreshedIt = m_conns.poolDatasetCache.find(key);
+        if (refreshedIt != m_conns.poolDatasetCache.end()) {
             refreshedIt->objectGuidByName.insert(trimmedObject, guid);
         }
         if (DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
@@ -2945,7 +2945,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     {
         // Scoped so this reference cannot outlive the runSsh() calls below. operator[]
         // is kept so a missing entry is still created, matching the previous behavior.
-        const PoolDatasetCache& existing = m_poolDatasetCache[key];
+        const PoolDatasetCache& existing = m_conns.poolDatasetCache[key];
         if (existing.loaded) {
             return true;
         }
@@ -3001,7 +3001,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             }
         }
     }
-    // Built locally and published into m_poolDatasetCache only once it is complete.
+    // Built locally and published into m_conns.poolDatasetCache only once it is complete.
     // Holding a reference into the map across the runSsh() calls below is what made
     // this function corrupt the heap and crash on refresh.
     PoolDatasetCache cache;
@@ -3103,7 +3103,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
                                             .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
             // Anotar el fallo para no reintentarlo en cada reconstrucción del árbol.
-            m_poolDatasetCache[key].loadFailed = true;
+            m_conns.poolDatasetCache[key].loadFailed = true;
             return false;
         }
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
@@ -3195,7 +3195,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     cache.loaded = true;
     // Publish before rebuildConnInfoFor() so the entry is visible to it, exactly as
     // when this wrote through a reference into the map.
-    m_poolDatasetCache.insert(key, cache);
+    m_conns.poolDatasetCache.insert(key, cache);
     rebuildConnInfoFor(connIdx);
     appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")
                                      .arg(p.name)

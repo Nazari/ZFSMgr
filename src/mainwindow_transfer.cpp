@@ -1267,9 +1267,9 @@ void MainWindow::actionLevelSnapshot() {
     const QStringList dstSnaps = datasetSnapshotsFromModel(dst.connIdx, dst.poolName, dst.datasetName);
     const QString srcCacheKey = datasetCacheKey(src.connIdx, src.poolName);
     const QString dstCacheKey = datasetCacheKey(dst.connIdx, dst.poolName);
-    const auto srcCacheIt = m_poolDatasetCache.constFind(srcCacheKey);
-    const auto dstCacheIt = m_poolDatasetCache.constFind(dstCacheKey);
-    if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()
+    const auto srcCacheIt = m_conns.poolDatasetCache.constFind(srcCacheKey);
+    const auto dstCacheIt = m_conns.poolDatasetCache.constFind(dstCacheKey);
+    if (srcCacheIt == m_conns.poolDatasetCache.constEnd() || dstCacheIt == m_conns.poolDatasetCache.constEnd()
         || !srcCacheIt->loaded || !dstCacheIt->loaded) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_load_sn01"),
@@ -2144,9 +2144,9 @@ void MainWindow::actionSyncDatasets() {
     }
     const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
     const QString dstKey = datasetCacheKey(dst.connIdx, dst.poolName);
-    const auto srcCacheIt = m_poolDatasetCache.constFind(srcKey);
-    const auto dstCacheIt = m_poolDatasetCache.constFind(dstKey);
-    if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()) {
+    const auto srcCacheIt = m_conns.poolDatasetCache.constFind(srcKey);
+    const auto dstCacheIt = m_conns.poolDatasetCache.constFind(dstKey);
+    if (srcCacheIt == m_conns.poolDatasetCache.constEnd() || dstCacheIt == m_conns.poolDatasetCache.constEnd()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_no_hay_cac_c8370a"),
                                  QStringLiteral("No hay caché de datasets para sincronización por subdatasets."),

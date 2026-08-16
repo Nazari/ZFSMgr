@@ -492,8 +492,8 @@ QString MainWindowConnectionDatasetTreeDelegate::deleteLabelForItem(int itemConn
             snapshotName);
     }
     if (!datasetName.isEmpty()) {
-        const auto it = m_mainWindow->m_poolDatasetCache.constFind(m_mainWindow->datasetCacheKey(itemConnIdx, itemPoolName));
-        if (it != m_mainWindow->m_poolDatasetCache.cend()) {
+        const auto it = m_mainWindow->m_conns.poolDatasetCache.constFind(m_mainWindow->datasetCacheKey(itemConnIdx, itemPoolName));
+        if (it != m_mainWindow->m_conns.poolDatasetCache.cend()) {
             const auto recIt = it->recordByName.constFind(datasetName);
             if (recIt != it->recordByName.cend()) {
                 const DatasetRecord& rec = recIt.value();
@@ -855,8 +855,8 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     if (poolContext) {
         currentGroups = m_mainWindow->m_poolInlinePropGroups;
         const QString cacheKey = m_mainWindow->poolDetailsCacheKey(connIdx, poolName);
-        const auto pit = m_mainWindow->m_poolDetailsCache.constFind(cacheKey);
-        if (pit != m_mainWindow->m_poolDetailsCache.cend() && pit->loaded) {
+        const auto pit = m_mainWindow->m_conns.poolDetailsCache.constFind(cacheKey);
+        if (pit != m_mainWindow->m_conns.poolDetailsCache.cend() && pit->loaded) {
             for (const QStringList& row : pit->propsRows) {
                 if (row.isEmpty()) {
                     continue;
@@ -2345,8 +2345,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             poolRow = m_mainWindow->findPoolRow(m_mainWindow->m_conns.profiles[connIdx].name.trimmed(), poolName);
         }
         poolAction =
-            (poolRow >= 0 && poolRow < m_mainWindow->m_poolListEntries.size())
-                ? m_mainWindow->m_poolListEntries[poolRow].action.trimmed()
+            (poolRow >= 0 && poolRow < m_mainWindow->m_conns.poolListEntries.size())
+                ? m_mainWindow->m_conns.poolListEntries[poolRow].action.trimmed()
                 : QString();
         poolMenuState =
             zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);

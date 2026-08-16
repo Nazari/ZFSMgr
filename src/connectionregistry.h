@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMap>
 #include <QVector>
 
 #include "connectionmodel.h"
@@ -25,6 +26,31 @@ struct ConnectionRegistry {
     QVector<ConnectionProfile> profiles;
     QVector<ConnectionRuntimeState> states;
 
+    // Cachés de lo leído a cada máquina. Las TRES PRIMERAS se indexan por «connIdx::…»,
+    // y AHÍ ESTABA UN FALLO: `loadConnections()` reindexa los perfiles y no las tocaba,
+    // así que al borrar una conexión la siguiente heredaba su índice —y con él sus
+    // datasets cacheados—. Solo se salvaba si esa conexión se refrescaba antes, porque
+    // `refreshConnectionByIndex` sí invalida por índice; pero recargar no refresca.
+    //
+    // Por eso viven aquí: su ciclo de vida es el de la lista de conexiones, y
+    // `setProfiles()` se las lleva. La cura de fondo sería indexar por IDENTIFICADOR en
+    // vez de por posición, como ya hace `connInfoById`; eso queda pendiente.
+    QMap<QString, PoolDatasetCache> poolDatasetCache;
+    QMap<QString, PoolDetailsCacheEntry> poolDetailsCache;
+    QMap<QString, DatasetPermissionsCacheEntry> datasetPermissionsCache;
+    QMap<QString, ConnInfo> connInfoById;
+    QVector<PoolListEntry> poolListEntries;
+
+    // Solo las indexadas POR POSICIÓN. `connInfoById` va por identificador, así que no
+    // sufre el reindexado; y `poolListEntries` no es una caché sino una lista que
+    // reconstruye entera `populateAllPoolsTables()`. Vaciarlas aquí no arreglaría nada y
+    // sí metería un vaciado donde nadie lo espera.
+    void clearIndexedCaches() {
+        poolDatasetCache.clear();
+        poolDetailsCache.clear();
+        datasetPermissionsCache.clear();
+    }
+
     int size() const { return profiles.size(); }
     bool indexOk(int i) const { return i >= 0 && i < profiles.size(); }
 
@@ -35,11 +61,18 @@ struct ConnectionRegistry {
         profiles = std::move(nuevos);
         states.clear();
         states.resize(profiles.size());
+        // Las cachés van por índice: si la lista cambia, lo cacheado deja de
+        // corresponder con quien creía. Tirarlas cuesta una relectura; no tirarlas
+        // costaba enseñar los datos de una máquina bajo el nombre de otra.
+        clearIndexedCaches();
     }
 
     void clear() {
         profiles.clear();
         states.clear();
+        clearIndexedCaches();
+        connInfoById.clear();
+        poolListEntries.clear();
     }
 
     // Añade una conexión con su estado, manteniendo los dos vectores a la par.

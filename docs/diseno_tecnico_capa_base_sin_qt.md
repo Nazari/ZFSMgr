@@ -488,6 +488,39 @@ sigue siendo copiar por valor antes de abrir nada modal.
 el compilador verifica punto por punto, aunque el diff no se pueda leer línea a línea.
 Quedan dos tandas: las cinco cachés y `m_store`.
 
+## Paso 1c: las cachés, y el fallo que destaparon
+
+Segunda tanda del registro: `poolDatasetCache`, `poolDetailsCache`,
+`datasetPermissionsCache`, `connInfoById` y `poolListEntries` (135 referencias).
+
+Antes de moverlas se comprobó lo que se había anunciado —si su ciclo de vida es el de la
+lista de conexiones— y la respuesta destapó **un fallo**:
+
+1. Las tres primeras se indexan por **posición**: `datasetCacheKey()` produce `"0::tank"`.
+2. `loadConnections()` **reindexa** los perfiles y **no las tocaba**.
+3. Al borrar una conexión, la siguiente hereda su índice — y con él sus datasets
+   cacheados. `ensureDatasetsLoaded()` devuelve lo cacheado sin comprobar nada más.
+
+Solo se salvaba si esa conexión se refrescaba antes, porque `refreshConnectionByIndex()`
+sí invalida por índice; pero **recargar no refresca**. Y no es un fallo cosmético: desde
+ahí el usuario puede actuar —destruir un dataset, por ejemplo— creyendo que está en otra
+máquina.
+
+**Trazado leyendo el código, no reproducido en la aplicación.** La cadena es corta y cada
+eslabón está verificado, pero conviene decirlo.
+
+La corrección cae con el refactor: `setProfiles()` vacía esas tres. Cuesta una relectura;
+no vaciarlas costaba enseñar los datos de una máquina bajo el nombre de otra.
+
+**Se acotó a las tres, y a propósito.** `connInfoById` va por identificador, así que el
+reindexado no le afecta; y `poolListEntries` no es una caché sino una lista que
+reconstruye entera `populateAllPoolsTables()`, a la que `loadConnections()` ni llama —
+vaciarla ahí habría sido una regresión introducida por el propio arreglo.
+
+**La cura de fondo, pendiente:** indexar por identificador en vez de por posición, como
+ya hace `connInfoById`. Mientras eso no se haga, cualquier caché nueva con clave por
+índice reintroduce el mismo fallo.
+
 ## Estado
 
 Hecho y verificado:

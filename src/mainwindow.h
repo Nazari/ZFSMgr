@@ -1123,7 +1123,6 @@ private:
     // Perfiles y estados van juntos: son vectores paralelos indexados por connIdx y
     // el invariante vive en el propio registro. Ver connectionregistry.h.
     ConnectionRegistry m_conns;
-    QMap<QString, ConnInfo> m_connInfoById;
 
     QTableWidget* m_connectionsTable{nullptr};
     QAction* m_connectivityMatrixAction{nullptr};
@@ -1140,7 +1139,6 @@ private:
     DatasetSelectionContext m_transferSelectionOverrideOrigin;
     DatasetSelectionContext m_transferSelectionOverrideDest;
 
-    QVector<PoolListEntry> m_poolListEntries;
     QWidget* m_poolDetailTabs{nullptr};
     bool m_updatingConnectionEntityTabs{false};
     QString m_lastConnectionSelectionKey;
@@ -1269,9 +1267,6 @@ private:
     // quedaban huérfanos fuera del mapa. Bajo m_sshRuntimeSetsMutex, como el mapa.
     QSet<QString> m_remoteRpcTunnelsBeingCreated;
     mutable QMutex m_sshRuntimeSetsMutex;
-    QMap<QString, PoolDatasetCache> m_poolDatasetCache;
-    QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
-    QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QMap<QString, RefreshRuntimeCacheEntry> m_refreshRuntimeCacheByConnId;
     QMap<QString, QStringList> m_connSystemUsersCacheByKey;
     QMap<QString, QStringList> m_connSystemGroupsCacheByKey;

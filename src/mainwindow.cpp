@@ -295,7 +295,7 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
         cache.objectGuidByName.insert(record.name, QString());
         cache.snapshotsByDataset.insert(record.name, seed.snapshots);
     }
-    m_poolDatasetCache.insert(datasetCacheKey(connIdx, poolName), cache);
+    m_conns.poolDatasetCache.insert(datasetCacheKey(connIdx, poolName), cache);
     rebuildConnInfoFor(connIdx);
 }
 
@@ -412,8 +412,8 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
                                           const QString& poolName,
                                           const PoolInfo* previousPoolInfo) {
     const QString datasetKey = datasetCacheKey(connIdx, poolName);
-    const auto datasetIt = m_poolDatasetCache.constFind(datasetKey);
-    if (datasetIt == m_poolDatasetCache.cend() || !datasetIt->loaded) {
+    const auto datasetIt = m_conns.poolDatasetCache.constFind(datasetKey);
+    if (datasetIt == m_conns.poolDatasetCache.cend() || !datasetIt->loaded) {
         return;
     }
 
@@ -543,8 +543,8 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
         }
 
         const QString permsKey = datasetPermissionsCacheKey(connIdx, poolName, it.key());
-        const auto permsIt = m_datasetPermissionsCache.constFind(permsKey);
-        if (permsIt != m_datasetPermissionsCache.cend() && permsIt->loaded) {
+        const auto permsIt = m_conns.datasetPermissionsCache.constFind(permsKey);
+        if (permsIt != m_conns.datasetPermissionsCache.cend() && permsIt->loaded) {
             it->runtime.permissionsState = LoadState::Loaded;
             it->permissionsCache = permsIt.value();
         }
@@ -607,8 +607,8 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
     for (auto it = connInfo.poolsByStableId.begin(); it != connInfo.poolsByStableId.end(); ++it) {
         PoolInfo& poolInfo = it.value();
         const QString cacheKey = poolDetailsCacheKey(connIdx, poolInfo.key.poolName);
-        const auto poolDetailsIt = m_poolDetailsCache.constFind(cacheKey);
-        if (poolDetailsIt != m_poolDetailsCache.cend() && poolDetailsIt->loaded) {
+        const auto poolDetailsIt = m_conns.poolDetailsCache.constFind(cacheKey);
+        if (poolDetailsIt != m_conns.poolDetailsCache.cend() && poolDetailsIt->loaded) {
             poolInfo.runtime.detailsState =
                 (!poolDetailsIt->propsRows.isEmpty() || !poolDetailsIt->statusText.trimmed().isEmpty())
                     ? LoadState::Loaded
@@ -634,11 +634,11 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
         rebuildPoolInfoFromCache(poolInfo, connIdx, poolInfo.key.poolName, previousPoolInfo);
     }
 
-    m_connInfoById.insert(connInfo.key.connectionId, connInfo);
+    m_conns.connInfoById.insert(connInfo.key.connectionId, connInfo);
 }
 
 void MainWindow::rebuildConnInfoModel() {
-    m_connInfoById.clear();
+    m_conns.connInfoById.clear();
     for (int i = 0; i < m_conns.profiles.size(); ++i) {
         rebuildConnInfoFor(i);
     }
@@ -646,14 +646,14 @@ void MainWindow::rebuildConnInfoModel() {
 
 const ConnInfo* MainWindow::findConnInfo(int connIdx) const {
     const QString stableId = connStableIdForIndex(connIdx);
-    const auto it = m_connInfoById.constFind(stableId);
-    return (it == m_connInfoById.cend()) ? nullptr : &it.value();
+    const auto it = m_conns.connInfoById.constFind(stableId);
+    return (it == m_conns.connInfoById.cend()) ? nullptr : &it.value();
 }
 
 ConnInfo* MainWindow::findConnInfo(int connIdx) {
     const QString stableId = connStableIdForIndex(connIdx);
-    const auto it = m_connInfoById.find(stableId);
-    return (it == m_connInfoById.end()) ? nullptr : &it.value();
+    const auto it = m_conns.connInfoById.find(stableId);
+    return (it == m_conns.connInfoById.end()) ? nullptr : &it.value();
 }
 
 const PoolInfo* MainWindow::findPoolInfo(int connIdx, const QString& poolName) const {
@@ -1213,7 +1213,7 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
 
 QVector<MainWindow::PendingPropertyDraftEntry> MainWindow::pendingConnContentPropertyDraftsFromModel() const {
     QVector<PendingPropertyDraftEntry> drafts;
-    for (auto itConn = m_connInfoById.cbegin(); itConn != m_connInfoById.cend(); ++itConn) {
+    for (auto itConn = m_conns.connInfoById.cbegin(); itConn != m_conns.connInfoById.cend(); ++itConn) {
         for (auto itPool = itConn->poolsByStableId.cbegin(); itPool != itConn->poolsByStableId.cend(); ++itPool) {
             const QString poolName = itPool->key.poolName.trimmed();
             if (poolName.isEmpty()) {
@@ -1247,8 +1247,8 @@ const DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntry(int conn
         return &dsInfo->permissionsCache;
     }
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-    const auto it = m_datasetPermissionsCache.constFind(key);
-    return (it == m_datasetPermissionsCache.cend()) ? nullptr : &it.value();
+    const auto it = m_conns.datasetPermissionsCache.constFind(key);
+    return (it == m_conns.datasetPermissionsCache.cend()) ? nullptr : &it.value();
 }
 
 const DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermissionsEntryLoaded(int connIdx,
@@ -1262,8 +1262,8 @@ const DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermissionsEntryLoa
 
 const PoolDetailsCacheEntry* MainWindow::poolDetailsEntry(int connIdx, const QString& poolName) const {
     const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
-    const auto it = m_poolDetailsCache.constFind(cacheKey);
-    return (it == m_poolDetailsCache.cend()) ? nullptr : &it.value();
+    const auto it = m_conns.poolDetailsCache.constFind(cacheKey);
+    return (it == m_conns.poolDetailsCache.cend()) ? nullptr : &it.value();
 }
 
 bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
@@ -1390,7 +1390,7 @@ void MainWindow::applyPoolDetailsLoadResult(int connIdx,
     }
     Q_UNUSED(ok);
     Q_UNUSED(errorText);
-    m_poolDetailsCache.insert(key, fresh);
+    m_conns.poolDetailsCache.insert(key, fresh);
     rebuildConnInfoFor(connIdx);
     applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, fresh.statusText);
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
@@ -1401,8 +1401,8 @@ void MainWindow::applyPoolDetailsLoadResult(int connIdx,
         syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
     }
     const int row = selectedPoolRowFromTabs();
-    if (row >= 0 && row < m_poolListEntries.size()) {
-        const auto& pe = m_poolListEntries[row];
+    if (row >= 0 && row < m_conns.poolListEntries.size()) {
+        const auto& pe = m_conns.poolListEntries[row];
         if (findConnectionIndexByName(pe.connection) == connIdx
             && pe.pool.trimmed().compare(trimmedPool, Qt::CaseInsensitive) == 0) {
             refreshSelectedPoolDetails(false, false);
@@ -2214,27 +2214,27 @@ DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntryMutable(int con
                                                                                     const QString& poolName,
                                                                                     const QString& datasetName) {
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-    auto it = m_datasetPermissionsCache.find(key);
-    if (it != m_datasetPermissionsCache.end()) {
+    auto it = m_conns.datasetPermissionsCache.find(key);
+    if (it != m_conns.datasetPermissionsCache.end()) {
         return &it.value();
     }
     DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
     if (dsInfo && dsInfo->runtime.permissionsState == LoadState::Loaded && dsInfo->permissionsCache.loaded) {
-        m_datasetPermissionsCache.insert(key, dsInfo->permissionsCache);
-        auto inserted = m_datasetPermissionsCache.find(key);
-        return (inserted == m_datasetPermissionsCache.end()) ? nullptr : &inserted.value();
+        m_conns.datasetPermissionsCache.insert(key, dsInfo->permissionsCache);
+        auto inserted = m_conns.datasetPermissionsCache.find(key);
+        return (inserted == m_conns.datasetPermissionsCache.end()) ? nullptr : &inserted.value();
     }
     return nullptr;
 }
 
 void MainWindow::mirrorDatasetPermissionsEntryToModel(int connIdx, const QString& poolName, const QString& datasetName) {
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-    const auto it = m_datasetPermissionsCache.constFind(key);
+    const auto it = m_conns.datasetPermissionsCache.constFind(key);
     DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
     if (!dsInfo) {
         return;
     }
-    if (it == m_datasetPermissionsCache.cend()) {
+    if (it == m_conns.datasetPermissionsCache.cend()) {
         dsInfo->permissionsCache = DatasetPermissionsCacheEntry{};
         dsInfo->runtime.permissionsState = LoadState::NotLoaded;
         return;
@@ -2245,7 +2245,7 @@ void MainWindow::mirrorDatasetPermissionsEntryToModel(int connIdx, const QString
 
 QVector<MainWindow::PendingPermissionDraftEntry> MainWindow::dirtyDatasetPermissionsEntriesFromModel() const {
     QVector<PendingPermissionDraftEntry> entries;
-    for (auto itConn = m_connInfoById.cbegin(); itConn != m_connInfoById.cend(); ++itConn) {
+    for (auto itConn = m_conns.connInfoById.cbegin(); itConn != m_conns.connInfoById.cend(); ++itConn) {
         for (auto itPool = itConn->poolsByStableId.cbegin(); itPool != itConn->poolsByStableId.cend(); ++itPool) {
             const QString poolName = itPool->key.poolName.trimmed();
             if (poolName.isEmpty()) {
@@ -2268,15 +2268,15 @@ QVector<MainWindow::PendingPermissionDraftEntry> MainWindow::dirtyDatasetPermiss
 }
 
 void MainWindow::removeDatasetPermissionsEntry(int connIdx, const QString& poolName, const QString& datasetName) {
-    m_datasetPermissionsCache.remove(datasetPermissionsCacheKey(connIdx, poolName, datasetName));
+    m_conns.datasetPermissionsCache.remove(datasetPermissionsCacheKey(connIdx, poolName, datasetName));
     mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
 }
 
 void MainWindow::removeDatasetPermissionsEntriesForPool(int connIdx, const QString& poolName) {
     const QString prefix = QStringLiteral("%1::%2::").arg(connIdx).arg(poolName.trimmed().toLower());
-    for (auto it = m_datasetPermissionsCache.begin(); it != m_datasetPermissionsCache.end();) {
+    for (auto it = m_conns.datasetPermissionsCache.begin(); it != m_conns.datasetPermissionsCache.end();) {
         if (it.key().startsWith(prefix)) {
-            it = m_datasetPermissionsCache.erase(it);
+            it = m_conns.datasetPermissionsCache.erase(it);
         } else {
             ++it;
         }
@@ -2296,7 +2296,7 @@ void MainWindow::removeDatasetPermissionsEntriesForPool(int connIdx, const QStri
 }
 
 void MainWindow::resetAllDatasetPermissionDrafts() {
-    for (auto it = m_datasetPermissionsCache.begin(); it != m_datasetPermissionsCache.end(); ++it) {
+    for (auto it = m_conns.datasetPermissionsCache.begin(); it != m_conns.datasetPermissionsCache.end(); ++it) {
         if (!it.value().loaded) {
             continue;
         }
@@ -2307,7 +2307,7 @@ void MainWindow::resetAllDatasetPermissionDrafts() {
         it.value().createPermissions = it.value().originalCreatePermissions;
         it.value().permissionSets = it.value().originalPermissionSets;
     }
-    for (auto itConn = m_connInfoById.begin(); itConn != m_connInfoById.end(); ++itConn) {
+    for (auto itConn = m_conns.connInfoById.begin(); itConn != m_conns.connInfoById.end(); ++itConn) {
         for (auto itPool = itConn->poolsByStableId.begin(); itPool != itConn->poolsByStableId.end(); ++itPool) {
             for (auto itDs = itPool->objectsByFullName.begin(); itDs != itPool->objectsByFullName.end(); ++itDs) {
                 if (!itDs->permissionsCache.loaded) {
