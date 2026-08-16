@@ -37,25 +37,25 @@ struct ConnectionRegistry {
     QVector<ConnectionProfile> profiles;
     QVector<ConnectionRuntimeState> states;
 
-    // Cachés de lo leído a cada máquina. Las TRES PRIMERAS se indexan por «connIdx::…»,
-    // y AHÍ ESTABA UN FALLO: `loadConnections()` reindexa los perfiles y no las tocaba,
-    // así que al borrar una conexión la siguiente heredaba su índice —y con él sus
-    // datasets cacheados—. Solo se salvaba si esa conexión se refrescaba antes, porque
-    // `refreshConnectionByIndex` sí invalida por índice; pero recargar no refresca.
+    // Cachés de lo leído a cada máquina.
     //
-    // Por eso viven aquí: su ciclo de vida es el de la lista de conexiones, y
-    // `setProfiles()` se las lleva. La cura de fondo sería indexar por IDENTIFICADOR en
-    // vez de por posición, como ya hace `connInfoById`; eso queda pendiente.
+    // Se indexaban por POSICIÓN, y ahí había un fallo: `loadConnections()` reindexa los
+    // perfiles, así que al borrar una conexión la siguiente heredaba su índice —y con él
+    // sus datasets cacheados—. Ya no: la parte de conexión de toda clave sale de
+    // `MainWindow::connToken()`, que devuelve el IDENTIFICADOR.
+    //
+    // El vaciado de abajo se conserva de todos modos, y no por desconfianza: con claves
+    // estables, las entradas de una conexión BORRADA no las reclamaría nadie nunca.
     QMap<QString, PoolDatasetCache> poolDatasetCache;
     QMap<QString, PoolDetailsCacheEntry> poolDetailsCache;
     QMap<QString, DatasetPermissionsCacheEntry> datasetPermissionsCache;
     QMap<QString, ConnInfo> connInfoById;
     QVector<PoolListEntry> poolListEntries;
 
-    // Solo las indexadas POR POSICIÓN. `connInfoById` va por identificador, así que no
-    // sufre el reindexado; y `poolListEntries` no es una caché sino una lista que
-    // reconstruye entera `populateAllPoolsTables()`. Vaciarlas aquí no arreglaría nada y
-    // sí metería un vaciado donde nadie lo espera.
+    // `connInfoById` no entra: lo reconstruye `rebuildConnInfoModel()`. Ni
+    // `poolListEntries`, que no es una caché sino una lista que rehace entera
+    // `populateAllPoolsTables()`, a la que `loadConnections()` ni llama: vaciarla aquí
+    // sería una regresión metida por el propio arreglo.
     void clearIndexedCaches() {
         poolDatasetCache.clear();
         poolDetailsCache.clear();
@@ -72,9 +72,8 @@ struct ConnectionRegistry {
         profiles = std::move(nuevos);
         states.clear();
         states.resize(profiles.size());
-        // Las cachés van por índice: si la lista cambia, lo cacheado deja de
-        // corresponder con quien creía. Tirarlas cuesta una relectura; no tirarlas
-        // costaba enseñar los datos de una máquina bajo el nombre de otra.
+        // Las claves ya son estables, así que esto no es lo que impide el fallo. Se
+        // mantiene para no acumular las entradas de conexiones que ya no existen.
         clearIndexedCaches();
     }
 

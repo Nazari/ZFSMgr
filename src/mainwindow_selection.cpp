@@ -7,7 +7,7 @@ QString MainWindow::connContentTokenForTree(const QTreeWidget* tree) const {
     if (!tree) {
         return m_connContentToken.trimmed();
     }
-    auto tokenFromItem = [](QTreeWidgetItem* item) -> QString {
+    auto tokenFromItem = [this](QTreeWidgetItem* item) -> QString {
         if (!item) {
             return QString();
         }
@@ -24,7 +24,7 @@ QString MainWindow::connContentTokenForTree(const QTreeWidget* tree) const {
         if (connIdx < 0 || poolName.isEmpty()) {
             return QString();
         }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
     };
     if (QTreeWidgetItem* current = tree->currentItem()) {
         const QString token = tokenFromItem(current);

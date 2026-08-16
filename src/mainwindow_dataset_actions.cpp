@@ -1063,7 +1063,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     bool refreshedSomething = false;
     const QStringList dsProps = datasetSizePropertyNames();
     if (ensureDatasetPropertySubsetLoaded(connIdx, trimmedPool, trimmedDataset, dsProps)) {
-        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+        const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
         const QString key = QStringLiteral("%1|%2").arg(token, trimmedDataset);
         QMap<QString, QString> mergedValues = m_connContentPropValuesByObject.value(key);
         const QMap<QString, QString> sizeValues =
@@ -1159,7 +1159,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
             }
         }
         rebuildConnInfoFor(connIdx);
-        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+        const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
         if (m_connContentTree && m_topDetailConnIdx == connIdx) {
             syncConnContentPoolColumnsFor(m_connContentTree, token);
             if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
@@ -1334,7 +1334,7 @@ void MainWindow::invalidateDatasetCacheEntry(int connIdx,
     }
 
     const QString uiKey = QStringLiteral("%1::%2|%3")
-                              .arg(QString::number(connIdx),
+                              .arg(connToken(connIdx),
                                    trimmedPool,
                                    trimmedObject);
     m_connContentPropValuesByObject.remove(uiKey);
@@ -1467,7 +1467,7 @@ void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) 
     constexpr int kConnIdxRoleLocal = Qt::UserRole + 10;
     constexpr int kPoolNameRoleLocal = Qt::UserRole + 11;
     constexpr int kIsPoolRootRoleLocal = Qt::UserRole + 12;
-    const QString targetToken = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    const QString targetToken = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
 
     auto tokenMatchesTarget = [&](QTreeWidget* tree) -> bool {
         if (!tree) {
@@ -1606,7 +1606,7 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
-    m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool));
+    m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool));
     scheduleReloadFlush();
 }
 
@@ -1634,7 +1634,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             if (!ok || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
                 return false;
             }
-            m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(poolName));
+            m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connToken(connIdx), poolName));
             scheduleReloadFlush();
             return true;
         };

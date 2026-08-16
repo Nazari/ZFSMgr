@@ -6411,7 +6411,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
 
     if (options.interactiveConnContent) {
         syncConnContentPropertyColumns();
-        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
         restoreConnContentTreeState(tree, token);
     }
 
@@ -6667,11 +6667,11 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
     QString token;
     if (side == DatasetTreeContext::Origin) {
         if (m_connActionOrigin.valid) {
-            token = QStringLiteral("%1::%2").arg(m_connActionOrigin.connIdx).arg(m_connActionOrigin.poolName);
+            token = QStringLiteral("%1::%2").arg(connToken(m_connActionOrigin.connIdx), m_connActionOrigin.poolName);
         }
     } else if (side == DatasetTreeContext::Destination) {
         if (m_connActionDest.valid) {
-            token = QStringLiteral("%1::%2").arg(m_connActionDest.connIdx).arg(m_connActionDest.poolName);
+            token = QStringLiteral("%1::%2").arg(connToken(m_connActionDest.connIdx), m_connActionDest.poolName);
         }
     } else if (side == DatasetTreeContext::ConnectionContent) {
         const int itemConnIdx = item->data(0, kConnIdxRole).toInt();

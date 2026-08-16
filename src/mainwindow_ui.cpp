@@ -1597,7 +1597,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     if (!datasetItem) {
         return false;
     }
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
     QSignalBlocker treeBlocker(targetTree);
     std::unique_ptr<QSignalBlocker> selectionBlocker;
     if (targetTree->selectionModel()) {
@@ -3047,7 +3047,7 @@ void MainWindow::buildUi() {
         if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
     };
     auto refreshInlinePropsVisualBottom = [this, connTokenFromTreeSelectionBottom](QTreeWidget* tree, const QString& explicitToken) {
         if (!tree) {
@@ -3496,7 +3496,7 @@ void MainWindow::buildUi() {
             }
         }
         if (refreshedOwner) {
-            const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
             refreshPermissionsTreeNode(tree, refreshedOwner, true);
             refreshedOwner->setExpanded(ownerExpanded);
             restoreExpandedPaths(refreshedOwner, ownerExpandedPaths);
@@ -4036,7 +4036,7 @@ void MainWindow::buildUi() {
         if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
     };
     auto refreshInlinePropsVisual = [this, connTokenFromTreeSelection](QTreeWidget* tree) {
         if (!tree) {

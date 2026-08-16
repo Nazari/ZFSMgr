@@ -2934,7 +2934,7 @@ QString MainWindow::effectiveMountPath(int connIdx,
 }
 
 QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const {
-    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
 }
 
 bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {

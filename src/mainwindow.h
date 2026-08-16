@@ -53,6 +53,10 @@ class MainWindowConnectionDatasetTreeDelegate;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
+    // Público porque lo necesitan el delegado del árbol y el ayudante que calcula el
+    // testigo de estado: el testigo tiene que salir IGUAL desde los tres sitios.
+    QString connToken(int connIdx) const;
+
     enum class DatasetTreeContext {
         Origin,
         Destination,

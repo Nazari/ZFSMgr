@@ -1219,7 +1219,7 @@ QVector<MainWindow::PendingPropertyDraftEntry> MainWindow::pendingConnContentPro
             if (poolName.isEmpty()) {
                 continue;
             }
-            const QString token = QStringLiteral("%1::%2").arg(itConn->connIdx).arg(poolName);
+            const QString token = QStringLiteral("%1::%2").arg(connToken(itConn->connIdx), poolName);
             for (auto itDs = itPool->objectsByFullName.cbegin(); itDs != itPool->objectsByFullName.cend(); ++itDs) {
                 const DatasetPropsDraft draft =
                     propertyDraftForObject(QStringLiteral("conncontent"), token, itDs.key());
@@ -1393,7 +1393,7 @@ void MainWindow::applyPoolDetailsLoadResult(int connIdx,
     m_conns.poolDetailsCache.insert(key, fresh);
     rebuildConnInfoFor(connIdx);
     applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, fresh.statusText);
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
     if (m_connContentTree) {
         syncConnContentPoolColumnsFor(m_connContentTree, token);
     }
@@ -1446,7 +1446,7 @@ void MainWindow::invalidatePoolAutoSnapshotInfoForConnection(int connIdx) {
             itPool->runtime.autoSnapshotPropsByDataset.clear();
         }
     }
-    const QString prefix = QStringLiteral("%1::").arg(connIdx);
+    const QString prefix = QStringLiteral("%1::").arg(connToken(connIdx));
     for (auto it = m_poolAutoSnapshotLoadsInFlight.begin(); it != m_poolAutoSnapshotLoadsInFlight.end();) {
         if (it->startsWith(prefix)) {
             it = m_poolAutoSnapshotLoadsInFlight.erase(it);
@@ -1498,7 +1498,7 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
                      || poolInfo->runtime.schedulesState == LoadState::Loading)) {
         return false;
     }
-    const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    const QString key = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
     if (m_poolAutoSnapshotLoadsInFlight.contains(key)) {
         return false;
     }
@@ -1594,7 +1594,7 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
     const QString& errorText,
     const QMap<QString, QMap<QString, QString>>& loaded) {
     const QString trimmedPool = poolName.trimmed();
-    const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    const QString key = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
     m_poolAutoSnapshotLoadsInFlight.remove(key);
     int pendingLoads = m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0);
     if (pendingLoads > 0) {
@@ -1642,7 +1642,7 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
         poolsToSync.insert(trimmedPool);
     }
     for (const QString& pool : poolsToSync) {
-        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(pool);
+        const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), pool);
         if (m_connContentTree) {
             syncConnContentPoolColumnsFor(m_connContentTree, token);
         }
@@ -2273,7 +2273,7 @@ void MainWindow::removeDatasetPermissionsEntry(int connIdx, const QString& poolN
 }
 
 void MainWindow::removeDatasetPermissionsEntriesForPool(int connIdx, const QString& poolName) {
-    const QString prefix = QStringLiteral("%1::%2::").arg(connIdx).arg(poolName.trimmed().toLower());
+    const QString prefix = QStringLiteral("%1::%2::").arg(connToken(connIdx), poolName.trimmed().toLower());
     for (auto it = m_conns.datasetPermissionsCache.begin(); it != m_conns.datasetPermissionsCache.end();) {
         if (it.key().startsWith(prefix)) {
             it = m_conns.datasetPermissionsCache.erase(it);
@@ -2355,7 +2355,7 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     const int connIdx = item->data(0, Qt::UserRole + 10).toInt();
     const QString poolName = item->data(0, Qt::UserRole + 11).toString().trimmed();
     const QString token = (connIdx >= 0 && !poolName.isEmpty())
-                              ? QStringLiteral("%1::%2").arg(connIdx).arg(poolName)
+                              ? QStringLiteral("%1::%2").arg(connToken(connIdx), poolName)
                               : QString();
     Q_UNUSED(token);
     tree->setCurrentItem(item);

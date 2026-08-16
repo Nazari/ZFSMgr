@@ -305,7 +305,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     }
     rebuildConnInfoFor(connIdx);
     applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, entry.statusText);
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), trimmedPool);
     if (m_connContentTree) {
         syncConnContentPoolColumnsFor(m_connContentTree, token);
     }

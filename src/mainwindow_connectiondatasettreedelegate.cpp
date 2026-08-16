@@ -220,7 +220,7 @@ QString MainWindowConnectionDatasetTreeDelegate::tokenForOwnerItem(QTreeWidgetIt
     if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    return QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
 }
 
 QString MainWindowConnectionDatasetTreeDelegate::tokenForNode(QTreeWidgetItem* item) const {
@@ -445,7 +445,7 @@ void MainWindowConnectionDatasetTreeDelegate::rebuildAndRestoreDatasetNode(QTree
         || connIdx >= m_mainWindow->m_conns.profiles.size()) {
         return;
     }
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString token = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     m_mainWindow->rebuildConnContentTreeFor(tree, token, connIdx, poolName, false);
     if (QTreeWidgetItem* restored = m_mainWindow->findConnContentDatasetItemFor(tree, connIdx, poolName, datasetName)) {
         if (!snapshotName.isEmpty()) {
@@ -608,7 +608,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
             return QString();
         }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     };
     auto refreshInlinePropsVisualBottom = [this, &connTokenFromTreeSelectionBottom](QTreeWidget* tree, const QString& explicitToken) {
         if (!tree) {
@@ -792,7 +792,7 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return;
     }
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString token = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     auto normalizeList = [](const QStringList& in) {
         QStringList out;
         QSet<QString> seen;
@@ -1703,7 +1703,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     if (picked != aDeleteSchedule) {
         return true;
     }
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString token = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     for (const QString& prop : gsaProps) {
         m_mainWindow->updateConnContentDraftInherit(token, autoSnapshotDataset, prop, true);
     }
@@ -2300,7 +2300,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
     const bool poolSuspendedContext =
         (connIdx >= 0 && !poolName.isEmpty() && m_mainWindow->isPoolSuspended(connIdx, poolName));
-    const QString menuToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString menuToken = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
         for (QTreeWidgetItem* p = n; p; p = p->parent()) {
             if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
@@ -2524,7 +2524,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         return;
     }
 
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    const QString token = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
     auto selectionForMenuContext = [&]() -> SelectionSnapshot {
         SelectionSnapshot snapshot = currentSelection(tree, token);
         if ((!snapshot.valid || snapshot.datasetName.trimmed().isEmpty()) && isPoolRoot

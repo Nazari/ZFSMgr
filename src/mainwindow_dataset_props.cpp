@@ -512,7 +512,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                     propSources.insert(row.prop, row.source);
                 }
 
-                const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
                 const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
                 const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
                 if (liveIt != m_connContentPropValuesByObject.cend()) {
@@ -647,7 +647,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                     }
                 }
 
-                statesByKey.insert(QStringLiteral("%1::%2::%3").arg(connIdx).arg(poolName, datasetName), state);
+                statesByKey.insert(QStringLiteral("%1::%2::%3").arg(connToken(connIdx)).arg(poolName, datasetName), state);
             }
         }
     }
@@ -1451,7 +1451,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         PendingApplySuppressionGuard pendingApplyGuard(this);
         auto pendingLinePrefix = [this](int connIdx, const QString& poolName) {
             if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
-                return QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
+                return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName.trimmed());
             }
             const ConnectionProfile p = m_conns.profiles.at(connIdx);
             const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
@@ -2031,7 +2031,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
             invalidateDatasetCacheForPool(draft.connIdx, draft.poolName);
             invalidateDatasetPermissionsCacheForPool(draft.connIdx, draft.poolName);
-            const QString token = QStringLiteral("%1::%2").arg(draft.connIdx).arg(draft.poolName.trimmed());
+            const QString token = QStringLiteral("%1::%2").arg(connToken(draft.connIdx), draft.poolName.trimmed());
             renameRefreshSelectionByToken[token] = objectDatasetName(draft.targetName);
             auto remapSelection = [&draft](DatasetSelectionContext& selection) {
                 const QString selectedObject =

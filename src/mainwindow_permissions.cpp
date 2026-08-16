@@ -491,7 +491,7 @@ QTreeWidgetItem* findDatasetItemByIdentity(QTreeWidget* tree,
 
 QString MainWindow::datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const {
     return QStringLiteral("%1::%2::%3")
-        .arg(connIdx)
+        .arg(connToken(connIdx))
         .arg(poolName.trimmed().toLower(), datasetName.trimmed().toLower());
 }
 

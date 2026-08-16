@@ -517,9 +517,37 @@ reindexado no le afecta; y `poolListEntries` no es una caché sino una lista que
 reconstruye entera `populateAllPoolsTables()`, a la que `loadConnections()` ni llama —
 vaciarla ahí habría sido una regresión introducida por el propio arreglo.
 
-**La cura de fondo, pendiente:** indexar por identificador en vez de por posición, como
-ya hace `connInfoById`. Mientras eso no se haga, cualquier caché nueva con clave por
-índice reintroduce el mismo fallo.
+### La cura de fondo, hecha
+
+Indexar por identificador en vez de por posición. Al ir a hacerlo, la medición corrigió
+dos cosas de lo escrito arriba:
+
+- **Eran DOS cachés indexadas por posición, no tres.** `poolDetailsCacheKey` usaba el
+  NOMBRE de la conexión, no el índice, y su invalidación también: era coherente y no
+  sufría el fallo. Lo dicho en el commit anterior estaba de más en ese punto.
+- **Pero había una tercera víctima que no estaba en la lista:**
+  `m_connContentPropValuesByObject`, con el mismo prefijo `"<idx>::"` y sin vaciarse
+  nunca — las propiedades que se ven en línea en el árbol.
+
+El patrón compartido resultó ser un **testigo** `"<conexión>::<pool>"` construido a mano
+en **37 sitios de 11 ficheros**: unos para cachés persistentes (donde era un fallo) y
+otros para elementos de menú y de árbol (donde el índice es inofensivo porque se
+construyen y consumen en la misma operación).
+
+Cambiar solo los persistentes habría dejado dos formatos conviviendo, y un testigo que no
+casa con otro **no da error: simplemente deja de encontrar nada**. Así que se cambiaron
+los 37, todos a través de una única función `MainWindow::connToken()`.
+
+Lo que hace verificable el cambio no es el compilador —un testigo es una cadena
+cualquiera— sino esta comprobación, que hay que repetir si se toca:
+
+    grep -rnE 'QStringLiteral\("%1::[^"]*"\)[^;]*\.arg\((connIdx|idx|\w*\.connIdx)\)' src/*.cpp
+
+Debe salir **vacío**. Si algún día no lo está, alguien ha reintroducido el fallo.
+
+El vaciado de las cachés en `setProfiles()` se conserva, pero ya no es lo que impide el
+fallo: es para no acumular las entradas de conexiones borradas, que con claves estables
+no reclamaría nadie nunca.
 
 ## Paso 1d: el almacén, y el resultado de las tres tandas
 

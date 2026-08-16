@@ -62,11 +62,17 @@ constexpr int kConnRootSectionRole = Qt::UserRole + 37;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
-QString connContentStateTokenForTree(QTreeWidget* tree) {
+// Recibe la ventana solo para poder pedirle `connToken()`: el testigo tiene que salir
+// igual aquí que en el resto del código, o el estado guardado del árbol deja de casar
+// con el que se busca al restaurarlo, y sin ruido ninguno.
+QString connContentStateTokenForTree(const MainWindow* w, QTreeWidget* tree) {
+    if (!w) {
+        return QString();
+    }
     if (!tree) {
         return QString();
     }
-    auto tokenFromItem = [](QTreeWidgetItem* item) -> QString {
+    auto tokenFromItem = [w](QTreeWidgetItem* item) -> QString {
         if (!item) {
             return QString();
         }
@@ -83,7 +89,7 @@ QString connContentStateTokenForTree(QTreeWidget* tree) {
         if (connIdx < 0 || poolName.isEmpty()) {
             return QString();
         }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return QStringLiteral("%1::%2").arg(w->connToken(connIdx), poolName);
     };
     if (QTreeWidgetItem* current = tree->currentItem()) {
         const QString token = tokenFromItem(current);
@@ -610,6 +616,19 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     }
     const QString plain = lines.join(QStringLiteral("\n")).toHtmlEscaped();
     return QStringLiteral("<pre style=\"font-family:'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace; white-space:pre;\">%1</pre>").arg(plain);
+}
+
+// La parte de conexión de cualquier clave o testigo compuesto: «<conexión>::<pool>».
+//
+// Devuelve el IDENTIFICADOR, no la posición. Usar la posición era un fallo real: al
+// borrar una conexión, `loadConnections()` reindexa y la siguiente heredaba las entradas
+// cacheadas de la anterior —los datasets de otra máquina bajo su nombre—.
+//
+// El respaldo `#<n>` es para el caso degenerado sin identificador ni nombre, que no
+// debería existir porque el alta exige nombre. Vale con que no colisione entre sí.
+QString MainWindow::connToken(int connIdx) const {
+    const QString estable = connectionPersistKey(connIdx);
+    return estable.isEmpty() ? QStringLiteral("#%1").arg(connIdx) : estable;
 }
 
 QString MainWindow::connectionPersistKey(int idx) const {
@@ -2174,7 +2193,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     }
     QScopedValueRollback<bool> rebuildingGuard(rebuildingFlag, true);
     const QSignalBlocker blockTree(tree);
-    const QString savedStateToken = connContentStateTokenForTree(tree);
+    const QString savedStateToken = connContentStateTokenForTree(this, tree);
     if (clearPendingState) {
         clearPendingState();
     }
@@ -2213,7 +2232,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     }
     const QString restoreStateToken = !savedStateToken.isEmpty()
                                           ? savedStateToken
-                                          : connContentStateTokenForTree(tree);
+                                          : connContentStateTokenForTree(this, tree);
     if (!restoreStateToken.isEmpty()) {
         restoreConnContentTreeStateFor(tree, restoreStateToken);
     } else if (tree->topLevelItemCount() > 0) {
@@ -2571,7 +2590,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     } guard{m_refreshingByIndex, idx};
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {
-        const QString connPrefix = QStringLiteral("%1::").arg(idx);
+        const QString connPrefix = QStringLiteral("%1::").arg(connToken(idx));
         auto dsIt = m_conns.poolDatasetCache.begin();
         while (dsIt != m_conns.poolDatasetCache.end()) {
             if (dsIt.key().startsWith(connPrefix)) {
@@ -2584,7 +2603,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         invalidatePoolDetailsCacheForConnection(idx);
         invalidatePoolAutoSnapshotInfoForConnection(idx);
         // Limpiar caché de propiedades inline del árbol de contenido para esta conexión.
-        const QString uiPrefix = QStringLiteral("%1::").arg(QString::number(idx));
+        const QString uiPrefix = QStringLiteral("%1::").arg(connToken(idx));
         auto valIt = m_connContentPropValuesByObject.begin();
         while (valIt != m_connContentPropValuesByObject.end()) {
             if (valIt.key().startsWith(uiPrefix)) {
