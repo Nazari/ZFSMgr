@@ -17,6 +17,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(__linux__) || defined(__APPLE__)
+#include <sys/xattr.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -150,6 +153,8 @@ FileIdentity identityOf(const fs::path& p) {
 
 bool isReparsePoint(const fs::path&) { return false; }
 
+void copyExtendedAttributes(const fs::path& src, const fs::path& dst);
+
 void copyMetadata(const fs::path& src, const fs::path& dst, bool isDir) {
     struct stat st {};
     if (::lstat(src.c_str(), &st) != 0) {
@@ -173,7 +178,80 @@ void copyMetadata(const fs::path& src, const fs::path& dst, bool isDir) {
     times[0] = st.st_atim;
     times[1] = st.st_mtim;
 #endif
+    // Los atributos ANTES de las marcas de tiempo: reponer la ACL vuelve a tocar ctime,
+    // y el orden inverso dejaría las marcas del destino distintas de las del origen.
+    copyExtendedAttributes(src, dst);
     (void)::utimensat(AT_FDCWD, dst.c_str(), times, 0);
+}
+
+// Atributos extendidos, y con ellos las ACL POSIX.
+//
+// Las ACL de Linux NO son un modo: viven en el atributo extendido
+// `system.posix_acl_access`. Copiando los atributos vienen incluidas, y así no hace
+// falta enlazar libacl en un binario que viaja solo a máquinas ajenas.
+//
+// Hizo falta porque al sustituir rsync se perdieron: `rsync -A` conservaba
+// `user:nobody:rwx` y esta copia lo dejaba fuera. Se vio comparando las dos copias del
+// mismo fichero, no leyendo el código.
+//
+// Se usan las variantes l* para no seguir enlaces simbólicos, y cada atributo se
+// intenta por separado: algunos —`security.selinux`, por ejemplo— pueden no ser
+// escribibles, y eso no debe abortar la copia entera.
+void copyExtendedAttributes(const fs::path& src, const fs::path& dst) {
+#if defined(__linux__) || defined(__APPLE__)
+#if defined(__APPLE__)
+    const auto listAttrs = [](const char* p, char* buf, std::size_t sz) {
+        return ::listxattr(p, buf, sz, XATTR_NOFOLLOW);
+    };
+    const auto getAttr = [](const char* p, const char* n, void* v, std::size_t sz) {
+        return ::getxattr(p, n, v, sz, 0, XATTR_NOFOLLOW);
+    };
+    const auto setAttr = [](const char* p, const char* n, const void* v, std::size_t sz) {
+        return ::setxattr(p, n, v, sz, 0, XATTR_NOFOLLOW);
+    };
+#else
+    const auto listAttrs = [](const char* p, char* buf, std::size_t sz) {
+        return ::llistxattr(p, buf, sz);
+    };
+    const auto getAttr = [](const char* p, const char* n, void* v, std::size_t sz) {
+        return ::lgetxattr(p, n, v, sz);
+    };
+    const auto setAttr = [](const char* p, const char* n, const void* v, std::size_t sz) {
+        return ::lsetxattr(p, n, v, sz, 0);
+    };
+#endif
+    const ssize_t listLen = listAttrs(src.c_str(), nullptr, 0);
+    if (listLen <= 0) {
+        return;
+    }
+    std::vector<char> names(static_cast<std::size_t>(listLen));
+    if (listAttrs(src.c_str(), names.data(), names.size()) != listLen) {
+        return;
+    }
+    std::size_t off = 0;
+    while (off < names.size()) {
+        const char* name = names.data() + off;
+        const std::size_t len = std::strlen(name);
+        if (len == 0) {
+            break;
+        }
+        off += len + 1;
+        const ssize_t valLen = getAttr(src.c_str(), name, nullptr, 0);
+        if (valLen < 0) {
+            continue;
+        }
+        std::vector<char> value(static_cast<std::size_t>(valLen));
+        if (valLen > 0 && getAttr(src.c_str(), name, value.data(), value.size()) != valLen) {
+            continue;
+        }
+        (void)setAttr(dst.c_str(), name, value.data(), value.size());
+    }
+#else
+    // FreeBSD usa extattr_*, con otra interfaz y espacios de nombres distintos. No se
+    // copian ahí, igual que rsync tampoco lo hacía sin soporte detectado.
+    (void)src;
+    (void)dst;
+#endif
 }
 
 bool createHardLinkAt(const fs::path& existing, const fs::path& link) {

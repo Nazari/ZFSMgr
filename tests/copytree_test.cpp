@@ -9,6 +9,9 @@
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__linux__) || defined(__APPLE__)
+#include <sys/xattr.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -144,6 +147,29 @@ private Q_SLOTS:
         // 8 MiB aparentes; si se hubieran escrito los ceros ocuparía ~16384 bloques.
         QVERIFY2(st.st_blocks < 1024,
                  "el destino no debe materializar los huecos como ceros en disco");
+    }
+#endif
+
+#if defined(__linux__)
+    // Los atributos extendidos, y con ellos las ACL POSIX de Linux, que viven en
+    // `system.posix_acl_access`.
+    //
+    // Este caso no existía y por eso pasó desapercibido: al sustituir rsync se perdieron
+    // las ACL, y la comparación que hice entonces no las incluía. `rsync -A` conservaba
+    // el permiso y esta copia lo dejaba fuera.
+    void preservesExtendedAttributes() {
+        writeFile(src_ / "conattr.txt", "x");
+        const std::string path = (src_ / "conattr.txt").string();
+        if (::lsetxattr(path.c_str(), "user.zfsmgr_prueba", "valor", 5, 0) != 0) {
+            QSKIP("el sistema de ficheros de /tmp no admite atributos extendidos");
+        }
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        char buf[32] = {};
+        const std::string dstPath = (dst_ / "conattr.txt").string();
+        const ssize_t n = ::lgetxattr(dstPath.c_str(), "user.zfsmgr_prueba", buf, sizeof(buf));
+        QVERIFY2(n == 5, "el atributo extendido debe llegar al destino");
+        QCOMPARE(std::string(buf, 5), std::string("valor"));
     }
 #endif
 
