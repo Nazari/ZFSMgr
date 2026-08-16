@@ -20,6 +20,7 @@ void comprobar(bool ok, const std::string& nombre, const std::string& detalle = 
         return;
     }
     ++fallos;
+
     std::fprintf(stderr, "FALLO: %s\n", nombre.c_str());
     if (!detalle.empty()) {
         std::fprintf(stderr, "       %s\n", detalle.c_str());
@@ -110,6 +111,47 @@ int main() {
         comprobar(s.find("TLS_CLIENT_KEY='/etc/zfsmgr/tls/client.key'\n") != std::string::npos,
                   "simpleConfigPayload llega hasta el ultimo campo");
     }
+
+    // --- recortes por CARACTER, no por byte
+    // El caso que lo destapo comparando contra Qt: cortar "aE" acentuado por bytes deja
+    // UTF-8 invalido, y left() es lo que recorta las lineas del registro.
+    {
+        const std::string ae = "\xc3\xa1\xc3\x89";  // "áÉ" en UTF-8, 2 caracteres, 4 bytes
+        igual(left(ae, 1), "\xc3\xa1", "left corta por caracteres, no por bytes");
+        igual(left(ae, 3), ae, "left mas alla del final devuelve todo");
+        igual(mid(ae, 1), "\xc3\x89", "mid cuenta caracteres");
+        igual(mid(ae, 2), "", "mid en el final da vacio");
+        igual(mid(ae, 5), "", "mid pasado el final no revienta");
+        igual(mid("abcdef", 1, 3), "bcd", "mid con longitud");
+        comprobar(byteOfChar(ae, 1) == 2, "byteOfChar salta el byte de continuacion");
+    }
+
+    // --- caja ASCII, y SOLO ASCII: es una divergencia buscada respecto a Qt
+    igual(toLowerAscii("ABC"), "abc", "toLowerAscii en ASCII");
+    igual(toUpperAscii("abc"), "ABC", "toUpperAscii en ASCII");
+    igual(toLowerAscii("\xc3\x89"), "\xc3\x89", "toLowerAscii NO toca los acentos (a proposito)");
+
+    // --- contains / startsWith / endsWith / indexOf
+    comprobar(contains("abc", "b"), "contains encuentra");
+    comprobar(!contains("abc", "z"), "contains no inventa");
+    comprobar(startsWith("abc", "ab"), "startsWith");
+    comprobar(!startsWith("a", "ab"), "startsWith no se sale del final");
+    comprobar(endsWith("abc", "bc"), "endsWith");
+    comprobar(indexOf("abc", "z") == -1, "indexOf devuelve -1 si no hay");
+    comprobar(indexOf("abcb", "b") == 1, "indexOf da la primera");
+    comprobar(lastIndexOf("abcb", "b") == 3, "lastIndexOf da la ultima");
+
+    // --- simplify: colapsa y recorta, como QString::simplified()
+    igual(simplify("  a  b  "), "a b", "simplify colapsa y recorta");
+    igual(simplify("a\tb\nc"), "a b c", "simplify trata tabuladores y saltos");
+    igual(simplify("   "), "", "simplify de solo espacios da vacio");
+
+    // --- split / join
+    igual(join(split("//a//b//", "/", true), "|"), "a|b", "split saltando vacios");
+    igual(join(split("a/b", "/", false), "|"), "a|b", "split conservando vacios");
+    igual(join(split("", "/", false), "|"), "", "split de vacio da un trozo vacio");
+    igual(join({"a", "b"}, "-"), "a-b", "join");
+    igual(join({}, "-"), "", "join de nada da vacio");
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;

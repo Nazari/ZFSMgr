@@ -89,16 +89,59 @@ tiene caso propio en el test: `format("A=%1 B=%2", {"%2", "z"})` da `A=%2 B=z`.
 Y una segunda: con trece argumentos conviven `%1` y `%10`, así que hay que leer el
 número más largo o queda un `0` suelto pegado detrás.
 
+## Los bytes no son caracteres, y eso ya habría sido un fallo
+
+Al comparar `strutil` contra Qt con la cadena `áÉ` salieron cuatro diferencias. Dos eran
+un fallo de verdad: **`QString::left(3)` cuenta caracteres y `std::string::substr(0,3)`
+cuenta bytes**, así que recortar por bytes parte un carácter UTF-8 por la mitad y deja
+bytes inválidos. Eso es justo lo que hace `oneLine(v, 220)` con cada línea del registro.
+`left`, `mid` y `byteOfChar` van por caracteres, y coinciden con Qt en todo el plano
+básico.
+
+Las otras dos son una **divergencia buscada**: `toLowerAscii`/`toUpperAscii` no cambian
+la caja de las letras acentuadas y Qt sí. Llevan «Ascii» en el nombre para que no se
+use ninguna por descuido: sirven para comparar valores de propiedad, GUID y nombres de
+verbo, y una conversión con reglas de idioma mete sorpresas —la I turca— justo donde se
+decide algo. **Consecuencia a vigilar al portar:** cualquier función que baje a
+minúsculas TEXTO LIBRE (`looksLikeSudoAuthFailure` mira mensajes de error) cambia de
+comportamiento con entrada acentuada. Hay que mirarla una por una, no a bulto.
+
+Este proyecto ya se llevó un disgusto con Unicode —la descomposición NFD de macOS—, así
+que la comparación contra Qt no es una formalidad.
+
 ## Estado
 
-Hecho: `strutil` (`trim`, `replaceAll`, `format`, `shSingleQuote`) y `daemonpayload`.
+Hecho y verificado:
 
-Siguiente por coste creciente:
+- **`strutil`**: `trim`, `replaceAll`, `format`, `shSingleQuote`, `simplify`,
+  `toLowerAscii`, `toUpperAscii`, `contains`, `startsWith`, `endsWith`, `indexOf`,
+  `lastIndexOf`, `left`, `mid`, `byteOfChar`, `split`, `join`. Contrastadas una a una
+  contra Qt sobre el mismo corpus.
+- **`daemonpayload`** entero, con 43.837 bytes idénticos.
 
-1. **`mainwindow_helpers.cpp`** (1.037 líneas, sin métodos de `MainWindow`, ya en el
-   espacio de nombres `mwhelpers`). Necesita antes `QRegularExpression` —el enmascarado
-   de secretos para el log— y decidir qué hacer con sus cinco usos de `QProcess`.
-2. **`connectionstore.cpp`** (1.463). Es una clase propia, no de `MainWindow`, pero usa
-   `QSettings` y cifrado; hay que sustituir el almacenamiento.
-3. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
-4. A partir de ahí ya toca desacoplar de `MainWindow`, que es otro tipo de trabajo.
+`mainwindow_helpers.cpp` está **analizado pero no portado todavía**. De sus 58 funciones:
+
+| | cuántas | por qué |
+|---|---|---|
+| Movibles | **40** (~680 líneas) | sin nada que las ate |
+| Toman `ConnectionProfile` | 13 | hay que mover antes ese struct |
+| Usan `QRegularExpression` | 3 | `maskCommandSecrets`, `parseOpenZfsVersionText`, `parseZpoolImportOutput` |
+| Sistema de ficheros | 1 | `findLocalExecutable` |
+| JSON | 1 | `parseZfsMountJsonOutput` |
+| `QProcess` | 1 | `checkLocalSudoPassword` |
+
+El coste real de esas 40 es mayor de lo que sugiere el recuento de líneas: hay **25
+usos de `.arg()`**, que es postfijo y hay que reestructurar a mano uno por uno, como se
+hizo en `daemonpayload`. La referencia dorada ya está capturada (10.083 líneas, 632 KB,
+con las 1.024 combinaciones de `computeTransferButtonState`).
+
+Y un aviso para quien automatice la traducción: **`.Trim(` y `.ToLower(` aparecen dentro
+de literales de PowerShell**. Un `sed` sobre métodos de `QString` los tocaría y rompería
+los comandos de Windows en silencio.
+
+Después de `mainwindow_helpers`:
+
+1. **`connectionstore.cpp`** (1.463). Clase propia, pero usa `QSettings` y cifrado; hay
+   que sustituir el almacenamiento.
+2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
+3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.

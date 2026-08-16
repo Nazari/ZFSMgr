@@ -34,4 +34,46 @@ std::string format(const std::string& tmpl, const std::vector<std::string>& args
 // escapa entrecomillada y se reabre: '"'"' — es la única forma de meterla dentro.
 std::string shSingleQuote(const std::string& s);
 
+// --- Operaciones que en Qt son métodos de QString.
+//
+// Van como funciones libres a propósito: envolver std::string en una clase con la API
+// de QString haría el puerto más cómodo hoy y dejaría al proyecto con un clon casero de
+// QString, que es justo lo contrario del objetivo.
+
+// Colapsa cada tira de espacios en uno solo y recorta, como QString::simplified().
+std::string simplify(const std::string& s);
+
+// SOLO ASCII, y el nombre lo dice a propósito. Qt cambia también la caja de las letras
+// acentuadas; aquí no, y es lo que se quiere: se usan para comparar valores de
+// propiedad («yes», «on»), GUID y nombres de verbo, todos ASCII. Una conversión con
+// reglas de idioma introduce sorpresas —la I turca es el ejemplo clásico— justo donde
+// se está tomando una decisión.
+std::string toLowerAscii(const std::string& s);
+std::string toUpperAscii(const std::string& s);
+
+bool contains(const std::string& s, const std::string& sub);
+bool startsWith(const std::string& s, const std::string& pre);
+bool endsWith(const std::string& s, const std::string& suf);
+
+// Devuelven -1 cuando no hay coincidencia, como QString::indexOf().
+long long indexOf(const std::string& s, const std::string& sub);
+long long lastIndexOf(const std::string& s, const std::string& sub);
+
+// Recortes por CARACTERES, no por bytes, y tolerantes con posiciones fuera de rango.
+//
+// Contar bytes aquí sería un fallo real, no una imprecisión: `left(s, 220)` es lo que
+// recorta las líneas del registro, y cortar a mitad de un carácter UTF-8 deja bytes
+// inválidos. Se detectó comparando contra Qt con «áÉ». Coincide con Qt en todo el plano
+// básico; solo diverge en caracteres fuera de él, donde Qt cuenta unidades UTF-16.
+std::string left(const std::string& s, std::size_t nChars);
+std::string mid(const std::string& s, std::size_t posChars);
+std::string mid(const std::string& s, std::size_t posChars, std::size_t nChars);
+
+// Índice del byte donde empieza el carácter número `nChars`, o el tamaño si se pasa.
+std::size_t byteOfChar(const std::string& s, std::size_t nChars);
+
+// `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.
+std::vector<std::string> split(const std::string& s, const std::string& sep, bool skipEmpty);
+std::string join(const std::vector<std::string>& parts, const std::string& sep);
+
 }  // namespace zfsmgr::base
