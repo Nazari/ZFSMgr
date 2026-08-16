@@ -2861,9 +2861,13 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         std::string rel;  // ruta relativa al mountpoint del dataset raíz
     };
     std::vector<Member> members;
+    // Se conserva fuera del bloque: la comprobación de descendientes de más abajo lo
+    // necesita para explicar respecto a QUÉ están fuera.
+    std::string rootMpForCheck;
     {
         ExecResult mp0 = getDatasetMountpointCapture(dataset);
         const std::string rootMp = (mp0.rc == 0) ? trim(mp0.out) : std::string();
+        rootMpForCheck = rootMp;
         if (rootMp.empty()) {
             r.rc = 1;
             r.err = "mountpoint=none\n";
@@ -2906,6 +2910,49 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             };
             return depth(a.rel) > depth(b.rel);
         });
+    }
+
+    // TODO descendiente por NOMBRE tiene que estar entre los miembros, o no se empieza.
+    //
+    // Los miembros se eligen por punto de montaje, y eso es correcto —tras un Ensamblar
+    // que conservó subdatasets, el montado aquí dentro puede ser un hermano por nombre—,
+    // pero deja un hueco: un hijo montado FUERA del subárbol, por ejemplo pool/ds1/ds3
+    // con mountpoint /b cuando ds1 está en /a. Su contenido no se copia (correcto: no
+    // está en el directorio) pero sigue colgando de ds1 por nombre, así que al borrar,
+    // `zfs destroy ds1` falla con "filesystem has children" — cuando sus hermanos YA
+    // están destruidos.
+    //
+    // Eso se sabe ANTES de copiar nada, así que se comprueba aquí y se rechaza con el
+    // motivo. Empezar para fallar a mitad de una operación destructiva no es aceptable
+    // aunque los datos acaben a salvo.
+    {
+        const ExecResult kids = runExecCapture("zfs", {"list", "-H", "-o", "name,mountpoint",
+                                                       "-r", dataset});
+        std::string outside;
+        for (const std::string& line : splitLines(kids.out)) {
+            const std::size_t tab = line.find('\t');
+            const std::string name = trim(tab == std::string::npos ? line : line.substr(0, tab));
+            if (name.empty()) {
+                continue;
+            }
+            bool found = false;
+            for (const Member& m : members) {
+                if (m.name == name) { found = true; break; }
+            }
+            if (!found) {
+                const std::string mp = (tab == std::string::npos) ? std::string()
+                                                                  : trim(line.substr(tab + 1));
+                outside += "  " + name + "  (montado en " + (mp.empty() ? "?" : mp) + ")\n";
+            }
+        }
+        if (!outside.empty()) {
+            r.rc = 2;
+            r.err = "No se puede llevar " + dataset + " a un directorio: tiene descendientes "
+                    "montados FUERA de " + rootMpForCheck + ", así que su contenido no iría "
+                    "al destino y además impedirían destruirlo:\n" + outside
+                    + "Mueva o desglose esos datasets antes, o elija otro destino.\n";
+            return r;
+        }
     }
 
     // Los subdatasets montados DENTRO impiden reubicar el raíz: `zfs set mountpoint`
