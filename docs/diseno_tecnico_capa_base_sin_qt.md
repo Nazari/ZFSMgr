@@ -827,6 +827,31 @@ De paso queda a la vista lo que ya estaba anotado como problema aparte: **que el
 la ventana es lo que serializa el montaje de túneles en el hilo de interfaz**. El refactor
 no lo arregla, pero ahora se ve de dónde sale y qué habría que cambiar.
 
+## Paso 6: quitar Qt del transporte — la ejecución de procesos
+
+El transporte usa `QProcess` (32 usos), `QSslSocket` (12) y `QThread` (5). Sacarlo de Qt
+significa sustituir esas tres piezas.
+
+**Dos de las tres ya existían sin Qt en este repositorio**, y no había que escribirlas:
+el agente ejecuta procesos con `fork`/`exec` en POSIX y `CreateProcess` en Windows desde
+hace tiempo, y usa `std::thread`. Lo que faltaba era usarlo desde el cliente.
+
+`src/base/process.{h,cpp}`: **432 líneas movidas del agente a la base**, ya probadas
+contra Linux, macOS, FreeBSD y Windows. `runExecCapture`, `runExecStreaming`,
+`runExecCaptureWithStdin`, `winBuildCommandLine` y `decodeWaitStatus`. El agente pasa a
+enlazar `zfsmgr_base` y usarlas desde ahí: **un solo sitio**, de modo que una corrección
+ya no puede dejar a la otra mitad tratando mal exactamente los mismos argumentos —rutas
+con espacios, datasets con comillas—.
+
+Nunca hay intérprete de por medio: se pasa argv y se ejecuta directamente. Es lo que
+impide que un nombre de dataset con `;` se convierta en otra orden.
+
+Verificado con el agente contra el pool real: `--version`, `--dump-zpool-list` y
+`--mutate-copy-tree` responden igual que antes.
+
+**Queda `QSslSocket`**, y esa sí hay que escribirla: el agente tiene el lado SERVIDOR con
+OpenSSL, pero no el de cliente.
+
 ## Estado
 
 Hecho y verificado:

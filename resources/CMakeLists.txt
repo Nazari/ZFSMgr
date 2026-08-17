@@ -76,11 +76,12 @@ find_package(Threads REQUIRED)
 
 if(ZFSMGR_AGENT_ONLY)
     add_executable(zfsmgr_agent ../src/daemon_main.cpp ../src/copytree.cpp)
+    target_include_directories(zfsmgr_agent PRIVATE ../src)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
         ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
     )
-    target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_base OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
     if(WIN32)
         target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
         # Igual que en la compilación completa: el agente viaja SOLO, así que no puede
@@ -170,6 +171,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/process.cpp
+    ../src/base/process.h
     ../src/base/refreshparse.cpp
     ../src/base/refreshparse.h
     ../src/base/storefiles.cpp
@@ -237,11 +240,12 @@ add_executable(zfsmgr_agent
     ../src/daemon_main.cpp
     ../src/copytree.cpp
 )
+target_include_directories(zfsmgr_agent PRIVATE ../src)
 target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
-target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_base OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
     # Enlazado estático del runtime en Windows: sin esto el .exe necesita
