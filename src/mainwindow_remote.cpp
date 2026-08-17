@@ -2961,16 +2961,27 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             && rc == 0) {
             QString jsonPayload = mwhelpers::stripToJson(out);
             QJsonParseError parseErr{};
-            QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
-            if (parseErr.error != QJsonParseError::NoError) {
-                const int lastBrace = jsonPayload.lastIndexOf(QLatin1Char('}'));
-                if (lastBrace > 0) {
-                    jsonPayload = jsonPayload.left(lastBrace + 1);
-                    parseErr = QJsonParseError{};
-                    doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+            QJsonDocument doc;
+            // Solo se intenta si la salida PARECE JSON.
+            //
+            // `--dump-zfs-list-all` responde `zfs list -H -p`, que es texto separado por
+            // tabuladores y nunca ha sido JSON. Intentarlo igualmente hacía que CADA
+            // refresco de CADA pool dejara un aviso «Invalid JSON ... (illegal value)»
+            // que no señalaba ningún problema: el análisis por texto de más abajo
+            // funciona. Eran avisos falsos escondiendo los de verdad.
+            const bool pareceJson = jsonPayload.trimmed().startsWith(QLatin1Char('{'));
+            if (pareceJson) {
+                doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+                if (parseErr.error != QJsonParseError::NoError) {
+                    const int lastBrace = jsonPayload.lastIndexOf(QLatin1Char('}'));
+                    if (lastBrace > 0) {
+                        jsonPayload = jsonPayload.left(lastBrace + 1);
+                        parseErr = QJsonParseError{};
+                        doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+                    }
                 }
             }
-            if (parseErr.error != QJsonParseError::NoError) {
+            if (pareceJson && parseErr.error != QJsonParseError::NoError) {
                 m_transport.log(TransportSession::Nivel::Warn,
                        QStringLiteral("Invalid JSON from zfsmgr-zfs-list-all %1::%2 (%3)")
                            .arg(p.name,
@@ -3098,7 +3109,10 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         int dRc = -1;
         const QString dCmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o name,value -r driveletter %1").arg(shSingleQuote(poolName)));
+            // Con `source`: hace falta para distinguir la letra PUESTA en un dataset de la
+            // HEREDADA del pool. Sin eso, cualquier pool con más de un dataset parecía
+            // tener letras duplicadas.
+            QStringLiteral("zfs get -H -o name,value,source -r driveletter %1").arg(shSingleQuote(poolName)));
         if (runSsh(p, dCmd, 20000, dOut, dErr, dRc) && dRc == 0) {
             QMap<QString, QStringList> byDrive;
             const QStringList dLines = dOut.split('\n', Qt::SkipEmptyParts);
@@ -3109,8 +3123,17 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 }
                 const QString ds = f[0].trimmed();
                 const QString drive = normalizeDriveLetterValue(f[1]);
+                // La letra REAL de cada dataset se guarda siempre, heredada o no: es lo
+                // que dice dónde está montado.
                 cache.driveletterByDataset[ds] = drive;
-                if (!drive.isEmpty()) {
+                // Pero para el aviso de duplicados solo cuentan las PUESTAS en el propio
+                // dataset. En Windows los descendientes heredan la del pool y se montan
+                // planos bajo esa unidad, así que dos datasets con la misma letra
+                // heredada es el funcionamiento normal, no un conflicto. Avisar de eso
+                // llenaba el registro en cada refresco y tapaba los avisos de verdad.
+                const QString origen = (f.size() >= 3) ? f[2].trimmed().toLower() : QString();
+                const bool puestaAqui = origen.isEmpty() || origen == QStringLiteral("local");
+                if (!drive.isEmpty() && puestaAqui) {
                     byDrive[drive].push_back(ds);
                 }
             }
