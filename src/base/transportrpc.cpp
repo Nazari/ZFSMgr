@@ -20,6 +20,10 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+// `in6_addr` se declara aquí. En Linux entra de rebote por <arpa/inet.h>, en FreeBSD no:
+// el cruce fallaba con «unknown type name 'in6_addr'». Se incluye explícitamente en vez de
+// confiar en lo que arrastre cada sistema.
+#include <netinet/in.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #endif
