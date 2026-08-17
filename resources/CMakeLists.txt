@@ -171,6 +171,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/zfsmurl.cpp
+    ../src/base/zfsmurl.h
     ../src/base/tlsclient.cpp
     ../src/base/tlsclient.h
     ../src/base/process.cpp

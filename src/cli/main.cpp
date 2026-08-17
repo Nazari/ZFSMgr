@@ -15,6 +15,7 @@
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "strutil.h"
+#include "zfsmurl.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +37,7 @@ void uso() {
                  "\n"
                  "Órdenes:\n"
                  "  connections list      Lista las conexiones configuradas\n"
+                 "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
                  "  version               Versión de esta herramienta\n"
                  "\n"
                  "Opciones:\n"
@@ -227,6 +229,34 @@ int main(int argc, char** argv) {
 #else
         std::printf("%s (sin versión)\n", kNombre);
 #endif
+        return 0;
+    }
+
+    if (op.orden.size() >= 3 && op.orden[0] == "url" && op.orden[1] == "parse") {
+        zfsmgr::base::ZfsmUrl u;
+        std::string err;
+        if (!zfsmgr::base::parseZfsmUrl(op.orden[2], u, err)) {
+            std::fprintf(stderr, "%s: URL no válida: %s\n", kNombre, err.c_str());
+            return 2;
+        }
+        const char* clase = "?";
+        switch (u.kind) {
+            case zfsmgr::base::ZfsmKind::Conexion: clase = "conexión"; break;
+            case zfsmgr::base::ZfsmKind::Pool: clase = "pool"; break;
+            case zfsmgr::base::ZfsmKind::Dataset: clase = "dataset"; break;
+            case zfsmgr::base::ZfsmKind::Snapshot: clase = "snapshot"; break;
+            default: break;
+        }
+        std::printf("clase\t%s\n", clase);
+        std::printf("conexion\t%s\n", u.conexion.c_str());
+        if (!u.pool.empty()) std::printf("pool\t%s\n", u.pool.c_str());
+        if (!u.dataset.empty()) std::printf("dataset\t%s\n", u.dataset.c_str());
+        if (!u.snapshot.empty()) std::printf("snapshot\t%s\n", u.snapshot.c_str());
+        if (!u.nombreZfs().empty()) std::printf("nombre_zfs\t%s\n", u.nombreZfs().c_str());
+        if (!u.seccion.empty()) std::printf("seccion\t%s\n", u.seccion.c_str());
+        for (const std::string& d : u.detalle) std::printf("detalle\t%s\n", d.c_str());
+        // La forma canónica: es la que hay que guardar o comparar, no la tecleada.
+        std::printf("canonica\t%s\n", zfsmgr::base::formatZfsmUrl(u).c_str());
         return 0;
     }
 

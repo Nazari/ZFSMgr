@@ -13,6 +13,7 @@
 #include "refreshparse.h"
 #include "secretcipher.h"
 #include "strutil.h"
+#include "zfsmurl.h"
 
 #include <chrono>
 #include <cstdio>
@@ -758,6 +759,101 @@ int main() {
         }
     }
 #endif
+
+
+    // --- zfsm://  nombrar cualquier elemento del arbol
+    {
+        namespace U = zfsmgr::base;
+        U::ZfsmUrl u;
+        std::string err;
+
+        // Lo que nombra lo decide cuantos tramos hay, no la seccion.
+        comprobar(U::parseZfsmUrl("zfsm://unibody", u, err) && u.kind == U::ZfsmKind::Conexion,
+                  "solo conexion");
+        igual(u.conexion, "unibody", "la conexion es la autoridad");
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback", u, err) && u.kind == U::ZfsmKind::Pool,
+                  "un tramo es un pool");
+        igual(u.pool, "sback", "el primer tramo es el pool");
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user", u, err)
+                      && u.kind == U::ZfsmKind::Dataset,
+                  "dos tramos son un dataset");
+        // El nombre ZFS sale ya montado, que es como se le pasa a `zfs`.
+        igual(u.dataset, "sback/user", "el dataset lleva el pool delante");
+        igual(u.nombreZfs(), "sback/user", "nombreZfs sin snapshot");
+
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user@ayer", u, err)
+                      && u.kind == U::ZfsmKind::Snapshot,
+                  "con @ es un snapshot");
+        igual(u.snapshot, "ayer", "el snapshot va sin @");
+        igual(u.dataset, "sback/user", "y el dataset no se lo lleva");
+        igual(u.nombreZfs(), "sback/user@ayer", "nombreZfs como lo escribe ZFS");
+
+        // El fragmento es el arbol: seccion y despues la ruta dentro.
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#propiedades/compression", u, err),
+                  "una propiedad");
+        igual(u.seccion, "propiedades", "la seccion");
+        comprobar(u.detalle.size() == 1 && u.detalle[0] == "compression", "el detalle");
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#contenido/docs/a.pdf", u, err)
+                      && u.detalle.size() == 2 && u.detalle[1] == "a.pdf",
+                  "un fichero dentro del contenido");
+        comprobar(U::parseZfsmUrl("zfsm://unibody#daemon", u, err)
+                      && u.kind == U::ZfsmKind::Conexion && u.seccion == "daemon",
+                  "una seccion de la conexion");
+        // Una seccion desconocida NO se rechaza: el arbol puede ganar pestañas.
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#loquesea", u, err),
+                  "una seccion desconocida se acepta");
+        // La seccion no distingue mayusculas.
+        comprobar(U::parseZfsmUrl("zfsm://u/p/d#PROPIEDADES", u, err) && u.seccion == "propiedades",
+                  "la seccion se normaliza a minusculas");
+        comprobar(U::parseZfsmUrl("ZFSM://u/p/d", u, err), "el esquema tampoco distingue caja");
+
+        // Espacios: ZFS los admite en los nombres, asi que hay que codificarlos.
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/con%20espacio", u, err)
+                      && u.dataset == "sback/con espacio",
+                  "un nombre con espacio, codificado");
+        igual(U::percentEncodeSegment("con espacio"), "con%20espacio", "y al reves");
+        // Los tres separadores de esta sintaxis, dentro de un nombre.
+        igual(U::percentEncodeSegment("a/b@c#d"), "a%2Fb%40c%23d", "los separadores se codifican");
+        // Los legales de ZFS que NO hay que codificar: seria ruido inutil.
+        igual(U::percentEncodeSegment("a-b_c.d:e"), "a-b_c.d:e", "los legales de ZFS van tal cual");
+
+        // Ida y vuelta: es lo que impide que las dos mitades se separen con el tiempo.
+        for (const char* caso : {"zfsm://unibody",
+                                 "zfsm://unibody#daemon",
+                                 "zfsm://unibody/sback",
+                                 "zfsm://unibody/sback/user",
+                                 "zfsm://unibody/sback/user@ayer",
+                                 "zfsm://unibody/sback/user#propiedades/compression",
+                                 "zfsm://unibody/sback/user#contenido/docs/a.pdf",
+                                 "zfsm://local/winpool/sa@antes%20de%20migrar"}) {
+            U::ZfsmUrl x;
+            std::string e2;
+            comprobar(U::parseZfsmUrl(caso, x, e2), std::string("analiza: ") + caso);
+            igual(U::formatZfsmUrl(x), caso, std::string("ida y vuelta: ") + caso);
+        }
+
+        // Lo que debe RECHAZAR, y por que.
+        struct { const char* url; const char* porque; } malas[] = {
+            {"http://unibody/sback", "otro esquema"},
+            {"zfsm://", "sin conexion"},
+            {"zfsm:///sback", "conexion vacia"},
+            {"zfsm://u/p/d@", "'@' sin nombre"},
+            {"zfsm://u/p/d@a@b", "dos '@'"},
+            {"zfsm://u/p@snap", "un snapshot necesita dataset, no solo pool"},
+            {"zfsm://u/p/d@con/barra", "el snapshot no lleva '/'"},
+            {"zfsm://u/p//d", "tramo vacio"},
+            {"zfsm://u/p/d#", "'#' sin seccion"},
+            {"zfsm://u/p/d%ZZ", "por-ciento invalido"},
+            {"zfsm://u/p/d%4", "por-ciento a medias"},
+        };
+        for (const auto& m : malas) {
+            U::ZfsmUrl x;
+            std::string e2;
+            comprobar(!U::parseZfsmUrl(m.url, x, e2),
+                      std::string("rechaza (") + m.porque + "): " + m.url);
+            comprobar(!e2.empty(), std::string("y explica por que: ") + m.url);
+        }
+    }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
