@@ -18,6 +18,10 @@ static char* dup0(const char* s) {
 }
 
 void astVerbo(AnalisisCli* r, char* verbo) { r->verbo = verbo; }
+void astVerboDesconocido(AnalisisCli* r, char* verbo) {
+    r->verbo = verbo;
+    r->verboDesconocido = 1;
+}
 void astObjetivo(AnalisisCli* r, char* url) { r->objetivo = url; }
 
 void astRanura(AnalisisCli* r, const char* nombre, char* valor) {
@@ -75,15 +79,13 @@ void astLibera(AnalisisCli* r) {
 /* El léxico necesita saber la clase del PRIMER componente. Se le pasa por el scanner
  * extra, que es lo que flex ofrece para esto sin variables globales. */
 typedef struct {
-    ZfsmCliClaseDeVerbo clase;
-    void* ctx;
     int arrancado;
 } ContextoLex;
 
 void zfsmcliset_extra(void* user, void* scanner);
 void* zfsmcliget_extra(void* scanner);
 
-int zfsmCliAnaliza(const char* linea, ZfsmCliClaseDeVerbo clase, void* ctx, AnalisisCli* out) {
+int zfsmCliAnaliza(const char* linea, AnalisisCli* out) {
     memset(out, 0, sizeof(*out));
     void* scanner = NULL;
     if (zfsmclilex_init(&scanner) != 0) {
@@ -91,8 +93,6 @@ int zfsmCliAnaliza(const char* linea, ZfsmCliClaseDeVerbo clase, void* ctx, Anal
         return 1;
     }
     ContextoLex extra;
-    extra.clase = clase;
-    extra.ctx = ctx;
     extra.arrancado = 0;
     zfsmcliset_extra(&extra, scanner);
     void* buf = zfsmcli_scan_string(linea, scanner);

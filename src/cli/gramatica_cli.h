@@ -16,6 +16,7 @@ namespace zfsmgr::cli {
 
 struct LineaAnalizada {
     bool vacia{false};
+    bool verboDesconocido{false};
     std::string verbo;
     std::string objetivo;  // vacío = el sitio actual
     std::multimap<std::string, std::string> ranuras;

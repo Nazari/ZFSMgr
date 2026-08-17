@@ -325,9 +325,15 @@ Ficheros:
   al daemon para saber qué pools existen.
 - `src/cli/gramatica.y` — la gramática, con `%expect 0`: si alguien introduce una
   ambigüedad, el build falla.
-- `src/cli/gramatica_cli.cpp` — la frontera con C++ y el clasificador: **la forma de cada
-  verbo se DERIVA de la firma declarada en el catálogo**. Por eso hay una producción por
-  forma y no una por verbo, y añadir una orden sigue siendo una fila en una tabla.
+- `src/cli/gramatica_cli.cpp` — la frontera con C++: convierte el resultado en estructuras
+  del proyecto y traduce «syntax error» a algo útil usando la firma del catálogo.
+
+**Una producción por ORDEN, no por «forma» compartida.** La primera versión clasificaba los
+verbos por forma —diez formas para 46 órdenes— y derivaba la clase de la firma declarada.
+Se descartó: la gramática se lee peor y, sobre todo, **cambiar la sintaxis de una orden
+obligaba a averiguar antes qué otras usaban su misma forma** y decidir si había que
+partirla. Con una regla por orden, tocar `scrub` es editar la línea de `scrub`. Es más
+largo y compensa.
 - `src/cli/generado/` — lo generado, en el repositorio: el agente y la interfaz se cruzan
   dentro de un contenedor y exigir bison/flex allí sería una dependencia a cambio de nada.
   Se regenera con `scripts/genera_gramatica.sh`.

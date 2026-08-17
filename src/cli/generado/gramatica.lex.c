@@ -802,15 +802,45 @@ static const flex_int16_t yy_chk[439] =
 #include <stdlib.h>
 #include <string.h>
 
-/* La clase del verbo. El léxico la pregunta al catálogo para el PRIMER componente de la
- * línea; a partir de ahí, las palabras son palabras.
+/* La tabla de VERBOS. El primer componente de la línea se busca aquí y se devuelve su
+ * token; a partir de ahí, las palabras son palabras.
  *
- * Es realimentación léxica, sí, y es lo que permite tener UNA producción por FORMA de orden
- * en vez de una por verbo: añadir una orden es una fila en una tabla y no una regla nueva.
+ * Está en el léxico y no en otro sitio a propósito: junto a la gramática, un verbo nuevo se
+ * ve de un vistazo —una fila aquí, un token y una producción allá— y todo lo que define la
+ * sintaxis queda en estos dos ficheros. `zfsmgr_gramatica_cli_test` comprueba que ninguna
+ * orden del catálogo se queda sin fila.
  */
+static const struct { const char* nombre; int token; } kVerbos[] = {
+    {"cd", V_CD}, {"ls", V_LS}, {"pwd", V_PWD}, {"info", V_INFO},
+    {"help", V_HELP}, {"exit", V_EXIT}, {"quit", V_EXIT}, {"format", V_FORMAT}, {"yes", V_YES},
+    {"connect", V_CONNECT}, {"disconnect", V_DISCONNECT}, {"refresh", V_REFRESH},
+    {"edit", V_EDIT}, {"devices", V_DEVICES}, {"install-daemon", V_INSTALL_DAEMON},
+    {"jobs", V_JOBS}, {"job", V_JOB}, {"import", V_IMPORT},
+    {"flush", V_FLUSH}, {"upgrade", V_UPGRADE}, {"reguid", V_REGUID}, {"export", V_EXPORT},
+    {"status", V_STATUS}, {"history", V_HISTORY},
+    {"scrub", V_SCRUB}, {"trim", V_TRIM}, {"initialize", V_INITIALIZE}, {"clear", V_CLEAR},
+    {"create", V_CREATE}, {"destroy", V_DESTROY}, {"rename", V_RENAME},
+    {"mount", V_MOUNT}, {"unmount", V_UNMOUNT}, {"promote", V_PROMOTE},
+    {"get", V_GET}, {"set", V_SET}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
+    {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},
+    {"clone", V_CLONE}, {"diff", V_DIFF}, {"copy", V_COPY},
+    {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
+    {"breakdown", V_BREAKDOWN}, {"assemble", V_ASSEMBLE},
+    {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC},
+    {0, 0}
+};
+
+static int tokenDeVerbo(const char* v) {
+    int i;
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strcmp(kVerbos[i].nombre, v) == 0) {
+            return kVerbos[i].token;
+        }
+    }
+    return V_DESCONOCIDO;
+}
+
 typedef struct {
-    ZfsmCliClaseDeVerbo clase;
-    void* ctx;
     int arrancado;
 } ContextoLex;
 
@@ -835,13 +865,13 @@ static char* sinComillas(const char* s, int n) {
     p[j] = 0;
     return p;
 }
-#line 839 "generado/gramatica.lex.c"
+#line 869 "generado/gramatica.lex.c"
 #define YY_NO_INPUT 1
 /* El primer componente de la línea es el VERBO y se trata aparte. */
 
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
  * `@` o `#`, o ser uno de los tres atajos de navegación. */
-#line 845 "generado/gramatica.lex.c"
+#line 875 "generado/gramatica.lex.c"
 
 #define INITIAL 0
 #define VERBO 1
@@ -1112,11 +1142,11 @@ YY_DECL
 		}
 
 	{
-#line 75 "gramatica.l"
+#line 105 "gramatica.l"
 
 
 
-#line 79 "gramatica.l"
+#line 109 "gramatica.l"
     /* Se empieza esperando el VERBO, y una sola vez.
      *
      * Con una marca explícita y no mirando `yy_start`: `INITIAL` vale 1, así que la
@@ -1131,7 +1161,7 @@ YY_DECL
     }
 
 
-#line 1135 "generado/gramatica.lex.c"
+#line 1165 "generado/gramatica.lex.c"
 
 	while ( /*CONSTCOND*/1 )		/* loops until end-of-file is reached */
 		{
@@ -1186,101 +1216,100 @@ do_action:	/* This label is used only to access EOF actions. */
 
 case 1:
 YY_RULE_SETUP
-#line 93 "gramatica.l"
+#line 123 "gramatica.l"
 { /* separador delante del verbo */ }
 	YY_BREAK
 case 2:
 /* rule 2 can match eol */
 YY_RULE_SETUP
-#line 94 "gramatica.l"
+#line 124 "gramatica.l"
 {
-                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
                         yylval->texto = copia(yytext, yyleng);
-                        return cx->clase(yylval->texto, cx->ctx);
+                        return tokenDeVerbo(yylval->texto);
                     }
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 101 "gramatica.l"
+#line 130 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 4:
 YY_RULE_SETUP
-#line 103 "gramatica.l"
+#line 132 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_START; }
 	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 104 "gramatica.l"
+#line 133 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_STOP; }
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 105 "gramatica.l"
+#line 134 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_CANCEL; }
 	YY_BREAK
 case 7:
 YY_RULE_SETUP
-#line 106 "gramatica.l"
+#line 135 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_PAUSE; }
 	YY_BREAK
 case 8:
 YY_RULE_SETUP
-#line 107 "gramatica.l"
+#line 136 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_SUSPEND; }
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 109 "gramatica.l"
+#line 138 "gramatica.l"
 { yylval->texto = copia(yytext + 2, yyleng - 2); return OPCION_LARGA; }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 110 "gramatica.l"
+#line 139 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return OPCION_CORTA; }
 	YY_BREAK
 case 11:
 /* rule 11 can match eol */
 YY_RULE_SETUP
-#line 111 "gramatica.l"
+#line 140 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 12:
 /* rule 12 can match eol */
 YY_RULE_SETUP
-#line 112 "gramatica.l"
+#line 141 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 13:
 /* rule 13 can match eol */
 YY_RULE_SETUP
-#line 114 "gramatica.l"
+#line 143 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 14:
 /* rule 14 can match eol */
 YY_RULE_SETUP
-#line 115 "gramatica.l"
+#line 144 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 15:
 /* rule 15 can match eol */
 YY_RULE_SETUP
-#line 117 "gramatica.l"
+#line 146 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 16:
 YY_RULE_SETUP
-#line 119 "gramatica.l"
+#line 148 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 121 "gramatica.l"
+#line 150 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 1284 "generado/gramatica.lex.c"
+#line 1313 "generado/gramatica.lex.c"
 case YY_STATE_EOF(INITIAL):
 case YY_STATE_EOF(VERBO):
 	yyterminate();
@@ -2425,6 +2454,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 121 "gramatica.l"
+#line 150 "gramatica.l"
 
 

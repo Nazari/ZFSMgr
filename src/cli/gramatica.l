@@ -21,15 +21,45 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* La clase del verbo. El léxico la pregunta al catálogo para el PRIMER componente de la
- * línea; a partir de ahí, las palabras son palabras.
+/* La tabla de VERBOS. El primer componente de la línea se busca aquí y se devuelve su
+ * token; a partir de ahí, las palabras son palabras.
  *
- * Es realimentación léxica, sí, y es lo que permite tener UNA producción por FORMA de orden
- * en vez de una por verbo: añadir una orden es una fila en una tabla y no una regla nueva.
+ * Está en el léxico y no en otro sitio a propósito: junto a la gramática, un verbo nuevo se
+ * ve de un vistazo —una fila aquí, un token y una producción allá— y todo lo que define la
+ * sintaxis queda en estos dos ficheros. `zfsmgr_gramatica_cli_test` comprueba que ninguna
+ * orden del catálogo se queda sin fila.
  */
+static const struct { const char* nombre; int token; } kVerbos[] = {
+    {"cd", V_CD}, {"ls", V_LS}, {"pwd", V_PWD}, {"info", V_INFO},
+    {"help", V_HELP}, {"exit", V_EXIT}, {"quit", V_EXIT}, {"format", V_FORMAT}, {"yes", V_YES},
+    {"connect", V_CONNECT}, {"disconnect", V_DISCONNECT}, {"refresh", V_REFRESH},
+    {"edit", V_EDIT}, {"devices", V_DEVICES}, {"install-daemon", V_INSTALL_DAEMON},
+    {"jobs", V_JOBS}, {"job", V_JOB}, {"import", V_IMPORT},
+    {"flush", V_FLUSH}, {"upgrade", V_UPGRADE}, {"reguid", V_REGUID}, {"export", V_EXPORT},
+    {"status", V_STATUS}, {"history", V_HISTORY},
+    {"scrub", V_SCRUB}, {"trim", V_TRIM}, {"initialize", V_INITIALIZE}, {"clear", V_CLEAR},
+    {"create", V_CREATE}, {"destroy", V_DESTROY}, {"rename", V_RENAME},
+    {"mount", V_MOUNT}, {"unmount", V_UNMOUNT}, {"promote", V_PROMOTE},
+    {"get", V_GET}, {"set", V_SET}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
+    {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},
+    {"clone", V_CLONE}, {"diff", V_DIFF}, {"copy", V_COPY},
+    {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
+    {"breakdown", V_BREAKDOWN}, {"assemble", V_ASSEMBLE},
+    {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC},
+    {0, 0}
+};
+
+static int tokenDeVerbo(const char* v) {
+    int i;
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strcmp(kVerbos[i].nombre, v) == 0) {
+            return kVerbos[i].token;
+        }
+    }
+    return V_DESCONOCIDO;
+}
+
 typedef struct {
-    ZfsmCliClaseDeVerbo clase;
-    void* ctx;
     int arrancado;
 } ContextoLex;
 
@@ -91,10 +121,9 @@ PALABRA     [^ \t=][^ \t]*
 
 <VERBO>{ESPACIO}    { /* separador delante del verbo */ }
 <VERBO>[^ \t]+      {
-                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
                         yylval->texto = copia(yytext, yyleng);
-                        return cx->clase(yylval->texto, cx->ctx);
+                        return tokenDeVerbo(yylval->texto);
                     }
 
 {ESPACIO}       { /* separador */ }

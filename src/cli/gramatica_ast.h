@@ -18,6 +18,7 @@ typedef struct {
 
 typedef struct {
     int vacia;
+    int verboDesconocido; /* el verbo no está en la tabla del léxico */
     char* verbo;
     char* objetivo;                              /* la URL o el id de conexión, o NULL */
     ZfsmCliPar ranuras[ZFSMCLI_MAX_COMPONENTES]; /* nombre de ranura -> valor, en orden */
@@ -30,6 +31,7 @@ typedef struct {
 } AnalisisCli;
 
 void astVerbo(AnalisisCli* r, char* verbo);
+void astVerboDesconocido(AnalisisCli* r, char* verbo);
 void astObjetivo(AnalisisCli* r, char* url);
 void astRanura(AnalisisCli* r, const char* nombre, char* valor);
 void astOpcion(AnalisisCli* r, char* nombre, char* valor);
@@ -37,10 +39,8 @@ void astBandera(AnalisisCli* r, char* bandera);
 void astError(AnalisisCli* r, const char* msg);
 void astLibera(AnalisisCli* r);
 
-/* Analiza una línea. Devuelve 0 si fue bien. `clase` dice, para un verbo dado, qué forma
- * tiene; la pone quien conoce el catálogo. */
-typedef int (*ZfsmCliClaseDeVerbo)(const char* verbo, void* ctx);
-int zfsmCliAnaliza(const char* linea, ZfsmCliClaseDeVerbo clase, void* ctx, AnalisisCli* out);
+/* Analiza una línea. Devuelve 0 si fue bien. */
+int zfsmCliAnaliza(const char* linea, AnalisisCli* out);
 
 #ifdef __cplusplus
 }

@@ -88,6 +88,18 @@ int main() {
         comprueba(a.vacia, "una línea vacía es válida y no es un error");
     }
 
+    // --- NINGUNA orden del catálogo puede quedarse sin su producción.
+    //
+    // El léxico reconoce los verbos con una tabla; si alguien añade una orden al catálogo y
+    // olvida la fila, la línea se analiza como «orden desconocida» y el usuario recibe un
+    // error raro. Esto lo caza aquí, que es donde se quiere que se cace.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        const auto a = analizaLinea(std::string(o.nombre) + " --on /x/y");
+        comprueba(!a.verboDesconocido,
+                  std::string("«") + o.nombre + "» no la reconoce el léxico: ¿falta su fila en "
+                  "kVerbos y su producción en gramatica.y?");
+    }
+
     // --- Toda firma declarada tiene que encajar en la gramática, en las dos direcciones.
     //
     // Con ranuras OBLIGATORIAS, la orden sola tiene que FALLAR —`create` sin nombre no es

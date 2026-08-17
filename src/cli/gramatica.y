@@ -1,24 +1,25 @@
 %{
 /* Gramática LALR(1) de la línea del intérprete.
  *
- * Por qué existe, con franqueza: lo que había antes resolvía las ambigüedades con reglas
- * de precedencia escritas a mano —«primero mira si nombra un pool, luego si lo quiere la
- * ranura, luego si vale como destino»—, y esas reglas se descubrían EJECUTANDO órdenes y
- * viendo salidas raras. `get compression` preguntaba por el dataset
- * `tank/datos/compression`; `trim <pool> <disco>` mandaba el disco donde iba el pool.
- * Ninguno de los dos fallaba al compilar.
+ * Por qué existe: lo que había antes resolvía las ambigüedades con reglas de precedencia
+ * escritas a mano —«primero mira si nombra un pool, luego si lo quiere la ranura, luego si
+ * vale como destino»— y esas reglas se descubrían EJECUTANDO órdenes y viendo salidas
+ * raras. `get compression` preguntaba por el dataset `tank/datos/compression`;
+ * `trim <pool> <disco>` mandaba el disco donde iba el pool. Ninguno fallaba al compilar.
  *
- * Aquí, una ambigüedad es un CONFLICTO que bison reporta al construir. Es la diferencia
- * entre una regla que hay que recordar y una que se comprueba sola: `%expect 0` hace que
- * el build falle si alguien introduce una.
+ * Aquí una ambigüedad es un CONFLICTO que bison reporta al construir, con el caso concreto
+ * delante. `%expect 0` hace que el build falle si alguien introduce una.
  *
- * **Se apoya en dos decisiones que hacen la gramática posible:**
+ * **UNA PRODUCCIÓN POR ORDEN, no por «forma» compartida.** Es más largo, y es a propósito:
+ * así la gramática se lee como la lista de lo que se puede teclear, y cambiar la sintaxis
+ * de una orden es editar SU regla. Con formas compartidas había que averiguar primero qué
+ * otras órdenes usaban la misma y decidir si se partía en dos, que es justo la fricción
+ * que uno no quiere al tocar la sintaxis.
  *
- *  1. Una URL y una palabra son componentes distintos, y se distinguen por su FORMA
- *     (`gramatica.l`). Por eso `flush /local/tank` es un destino y `scrub stop` no.
- *  2. El verbo se clasifica por su FORMA —qué objetivo y qué ranuras admite— leyéndolo del
- *     catálogo de `ayuda.cpp`. Así la gramática tiene una producción por forma y no una por
- *     verbo: añadir una orden es una fila en una tabla, no tocar esto.
+ * **Lo que hace posible la gramática está en el léxico**: una URL y una palabra son
+ * componentes DISTINTOS y se distinguen por su forma. Por eso `scrub stop` y
+ * `scrub /local/tank` no son la misma frase, y no hace falta preguntarle al daemon qué
+ * pools existen para saberlo.
  *
  * Ver docs/gramatica_cli.md.
  */
@@ -31,12 +32,6 @@
 #include "gramatica_ast.h"
 }
 
-/* Y estas van DESPUÉS del %union, porque usan su tipo. */
-%code provides {
-int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
-void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
-}
-
 %define api.pure full
 %define api.prefix {zfsmcli}
 %lex-param   {void* scanner}
@@ -47,29 +42,28 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
     char* texto;
 }
 
+/* Y estas van DESPUÉS del %union, porque usan su tipo. */
+%code provides {
+int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
+void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
+}
+
 %token <texto> URL PALABRA ASIGNACION OPCION_LARGA OPCION_CORTA
 %token <texto> FASE_START FASE_STOP FASE_CANCEL FASE_PAUSE FASE_SUSPEND
 %token CARACTER_MALO
 
-/* Una clase de verbo por FORMA. El léxico decide cuál devuelve mirando el catálogo. */
-%token <texto> V_NADA          /* sin objetivo ni ranuras: help, exit               */
-%token <texto> V_TEXTO         /* sin objetivo, una palabra: format, help <orden>   */
-%token <texto> V_CUALQUIERA    /* vale en cualquier nodo: ls, cd, info              */
-%token <texto> V_CONN          /* @conexion: install-daemon, refresh, jobs          */
-%token <texto> V_CONN_TEXTO    /* @conexion <palabra>: import, job                  */
-%token <texto> V_POOL          /* @pool: flush, upgrade, status                     */
-%token <texto> V_POOL_FASE     /* @pool [fase]: scrub                               */
-%token <texto> V_POOL_FASE_VDEV/* @pool [fase] [vdev]: trim, initialize             */
-%token <texto> V_POOL_VDEV     /* @pool [vdev]: clear                               */
-%token <texto> V_DS            /* @dataset: mount, promote, load-key                */
-%token <texto> V_DS_TEXTO_OPC  /* @dataset [palabra]: get                           */
-%token <texto> V_DS_ASIGNA     /* @dataset asignacion+: set                         */
-%token <texto> V_DS_URL        /* @dataset <url>: rsync, clone, diff                */
-%token <texto> V_DS_RUTA       /* @dataset <ruta>: todir, fromdir                   */
-%token <texto> V_DS_TEXTO_MAS  /* @dataset texto+: create, breakdown, assemble      */
-%token <texto> V_SNAP          /* @instantanea: rollback, holds                     */
-%token <texto> V_SNAP_TEXTO    /* @instantanea <texto>: hold, release               */
-%token <texto> V_SNAP_URL      /* @instantanea <url>: copy                          */
+/* Un token por VERBO. El léxico los reconoce con su tabla de palabras clave. */
+%token <texto> V_CD V_LS V_PWD V_INFO V_HELP V_EXIT V_FORMAT V_YES
+%token <texto> V_CONNECT V_DISCONNECT V_REFRESH V_EDIT V_DEVICES V_INSTALL_DAEMON
+%token <texto> V_JOBS V_JOB V_IMPORT
+%token <texto> V_FLUSH V_UPGRADE V_REGUID V_EXPORT V_STATUS V_HISTORY
+%token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
+%token <texto> V_CREATE V_DESTROY V_RENAME V_MOUNT V_UNMOUNT V_PROMOTE
+%token <texto> V_GET V_SET V_LOAD_KEY V_UNLOAD_KEY
+%token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_COPY
+%token <texto> V_ALLOW V_UNALLOW
+%token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
+%token <texto> V_DESCONOCIDO
 
 %type <texto> palabra valor_opcion componente_texto
 
@@ -78,79 +72,129 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %%
 
 linea
-    : /* vacía */                       { res->vacia = 1; }
+    : /* vacía */                        { res->vacia = 1; }
     | orden opciones
     ;
 
-/* Una producción por FORMA de verbo. El objetivo posicional es SIEMPRE una URL: es lo que
- * permite que una palabra suelta no compita con él. La excepción es `V_CONN`, donde una
- * conexión se nombra por su identificador y no lleva barra. */
 orden
-    : V_NADA                                   { astVerbo(res, $1); }
-    | V_TEXTO texto_opt                        { astVerbo(res, $1); }
-    | V_CUALQUIERA url_opt                     { astVerbo(res, $1); }
-    | V_CONN conexion_opt                      { astVerbo(res, $1); }
-    /* La conexión va por URL —o por `--on`— y no como palabra: aquí la palabra ya es la
-     * ranura, y admitir las dos formas volvería a hacer ambiguo `job <id>`. */
-    | V_CONN_TEXTO url_opt palabra             { astVerbo(res, $1); astRanura(res, "texto", $3); }
-    | V_POOL url_opt                           { astVerbo(res, $1); }
-    | V_POOL_FASE url_opt fase_opt             { astVerbo(res, $1); }
-    | V_DS url_opt                             { astVerbo(res, $1); }
-    | V_DS_TEXTO_OPC url_opt texto_opt         { astVerbo(res, $1); }
-    | V_DS_ASIGNA url_opt asignaciones         { astVerbo(res, $1); }
-    | V_SNAP url_opt                           { astVerbo(res, $1); }
-    | V_SNAP_TEXTO url_opt PALABRA             { astVerbo(res, $1); astRanura(res, "etiqueta", $3); }
-    /* --- Y estas NO llevan destino posicional. No es una omisión: su ranura también
-     * acepta una URL, así que `clear /dev/sda1` sería a la vez «el pool /dev/sda1» y «el
-     * disco sda1 del pool actual». Bison lo reporta como conflicto; la versión escrita a
-     * mano elegía en silencio. Para actuar sobre otro sitio, `--on`. */
-    | V_POOL_FASE_VDEV fase_opt vdev_opt       { astVerbo(res, $1); }
-    | V_POOL_VDEV vdev_opt                     { astVerbo(res, $1); }
-    | V_DS_URL URL                             { astVerbo(res, $1); astRanura(res, "destino", $2); }
-    | V_DS_RUTA ruta                           { astVerbo(res, $1); }
-    | V_DS_TEXTO_MAS textos                    { astVerbo(res, $1); }
-    | V_SNAP_URL URL                           { astVerbo(res, $1); astRanura(res, "destino", $2); }
+/* --- Navegación --------------------------------------------------------------------- */
+    : V_CD url_opt                       { astVerbo(res, $1); }
+    | V_LS url_opt                       { astVerbo(res, $1); }
+    | V_PWD                              { astVerbo(res, $1); }
+    | V_INFO url_opt                     { astVerbo(res, $1); }
+
+/* --- Del intérprete ----------------------------------------------------------------- */
+    | V_HELP                             { astVerbo(res, $1); }
+    | V_HELP palabra                     { astVerbo(res, $1); astRanura(res, "texto", $2); }
+    | V_EXIT                             { astVerbo(res, $1); }
+    | V_YES                              { astVerbo(res, $1); }
+    | V_FORMAT                           { astVerbo(res, $1); }
+    | V_FORMAT palabra                   { astVerbo(res, $1); astRanura(res, "texto", $2); }
+
+/* --- Conexiones ---------------------------------------------------------------------
+ * Una conexión se nombra por su IDENTIFICADOR —`oldlau`—, que no lleva barra, así que aquí
+ * una palabra suelta SÍ puede ser el destino. */
+    | V_CONNECT conexion_opt             { astVerbo(res, $1); }
+    | V_DISCONNECT conexion_opt          { astVerbo(res, $1); }
+    | V_REFRESH conexion_opt             { astVerbo(res, $1); }
+    | V_EDIT conexion_opt                { astVerbo(res, $1); }
+    | V_DEVICES conexion_opt             { astVerbo(res, $1); }
+    | V_INSTALL_DAEMON conexion_opt      { astVerbo(res, $1); }
+    | V_JOBS conexion_opt                { astVerbo(res, $1); }
+/* En estas dos la palabra ya es la ranura, así que la conexión va por URL o por `--on`. */
+    | V_JOB url_opt palabra              { astVerbo(res, $1); astRanura(res, "texto", $3); }
+    | V_IMPORT url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
+
+/* --- Pools --------------------------------------------------------------------------- */
+    | V_FLUSH url_opt                    { astVerbo(res, $1); }
+    | V_UPGRADE url_opt                  { astVerbo(res, $1); }
+    | V_REGUID url_opt                   { astVerbo(res, $1); }
+    | V_EXPORT url_opt                   { astVerbo(res, $1); }
+    | V_STATUS url_opt                   { astVerbo(res, $1); }
+    | V_HISTORY url_opt                  { astVerbo(res, $1); }
+    | V_SCRUB url_opt fase_opt           { astVerbo(res, $1); }
+/* Estas tres NO llevan destino posicional: su ranura también acepta una URL, así que
+ * `clear /dev/sda1` sería a la vez «el pool /dev/sda1» y «el disco del pool actual». Bison
+ * lo señala como conflicto; la versión escrita a mano elegía en silencio. Va por `--on`. */
+    | V_TRIM fase_opt vdev_opt           { astVerbo(res, $1); }
+    | V_INITIALIZE fase_opt vdev_opt     { astVerbo(res, $1); }
+    | V_CLEAR vdev_opt                   { astVerbo(res, $1); }
+
+/* --- Datasets ------------------------------------------------------------------------ */
+    | V_MOUNT url_opt                    { astVerbo(res, $1); }
+    | V_UNMOUNT url_opt                  { astVerbo(res, $1); }
+    | V_PROMOTE url_opt                  { astVerbo(res, $1); }
+    | V_DESTROY url_opt                  { astVerbo(res, $1); }
+    | V_LOAD_KEY url_opt                 { astVerbo(res, $1); }
+    | V_UNLOAD_KEY url_opt               { astVerbo(res, $1); }
+    | V_RENAME url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
+    | V_GET url_opt texto_opt            { astVerbo(res, $1); }
+    | V_SET url_opt asignaciones         { astVerbo(res, $1); }
+    | V_CREATE textos                    { astVerbo(res, $1); }
+    | V_CLONE textos                     { astVerbo(res, $1); }
+    | V_ALLOW textos                     { astVerbo(res, $1); }
+    | V_UNALLOW textos                   { astVerbo(res, $1); }
+
+/* --- Instantáneas -------------------------------------------------------------------- */
+    | V_ROLLBACK url_opt                 { astVerbo(res, $1); }
+    | V_HOLDS url_opt                    { astVerbo(res, $1); }
+    | V_HOLD url_opt palabra             { astVerbo(res, $1); astRanura(res, "etiqueta", $3); }
+    | V_RELEASE url_opt palabra          { astVerbo(res, $1); astRanura(res, "etiqueta", $3); }
+
+/* --- Acciones sobre los DATOS --------------------------------------------------------
+ * Llevan una URL o una ruta como argumento, así que el origen va por `--on`/`--from` y no
+ * posicionalmente: si no, no habría forma de saber cuál de las dos URL es cuál. */
+    | V_COPY URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
+    | V_RSYNC URL                        { astVerbo(res, $1); astRanura(res, "destino", $2); }
+    | V_DIFF URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
+    | V_TODIR ruta                       { astVerbo(res, $1); }
+    | V_FROMDIR ruta                     { astVerbo(res, $1); }
+    | V_BREAKDOWN textos                 { astVerbo(res, $1); }
+    | V_ASSEMBLE textos                  { astVerbo(res, $1); }
+
+/* Una orden que no está en la tabla del léxico. Se acepta a propósito para que el error que
+ * vea el usuario sea «orden desconocida» y no un fallo de sintaxis, que no le diría nada. */
+    | V_DESCONOCIDO                      { astVerboDesconocido(res, $1); }
     ;
+
+/* --- Piezas comunes ------------------------------------------------------------------ */
 
 url_opt
     : /* nada: el sitio actual */
-    | URL                                      { astObjetivo(res, $1); }
+    | URL                                { astObjetivo(res, $1); }
     ;
 
-/* Una conexión se nombra por su identificador —`oldlau`—, así que aquí sí se admite una
- * palabra. No hay ambigüedad porque estas órdenes no tienen ranuras de palabra. */
 conexion_opt
     : /* nada */
-    | URL                                      { astObjetivo(res, $1); }
-    | PALABRA                                  { astObjetivo(res, $1); }
+    | URL                                { astObjetivo(res, $1); }
+    | PALABRA                            { astObjetivo(res, $1); }
     ;
 
 fase_opt
     : /* nada */
-    | FASE_START                               { astRanura(res, "fase", $1); }
-    | FASE_STOP                                { astRanura(res, "fase", $1); }
-    | FASE_CANCEL                              { astRanura(res, "fase", $1); }
-    | FASE_PAUSE                               { astRanura(res, "fase", $1); }
-    | FASE_SUSPEND                             { astRanura(res, "fase", $1); }
+    | FASE_START                         { astRanura(res, "fase", $1); }
+    | FASE_STOP                          { astRanura(res, "fase", $1); }
+    | FASE_CANCEL                        { astRanura(res, "fase", $1); }
+    | FASE_PAUSE                         { astRanura(res, "fase", $1); }
+    | FASE_SUSPEND                       { astRanura(res, "fase", $1); }
     ;
 
 vdev_opt
     : /* nada */
-    | PALABRA                                  { astRanura(res, "disco", $1); }
-    | URL                                      { astRanura(res, "disco", $1); }
+    | PALABRA                            { astRanura(res, "disco", $1); }
+    | URL                                { astRanura(res, "disco", $1); }
     ;
 
 texto_opt
     : /* nada */
-    | palabra                                  { astRanura(res, "texto", $1); }
+    | palabra                            { astRanura(res, "texto", $1); }
     ;
 
 /* Una lista de componentes libres: `create <nombre> [prop=valor...]`,
- * `breakdown <directorio> <hijo> ...`. Admite URL y asignaciones porque ahí caben las tres
- * formas: `create @ayer`, `create hijo` y `create hijo compression=lz4`. */
+ * `breakdown <directorio> <hijo> ...`. */
 textos
-    : componente_texto                         { astRanura(res, "texto", $1); }
-    | textos componente_texto                  { astRanura(res, "texto", $2); }
+    : componente_texto                   { astRanura(res, "texto", $1); }
+    | textos componente_texto            { astRanura(res, "texto", $2); }
     ;
 
 componente_texto
@@ -160,13 +204,13 @@ componente_texto
     ;
 
 ruta
-    : URL                                      { astRanura(res, "ruta", $1); }
-    | PALABRA                                  { astRanura(res, "ruta", $1); }
+    : URL                                { astRanura(res, "ruta", $1); }
+    | PALABRA                            { astRanura(res, "ruta", $1); }
     ;
 
 asignaciones
-    : ASIGNACION                               { astRanura(res, "props", $1); }
-    | asignaciones ASIGNACION                  { astRanura(res, "props", $2); }
+    : ASIGNACION                         { astRanura(res, "props", $1); }
+    | asignaciones ASIGNACION            { astRanura(res, "props", $2); }
     ;
 
 /* Las palabras clave de fase valen también como palabra corriente donde no compiten: un
@@ -179,11 +223,12 @@ palabra
     | FASE_PAUSE     { $$ = $1; }
     | FASE_SUSPEND   { $$ = $1; }
     ;
+
 opciones
     : /* nada */
-    | opciones OPCION_LARGA                    { astOpcion(res, $2, 0); }
-    | opciones OPCION_LARGA valor_opcion       { astOpcion(res, $2, $3); }
-    | opciones OPCION_CORTA                    { astBandera(res, $2); }
+    | opciones OPCION_LARGA              { astOpcion(res, $2, 0); }
+    | opciones OPCION_LARGA valor_opcion { astOpcion(res, $2, $3); }
+    | opciones OPCION_CORTA              { astBandera(res, $2); }
     ;
 
 valor_opcion
