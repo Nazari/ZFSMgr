@@ -101,7 +101,7 @@ bool percentDecode(const std::string& s, std::string& out) {
     return true;
 }
 
-std::string ZfsmUrl::nombreZfs() const {
+std::string ZfsmUrl::zfsName() const {
     if (dataset.empty()) {
         return {};
     }
@@ -142,7 +142,7 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
         error = "falta la conexión";
         return false;
     }
-    if (!percentDecode(autoridadCruda, out.conexion) || out.conexion.empty()) {
+    if (!percentDecode(autoridadCruda, out.connection) || out.connection.empty()) {
         error = "conexión mal codificada";
         return false;
     }
@@ -212,8 +212,8 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
             error = "'#' sin sección";
             return false;
         }
-        out.seccion = toLowerAscii(partes.front());
-        out.detalle.assign(partes.begin() + 1, partes.end());
+        out.section = toLowerAscii(partes.front());
+        out.detail.assign(partes.begin() + 1, partes.end());
     }
 
     if (!out.snapshot.empty()) {
@@ -222,17 +222,17 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
         // Uno o veinte tramos, es un dataset: el pool también lo es.
         out.kind = ZfsmKind::Dataset;
     } else {
-        out.kind = ZfsmKind::Conexion;
+        out.kind = ZfsmKind::Connection;
     }
     return true;
 }
 
 std::string formatZfsmUrl(const ZfsmUrl& u) {
-    if (!u.valida() || u.conexion.empty()) {
+    if (!u.isValid() || u.connection.empty()) {
         return {};
     }
     std::string s = kEsquema;
-    s += percentEncodeSegment(u.conexion);
+    s += percentEncodeSegment(u.connection);
     if (!u.dataset.empty()) {
         for (const std::string& tramo : split(u.dataset, "/", true)) {
             s += "/";
@@ -243,10 +243,10 @@ std::string formatZfsmUrl(const ZfsmUrl& u) {
         s += "@";
         s += percentEncodeSegment(u.snapshot);
     }
-    if (!u.seccion.empty()) {
+    if (!u.section.empty()) {
         s += "#";
-        s += percentEncodeSegment(u.seccion);
-        for (const std::string& d : u.detalle) {
+        s += percentEncodeSegment(u.section);
+        for (const std::string& d : u.detail) {
             s += "/";
             s += percentEncodeSegment(d);
         }

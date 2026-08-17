@@ -3,58 +3,63 @@
 #include <string>
 #include <vector>
 
-// `zfsm://` — nombrar cualquier elemento del árbol.
+// `zfsm://` — naming any element of the tree.
 //
-//     zfsm://<conexión>/<pool>/<dataset>[@snapshot][#<sección>[/<detalle>]]
+//     zfsm://<connection>/<pool>/<dataset>[@snapshot][#<section>[/<detail>]]
 //
-// **La regla, en una frase:** antes de `#` está el objeto ZFS; después de `#`, la ruta
-// DENTRO de ese objeto, con los mismos nombres que se ven en el árbol.
+// **The rule, in one sentence:** before `#` comes the ZFS object; after `#`, the path
+// INSIDE that object, using the same names shown in the tree.
 //
-// No hay casi nada inventado, y es a propósito: un nombre ZFS ya es una ruta separada por
-// `/`, un snapshot ya usa `@`, y un fragmento ya significa «una parte de esto» en
-// cualquier URL. Lo único que se decide aquí es que **la conexión es la autoridad** —el
-// «dónde», que es para lo que existe— y que el primer tramo de la ruta es el pool.
+// Almost nothing here is invented, and that is deliberate: a ZFS name is already a
+// `/`-separated path, a snapshot already uses `@`, and a fragment already means "a part
+// of this" in any URL. The only decisions are that **the connection is the authority**
+// —the "where", which is what an authority is for— and that the first path segment is
+// the pool.
 //
-//     zfsm://unibody                                    la conexión
-//     zfsm://unibody#daemon                             su pestaña Daemon
-//     zfsm://unibody/sback                             el pool, que TAMBIÉN es un dataset
-//     zfsm://unibody/sback@antes                       su snapshot
-//     zfsm://unibody/sback/user                        un dataset
-//     zfsm://unibody/sback/user@ayer                   un snapshot
-//     zfsm://unibody/sback/user#properties/compression una propiedad
-//     zfsm://unibody/sback/user#content/docs/a.pdf     un fichero dentro
+//     zfsm://unibody                                    the connection
+//     zfsm://unibody#daemon                             its Daemon tab
+//     zfsm://unibody/sback                              the pool, which IS ALSO a dataset
+//     zfsm://unibody/sback@before                       its snapshot
+//     zfsm://unibody/sback/user                         a dataset
+//     zfsm://unibody/sback/user@yesterday               a snapshot
+//     zfsm://unibody/sback/user#properties/compression  a property
+//     zfsm://unibody/sback/user#content/docs/a.pdf      a file inside
 //
-// **Por ahora solo NOMBRA.** Resolver —ir a buscar lo que nombra, abrirlo en el árbol,
-// aceptarlo desde la línea de órdenes del sistema— vendrá después y se construye encima
-// sin cambiar nada de esto: por eso el resultado del análisis es una estructura y no una
-// cadena troceada a medias.
+// **For now it only NAMES.** Resolving —going to fetch what it names, opening it in the
+// tree, accepting it from the system command line— comes later and is built on top
+// without changing any of this: that is why parsing returns a structure and not a
+// half-split string.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// **This API is in English, unlike the rest of this layer.** `zfsm://` is a PUBLIC
+// interface: the CLI uses it, integrators will use it, and it will end up documented
+// outside. The rest of `base/` is internal and stays in Spanish, the project's language.
+//
+// See docs/diseno_tecnico_url_zfsm.md.
 namespace zfsmgr::base {
 
-// Qué nombra la URL.
+// What the URL names.
 //
-// **No hay una clase «pool» aparte, y no es un olvido:** en ZFS el pool ES un dataset
-// —`zfs list sback` lo devuelve, y `zfs snapshot sback@antes` funciona—. Tenerlo como
-// clase distinta era una mentira que además impedía nombrar el snapshot de un pool. Para
-// saber si un dataset es la raíz de su pool está `esRaizDePool()`.
+// **There is no separate "pool" kind, and that is not an oversight:** in ZFS a pool IS a
+// dataset —`zfs list sback` returns it, and `zfs snapshot sback@before` works—. Having it
+// as a distinct kind was a lie in the model, and it also made it impossible to name a
+// pool's snapshot. To tell whether a dataset is its pool's root, use `isPoolRoot()`.
 enum class ZfsmKind {
-    Invalida,
-    Conexion,   // zfsm://unibody
+    Invalid,
+    Connection,  // zfsm://unibody
     Dataset,    // zfsm://unibody/sback  y  zfsm://unibody/sback/user
     Snapshot,   // zfsm://unibody/sback@antes  y  zfsm://unibody/sback/user@ayer
 };
 
-// Nombres de sección que la aplicación conoce hoy.
+// Section names the application knows today.
 //
-// **En inglés, aunque el árbol se vea en español o en chino.** Una URL es un
-// identificador, no texto para leer: si el literal dependiera del idioma de quien la
-// escribió, la misma cosa tendría tres nombres y ninguno serviría para guardarla o
-// compararla.
+// **In English, even though the tree may be shown in Spanish or Chinese.** A URL is an
+// identifier, not text to read: if the literal depended on the language of whoever wrote
+// it, the same thing would have three names and none would be usable for storing or
+// comparing.
 //
-// Se aceptan otros nombres: una sección desconocida es válida y quien la resuelva
-// decidirá qué hacer. Rechazarlas obligaría a tocar este fichero cada vez que el árbol
-// gane una pestaña.
+// Other names are accepted: an unknown section is valid and whoever resolves it decides
+// what to do. Rejecting them would mean touching this file every time the tree gains a
+// tab.
 namespace zfsmSection {
 constexpr const char* kContent = "content";
 constexpr const char* kProperties = "properties";
@@ -64,52 +69,52 @@ constexpr const char* kDaemon = "daemon";
 }  // namespace zfsmSection
 
 struct ZfsmUrl {
-    ZfsmKind kind{ZfsmKind::Invalida};
+    ZfsmKind kind{ZfsmKind::Invalid};
 
-    // La conexión, tal cual se escribió. Es su identificador o su nombre; quién lo
-    // resuelve no es asunto de esta capa.
-    std::string conexion;
+    // The connection, exactly as written. It is its id or its name; who resolves that is
+    // not this layer's business.
+    std::string connection;
 
-    // El pool: el primer tramo de la ruta. Vacío si la URL solo nombra la conexión.
+    // The pool: the first path segment. Empty if the URL only names the connection.
     std::string pool;
 
-    // El nombre ZFS COMPLETO, con el pool delante: «sback/user/docs». Es lo que se le
-    // pasa a `zfs`, así que se guarda ya montado y no en trozos.
+    // The FULL ZFS name, pool included: "sback/user/docs". This is what gets passed to
+    // `zfs`, so it is stored already assembled rather than in pieces.
     std::string dataset;
 
-    // Sin el `@`. Vacío si no es un snapshot.
+    // Without the `@`. Empty if this is not a snapshot.
     std::string snapshot;
 
-    // En minúsculas, sin el `#`. Vacío si no hay fragmento.
-    std::string seccion;
+    // Lowercased, without the `#`. Empty if there is no fragment.
+    std::string section;
 
-    // Lo que sigue a la sección, ya descodificado y por tramos:
-    // `#contenido/docs/a.pdf` -> {"docs", "a.pdf"}; `#propiedades/compression` ->
+    // What follows the section, already decoded and split:
+    // `#content/docs/a.pdf` -> {"docs", "a.pdf"}; `#properties/compression` ->
     // {"compression"}.
-    std::vector<std::string> detalle;
+    std::vector<std::string> detail;
 
-    bool valida() const { return kind != ZfsmKind::Invalida; }
+    bool isValid() const { return kind != ZfsmKind::Invalid; }
 
-    // ¿El dataset nombrado es la raíz de su pool? Es lo que sustituye a la antigua clase
-    // «pool», sin fingir que sea otra cosa que un dataset.
-    bool esRaizDePool() const { return !dataset.empty() && dataset == pool; }
+    // Is the named dataset its pool's root? This replaces the former "pool" kind without
+    // pretending it is anything other than a dataset.
+    bool isPoolRoot() const { return !dataset.empty() && dataset == pool; }
 
-    // `dataset@snapshot`, que es como lo escribe ZFS. Sin snapshot, solo el dataset.
-    std::string nombreZfs() const;
+    // `dataset@snapshot`, the way ZFS writes it. Without a snapshot, just the dataset.
+    std::string zfsName() const;
 };
 
-// Analiza. Devuelve false y explica en `error` qué falta o sobra.
+// Parses. Returns false and explains in `error` what is missing or extra.
 //
-// Es estricto con lo que puede ocultar un fallo —esquema equivocado, conexión vacía, dos
-// `@`— y tolerante con lo que no —una sección que no conoce, una barra final—.
+// Strict about anything that could hide a mistake —wrong scheme, empty connection, two
+// `@`— and lenient about anything that could not —an unknown section, a trailing slash—.
 bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error);
 
-// La vuelta: reconstruye el texto, codificando lo que haga falta. `parse(format(x)) == x`
-// para toda URL válida, que es lo que impide que la ida y la vuelta se separen.
+// The way back: rebuilds the text, encoding whatever needs it. `parse(format(x)) == x`
+// for every valid URL, which is what keeps the two halves from drifting apart.
 std::string formatZfsmUrl(const ZfsmUrl& u);
 
-// Codificación por-ciento de un tramo, según RFC 3986. Se expone porque quien construya
-// una URL a mano la necesita: ZFS admite espacios en los nombres.
+// Percent-encoding of one segment, per RFC 3986. Exposed because anyone building a URL by
+// hand needs it: ZFS allows spaces in names.
 std::string percentEncodeSegment(const std::string& s);
 bool percentDecode(const std::string& s, std::string& out);
 

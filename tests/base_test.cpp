@@ -768,45 +768,45 @@ int main() {
         std::string err;
 
         // Lo que nombra lo decide cuantos tramos hay, no la seccion.
-        comprobar(U::parseZfsmUrl("zfsm://unibody", u, err) && u.kind == U::ZfsmKind::Conexion,
+        comprobar(U::parseZfsmUrl("zfsm://unibody", u, err) && u.kind == U::ZfsmKind::Connection,
                   "solo conexion");
-        igual(u.conexion, "unibody", "la conexion es la autoridad");
+        igual(u.connection, "unibody", "la conexion es la autoridad");
         // Un pool ES un dataset en ZFS: `zfs list sback` lo devuelve. Por eso no hay
         // clase aparte, y por eso puede tener snapshots.
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback", u, err) && u.kind == U::ZfsmKind::Dataset,
                   "un tramo tambien es un dataset");
-        comprobar(u.esRaizDePool(), "y ademas es la raiz de su pool");
+        comprobar(u.isPoolRoot(), "y ademas es la raiz de su pool");
         igual(u.pool, "sback", "el primer tramo es el pool");
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user", u, err)
-                      && u.kind == U::ZfsmKind::Dataset && !u.esRaizDePool(),
+                      && u.kind == U::ZfsmKind::Dataset && !u.isPoolRoot(),
                   "dos tramos son un dataset que NO es la raiz");
         // El nombre ZFS sale ya montado, que es como se le pasa a `zfs`.
         igual(u.dataset, "sback/user", "el dataset lleva el pool delante");
-        igual(u.nombreZfs(), "sback/user", "nombreZfs sin snapshot");
+        igual(u.zfsName(), "sback/user", "nombreZfs sin snapshot");
 
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user@ayer", u, err)
                       && u.kind == U::ZfsmKind::Snapshot,
                   "con @ es un snapshot");
         igual(u.snapshot, "ayer", "el snapshot va sin @");
         igual(u.dataset, "sback/user", "y el dataset no se lo lleva");
-        igual(u.nombreZfs(), "sback/user@ayer", "nombreZfs como lo escribe ZFS");
+        igual(u.zfsName(), "sback/user@ayer", "nombreZfs como lo escribe ZFS");
 
         // El fragmento es el arbol: seccion y despues la ruta dentro.
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#properties/compression", u, err),
                   "una propiedad");
-        igual(u.seccion, "properties", "la seccion, en ingles");
-        comprobar(u.detalle.size() == 1 && u.detalle[0] == "compression", "el detalle");
+        igual(u.section, "properties", "la seccion, en ingles");
+        comprobar(u.detail.size() == 1 && u.detail[0] == "compression", "el detalle");
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#content/docs/a.pdf", u, err)
-                      && u.detalle.size() == 2 && u.detalle[1] == "a.pdf",
+                      && u.detail.size() == 2 && u.detail[1] == "a.pdf",
                   "un fichero dentro del contenido");
         comprobar(U::parseZfsmUrl("zfsm://unibody#daemon", u, err)
-                      && u.kind == U::ZfsmKind::Conexion && u.seccion == "daemon",
+                      && u.kind == U::ZfsmKind::Connection && u.section == "daemon",
                   "una seccion de la conexion");
         // Una seccion desconocida NO se rechaza: el arbol puede ganar pestañas.
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#loquesea", u, err),
                   "una seccion desconocida se acepta");
         // La seccion no distingue mayusculas.
-        comprobar(U::parseZfsmUrl("zfsm://u/p/d#PROPERTIES", u, err) && u.seccion == "properties",
+        comprobar(U::parseZfsmUrl("zfsm://u/p/d#PROPERTIES", u, err) && u.section == "properties",
                   "la seccion se normaliza a minusculas");
         comprobar(U::parseZfsmUrl("ZFSM://u/p/d", u, err), "el esquema tampoco distingue caja");
 
@@ -827,8 +827,8 @@ int main() {
             std::string pe;
             comprobar(U::parseZfsmUrl("zfsm://OldLau/winpool@snap1", pu, pe), "snapshot de un POOL");
             comprobar(pu.kind == U::ZfsmKind::Snapshot, "y es de clase snapshot");
-            comprobar(pu.esRaizDePool(), "sobre la raiz del pool");
-            igual(pu.nombreZfs(), "winpool@snap1", "nombreZfs del snapshot de un pool");
+            comprobar(pu.isPoolRoot(), "sobre la raiz del pool");
+            igual(pu.zfsName(), "winpool@snap1", "nombreZfs del snapshot de un pool");
         }
 
         // Ida y vuelta: es lo que impide que las dos mitades se separen con el tiempo.

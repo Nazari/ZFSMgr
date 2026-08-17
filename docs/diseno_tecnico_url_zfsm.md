@@ -55,12 +55,18 @@ impedía nombrar el snapshot de un pool, que es un caso normal.
 Las clases son **conexión, dataset y snapshot**. Para saber si un dataset es la raíz de su
 pool está `esRaizDePool()`, sin fingir que sea otra cosa.
 
-## Los literales van en inglés
+## Todo lo público va en inglés
 
-`content`, `properties`, `permissions`, `info`, `daemon` — aunque el árbol se vea en
-español o en chino.
+**Los literales** —`content`, `properties`, `permissions`, `info`, `daemon`—, **la API**
+—`connection`, `section`, `detail`, `isPoolRoot()`, `zfsName()`— y **los nombres de campo
+que saca `url parse`**, porque un guion que haga `grep dataset` depende de ellos.
 
-Una URL es un **identificador**, no texto para leer. Si el literal dependiera del idioma
+Es la excepción del proyecto y está dicha en la cabecera: el resto de `base/` es interno y
+sigue en español. `zfsm://` no lo es.
+
+### Por qué los literales
+
+Aunque el árbol se vea en español o en chino: una URL es un **identificador**, no texto para leer. Si el literal dependiera del idioma
 de quien la escribió, la misma cosa tendría tres nombres y ninguno serviría para guardarla
 ni compararla.
 

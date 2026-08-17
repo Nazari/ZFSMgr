@@ -239,26 +239,29 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s: URL no válida: %s\n", kNombre, err.c_str());
             return 2;
         }
-        const char* clase = "?";
+        // Los nombres de campo son parte de la interfaz pública: un guion que haga
+        // `grep dataset` depende de ellos, así que van en inglés como la URL. El resto
+        // de la salida del CLI sigue en el idioma de la aplicación.
+        const char* kind = "?";
         switch (u.kind) {
-            case zfsmgr::base::ZfsmKind::Conexion: clase = "conexión"; break;
-            case zfsmgr::base::ZfsmKind::Dataset: clase = "dataset"; break;
-            case zfsmgr::base::ZfsmKind::Snapshot: clase = "snapshot"; break;
+            case zfsmgr::base::ZfsmKind::Connection: kind = "connection"; break;
+            case zfsmgr::base::ZfsmKind::Dataset: kind = "dataset"; break;
+            case zfsmgr::base::ZfsmKind::Snapshot: kind = "snapshot"; break;
             default: break;
         }
-        std::printf("clase\t%s\n", clase);
-        std::printf("conexion\t%s\n", u.conexion.c_str());
+        std::printf("kind\t%s\n", kind);
+        std::printf("connection\t%s\n", u.connection.c_str());
         if (!u.pool.empty()) std::printf("pool\t%s\n", u.pool.c_str());
         // Un pool ES un dataset en ZFS, así que no hay clase aparte: se dice si además
         // es la raíz de su pool.
-        if (u.esRaizDePool()) std::printf("raiz_de_pool\tsí\n");
+        if (u.isPoolRoot()) std::printf("pool_root\ttrue\n");
         if (!u.dataset.empty()) std::printf("dataset\t%s\n", u.dataset.c_str());
         if (!u.snapshot.empty()) std::printf("snapshot\t%s\n", u.snapshot.c_str());
-        if (!u.nombreZfs().empty()) std::printf("nombre_zfs\t%s\n", u.nombreZfs().c_str());
-        if (!u.seccion.empty()) std::printf("seccion\t%s\n", u.seccion.c_str());
-        for (const std::string& d : u.detalle) std::printf("detalle\t%s\n", d.c_str());
+        if (!u.zfsName().empty()) std::printf("zfs_name\t%s\n", u.zfsName().c_str());
+        if (!u.section.empty()) std::printf("section\t%s\n", u.section.c_str());
+        for (const std::string& d : u.detail) std::printf("detail\t%s\n", d.c_str());
         // La forma canónica: es la que hay que guardar o comparar, no la tecleada.
-        std::printf("canonica\t%s\n", zfsmgr::base::formatZfsmUrl(u).c_str());
+        std::printf("canonical\t%s\n", zfsmgr::base::formatZfsmUrl(u).c_str());
         return 0;
     }
 
