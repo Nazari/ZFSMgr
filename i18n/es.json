@@ -315,6 +315,7 @@
     "t_no_conn_id": "no hay ninguna conexión con identificador «%1»",
     "t_no_conn_nombre": "no hay ninguna conexión llamada «%1»",
     "t_no_es_la_i_ace907": "NO es la inversa de todir, aunque el nombre lo sugiera: la inversa de todir es assemble. Esto crea el contenido de un dataset A PARTIR de un directorio.",
+    "t_no_es_lo_pedido": "%s no es %s\n",
     "t_no_es_un_l_2b8c41": "No es un listado: es lo que hay que hacer cuando algo se ha quedado colgado.",
     "t_no_es_un_pool": "«%s» no nombra un pool de esta máquina; para otro pool use su URL (p. ej. /conexion/pool)\n",
     "t_no_escribe_config": "no se pudo escribir config.json",

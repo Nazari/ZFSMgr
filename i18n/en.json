@@ -367,6 +367,7 @@
     "t_no_conn_id": "there is no connection with identifier «%1»",
     "t_no_conn_nombre": "there is no connection named «%1»",
     "t_no_es_la_i_ace907": "It is NOT the inverse of todir, though the name suggests so: the inverse of todir is assemble. This creates a dataset's contents FROM a directory.",
+    "t_no_es_lo_pedido": "%s is not %s\n",
     "t_no_es_un_l_2b8c41": "It is not a listing: it is what to do when something has got stuck.",
     "t_no_es_un_pool": "«%s» does not name a pool on this machine; for another pool use its URL (e.g. /connection/pool)\n",
     "t_no_escribe_config": "could not write config.json",

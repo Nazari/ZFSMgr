@@ -269,8 +269,29 @@ Tandas cerradas:
    `reguid`, `export`, `status`, `history`—, que ya compartían resolución. Aquí entraron
    las primeras ranuras de verdad: `fase:palabra_de{start,stop,pause…}` y `disco:vdev`.
 
-Van **15 de 46**, con **0 mudas**. Las 31 restantes resuelven su destino a mano; ninguna es
+3. Las **trece de dataset y conexión** —`mount`, `unmount`, `promote`, `rollback`, `holds`,
+   `hold`, `release`, `get`, `set`, `refresh`, `connect`, `disconnect`, `edit`—. Aquí
+   aparecieron las ranuras de texto y de propiedad, y con ellas la regla de precedencia.
+
+Van **28 de 46**, con **0 mudas**. Las 18 restantes resuelven su destino a mano; ninguna es
 muda, pero cada una lleva su criterio.
+
+### Quién se queda el primer argumento suelto
+
+Tres reglas, en este orden. Salieron de verlo fallar en las dos direcciones:
+
+1. Si la orden actúa sobre un **pool** y el suelto NOMBRA un pool de la máquina, es el
+   destino. Se pregunta qué pools hay en vez de mirar la forma: eso deja `clear tank sda1`
+   —tank el pool, sda1 el disco— y `clear sda1` —el disco, sobre el pool actual—.
+2. Si no, y la **primera ranura** declarada lo acepta, es de la ranura. Sin esto,
+   `get compression` tomaba «compression» por destino y preguntaba por el dataset
+   `tank/datos/compression`: un nombre suelto SIEMPRE resuelve a un dataset, porque la
+   existencia no se comprueba, así que el destino se lo tragaba todo.
+3. Si ninguna ranura lo quiere, se prueba como destino.
+
+Consecuencia que conviene saber: en una orden cuya primera ranura acepta texto libre
+—`get`, `hold`—, el destino va por `--on`. Es el precio de que `get compression` signifique
+lo natural.
 
 La decisión de la barra inicial está tomada: **se queda como está**. `/x` es absoluta y su
 primer tramo es una conexión, así que la forma completa de un pool es `/conexion/pool`.
