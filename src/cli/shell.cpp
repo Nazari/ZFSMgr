@@ -52,6 +52,9 @@ struct Estado {
     // La versión de agente de cada conexión, recordada durante la sesión. Ver
     // listaConexiones: preguntarla cuesta una ida y vuelta por máquina.
     std::map<std::string, std::string> versionDaemon;
+    // Los pools de cada conexión. Ver destinoDePool: se usan para decidir si el primer
+    // argumento suelto nombra un pool o es un argumento de la orden.
+    std::map<std::string, std::set<std::string>> poolsPorConexion;
     Sesion* ses{nullptr};
     Conexiones conns;
     ZfsmUrl actual;   // conexión vacía = raíz
@@ -2468,10 +2471,86 @@ bool exigePool(const ZfsmUrl& u) {
 
 // Las operaciones de mantenimiento que se piden igual: un verbo y el nombre del pool, con
 // un subcomando opcional para parar o pausar.
+// Los nombres de pool de una conexión, recordados durante la sesión.
+//
+// Hace falta para decidir si el primer argumento suelto de una orden de pool es el POOL
+// sobre el que actuar o un argumento de la propia orden. Se pregunta una vez por conexión:
+// sin la caché, cada `scrub`, `trim` o `clear` costaría una ida y vuelta de más.
+const std::set<std::string>& poolsDe(Estado& e, const ZfsmUrl& donde) {
+    const std::string clave = B::toLowerAscii(donde.connection);
+    const auto ya = e.poolsPorConexion.find(clave);
+    if (ya != e.poolsPorConexion.end()) {
+        return ya->second;
+    }
+    std::set<std::string> nombres;
+    std::string out;
+    if (agente(e, donde, {"--dump-zpool-list"}, out, 20000)) {
+        B::json::Value raiz;
+        std::string err;
+        if (B::json::parse(out, raiz, &err)) {
+            for (const auto& kv : raiz["pools"].toObject()) {
+                nombres.insert(kv.second["name"].toString(kv.first));
+            }
+        }
+    }
+    return e.poolsPorConexion.emplace(clave, std::move(nombres)).first->second;
+}
+
+// El pool sobre el que actúa una orden de pool: el primer argumento suelto si NOMBRA UN
+// POOL, y si no, el sitio actual.
+//
+// Se comprueba contra la lista de pools de la máquina y no por la forma del argumento, y
+// esa es la parte que importa: estas órdenes ya tienen palabras propias —`scrub stop`,
+// `trim pause`— y admiten nombres de vdev —`clear sda1`—. Una regla del tipo «el primero
+// es siempre el destino» se habría comido esas palabras, y una del tipo «solo si lleva
+// una barra» habría obligado a escribir `local/tank` estando ya en la conexión.
+//
+// Preguntando qué pools hay, `flush tank` es el pool, `scrub stop` es la palabra y
+// `clear sda1` es el vdev, sin vocabulario nuevo y sin que el usuario tenga que saber la
+// regla.
+// Solo la adopción, para las órdenes que aceptan estar en un DATASET y usar su pool
+// —`status`, `history`—: ahí exigir estar en la raíz del pool sería un paso atrás.
+// Lo que quede suelto DESPUÉS de adoptar el pool, en las órdenes que no usan más
+// argumentos. Sin esto, `history fc16` estando en otro pool enseñaba el historial del pool
+// actual sin decir nada: el argumento se resolvía como ruta relativa —`.../hijo/fc16`—,
+// no era la raíz de un pool, y se descartaba en silencio. Una respuesta equivocada y
+// callada es peor que un error.
+bool sinArgumentosDeMas(const Opts& o) {
+    if (o.libres.empty()) {
+        return true;
+    }
+    std::fprintf(stderr,
+                 TC("t_no_es_un_pool",
+                    "«%s» no nombra un pool de esta máquina; para otro pool use su URL "
+                    "(p. ej. /conexion/pool)\n"),
+                 o.libres.front().c_str());
+    return false;
+}
+
+bool adoptaPoolSuelto(Estado& e, Opts& o, ZfsmUrl& out) {
+    if (!destinoDe(e, o, out)) {
+        return false;
+    }
+    if (!o.libres.empty()) {
+        ZfsmUrl candidato;
+        std::string err;
+        if (resuelve(e, o.libres.front(), candidato, err) && nodoDe(candidato) == Nodo::Dataset
+            && candidato.isPoolRoot() && poolsDe(e, candidato).count(candidato.pool) > 0) {
+            out = candidato;
+            o.libres.erase(o.libres.begin());
+        }
+    }
+    return true;
+}
+
+bool destinoDePool(Estado& e, Opts& o, ZfsmUrl& out) {
+    return adoptaPoolSuelto(e, o, out) && exigePool(out);
+}
+
 bool cmdMantenimientoPool(Estado& e, const std::vector<std::string>& args, const char* op) {
-    const Opts o = trocea(args, {"on", "from"});
+    Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino) || !exigePool(destino)) {
+    if (!destinoDePool(e, o, destino)) {
         return false;
     }
     std::vector<std::string> argv{op};
@@ -2499,9 +2578,9 @@ bool cmdMantenimientoPool(Estado& e, const std::vector<std::string>& args, const
 
 bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* op,
                    const char* aviso) {
-    const Opts o = trocea(args, {"on", "from"});
+    Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino) || !exigePool(destino)) {
+    if (!destinoDePool(e, o, destino)) {
         return false;
     }
     if (aviso && !confirma(e, B::format(T("t_conf_en_pool", "%1 en %2. ¿Continuar?"),
@@ -2524,9 +2603,9 @@ bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* 
 // El estado detallado. Es texto para leer y se saca tal cual: fingir columnas donde
 // `zpool status` dibuja un árbol de vdevs sería inventarse una estructura que no tiene.
 bool cmdStatus(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
+    Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    if (!adoptaPoolSuelto(e, o, destino) || !sinArgumentosDeMas(o)) {
         return false;
     }
     if (destino.pool.empty()) {
@@ -2545,9 +2624,9 @@ bool cmdStatus(Estado& e, const std::vector<std::string>& args) {
 }
 
 bool cmdHistory(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
+    Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    if (!adoptaPoolSuelto(e, o, destino) || !sinArgumentosDeMas(o)) {
         return false;
     }
     if (destino.pool.empty()) {

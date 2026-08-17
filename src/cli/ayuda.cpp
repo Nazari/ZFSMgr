@@ -206,23 +206,27 @@ const std::vector<Orden> kOrdenes = {
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {}},
 
     // --- Pools
-    {"status", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_el_estado__f8428b", "El estado detallado del pool, tal y como lo da zpool."}, {}, {}},
-    {"history", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_qu_se_le_h_a13b5d", "Qué se le ha hecho al pool y cuándo."}, {}, {}},
-    {"scrub", {"t_pools_2fd96d", "Pools"}, {"t_stop_pause_28a6de", "[stop|pause]"}, {"t_verifica_t_9c1250", "Verifica todo el contenido del pool."}, {}, {}},
-    {"trim", {"t_pools_2fd96d", "Pools"}, {"t_stop_pause_fda1c2", "[stop|pause] [<vdev>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
+    {"status", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_el_estado__f8428b", "El estado detallado del pool, tal y como lo da zpool."}, {}, {}},
+    {"history", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_qu_se_le_h_a13b5d", "Qué se le ha hecho al pool y cuándo."}, {}, {}},
+    {"scrub", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_pause", "[<pool>] [stop|pause]"}, {"t_verifica_t_9c1250", "Verifica todo el contenido del pool."}, {}, {}},
+    {"trim", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_vdev", "[<pool>] [stop|pause] [<vdev>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
      {}, {}},
-    {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_stop_pause_fda1c2", "[stop|pause] [<vdev>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
+    {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_vdev", "[<pool>] [stop|pause] [<vdev>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {}},
-    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_a3e4bf", "[<vdev>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {}},
-    {"flush", {"t_pools_2fd96d", "Pools"}, {"", ""},
+    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_pool_vdev", "[<pool>] [<vdev>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {}},
+    {"flush", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"},
      {"t_flush_res", "Fuerza la escritura de lo pendiente del pool (`zpool sync`)."},
      {}, {{"t_flush_det", "Se llamaba `sync`, que es como se llama en `zpool`. Se cambió porque en la "
       "interfaz «Sincronizar» es OTRA cosa —copiar el contenido de un dataset a otro con "
       "rsync—, y tener la misma palabra para las dos era una trampa: la de pool tarda un "
-      "instante y la otra puede tardar horas."}}},
-    {"upgrade", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {}},
-    {"reguid", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {}},
-    {"export", {"t_pools_2fd96d", "Pools"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
+      "instante y la otra puede tardar horas."},
+      {"t_pool_arg_det", "Todas las órdenes de pool aceptan el pool como primer argumento; sin él actúan "
+      "sobre el sitio actual, que tiene que ser un pool. Se reconoce PREGUNTANDO qué pools "
+      "hay en la máquina, no por la forma del argumento: así `scrub stop` sigue siendo la "
+      "palabra «stop» y `clear sda1` sigue siendo un vdev."}}},
+    {"upgrade", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {}},
+    {"reguid", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {}},
+    {"export", {"t_pools_2fd96d", "Pools"}, {"t_pool_f", "[<pool>] [-f]"}, {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
      {}},
     {"import", {"t_pools_2fd96d", "Pools"}, {"t_pool_as_nu_2706a5", "[<pool>] [--as <nuevo>] [-f]"},
      {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
