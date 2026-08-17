@@ -55,6 +55,7 @@ typedef int pid_t;
 #include <openssl/rand.h>
 
 #include "copytree.h"
+#include "json.h"
 #include "base/process.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
@@ -3220,7 +3221,8 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     if (delFlag == "1") {
         base.push_back("--delete");
     }
-    if (dryFlag == "1") {
+    const bool simulacion = (dryFlag == "1");
+    if (simulacion) {
         base.push_back("--dry-run");
     }
     // Mismo sondeo que runRsyncCopyMoveCapture, compartido para que no puedan
@@ -3228,7 +3230,17 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     for (const std::string& f : rsyncPreservationFlags()) {
         base.push_back(f);
     }
-    base.push_back(hasInfo ? "--info=progress2" : "--progress");
+    // En una SIMULACIÓN se pide la lista de cambios; en una ejecución real, el progreso.
+    //
+    // Antes se pedía progreso en las dos, y eso dejaba el «Check» sin su única razón de
+    // ser: la respuesta era una línea de porcentaje sobre ficheros que no se han copiado,
+    // en vez de QUÉ ficheros cambiarían. Con `-i` cada línea dice el cambio y el fichero,
+    // que es lo que uno mira antes de dejar que `--delete` borre algo.
+    if (simulacion) {
+        base.push_back("-i");
+    } else {
+        base.push_back(hasInfo ? "--info=progress2" : "--progress");
+    }
     if (!dstHost.empty() && !rsh.empty()) {
         base.push_back("-e");
         base.push_back(rsh);
@@ -5171,6 +5183,93 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
 // dos copias, que es como se acumulan las diferencias silenciosas entre caminos.
 //
 // De paso funciona en Windows, porque el relé ya es portable desde la fase 2.
+// Los dispositivos de bloque de esta máquina, para poder elegir dónde crear un pool.
+//
+// Existe porque hasta ahora esto era una TUBERÍA DE SHELL que el cliente enviaba a la otra
+// máquina —`lsblk`/`diskutil`/`awk` encadenados, ochenta líneas en
+// `mainwindow_pool_create.cpp`—. Además de ser justo lo que se está quitando, no funciona
+// en Windows y no había forma de pedirlo desde el CLI.
+//
+// Devuelve SIEMPRE la misma forma, venga de donde venga, para que quien lo lea no tenga
+// que saber en qué sistema corre:
+//
+//   {"devices":[{"path":…,"size":<bytes>,"fstype":…,"mountpoint":…,"type":…,"inuse":bool}]}
+//
+// `inuse` es una comodidad, no un veredicto: dice que el dispositivo o alguno de sus hijos
+// tiene sistema de ficheros o está montado. Quien vaya a escribir en él decide.
+static ExecResult runDumpBlockDevicesCapture() {
+    ExecResult r;
+#if defined(__linux__)
+    // `-J` da JSON y `-b` tamaños en bytes: nada que analizar a mano ni unidades que
+    // interpretar. Es un árbol —los discos llevan sus particiones dentro—, y se aplana
+    // conservando de quién cuelga cada uno.
+    ExecResult l = runExecCapture("lsblk",
+                                  {"-J", "-b", "-o", "NAME,PATH,SIZE,FSTYPE,MOUNTPOINT,TYPE"});
+    if (l.rc != 0) {
+        r.rc = l.rc;
+        r.err = l.err.empty() ? std::string("lsblk no disponible\n") : l.err;
+        return r;
+    }
+    zfsmgr::base::json::Value raiz;
+    std::string errJson;
+    if (!zfsmgr::base::json::parse(l.out, raiz, &errJson)) {
+        r.rc = 1;
+        r.err = "no se pudo analizar la salida de lsblk: " + errJson + "\n";
+        return r;
+    }
+    zfsmgr::base::json::Array salida;
+    // Un dispositivo está en uso si él o CUALQUIER descendiente lo está: un disco con una
+    // partición montada no es candidato para un pool nuevo, aunque el disco en sí no tenga
+    // sistema de ficheros.
+    std::function<bool(const zfsmgr::base::json::Value&)> ocupado =
+        [&ocupado](const zfsmgr::base::json::Value& d) -> bool {
+        if (!d["fstype"].toString().empty() || !d["mountpoint"].toString().empty()) {
+            return true;
+        }
+        for (const auto& h : d["children"].toArray()) {
+            if (ocupado(h)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::function<void(const zfsmgr::base::json::Value&, const std::string&)> recorre =
+        [&](const zfsmgr::base::json::Value& d, const std::string& padre) {
+        zfsmgr::base::json::Value fila;
+        fila.set("path", zfsmgr::base::json::Value(d["path"].toString()));
+        fila.set("size", zfsmgr::base::json::Value(d["size"].toInt()));
+        fila.set("fstype", zfsmgr::base::json::Value(d["fstype"].toString()));
+        fila.set("mountpoint", zfsmgr::base::json::Value(d["mountpoint"].toString()));
+        fila.set("type", zfsmgr::base::json::Value(d["type"].toString()));
+        fila.set("parent", zfsmgr::base::json::Value(padre));
+        fila.set("inuse", zfsmgr::base::json::Value(ocupado(d)));
+        salida.push_back(fila);
+        for (const auto& h : d["children"].toArray()) {
+            recorre(h, d["path"].toString());
+        }
+    };
+    for (const auto& d : raiz["blockdevices"].toArray()) {
+        // Los `loop` son imágenes montadas, no discos donde crear un pool. Se dejan fuera
+        // aquí y no en el cliente: si no, cada cliente tendría que saberlo por su cuenta.
+        if (d["type"].toString() == "loop") {
+            continue;
+        }
+        recorre(d, std::string());
+    }
+    zfsmgr::base::json::Value raizSalida;
+    raizSalida.set("devices", zfsmgr::base::json::Value(std::move(salida)));
+    r.rc = 0;
+    r.out = zfsmgr::base::json::toCompact(raizSalida) + "\n";
+    return r;
+#else
+    // Se dice que no está portado en vez de devolver una lista vacía, que se leería como
+    // «esta máquina no tiene discos».
+    r.rc = 2;
+    r.err = "--dump-block-devices no está portado a esta plataforma todavía\n";
+    return r;
+#endif
+}
+
 static void runZfsSendToPeerAsync(const std::string& jobId) {
     std::string snap, peerHost, baseSnap, sendFlags, token, resumeToken;
     int peerPort = 0;
@@ -5282,6 +5381,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return r;
     }
     if (cmd == "--dump-zfs-mount") return runExecCapture("zfs", {"mount", "-j"});
+    if (cmd == "--dump-block-devices") return runDumpBlockDevicesCapture();
     if (cmd == "--dump-zpool-list") return runExecCapture("zpool", {"list", "-j"});
     if (cmd == "--dump-zpool-import-probe") {
         ExecResult a = runExecCapture("zpool", {"import"});
@@ -5796,59 +5896,52 @@ static void persistJobsLocked() {
 static void loadPersistedJobsAtStartup() {
     std::ifstream f(kJobsFilePath, std::ios::binary);
     if (!f.is_open()) return;
-    std::string raw((std::istreambuf_iterator<char>(f)),
-                     std::istreambuf_iterator<char>());
+    const std::string raw((std::istreambuf_iterator<char>(f)),
+                          std::istreambuf_iterator<char>());
 
-    // Minimal JSON array parser: extract objects via key=value text matching.
-    // We look for repeated {...} blobs and parse known keys with simple search.
+    // Se analiza con el JSON de la capa base, que el agente ya enlaza.
+    //
+    // Antes había aquí un analizador a mano con dos fallos que se sumaban:
+    //
+    // - **No DESESCAPABA.** El texto se guardaba con `jsonEscape` y se leía crudo, así que
+    //   un error con un salto de línea volvía como `\n` literal, y al siguiente guardado se
+    //   volvía a escapar: `\\n`, `\\\\n`… Las barras se duplicaban en CADA arranque, sin
+    //   tope. Se ve en máquinas reales: «pool or dataset is busy» seguido de treinta barras.
+    // - **Cortaba el registro en el primer `}`** y el valor en la primera comilla, así que
+    //   un mensaje de error que contuviera una llave o una comilla escapada partía el
+    //   registro por la mitad y arrastraba la basura al siguiente.
+    //
+    // Los dos desaparecen usando el mismo analizador que el resto del programa, en vez de
+    // uno propio que solo sabe leer lo que él mismo escribe cuando no lleva nada raro.
+    zfsmgr::base::json::Value raiz;
+    std::string errJson;
+    if (!zfsmgr::base::json::parse(raw, raiz, &errJson)) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(g_jobsMutex);
-    std::string::size_type pos = 0;
-    while (true) {
-        const auto ob = raw.find('{', pos);
-        if (ob == std::string::npos) break;
-        const auto cb = raw.find('}', ob);
-        if (cb == std::string::npos) break;
-        const std::string blob = raw.substr(ob, cb - ob + 1);
-        pos = cb + 1;
-
-        auto getStr = [&](const std::string& key) -> std::string {
-            const std::string pat = "\"" + key + "\":\"";
-            auto p = blob.find(pat);
-            if (p == std::string::npos) return {};
-            p += pat.size();
-            auto q = blob.find('"', p);
-            if (q == std::string::npos) return {};
-            return blob.substr(p, q - p);
-        };
-        auto getNum = [&](const std::string& key) -> long long {
-            const std::string pat = "\"" + key + "\":";
-            auto p = blob.find(pat);
-            if (p == std::string::npos) return 0;
-            p += pat.size();
-            try { return std::stoll(blob.substr(p)); } catch (...) { return 0; }
-        };
-
+    for (const auto& v : raiz.toArray()) {
         DaemonJob j;
-        j.id            = getStr("id");
-        j.type          = getStr("type");
-        j.state         = jobStateFromName(getStr("state"));
-        j.snap          = getStr("snap");
-        j.peerHost      = getStr("peerHost");
-        j.peerPort      = static_cast<int>(getNum("peerPort"));
-        j.baseSnap      = getStr("baseSnap");
-        j.sendFlags     = getStr("sendFlags");
-        j.pipeCmd       = getStr("pipeCmd");
-        j.dstDataset    = getStr("dstDataset");
-        j.bytesTransferred = static_cast<uint64_t>(getNum("bytes"));
-        j.rateMiBs      = static_cast<double>(getNum("rateMiBs"));
-        j.elapsedSecs   = static_cast<long>(getNum("elapsedSecs"));
-        j.startedAtUtc  = getStr("startedAt");
-        j.finishedAtUtc = getStr("finishedAt");
-        j.errorText     = getStr("error");
+        j.id            = v["id"].toString();
+        j.type          = v["type"].toString();
+        j.state         = jobStateFromName(v["state"].toString());
+        j.snap          = v["snap"].toString();
+        j.peerHost      = v["peerHost"].toString();
+        j.peerPort      = static_cast<int>(v["peerPort"].toInt());
+        j.baseSnap      = v["baseSnap"].toString();
+        j.sendFlags     = v["sendFlags"].toString();
+        j.pipeCmd       = v["pipeCmd"].toString();
+        j.dstDataset    = v["dstDataset"].toString();
+        j.bytesTransferred = static_cast<uint64_t>(v["bytes"].toInt());
+        j.rateMiBs      = v["rateMiBs"].toDouble();
+        j.elapsedSecs   = static_cast<long>(v["elapsedSecs"].toInt());
+        j.startedAtUtc  = v["startedAt"].toString();
+        j.finishedAtUtc = v["finishedAt"].toString();
+        j.errorText     = v["error"].toString();
 
         if (j.id.empty()) continue;
 
-        // Jobs still Running when the daemon stopped can never be recovered
+        // Los que seguían corriendo cuando el daemon paró no se pueden recuperar.
         if (j.state == JobState::Running || j.state == JobState::Queued) {
             j.state        = JobState::Failed;
             j.errorText    = "daemon restarted while running";
@@ -6919,6 +7012,12 @@ int main(int argc, char* argv[]) {
     }
     if (cmd == "--dump-zfs-mount") {
         return runExecStreaming("zfs", {"mount", "-j"});
+    }
+    if (cmd == "--dump-block-devices") {
+        const ExecResult d = runDumpBlockDevicesCapture();
+        if (!d.out.empty()) std::cout << d.out;
+        if (!d.err.empty()) std::cerr << d.err;
+        return d.rc;
     }
     if (cmd == "--dump-zpool-list") {
         return runExecStreaming("zpool", {"list", "-j"});

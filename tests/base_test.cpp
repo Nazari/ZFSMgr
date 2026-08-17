@@ -428,6 +428,26 @@ int main() {
                   "de TLS es lo de TLS, no lo de red");
     }
 
+    // --- El analizador DESESCAPA. Es la propiedad de la que depende la persistencia de
+    // trabajos del daemon: guarda el texto escapado y lo vuelve a leer en cada arranque.
+    //
+    // Con un lector que no desescapa, ese ciclo no es idempotente: lo leido se vuelve a
+    // escapar al guardar y las barras se DUPLICAN en cada vuelta. Medido con el lector
+    // anterior: 1, 2, 4, 8 barras en cuatro vueltas. En maquinas reales se veian errores
+    // como «pool or dataset is busy» seguidos de treinta barras.
+    {
+        namespace J = zfsmgr::base::json;
+        J::Value v;
+        std::string err;
+        comprobar(J::parse("[{\"error\":\"linea1\\nlinea2\"}]", v, &err), "el array se analiza");
+        const std::string leido = v.toArray().at(0)["error"].toString();
+        igual(leido, "linea1\nlinea2", "el \\n vuelve a ser un salto de linea, no dos caracteres");
+        // Y el ciclo completo: volver a serializar y analizar da lo MISMO.
+        J::Value otra;
+        comprobar(J::parse(J::toCompact(v), otra, &err), "lo serializado se vuelve a analizar");
+        igual(otra.toArray().at(0)["error"].toString(), leido, "guardar y leer es idempotente");
+    }
+
     igual(H::parseOpenZfsVersionText("zfs-2.3.3"), "2.3.3", "version de zfs");
     igual(H::parseOpenZfsVersionText("OpenZFS version: 2.4.1"), "2.4.1", "version de openzfs");
     // Un mayor absurdo delata que se ha pescado otra cosa.

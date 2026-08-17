@@ -49,6 +49,9 @@ using B::ZfsmKind;
 enum class Nodo { Raiz, Conexion, Dataset, Snapshot };
 
 struct Estado {
+    // La versión de agente de cada conexión, recordada durante la sesión. Ver
+    // listaConexiones: preguntarla cuesta una ida y vuelta por máquina.
+    std::map<std::string, std::string> versionDaemon;
     Sesion* ses{nullptr};
     Conexiones conns;
     ZfsmUrl actual;   // conexión vacía = raíz
@@ -362,6 +365,8 @@ bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::str
 struct Opts;
 bool cmdCrearPool(Estado& e, const Opts& o, const ZfsmUrl& destino);
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+bool lanzaOEspera(Estado& e, const Opts& o, const ZfsmUrl& destino,
+                  const std::vector<std::string>& argv);
 std::map<std::string, std::string> clavesDe(const std::string& texto);
 
 // --- Ejecutar un verbo del agente sobre el destino, contando lo que salga mal.
@@ -539,7 +544,56 @@ bool confirma(const Estado& e, const std::string& que) {
 // El listado de conexiones es EL MISMO que el de la orden suelta `connections list`. La
 // tabla se construye en un solo sitio (session.cpp): tenerla duplicada hacía que la misma
 // pregunta se contestara con columnas distintas según por dónde se preguntara.
-void listaConexiones(const Estado& e) { tablaDeConexiones(e.conns).imprime(e.formato); }
+// El listado de conexiones. Con `--daemon` se pregunta además a cada máquina qué versión
+// de agente tiene, y se marca con `*` la que no sea la esperada por este cliente.
+//
+// **No va por omisión, y es a propósito.** `ls` en la raíz es hoy la única orden que
+// responde al instante y SIN hablar con nadie: lee la configuración y ya. Es lo primero
+// que uno teclea cuando algo no va, y justo entonces es cuando hay máquinas apagadas —cada
+// una costaría su plazo de espera antes de rendirse—. Preguntando solo cuando se pide, la
+// orden rápida sigue siendo rápida y la lenta se elige a sabiendas.
+void listaConexiones(Estado& e, const Opts& o) {
+    Tabla t = tablaDeConexiones(e.conns);
+    if (!o.tiene("--daemon")) {
+        t.imprime(e.formato);
+        return;
+    }
+    t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
+    t.campos.push_back("daemon");
+    t.tipos.push_back(Tipo::Cadena);
+    const std::string esperada = ZFSMGR_AGENT_VERSION_STRING;
+    for (std::size_t i = 0; i < t.filas.size() && i < e.conns.perfiles.size(); ++i) {
+        const auto& p = e.conns.perfiles[i];
+        const std::string id = p.id.empty() ? p.name : p.id;
+        std::string version;
+        // Una desconectada no se sondea: está apartada a propósito y preguntarle sería
+        // saltarse esa marca, además de costar el plazo entero.
+        if (!e.conns.desconectada(id)) {
+            const auto ya = e.versionDaemon.find(id);
+            if (ya != e.versionDaemon.end()) {
+                version = ya->second;
+            } else {
+                ZfsmUrl u;
+                u.kind = ZfsmKind::Connection;
+                u.connection = id;
+                std::string salida;
+                if (agente(e, u, {"--health"}, salida, 8000)) {
+                    version = clavesDe(salida)["VERSION"];
+                }
+                // Se recuerda durante la sesión, incluido el fallo: repetir `ls --daemon`
+                // no vuelve a esperar por una máquina que ya no contestó.
+                e.versionDaemon[id] = version;
+            }
+        }
+        if (version.empty()) {
+            version = "-";
+        } else if (version != esperada) {
+            version += " *";
+        }
+        t.filas[i].push_back(version);
+    }
+    t.imprime(e.formato);
+}
 
 // Los pools de una conexión, del JSON de `zpool list`.
 bool listaPools(Estado& e, const ZfsmUrl& destino) {
@@ -999,7 +1053,7 @@ bool cmdLs(Estado& e, const std::vector<std::string>& args) {
     }
     switch (nodoDe(destino)) {
         case Nodo::Raiz:
-            listaConexiones(e);
+            listaConexiones(e, o);
             return true;
         case Nodo::Conexion:
             return listaPools(e, destino);
@@ -1683,17 +1737,7 @@ bool cmdBreakdown(Estado& e, const std::vector<std::string>& args) {
     for (const auto& x : o.libres) {
         argv.push_back(x);
     }
-    // Con --job se manda al daemon y se vuelve enseguida; sin él se espera. SIN PLAZO al
-    // esperar: mueve datos de verdad, y matarlo a mitad es peor que aguardar.
-    if (o.tiene("--job")) {
-        return enviaComoTrabajo(e, destino, argv);
-    }
-    std::string out;
-    if (!agente(e, destino, argv, out, 0)) {
-        return false;
-    }
-    std::fprintf(stdout, "%s", out.c_str());
-    return true;
+    return lanzaOEspera(e, o, destino, argv);
 }
 
 bool cmdAssemble(Estado& e, const std::vector<std::string>& args) {
@@ -1721,15 +1765,7 @@ bool cmdAssemble(Estado& e, const std::vector<std::string>& args) {
     for (const auto& x : o.libres) {
         argv.push_back(x.find('/') == std::string::npos ? destino.dataset + "/" + x : x);
     }
-    if (o.tiene("--job")) {
-        return enviaComoTrabajo(e, destino, argv);
-    }
-    std::string out;
-    if (!agente(e, destino, argv, out, 0)) {
-        return false;
-    }
-    std::fprintf(stdout, "%s", out.c_str());
-    return true;
+    return lanzaOEspera(e, o, destino, argv);
 }
 
 bool cmdToDir(Estado& e, const std::vector<std::string>& args) {
@@ -1754,15 +1790,7 @@ bool cmdToDir(Estado& e, const std::vector<std::string>& args) {
     }
     const std::vector<std::string> argvTodir{"--mutate-advanced-todir", destino.dataset,
                                              o.libres.front(), borraOrigen ? "1" : "0"};
-    if (o.tiene("--job")) {
-        return enviaComoTrabajo(e, destino, argvTodir);
-    }
-    std::string out;
-    if (!agente(e, destino, argvTodir, out, 0)) {
-        return false;
-    }
-    std::fprintf(stdout, "%s", out.c_str());
-    return true;
+    return lanzaOEspera(e, o, destino, argvTodir);
 }
 
 // `fromdir` NO es la inversa de `todir`, aunque el nombre lo sugiera.
@@ -2362,6 +2390,31 @@ bool cmdJob(Estado& e, const std::vector<std::string>& args) {
 
 // Manda una operación larga al daemon en vez de esperarla. Devuelve el identificador, que
 // es con lo que después se consulta o se cancela.
+// Las cuatro órdenes que mueven datos de verdad se comportan IGUAL: van al daemon como
+// trabajo, y `--wait` es lo que pide esperar aquí a que terminen.
+//
+// Antes no era así: `copy` iba como trabajo y se esperaba con `--wait`, mientras que
+// `breakdown`, `assemble` y `todir` eran síncronas y `--job` las mandaba al daemon. Dos
+// banderas para la misma idea, con el valor por omisión INVERTIDO entre ellas: había que
+// recordar cuál era cuál para cada orden.
+//
+// El que manda es el trabajo: son operaciones de horas, y ese es además el camino que usa
+// la interfaz. Esperar aquí es lo excepcional —un guion que quiere el resultado antes de
+// seguir—, y por eso es lo que lleva bandera.
+bool lanzaOEspera(Estado& e, const Opts& o, const ZfsmUrl& destino,
+                  const std::vector<std::string>& argv) {
+    if (!o.tiene("--wait")) {
+        return enviaComoTrabajo(e, destino, argv);
+    }
+    // SIN PLAZO: mueve datos de verdad, y matarlo a mitad es peor que aguardar.
+    std::string out;
+    if (!agente(e, destino, argv, out, 0)) {
+        return false;
+    }
+    std::fprintf(stdout, "%s", out.c_str());
+    return true;
+}
+
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     std::vector<std::string> conJob{"--job-submit"};
     for (const auto& a : argv) {
@@ -2852,6 +2905,147 @@ bool cmdDiff(Estado& e, const std::vector<std::string>& args) {
 
 // --- Información suelta.
 
+bool cmdDevices(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (destino.connection.empty()) {
+        std::fputs(TC("t_falta_conexion", "hace falta estar en una conexión"), stderr);
+        std::fputc('\n', stderr);
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--dump-block-devices"}, out, 25000)) {
+        return false;
+    }
+    B::json::Value raiz;
+    std::string err;
+    if (!B::json::parse(out, raiz, &err)) {
+        std::fprintf(stderr, TC("t_resp_devices", "respuesta ilegible al listar dispositivos: %s\n"),
+                     err.c_str());
+        return false;
+    }
+    // Salen TODOS, con la columna que dice si están ocupados, y no solo los libres.
+    // Esconder los ocupados escondería justo el disco que uno va a reutilizar a propósito
+    // —un `zfs_member` de un pool viejo, por ejemplo—, y son pocos: aquí caben en pantalla.
+    const bool soloLibres = o.tiene("--free");
+    Tabla t;
+    t.nombreJson = "devices";
+    t.cabecerasTexto = {T("t_cab_ruta", "RUTA"),       T("t_cab_tamano", "TAMAÑO"),
+                        T("t_cab_tipo", "TIPO"),       T("t_cab_fs", "FS"),
+                        T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE"),
+                        T("t_cab_ocupado", "OCUPADO")};
+    t.campos = {"path", "size", "type", "fstype", "mountpoint", "inuse"};
+    t.tipos = {Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Booleano};
+    for (const auto& d : raiz["devices"].toArray()) {
+        const bool ocupado = d["inuse"].toBool();
+        if (soloLibres && ocupado) {
+            continue;
+        }
+        t.filas.push_back({d["path"].toString(), std::to_string(d["size"].toInt()),
+                           d["type"].toString(), d["fstype"].toString(),
+                           d["mountpoint"].toString(), ocupado ? "true" : "false"});
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// El punto de montaje de un dataset. Solo Unix: en Windows la ruta no es la que dice
+// `mountpoint` —el pool se monta en una letra de unidad— y ahí la sincronización va por
+// otro camino, que no está portado al intérprete.
+bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
+    std::string mp;
+    if (!agente(e, u, {"--dump-zfs-get-prop", "mountpoint", u.zfsName()}, mp)) {
+        return false;
+    }
+    out = B::trim(mp);
+    if (out.empty() || out == "none" || out == "-" || out.front() != '/') {
+        std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"),
+                     u.zfsName().c_str());
+        return false;
+    }
+    return true;
+}
+
+// «Sincronizar» de la interfaz: copia el CONTENIDO de un dataset a otro con rsync.
+//
+// Faltaba entera en el intérprete, y encima el hueco estaba disimulado: existía un `sync`
+// que es `zpool sync` —forzar la escritura pendiente, cosa de un instante— con el mismo
+// nombre que la acción de la interfaz, que puede tardar horas. Ese se llama ahora `flush`.
+bool cmdRsync(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl origen;
+    if (!destinoDe(e, o, origen) || !exigeDataset(origen)) {
+        return false;
+    }
+    if (o.libres.empty()) {
+        std::fputs(TC("t_uso_rsync", "uso: rsync <destino> [--delete] [--check]\n"), stderr);
+        return false;
+    }
+    ZfsmUrl destino;
+    std::string err;
+    if (!resuelve(e, o.libres.front(), destino, err)) {
+        std::fprintf(stderr, "%s\n", err.c_str());
+        return false;
+    }
+    if (!exigeDataset(destino)) {
+        return false;
+    }
+    // Los dos extremos en la MISMA máquina: entre máquinas distintas la interfaz usa `tar`
+    // sobre SSH, que no está portado aquí. Se dice, en vez de sincronizar contra un
+    // directorio local que casualmente exista con el mismo nombre.
+    if (B::toLowerAscii(origen.connection) != B::toLowerAscii(destino.connection)) {
+        std::fputs(TC("t_rsync_dos_maquinas",
+                      "rsync solo funciona dentro de una misma máquina; entre máquinas use copy\n"),
+                   stderr);
+        return false;
+    }
+    if (origen.zfsName() == destino.zfsName()) {
+        std::fputs(TC("t_rsync_mismo", "el origen y el destino son el mismo dataset\n"), stderr);
+        return false;
+    }
+    std::string rutaOrigen;
+    std::string rutaDestino;
+    if (!montajeDe(e, origen, rutaOrigen) || !montajeDe(e, destino, rutaDestino)) {
+        return false;
+    }
+    const bool borra = o.tiene("--delete");
+    const bool simula = o.tiene("--check");
+    // Confirmación solo si va a BORRAR: sin `--delete` esto añade y actualiza, y no hay
+    // nada que perder. Con `--delete` el destino acaba idéntico al origen, borrado incluido.
+    if (borra && !simula
+        && !confirma(e, B::format(T("t_conf_rsync",
+                                    "%1 va a quedar IDÉNTICO a %2, borrando lo que sobre. ¿Continuar?"),
+                                  {destino.zfsName(), origen.zfsName()}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    // El orden lo fija el daemon: [delete, dryRun, rsh, dstHost, origen, destino].
+    B::json::Array carga;
+    carga.push_back(B::json::Value(std::string(borra ? "1" : "0")));
+    carga.push_back(B::json::Value(std::string(simula ? "1" : "0")));
+    carga.push_back(B::json::Value(std::string()));  // rsh: mismo host
+    carga.push_back(B::json::Value(std::string()));  // dstHost: mismo host
+    carga.push_back(B::json::Value(rutaOrigen));
+    carga.push_back(B::json::Value(rutaDestino));
+    const std::vector<std::string> argv{
+        "--mutate-rsync-local",
+        B::base64Encode(B::json::toCompact(B::json::Value(std::move(carga))))};
+    // Un `--check` es una simulación: no hay nada que mandar al daemon como trabajo, y lo
+    // que uno quiere es LEER la salida ahora mismo.
+    if (simula) {
+        std::string out;
+        if (!agente(e, origen, argv, out, 0)) {
+            return false;
+        }
+        std::fprintf(stdout, "%s", out.c_str());
+        return true;
+    }
+    return lanzaOEspera(e, o, origen, argv);
+}
+
 bool cmdInfo(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
@@ -3061,6 +3255,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"ls", cmdLs},
         {"info", cmdInfo},
         {"create", cmdCreate},
+        {"devices", cmdDevices},
+        {"rsync", cmdRsync},
         {"rename", cmdRename},
         {"destroy", cmdDestroy},
         {"mount", [](Estado& s, const std::vector<std::string>& a) { return cmdMontaje(s, a, true); }},
@@ -3077,7 +3273,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"scrub", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "scrub"); }},
         {"trim", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "trim"); }},
         {"initialize", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "initialize"); }},
-        {"sync", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "sync", nullptr); }},
+        {"flush", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "sync", nullptr); }},
         {"upgrade", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "upgrade", "Se va a subir la versión del pool, y eso NO se puede deshacer"); }},
         {"reguid", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "reguid", "Se va a cambiar el identificador único del pool"); }},
         {"clear", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "clear", nullptr); }},

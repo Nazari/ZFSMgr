@@ -119,7 +119,9 @@ const std::vector<Orden> kOrdenes = {
      "sus hijos e instantáneas."},
      {{{"t_content_ru_7a5f3d", "#content[/ruta]"}, {"t_los_ficher_2b8359", "Los ficheros de dentro."}},
       {{"t_properties_5ce56d", "#properties[/prop]"}, {"t_las_propie_137429", "Las propiedades."}},
-      {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}}},
+      {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}},
+      {{"t_ls_daemon", "--daemon"},
+       {"t_ls_daemon_q", "En la raíz: la versión del agente de cada máquina, con « * » si no es la esperada."}}},
      {{"t_en_windows_42a2d3", "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
       "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}}},
     {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {}},
@@ -147,6 +149,15 @@ const std::vector<Orden> kOrdenes = {
       {"t_create_arroba_det", "Un nombre con « @ » delante crea una instantánea y no un hijo: `create @ayer` "
       "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue una "
       "instantánea en la URL, así que no hay una regla nueva que recordar."}}},
+    {"devices", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_devices_uso", "[--free]"},
+     {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
+     {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
+     {{"t_devices_det", "Salen todos, con la columna OCUPADO, y no solo los libres: esconder los "
+      "ocupados escondería justo el disco que uno va a reutilizar a propósito —el de un "
+      "pool viejo, por ejemplo—."},
+      {"t_devices_det2", "OCUPADO es una comodidad, no un veredicto: dice que el dispositivo o "
+      "alguno de sus hijos tiene sistema de ficheros o está montado. Quien vaya a escribir "
+      "en él decide."}}},
     {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name …] [--host …] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
      {{{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}}},
@@ -203,7 +214,12 @@ const std::vector<Orden> kOrdenes = {
     {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_stop_pause_fda1c2", "[stop|pause] [<vdev>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {}},
     {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_a3e4bf", "[<vdev>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {}},
-    {"sync", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_fuerza_la__286d39", "Fuerza la escritura de lo pendiente."}, {}, {}},
+    {"flush", {"t_pools_2fd96d", "Pools"}, {"", ""},
+     {"t_flush_res", "Fuerza la escritura de lo pendiente del pool (`zpool sync`)."},
+     {}, {{"t_flush_det", "Se llamaba `sync`, que es como se llama en `zpool`. Se cambió porque en la "
+      "interfaz «Sincronizar» es OTRA cosa —copiar el contenido de un dataset a otro con "
+      "rsync—, y tener la misma palabra para las dos era una trampa: la de pool tarda un "
+      "instante y la otra puede tardar horas."}}},
     {"upgrade", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {}},
     {"reguid", {"t_pools_2fd96d", "Pools"}, {"", ""}, {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {}},
     {"export", {"t_pools_2fd96d", "Pools"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
@@ -227,17 +243,28 @@ const std::vector<Orden> kOrdenes = {
      {{{"t_r_90cdb7", "-r"}, {"t_tambi_n_en_33e099", "También en los descendientes."}}}, {}},
 
     // --- Acciones
+    {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},
+     {"t_rsync_res", "Sincroniza el CONTENIDO de este dataset con otro («Sincronizar» de la interfaz)."},
+     {{{"t_rsync_del", "--delete"}, {"t_rsync_del_q", "Borra en el destino lo que ya no está en el origen."}},
+      {{"t_rsync_check", "--check"}, {"t_rsync_check_q", "Simula y enseña qué haría, sin tocar nada."}},
+      {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+     {{"t_rsync_det", "Copia FICHEROS, no instantáneas: los dos extremos tienen que estar montados. Para "
+      "mandar una instantánea está `copy`."},
+      {"t_rsync_det2", "Sin `--delete` solo añade y actualiza; lo que sobre en el destino se queda. Con "
+      "`--delete` el destino acaba idéntico al origen, y eso INCLUYE borrar."},
+      {"t_rsync_det3", "Los dos extremos han de estar en la misma máquina: entre máquinas distintas la "
+      "interfaz usa `tar` sobre SSH, que no está portado aquí."}}},
     {"breakdown", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_0a6bbc", "<directorio> <hijo> [<directorio> <hijo>...]"},
      {"t_convierte__9a9063", "Convierte directorios del dataset en datasets hijos."},
-     {{{"t_job_21ee6c", "--job"}, {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}}, {}},
+     {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}}, {}},
     {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<hijo> [<hijo>...]"},
      {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve datasets hijos a directorios."},
-     {{{"t_job_21ee6c", "--job"}, {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}},
+     {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
      {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}}},
     {"todir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_9d9336", "<directorio-destino>"},
      {"t_vuelca_el__e8430a", "Vuelca el contenido del dataset a un directorio corriente."},
      {{{"t_delete_sou_f4bf01", "--delete-source"}, {"t_destruye_e_228abc", "Destruye el dataset de origen al terminar."}},
-      {{"t_job_21ee6c", "--job"}, {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}},
+      {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
      {}},
     {"fromdir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_09a389", "<directorio-origen>"},
      {"t_vuelca_un__c2bd33", "Vuelca un directorio DENTRO del dataset actual. El origen puede estar en otra máquina."},
