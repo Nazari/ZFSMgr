@@ -68,6 +68,21 @@ struct Ranura {
     std::vector<const char*> palabras;            // solo si tipo == Palabra
 };
 
+// Una bandera del programa ORIGINAL —`zfs`, `zpool`— que esta orden acepta y pasa tal cual.
+//
+// Se declaran porque las órdenes puras deben admitir lo mismo que el mandato de OpenZFS al
+// que envuelven, y porque lo que NO esté aquí tiene que rechazarse. Sin la lista, `import
+// apar -N` se tragaba la bandera sin protestar y sin pasarla: ni hacía lo pedido ni lo
+// decía.
+//
+// No se traducen ni se documentan una a una: son de OpenZFS, están en su manual, y
+// repetirlas en la ayuda solo crearía una segunda copia que envejece. La ayuda las enumera
+// en una línea.
+struct Nativa {
+    const char* forma;   // "-d", "--power"
+    bool valor{false};   // ¿lleva un valor detrás? («-d <dir>»)
+};
+
 struct Orden {
     const char* nombre;  // el VERBO: no se traduce, es lo que se teclea
     Texto grupo;
@@ -85,6 +100,9 @@ struct Orden {
     // «acepta un argumento y no le hace caso».
     Objetivo objetivo{Objetivo::Ninguno};
     std::vector<Ranura> ranuras;
+
+    // Las banderas del mandato original que esta orden pasa tal cual. Ver Nativa.
+    std::vector<Nativa> nativas;
 };
 
 // Todas, en el orden en que se enseñan.

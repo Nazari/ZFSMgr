@@ -34,6 +34,24 @@ void igual(const std::string& a, const std::string& b, const std::string& que) {
 }
 }  // namespace
 
+// Un relleno para las ranuras OBLIGATORIAS de una orden. Sin él, `create --name x` o
+// `rename -f` fallan por la RANURA y la prueba culparía a la opción.
+static std::string rellenoDe(const zfsmgr::cli::Orden& o) {
+    std::string relleno;
+    for (const zfsmgr::cli::Ranura& r : o.ranuras) {
+        if (r.cuantas != zfsmgr::cli::Ranura::Cuantas::Una
+            && r.cuantas != zfsmgr::cli::Ranura::Cuantas::UnaOMas) {
+            continue;
+        }
+        switch (r.tipo) {
+            case zfsmgr::cli::Ranura::Tipo::Url: relleno += " /a/b"; break;
+            case zfsmgr::cli::Ranura::Tipo::Propiedad: relleno += " k=v"; break;
+            default: relleno += " relleno"; break;
+        }
+    }
+    return relleno;
+}
+
 int main() {
     using zfsmgr::cli::analizaLinea;
 
@@ -198,22 +216,7 @@ int main() {
                 if (opcion.size() <= 2) {
                     continue;
                 }
-                // Un relleno para las ranuras OBLIGATORIAS: `create --name x` no es una
-                // orden válida —le falta el nombre— y sin esto la prueba culparía a la
-                // opción de un fallo que es de la ranura.
-                std::string relleno;
-                for (const zfsmgr::cli::Ranura& r : o.ranuras) {
-                    if (r.cuantas != zfsmgr::cli::Ranura::Cuantas::Una
-                        && r.cuantas != zfsmgr::cli::Ranura::Cuantas::UnaOMas) {
-                        continue;
-                    }
-                    switch (r.tipo) {
-                        case zfsmgr::cli::Ranura::Tipo::Url: relleno += " /a/b"; break;
-                        case zfsmgr::cli::Ranura::Tipo::Propiedad: relleno += " k=v"; break;
-                        default: relleno += " relleno"; break;
-                    }
-                }
-                const auto a = analizaLinea(std::string(o.nombre) + relleno + " " + opcion + " x");
+                const auto a = analizaLinea(std::string(o.nombre) + rellenoDe(o) + " " + opcion + " x");
                 comprueba(a.tiene(opcion),
                           std::string("«") + o.nombre + " " + opcion + "»: la opción no se "
                           "reconoce al preguntarla con guiones");
@@ -227,6 +230,32 @@ int main() {
                               std::string("«") + o.nombre + " " + opcion + " x»: no capturó el "
                               "valor «x»");
                 }
+            }
+        }
+    }
+
+    // --- Las banderas del mandato ORIGINAL de zfs/zpool.
+    //
+    // Las órdenes puras deben admitir lo que admite el mandato al que envuelven, y su
+    // valor tiene que capturarse. `import apar -N` se tragaba la bandera sin protestar y
+    // sin pasarla; `trim -r 100M` mandaba «100M» a la ranura del disco.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        for (const zfsmgr::cli::Nativa& n : o.nativas) {
+            const std::string forma = n.forma;
+            const std::string linea =
+                std::string(o.nombre) + rellenoDe(o) + " " + forma + (n.valor ? " v" : "");
+            const auto a = analizaLinea(linea);
+            comprueba(a.error.empty(), std::string("«") + linea + "» no se analiza: " + a.error);
+            comprueba(a.tiene(forma),
+                      std::string("«") + linea + "»: la bandera nativa no se reconoce");
+            if (n.valor) {
+                std::string pelada = forma;
+                while (!pelada.empty() && pelada.front() == '-') {
+                    pelada.erase(pelada.begin());
+                }
+                const auto it = a.opciones.find(pelada);
+                comprueba(it != a.opciones.end() && it->second == "v",
+                          std::string("«") + linea + "»: no capturó el valor de la bandera");
             }
         }
     }

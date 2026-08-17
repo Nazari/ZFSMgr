@@ -13,13 +13,30 @@ namespace {
 //
 // `--on` y `--from` valen en todas y siempre llevan valor.
 extern "C" int llevaValorLaOpcion(const char* verbo, const char* opcion, void* /*ctx*/) {
-    const std::string op = opcion ? opcion : "";
+    // Sin guiones, vengan como vengan: el léxico entrega las largas ya peladas —«wait»— y
+    // las cortas enteras —«-r»—. Comparar sin normalizar hacía que ninguna corta con valor
+    // se reconociera: `trim -r 100M` mandaba «100M» a la ranura del disco y el pool acababa
+    // de argumento de `-r`.
+    std::string op = opcion ? opcion : "";
+    while (!op.empty() && op.front() == '-') {
+        op.erase(op.begin());
+    }
     if (op == "on" || op == "from") {
         return 1;
     }
     const Orden* o = ordenPorNombre(verbo ? verbo : "");
     if (!o) {
         return 0;
+    }
+    // Las banderas del mandato original: la lista dice cuáles llevan valor.
+    for (const Nativa& n : o->nativas) {
+        std::string f = n.forma;
+        while (!f.empty() && f.front() == '-') {
+            f.erase(f.begin());
+        }
+        if (f == op) {
+            return n.valor ? 1 : 0;
+        }
     }
     for (const Parametro& par : o->params) {
         const std::string forma = par.forma.es;

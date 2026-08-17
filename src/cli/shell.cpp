@@ -371,6 +371,41 @@ const B::ConnectionProfile* perfilVivoDe(const Estado& e, const ZfsmUrl& u, std:
 struct Peticion {
     ZfsmUrl objetivo;
     const LineaAnalizada* l{nullptr};
+    const Orden* orden{nullptr};
+
+    // Las banderas del mandato original que se han escrito, listas para añadir al argv.
+    //
+    // Se reconstruyen desde lo DECLARADO y no copiando lo que llegó: así lo que se le pasa
+    // a `zfs`/`zpool` no puede ser nada que no esté en la lista, por mucho que cambie el
+    // analizador.
+    std::vector<std::string> nativas() const {
+        std::vector<std::string> out;
+        if (!orden) {
+            return out;
+        }
+        for (const Nativa& n : orden->nativas) {
+            const std::string corta = n.forma;
+            const std::string larga =
+                corta.size() > 2 && corta[1] == '-' ? corta.substr(2) : corta.substr(1);
+            if (n.valor) {
+                const auto it = l->opciones.find(larga);
+                if (it != l->opciones.end()) {
+                    out.push_back(corta);
+                    out.push_back(it->second);
+                }
+                continue;
+            }
+            for (const std::string& b : l->banderas) {
+                if (b == corta) {
+                    out.push_back(corta);
+                }
+            }
+            if (l->opciones.count(larga) > 0 && corta.rfind("--", 0) == 0) {
+                out.push_back(corta);
+            }
+        }
+        return out;
+    }
 
     // Las ranuras llegan con NOMBRE desde la gramática; ya no hay que contar posiciones.
     std::vector<std::string> lista(const std::string& n) const { return l->lista(n); }
@@ -574,6 +609,7 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         return false;
     }
     p.l = &linea;
+    p.orden = orden;
 
     std::string explicito = p.valor("on");
     if (explicito.empty()) {
@@ -592,6 +628,32 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         p.objetivo = subeHasta(e.actual, orden->objetivo);
     }
 
+    // Las BANDERAS CORTAS, contra lo declarado. Es el mismo criterio que las largas, y su
+    // ausencia era un agujero: `import apar -N` se tragaba la bandera sin protestar Y sin
+    // pasarla a zpool, así que ni hacía lo pedido ni lo decía.
+    for (const std::string& b : linea.banderas) {
+        bool declarada = false;
+        for (const Nativa& n : orden->nativas) {
+            if (b == n.forma) {
+                declarada = true;
+            }
+        }
+        for (const Parametro& par : orden->params) {
+            const std::string forma = T(par.forma.clave, par.forma.es);
+            for (const std::string& trozo : B::split(forma, " ", true)) {
+                if (trozo == b) {
+                    declarada = true;
+                }
+            }
+        }
+        // `-y` es universal: confirma cualquier acción destructiva.
+        if (!declarada && b != "-y") {
+            std::fprintf(stderr, TC("t_bandera_no_admitida", "«%s» no es una bandera de %s\n"),
+                         b.c_str(), orden->nombre);
+            return false;
+        }
+    }
+
     // Las OPCIONES que la orden no declara son un error, no ruido que se ignora.
     //
     // Sin esto, `ls --daemon` dentro de una conexión se tragaba la opción y listaba los
@@ -608,6 +670,17 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
             continue;
         }
         bool declarada = false;
+        for (const Nativa& n : orden->nativas) {
+            // Peladas de guiones, que es como se guardan. Comparando solo las largas, una
+            // bandera corta CON valor —`trim -r 100M`— se declaraba y aun así se rechazaba.
+            std::string f = n.forma;
+            while (!f.empty() && f.front() == '-') {
+                f.erase(f.begin());
+            }
+            if (f == kv.first) {
+                declarada = true;
+            }
+        }
         for (const Parametro& par : orden->params) {
             const std::string forma = T(par.forma.clave, par.forma.es);
             for (const std::string& trozo : B::split(forma, " ", true)) {
@@ -617,8 +690,11 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
             }
         }
         if (!declarada) {
-            std::fprintf(stderr, TC("t_opcion_no_admitida", "«--%s» no es una opción de %s\n"),
-                         kv.first.c_str(), orden->nombre);
+            // Con uno o dos guiones según su forma: las claves se guardan peladas, y
+            // escribir siempre «--» delante producía cosas como «---r».
+            const std::string comoSeEscribe = (kv.first.size() == 1 ? "-" : "--") + kv.first;
+            std::fprintf(stderr, TC("t_opcion_no_admitida", "«%s» no es una opción de %s\n"),
+                         comoSeEscribe.c_str(), orden->nombre);
             return false;
         }
     }
@@ -2634,10 +2710,18 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
     } else if (fase == "pause" || fase == "suspend") {
         argv.push_back(std::string(op) == "scrub" ? "-p" : "-s");
     }
-    // El POOL primero y los discos después, que es el orden que pide zpool
-    // —`zpool trim <pool> [device]`—. Iba al revés: los sueltos se añadían antes del pool,
-    // así que `trim <pool> <disco>` respondía «invalid character '/' in pool name». Venía
-    // de antes; se ve ahora porque el disco ya es una ranura y no un suelto cualquiera.
+    // El orden que pide zpool: BANDERAS, luego el pool, luego los discos
+    // —`zpool trim [-r <rate>] <pool> [device]`—.
+    //
+    // Las dos mitades vienen de verlo fallar. Los discos iban ANTES del pool, así que
+    // `trim <pool> <disco>` respondía «invalid character '/' in pool name». Y las banderas
+    // nativas iban DESPUÉS del pool, donde zpool las ignora en silencio: `trim -r
+    // noesunritmo` decía «trim en marcha» y el historial del pool registraba
+    // `zpool trim pruebacli` a secas, sin el `-r`. Aceptada y no aplicada es la peor de las
+    // dos formas de fallar.
+    for (const std::string& b : pet.nativas()) {
+        argv.push_back(b);
+    }
     argv.push_back(destino.pool);
     for (const std::string& d : pet.lista("disco")) {
         argv.push_back(d);
@@ -2662,8 +2746,10 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo,
         return false;
     }
     std::vector<std::string> argv{op};
-    if (pet.tiene("-f")) {
-        argv.push_back("-f");
+    // Las banderas del mandato original, tal cual. La lista está declarada en el catálogo y
+    // es la MISMA con la que se validan, así que aceptar y pasar no se pueden separar.
+    for (const std::string& b : pet.nativas()) {
+        argv.push_back(b);
     }
     argv.push_back(destino.pool);
     // `clear` admite un dispositivo detrás del pool. Al declararlo como ranura dejó de

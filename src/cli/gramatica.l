@@ -187,8 +187,22 @@ PALABRA     [^ \t=][^ \t]*
                     BEGIN(VALOR2);
                 }
 {CORTA}         {
+                    /* Una bandera corta también puede llevar valor —`import -d /dev`,
+                     * `trim -r 100M`—: lo dicen las banderas nativas declaradas para ese
+                     * verbo. Sin esto, el valor se leía como un argumento suelto. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
-                    astBandera(cx->res, copia(yytext, yyleng));
+                    char* nombre = copia(yytext, yyleng);
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                        /* Sin los guiones, igual que las largas: las opciones se guardan
+                         * con UNA sola forma de clave. Guardándola con guiones, buscarla
+                         * fallaba y el mensaje de error salía con tres. */
+                        snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s",
+                                 nombre + strspn(nombre, "-"));
+                        free(nombre);
+                        BEGIN(VALOR);
+                    } else {
+                        astBandera(cx->res, nombre);
+                    }
                 }
 {URLTOK}        { yylval->texto = copia(yytext, yyleng); return URL; }
 {ASIGNA}        { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }

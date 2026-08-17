@@ -1455,51 +1455,65 @@ case 15:
 YY_RULE_SETUP
 #line 190 "gramatica.l"
 {
+                    /* Una bandera corta también puede llevar valor —`import -d /dev`,
+                     * `trim -r 100M`—: lo dicen las banderas nativas declaradas para ese
+                     * verbo. Sin esto, el valor se leía como un argumento suelto. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
-                    astBandera(cx->res, copia(yytext, yyleng));
+                    char* nombre = copia(yytext, yyleng);
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                        /* Sin los guiones, igual que las largas: las opciones se guardan
+                         * con UNA sola forma de clave. Guardándola con guiones, buscarla
+                         * fallaba y el mensaje de error salía con tres. */
+                        snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s",
+                                 nombre + strspn(nombre, "-"));
+                        free(nombre);
+                        BEGIN(VALOR);
+                    } else {
+                        astBandera(cx->res, nombre);
+                    }
                 }
 	YY_BREAK
 case 16:
 /* rule 16 can match eol */
 YY_RULE_SETUP
-#line 194 "gramatica.l"
+#line 208 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 17:
 /* rule 17 can match eol */
 YY_RULE_SETUP
-#line 195 "gramatica.l"
+#line 209 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 18:
 /* rule 18 can match eol */
 YY_RULE_SETUP
-#line 197 "gramatica.l"
+#line 211 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 19:
 /* rule 19 can match eol */
 YY_RULE_SETUP
-#line 198 "gramatica.l"
+#line 212 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 20:
 /* rule 20 can match eol */
 YY_RULE_SETUP
-#line 200 "gramatica.l"
+#line 214 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 21:
 YY_RULE_SETUP
-#line 202 "gramatica.l"
+#line 216 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 22:
 YY_RULE_SETUP
-#line 204 "gramatica.l"
+#line 218 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 1503 "generado/gramatica.lex.c"
+#line 1517 "generado/gramatica.lex.c"
 			case YY_STATE_EOF(INITIAL):
 			case YY_STATE_EOF(VERBO):
 			case YY_STATE_EOF(VALOR):
@@ -2618,6 +2632,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 204 "gramatica.l"
+#line 218 "gramatica.l"
 
 

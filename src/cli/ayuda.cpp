@@ -78,6 +78,21 @@ void fila(const std::string& izquierda, const std::string& derecha, int sangria,
     }
 }
 
+// La línea que enumera las banderas del mandato original. Se genera de la lista, no se
+// escribe a mano: si se escribiera, sería una segunda copia que se separa de lo que el
+// programa acepta de verdad —que es exactamente el fallo que estas listas vienen a quitar—.
+std::string lineaDeNativas(const Orden& o) {
+    if (o.nativas.empty()) {
+        return {};
+    }
+    std::string s = T("t_admite_nativas",
+                      "Admite además las banderas del mandato original:");
+    for (const Nativa& n : o.nativas) {
+        s += std::string(" ") + n.forma + (n.valor ? " <v>" : "");
+    }
+    return s + ".";
+}
+
 void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
     const std::string uso =
         std::string(o.nombre)
@@ -90,6 +105,14 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
         fila(T(p.forma.clave, p.forma.es), T(p.que.clave, p.que.es), 6, ancho);
     }
     if (conDetalle) {
+        const std::string nativas = lineaDeNativas(o);
+        if (!nativas.empty()) {
+            std::fprintf(stderr, "\n");
+            for (const std::string& t :
+                 parte(nativas, static_cast<std::size_t>(ancho > 24 ? ancho - 4 : 60))) {
+                std::fprintf(stderr, "  %s\n", t.c_str());
+            }
+        }
         for (const Texto& d : o.detalle) {
             std::fprintf(stderr, "\n");
             for (const std::string& t :
@@ -182,7 +205,8 @@ const std::vector<Orden> kOrdenes = {
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
       "funciona—. En un dataset o instantánea, `zfs destroy`."}},
      Objetivo::DatasetOInstantanea,
-     {}},
+     {},
+     {{"-f", false}, {"-n", false}, {"-p", false}, {"-R", false}, {"-r", false}, {"-v", false}, {"-d", false}}},
     {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
      Objetivo::Conexion,
      {}},
@@ -203,13 +227,16 @@ const std::vector<Orden> kOrdenes = {
     // --- Dataset
     {"rename", {"t_dataset_105268", "Dataset"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
      Objetivo::DatasetOInstantanea,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
+     {{"-f", false}, {"-p", false}, {"-u", false}, {"-r", false}}},
     {"mount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
      Objetivo::Dataset,
-     {}},
+     {},
+     {{"-f", false}, {"-l", false}, {"-v", false}, {"-O", false}, {"-o", true}, {"-a", false}}},
     {"unmount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_a9975c", "Lo desmonta."}, {}, {},
      Objetivo::Dataset,
-     {}},
+     {},
+     {{"-f", false}, {"-u", false}, {"-a", false}}},
     {"promote", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {},
      Objetivo::Dataset,
      {}},
@@ -234,7 +261,8 @@ const std::vector<Orden> kOrdenes = {
     {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
      {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {},
      Objetivo::Instantanea,
-     {}},
+     {},
+     {{"-r", false}, {"-R", false}, {"-f", false}}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {},
@@ -246,10 +274,12 @@ const std::vector<Orden> kOrdenes = {
     {"hold", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"},
      {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {},
      Objetivo::Instantanea,
-     {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+     {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
+     {{"-r", false}}},
     {"release", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
      Objetivo::Instantanea,
-     {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+     {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
+     {{"-r", false}}},
     {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
@@ -266,22 +296,26 @@ const std::vector<Orden> kOrdenes = {
     {"scrub", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_pause", "[<pool>] [stop|pause]"}, {"t_verifica_t_9c1250", "Verifica todo el contenido del pool."}, {}, {},
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
-       {"start", "stop", "cancel", "pause", "suspend"}}}},
-    {"trim", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_vdev", "[<pool>] [stop|pause] [<vdev>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
+       {"start", "stop", "cancel", "pause", "suspend"}}},
+     {{"-e", false}, {"-s", false}, {"-p", false}, {"-C", false}, {"-E", false}, {"-S", false}, {"-w", false}, {"-a", false}}},
+    {"trim", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
      {}, {},
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
        {"start", "stop", "cancel", "pause", "suspend"}},
-      {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}}},
-    {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_vdev", "[<pool>] [stop|pause] [<vdev>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
+      {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
+     {{"-d", false}, {"-w", false}, {"-r", true}, {"-c", false}, {"-s", false}, {"-a", false}}},
+    {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {},
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
        {"start", "stop", "cancel", "pause", "suspend"}},
-      {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}}},
-    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_pool_vdev", "[<pool>] [<vdev>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {},
+      {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
+     {{"-c", false}, {"-s", false}, {"-u", false}, {"-w", false}, {"-a", false}}},
+    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_on", "[<vdev>] [--on <pool>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {},
      Objetivo::Pool,
-     {{"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}}},
+     {{"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
+     {{"--power", false}, {"-n", false}, {"-F", false}}},
     {"flush", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"},
      {"t_flush_res", "Fuerza la escritura de lo pendiente del pool (`zpool sync`)."},
      {}, {{"t_flush_det", "Se llamaba `sync`, que es como se llama en `zpool`. Se cambió porque en la "
@@ -296,19 +330,23 @@ const std::vector<Orden> kOrdenes = {
      {}},
     {"upgrade", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {},
      Objetivo::Pool,
-     {}},
+     {},
+     {{"-v", false}, {"-a", false}}},
     {"reguid", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {},
      Objetivo::Pool,
-     {}},
+     {},
+     {{"-g", true}}},
     {"export", {"t_pools_2fd96d", "Pools"}, {"t_pool_f", "[<pool>] [-f]"}, {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
      {},
      Objetivo::Pool,
-     {}},
+     {},
+     {{"-a", false}, {"-f", false}}},
     {"import", {"t_pools_2fd96d", "Pools"}, {"t_pool_as_nu_2706a5", "[<pool>] [--as <nuevo>] [-f]"},
      {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
      {{{"t_as_nuevo_c017c7", "--as <nuevo>"}, {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {},
      Objetivo::Conexion,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
+     {{"-d", true}, {"-D", false}, {"-o", true}, {"-c", true}, {"-l", false}, {"-f", false}, {"-m", false}, {"-N", false}, {"-R", true}, {"-F", false}, {"-n", false}, {"-t", false}, {"--rewind-to-checkpoint", false}}},
 
     // --- Permisos
     {"allow", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_user_u_per_9cf888", "[--user <u>] <permisos...>"},
@@ -458,6 +496,7 @@ void imprimeAyuda(int ancho) {
                     "actuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n"
                     "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL."));
 }
+
 
 bool imprimeAyudaDe(const std::string& nombre, int ancho) {
     const Orden* o = ordenPorNombre(nombre);
