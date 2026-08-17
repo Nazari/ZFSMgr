@@ -3,12 +3,18 @@
 #include <cstring>
 #include <chrono>
 #include <thread>
+#include <utility>
 #include <cstdio>
 #include <iostream>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <poll.h>
@@ -825,5 +831,250 @@ ExecResult runExecStream(const std::string& program,
 }
 
 #endif  // _WIN32
+
+// --- ChildProcess: un proceso que sigue vivo entre llamadas.
+
+ChildProcess::~ChildProcess() { stop(1500); }
+
+ChildProcess::ChildProcess(ChildProcess&& otro) noexcept { *this = std::move(otro); }
+
+ChildProcess& ChildProcess::operator=(ChildProcess&& otro) noexcept {
+    if (this != &otro) {
+        stop(1500);
+        m_pid = otro.m_pid;
+        m_recogido = otro.m_recogido;
+#ifdef _WIN32
+        m_handle = otro.m_handle;
+        otro.m_handle = nullptr;
+#endif
+        otro.olvida();
+    }
+    return *this;
+}
+
+void ChildProcess::olvida() {
+    m_pid = 0;
+    m_recogido = true;
+#ifdef _WIN32
+    m_handle = nullptr;
+#endif
+}
+
+#ifndef _WIN32
+
+bool ChildProcess::start(const std::string& program, const std::vector<std::string>& args) {
+    stop(1500);
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(const_cast<char*>(program.c_str()));
+    for (const std::string& a : args) {
+        argv.push_back(const_cast<char*>(a.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        return false;
+    }
+    if (pid == 0) {
+        // Sesión propia: un `ssh -L` que comparta el grupo de procesos recibiría el
+        // Ctrl-C del terminal que lanzó la aplicación y el túnel se caería solo.
+        setsid();
+        execvp(program.c_str(), argv.data());
+        _exit(127);
+    }
+    m_pid = pid;
+    m_recogido = false;
+    // Si execvp falló, el hijo muere enseguida con 127 y isRunning() lo verá.
+    return true;
+}
+
+bool ChildProcess::isRunning() {
+    if (m_pid <= 0 || m_recogido) {
+        return false;
+    }
+    int st = 0;
+    const pid_t r = waitpid(static_cast<pid_t>(m_pid), &st, WNOHANG);
+    if (r == 0) {
+        return true;  // sigue vivo
+    }
+    // Murió (o ya no es hijo nuestro): queda recogido, sin zombi.
+    m_recogido = true;
+    return false;
+}
+
+void ChildProcess::stop(int msEspera) {
+    if (m_pid <= 0 || m_recogido) {
+        olvida();
+        return;
+    }
+    const pid_t pid = static_cast<pid_t>(m_pid);
+    ::kill(pid, SIGTERM);
+    const auto inicio = std::chrono::steady_clock::now();
+    while (true) {
+        int st = 0;
+        if (waitpid(pid, &st, WNOHANG) != 0) {
+            m_recogido = true;
+            break;
+        }
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - inicio)
+                            .count();
+        if (ms >= msEspera) {
+            // No hizo caso. Sin miramientos, y se recoge: si no, queda un zombi por cada
+            // túnel que se resistió.
+            ::kill(pid, SIGKILL);
+            waitpid(pid, &st, 0);
+            m_recogido = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    olvida();
+}
+
+#else  // _WIN32
+
+bool ChildProcess::start(const std::string& program, const std::vector<std::string>& args) {
+    stop(1500);
+    std::string cmdline = winBuildCommandLine(program, args);
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<char> buf(cmdline.begin(), cmdline.end());
+    buf.push_back('\0');
+    // CREATE_NO_WINDOW: si no, cada túnel abre una consola negra encima de la ventana.
+    if (!CreateProcessA(nullptr, buf.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                        nullptr, nullptr, &si, &pi)) {
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    m_handle = pi.hProcess;
+    m_pid = static_cast<long long>(pi.dwProcessId);
+    m_recogido = false;
+    return true;
+}
+
+bool ChildProcess::isRunning() {
+    if (!m_handle || m_recogido) {
+        return false;
+    }
+    if (WaitForSingleObject(static_cast<HANDLE>(m_handle), 0) == WAIT_TIMEOUT) {
+        return true;
+    }
+    return false;
+}
+
+void ChildProcess::stop(int msEspera) {
+    if (!m_handle) {
+        olvida();
+        return;
+    }
+    HANDLE h = static_cast<HANDLE>(m_handle);
+    if (WaitForSingleObject(h, 0) == WAIT_TIMEOUT) {
+        // En Windows no hay SIGTERM para un proceso sin consola propia: se le da el plazo
+        // por si termina solo y luego se corta.
+        if (WaitForSingleObject(h, msEspera > 0 ? static_cast<DWORD>(msEspera) : 0)
+            == WAIT_TIMEOUT) {
+            TerminateProcess(h, 1);
+            WaitForSingleObject(h, 2000);
+        }
+    }
+    CloseHandle(h);
+    olvida();
+}
+
+#endif  // _WIN32
+
+// --- Puertos locales.
+
+namespace {
+
+#ifdef _WIN32
+using SockLocal = SOCKET;
+constexpr SockLocal kSockLocalInvalido = INVALID_SOCKET;
+void cierraLocal(SockLocal s) {
+    if (s != kSockLocalInvalido) {
+        closesocket(s);
+    }
+}
+void aseguraWinsockLocal() {
+    static bool hecho = false;
+    if (!hecho) {
+        WSADATA d{};
+        WSAStartup(MAKEWORD(2, 2), &d);
+        hecho = true;
+    }
+}
+#else
+using SockLocal = int;
+constexpr SockLocal kSockLocalInvalido = -1;
+void cierraLocal(SockLocal s) {
+    if (s != kSockLocalInvalido) {
+        ::close(s);
+    }
+}
+void aseguraWinsockLocal() {}
+#endif
+
+}  // namespace
+
+std::uint16_t reserveFreeLocalPort() {
+    aseguraWinsockLocal();
+    const SockLocal s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == kSockLocalInvalido) {
+        return 0;
+    }
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_port = 0;  // que lo elija el sistema
+    if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0 || ::listen(s, 1) != 0) {
+        cierraLocal(s);
+        return 0;
+    }
+    sockaddr_in puesto{};
+#ifdef _WIN32
+    int len = sizeof(puesto);
+#else
+    socklen_t len = sizeof(puesto);
+#endif
+    std::uint16_t puerto = 0;
+    if (getsockname(s, reinterpret_cast<sockaddr*>(&puesto), &len) == 0) {
+        puerto = ntohs(puesto.sin_port);
+    }
+    cierraLocal(s);
+    return puerto;
+}
+
+bool canConnectLocal(std::uint16_t port, int timeoutMs) {
+    if (port == 0) {
+        return false;
+    }
+    aseguraWinsockLocal();
+    const SockLocal s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == kSockLocalInvalido) {
+        return false;
+    }
+    // Con tope: contra un puerto que no escucha la respuesta es inmediata, pero contra uno
+    // que está a medio montar puede quedarse esperando, y este bucle se recorre muchas
+    // veces por segundo.
+#ifdef _WIN32
+    DWORD tv = static_cast<DWORD>(timeoutMs);
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+#else
+    timeval tv{};
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_port = htons(port);
+    const bool ok = ::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0;
+    cierraLocal(s);
+    return ok;
+}
 
 }  // namespace zfsmgr::base

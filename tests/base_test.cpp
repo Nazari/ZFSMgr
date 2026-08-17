@@ -17,6 +17,10 @@
 #include "zfsmurl.h"
 
 #include <chrono>
+#include <thread>
+#ifndef _WIN32
+#include <signal.h>
+#endif
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -1040,6 +1044,53 @@ int main() {
             // Pero solo entero: sin el ';' final no es ese prologo y no se toca.
             comprobar(T::wrapRemoteCommand(win, "PATH=\"a\"; export PATH") != T::wrapRemoteCommand(win, ""),
                       "wrapRemoteCommand: un prologo a medias no se retira");
+        }
+    }
+
+    // --- Las piezas que sostienen un tunel: un proceso que sigue VIVO entre llamadas, un
+    // puerto libre y la sonda de «ya acepta conexiones». Aqui se prueban contra un
+    // proceso local; contra un `ssh -L` de verdad se probaron aparte, y el tunel tardo
+    // 832 ms en aceptar conexiones, que son los ~830 ms que ya documentaba el codigo.
+    {
+        namespace P = zfsmgr::base;
+
+        const std::uint16_t p1 = P::reserveFreeLocalPort();
+        const std::uint16_t p2 = P::reserveFreeLocalPort();
+        comprobar(p1 != 0 && p2 != 0, "reserveFreeLocalPort: devuelve puertos");
+        comprobar(p1 != p2, "reserveFreeLocalPort: dos llamadas no dan el mismo");
+        comprobar(!P::canConnectLocal(p1, 200),
+                  "canConnectLocal: en un puerto reservado y soltado no escucha nadie");
+        comprobar(!P::canConnectLocal(0, 200), "canConnectLocal: el puerto 0 no vale");
+
+        {
+            P::ChildProcess c;
+            comprobar(c.start("sleep", {"30"}), "ChildProcess: arranca");
+            comprobar(c.pid() > 0, "ChildProcess: tiene pid");
+            comprobar(c.isRunning(), "ChildProcess: sigue vivo");
+            c.stop(1500);
+            comprobar(!c.isRunning(), "ChildProcess: stop() lo termina");
+            c.stop(1500);  // idempotente: llamarlo dos veces no debe romper nada
+            comprobar(!c.isRunning(), "ChildProcess: stop() es idempotente");
+        }
+        {
+            // Un programa que no existe: el hijo muere con 127 y NO se queda de zombi.
+            P::ChildProcess c;
+            c.start("no-existe-xyz-123", {});
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            comprobar(!c.isRunning(), "ChildProcess: un programa inexistente no queda vivo");
+        }
+        {
+            // El destructor MATA. Un `ssh -L` que sobrevive a quien lo creo deja un puerto
+            // escuchando y una conexion abierta contra la otra maquina, y nadie los cierra.
+            long long pid = 0;
+            {
+                P::ChildProcess c;
+                c.start("sleep", {"30"});
+                pid = c.pid();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            comprobar(pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0,
+                      "ChildProcess: el destructor mata al hijo");
         }
     }
 

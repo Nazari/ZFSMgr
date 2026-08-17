@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -73,6 +74,60 @@ ExecResult runExecStream(const std::string& program,
                          const std::string& stdinData,
                          int timeoutMs,
                          const StreamCallbacks& cb);
+
+// --- Un proceso que se queda VIVO entre llamadas.
+//
+// Todo lo de arriba lanza algo, espera y recoge. Un túnel `ssh -L` no es eso: se levanta,
+// se usa muchas veces y se cierra cuando ya no hace falta. Eso era lo último que obligaba
+// a que los túneles fueran `QProcess` colgados de un objeto con bucle de eventos.
+//
+// **El destructor lo mata.** Un `ssh -L` que sobrevive a quien lo creó deja un puerto
+// escuchando y una conexión abierta contra la otra máquina, y nadie vuelve a cerrarlos.
+class ChildProcess {
+public:
+    ChildProcess() = default;
+    ~ChildProcess();
+    // Ni copiable ni asignable: dos objetos con el mismo hijo lo matarían dos veces.
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+    ChildProcess(ChildProcess&& otro) noexcept;
+    ChildProcess& operator=(ChildProcess&& otro) noexcept;
+
+    // Lanza. Devuelve false si no se pudo. Como en el resto del fichero, SIN intérprete.
+    bool start(const std::string& program, const std::vector<std::string>& args);
+
+    // ¿Sigue vivo? No bloquea, y además RECOGE al hijo si acaba de morir: sin esto, cada
+    // túnel cerrado dejaría un zombi.
+    bool isRunning();
+
+    // Termina con educación y, si no hace caso en `msEspera`, sin ella. Es idempotente.
+    void stop(int msEspera = 1500);
+
+    long long pid() const { return m_pid; }
+
+private:
+    void olvida();
+    long long m_pid{0};
+#ifdef _WIN32
+    void* m_handle{nullptr};
+#endif
+    bool m_recogido{true};
+};
+
+// --- Puertos locales.
+
+// Reserva un puerto libre en 127.0.0.1 y lo suelta. Devuelve 0 si no hay ninguno.
+//
+// **Hay una carrera y es inevitable**: entre soltarlo y que `ssh -L` lo tome, otro proceso
+// podría cogerlo. Es lo mismo que hacía la versión con Qt, y la alternativa —pasarle a ssh
+// un descriptor ya abierto— no existe en su línea de órdenes. Si ocurre, `ssh` falla al
+// reenviar y el túnel no se da por bueno, que es el comportamiento correcto.
+std::uint16_t reserveFreeLocalPort();
+
+// ¿Acepta ya conexiones ese puerto en 127.0.0.1? Es la pregunta que hay que hacerle a un
+// túnel recién montado: conectarse antes de tiempo da ECONNREFUSED, y quien llama lo
+// contaba como fallo del saludo TLS y castigaba la conexión sin motivo.
+bool canConnectLocal(std::uint16_t port, int timeoutMs);
 
 #ifdef _WIN32
 // CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así
