@@ -205,11 +205,13 @@ const zfsmgr::base::ConnectionProfile* buscarConexion(const Conexiones& c, const
 
 std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                     const std::string& maestra,
-                                    bool verboso) {
+                                    bool verboso,
+                                    bool sinSecretos) {
     auto s = std::make_unique<Sesion>();
     s->dirConfig = dirConfig;
     s->maestra = maestra;
     s->verboso = verboso;
+    s->sinSecretos = sinSecretos;
 
     Sesion* raw = s.get();
 
@@ -429,6 +431,14 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
     error.clear();
     if (B::trim(p.id).empty()) {
         error = "la conexión necesita un identificador";
+        return false;
+    }
+    // **Sin poder leer los secretos NO se escribe.** Un perfil cargado con --no-secrets
+    // trae los campos cifrados VACÍOS, y guardarlo así los deja vacíos en el fichero: se
+    // pierde la contraseña, sin aviso y sin vuelta atrás. Pasó de verdad con un `edit`.
+    if (s.sinSecretos) {
+        error = "con --no-secrets no se escribe la configuración: los campos cifrados no se "
+                "han podido leer y guardarlos los borraría";
         return false;
     }
     B::ConnectionProfile guardado = p;

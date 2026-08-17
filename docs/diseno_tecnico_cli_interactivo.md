@@ -300,6 +300,23 @@ URL, preguntando a la máquina por los hijos del sitio.
 operación: llenar la pantalla de errores porque una máquina está apagada convertiría una
 comodidad en un estorbo. Sin respuesta, simplemente no completa.
 
+## Con --no-secrets NO se escribe la configuración
+
+Un perfil cargado con `--no-secrets` trae los campos cifrados **vacíos**, porque no se han
+podido abrir. Guardarlo así los deja vacíos EN EL FICHERO: se pierde la contraseña, sin
+aviso y sin vuelta atrás.
+
+No es hipotético: un `edit` con `--no-secrets` se llevó por delante la contraseña de sudo
+de una conexión real. Ahora `guardarConexion` se niega y lo dice.
+
+De la misma tanda: **una orden nunca ignora un argumento en silencio**. `edit fc16` se
+limitaba a descartar el «fc16» y editaba la conexión donde uno estaba —diciendo
+«actualizada la conexión local»—, así que uno creía haber editado otra cosa. Las órdenes
+sin argumentos propios aceptan el destino suelto, y sobra uno de más se dice.
+
+Y un esquema equivocado se nombra: `zfsmgr://fc16` decía algo sobre un tramo llamado
+«zfsmgr:», que no ayuda a ver que lo único que sobran son tres letras.
+
 ## Lo que falta
 
 - La resolución de rutas es lógica pura y está probada solo por las pruebas en vivo.

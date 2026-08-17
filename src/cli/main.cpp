@@ -383,7 +383,7 @@ int main(int argc, char** argv) {
     if (op.orden.empty()) {
         // Sin orden, el intérprete. Es la puerta por la que el CLI pasa de leer la
         // configuración a hablar con las máquinas.
-        auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso);
+        auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso, op.sinSecretos);
         rc = zfsmgr::cli::ejecutarShell(*ses, op.formato, op.urlInicial, op.asumirSi);
     } else {
         rc = listarConexiones(op, maestra);

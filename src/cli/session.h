@@ -82,6 +82,9 @@ struct Sesion {
     std::string dirConfig;
     std::string maestra;
     bool verboso{false};
+    // Se arrancó con --no-secrets: los campos cifrados no se han podido abrir y valen
+    // vacío. **Con esto puesto NO se escribe la configuración**, ver guardarConexion.
+    bool sinSecretos{false};
 
     // Las credenciales de sudo de ESTA máquina, una vez resueltas.
     //
@@ -97,7 +100,8 @@ struct Sesion {
 // local y persistencia del material TLS negociado.
 std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                     const std::string& maestra,
-                                    bool verboso);
+                                    bool verboso,
+                                    bool sinSecretos = false);
 
 // --- Cambiar la configuración, no solo leerla.
 
@@ -107,6 +111,10 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
 // interfaz. Sin contraseña maestra no se guarda en claro: se falla y se dice por qué.
 // El resto del fichero —ajustes, acciones pendientes, estado del árbol— se conserva tal
 // cual: aquí se toca únicamente la lista de conexiones.
+// **Se niega si los secretos no se han podido abrir.** Guardar un perfil cuyos campos
+// cifrados llegaron vacíos —con --no-secrets, o con la maestra equivocada— los escribiría
+// vacíos y BORRARÍA la contraseña guardada. Pasó de verdad: un `edit` con --no-secrets se
+// llevó por delante la contraseña de sudo de una conexión.
 bool guardarConexion(Sesion& s, const zfsmgr::base::ConnectionProfile& p, std::string& error);
 
 // Quita una conexión de la configuración. NO toca nada en la máquina.

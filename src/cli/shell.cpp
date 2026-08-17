@@ -107,6 +107,18 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         return true;
     }
 
+    // Un esquema que NO es el nuestro se dice claramente. Sin esto, «zfsmgr://fc16» se
+    // trataba como una ruta relativa y el error hablaba de un tramo llamado «zfsmgr:»,
+    // que no ayuda a ver que lo único que sobra son tres letras.
+    {
+        const std::size_t dosPuntos = texto.find("://");
+        if (dosPuntos != std::string::npos
+            && B::toLowerAscii(texto.substr(0, dosPuntos)) != "zfsm") {
+            error = "el esquema es «zfsm://», no «" + texto.substr(0, dosPuntos) + "://»";
+            return false;
+        }
+    }
+
     // La URL completa: siempre vale y nunca es ambigua.
     if (B::startsWith(B::toLowerAscii(texto), "zfsm://")) {
         if (!B::parseZfsmUrl(texto, out, error)) {
@@ -440,6 +452,13 @@ Opts trocea(const std::vector<std::string>& args, const std::vector<std::string>
 // **Las dos son sinónimas a propósito.** «from» es la palabra natural en las órdenes que
 // además tienen un destino —`todir`, `assemble`—, y «on» en las que actúan sobre un solo
 // sitio. Obligar a recordar cuál lleva cada una sería una regla que no aporta nada.
+// El destino cuando la orden NO tiene argumentos propios: vale escribirlo suelto.
+//
+// Existe porque `edit fc16` se limitaba a IGNORAR el «fc16» y editaba la conexión donde
+// uno estaba — decía «actualizada la conexión local» y uno se quedaba pensando que había
+// editado fc16. Ignorar un argumento en silencio es la peor manera de equivocarse.
+bool destinoSuelto(const Estado& e, const Opts& o, ZfsmUrl& out);
+
 bool destinoDe(const Estado& e, const Opts& o, ZfsmUrl& out) {
     std::string texto = o.valor("on");
     if (texto.empty()) {
@@ -467,6 +486,23 @@ bool pide(const std::string& etiqueta, const std::string& porOmision, std::strin
         out = porOmision;
     }
     return true;
+}
+
+bool destinoSuelto(const Estado& e, const Opts& o, ZfsmUrl& out) {
+    if (o.libres.size() > 1) {
+        std::fprintf(stderr, "esta orden solo admite un destino; sobra «%s»\n",
+                     o.libres[1].c_str());
+        return false;
+    }
+    if (!o.libres.empty()) {
+        std::string error;
+        if (!resuelve(e, o.libres.front(), out, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+        return true;
+    }
+    return destinoDe(e, o, out);
 }
 
 bool confirma(const Estado& e, const std::string& que) {
@@ -1373,7 +1409,7 @@ bool cmdEdit(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from", "name", "type", "os", "host", "port", "user",
                                  "key", "password-fd"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    if (!destinoSuelto(e, o, destino)) {
         return false;
     }
     return cmdEditarConexion(e, o, destino);
@@ -1447,7 +1483,7 @@ bool cmdRename(Estado& e, const std::vector<std::string>& args) {
 bool cmdMontaje(Estado& e, const std::vector<std::string>& args, bool montar) {
     const Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    if (!destinoSuelto(e, o, destino)) {
         return false;
     }
     if (!exigeDataset(destino)) {
@@ -1468,7 +1504,7 @@ bool cmdMontaje(Estado& e, const std::vector<std::string>& args, bool montar) {
 bool cmdPromote(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     ZfsmUrl destino;
-    if (!destinoDe(e, o, destino) || !exigeDataset(destino)) {
+    if (!destinoSuelto(e, o, destino) || !exigeDataset(destino)) {
         return false;
     }
     if (!zfsGenerico(e, destino, {"promote", destino.dataset})) {
