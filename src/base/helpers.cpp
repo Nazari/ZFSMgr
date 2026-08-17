@@ -900,6 +900,61 @@ bool looksLikeSudoAuthFailure(const std::string& text) {
     return false;
 }
 
+// Recorta lo que hay entre dos marcas, dejando las marcas. Devuelve dónde seguir mirando.
+static bool recortaEntre(std::string& s, const std::string& abre, const std::string& cierra,
+                         const std::string& porQue, std::size_t& desde) {
+    const std::size_t i = s.find(abre, desde);
+    if (i == std::string::npos) {
+        return false;
+    }
+    const std::size_t iniCuerpo = i + abre.size();
+    const std::size_t j = s.find(cierra, iniCuerpo);
+    // Sin marca de cierre se recorta HASTA EL FINAL. Un volcado truncado a mitad de clave
+    // sigue siendo media clave, y es el caso que más se parece a un fallo real.
+    const std::size_t finCuerpo = (j == std::string::npos) ? s.size() : j;
+    s.replace(iniCuerpo, finCuerpo - iniCuerpo, porQue);
+    desde = iniCuerpo + porQue.size();
+    return true;
+}
+
+std::string maskSecretOutput(const std::string& input) {
+    // La comprobación barata primero: por aquí pasa TODA la salida de TODAS las órdenes, y
+    // lo normal es que no haya nada que tapar.
+    if (!contains(input, "PRIVATE KEY") && !contains(input, "__ZFSMGR_TLS_BEGIN__:")) {
+        return input;
+    }
+    std::string out = input;
+    // Las claves privadas en PEM, sea cual sea el tipo (RSA, EC, o el PKCS#8 sin tipo).
+    for (const char* fin : {"-----END PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----",
+                            "-----END EC PRIVATE KEY-----"}) {
+        const std::string ini = std::string(fin).replace(5, 3, "BEGIN");
+        std::size_t desde = 0;
+        while (recortaEntre(out, ini, fin, "[clave privada omitida]", desde)) {
+        }
+    }
+    // Y el paquete que viaja entre los marcadores del lector de material TLS: ahí dentro
+    // van los certificados y la clave, y el fichero de la clave se nombra en la marca.
+    {
+        std::size_t desde = 0;
+        while (true) {
+            const std::size_t i = out.find("__ZFSMGR_TLS_BEGIN__:", desde);
+            if (i == std::string::npos) {
+                break;
+            }
+            // La marca lleva la ruta pegada hasta el fin de línea: se conserva.
+            const std::size_t finMarca = out.find('\n', i);
+            if (finMarca == std::string::npos) {
+                break;
+            }
+            const std::size_t j = out.find("__ZFSMGR_TLS_END__:", finMarca);
+            const std::size_t finCuerpo = (j == std::string::npos) ? out.size() : j;
+            out.replace(finMarca + 1, finCuerpo - finMarca - 1, "[material TLS omitido]\n");
+            desde = finMarca + 1 + std::string("[material TLS omitido]\n").size();
+        }
+    }
+    return out;
+}
+
 std::string maskCommandSecrets(const std::string& input) {
     std::string out = input;
     // std::regex con ECMAScript en vez de la PCRE de Qt. Las dos diferencias que había

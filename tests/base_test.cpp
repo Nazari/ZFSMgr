@@ -354,6 +354,40 @@ int main() {
     comprobar(contains(H::maskCommandSecrets("{ printf '%s\\n' 'x'; cat; } | sudo y"), "[secret]"),
               "la forma con ; cat depende de la anticipacion");
 
+    // --- Enmascarado de la SALIDA, que es otra cosa que la orden.
+    //
+    // Existe porque la clave privada del cliente TLS se leia ejecutando una orden, y su
+    // salida se volcaba entera al registro: con `zfsmgr_cli -v` salia por la salida de
+    // error, de donde se copia y se pega.
+    {
+        const std::string clave =
+            "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\nhkiG9w0BAQEFAASC\n"
+            "-----END PRIVATE KEY-----\n";
+        const std::string m = H::maskSecretOutput("antes\n" + clave + "despues\n");
+        comprobar(!contains(m, "MIIEvQIBADANBgkq"), "el cuerpo de la clave privada no sobrevive");
+        comprobar(contains(m, "-----BEGIN PRIVATE KEY-----"), "las marcas se conservan");
+        comprobar(contains(m, "antes") && contains(m, "despues"), "el resto de la salida queda");
+    }
+    // Truncada a mitad: sin marca de cierre se recorta HASTA EL FINAL. Media clave sigue
+    // siendo media clave, y es justo lo que deja un volcado interrumpido.
+    comprobar(!contains(H::maskSecretOutput("-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADAN"),
+                        "MIIEvQIBADAN"),
+              "una clave sin cierre tambien se tapa");
+    // El paquete del lector de material TLS: se conserva la marca CON su ruta, que es lo
+    // que sirve para diagnosticar, y se tira lo de dentro.
+    {
+        const std::string paq = "__ZFSMGR_TLS_BEGIN__:/etc/zfsmgr/tls/client.key\n"
+                                "MIIEvQIBADANBgkq\n"
+                                "__ZFSMGR_TLS_END__:/etc/zfsmgr/tls/client.key\n";
+        const std::string m = H::maskSecretOutput(paq);
+        comprobar(!contains(m, "MIIEvQIBADANBgkq"), "el material TLS no sobrevive");
+        comprobar(contains(m, "/etc/zfsmgr/tls/client.key"), "la ruta del fichero se conserva");
+    }
+    // Lo normal es que no haya nada que tapar, y entonces el texto sale INTACTO: por aqui
+    // pasa toda la salida de todas las ordenes.
+    igual(H::maskSecretOutput("NAME  SIZE\nfc16  2.46T\n"), "NAME  SIZE\nfc16  2.46T\n",
+          "una salida normal no se toca");
+
     igual(H::parseOpenZfsVersionText("zfs-2.3.3"), "2.3.3", "version de zfs");
     igual(H::parseOpenZfsVersionText("OpenZFS version: 2.4.1"), "2.4.1", "version de openzfs");
     // Un mayor absurdo delata que se ha pescado otra cosa.

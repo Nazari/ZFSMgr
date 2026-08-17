@@ -191,6 +191,17 @@ struct ImportablePoolInfo {
 // que sean siete patrones.
 std::string maskCommandSecrets(const std::string& input);
 
+// Lo mismo, pero para la SALIDA de una orden antes de escribirla en el registro.
+//
+// Hace falta porque el material TLS del daemon se lee ejecutando una orden, y su salida
+// —la clave privada del cliente, entera— se estaba volcando al registro línea a línea:
+// con `zfsmgr_cli -v` salía por la salida de error, de donde se copia y se pega. Es la
+// clave con la que se habla con el daemon como root.
+//
+// Se recorta lo de dentro, no la línea entera: la ruta y los marcadores se quedan, porque
+// son justo lo que sirve para diagnosticar que el material se leyó y de dónde.
+std::string maskSecretOutput(const std::string& input);
+
 // Saca la versión de OpenZFS de una salida en texto libre. Vacío si no la encuentra o
 // si el número mayor pasa de 10, que delata una coincidencia falsa.
 std::string parseOpenZfsVersionText(const std::string& text);

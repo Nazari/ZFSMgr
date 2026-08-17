@@ -55,6 +55,29 @@ std::string leeFichero(const std::string& ruta) {
 // y, si toca, al registro de la conexión.
 void entregaLineas(const TransportSession& ses, const std::string& connId, const std::string& texto,
                    const std::function<void(const std::string&)>& cb, bool alRegistro) {
+    // Al REGISTRO va tapado; a quien llamó, entero. La distinción importa: el material TLS
+    // se lee justo así, y quien lo pidió lo necesita de verdad —el registro no.
+    //
+    // Se tapa AQUÍ, sobre el texto completo, y no en el sumidero del registro: la clave
+    // llega partida en líneas de base64 y una línea suelta no se distingue de cualquier
+    // otra salida en base64. Con el texto entero delante, los marcadores dicen dónde
+    // empieza y dónde acaba sin tener que adivinar nada.
+    const std::string paraRegistro = alRegistro ? helpers::maskSecretOutput(texto) : std::string();
+    if (alRegistro && paraRegistro != texto) {
+        for (const std::string& cruda : split(paraRegistro, "\n", true)) {
+            const std::string linea = trim(cruda);
+            if (!linea.empty()) {
+                ses.logConn(Nivel::Normal, connId, linea);
+            }
+        }
+        for (const std::string& cruda : split(texto, "\n", true)) {
+            const std::string linea = trim(cruda);
+            if (!linea.empty() && cb) {
+                cb(linea);
+            }
+        }
+        return;
+    }
     for (const std::string& cruda : split(texto, "\n", true)) {
         const std::string linea = trim(cruda);
         if (linea.empty()) {
@@ -75,10 +98,10 @@ void ecoResumen(const TransportSession& ses, const std::string& connId, const st
         return;
     }
     if (!trim(out).empty()) {
-        ses.logConn(Nivel::Normal, connId, helpers::oneLine(out));
+        ses.logConn(Nivel::Normal, connId, helpers::oneLine(helpers::maskSecretOutput(out)));
     }
     if (!trim(err).empty()) {
-        ses.logConn(Nivel::Normal, connId, helpers::oneLine(err));
+        ses.logConn(Nivel::Normal, connId, helpers::oneLine(helpers::maskSecretOutput(err)));
     }
 }
 
@@ -416,8 +439,12 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         std::string out;
         std::string err;
         int rc = -1;
+        // Sin eco al registro: esta orden devuelve la clave privada del cliente. El
+        // enmascarado de `entregaLineas` ya la taparía, pero lo que no se manda no se puede
+        // filtrar por un fallo del enmascarado.
         if (!runSsh(ses, sudoProfile, H::withSudoCommand(sudoProfile, "sh -lc " + shSingleQuote(guion)),
-                    15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
+                    15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
+                    /*echoOutputToLog=*/false)
             || rc != 0) {
             ses.log(Nivel::Warn, "Local: no se pudo leer el material TLS del daemon -> "
                                      + H::oneLine(err.empty() ? out : err));
@@ -674,7 +701,12 @@ bool runSsh(TransportSession& ses,
     // --- La conexión LOCAL: no hay SSH de por medio.
     if (isLocalConnection(p)) {
         const std::string localCmd = trim(remoteCmd);
-        ses.logConn(Nivel::Info, p.id, "[local] $ " + localCmd);
+        // Enmascarada AQUÍ, no en el sumidero de quien registre. La interfaz gráfica lo
+        // hacía en el suyo y por eso estaba a salvo; el CLI no tiene ese sumidero, así que
+        // con `-v` la contraseña de sudo salía por la salida de error en escapes octales
+        // —`\0162\0160\0161…`, que es «rpq231» sin más que leerlo—. Un secreto no debe
+        // depender de que cada consumidor se acuerde de taparlo.
+        ses.logConn(Nivel::Info, p.id, "[local] $ " + H::maskCommandSecrets(localCmd));
 
         // Una entrada estándar no vacía descarta el RPC: el canal no la transporta, y la
         // interceptación no lo miraba, así que la contraseña de un dataset cifrado se perdía
@@ -789,7 +821,8 @@ bool runSsh(TransportSession& ses,
     const std::string sshResolutionKey =
         toLowerAscii(trim(p.host)) + "|" + toLowerAscii(trim(p.sshAddressFamily));
 
-    ses.logConn(Nivel::Info, p.id, H::sshUserHostPort(p) + " $ " + wrappedCmd);
+    ses.logConn(Nivel::Info, p.id,
+                H::sshUserHostPort(p) + " $ " + H::maskCommandSecrets(wrappedCmd));
     if (hayClave && !conSshpass) {
         ses.logConn(Nivel::Normal, p.id,
                     "Password guardado, pero sshpass no está disponible; se usará SSH no "
