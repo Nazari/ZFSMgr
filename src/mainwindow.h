@@ -614,7 +614,16 @@ private:
                                QString& err,
                                int& rc,
                                const std::function<void(const QString&)>& progressCb = {},
-                               bool* jobSubmittedOut = nullptr);
+                               bool* jobSubmittedOut = nullptr,
+                               // Cancelar es una salida NORMAL, no una pérdida de contacto,
+                               // y hay que poder distinguirlas. Antes se distinguían
+                               // BUSCANDO «cancelado por el usuario» dentro de `err`: una
+                               // frase que esta misma clase escribe 480 líneas más arriba y
+                               // que, traducida, habría hecho que cada cancelación se
+                               // anunciara como «se perdió su seguimiento, puede seguir en
+                               // curso» — el aviso que asusta, justo cuando el usuario
+                               // acaba de pedir el aborto a propósito.
+                               bool* cancelledOut = nullptr);
     // commandMayHaveRunOut, when non-null, is set to true as soon as the request has
     // been written to the daemon. From that point a failure is ambiguous: the daemon
     // may be executing the command right now, so retrying or falling back to SSH would
@@ -640,6 +649,11 @@ private:
     void clearDaemonRpcBackoffForConnection(const ConnectionProfile& p);
     QString daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const;
     QString daemonRpcBackoffTextForConnection(int connIdx) const;
+    // El texto de un motivo de fallo del transporte. La capa base lo devuelve TIPIFICADO
+    // para poder decidir con él —reintentar, castigar, revivir el daemon— sin que esas
+    // decisiones dependan de una frase que se puede reescribir o traducir; aquí, que es
+    // donde hay idioma, se le pone texto. El CLI hace lo mismo por su cuenta.
+    QString transportFailureText(const zfsmgr::base::transport::MotivoFallo& m) const;
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;

@@ -783,12 +783,14 @@ bool MainWindow::executeDatasetAction(const QString& side,
         && !agentArgv.isEmpty();
     bool ok = false;
     bool jobWasSubmitted = false;
+    bool jobWasCancelled = false;
     if (submittableAsJob) {
-        ok = runAgentMutationAsJob(p, agentArgv, out, err, rc, progressLogger, &jobWasSubmitted);
+        ok = runAgentMutationAsJob(p, agentArgv, out, err, rc, progressLogger, &jobWasSubmitted,
+                                   &jobWasCancelled);
         // Cancelar es una salida NORMAL, no una pérdida de contacto. Salían las dos con
         // el mismo aviso —"se perdió su seguimiento, puede seguir en curso"—, que asusta
         // sin motivo justo cuando el usuario acaba de pedir el aborto a propósito.
-        if (!ok && jobWasSubmitted && err.contains(QStringLiteral("cancelado por el usuario"))) {
+        if (!ok && jobWasSubmitted && jobWasCancelled) {
             m_lastActionWasCancelled = true;
             appLog(QStringLiteral("NORMAL"),
                    trk(QStringLiteral("t_action_cancelled_001"),

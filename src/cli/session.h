@@ -130,6 +130,14 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error);
 // formas de saber lo mismo es cómo acaban discrepando.
 bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error);
 
+// El texto de un motivo de fallo del transporte.
+//
+// La capa base devuelve el motivo TIPIFICADO a propósito: así puede decidir qué hacer con
+// él —reintentar, castigar, revivir el daemon— sin que esa decisión dependa de una frase
+// que alguien puede reescribir o traducir. Aquí, que es donde hay idioma, se le pone texto.
+// La interfaz gráfica hace lo mismo por su cuenta con `tr()`.
+std::string textoDeFallo(const zfsmgr::base::transport::MotivoFallo& m);
+
 // El directorio donde está este ejecutable. Hace falta para encontrar lo que viaja a su
 // lado: los agentes que se despliegan y los catálogos de traducción.
 std::string dirDelEjecutable();

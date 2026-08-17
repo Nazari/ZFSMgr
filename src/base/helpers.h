@@ -97,7 +97,6 @@ std::string buildTarDestinationCommand(bool isWindows, const std::string& mountP
 // interactiva no las trae.
 std::string withUnixSearchPathCommand(const std::string& cmd);
 
-std::string rpcTunnelBusyReason();
 std::string storedSecretMarkerPrefix();
 
 // Descarta lo que preceda al primer '{': algunas órdenes escriben avisos antes del JSON.

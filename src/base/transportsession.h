@@ -2,6 +2,7 @@
 
 #include "connectionprofile.h"
 #include "process.h"
+#include "transportreason.h"
 
 #include <chrono>
 #include <cstdint>
@@ -213,7 +214,7 @@ struct TransportSession {
     // Hasta cuándo no se reintenta el RPC de una conexión, y por qué. Sin esto, una
     // conexión con el daemon caído se lleva una ida y vuelta por SSH en cada operación.
     std::map<std::string, std::chrono::steady_clock::time_point> retryAfterByConnKey;
-    std::map<std::string, std::string> retryReasonByConnKey;
+    std::map<std::string, transport::MotivoFallo> retryReasonByConnKey;
 
     // Conexiones a las que se ha renunciado al multiplexado de SSH, y aquellas cuya
     // resolución de nombre ya se anotó en el registro: las dos existen para no repetir el

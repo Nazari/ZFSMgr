@@ -154,7 +154,6 @@ QString shPrintfOctalEscaped(const QString& s);
 
 // Motivo reservado: el túnel RPC de esa conexión se está montando en un marco anterior
 // de la pila. NO es un fallo, y quien lo reciba no debe penalizar la conexión.
-QString rpcTunnelBusyReason();
 
 // Una contraseña de perfil y la clave con la que se la vuelve a encontrar al restaurar.
 struct StorableSecret {

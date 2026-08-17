@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connectionprofile.h"
+#include "transportreason.h"
 #include "transportsession.h"
 
 #include <cstdint>
@@ -47,7 +48,7 @@ std::string bindAddressToConnectHost(const std::string& bindAddress);
 // devuelve en vez de escribirlo aquí: esta capa no sabe dónde está el registro.
 struct LocalRpcDiag {
     long long elapsedMs{0};
-    std::string failure;  // vacío si fue bien
+    MotivoFallo failure;  // vacío si fue bien
 };
 
 // El RPC contra el daemon de ESTA máquina: una línea JSON de ida, una de vuelta, por TLS

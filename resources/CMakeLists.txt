@@ -1,6 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
 project(ZFSMgrQt VERSION 0.92.0 LANGUAGES CXX)
 include(CTest)
+
+# Un `switch` sobre un enum al que le falte un caso es un ERROR, no un aviso.
+#
+# Esto es lo que sostiene los motivos tipificados: `transportreason.cpp` decide con
+# `switch` sin `default` qué fallos merecen revivir el daemon, cuáles son de TLS y cuáles
+# se castigan. Sin este flag, añadir un motivo nuevo compilaba en silencio y el motivo
+# quedaba fuera de las tres decisiones — exactamente el fallo mudo que se venía a quitar,
+# solo que movido de sitio. Comprobado: con el aviso apagado, añadir un valor al enum no
+# producía ni una línea de salida.
+#
+# Va al proyecto entero, no solo a la capa base: los enums de estado los hay por todas
+# partes, y el árbol ya estaba limpio de este aviso cuando se activó.
+if(MSVC)
+    add_compile_options(/we4062)
+else()
+    add_compile_options(-Werror=switch)
+endif()
+
 set(ZFSMGR_APP_VERSION_STRING "0.92.0")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
@@ -194,6 +212,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/helpers.h
     ../src/base/transportcmd.cpp
     ../src/base/transportcmd.h
+    ../src/base/transportreason.cpp
+    ../src/base/transportreason.h
     ../src/base/transportrpc.cpp
     ../src/base/transportrpc.h
     ../src/base/transporttunnel.cpp

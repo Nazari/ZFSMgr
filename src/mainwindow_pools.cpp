@@ -695,8 +695,16 @@ void MainWindow::importPoolFromRow(int row) {
                                              false);
     if (!imported) {
         const bool hasGuidTarget = importTarget.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) != 0;
-        const bool missingGuid = errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive)
-                                 || errorText.contains(QStringLiteral("pool no existe"), Qt::CaseInsensitive);
+        // Se compara texto a propósito, y aquí SÍ está justificado: la frase es de
+        // `zpool import`, no nuestra. ZFS no traduce sus mensajes, así que es estable, y no
+        // hay otra forma de distinguir «ese GUID ya no está» de cualquier otro fallo: el
+        // código de salida es 1 para todo.
+        //
+        // Iba acompañada de `|| contains("pool no existe")`, que NO comparaba con nada:
+        // esa frase no la escribe ZFS ni la escribimos nosotros en ningún sitio. Parecía
+        // cubrir un ZFS en castellano que no existe.
+        const bool missingGuid =
+            errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive);
         if (hasGuidTarget && missingGuid) {
             QString fallbackError;
             appLog(QStringLiteral("INFO"),
@@ -1017,8 +1025,16 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                                              false);
     if (!imported) {
         const bool hasGuidTarget = importTarget.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) != 0;
-        const bool missingGuid = errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive)
-                                 || errorText.contains(QStringLiteral("pool no existe"), Qt::CaseInsensitive);
+        // Se compara texto a propósito, y aquí SÍ está justificado: la frase es de
+        // `zpool import`, no nuestra. ZFS no traduce sus mensajes, así que es estable, y no
+        // hay otra forma de distinguir «ese GUID ya no está» de cualquier otro fallo: el
+        // código de salida es 1 para todo.
+        //
+        // Iba acompañada de `|| contains("pool no existe")`, que NO comparaba con nada:
+        // esa frase no la escribe ZFS ni la escribimos nosotros en ningún sitio. Parecía
+        // cubrir un ZFS en castellano que no existe.
+        const bool missingGuid =
+            errorText.contains(QStringLiteral("no such pool available"), Qt::CaseInsensitive);
         if (hasGuidTarget && missingGuid) {
             QString fallbackError;
             appLog(QStringLiteral("INFO"),

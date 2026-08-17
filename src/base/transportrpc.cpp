@@ -273,7 +273,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!tlsRequestLine(tls, json::toCompact(req), respuesta, errorTls)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = errorTls;
+            diag->failure = {Fallo::HandshakeFallido, errorTls};
         }
         return false;
     }
@@ -282,7 +282,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!json::parse(respuesta, resp, &errJson)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = "respuesta ilegible: " + errJson;
+            diag->failure = {Fallo::RespuestaNoValida, errJson};
         }
         return false;
     }
@@ -477,7 +477,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     // ¿Está esta conexión castigada por un fallo reciente? Sin esto, una conexión con el
     // daemon caído se lleva una ida y vuelta por SSH en cada operación.
     bool sePuedeIntentar = true;
-    std::string motivoSuprimido;
+    MotivoFallo motivoSuprimido;
     {
         std::lock_guard<std::mutex> lock(ses.mutex);
         const auto it = ses.retryAfterByConnKey.find(rpcConnKey);
@@ -486,12 +486,12 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
             const long long quedanMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            it->second - Reloj::now())
                                            .count();
-            motivoSuprimido = "backoff activo " + std::to_string((quedanMs + 999) / 1000) + "s";
+            motivoSuprimido = {Fallo::EnEspera, std::to_string((quedanMs + 999) / 1000)};
         }
     }
 
     bool intentoOk = false;
-    std::string motivoFallo;
+    MotivoFallo motivoFallo;
     bool ordenPudoLlegar = false;
     if (sePuedeIntentar) {
         // Al hilo donde se pueden montar túneles, y bloqueando: el resultado se necesita
@@ -515,8 +515,13 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         return true;
     }
 
-    const std::string motivo = trim(motivoFallo).empty() ? std::string("motivo no especificado")
-                                                         : trim(motivoFallo);
+    const MotivoFallo motivo =
+        motivoFallo.vacio() ? MotivoFallo{Fallo::NoEspecificado, {}} : motivoFallo;
+    // Para el REGISTRO: etiqueta estable más el detalle técnico, que ya viene en inglés de
+    // OpenSSL o del sistema. El texto para personas lo pone quien tiene interfaz.
+    const std::string motivoLog =
+        std::string(etiquetaDe(motivo.fallo))
+        + (motivo.detalle.empty() ? std::string() : ": " + motivo.detalle);
 
     if (sePuedeIntentar && ordenPudoLlegar && isMutatingAgentCommand(agentArgs)) {
         // El daemon recibió una orden que MUTA y nunca llegó su respuesta. Cerrar el túnel
@@ -524,31 +529,32 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         // misma orden destructiva por segunda vez, quizá solapada con la primera. Se
         // fracasa en voz alta.
         ses.logConn(Nivel::Error, p.id,
-                    quien + " $ [daemon-rpc:sin-fallback] " + queOrden + " -> " + motivo
+                    quien + " $ [daemon-rpc:sin-fallback] " + queOrden + " -> " + motivoLog
                         + " (la orden ya llegó al daemon; no se reintenta para no duplicarla)");
         out.clear();
-        err = "La orden se envió al daemon pero no se recibió respuesta (" + motivo
+        err = "La orden se envió al daemon pero no se recibió respuesta (" + motivoLog
               + ").\nPuede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
                 "reintenta automáticamente.\nCompruebe el estado antes de repetirla.";
         rc = 124;
         return true;
     }
-    if (sePuedeIntentar && trim(motivoFallo) == H::rpcTunnelBusyReason()) {
-        // Ocupado NO es roto. El túnel se está montando en un marco anterior de la pila, así
-        // que esta llamada se salta el RPC y sale por el camino de siempre SIN castigar a la
-        // conexión: con el castigo de 30 s, un sondeo que llegara en ese hueco dejaba sin
-        // daemon al refresco que venía detrás.
+    // Qué se castiga y qué no lo dice el TIPO del fallo. Antes se comparaba el motivo
+    // con `rpcTunnelBusyReason()` letra a letra: con esa frase traducida, «ocupado» —que no
+    // es un fallo— habría empezado a contar como conexión rota, castigo de 30 s incluido.
+    if (sePuedeIntentar && !mereceCastigo(motivo.fallo)) {
         ses.logConn(Nivel::Info, p.id,
-                    quien + " $ [daemon-rpc:skip] " + queOrden + " -> " + H::rpcTunnelBusyReason());
+                    quien + " $ [daemon-rpc:skip] " + queOrden + " -> " + motivoLog);
     } else if (sePuedeIntentar) {
-        ses.logConn(Nivel::Info, p.id, quien + " $ [daemon-rpc:fallback] " + queOrden + " -> " + motivo);
+        ses.logConn(Nivel::Info, p.id,
+                    quien + " $ [daemon-rpc:fallback] " + queOrden + " -> " + motivoLog);
         constexpr int kCastigoSeg = 30;
         std::lock_guard<std::mutex> lock(ses.mutex);
         ses.retryAfterByConnKey[rpcConnKey] = Reloj::now() + std::chrono::seconds(kCastigoSeg);
         ses.retryReasonByConnKey[rpcConnKey] = motivo;
-    } else if (!motivoSuprimido.empty()) {
+    } else if (!motivoSuprimido.vacio()) {
         ses.logConn(Nivel::Info, p.id,
-                    quien + " $ [daemon-rpc:skip] " + queOrden + " -> " + motivoSuprimido);
+                    quien + " $ [daemon-rpc:skip] " + queOrden + " -> "
+                        + etiquetaDe(motivoSuprimido.fallo) + " " + motivoSuprimido.detalle + "s");
     }
     return false;
 }

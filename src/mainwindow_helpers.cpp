@@ -89,7 +89,6 @@ QString buildTarDestinationCommand(bool isWindows, const QString& mp, StreamCode
     return q(B::buildTarDestinationCommand(isWindows, b(mp), bc(codec)));
 }
 QString withUnixSearchPathCommand(const QString& cmd) { return q(B::withUnixSearchPathCommand(b(cmd))); }
-QString rpcTunnelBusyReason() { return q(B::rpcTunnelBusyReason()); }
 QString storedSecretMarkerPrefix() { return q(B::storedSecretMarkerPrefix()); }
 QString stripToJson(const QString& output) { return q(B::stripToJson(b(output))); }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connectionprofile.h"
+#include "transportreason.h"
 #include "transportsession.h"
 
 #include <cstdint>
@@ -37,7 +38,7 @@ struct RemoteTlsMaterial {
 bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   bool forceRefresh,
                                   RemoteTlsMaterial& out,
-                                  std::string* failureReason = nullptr);
+                                  MotivoFallo* failureReason = nullptr);
 
 // Vacía la caché en memoria del material TLS remoto. Hace falta cuando se reaprovisiona
 // una conexión: si no, se seguiría hablando con el certificado viejo hasta cinco minutos.
@@ -67,7 +68,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                                    std::string& out,
                                    std::string& err,
                                    int& rc,
-                                   std::string* failureReason = nullptr,
+                                   MotivoFallo* failureReason = nullptr,
                                    bool* commandMayHaveRunOut = nullptr);
 
 }  // namespace zfsmgr::base::transport

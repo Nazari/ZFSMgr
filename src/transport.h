@@ -77,7 +77,9 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                                    QString& out,
                                    QString& err,
                                    int& rc,
-                                   QString* failureReason = nullptr,
+                                   // TIPIFICADO: esta función no sabe el idioma. El texto
+                                   // lo pone MainWindow, que sí.
+                                   zfsmgr::base::transport::MotivoFallo* failureReason = nullptr,
                                    bool* commandMayHaveRunOut = nullptr);
 
 }  // namespace transport

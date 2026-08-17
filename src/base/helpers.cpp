@@ -242,10 +242,6 @@ std::string withUnixSearchPathCommand(const std::string& cmd) {
                "export PATH; %1", {cmd});
 }
 
-std::string rpcTunnelBusyReason() {
-    return ("túnel daemon-rpc en construcción para esta conexión");
-}
-
 std::string storedSecretMarkerPrefix() {
     return ("@@ZFSMGR_PW:");
 }

@@ -372,6 +372,60 @@ std::string clavePersistencia(const std::string& idONombre) {
 }  // namespace
 
 // El directorio del propio ejecutable. Sin Qt no hay `applicationDirPath()`.
+std::string textoDeFallo(const B::transport::MotivoFallo& m) {
+    using F = B::transport::Fallo;
+    // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene
+    // del sistema, ya en su idioma, y reescribirlo perdería justo lo que sirve para
+    // diagnosticar. Se pega detrás del texto que sí es nuestro.
+    const auto con = [&m](const std::string& texto) {
+        return m.detalle.empty() ? texto : texto + ": " + m.detalle;
+    };
+    switch (m.fallo) {
+        case F::Ninguno:
+            return {};
+        case F::TunelOcupado:
+            return T("t_f_tunel_ocupado", "el túnel se está montando para esta conexión");
+        case F::FueraDelHiloDeTuneles:
+            return T("t_f_fuera_hilo", "RPC pedido fuera del hilo de los túneles");
+        case F::ArgumentosVacios:
+            return T("t_f_args_vacios", "no se dijo qué ejecutar");
+        case F::ConexionNoSsh:
+            return T("t_f_no_ssh", "la conexión no es SSH");
+        case F::EnEspera:
+            return B::format(T("t_f_en_espera", "en espera tras un fallo reciente (%1 s)"),
+                             {m.detalle});
+        case F::MaterialNoSeLee:
+            return con(T("t_f_tls_no_lee", "no se pudo leer el material TLS del daemon"));
+        case F::MaterialIncompleto:
+            return T("t_f_tls_incompleto", "el material TLS del daemon llegó incompleto");
+        case F::ClaveClienteNoDisponible:
+            return T("t_f_sin_clave_cli",
+                     "no hay clave TLS de cliente, ni guardada ni en la otra máquina");
+        case F::CertificadosInvalidos:
+            return T("t_f_certs_malos", "los certificados TLS del daemon no son válidos");
+        case F::ClaveClienteInvalida:
+            return T("t_f_clave_cli_mala", "la clave TLS de cliente no es válida");
+        case F::TunelNoSeMonta:
+            return T("t_f_tunel_no_monta", "no se pudo montar el túnel SSH hasta el daemon");
+        case F::ConexionRechazada:
+            return con(T("t_f_conn_rechazada", "el daemon no aceptó la conexión"));
+        case F::CertificadoNoCoincide:
+            return T("t_f_cert_no_coincide",
+                     "el certificado que presenta el daemon no es el fijado");
+        case F::EnvioFallido:
+            return T("t_f_envio", "no se pudo enviar la petición");
+        case F::TunelCortadoEnEspera:
+            return T("t_f_tunel_cortado", "el túnel se cortó mientras se esperaba respuesta");
+        case F::HandshakeFallido:
+            return con(T("t_f_handshake", "falló el saludo TLS con el daemon"));
+        case F::RespuestaNoValida:
+            return con(T("t_f_resp_no_valida", "el daemon no devolvió una respuesta válida"));
+        case F::NoEspecificado:
+            return T("t_f_sin_motivo", "falló sin decir por qué");
+    }
+    return {};
+}
+
 std::string dirDelEjecutable() {
 #ifdef _WIN32
     char buf[4096] = {0};
@@ -590,8 +644,9 @@ bool ejecutarAgente(Sesion& s,
         T::LocalRpcDiag diag;
         if (!T::runLocalAgentRpc(args, srv, cli, key, puerto, timeoutMs, out, err, rc, &diag)) {
             if (motivo) {
-                *motivo = diag.failure.empty() ? T("t_daemon_local_mudo", "el daemon local no respondió")
-                                               : diag.failure;
+                *motivo = diag.failure.vacio()
+                              ? T("t_daemon_local_mudo", "el daemon local no respondió")
+                              : textoDeFallo(diag.failure);
             }
             return false;
         }
@@ -606,15 +661,16 @@ bool ejecutarAgente(Sesion& s,
             // se lee de ahí. Sin esto el usuario recibía «no respondió por RPC», que no
             // dice si falta el material TLS, si la máquina está apagada o si el daemon no
             // está instalado — tres cosas con arreglos distintos.
-            std::string razon;
+            B::transport::MotivoFallo fallo;
             {
                 std::lock_guard<std::mutex> lock(s.transporte.mutex);
                 const auto it = s.transporte.retryReasonByConnKey.find(
                     T::remoteDaemonTlsCacheKey(p));
                 if (it != s.transporte.retryReasonByConnKey.end()) {
-                    razon = it->second;
+                    fallo = it->second;
                 }
             }
+            const std::string razon = textoDeFallo(fallo);
             const std::string quien = p.name.empty() ? p.id : p.name;
             *motivo = razon.empty()
                           ? B::format(T("t_daemon_mudo", "el daemon de %1 no respondió por RPC"), {quien})
