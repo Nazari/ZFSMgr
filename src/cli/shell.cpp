@@ -314,6 +314,14 @@ const B::ConnectionProfile* perfilVivoDe(const Estado& e, const ZfsmUrl& u, std:
     return p;
 }
 
+// Una operación de `zfs` por el verbo genérico, que recibe el argv en JSON y solo admite
+// una lista cerrada de operaciones. Declarada aquí porque la usan órdenes de más arriba.
+bool zfsGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+struct Opts;
+bool cmdCrearPool(Estado& e, const Opts& o, const ZfsmUrl& destino);
+bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+
 // --- Ejecutar un verbo del agente sobre el destino, contando lo que salga mal.
 bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& args,
             std::string& out, int timeoutMs = 60000) {
@@ -349,6 +357,9 @@ struct Opts {
     std::vector<std::string> libres;          // lo que no es opción
     std::map<std::string, std::string> con;   // --clave valor
     std::vector<std::string> banderas;        // -r, -f, -y...
+    // Opciones cortas CON valor que pueden repetirse: `-o ashift=12 -o autotrim=on`. Van
+    // en una lista y no en un mapa porque el orden importa y la clave se repite.
+    std::vector<std::pair<std::string, std::string>> repetidas;
     bool tiene(const std::string& b) const {
         for (const auto& x : banderas) {
             if (x == b) {
@@ -365,10 +376,25 @@ struct Opts {
 
 // Trocea los argumentos. Las opciones con valor se declaran para no tener que adivinar si
 // lo que viene detrás es su valor o un argumento suelto.
-Opts trocea(const std::vector<std::string>& args, const std::vector<std::string>& conValor) {
+Opts trocea(const std::vector<std::string>& args, const std::vector<std::string>& conValor,
+            const std::vector<std::string>& cortasConValor = {}) {
     Opts o;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
+        // Cortas con valor, que además pueden repetirse.
+        if (a.size() == 2 && a[0] == '-' && i + 1 < args.size()) {
+            const std::string letra = a.substr(1);
+            bool esperaValor = false;
+            for (const auto& c : cortasConValor) {
+                if (c == letra) {
+                    esperaValor = true;
+                }
+            }
+            if (esperaValor) {
+                o.repetidas.emplace_back(letra, args[++i]);
+                continue;
+            }
+        }
         if (a.size() > 2 && a[0] == '-' && a[1] == '-') {
             const std::string clave = a.substr(2);
             bool esperaValor = false;
@@ -561,6 +587,165 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
     return true;
 }
 
+// Los permisos delegados: `#permissions`, o la orden `allow` sin argumentos.
+//
+// `zfs allow` NO tiene salida tabulada: escribe un bloque para leer, con secciones y
+// entradas indentadas. Se analiza aquí para poder darlo en las tres formas, que es lo que
+// permite que un guion compruebe quién tiene qué sin leer prosa.
+//
+//     ---- Permissions on fc16/work ----
+//     Local+Descendent permissions:
+//     \tuser linarese snapshot
+bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
+    const std::string objetivo = destino.zfsName();
+    if (objetivo.empty()) {
+        std::fprintf(stderr, "hace falta un dataset\n");
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--dump-zfs-allow", objetivo}, out)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "permissions";
+    t.cabecerasTexto = {"ALCANCE", "CLASE", "QUIÉN", "PERMISOS"};
+    t.campos = {"scope", "kind", "who", "permissions"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    std::string alcance;
+    for (const std::string& cruda : B::split(out, "\n", true)) {
+        if (B::startsWith(cruda, "----")) {
+            continue;  // la cabecera con el nombre del dataset
+        }
+        // Las secciones no van indentadas y acaban en dos puntos.
+        if (!cruda.empty() && cruda.front() != '\t' && cruda.front() != ' '
+            && B::endsWith(B::trim(cruda), ":")) {
+            alcance = B::trim(cruda);
+            alcance.pop_back();
+            continue;
+        }
+        const std::string linea = B::trim(cruda);
+        if (linea.empty()) {
+            continue;
+        }
+        // «user <quien> <permisos>», «group <quien> <permisos>», «everyone <permisos>»,
+        // «@conjunto <permisos>».
+        const std::vector<std::string> c = B::split(linea, " ", true);
+        if (c.empty()) {
+            continue;
+        }
+        const std::string clase = c.front();
+        std::size_t iPerms = 1;
+        std::string quien;
+        if ((clase == "user" || clase == "group") && c.size() >= 2) {
+            quien = c[1];
+            iPerms = 2;
+        } else if (clase == "everyone") {
+            quien = "everyone";
+        } else {
+            quien = clase;  // un conjunto @nombre
+        }
+        std::vector<std::string> permisos(c.begin() + std::min(iPerms, c.size()), c.end());
+        t.filas.push_back({alcance, clase, quien, B::join(permisos, ",")});
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// Delegar o retirar permisos. Un solo cambio por orden, con el verbo genérico: el verbo por
+// lotes existe para cuando la interfaz aplica una tabla entera de golpe.
+bool cmdPermisos(Estado& e, const std::vector<std::string>& args, bool conceder) {
+    const Opts o = trocea(args, {"on", "from", "user", "group", "set"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    const std::string objetivo = destino.zfsName();
+    if (objetivo.empty()) {
+        std::fprintf(stderr, "hace falta un dataset (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    // Sin argumentos, `allow` LISTA. Es lo que hace `zfs allow` a secas, y quien viene de
+    // ahí lo espera.
+    if (conceder && o.libres.empty() && o.valor("user").empty() && o.valor("group").empty()
+        && !o.tiene("--everyone")) {
+        ZfsmUrl conSeccion = destino;
+        conSeccion.section = B::zfsmSection::kPermissions;
+        return listaPermisos(e, conSeccion);
+    }
+
+    std::vector<std::string> argv{conceder ? "allow" : "unallow"};
+    if (o.tiene("-r")) {
+        argv.push_back("-r");  // solo unallow: recursivo
+    }
+    if (o.tiene("--local")) {
+        argv.push_back("-l");
+    }
+    if (o.tiene("--descend")) {
+        argv.push_back("-d");
+    }
+    if (o.tiene("--create")) {
+        argv.push_back("-c");
+    }
+    int aQuien = 0;
+    if (!o.valor("user").empty()) {
+        argv.push_back("-u");
+        argv.push_back(o.valor("user"));
+        ++aQuien;
+    }
+    if (!o.valor("group").empty()) {
+        argv.push_back("-g");
+        argv.push_back(o.valor("group"));
+        ++aQuien;
+    }
+    if (o.tiene("--everyone")) {
+        argv.push_back("-e");
+        ++aQuien;
+    }
+    if (!o.valor("set").empty()) {
+        argv.push_back("-s");
+        argv.push_back(o.valor("set"));
+        ++aQuien;
+    }
+    if (aQuien == 0) {
+        std::fprintf(stderr,
+                     "uso: %s --user <u> | --group <g> | --everyone | --set @<nombre>\n"
+                     "         <permiso>[,<permiso>...] [--local] [--descend] [--create]%s\n"
+                     "  Sin nada, «allow» lista los permisos delegados.\n",
+                     conceder ? "allow" : "unallow", conceder ? "" : " [-r]");
+        return false;
+    }
+    if (aQuien > 1) {
+        // zfs acepta uno solo, y pasarle dos da un error suyo que no dice cuál sobra.
+        std::fprintf(stderr, "elija UNO: --user, --group, --everyone o --set\n");
+        return false;
+    }
+    // Los permisos. En `unallow` pueden omitirse: entonces se quitan TODOS los de ese
+    // usuario, que es lo que hace zfs y conviene decir en la confirmación.
+    if (!o.libres.empty()) {
+        argv.push_back(B::join(o.libres, ","));
+    } else if (conceder) {
+        std::fprintf(stderr, "hace falta al menos un permiso\n");
+        return false;
+    }
+    argv.push_back(objetivo);
+
+    if (!conceder
+        && !confirma(e, o.libres.empty()
+                            ? "Se van a quitar TODOS los permisos delegados de ese destinatario en "
+                                  + objetivo + ". ¿Continuar?"
+                            : "Se van a quitar los permisos " + B::join(o.libres, ",") + " en "
+                                  + objetivo + ". ¿Continuar?")) {
+        std::fprintf(stderr, "cancelado\n");
+        return false;
+    }
+    if (!zfsGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "%s en %s\n", conceder ? "permisos delegados" : "permisos retirados",
+                 objetivo.c_str());
+    return true;
+}
+
 // El contenido: `#content[/ruta]`.
 //
 // Este camino NO es RPC tipado: se lista con `ls -lA` por el transporte de siempre, igual
@@ -707,6 +892,9 @@ bool cmdLs(Estado& e, const std::vector<std::string>& args) {
     }
     if (sec == B::zfsmSection::kProperties) {
         return listaPropiedades(e, destino);
+    }
+    if (sec == B::zfsmSection::kPermissions) {
+        return listaPermisos(e, destino);
     }
     if (!sec.empty()) {
         std::fprintf(stderr, "no sé listar la sección «%s»\n", sec.c_str());
@@ -856,6 +1044,26 @@ bool cmdDestroy(Estado& e, const std::vector<std::string>& args) {
         recarga(e);
         std::fprintf(stderr, "quitada la conexión %s\n", id.c_str());
         cmdCd(e, {"/"});
+        return true;
+    }
+    // En un POOL, `destroy` es `zpool destroy`: `zfs destroy` sobre el dataset raíz de un
+    // pool no funciona, así que es la única lectura posible.
+    if (nodoDe(destino) == Nodo::Dataset && destino.isPoolRoot() && destino.snapshot.empty()) {
+        if (!confirma(e, "Se va a DESTRUIR EL POOL " + destino.pool + " en " + destino.connection
+                             + ", con todos sus datasets y todos sus datos. ¿Continuar?")) {
+            std::fprintf(stderr, "cancelado\n");
+            return false;
+        }
+        std::vector<std::string> argv{"destroy"};
+        if (o.tiene("-f")) {
+            argv.push_back("-f");
+        }
+        argv.push_back(destino.pool);
+        if (!zpoolGenerico(e, destino, argv)) {
+            return false;
+        }
+        std::fprintf(stderr, "destruido el pool %s\n", destino.pool.c_str());
+        cmdCd(e, {".."});
         return true;
     }
     const std::string objetivo = destino.zfsName();
@@ -1064,17 +1272,112 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
     return true;
 }
 
-bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
+bool cmdEditarConexion(Estado& e, const Opts& o, const ZfsmUrl& destino) {
+    const std::string id = idDe(e, destino);
+    const auto* actual = buscarConexion(e.conns, id);
+    if (!actual) {
+        std::fprintf(stderr, "hace falta estar en una conexión (ahora: %s)\n",
+                     textoDe(destino).c_str());
+        return false;
+    }
+    B::ConnectionProfile p = *actual;
+    const bool interactivo = hayTerminal();
+    const auto toma = [&](const char* clave, std::string& campo, const char* etiqueta) {
+        const std::string v = o.valor(clave);
+        if (!v.empty()) {
+            campo = v;
+            return true;
+        }
+        if (!interactivo) {
+            return true;
+        }
+        std::string leido;
+        if (!pide(etiqueta, campo, leido)) {
+            return false;
+        }
+        campo = leido;
+        return true;
+    };
+    if (!toma("name", p.name, "Nombre visible")) return false;
+    if (!toma("type", p.connType, "Tipo (LOCAL/SSH)")) return false;
+    p.connType = B::toUpperAscii(p.connType);
+    if (!toma("os", p.osType, "Sistema operativo")) return false;
+    if (B::toLowerAscii(p.connType) != "local") {
+        if (!toma("host", p.host, "Host")) return false;
+        if (!toma("user", p.username, "Usuario")) return false;
+        if (!toma("key", p.keyPath, "Ruta de clave SSH")) return false;
+        std::string puerto = std::to_string(p.port);
+        if (!toma("port", puerto, "Puerto")) return false;
+        p.port = std::atoi(puerto.c_str());
+    }
+    if (o.tiene("--sudo")) {
+        p.useSudo = true;
+    } else if (o.tiene("--no-sudo")) {
+        p.useSudo = false;
+    } else if (interactivo) {
+        std::string resp;
+        if (!pide("¿Usa sudo? (s/n)", p.useSudo ? "s" : "n", resp)) return false;
+        const std::string r = B::toLowerAscii(resp);
+        p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
+    }
+
+    // La contraseña solo se toca si se pide expresamente: en una edición, dejarla en blanco
+    // tiene que CONSERVARLA, no borrarla. Ya viene descifrada del perfil cargado, y
+    // guardarConexion la vuelve a cifrar.
+    const std::string fdTexto = o.valor("password-fd");
+    if (!fdTexto.empty()) {
+        std::string err;
+        if (!leerSecretoDeDescriptor(std::atoi(fdTexto.c_str()), p.password, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+    } else if (o.tiene("--password") && interactivo) {
+        std::string err;
+        std::string clave;
+        if (!preguntarSecretoPorTerminal("Contraseña nueva: ", clave, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+        p.password = clave;
+    }
+
+    std::string error;
+    if (!guardarConexion(*e.ses, p, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        for (char& c : p.password) { c = 0; }
+        return false;
+    }
+    for (char& c : p.password) { c = 0; }
+    recarga(e);
+    std::fprintf(stderr, "actualizada la conexión %s\n", id.c_str());
+    return true;
+}
+
+bool cmdEdit(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from", "name", "type", "os", "host", "port", "user",
                                  "key", "password-fd"});
     ZfsmUrl destino;
     if (!destinoDe(e, o, destino)) {
         return false;
     }
-    // En la RAÍZ se crea una conexión; en un dataset, un hijo. Es el mismo verbo porque es
-    // la misma idea: crear un nodo donde uno está.
+    return cmdEditarConexion(e, o, destino);
+}
+
+bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from", "name", "type", "os", "host", "port", "user",
+                                 "key", "password-fd", "mountpoint"},
+                          {"o", "O"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    // El mismo verbo en los tres niveles, porque es la misma idea —crear un nodo donde uno
+    // está—: en la RAÍZ una conexión, en una CONEXIÓN un pool, en un DATASET un hijo.
     if (nodoDe(destino) == Nodo::Raiz) {
         return cmdCrearConexion(e, o);
+    }
+    if (nodoDe(destino) == Nodo::Conexion) {
+        return cmdCrearPool(e, o, destino);
     }
     if (o.libres.empty()) {
         std::fprintf(stderr, "uso: create <nombre> [prop=valor...]\n");
@@ -1266,8 +1569,12 @@ bool cmdBreakdown(Estado& e, const std::vector<std::string>& args) {
     for (const auto& x : o.libres) {
         argv.push_back(x);
     }
+    // Con --job se manda al daemon y se vuelve enseguida; sin él se espera. SIN PLAZO al
+    // esperar: mueve datos de verdad, y matarlo a mitad es peor que aguardar.
+    if (o.tiene("--job")) {
+        return enviaComoTrabajo(e, destino, argv);
+    }
     std::string out;
-    // Sin plazo: mueve datos de verdad, y matarlo a mitad es peor que esperar.
     if (!agente(e, destino, argv, out, 0)) {
         return false;
     }
@@ -1299,6 +1606,9 @@ bool cmdAssemble(Estado& e, const std::vector<std::string>& args) {
     for (const auto& x : o.libres) {
         argv.push_back(x.find('/') == std::string::npos ? destino.dataset + "/" + x : x);
     }
+    if (o.tiene("--job")) {
+        return enviaComoTrabajo(e, destino, argv);
+    }
     std::string out;
     if (!agente(e, destino, argv, out, 0)) {
         return false;
@@ -1325,11 +1635,13 @@ bool cmdToDir(Estado& e, const std::vector<std::string>& args) {
         std::fprintf(stderr, "cancelado\n");
         return false;
     }
+    const std::vector<std::string> argvTodir{"--mutate-advanced-todir", destino.dataset,
+                                             o.libres.front(), borraOrigen ? "1" : "0"};
+    if (o.tiene("--job")) {
+        return enviaComoTrabajo(e, destino, argvTodir);
+    }
     std::string out;
-    if (!agente(e, destino,
-                {"--mutate-advanced-todir", destino.dataset, o.libres.front(),
-                 borraOrigen ? "1" : "0"},
-                out, 0)) {
+    if (!agente(e, destino, argvTodir, out, 0)) {
         return false;
     }
     std::fprintf(stdout, "%s", out.c_str());
@@ -1441,6 +1753,361 @@ bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
+// --- Trabajos en segundo plano.
+//
+// El daemon puede ejecutar las operaciones LARGAS sin que nadie espere al otro lado:
+// breakdown, assemble, todir y rsync. Es lo que permite lanzar una copia de horas y cerrar
+// la sesión sin matarla.
+//
+// Se pide con `--job` en esas órdenes; aquí están las de consultar y cancelar.
+
+// Una línea «CLAVE=valor» en un mapa, que es el formato con el que contesta el agente.
+std::map<std::string, std::string> clavesDe(const std::string& texto) {
+    std::map<std::string, std::string> m;
+    for (const std::string& linea : B::split(texto, "\n", true)) {
+        const std::size_t igual = linea.find('=');
+        if (igual != std::string::npos) {
+            m[B::trim(linea.substr(0, igual))] = B::trim(linea.substr(igual + 1));
+        }
+    }
+    return m;
+}
+
+bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--job-list"}, out, 30000)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "jobs";
+    t.cabecerasTexto = {"ID", "ESTADO", "TIPO", "INSTANTÁNEA", "BYTES", "MiB/s", "SEGUNDOS", "ERROR"};
+    t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
+               Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
+    // Cada línea es «JOB={…json…}», que se analiza con el JSON de la capa base.
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        if (!B::startsWith(linea, "JOB=")) {
+            continue;
+        }
+        B::json::Value j;
+        std::string err;
+        if (!B::json::parse(linea.substr(4), j, &err)) {
+            continue;
+        }
+        t.filas.push_back({j["id"].toString(), j["state"].toString(), j["type"].toString(),
+                           j["snap"].toString(), std::to_string(j["bytes"].toInt()),
+                           std::to_string(j["rate"].toDouble()),
+                           std::to_string(j["elapsed"].toInt()), j["error"].toString()});
+    }
+    if (t.filas.empty()) {
+        std::fprintf(stderr, "no hay trabajos\n");
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+bool cmdJob(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (o.libres.empty()) {
+        std::fprintf(stderr, "uso: job <id> | job cancel <id>\n");
+        return false;
+    }
+    const bool cancelar = B::toLowerAscii(o.libres.front()) == "cancel";
+    if (cancelar && o.libres.size() < 2) {
+        std::fprintf(stderr, "uso: job cancel <id>\n");
+        return false;
+    }
+    const std::string id = cancelar ? o.libres[1] : o.libres.front();
+    if (cancelar) {
+        if (!confirma(e, "Se va a cancelar el trabajo " + id
+                             + ". Lo que ya haya hecho NO se deshace. ¿Continuar?")) {
+            std::fprintf(stderr, "cancelado\n");
+            return false;
+        }
+        std::string out;
+        if (!agente(e, destino, {"--job-cancel", id}, out, 30000)) {
+            return false;
+        }
+        std::fprintf(stderr, "cancelado el trabajo %s\n", id.c_str());
+        return true;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--job-status", id}, out, 30000)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "job";
+    t.cabecerasTexto = {"CAMPO", "VALOR"};
+    t.campos = {"field", "value"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena};
+    for (const auto& kv : clavesDe(out)) {
+        t.filas.push_back({B::toLowerAscii(kv.first), kv.second});
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// Manda una operación larga al daemon en vez de esperarla. Devuelve el identificador, que
+// es con lo que después se consulta o se cancela.
+bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
+    std::vector<std::string> conJob{"--job-submit"};
+    for (const auto& a : argv) {
+        conJob.push_back(a);
+    }
+    std::string out;
+    if (!agente(e, destino, conJob, out, 60000)) {
+        return false;
+    }
+    const auto claves = clavesDe(out);
+    const auto it = claves.find("JOB_ID");
+    if (it == claves.end()) {
+        std::fprintf(stderr, "el daemon no devolvió identificador de trabajo\n");
+        return false;
+    }
+    std::fprintf(stdout, "%s\n", it->second.c_str());
+    std::fprintf(stderr, "en marcha como trabajo %s; siga con «job %s»\n", it->second.c_str(),
+                 it->second.c_str());
+    return true;
+}
+
+// --- Pools.
+//
+// Todo por `--mutate-zpool-generic`, que recibe el argv de `zpool` en JSON y solo admite
+// una lista cerrada de operaciones: nunca hay un intérprete de por medio.
+
+bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
+    B::json::Value arr{B::json::Array{}};
+    for (const std::string& a : argv) {
+        arr.push(B::json::Value(a));
+    }
+    std::string out;
+    if (!agente(e, destino, {"--mutate-zpool-generic", B::base64Encode(B::json::toCompact(arr))},
+                out, 0)) {
+        return false;
+    }
+    if (!B::trim(out).empty()) {
+        std::fprintf(stdout, "%s", out.c_str());
+    }
+    return true;
+}
+
+// ¿Estamos en un pool? Un pool ES un dataset —el de la raíz—, así que se distingue por
+// `isPoolRoot()` y no por un tipo de nodo aparte.
+bool exigePool(const ZfsmUrl& u) {
+    if (nodoDe(u) != Nodo::Dataset || !u.isPoolRoot()) {
+        std::fprintf(stderr, "hace falta estar en un pool (ahora: %s)\n", textoDe(u).c_str());
+        return false;
+    }
+    return true;
+}
+
+// Las operaciones de mantenimiento que se piden igual: un verbo y el nombre del pool, con
+// un subcomando opcional para parar o pausar.
+bool cmdMantenimientoPool(Estado& e, const std::vector<std::string>& args, const char* op) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino) || !exigePool(destino)) {
+        return false;
+    }
+    std::vector<std::string> argv{op};
+    // `zpool scrub -s` para, `-p` pausa; trim e initialize usan -s/-c/-u. Se aceptan por
+    // nombre para no obligar a recordar qué letra usa cada uno.
+    for (const std::string& x : o.libres) {
+        const std::string v = B::toLowerAscii(x);
+        if (v == "stop" || v == "cancel") {
+            argv.push_back(std::string(op) == "scrub" ? "-s" : "-c");
+        } else if (v == "pause" || v == "suspend") {
+            argv.push_back(std::string(op) == "scrub" ? "-p" : "-s");
+        } else if (v == "start") {
+            // el comportamiento por omisión; se acepta por simetría
+        } else {
+            argv.push_back(x);  // un vdev concreto, para trim o initialize
+        }
+    }
+    argv.push_back(destino.pool);
+    if (!zpoolGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "%s: %s en marcha\n", destino.pool.c_str(), op);
+    return true;
+}
+
+bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* op,
+                   const char* aviso) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino) || !exigePool(destino)) {
+        return false;
+    }
+    if (aviso && !confirma(e, std::string(aviso) + " en " + destino.pool + ". ¿Continuar?")) {
+        std::fprintf(stderr, "cancelado\n");
+        return false;
+    }
+    std::vector<std::string> argv{op};
+    for (const std::string& x : o.libres) {
+        argv.push_back(x);
+    }
+    argv.push_back(destino.pool);
+    if (!zpoolGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "%s: %s hecho\n", destino.pool.c_str(), op);
+    return true;
+}
+
+// El estado detallado. Es texto para leer y se saca tal cual: fingir columnas donde
+// `zpool status` dibuja un árbol de vdevs sería inventarse una estructura que no tiene.
+bool cmdStatus(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (destino.pool.empty()) {
+        std::fprintf(stderr, "hace falta un pool (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--dump-zpool-status", destino.pool}, out, 60000)) {
+        return false;
+    }
+    std::fprintf(stdout, "%s", out.c_str());
+    if (!out.empty() && out.back() != '\n') {
+        std::fprintf(stdout, "\n");
+    }
+    return true;
+}
+
+bool cmdHistory(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (destino.pool.empty()) {
+        std::fprintf(stderr, "hace falta un pool (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, {"--dump-zpool-history", destino.pool}, out, 60000)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "history";
+    t.cabecerasTexto = {"CUÁNDO", "ORDEN"};
+    t.campos = {"when", "command"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena};
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        if (B::startsWith(linea, "History for")) {
+            continue;
+        }
+        // «2026-02-04.11:23:49 zpool create …»: la marca de tiempo es el primer campo.
+        const std::size_t esp = linea.find(' ');
+        if (esp == std::string::npos) {
+            t.filas.push_back({std::string(), B::trim(linea)});
+        } else {
+            t.filas.push_back({linea.substr(0, esp), B::trim(linea.substr(esp + 1))});
+        }
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// Importar. Sin nombre, ENSEÑA lo que hay para importar en vez de fallar: es la pregunta
+// que uno tiene antes de poder contestar la otra.
+bool cmdImport(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from", "as"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (destino.connection.empty()) {
+        std::fprintf(stderr, "hace falta una conexión\n");
+        return false;
+    }
+    if (o.libres.empty()) {
+        std::string out;
+        if (!agente(e, destino, {"--dump-zpool-import-probe"}, out, 60000)) {
+            return false;
+        }
+        std::fprintf(stdout, "%s", out.c_str());
+        if (!out.empty() && out.back() != '\n') {
+            std::fprintf(stdout, "\n");
+        }
+        return true;
+    }
+    std::vector<std::string> argv{"import"};
+    if (o.tiene("-f")) {
+        argv.push_back("-f");
+    }
+    argv.push_back(o.libres.front());
+    if (!o.valor("as").empty()) {
+        argv.push_back(o.valor("as"));  // importar con otro nombre
+    }
+    if (!zpoolGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "importado %s\n", o.libres.front().c_str());
+    return true;
+}
+
+// Crear un pool. Es la orden MÁS destructiva de todas: escribe en los dispositivos que se
+// le den, y si alguno tenía datos, desaparecen. La confirmación los enumera uno a uno.
+bool cmdCrearPool(Estado& e, const Opts& o, const ZfsmUrl& destino) {
+    if (o.libres.size() < 2) {
+        std::fprintf(stderr,
+                     "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n"
+                     "            [-o prop=valor] [-O prop-fs=valor] [--mountpoint <ruta>]\n"
+                     "  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n");
+        return false;
+    }
+    const std::string pool = o.libres.front();
+    const std::vector<std::string> vdevs(o.libres.begin() + 1, o.libres.end());
+    if (!confirma(e, "Se va a crear el pool " + pool + " en " + destino.connection
+                         + " ESCRIBIENDO en: " + B::join(vdevs, ", ")
+                         + ".\nLo que hubiera en esos dispositivos SE PIERDE. ¿Continuar?")) {
+        std::fprintf(stderr, "cancelado\n");
+        return false;
+    }
+    std::vector<std::string> argv{"create"};
+    if (o.tiene("-f")) {
+        argv.push_back("-f");
+    }
+    if (!o.valor("mountpoint").empty()) {
+        argv.push_back("-m");
+        argv.push_back(o.valor("mountpoint"));
+    }
+    for (const auto& kv : o.repetidas) {
+        argv.push_back(kv.first == "o" ? "-o" : "-O");
+        argv.push_back(kv.second);
+    }
+    argv.push_back(pool);
+    for (const auto& v : vdevs) {
+        argv.push_back(v);
+    }
+    if (!zpoolGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "creado el pool %s\n", pool.c_str());
+    return true;
+}
+
+// --- Editar una conexión ya dada de alta.
+//
+// Solo cambia lo que se pasa. Con terminal se ofrece el valor actual entre corchetes, de
+// modo que pulsar Intro lo conserva: es lo que uno espera de «editar», frente a tener que
+// volver a teclear todo.
+bool cmdEditarConexion(Estado& e, const Opts& o, const ZfsmUrl& destino);
+
 // --- Conectar, desconectar y refrescar.
 
 std::string idDe(const Estado& e, const ZfsmUrl& u) {
@@ -1551,6 +2218,135 @@ bool cmdRefrescar(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
+// --- Retenciones (holds) y comparación de instantáneas.
+
+// `zfs holds` NO tiene verbo tipado en el agente: se lee con una orden corriente, igual
+// que hace la interfaz. Es una lectura, no una mutación.
+bool cmdHolds(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!o.libres.empty()) {
+        std::string error;
+        if (!resuelve(e, o.libres.front(), destino, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+    } else if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (destino.snapshot.empty()) {
+        std::fprintf(stderr, "hace falta una instantánea (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    std::string error;
+    const auto* p = perfilVivoDe(e, destino, error);
+    if (!p) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    const B::ConnectionProfile perfil = conSudo(e, *p);
+    std::string out;
+    std::string err;
+    int rc = -1;
+    if (!T::runSsh(e.ses->transporte, perfil,
+                   H::withSudoCommand(perfil, "zfs holds -H " + B::shSingleQuote(destino.zfsName())),
+                   20000, out, err, rc, {}, {}, {}, {}, false, e.ses->verboso)
+        || rc != 0) {
+        const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
+        std::fprintf(stderr, "%s\n", detalle.empty() ? "no se pudieron leer las retenciones"
+                                                      : detalle.c_str());
+        e.ultimoRc = rc == 0 ? 1 : rc;
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "holds";
+    t.cabecerasTexto = {"INSTANTÁNEA", "ETIQUETA", "CREADA"};
+    t.campos = {"snapshot", "tag", "created"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        const std::vector<std::string> c = B::split(linea, "\t", false);
+        if (c.size() >= 3) {
+            t.filas.push_back({c[0], c[1], c[2]});
+        }
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+bool cmdRetencion(Estado& e, const std::vector<std::string>& args, bool poner) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    if (o.libres.empty()) {
+        std::fprintf(stderr, "uso: %s <etiqueta> [-r] [--on <@instantánea>]\n",
+                     poner ? "hold" : "release");
+        return false;
+    }
+    if (destino.snapshot.empty()) {
+        std::fprintf(stderr, "hace falta una instantánea (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    std::vector<std::string> argv{poner ? "hold" : "release"};
+    if (o.tiene("-r")) {
+        argv.push_back("-r");
+    }
+    argv.push_back(o.libres.front());
+    argv.push_back(destino.zfsName());
+    if (!zfsGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, "%s la retención «%s» en %s\n", poner ? "puesta" : "quitada",
+                 o.libres.front().c_str(), destino.zfsName().c_str());
+    return true;
+}
+
+// Qué cambió entre dos instantáneas del mismo dataset.
+bool cmdDiff(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    if (o.libres.empty()) {
+        std::fprintf(stderr,
+                     "uso: diff <@instantánea-o-dataset> [--from <@instantánea>]\n"
+                     "  Compara dos puntos del MISMO dataset. Sin --from se usa el sitio\n"
+                     "  actual como origen.\n");
+        return false;
+    }
+    ZfsmUrl origen;
+    if (!destinoDe(e, o, origen)) {
+        return false;
+    }
+    ZfsmUrl hasta;
+    std::string error;
+    if (!resuelve(e, o.libres.front(), hasta, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (origen.snapshot.empty()) {
+        std::fprintf(stderr, "el origen tiene que ser una instantánea (ahora: %s)\n",
+                     textoDe(origen).c_str());
+        return false;
+    }
+    std::string out;
+    if (!agente(e, origen, {"--dump-zfs-diff", origen.zfsName(), hasta.zfsName()}, out, 120000)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = "changes";
+    t.cabecerasTexto = {"CAMBIO", "RUTA", "RENOMBRADO A"};
+    t.campos = {"change", "path", "renamed_to"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    // `zfs diff -H` da: <marca>\t<ruta>[\t<ruta nueva>]. La marca es +, -, M o R.
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        const std::vector<std::string> c = B::split(linea, "\t", false);
+        if (c.size() >= 2) {
+            t.filas.push_back({c[0], c[1], c.size() >= 3 ? c[2] : std::string()});
+        }
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
 // --- Información suelta.
 
 bool cmdInfo(Estado& e, const std::vector<std::string>& args) {
@@ -1588,7 +2384,8 @@ void ayuda() {
         "  pwd                 La URL actual\n"
         "  ls [destino]        Lista. En la raíz, las conexiones; en una conexión,\n"
         "                      los pools; en un dataset, sus hijos e instantáneas.\n"
-        "                      Con #content lista ficheros; con #properties, propiedades.\n"
+        "                      Con #content lista ficheros, con #properties propiedades\n"
+        "                      y con #permissions los permisos delegados.\n"
         "  info [--on <url>]   Qué hay aquí y estado del daemon\n"
         "\n"
         "Conexiones (en la raíz, «cd /»):\n"
@@ -1597,6 +2394,10 @@ void ayuda() {
         "                      Da de alta una conexión. Lo que falte se pregunta.\n"
         "                      La contraseña NUNCA por argumento: se teclea o entra\n"
         "                      por descriptor.\n"
+        "  edit [--name …] [--host …] …\n"
+        "                      Cambia una conexión. Lo que no se dé se pregunta, y\n"
+        "                      pulsar Intro conserva el valor actual. --password para\n"
+        "                      cambiar la contraseña; si no, se conserva.\n"
         "  destroy             Estando en una conexión, la quita de la configuración.\n"
         "                      No toca nada en la máquina.\n"
         "  connect / disconnect [destino]\n"
@@ -1617,6 +2418,37 @@ void ayuda() {
         "  get [propiedad]                   Lee propiedades\n"
         "  set <prop>=<valor> [más...]       Escribe propiedades\n"
         "  load-key / unload-key             Carga o descarga la clave de cifrado\n"
+        "\n"
+        "Instantáneas:\n"
+        "  holds [destino]                   Retenciones de una instantánea\n"
+        "  hold <etiqueta> [-r]              Pone una retención\n"
+        "  release <etiqueta> [-r]           La quita\n"
+        "  diff <@hasta> [--from <@desde>]   Qué cambió entre dos instantáneas\n"
+        "\n"
+        "Pools (estando en uno; import y create, en la conexión):\n"
+        "  status / history                  Estado detallado / historial\n"
+        "  scrub [stop|pause]                Verificación\n"
+        "  trim / initialize [stop|pause] [<vdev>]\n"
+        "  clear [<vdev>]                    Borra los errores contados\n"
+        "  sync / upgrade / reguid           Mantenimiento\n"
+        "  export [-f]                       Lo desmonta y lo suelta\n"
+        "  import [<pool>] [--as <nuevo>] [-f]\n"
+        "                                    Sin nombre, enseña los importables\n"
+        "  create <pool> <dispositivo>... [-f] [-o p=v] [-O p=v] [--mountpoint <r>]\n"
+        "                                    ESCRIBE en los dispositivos\n"
+        "  destroy                           Estando en un pool, lo destruye entero\n"
+        "\n"
+        "Trabajos en segundo plano:\n"
+        "  jobs                              Los que hay en la máquina\n"
+        "  job <id>                          Estado de uno\n"
+        "  job cancel <id>                   Lo cancela\n"
+        "  breakdown/assemble/todir --job    Los manda al daemon en vez de esperarlos\n"
+        "\n"
+        "Permisos delegados:\n"
+        "  allow                             Los lista (igual que «ls #permissions»)\n"
+        "  allow --user <u> <permisos...>    Delega. También --group, --everyone, --set\n"
+        "        [--local] [--descend] [--create]\n"
+        "  unallow --user <u> [permisos...]  Retira. Sin permisos, TODOS los suyos.\n"
         "\n"
         "Acciones:\n"
         "  breakdown <dir> <hijo> [...]      Convierte directorios en datasets hijos\n"
@@ -1684,6 +2516,26 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"connect", [](Estado& s, const std::vector<std::string>& a) { return cmdConectar(s, a, true); }},
         {"disconnect", [](Estado& s, const std::vector<std::string>& a) { return cmdConectar(s, a, false); }},
         {"refresh", cmdRefrescar},
+        {"edit", cmdEdit},
+        {"holds", cmdHolds},
+        {"hold", [](Estado& s, const std::vector<std::string>& a) { return cmdRetencion(s, a, true); }},
+        {"release", [](Estado& s, const std::vector<std::string>& a) { return cmdRetencion(s, a, false); }},
+        {"diff", cmdDiff},
+        {"scrub", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "scrub"); }},
+        {"trim", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "trim"); }},
+        {"initialize", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "initialize"); }},
+        {"sync", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "sync", nullptr); }},
+        {"upgrade", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "upgrade", "Se va a subir la versión del pool, y eso NO se puede deshacer"); }},
+        {"reguid", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "reguid", "Se va a cambiar el identificador único del pool"); }},
+        {"clear", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "clear", nullptr); }},
+        {"export", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "export", "Se va a exportar el pool y dejará de estar disponible"); }},
+        {"import", cmdImport},
+        {"status", cmdStatus},
+        {"jobs", cmdJobs},
+        {"job", cmdJob},
+        {"history", cmdHistory},
+        {"allow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, true); }},
+        {"unallow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, false); }},
         {"snapshot", cmdSnapshot},
         {"rollback", cmdRollback},
         {"clone", cmdClone},
