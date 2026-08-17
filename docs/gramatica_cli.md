@@ -305,7 +305,52 @@ Dos reglas que salieron al implementarlo y no estaban en el diseño:
 - **`Objetivo::Conexion` significa la conexión y nada más.** Con la comprobación laxa
   —«que la URL tenga conexión»— cualquier dataset pasaba por máquina.
 
-## Valoración: ¿yacc/lex de verdad?
+## La gramática, ya construida con bison y flex
+
+Se construyó, y la valoración de más abajo —escrita antes— se quedó corta en lo esencial.
+Se conserva porque el argumento que la corrige es lo que importa:
+
+**Lo que se descartó por «poco»: los conflictos.** Las reglas de precedencia escritas a mano
+se descubrían EJECUTANDO órdenes y viendo salidas raras —`get compression` preguntando por
+el dataset `tank/datos/compression`, `trim <pool> <disco>` mandando el disco donde iba el
+pool—. Con bison, una ambigüedad es un error de construcción con el caso concreto delante.
+La primera pasada dio **cinco conflictos**, todos la misma pregunta que la versión a mano
+respondía en silencio: *si `clear /dev/sda1` lleva una URL, ¿es el pool o el disco?*
+
+Ficheros:
+
+- `src/cli/gramatica.l` — el léxico. **La decisión que hace posible todo lo demás**: una URL
+  y una palabra son componentes distintos, y se distinguen por su FORMA. Por eso
+  `scrub stop` y `scrub /local/tank` dejan de ser la misma frase, y desaparece la consulta
+  al daemon para saber qué pools existen.
+- `src/cli/gramatica.y` — la gramática, con `%expect 0`: si alguien introduce una
+  ambigüedad, el build falla.
+- `src/cli/gramatica_cli.cpp` — la frontera con C++ y el clasificador: **la forma de cada
+  verbo se DERIVA de la firma declarada en el catálogo**. Por eso hay una producción por
+  forma y no una por verbo, y añadir una orden sigue siendo una fila en una tabla.
+- `src/cli/generado/` — lo generado, en el repositorio: el agente y la interfaz se cruzan
+  dentro de un contenedor y exigir bison/flex allí sería una dependencia a cambio de nada.
+  Se regenera con `scripts/genera_gramatica.sh`.
+
+### Lo que la gramática cambió del lenguaje
+
+- **El destino posicional es una URL**, salvo en las órdenes de conexión, donde una máquina
+  se nombra por su identificador. Es lo que ya se había decidido con `flush /conn/pool`.
+- **Las órdenes cuya ranura también acepta una URL no llevan destino posicional**: `clear`,
+  `trim`, `initialize`, `rsync`, `copy`, `diff`, `todir`, `fromdir`, `create`. Su destino va
+  por `--on`. No es una limitación arbitraria: es la ambigüedad que bison señaló.
+- **`get /local/tank/x compression` ahora se puede escribir**, y antes no: con las reglas a
+  mano la ranura de texto se tragaba el destino y había que usar `--on`.
+
+### Lo que queda
+
+Las 46 órdenes tienen firma y la gramática las cubre —lo comprueba
+`zfsmgr_gramatica_cli_test`, que además exige que una orden con ranura obligatoria FALLE
+sola y diga cuál falta—. Falta lo último: que el despacho del intérprete consuma
+`analizaLinea()` en vez de `trocea()`. Hasta entonces conviven el analizador nuevo,
+comprobado, y el troceo viejo, que es el que se ejecuta.
+
+## Valoración: ¿yacc/lex de verdad? (escrita ANTES de construirlo)
 
 Con franqueza: **la gramática vale la pena escribirla; generar el analizador con yacc/lex
 probablemente no.**

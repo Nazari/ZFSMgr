@@ -112,7 +112,9 @@ const std::vector<Orden> kOrdenes = {
       {"t_dos_reglas_8d26b6", "Dos reglas quitan ambigüedad a una ruta relativa: si el primer tramo nombra una "
       "CONEXIÓN, la ruta es absoluta; y si es el POOL en el que ya estás, es el nombre ZFS "
       "completo."},
-      {"t_se_comprue_d745a0", "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."}}},
+      {"t_se_comprue_d745a0", "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."}},
+     Objetivo::Cualquiera,
+     {}},
     {"pwd", {"t_navegaci_n_60cb06", "Navegación"}, {"", ""}, {"t_la_url_act_1bd7d8", "La URL actual."}, {}, {}},
     {"ls", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"},
      {"t_lista_lo_q_661d7f", "Lista lo que hay. En la raíz las conexiones, en una conexión los pools, en un dataset "
@@ -123,7 +125,9 @@ const std::vector<Orden> kOrdenes = {
       {{"t_ls_daemon", "--daemon"},
        {"t_ls_daemon_q", "En la raíz: la versión del agente de cada máquina, con « * » si no es la esperada."}}},
      {{"t_en_windows_42a2d3", "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
-      "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}}},
+      "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}},
+     Objetivo::Cualquiera,
+     {}},
     {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {},
      Objetivo::Cualquiera, {}},
 
@@ -149,7 +153,9 @@ const std::vector<Orden> kOrdenes = {
       "uno."},
       {"t_create_arroba_det", "Un nombre con « @ » delante crea una instantánea y no un hijo: `create @ayer` "
       "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue una "
-      "instantánea en la URL, así que no hay una regla nueva que recordar."}}},
+      "instantánea en la URL, así que no hay una regla nueva que recordar."}},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"devices", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_devices_uso", "[--free]"},
      {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
      {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
@@ -158,7 +164,9 @@ const std::vector<Orden> kOrdenes = {
       "pool viejo, por ejemplo—."},
       {"t_devices_det2", "OCUPADO es una comodidad, no un veredicto: dice que el dispositivo o "
       "alguno de sus hijos tiene sistema de ficheros o está montado. Quien vaya a escribir "
-      "en él decide."}}},
+      "en él decide."}},
+     Objetivo::Conexion,
+     {}},
     {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name …] [--host …] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
      {{{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}}},
@@ -172,7 +180,9 @@ const std::vector<Orden> kOrdenes = {
       {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
      {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
-      "funciona—. En un dataset o instantánea, `zfs destroy`."}}},
+      "funciona—. En un dataset o instantánea, `zfs destroy`."}},
+     Objetivo::DatasetOInstantanea,
+     {}},
     {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
      Objetivo::Conexion,
      {}},
@@ -191,7 +201,9 @@ const std::vector<Orden> kOrdenes = {
      {}},
 
     // --- Dataset
-    {"rename", {"t_dataset_105268", "Dataset"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {}},
+    {"rename", {"t_dataset_105268", "Dataset"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
+     Objetivo::DatasetOInstantanea,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
     {"mount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
      Objetivo::Dataset,
      {}},
@@ -219,7 +231,9 @@ const std::vector<Orden> kOrdenes = {
      {}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
-     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {}},
+     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
      Objetivo::Instantanea,
      {}},
@@ -232,7 +246,9 @@ const std::vector<Orden> kOrdenes = {
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
     {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
-     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {}},
+     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
+     Objetivo::Dataset,
+     {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
 
     // --- Pools
     {"status", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_el_estado__f8428b", "El estado detallado del pool, tal y como lo da zpool."}, {}, {},
@@ -284,7 +300,9 @@ const std::vector<Orden> kOrdenes = {
      {}},
     {"import", {"t_pools_2fd96d", "Pools"}, {"t_pool_as_nu_2706a5", "[<pool>] [--as <nuevo>] [-f]"},
      {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
-     {{{"t_as_nuevo_c017c7", "--as <nuevo>"}, {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {}},
+     {{{"t_as_nuevo_c017c7", "--as <nuevo>"}, {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {},
+     Objetivo::Conexion,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
 
     // --- Permisos
     {"allow", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_user_u_per_9cf888", "[--user <u>] <permisos...>"},
@@ -295,10 +313,14 @@ const std::vector<Orden> kOrdenes = {
       {{"t_local_91441b", "--local"}, {"t_solo_en_es_4019d0", "Solo en este dataset."}},
       {{"t_descend_8f0ee4", "--descend"}, {"t_solo_en_lo_9b33ba", "Solo en los descendientes."}},
       {{"t_create_488177", "--create"}, {"t_solo_en_lo_9dcb23", "Solo en los que se creen a partir de ahora."}}},
-     {}},
+     {},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"unallow", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_user_u_per_e1742b", "[--user <u>] [permisos...]"},
      {"t_retira_per_6104b6", "Retira permisos. Sin lista de permisos, TODOS los de ese destinatario."},
-     {{{"t_r_90cdb7", "-r"}, {"t_tambi_n_en_33e099", "También en los descendientes."}}}, {}},
+     {{{"t_r_90cdb7", "-r"}, {"t_tambi_n_en_33e099", "También en los descendientes."}}}, {},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
 
     // --- Acciones
     {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},
@@ -311,19 +333,27 @@ const std::vector<Orden> kOrdenes = {
       {"t_rsync_det2", "Sin `--delete` solo añade y actualiza; lo que sobre en el destino se queda. Con "
       "`--delete` el destino acaba idéntico al origen, y eso INCLUYE borrar."},
       {"t_rsync_det3", "Los dos extremos han de estar en la misma máquina: entre máquinas distintas la "
-      "interfaz usa `tar` sobre SSH, que no está portado aquí."}}},
+      "interfaz usa `tar` sobre SSH, que no está portado aquí."}},
+     Objetivo::Dataset,
+     {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
     {"breakdown", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_0a6bbc", "<directorio> <hijo> [<directorio> <hijo>...]"},
      {"t_convierte__9a9063", "Convierte directorios del dataset en datasets hijos."},
-     {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}}, {}},
+     {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}}, {},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<hijo> [<hijo>...]"},
      {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve datasets hijos a directorios."},
      {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
-     {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}}},
+     {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}},
+     Objetivo::Dataset,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"todir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_9d9336", "<directorio-destino>"},
      {"t_vuelca_el__e8430a", "Vuelca el contenido del dataset a un directorio corriente."},
      {{{"t_delete_sou_f4bf01", "--delete-source"}, {"t_destruye_e_228abc", "Destruye el dataset de origen al terminar."}},
       {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
-     {}},
+     {},
+     Objetivo::Dataset,
+     {{"ruta", Ranura::Tipo::Ruta, Ranura::Cuantas::Una}}},
     {"fromdir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_09a389", "<directorio-origen>"},
      {"t_vuelca_un__c2bd33", "Vuelca un directorio DENTRO del dataset actual. El origen puede estar en otra máquina."},
      {{{"t_from_url_325aa2", "--from <url>"}, {"t_la_m_quina_cdb6da", "La máquina de la que sale el directorio."}},
@@ -331,7 +361,9 @@ const std::vector<Orden> kOrdenes = {
      {{"t_no_es_la_i_ace907", "NO es la inversa de todir, aunque el nombre lo sugiera: la inversa de todir es "
       "assemble. Esto crea el contenido de un dataset A PARTIR de un directorio."},
       {"t_va_como_un_682722", "Va como una tubería tar entre las dos máquinas, no por RPC: el verbo del agente lee "
-      "el tar por la entrada estándar y el canal RPC no tiene stdin."}}},
+      "el tar por la entrada estándar y el canal RPC no tiene stdin."}},
+     Objetivo::Dataset,
+     {{"ruta", Ranura::Tipo::Ruta, Ranura::Cuantas::Una}}},
 
     // --- Transferencias
     {"copy", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, {"t_destino_bb3347", "<destino>"},
@@ -344,7 +376,9 @@ const std::vector<Orden> kOrdenes = {
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
       "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
       {"t_ninguno_de_0490e5", "Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado "
-      "allí. Para eso están todir y fromdir."}}},
+      "allí. Para eso están todir y fromdir."}},
+     Objetivo::Instantanea,
+     {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
 
     // --- Trabajos
     {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso", "[--all|--<estado>...]"},
@@ -362,7 +396,9 @@ const std::vector<Orden> kOrdenes = {
     {"job", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_id_cancel__aab412", "<id> | cancel <id>"},
      {"t_el_estado__9c5ecc", "El estado de un trabajo, o su cancelación."},
      {},
-     {{"t_cancelar_n_391b27", "Cancelar no deshace lo que ya se hizo."}}},
+     {{"t_cancelar_n_391b27", "Cancelar no deshace lo que ya se hizo."}},
+     Objetivo::Conexion,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
 
     // --- Daemon
     {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_on_url_b3e711", "[--on <url>]"},

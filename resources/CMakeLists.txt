@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
-project(ZFSMgrQt VERSION 0.92.0 LANGUAGES CXX)
+# C además de C++: el analizador del intérprete lo generan bison y flex, que producen C.
+# Sin declararlo, CMake compilaba esos ficheros como C++ y sus símbolos no casaban con las
+# declaraciones `extern "C"` del lado C++ —el enlazado fallaba con «referencia sin definir»
+# sobre funciones que estaban ahí mismo—.
+project(ZFSMgrQt VERSION 0.92.0 LANGUAGES C CXX)
 include(CTest)
 
 # Un `switch` sobre un enum al que le falte un caso es un ERROR, no un aviso.
@@ -237,6 +241,16 @@ set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # binario, y ese es el contrato — si algún día deja de compilar por un símbolo de Qt, es
 # que se ha metido interfaz en la capa de lógica.
 add_executable(zfsmgr_cli
+    # El analizador de la línea, GENERADO con bison y flex a partir de
+    # ../src/cli/gramatica.{y,l} y guardado en el repositorio. Se regenera con
+    # scripts/genera_gramatica.sh; no se genera aquí para no exigir bison/flex a quien
+    # solo compila —el agente y la interfaz se cruzan dentro de un contenedor—.
+    ../src/cli/generado/gramatica.tab.c
+    ../src/cli/generado/gramatica.lex.c
+    ../src/cli/gramatica_ast.c
+    ../src/cli/gramatica_ast.h
+    ../src/cli/gramatica_cli.cpp
+    ../src/cli/gramatica_cli.h
     ../src/cli/ayuda.cpp
     ../src/cli/ayuda.h
     ../src/cli/linea.cpp
@@ -256,6 +270,7 @@ add_custom_command(TARGET zfsmgr_cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr_cli>/i18n)
 
+target_include_directories(zfsmgr_cli PRIVATE ../src/cli ../src/cli/generado)
 target_compile_definitions(zfsmgr_cli PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     # La versión del AGENTE, que no es la de la aplicación: lleva el sufijo del marcador de
@@ -516,6 +531,20 @@ if(BUILD_TESTING)
     target_link_libraries(zfsmgr_help_resources_test PRIVATE Qt6::Core)
     target_compile_definitions(zfsmgr_help_resources_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_help_resources_test COMMAND zfsmgr_help_resources_test)
+
+    # La gramática del intérprete: que analice lo que se cree, y que toda firma declarada
+    # en el catálogo encaje en alguna de sus formas.
+    add_executable(zfsmgr_gramatica_cli_test
+        ../tests/gramatica_cli_test.cpp
+        ../src/cli/gramatica_cli.cpp
+        ../src/cli/gramatica_ast.c
+        ../src/cli/generado/gramatica.tab.c
+        ../src/cli/generado/gramatica.lex.c
+        ../src/cli/ayuda.cpp
+    )
+    target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base)
+    target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_base)
+    add_test(NAME zfsmgr_gramatica_cli_test COMMAND zfsmgr_gramatica_cli_test)
 
     qt_add_executable(zfsmgr_gui_mainwindow_test
         ../tests/gui_mainwindow_test.cpp
