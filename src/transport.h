@@ -2,6 +2,9 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
+
+#include <functional>
 
 #include "connectionstore.h"
 #include "transportsession.h"
@@ -29,7 +32,52 @@ bool isWindowsConnection(const ConnectionProfile& p);
 // POSIX en el resto.
 QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd);
 
-// NOTA: ensureLocalDaemonTlsMaterial NO está aquí, y no por olvido: llama a runSsh y a
-// la resolución de credenciales de sudo, así que entra cuando entre esa cadena.
+// Material TLS del daemon LOCAL. Vive bajo /etc/zfsmgr con permisos de root, así que hay
+// que leerlo elevando; se cachea para no pedir credenciales en cada orden.
+bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
+                                  QByteArray& serverCertPem,
+                                  QByteArray& clientCertPem,
+                                  QByteArray& clientKeyPem,
+                                  quint16& daemonPort);
+
+// Ejecuta una orden en la máquina. Si `allowAgentRpc`, intenta primero el RPC tipado del
+// agente y solo cae a SSH en crudo si no se puede.
+bool runSsh(TransportSession& ses,
+            const ConnectionProfile& p,
+            const QString& remoteCmd,
+            int timeoutMs,
+            QString& out,
+            QString& err,
+            int& rc,
+            const std::function<void(const QString&)>& onStdoutLine = {},
+            const std::function<void(const QString&)>& onStderrLine = {},
+            const std::function<void(int)>& onIdleTimeoutRemaining = {},
+            const QByteArray& stdinPayload = {},
+            bool allowAgentRpc = true,
+            bool echoOutputToLog = true);
+
+bool tryAgentRpcOverSsh(TransportSession& ses,
+                        const ConnectionProfile& p,
+                        const QStringList& agentArgs,
+                        int timeoutMs,
+                        QString& out,
+                        QString& err,
+                        int& rc,
+                        const std::function<void(const QString&)>& onStdoutLine = {},
+                        const std::function<void(const QString&)>& onStderrLine = {},
+                        bool echoOutputToLog = true);
+
+// El RPC por el túnel `ssh -L`, que es el camino normal cuando hay daemon.
+// `commandMayHaveRunOut` distingue «no se pudo enviar» de «se envió y no hubo
+// respuesta». Es la diferencia que impide reenviar una mutación destructiva dos veces.
+bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
+                                   const ConnectionProfile& p,
+                                   const QStringList& agentArgs,
+                                   int timeoutMs,
+                                   QString& out,
+                                   QString& err,
+                                   int& rc,
+                                   QString* failureReason = nullptr,
+                                   bool* commandMayHaveRunOut = nullptr);
 
 }  // namespace transport

@@ -238,6 +238,19 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         clave = passEdit->text();
         return true;
     };
+    // Las dos decisiones que el transporte necesita del registro. Se le dan como
+    // políticas y no como acceso al registro entero: lo que necesita son estas dos cosas,
+    // no las contraseñas de todas las máquinas.
+    // Los túneles viven en el hilo de la ventana. Ver TransportSession::owner.
+    m_transport.owner = this;
+    m_transport.localSudoResolver = [this](ConnectionProfile& perfil) {
+        return ensureLocalSudoCredentials(perfil);
+    };
+    m_transport.tlsPersister = [this](const ConnectionProfile& p, const QByteArray& srv,
+                                      const QByteArray& cli, const QByteArray& key,
+                                      quint16 puerto, QString* errorOut) {
+        return persistDaemonTlsMaterialForConnection(p, srv, cli, key, puerto, errorOut);
+    };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);
     initLogPersistence();

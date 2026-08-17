@@ -943,7 +943,8 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     }
 }
 
-bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
+bool transport::tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
+                                              const ConnectionProfile& p,
                                                const QStringList& agentArgs,
                                                int timeoutMs,
                                                QString& out,
@@ -951,18 +952,18 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                                int& rc,
                                                QString* failureReason,
                                                bool* commandMayHaveRunOut) {
-    // Este camino mantiene/crea QProcess asociados a estado de MainWindow.
-    // Si se ejecuta desde un worker de QtConcurrent puede crear QObject hijos
-    // con parent en otro hilo (warning/crash de afinidad).
+    // Este camino crea y mantiene los QProcess de los túneles, que cuelgan del dueño de
+    // la sesión. Ejecutarlo desde un hilo de QtConcurrent crearía hijos con padre en otro
+    // hilo, que es un aviso de afinidad o directamente una caída.
     if (failureReason) {
         failureReason->clear();
     }
     if (commandMayHaveRunOut) {
         *commandMayHaveRunOut = false;
     }
-    if (QThread::currentThread() != thread()) {
+    if (!ses.enHiloDeTuneles()) {
         if (failureReason) {
-            *failureReason = QStringLiteral("rpc invocado fuera del hilo UI");
+            *failureReason = QStringLiteral("rpc invocado fuera del hilo de los túneles");
         }
         return false;
     }
@@ -991,8 +992,8 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     // la conexión en backoff de 30 s y con eso tumbaba el refresco de verdad. Estar
     // ocupado no es estar roto.
     {
-        QMutexLocker lock(&m_transport.mutex);
-        if (m_transport.tunnelsBeingCreated.contains(rpcConnKey)) {
+        QMutexLocker lock(&ses.mutex);
+        if (ses.tunnelsBeingCreated.contains(rpcConnKey)) {
             if (failureReason) {
                 *failureReason = mwhelpers::rpcTunnelBusyReason();
             }
@@ -1002,13 +1003,13 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     const auto closeTunnelForKey = [&](const QString& key) {
         QPointer<QProcess> proc;
         {
-            QMutexLocker lock(&m_transport.mutex);
-            const auto it = m_transport.tunnelsByConnKey.find(key);
-            if (it == m_transport.tunnelsByConnKey.end()) {
+            QMutexLocker lock(&ses.mutex);
+            const auto it = ses.tunnelsByConnKey.find(key);
+            if (it == ses.tunnelsByConnKey.end()) {
                 return;
             }
             proc = it->process;
-            m_transport.tunnelsByConnKey.erase(it);
+            ses.tunnelsByConnKey.erase(it);
         }
         if (proc && proc->state() != QProcess::NotRunning) {
             proc->terminate();
@@ -1025,9 +1026,9 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         const QDateTime now = QDateTime::currentDateTimeUtc();
         QStringList staleKeys;
         {
-            QMutexLocker lock(&m_transport.mutex);
-            for (auto it = m_transport.tunnelsByConnKey.cbegin();
-                 it != m_transport.tunnelsByConnKey.cend(); ++it) {
+            QMutexLocker lock(&ses.mutex);
+            for (auto it = ses.tunnelsByConnKey.cbegin();
+                 it != ses.tunnelsByConnKey.cend(); ++it) {
                 const bool running = it.value().process && it.value().process->state() != QProcess::NotRunning;
                 const bool tooIdle = it.value().lastUsedUtc.isValid() && it.value().lastUsedUtc.secsTo(now) > 60;
                 if (!running || tooIdle) {
@@ -1060,24 +1061,24 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         // reutilizaba ni se cerraba nunca. Medido: 3 túneles por máquina donde debe
         // haber 1, seis conexiones SSH abiertas y subiendo.
         struct CreationLock {
-            MainWindow* self;
+            TransportSession* ses;
             QString key;
             ~CreationLock() {
-                QMutexLocker lock(&self->m_transport.mutex);
-                self->m_transport.tunnelsBeingCreated.remove(key);
+                QMutexLocker lock(&ses->mutex);
+                ses->tunnelsBeingCreated.remove(key);
             }
         };
         {
-            QMutexLocker lock(&m_transport.mutex);
-            m_transport.tunnelsBeingCreated.insert(key);
+            QMutexLocker lock(&ses.mutex);
+            ses.tunnelsBeingCreated.insert(key);
         }
-        CreationLock creationLock{this, key};
+        CreationLock creationLock{&ses, key};
         const QDateTime now = QDateTime::currentDateTimeUtc();
         bool needsRecreate = false;
         {
-            QMutexLocker lock(&m_transport.mutex);
-            const auto it = m_transport.tunnelsByConnKey.find(key);
-            if (it != m_transport.tunnelsByConnKey.end()) {
+            QMutexLocker lock(&ses.mutex);
+            const auto it = ses.tunnelsByConnKey.find(key);
+            if (it != ses.tunnelsByConnKey.end()) {
                 const bool running = it->process && it->process->state() != QProcess::NotRunning;
                 const bool remoteMatches = (it->remotePort == remotePort);
                 const bool tooIdle = it->lastUsedUtc.isValid() && it->lastUsedUtc.secsTo(now) > 45;
@@ -1137,7 +1138,10 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(remotePort);
         tunnelArgs << "-N" << sshUserHost(p);
 
-        QProcess* proc = new QProcess(this);
+        // El padre es el dueño de la sesión, que es quien vive en este hilo. Sin dueño
+        // (una herramienta de un solo hilo) el proceso no tiene padre y lo gobierna el
+        // propio mapa de túneles.
+        QProcess* proc = new QProcess(ses.owner);
         proc->start(tunnelProgram, tunnelArgs);
         if (!proc->waitForStarted(5000)) {
             proc->deleteLater();
@@ -1174,7 +1178,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 //
                 // ExcludeUserInputEvents a propósito: deja pasar los repintados pero NO
                 // las acciones del usuario, así que no puede colarse por aquí nada que
-                // mute m_conns.profiles/m_conns.states y deje colgando las referencias que sostiene
+                // recargue las conexiones y deje colgando las referencias que sostiene
                 // quien nos llamó. Es más estricto que el processEvents de runSsh.
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 40);
                 QThread::msleep(10);
@@ -1188,7 +1192,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 const QString why = sshDied
                                         ? QStringLiteral("el ssh del túnel terminó")
                                         : QStringLiteral("agotados los 5 s de espera");
-                m_transport.log(TransportSession::Nivel::Warn,
+                ses.log(TransportSession::Nivel::Warn,
                        QStringLiteral("daemon-rpc: el túnel SSH a %1 no aceptó conexiones (%2, %3 ms)")
                            .arg(p.name, why, QString::number(readyTimer.elapsed())));
                 if (proc->state() != QProcess::NotRunning) {
@@ -1203,28 +1207,31 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             }
         }
 
+        // El contexto de la conexión es el PROPIO proceso, no la ventana: esta función
+        // ya no es un método suyo. Sigue habiendo contexto —que es lo que importa para
+        // que la lambda no corra tras destruirse el emisor—.
         QObject::connect(
             proc,
             qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-            this,
-            [this, key, proc](int, QProcess::ExitStatus) {
-                QMutexLocker lock(&m_transport.mutex);
-                auto it = m_transport.tunnelsByConnKey.find(key);
-                if (it != m_transport.tunnelsByConnKey.end() && it->process == proc) {
-                    m_transport.tunnelsByConnKey.erase(it);
+            proc,
+            [&ses, key, proc](int, QProcess::ExitStatus) {
+                QMutexLocker lock(&ses.mutex);
+                auto it = ses.tunnelsByConnKey.find(key);
+                if (it != ses.tunnelsByConnKey.end() && it->process == proc) {
+                    ses.tunnelsByConnKey.erase(it);
                 }
                 proc->deleteLater();
             });
 
         {
-            QMutexLocker lock(&m_transport.mutex);
+            QMutexLocker lock(&ses.mutex);
             RemoteRpcTunnelState st;
             st.process = proc;
             st.localPort = localPort;
             st.remotePort = remotePort;
             st.startedAtUtc = now;
             st.lastUsedUtc = now;
-            m_transport.tunnelsByConnKey.insert(key, st);
+            ses.tunnelsByConnKey.insert(key, st);
         }
 
         localPortOut = localPort;
@@ -1254,9 +1261,8 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         }
         if (fetchedFromRemote) {
             QString persistErr;
-            if (!persistDaemonTlsMaterialForConnection(
-                    p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, &persistErr)) {
-                m_transport.log(TransportSession::Nivel::Warn,
+            if (!ses.persistTls(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, &persistErr)) {
+                ses.log(TransportSession::Nivel::Warn,
                        QStringLiteral("daemon-rpc TLS persist fallback %1 -> %2")
                            .arg(p.name, persistErr.isEmpty() ? QStringLiteral("upsert failed") : persistErr));
             }
@@ -1289,7 +1295,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         // no podía hablar con ningún daemon porque cae a SecureTransport (el bundle
         // no lleva libssl) y este rechaza los certificados que OpenSSL acepta.
         static std::once_flag tlsBackendLogOnce;
-        std::call_once(tlsBackendLogOnce, [this]() {
+        std::call_once(tlsBackendLogOnce, [&ses]() {
             // Preferir OpenSSL cuando esté disponible, para que todas las
             // plataformas se comporten igual. En macOS, SecureTransport además
             // exige la clave privada del cliente en el llavero y hace que el
@@ -1298,11 +1304,11 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             if (before != QStringLiteral("openssl")
                 && QSslSocket::availableBackends().contains(QStringLiteral("openssl"))) {
                 if (QSslSocket::setActiveBackend(QStringLiteral("openssl"))) {
-                    m_transport.log(TransportSession::Nivel::Info,
+                    ses.log(TransportSession::Nivel::Info,
                            QStringLiteral("TLS: backend cambiado de %1 a openssl").arg(before));
                 }
             }
-            m_transport.log(TransportSession::Nivel::Info,
+            ses.log(TransportSession::Nivel::Info,
                    QStringLiteral("TLS: backend activo=%1 disponibles=[%2] libssl=%3")
                        .arg(QSslSocket::activeBackend(),
                             QSslSocket::availableBackends().join(QStringLiteral(", ")),
@@ -1408,9 +1414,9 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 out = resp.value(QStringLiteral("stdout")).toString();
                 err = resp.value(QStringLiteral("stderr")).toString();
                 {
-                    QMutexLocker lock(&m_transport.mutex);
-                    auto it = m_transport.tunnelsByConnKey.find(rpcConnKey);
-                    if (it != m_transport.tunnelsByConnKey.end()) {
+                    QMutexLocker lock(&ses.mutex);
+                    auto it = ses.tunnelsByConnKey.find(rpcConnKey);
+                    if (it != ses.tunnelsByConnKey.end()) {
                         it->lastUsedUtc = QDateTime::currentDateTimeUtc();
                     }
                 }
@@ -1451,7 +1457,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         || firstFailure.contains(QStringLiteral("daemon-rpc sin respuesta válida"))
         || firstFailure.contains(QStringLiteral("túnel ssh daemon-rpc finalizado"))) {
         if (tryReviveRemoteDaemonService(p)) {
-            m_transport.log(TransportSession::Nivel::Info,
+            ses.log(TransportSession::Nivel::Info,
                    QStringLiteral("daemon-rpc revive requested on %1 after failure: %2")
                        .arg(p.name, lastAttemptReason));
         }
@@ -1621,7 +1627,8 @@ void MainWindow::clearLocalDaemonTlsCache() {
     s_localDaemonTlsCache = LocalDaemonTlsCacheEntry{};
 }
 
-bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
+bool transport::ensureLocalDaemonTlsMaterial(TransportSession& ses,
+                                             QByteArray& serverCertPem,
                                               QByteArray& clientCertPem,
                                               QByteArray& clientKeyPem,
                                               quint16& daemonPort) {
@@ -1657,7 +1664,7 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         // así que la lectura directa de arriba basta. Si ha fallado, no queda camino
         // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo,
         // y lanzarlo daría un error que no dice nada. Se explica lo que pasa.
-        m_transport.log(TransportSession::Nivel::Warn,
+        ses.log(TransportSession::Nivel::Warn,
                QStringLiteral("Local: no se pudo leer el material TLS del daemon en %1. "
                               "Reinstale el daemon desde el menú de la conexión.")
                    .arg(cfg.tlsCertPath));
@@ -1688,8 +1695,8 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         sudoProfile.id = QStringLiteral("local");
         sudoProfile.connType = QStringLiteral("LOCAL");
         sudoProfile.useSudo = true;
-        if (!ensureLocalSudoCredentials(sudoProfile)) {
-            m_transport.log(TransportSession::Nivel::Warn,
+        if (!ses.resolveLocalSudo(sudoProfile)) {
+            ses.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: no se pudo leer el material TLS del daemon (faltan "
                                   "credenciales sudo locales)."));
             return false;
@@ -1700,15 +1707,15 @@ bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
         QString out;
         QString err;
         int rc = -1;
-        if (!runSsh(sudoProfile, cmd, 15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
+        if (!runSsh(ses, sudoProfile, cmd, 15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
             || rc != 0) {
-            m_transport.log(TransportSession::Nivel::Warn,
+            ses.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: no se pudo leer el material TLS del daemon -> %1")
                        .arg(mwhelpers::oneLine(err.isEmpty() ? out : err)));
             return false;
         }
         if (!parseRemoteDaemonTlsBundle(out, srv, cli, key, port)) {
-            m_transport.log(TransportSession::Nivel::Warn,
+            ses.log(TransportSession::Nivel::Warn,
                    QStringLiteral("Local: el material TLS del daemon llegó incompleto."));
             return false;
         }
@@ -1737,7 +1744,8 @@ bool MainWindow::isMutatingAgentCommandForTest(const QStringList& agentArgs) {
     return isMutatingAgentCommand(agentArgs);
 }
 
-bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
+bool transport::tryAgentRpcOverSsh(TransportSession& ses,
+                                   const ConnectionProfile& p,
                                     const QStringList& agentArgs,
                                     int timeoutMs,
                                     QString& out,
@@ -1753,9 +1761,9 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     bool allowRpcAttempt = true;
     QString suppressedReason;
     {
-        QMutexLocker lock(&m_transport.mutex);
-        const auto it = m_transport.retryAfterByConnKey.constFind(rpcConnKey);
-        if (it != m_transport.retryAfterByConnKey.constEnd()
+        QMutexLocker lock(&ses.mutex);
+        const auto it = ses.retryAfterByConnKey.constFind(rpcConnKey);
+        if (it != ses.retryAfterByConnKey.constEnd()
             && it.value().isValid()
             && QDateTime::currentDateTimeUtc() < it.value()) {
             allowRpcAttempt = false;
@@ -1767,16 +1775,19 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     QString rpcFailureReason;
     bool rpcCommandMayHaveRun = false;
     if (allowRpcAttempt) {
-        if (QThread::currentThread() == thread()) {
+        if (ses.enHiloDeTuneles()) {
             rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason, &rpcCommandMayHaveRun);
+                ses, p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
+                &rpcCommandMayHaveRun);
         } else {
+            // Al hilo del dueño, y bloqueando: el resultado se necesita aquí. Es lo que
+            // serializa el montaje de túneles cuando el dueño es la ventana.
             QMetaObject::invokeMethod(
-                this,
-                [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason,
-                 &rpcCommandMayHaveRun]() {
+                ses.owner,
+                [&ses, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk,
+                 &rpcFailureReason, &rpcCommandMayHaveRun]() {
                     rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
-                        p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
+                        ses, p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason,
                         &rpcCommandMayHaveRun);
                 },
                 Qt::BlockingQueuedConnection);
@@ -1784,13 +1795,13 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
     }
     if (rpcAttemptOk) {
         {
-            QMutexLocker lock(&m_transport.mutex);
-            m_transport.retryAfterByConnKey.remove(rpcConnKey);
-            m_transport.retryReasonByConnKey.remove(rpcConnKey);
+            QMutexLocker lock(&ses.mutex);
+            ses.retryAfterByConnKey.remove(rpcConnKey);
+            ses.retryReasonByConnKey.remove(rpcConnKey);
         }
         const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
                                     .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs));
-        m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
+        ses.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
         const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
             const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
             for (const QString& rawLine : lines) {
@@ -1802,7 +1813,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                    ses.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -1810,12 +1821,12 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         emitLines(err, onStderrLine);
         if (!out.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
             }
         }
         if (!err.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
             }
         }
         return true;
@@ -1831,7 +1842,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
             QStringLiteral("%1 $ [daemon-rpc:sin-fallback] %2 -> %3"
                            " (la orden ya llegó al daemon; no se reintenta para no duplicarla)")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
-        m_transport.logConn(TransportSession::Nivel::Error, p.id, abortLine);
+        ses.logConn(TransportSession::Nivel::Error, p.id, abortLine);
         out.clear();
         err = QStringLiteral(
                   "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
@@ -1850,7 +1861,7 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs),
                      mwhelpers::rpcTunnelBusyReason());
-        m_transport.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
+        ses.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
     } else if (allowRpcAttempt) {
         const QString reason = rpcFailureReason.trimmed().isEmpty()
                                    ? QStringLiteral("motivo no especificado")
@@ -1858,17 +1869,17 @@ bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p,
         const QString fallbackLine =
             QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), reason);
-        m_transport.logConn(TransportSession::Nivel::Info, p.id, fallbackLine);
-        QMutexLocker lock(&m_transport.mutex);
+        ses.logConn(TransportSession::Nivel::Info, p.id, fallbackLine);
+        QMutexLocker lock(&ses.mutex);
         constexpr int kDaemonRpcRetryBackoffSec = 30;
-        m_transport.retryAfterByConnKey.insert(
+        ses.retryAfterByConnKey.insert(
             rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
-        m_transport.retryReasonByConnKey.insert(rpcConnKey, reason);
+        ses.retryReasonByConnKey.insert(rpcConnKey, reason);
     } else if (!suppressedReason.isEmpty()) {
         const QString skippedLine =
             QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
                 .arg(sshUserHostPort(p), mwhelpers::maskedAgentArgvForLog(agentArgs), suppressedReason);
-        m_transport.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
+        ses.logConn(TransportSession::Nivel::Info, p.id, skippedLine);
     }
     return false;
 }
@@ -1914,7 +1925,7 @@ bool MainWindow::runAgentCommand(const ConnectionProfile& p,
         return false;
     }
     if (m_transport.transportForTest) {
-        m_transport.callsForTest.push_back(AgentCallForTest{agentArgs, QString(), stdinPayload});
+        m_transport.callsForTest.push_back(TransportSession::AgentCallForTest{agentArgs, QString(), stdinPayload});
         return m_transport.transportForTest(agentArgs, out, err, rc);
     }
     const QString verb = agentArgs.first().trimmed();
@@ -1944,7 +1955,8 @@ bool MainWindow::runAgentCommand(const ConnectionProfile& p,
                   /*allowAgentRpc=*/false);
 }
 
-bool MainWindow::runSsh(const ConnectionProfile& p,
+bool transport::runSsh(TransportSession& ses,
+                       const ConnectionProfile& p,
                         const QString& remoteCmd,
                         int timeoutMs,
                         QString& out,
@@ -1964,16 +1976,16 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     // una invocación del agente construida como cadena, se atiende igual —para que los
     // sitios aún sin migrar funcionen en los tests—; si no lo es, se registra y fracasa,
     // que es lo que permite afirmar "esto NO debía irse por shell".
-    if (m_transport.transportForTest) {
+    if (ses.transportForTest) {
         QStringList parsedArgs;
         if (allowAgentRpc && stdinPayload.isEmpty()
             && extractLocalAgentArgs(remoteCmd.trimmed(), parsedArgs)) {
-            m_transport.callsForTest.push_back(
-                AgentCallForTest{parsedArgs, remoteCmd.trimmed(), stdinPayload});
-            return m_transport.transportForTest(parsedArgs, out, err, rc);
+            ses.callsForTest.push_back(
+                TransportSession::AgentCallForTest{parsedArgs, remoteCmd.trimmed(), stdinPayload});
+            return ses.transportForTest(parsedArgs, out, err, rc);
         }
-        m_transport.callsForTest.push_back(
-            AgentCallForTest{QStringList(), remoteCmd.trimmed(), stdinPayload});
+        ses.callsForTest.push_back(
+            TransportSession::AgentCallForTest{QStringList(), remoteCmd.trimmed(), stdinPayload});
         err = QStringLiteral("transporte de prueba: no se ejecuta shell");
         rc = 127;
         return false;
@@ -1982,7 +1994,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if (isLocalConnection(p)) {
         const QString localCmd = remoteCmd.trimmed();
         const QString cmdLine = QStringLiteral("[local] $ %1").arg(localCmd);
-        m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
+        ses.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
 
         // stdin no vacío descarta el RPC: el canal no transporta stdin (el daemon lo
         // dice en runExecCaptureWithStdin) y la intercepción no lo miraba, así que la
@@ -1998,14 +2010,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 QByteArray cliPem;
                 QByteArray keyPem;
                 quint16 localPort = 47653;
-                localRpcOk = ensureLocalDaemonTlsMaterial(srvPem, cliPem, keyPem, localPort)
+                localRpcOk = ensureLocalDaemonTlsMaterial(ses, srvPem, cliPem, keyPem, localPort)
                              && tryRunLocalAgentRpc(localAgentArgs, srvPem, cliPem, keyPem,
                                                     localPort, timeoutMs, out, err, rc);
             };
-            if (QThread::currentThread() == thread()) {
+            if (ses.enHiloDeTuneles()) {
                 runLocalRpc();
             } else {
-                QMetaObject::invokeMethod(this, runLocalRpc, Qt::BlockingQueuedConnection);
+                QMetaObject::invokeMethod(ses.owner, runLocalRpc, Qt::BlockingQueuedConnection);
             }
             if (localRpcOk) {
                 const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
@@ -2019,7 +2031,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                             cb(line);
                         }
                         if (echoOutputToLog) {
-                            m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                            ses.logConn(TransportSession::Nivel::Normal, p.id, line);
                         }
                     }
                 };
@@ -2027,12 +2039,12 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 emitLines(err, onStderrLine);
                 if (!out.trimmed().isEmpty()) {
                     if (echoOutputToLog) {
-                        m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
+                        ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
                     }
                 }
                 if (!err.trimmed().isEmpty()) {
                     if (echoOutputToLog) {
-                        m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
+                        ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
                     }
                 }
                 return true;
@@ -2054,7 +2066,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         proc.start(program, args);
         if (!proc.waitForStarted(4000)) {
             err = QStringLiteral("No se pudo iniciar %1").arg(program);
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, err);
+            ses.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
         if (!stdinPayload.isEmpty()) {
@@ -2091,7 +2103,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                    ses.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -2127,7 +2139,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 proc.waitForFinished(1000);
                 break;
             }
-            if (QThread::currentThread() == thread()) {
+            // Bombear el bucle solo en el hilo del dueño: es lo que evita que la
+            // ventana se congele durante la espera. Sin dueño —una herramienta de un
+            // solo hilo— no hay interfaz que refrescar y no se bombea nada.
+            if (ses.owner && QThread::currentThread() == ses.owner->thread()) {
                 QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             }
         }
@@ -2147,7 +2162,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStdoutLine(line);
             }
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
@@ -2156,13 +2171,13 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStderrLine(line);
             }
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (timedOut) {
             rc = -1;
             err = QStringLiteral("Timeout");
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, err);
+            ses.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
         rc = proc.exitCode();
@@ -2173,18 +2188,18 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             const QString hostKeyHint = mwhelpers::sshHostKeyProblemHint(err);
             if (!hostKeyHint.isEmpty()) {
                 err = hostKeyHint + QStringLiteral("\n\n") + err;
-                m_transport.log(TransportSession::Nivel::Warn,
+                ses.log(TransportSession::Nivel::Warn,
                        QStringLiteral("%1: verificación de host SSH fallida").arg(p.name));
             }
         }
         if (!out.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
             }
         }
         if (!err.trimmed().isEmpty()) {
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
             }
         }
         return true;
@@ -2198,7 +2213,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if (allowAgentRpc && stdinPayload.isEmpty()) {
         QStringList agentArgs;
         if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)
-            && tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine,
+            && tryAgentRpcOverSsh(ses, p, agentArgs, timeoutMs, out, err, rc, onStdoutLine, onStderrLine,
                                   echoOutputToLog)) {
             return true;
         }
@@ -2229,9 +2244,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
     const QString cmdLine = QStringLiteral("%1 $ %2")
                                 .arg(sshUserHostPort(p), wrappedCmd);
-    m_transport.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
+    ses.logConn(TransportSession::Nivel::Info, p.id, cmdLine);
     if (hasPassword && !usingSshpass) {
-        m_transport.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
+        ses.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
     }
 
     auto runSshAttempt = [&](bool enableMultiplexing, QString& attemptOut, QString& attemptErr, int& attemptRc) -> bool {
@@ -2287,7 +2302,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         proc.start(program, args);
         if (!proc.waitForStarted(4000)) {
             attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
+            ses.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
             return false;
         }
         if (!stdinPayload.isEmpty()) {
@@ -2324,7 +2339,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     cb(line);
                 }
                 if (echoOutputToLog) {
-                    m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                    ses.logConn(TransportSession::Nivel::Normal, p.id, line);
                 }
             }
         };
@@ -2360,7 +2375,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 proc.waitForFinished(1000);
                 break;
             }
-            if (QThread::currentThread() == thread()) {
+            // Bombear el bucle solo en el hilo del dueño: es lo que evita que la
+            // ventana se congele durante la espera. Sin dueño —una herramienta de un
+            // solo hilo— no hay interfaz que refrescar y no se bombea nada.
+            if (ses.owner && QThread::currentThread() == ses.owner->thread()) {
                 QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             }
         }
@@ -2381,7 +2399,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStdoutLine(line);
             }
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
         if (!errLineBuf.trimmed().isEmpty()) {
@@ -2390,14 +2408,14 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 onStderrLine(line);
             }
             if (echoOutputToLog) {
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, line);
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         }
 
         if (timedOut) {
             attemptRc = -1;
             attemptErr = QStringLiteral("Timeout");
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
+            ses.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
             return false;
         }
 
@@ -2412,9 +2430,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         || (familyLower == QStringLiteral("ipv6"))) {
         bool shouldLogResolution = false;
         {
-            QMutexLocker lock(&m_transport.mutex);
-            if (!m_transport.loggedResolutionKeys.contains(sshResolutionKey)) {
-                m_transport.loggedResolutionKeys.insert(sshResolutionKey);
+            QMutexLocker lock(&ses.mutex);
+            if (!ses.loggedResolutionKeys.contains(sshResolutionKey)) {
+                ses.loggedResolutionKeys.insert(sshResolutionKey);
                 shouldLogResolution = true;
             }
         }
@@ -2425,8 +2443,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                                         .arg(p.host,
                                              familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
                                              resolved.errorString());
-                m_transport.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, msg));
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, msg);
+                ses.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, msg));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, msg);
             } else {
                 QStringList addresses;
                 for (const QHostAddress& address : resolved.addresses()) {
@@ -2436,8 +2454,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                                         .arg(p.host,
                                              familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
                                              addresses.isEmpty() ? QStringLiteral("sin direcciones") : addresses.join(QStringLiteral(", ")));
-                m_transport.log(TransportSession::Nivel::Info, QStringLiteral("%1: %2").arg(p.name, msg));
-                m_transport.logConn(TransportSession::Nivel::Normal, p.id, msg);
+                ses.log(TransportSession::Nivel::Info, QStringLiteral("%1: %2").arg(p.name, msg));
+                ses.logConn(TransportSession::Nivel::Normal, p.id, msg);
             }
         }
     }
@@ -2454,22 +2472,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 #else
     bool allowMultiplexing = true;
     {
-        QMutexLocker lock(&m_transport.mutex);
-        allowMultiplexing = !m_transport.disableMultiplexKeys.contains(sshConnKey);
+        QMutexLocker lock(&ses.mutex);
+        allowMultiplexing = !ses.disableMultiplexKeys.contains(sshConnKey);
     }
 #endif
     bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
     if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
         {
-            QMutexLocker lock(&m_transport.mutex);
-            m_transport.disableMultiplexKeys.insert(sshConnKey);
+            QMutexLocker lock(&ses.mutex);
+            ses.disableMultiplexKeys.insert(sshConnKey);
         }
         const QString retryMsg = QStringLiteral("SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.");
-        m_transport.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, retryMsg));
-        m_transport.logConn(TransportSession::Nivel::Normal, p.id, retryMsg);
+        ses.log(TransportSession::Nivel::Warn, QStringLiteral("%1: %2").arg(p.name, retryMsg));
+        ses.logConn(TransportSession::Nivel::Normal, p.id, retryMsg);
         startedOk = runSshAttempt(false, out, err, rc);
     } else if (!allowMultiplexing) {
-        m_transport.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("SSH multiplexado deshabilitado para esta conexión en la sesión actual."));
+        ses.logConn(TransportSession::Nivel::Normal, p.id, QStringLiteral("SSH multiplexado deshabilitado para esta conexión en la sesión actual."));
     }
 
     if (!startedOk) {
@@ -2481,12 +2499,12 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     }
     if (!out.trimmed().isEmpty()) {
         if (echoOutputToLog) {
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
+            ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(out));
         }
     }
     if (!err.trimmed().isEmpty()) {
         if (echoOutputToLog) {
-            m_transport.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
+            ses.logConn(TransportSession::Nivel::Normal, p.id, oneLine(err));
         }
     }
     return true;
@@ -2643,6 +2661,41 @@ QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) con
 
 QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const {
     return mwhelpers::withSudoStreamInputCommand(p, cmd);
+}
+
+bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs,
+                        QString& out, QString& err, int& rc,
+                        const std::function<void(const QString&)>& onStdoutLine,
+                        const std::function<void(const QString&)>& onStderrLine,
+                        const std::function<void(int)>& onIdleTimeoutRemaining,
+                        const QByteArray& stdinPayload, bool allowAgentRpc, bool echoOutputToLog) {
+    return transport::runSsh(m_transport, p, remoteCmd, timeoutMs, out, err, rc, onStdoutLine,
+                             onStderrLine, onIdleTimeoutRemaining, stdinPayload, allowAgentRpc,
+                             echoOutputToLog);
+}
+
+bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p, const QStringList& agentArgs,
+                                    int timeoutMs, QString& out, QString& err, int& rc,
+                                    const std::function<void(const QString&)>& onStdoutLine,
+                                    const std::function<void(const QString&)>& onStderrLine,
+                                    bool echoOutputToLog) {
+    return transport::tryAgentRpcOverSsh(m_transport, p, agentArgs, timeoutMs, out, err, rc,
+                                         onStdoutLine, onStderrLine, echoOutputToLog);
+}
+
+bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
+                                               const QStringList& agentArgs, int timeoutMs,
+                                               QString& out, QString& err, int& rc,
+                                               QString* failureReason,
+                                               bool* commandMayHaveRunOut) {
+    return transport::tryRunRemoteAgentRpcViaTunnel(m_transport, p, agentArgs, timeoutMs, out, err,
+                                                    rc, failureReason, commandMayHaveRunOut);
+}
+
+bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem, QByteArray& clientCertPem,
+                                              QByteArray& clientKeyPem, quint16& daemonPort) {
+    return transport::ensureLocalDaemonTlsMaterial(m_transport, serverCertPem, clientCertPem,
+                                                   clientKeyPem, daemonPort);
 }
 
 // --- Envoltorios: la lógica vive en `transport::`, que no depende de la ventana. Estos

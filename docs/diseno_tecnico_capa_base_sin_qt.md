@@ -786,6 +786,47 @@ para separarlo de las contraseñas. Lo delató comparar la salida con lo que ya 
 esa conexión — y es exactamente para lo que sirve tener una segunda vía de leer los mismos
 datos.
 
+## Paso 5: la cadena del transporte, convertida
+
+`runSsh`, `tryAgentRpcOverSsh`, `tryRunRemoteAgentRpcViaTunnel` y
+`ensureLocalDaemonTlsMaterial` son ya funciones libres en `transport::`. **1.384 líneas
+sin una referencia a `MainWindow`, `m_conns`, `appLog` ni un widget** —comprobado
+recorriendo cada cuerpo—. La ventana conserva métodos del mismo nombre que delegan, así
+que ningún punto de llamada cambió.
+
+### Lo que hacía falta del exterior, y cómo se recibe
+
+Cinco cosas, todas en `TransportSession` y ninguna buscada:
+
+| | |
+|---|---|
+| `sink` | a dónde contar lo que ocurre |
+| `credentialProvider` | cómo preguntar |
+| `localSudoResolver` | resolver las credenciales de `sudo` local |
+| `tlsPersister` | guardar el material TLS negociado |
+| `owner` | qué objeto posee el hilo de los túneles |
+
+Las dos del registro se pasan **como políticas y no como el registro entero**: lo que el
+transporte necesita no son los perfiles, son dos decisiones que dependen de ellos.
+Pasarle el registro le daría acceso a las contraseñas de todas las máquinas para hacer
+dos cosas concretas.
+
+### La dependencia que quedó, y qué es en realidad
+
+`tryRunRemoteAgentRpcViaTunnel` **rechaza correr fuera del hilo de la interfaz**, y
+`tryAgentRpcOverSsh` ordena la llamada a ese hilo bloqueando. Parecía atadura a
+`MainWindow` y no lo es: los `QProcess` de los túneles necesitan **un objeto con bucle de
+eventos**, y en la aplicación resulta ser la ventana.
+
+Ahora es `ses.owner`. En una herramienta de un solo hilo se queda nulo, `enHiloDeTuneles()`
+devuelve siempre cierto y todo corre en línea sin ordenar nada a nadie. Los dos
+`processEvents` de las esperas también pasan por ahí: solo se bombea si hay dueño, porque
+sin interfaz no hay nada que refrescar.
+
+De paso queda a la vista lo que ya estaba anotado como problema aparte: **que el dueño sea
+la ventana es lo que serializa el montaje de túneles en el hilo de interfaz**. El refactor
+no lo arregla, pero ahora se ve de dónde sale y qué habría que cambiar.
+
 ## Estado
 
 Hecho y verificado:

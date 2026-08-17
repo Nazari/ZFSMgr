@@ -3,10 +3,14 @@
 #include <QDateTime>
 #include <QMap>
 #include <QMutex>
+#include <QObject>
+#include <QThread>
 #include <QPointer>
 #include <QProcess>
 #include <QSet>
 #include <QByteArray>
+
+#include "connectionstore.h"
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -102,6 +106,64 @@ struct TransportSession {
 
     bool askCredentials(const QString& motivo, QString& usuario, QString& clave) const {
         return credentialProvider ? credentialProvider(motivo, usuario, clave) : false;
+    }
+
+    // --- Quién es el dueño de los túneles.
+    //
+    // Los `QProcess` de los túneles viven en un hilo con bucle de eventos, y el montaje
+    // se ordena a ESE hilo. En la aplicación es la ventana; en una herramienta de un solo
+    // hilo esto se queda nulo y todo corre en línea, sin ordenar nada a nadie.
+    //
+    // Es una dependencia real, pero **no de la ventana**: de un objeto con bucle de
+    // eventos. Que hoy sea la ventana es lo que hace que el montaje de túneles se
+    // serialice ahí, cosa ya anotada como problema de arranque aparte de este refactor.
+    QObject* owner{nullptr};
+
+    // ¿Estamos en el hilo que puede tocar los túneles? Sin dueño, siempre sí: no hay
+    // nadie más con quien competir.
+    bool enHiloDeTuneles() const {
+        return !owner || QThread::currentThread() == owner->thread();
+    }
+
+    // --- Las dos cosas que el transporte necesita del REGISTRO de conexiones.
+    //
+    // No se le pasa el registro entero a propósito: lo que necesita no son los perfiles,
+    // son dos decisiones que dependen de ellos. Pasarle el registro le daría acceso a
+    // todo —incluidas las contraseñas de todas las máquinas— para hacer dos cosas
+    // concretas.
+    //
+    // Sin ponerlas, el transporte sigue funcionando: no resuelve credenciales locales y
+    // no guarda el material TLS que negocie. Un CLI de solo lectura puede vivir así.
+
+    // Rellena el perfil con las credenciales de `sudo` de la máquina local, buscándolas
+    // entre las conexiones conocidas y preguntando si no aparecen. Devuelve false si no
+    // se pudieron obtener.
+    using LocalSudoResolver = std::function<bool(ConnectionProfile& perfil)>;
+    LocalSudoResolver localSudoResolver;
+
+    // Guarda el material TLS negociado con el daemon de una conexión, para no repetir el
+    // arranque en cada arranque de la aplicación.
+    using TlsPersister = std::function<bool(const ConnectionProfile& p,
+                                            const QByteArray& serverCertPem,
+                                            const QByteArray& clientCertPem,
+                                            const QByteArray& clientKeyPem,
+                                            quint16 daemonPort,
+                                            QString* errorOut)>;
+    TlsPersister tlsPersister;
+
+    bool resolveLocalSudo(ConnectionProfile& perfil) const {
+        return localSudoResolver ? localSudoResolver(perfil) : false;
+    }
+    bool persistTls(const ConnectionProfile& p, const QByteArray& serverCertPem,
+                    const QByteArray& clientCertPem, const QByteArray& clientKeyPem,
+                    quint16 daemonPort, QString* errorOut) const {
+        if (!tlsPersister) {
+            if (errorOut) {
+                *errorOut = QStringLiteral("no hay dónde guardar el material TLS");
+            }
+            return false;
+        }
+        return tlsPersister(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, errorOut);
     }
 
     // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos
