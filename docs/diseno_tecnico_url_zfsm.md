@@ -102,8 +102,11 @@ en el CLI para verlo:
 zfsmgr-cli url parse "zfsm://unibody/sback/user@ayer#content/docs/a.pdf"
 ```
 
-Su salida es campo/valor con nombres estables en inglés, así que no tiene dos formatos:
-`--format` no cambiaría nada. Los listados sí los tienen —ver `--format text|tsv`—.
+Su salida es campo/valor con nombres estables en inglés. `text` y `tsv` son aquí la MISMA
+salida —no hay columnas que alinear ni encabezado que quitar—, pero `--format json` sí
+cambia algo: `detail` es una lista, que en campo/valor sale como varias líneas con la
+misma clave, y `pool_root` es un booleano que en campo/valor solo aparece cuando es
+cierto. En json están todas las claves, con `null` donde no hay valor y `[]` en `detail`.
 
 **Resolver** —ir a buscar lo que la URL nombra, abrirlo en el árbol, aceptarlo desde la
 línea de órdenes del sistema, o que otra aplicación pueda lanzarla— viene después. Se
