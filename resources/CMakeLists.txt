@@ -194,6 +194,11 @@ target_include_directories(zfsmgr_base PUBLIC ../src/base)
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+if(WIN32)
+    # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
+    # y no con quien la use: si no, cada consumidor tendría que acordarse.
+    target_link_libraries(zfsmgr_base PUBLIC ws2_32 crypt32)
+endif()
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este

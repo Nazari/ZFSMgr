@@ -264,6 +264,10 @@ using zfsmgr::base::ExecResult;
 using zfsmgr::base::runExecCapture;
 using zfsmgr::base::runExecCaptureWithStdin;
 using zfsmgr::base::runExecStreaming;
+#ifdef _WIN32
+// Solo existe en Windows, igual que sus llamantes.
+using zfsmgr::base::winBuildCommandLine;
+#endif
 
 struct AgentRuntimeConfig {
     std::string bind{kDefaultBind};
