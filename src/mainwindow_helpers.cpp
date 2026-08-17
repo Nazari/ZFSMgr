@@ -226,6 +226,12 @@ QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remo
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
     return q(B::buildSshPreviewCommandText(toBase(p), b(remoteCmd)));
 }
+ScpInvocacion scpUpload(const ConnectionProfile& p, const QString& localPath,
+                        const QString& remotePath, bool multiplex) {
+    const B::ScpInvocacion inv = B::scpUpload(toBase(p), b(localPath), b(remotePath), multiplex);
+    return ScpInvocacion{q(inv.program), ql(inv.args)};
+}
+
 QStringList scpUploadArgs(const ConnectionProfile& p, const QString& localPath,
                           const QString& remotePath, bool multiplex) {
     return ql(B::scpUploadArgs(toBase(p), b(localPath), b(remotePath), multiplex));

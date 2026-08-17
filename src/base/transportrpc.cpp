@@ -127,12 +127,21 @@ bool runSshRaw(const ConnectionProfile& p,
     if (!familyOpt.empty()) {
         args.push_back(familyOpt);
     }
-    args.push_back("-o"); args.push_back("BatchMode=yes");
+    // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
+    // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
+    // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
+    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
+    // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
+    // a la vista en ninguna parte.
+    //
+    // Comprobado contra una máquina real: con las dos opciones en ese orden deniega;
+    // con solo `BatchMode=no`, entra.
+    args.push_back("-o");
+    args.push_back(conSshpass ? "BatchMode=no" : "BatchMode=yes");
     args.push_back("-o"); args.push_back("ConnectTimeout=10");
     args.push_back("-o"); args.push_back("LogLevel=ERROR");
     args.push_back("-o"); args.push_back("StrictHostKeyChecking=accept-new");
     if (conSshpass) {
-        args.push_back("-o"); args.push_back("BatchMode=no");
         args.push_back("-o");
         args.push_back("PreferredAuthentications=password,keyboard-interactive,publickey");
         args.push_back("-o"); args.push_back("NumberOfPasswordPrompts=1");
@@ -792,7 +801,17 @@ bool runSsh(TransportSession& ses,
         if (!familyOpt.empty()) {
             args.push_back(familyOpt);
         }
-        args.push_back("-o"); args.push_back("BatchMode=yes");
+    // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
+    // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
+    // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
+    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
+    // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
+    // a la vista en ninguna parte.
+    //
+    // Comprobado contra una máquina real: con las dos opciones en ese orden deniega;
+    // con solo `BatchMode=no`, entra.
+    args.push_back("-o");
+    args.push_back(conSshpass ? "BatchMode=no" : "BatchMode=yes");
         args.push_back("-o"); args.push_back("ConnectTimeout=10");
         args.push_back("-o"); args.push_back("LogLevel=ERROR");
         args.push_back("-o"); args.push_back("StrictHostKeyChecking=accept-new");
@@ -802,7 +821,6 @@ bool runSsh(TransportSession& ses,
             args.push_back("-o"); args.push_back("ControlPath=" + H::sshControlPath());
         }
         if (conSshpass) {
-            args.push_back("-o"); args.push_back("BatchMode=no");
             args.push_back("-o");
             args.push_back("PreferredAuthentications=password,keyboard-interactive,publickey");
             args.push_back("-o"); args.push_back("NumberOfPasswordPrompts=1");

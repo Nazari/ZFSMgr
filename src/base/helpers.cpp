@@ -368,14 +368,49 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
     return join(parts, " ");
 }
 
+ScpInvocacion scpUpload(const ConnectionProfile& p,
+                        const std::string& localPath,
+                        const std::string& remotePath,
+                        bool multiplex) {
+    ScpInvocacion inv;
+    inv.args = scpUploadArgs(p, localPath, remotePath, multiplex);
+    inv.program = "scp";
+    // Con contraseña, `scp` la pide por el terminal y aquí no hay ninguno: se lanza a
+    // través de sshpass, igual que en el camino de ssh. Sin sshpass instalado se deja scp
+    // tal cual y que falle con su propio mensaje, que es más útil que uno inventado.
+    if (!trim(p.password).empty()) {
+        const std::string sshpassExe = findLocalExecutable("sshpass");
+        if (!sshpassExe.empty()) {
+            inv.program = sshpassExe;
+            std::vector<std::string> conPrefijo{"-p", p.password, "scp"};
+            for (const auto& a : inv.args) {
+                conPrefijo.push_back(a);
+            }
+            inv.args = std::move(conPrefijo);
+        }
+    }
+    return inv;
+}
+
 std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
                                        const std::string& localPath,
                                        const std::string& remotePath,
                                        bool multiplex) {
+    // BatchMode según haya contraseña o no, y UNA sola vez: en OpenSSH gana el primer
+    // valor de cada opción, así que ponerlo dos veces no corrige nada. Con
+    // `BatchMode=yes` la autenticación por contraseña queda desactivada y la subida
+    // fracasa con «Connection closed», sin decir por qué.
+    const bool conClave = !trim(p.password).empty();
     std::vector<std::string> args{"-q",
-                                  "-o", "BatchMode=yes",
+                                  "-o", conClave ? "BatchMode=no" : "BatchMode=yes",
                                   "-o", "LogLevel=ERROR",
                                   "-o", "StrictHostKeyChecking=accept-new"};
+    if (conClave) {
+        args.push_back("-o");
+        args.push_back("PreferredAuthentications=password,keyboard-interactive,publickey");
+        args.push_back("-o");
+        args.push_back("NumberOfPasswordPrompts=1");
+    }
     if (multiplex) {
         args.push_back("-o");
         args.push_back("ControlMaster=auto");

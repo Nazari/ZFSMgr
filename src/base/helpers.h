@@ -213,6 +213,21 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // Los mismos argumentos, pero como lista para lanzar `scp` DIRECTAMENTE, sin intérprete.
 // `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
 // Windows no admite multiplexado.
+// Subir un fichero por scp: EL PROGRAMA Y LOS ARGUMENTOS juntos.
+//
+// Van juntos porque no se pueden decidir por separado: si la conexión usa contraseña hay
+// que lanzar `sshpass` en vez de `scp`, y además poner `BatchMode=no`. Devolver solo los
+// argumentos obligaba a quien llama a acordarse de las dos cosas, y no se acordaba: el
+// despliegue del daemon a una máquina con contraseña fallaba con «Connection closed».
+struct ScpInvocacion {
+    std::string program;
+    std::vector<std::string> args;
+};
+ScpInvocacion scpUpload(const ConnectionProfile& p,
+                        const std::string& localPath,
+                        const std::string& remotePath,
+                        bool multiplex);
+
 std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
                                        const std::string& localPath,
                                        const std::string& remotePath,

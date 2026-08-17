@@ -2005,9 +2005,9 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
                 return false;
             }
         } else {
-            std::vector<std::string> scpArgs = H::scpUploadArgs(perfil, binario, subida, false);
-            const B::ExecResult r = B::runExecStream("scp", scpArgs, std::string(), 300000,
-                                                     B::StreamCallbacks{});
+            const H::ScpInvocacion inv = H::scpUpload(perfil, binario, subida, false);
+            const B::ExecResult r =
+                B::runExecStream(inv.program, inv.args, std::string(), 300000, B::StreamCallbacks{});
             if (r.rc != 0) {
                 std::fprintf(stderr, "scp falló (código %d): %s\n", r.rc,
                              B::trim(r.err).c_str());

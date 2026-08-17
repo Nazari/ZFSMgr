@@ -96,6 +96,19 @@ QString sshBaseCommand(const ConnectionProfile& p);
 // `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
 // Windows no admite multiplexado, y además da un segundo intento cuando el socket de
 // control heredado está en mal estado.
+// El programa y los argumentos de la subida por scp. Van JUNTOS porque si la conexión usa
+// contraseña hay que lanzar `sshpass` en vez de `scp`; pedir solo los argumentos obligaba a
+// acordarse de eso en el punto de llamada, y no se hacía: el despliegue del daemon a una
+// máquina con contraseña moría con «Connection closed».
+struct ScpInvocacion {
+    QString program;
+    QStringList args;
+};
+ScpInvocacion scpUpload(const ConnectionProfile& p,
+                        const QString& localPath,
+                        const QString& remotePath,
+                        bool multiplex);
+
 QStringList scpUploadArgs(const ConnectionProfile& p,
                           const QString& localPath,
                           const QString& remotePath,

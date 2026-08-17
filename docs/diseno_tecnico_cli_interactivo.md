@@ -227,6 +227,25 @@ de esa plataforma no se instala nada: un agente de guion no habla TLS, y dejarlo
 una máquina que PARECE atendida y no lo está. El binario viaja por la entrada estándar en
 Unix; en Windows por scp, porque PowerShell no vuelve de `ReadToEnd()` con megabytes.
 
+## Dos fallos del TRANSPORTE que salieron al probar, y que afectaban también a la interfaz
+
+Los dos son de antes de sacar el transporte de Qt; se portaron tal cual y nadie los había
+pisado porque todas las máquinas en uso entraban por clave SSH.
+
+**En OpenSSH gana el PRIMER valor de cada opción.** El transporte ponía `-o BatchMode=yes`
+y, más abajo, `-o BatchMode=no` cuando había contraseña. El segundo no hacía nada: BatchMode
+se quedaba en «yes», que DESACTIVA la autenticación por contraseña. Resultado: **ninguna
+conexión con contraseña guardada ha funcionado nunca**, tampoco desde la interfaz, y el
+mensaje era un «Permission denied» que parecía de credenciales incorrectas. Comprobado
+contra una máquina real: con las dos opciones en ese orden deniega; con solo `BatchMode=no`
+entra. Ahora se emite una sola vez, con el valor que toca.
+
+**`scp` ni siquiera intentaba usar la contraseña.** `scpUploadArgs` fijaba `BatchMode=yes` y
+el punto de llamada lanzaba `scp` a secas, así que desplegar el daemon a una máquina con
+contraseña moría con «Connection closed». Ahora el helper devuelve **el programa y los
+argumentos juntos** (`scpUpload`): iban separados y eso obligaba a acordarse en cada punto
+de llamada de que a veces hay que lanzar `sshpass` en vez de `scp` — y no se hacía.
+
 ## Un fallo del daemon que salió al probar esto
 
 `--job-list` devolvía errores con las barras multiplicadas: `\\\\n` donde debería haber un

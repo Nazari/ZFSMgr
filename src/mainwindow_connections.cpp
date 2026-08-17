@@ -3755,8 +3755,12 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
 #endif
             for (const bool multiplex : attempts) {
                 QProcess scpProc;
-                scpProc.start(QStringLiteral("scp"),
-                              mwhelpers::scpUploadArgs(p, localAgentPath, uploadPath, multiplex));
+                // El PROGRAMA sale del helper, no es «scp» fijo: con una conexión que usa
+                // contraseña hay que pasar por sshpass, o scp la pide por un terminal que
+                // no existe y la subida muere con «Connection closed».
+                const mwhelpers::ScpInvocacion inv =
+                    mwhelpers::scpUpload(p, localAgentPath, uploadPath, multiplex);
+                scpProc.start(inv.program, inv.args);
                 if (!scpProc.waitForStarted(5000)) {
                     uploadDetail = QStringLiteral("no se pudo ejecutar scp");
                     continue;
