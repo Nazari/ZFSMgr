@@ -261,9 +261,16 @@ como preámbulo único. Se mide con:
 python3 scripts/revisa_firmas_cli.py     # sale con error si queda alguna orden muda
 ```
 
-Al cerrar esta tanda: **5 migradas** —`info`, `install-daemon`, `jobs`, `load-key`,
-`unload-key`, que eran justo las cinco que ignoraban en silencio— y **0 mudas**. Las 41
-restantes resuelven su destino a mano; ninguna es muda, pero cada una lleva su criterio.
+Tandas cerradas:
+
+1. Las **cinco mudas** —`info`, `install-daemon`, `jobs`, `load-key`, `unload-key`—, que
+   eran justo las que ignoraban argumentos en silencio.
+2. Las **diez de pool** —`flush`, `scrub`, `trim`, `initialize`, `clear`, `upgrade`,
+   `reguid`, `export`, `status`, `history`—, que ya compartían resolución. Aquí entraron
+   las primeras ranuras de verdad: `fase:palabra_de{start,stop,pause…}` y `disco:vdev`.
+
+Van **15 de 46**, con **0 mudas**. Las 31 restantes resuelven su destino a mano; ninguna es
+muda, pero cada una lleva su criterio.
 
 La decisión de la barra inicial está tomada: **se queda como está**. `/x` es absoluta y su
 primer tramo es una conexión, así que la forma completa de un pool es `/conexion/pool`.

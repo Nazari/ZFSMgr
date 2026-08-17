@@ -626,7 +626,51 @@ ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo qué) {
 struct Peticion {
     ZfsmUrl objetivo;
     Opts o;  // con las ranuras ya retiradas de `libres`
+    std::map<std::string, std::vector<std::string>> ranuras;
+
+    // Lo que cayó en una ranura. Vacío si no se llenó —solo puede pasar en las opcionales,
+    // porque una obligatoria sin llenar es un error y la orden no llega a ejecutarse.
+    const std::vector<std::string>& lista(const std::string& nombre) const {
+        static const std::vector<std::string> vacia;
+        const auto it = ranuras.find(nombre);
+        return it == ranuras.end() ? vacia : it->second;
+    }
+    std::string uno(const std::string& nombre) const {
+        const auto& v = lista(nombre);
+        return v.empty() ? std::string() : v.front();
+    }
 };
+
+// ¿Encaja este componente suelto en esta ranura?
+//
+// Solo mira el COMPONENTE, no la posición: es lo que permite que `scrub stop` deje «stop»
+// para su ranura de palabra y `scrub tank` se lo lleve el objetivo, sin que la orden tenga
+// que contar argumentos.
+bool cabeEn(Estado& e, const Ranura& r, const std::string& texto) {
+    switch (r.tipo) {
+        case Ranura::Tipo::Palabra: {
+            const std::string v = B::toLowerAscii(texto);
+            for (const char* p : r.palabras) {
+                if (v == B::toLowerAscii(p)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        case Ranura::Tipo::Propiedad:
+            return texto.find('=') != std::string::npos;
+        case Ranura::Tipo::Url: {
+            ZfsmUrl u;
+            std::string err;
+            return resuelve(e, texto, u, err) && encaja(u, r.nodo);
+        }
+        case Ranura::Tipo::Vdev:
+        case Ranura::Tipo::Ruta:
+        case Ranura::Tipo::Texto:
+            return true;
+    }
+    return true;
+}
 
 // Resuelve el destino de la orden y comprueba que no sobra nada.
 //
@@ -673,10 +717,37 @@ bool prepara(Estado& e, const std::string& verbo, const std::vector<std::string>
         return false;
     }
 
-    // Y la regla que da sentido a todo esto: sin ranuras declaradas, no puede quedar nada
-    // suelto. Las órdenes que aún no han declarado las suyas se saltan la comprobación —
-    // ver la migración en docs/gramatica_cli.md—, y por eso se mira `ranuras` y no a secas.
-    if (orden->ranuras.empty() && !p.o.libres.empty()) {
+    // Las ranuras, en orden. Cada una toma lo que le cabe y se para: así una opcional que
+    // no aparece no se traga el argumento de la siguiente.
+    for (const Ranura& r : orden->ranuras) {
+        std::vector<std::string> mias;
+        const std::size_t tope =
+            (r.cuantas == Ranura::Cuantas::CeroOMas || r.cuantas == Ranura::Cuantas::UnaOMas)
+                ? static_cast<std::size_t>(-1)
+                : 1;
+        while (mias.size() < tope && !p.o.libres.empty() && cabeEn(e, r, p.o.libres.front())) {
+            mias.push_back(p.o.libres.front());
+            p.o.libres.erase(p.o.libres.begin());
+        }
+        const bool obligatoria =
+            r.cuantas == Ranura::Cuantas::Una || r.cuantas == Ranura::Cuantas::UnaOMas;
+        if (mias.empty() && obligatoria) {
+            std::fprintf(stderr, TC("t_falta_ranura", "falta <%s>: %s %s\n"), r.nombre,
+                         orden->nombre, T(orden->uso.clave, orden->uso.es).c_str());
+            return false;
+        }
+        if (!mias.empty()) {
+            p.ranuras[r.nombre] = std::move(mias);
+        }
+    }
+
+    // Y la regla que da sentido a todo esto: lo que no ha consumido ninguna ranura es un
+    // error. Sin ella, una orden que no mira sus sueltos los ignora en silencio.
+    //
+    // Las órdenes sin firma declarada TODAVÍA se saltan la comprobación —siguen troceando a
+    // mano; ver la migración en docs/gramatica_cli.md— y por eso se exige haber pasado por
+    // aquí con un objetivo declarado.
+    if (orden->objetivo != Objetivo::Ninguno && !p.o.libres.empty()) {
         std::fprintf(stderr, TC("t_sobra_argumento", "«%s» sobra en esta orden\n"),
                      p.o.libres.front().c_str());
         return false;
@@ -2709,27 +2780,29 @@ bool destinoDePool(Estado& e, Opts& o, ZfsmUrl& out) {
 }
 
 bool cmdMantenimientoPool(Estado& e, const std::vector<std::string>& args, const char* op) {
-    Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDePool(e, o, destino)) {
+    Peticion pet;
+    if (!prepara(e, op, args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     std::vector<std::string> argv{op};
     // `zpool scrub -s` para, `-p` pausa; trim e initialize usan -s/-c/-u. Se aceptan por
-    // nombre para no obligar a recordar qué letra usa cada uno.
-    for (const std::string& x : o.libres) {
-        const std::string v = B::toLowerAscii(x);
-        if (v == "stop" || v == "cancel") {
-            argv.push_back(std::string(op) == "scrub" ? "-s" : "-c");
-        } else if (v == "pause" || v == "suspend") {
-            argv.push_back(std::string(op) == "scrub" ? "-p" : "-s");
-        } else if (v == "start") {
-            // el comportamiento por omisión; se acepta por simetría
-        } else {
-            argv.push_back(x);  // un vdev concreto, para trim o initialize
-        }
+    // nombre para no obligar a recordar qué letra usa cada uno. Cuál de las palabras vino
+    // ya lo ha separado la firma: aquí solo se traduce a la letra.
+    const std::string fase = B::toLowerAscii(pet.uno("fase"));
+    if (fase == "stop" || fase == "cancel") {
+        argv.push_back(std::string(op) == "scrub" ? "-s" : "-c");
+    } else if (fase == "pause" || fase == "suspend") {
+        argv.push_back(std::string(op) == "scrub" ? "-p" : "-s");
     }
+    // El POOL primero y los discos después, que es el orden que pide zpool
+    // —`zpool trim <pool> [device]`—. Iba al revés: los sueltos se añadían antes del pool,
+    // así que `trim <pool> <disco>` respondía «invalid character '/' in pool name». Venía
+    // de antes; se ve ahora porque el disco ya es una ranura y no un suelto cualquiera.
     argv.push_back(destino.pool);
+    for (const std::string& d : pet.lista("disco")) {
+        argv.push_back(d);
+    }
     if (!zpoolGenerico(e, destino, argv)) {
         return false;
     }
@@ -2737,23 +2810,30 @@ bool cmdMantenimientoPool(Estado& e, const std::vector<std::string>& args, const
     return true;
 }
 
-bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* op,
-                   const char* aviso) {
-    Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDePool(e, o, destino)) {
+bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* verbo,
+                   const char* op, const char* aviso) {
+    Peticion pet;
+    if (!prepara(e, verbo, args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
+    const Opts& o = pet.o;
     if (aviso && !confirma(e, B::format(T("t_conf_en_pool", "%1 en %2. ¿Continuar?"),
                                 {aviso, destino.pool}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::vector<std::string> argv{op};
-    for (const std::string& x : o.libres) {
-        argv.push_back(x);
+    if (o.tiene("-f")) {
+        argv.push_back("-f");
     }
     argv.push_back(destino.pool);
+    // `clear` admite un dispositivo detrás del pool. Al declararlo como ranura dejó de
+    // llegar aquí como suelto, así que hay que pasarlo a mano: consumido y no usado es
+    // exactamente el fallo que este preámbulo viene a quitar.
+    for (const std::string& d : pet.lista("disco")) {
+        argv.push_back(d);
+    }
     if (!zpoolGenerico(e, destino, argv)) {
         return false;
     }
@@ -2764,11 +2844,11 @@ bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* 
 // El estado detallado. Es texto para leer y se saca tal cual: fingir columnas donde
 // `zpool status` dibuja un árbol de vdevs sería inventarse una estructura que no tiene.
 bool cmdStatus(Estado& e, const std::vector<std::string>& args) {
-    Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!adoptaPoolSuelto(e, o, destino) || !sinArgumentosDeMas(o)) {
+    Peticion pet;
+    if (!prepara(e, "status", args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     if (destino.pool.empty()) {
         std::fprintf(stderr, TC("t_hace_falta_8acbda", "hace falta un pool (ahora: %s)\n"), textoDe(destino).c_str());
         return false;
@@ -2785,11 +2865,11 @@ bool cmdStatus(Estado& e, const std::vector<std::string>& args) {
 }
 
 bool cmdHistory(Estado& e, const std::vector<std::string>& args) {
-    Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!adoptaPoolSuelto(e, o, destino) || !sinArgumentosDeMas(o)) {
+    Peticion pet;
+    if (!prepara(e, "history", args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     if (destino.pool.empty()) {
         std::fprintf(stderr, TC("t_hace_falta_8acbda", "hace falta un pool (ahora: %s)\n"), textoDe(destino).c_str());
         return false;
@@ -3513,11 +3593,11 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"scrub", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "scrub"); }},
         {"trim", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "trim"); }},
         {"initialize", [](Estado& s, const std::vector<std::string>& a) { return cmdMantenimientoPool(s, a, "initialize"); }},
-        {"flush", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "sync", nullptr); }},
-        {"upgrade", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "upgrade", "Se va a subir la versión del pool, y eso NO se puede deshacer"); }},
-        {"reguid", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "reguid", "Se va a cambiar el identificador único del pool"); }},
-        {"clear", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "clear", nullptr); }},
-        {"export", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "export", "Se va a exportar el pool y dejará de estar disponible"); }},
+        {"flush", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "flush", "sync", nullptr); }},
+        {"upgrade", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "upgrade", "upgrade", "Se va a subir la versión del pool, y eso NO se puede deshacer"); }},
+        {"reguid", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "reguid", "reguid", "Se va a cambiar el identificador único del pool"); }},
+        {"clear", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "clear", "clear", nullptr); }},
+        {"export", [](Estado& s, const std::vector<std::string>& a) { return cmdPoolSimple(s, a, "export", "export", "Se va a exportar el pool y dejará de estar disponible"); }},
         {"import", cmdImport},
         {"status", cmdStatus},
         {"jobs", cmdJobs},

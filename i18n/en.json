@@ -254,6 +254,7 @@
     "t_falta_conexion": "you need to be in a connection",
     "t_falta_estar_ds": "you need to be in a dataset",
     "t_falta_maestra_cifrar": "the master password is needed to encrypt the connection's",
+    "t_falta_ranura": "<%s> is missing: %s %s\n",
     "t_fin_refres_5a87d4": "Refresh end: %1 -> ERROR (%2)",
     "t_fin_refres_6eead9": "Refresh end: %1 -> OK (%2)",
     "t_flags_b14893": "--flags <...>",
