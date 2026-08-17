@@ -270,18 +270,26 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         return aplica(base, tramosDe(texto), out, error);
     }
 
-    // Relativa primero. Si el primer tramo no encaja donde estamos pero SÍ es el nombre de
-    // una conexión, se toma como absoluta: es lo que uno escribe al saltar de una máquina a
-    // otra, y sin esto habría que anteponer una barra que nadie recuerda.
+    // Si el primer tramo nombra una CONEXIÓN, la ruta es absoluta. Es lo que uno escribe al
+    // saltar de una máquina a otra, sin anteponer una barra que nadie recuerda.
+    //
+    // Se comprueba ANTES de probar la relativa, y esa es la corrección: antes se intentaba
+    // la relativa primero y solo se caía aquí «si el primer tramo no encajaba donde
+    // estamos». El problema es que estando DENTRO de una conexión no encajar es imposible:
+    // cualquier nombre se acepta como pool sin preguntar si existe. Así que la regla nunca
+    // llegaba a aplicarse y `cd unibody` desde `zfsm://local` acababa en
+    // `zfsm://local/unibody`, que no existe — mientras la ayuda prometía lo contrario.
+    //
+    // Va DESPUÉS de la regla del pool: si uno está plantado en el pool `sback` y escribe
+    // `sback/x`, quiere el nombre ZFS completo aunque exista una conexión llamada igual.
+    // Para llegar a un hijo que se llame como una conexión queda `./nombre`, que empieza
+    // por un tramo que no es nombre de nada.
+    if (buscarConexion(e.conns, tramos.front()) != nullptr) {
+        return aplica(ZfsmUrl{}, tramos, out, error);
+    }
+
     std::string errRelativa;
     if (aplica(e.actual, tramos, out, errRelativa)) {
-        return true;
-    }
-    ZfsmUrl comoAbsoluta;
-    std::string errAbsoluta;
-    if (buscarConexion(e.conns, tramos.front()) != nullptr
-        && aplica(ZfsmUrl{}, tramos, comoAbsoluta, errAbsoluta)) {
-        out = comoAbsoluta;
         return true;
     }
     error = errRelativa;
