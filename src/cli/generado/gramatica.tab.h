@@ -71,66 +71,64 @@ extern int zfsmclidebug;
     URL = 258,                     /* URL  */
     PALABRA = 259,                 /* PALABRA  */
     ASIGNACION = 260,              /* ASIGNACION  */
-    OPCION_LARGA = 261,            /* OPCION_LARGA  */
-    OPCION_CORTA = 262,            /* OPCION_CORTA  */
-    FASE_START = 263,              /* FASE_START  */
-    FASE_STOP = 264,               /* FASE_STOP  */
-    FASE_CANCEL = 265,             /* FASE_CANCEL  */
-    FASE_PAUSE = 266,              /* FASE_PAUSE  */
-    FASE_SUSPEND = 267,            /* FASE_SUSPEND  */
-    CARACTER_MALO = 268,           /* CARACTER_MALO  */
-    V_CD = 269,                    /* V_CD  */
-    V_LS = 270,                    /* V_LS  */
-    V_PWD = 271,                   /* V_PWD  */
-    V_INFO = 272,                  /* V_INFO  */
-    V_HELP = 273,                  /* V_HELP  */
-    V_EXIT = 274,                  /* V_EXIT  */
-    V_FORMAT = 275,                /* V_FORMAT  */
-    V_YES = 276,                   /* V_YES  */
-    V_CONNECT = 277,               /* V_CONNECT  */
-    V_DISCONNECT = 278,            /* V_DISCONNECT  */
-    V_REFRESH = 279,               /* V_REFRESH  */
-    V_EDIT = 280,                  /* V_EDIT  */
-    V_DEVICES = 281,               /* V_DEVICES  */
-    V_INSTALL_DAEMON = 282,        /* V_INSTALL_DAEMON  */
-    V_JOBS = 283,                  /* V_JOBS  */
-    V_JOB = 284,                   /* V_JOB  */
-    V_IMPORT = 285,                /* V_IMPORT  */
-    V_FLUSH = 286,                 /* V_FLUSH  */
-    V_UPGRADE = 287,               /* V_UPGRADE  */
-    V_REGUID = 288,                /* V_REGUID  */
-    V_EXPORT = 289,                /* V_EXPORT  */
-    V_STATUS = 290,                /* V_STATUS  */
-    V_HISTORY = 291,               /* V_HISTORY  */
-    V_SCRUB = 292,                 /* V_SCRUB  */
-    V_TRIM = 293,                  /* V_TRIM  */
-    V_INITIALIZE = 294,            /* V_INITIALIZE  */
-    V_CLEAR = 295,                 /* V_CLEAR  */
-    V_CREATE = 296,                /* V_CREATE  */
-    V_DESTROY = 297,               /* V_DESTROY  */
-    V_RENAME = 298,                /* V_RENAME  */
-    V_MOUNT = 299,                 /* V_MOUNT  */
-    V_UNMOUNT = 300,               /* V_UNMOUNT  */
-    V_PROMOTE = 301,               /* V_PROMOTE  */
-    V_GET = 302,                   /* V_GET  */
-    V_SET = 303,                   /* V_SET  */
-    V_LOAD_KEY = 304,              /* V_LOAD_KEY  */
-    V_UNLOAD_KEY = 305,            /* V_UNLOAD_KEY  */
-    V_ROLLBACK = 306,              /* V_ROLLBACK  */
-    V_HOLDS = 307,                 /* V_HOLDS  */
-    V_HOLD = 308,                  /* V_HOLD  */
-    V_RELEASE = 309,               /* V_RELEASE  */
-    V_CLONE = 310,                 /* V_CLONE  */
-    V_DIFF = 311,                  /* V_DIFF  */
-    V_COPY = 312,                  /* V_COPY  */
-    V_ALLOW = 313,                 /* V_ALLOW  */
-    V_UNALLOW = 314,               /* V_UNALLOW  */
-    V_BREAKDOWN = 315,             /* V_BREAKDOWN  */
-    V_ASSEMBLE = 316,              /* V_ASSEMBLE  */
-    V_TODIR = 317,                 /* V_TODIR  */
-    V_FROMDIR = 318,               /* V_FROMDIR  */
-    V_RSYNC = 319,                 /* V_RSYNC  */
-    V_DESCONOCIDO = 320            /* V_DESCONOCIDO  */
+    FASE_START = 261,              /* FASE_START  */
+    FASE_STOP = 262,               /* FASE_STOP  */
+    FASE_CANCEL = 263,             /* FASE_CANCEL  */
+    FASE_PAUSE = 264,              /* FASE_PAUSE  */
+    FASE_SUSPEND = 265,            /* FASE_SUSPEND  */
+    CARACTER_MALO = 266,           /* CARACTER_MALO  */
+    V_CD = 267,                    /* V_CD  */
+    V_LS = 268,                    /* V_LS  */
+    V_PWD = 269,                   /* V_PWD  */
+    V_INFO = 270,                  /* V_INFO  */
+    V_HELP = 271,                  /* V_HELP  */
+    V_EXIT = 272,                  /* V_EXIT  */
+    V_FORMAT = 273,                /* V_FORMAT  */
+    V_YES = 274,                   /* V_YES  */
+    V_CONNECT = 275,               /* V_CONNECT  */
+    V_DISCONNECT = 276,            /* V_DISCONNECT  */
+    V_REFRESH = 277,               /* V_REFRESH  */
+    V_EDIT = 278,                  /* V_EDIT  */
+    V_DEVICES = 279,               /* V_DEVICES  */
+    V_INSTALL_DAEMON = 280,        /* V_INSTALL_DAEMON  */
+    V_JOBS = 281,                  /* V_JOBS  */
+    V_JOB = 282,                   /* V_JOB  */
+    V_IMPORT = 283,                /* V_IMPORT  */
+    V_FLUSH = 284,                 /* V_FLUSH  */
+    V_UPGRADE = 285,               /* V_UPGRADE  */
+    V_REGUID = 286,                /* V_REGUID  */
+    V_EXPORT = 287,                /* V_EXPORT  */
+    V_STATUS = 288,                /* V_STATUS  */
+    V_HISTORY = 289,               /* V_HISTORY  */
+    V_SCRUB = 290,                 /* V_SCRUB  */
+    V_TRIM = 291,                  /* V_TRIM  */
+    V_INITIALIZE = 292,            /* V_INITIALIZE  */
+    V_CLEAR = 293,                 /* V_CLEAR  */
+    V_CREATE = 294,                /* V_CREATE  */
+    V_DESTROY = 295,               /* V_DESTROY  */
+    V_RENAME = 296,                /* V_RENAME  */
+    V_MOUNT = 297,                 /* V_MOUNT  */
+    V_UNMOUNT = 298,               /* V_UNMOUNT  */
+    V_PROMOTE = 299,               /* V_PROMOTE  */
+    V_GET = 300,                   /* V_GET  */
+    V_SET = 301,                   /* V_SET  */
+    V_LOAD_KEY = 302,              /* V_LOAD_KEY  */
+    V_UNLOAD_KEY = 303,            /* V_UNLOAD_KEY  */
+    V_ROLLBACK = 304,              /* V_ROLLBACK  */
+    V_HOLDS = 305,                 /* V_HOLDS  */
+    V_HOLD = 306,                  /* V_HOLD  */
+    V_RELEASE = 307,               /* V_RELEASE  */
+    V_CLONE = 308,                 /* V_CLONE  */
+    V_DIFF = 309,                  /* V_DIFF  */
+    V_COPY = 310,                  /* V_COPY  */
+    V_ALLOW = 311,                 /* V_ALLOW  */
+    V_UNALLOW = 312,               /* V_UNALLOW  */
+    V_BREAKDOWN = 313,             /* V_BREAKDOWN  */
+    V_ASSEMBLE = 314,              /* V_ASSEMBLE  */
+    V_TODIR = 315,                 /* V_TODIR  */
+    V_FROMDIR = 316,               /* V_FROMDIR  */
+    V_RSYNC = 317,                 /* V_RSYNC  */
+    V_DESCONOCIDO = 318            /* V_DESCONOCIDO  */
   };
   typedef enum zfsmclitokentype zfsmclitoken_kind_t;
 #endif
@@ -143,7 +141,7 @@ union ZFSMCLISTYPE
 
     char* texto;
 
-#line 147 "generado/gramatica.tab.h"
+#line 145 "generado/gramatica.tab.h"
 
 };
 typedef union ZFSMCLISTYPE ZFSMCLISTYPE;
@@ -162,6 +160,6 @@ int zfsmcliparse (void* scanner, AnalisisCli* res);
 int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
-#line 166 "generado/gramatica.tab.h"
+#line 164 "generado/gramatica.tab.h"
 
 #endif /* !YY_ZFSMCLI_GENERADO_GRAMATICA_TAB_H_INCLUDED  */

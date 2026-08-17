@@ -7,6 +7,42 @@
 namespace zfsmgr::cli {
 namespace {
 
+// ¿Lleva valor esta opción larga? Sale del catálogo: la línea de un parámetro es
+// «--delete» —suelta— o «--name <n>» / «--password-fd <n>» —con valor—, así que basta con
+// mirar si tras el nombre viene algo entre ángulos.
+//
+// `--on` y `--from` valen en todas y siempre llevan valor.
+extern "C" int llevaValorLaOpcion(const char* verbo, const char* opcion, void* /*ctx*/) {
+    const std::string op = opcion ? opcion : "";
+    if (op == "on" || op == "from") {
+        return 1;
+    }
+    const Orden* o = ordenPorNombre(verbo ? verbo : "");
+    if (!o) {
+        return 0;
+    }
+    for (const Parametro& par : o->params) {
+        const std::string forma = par.forma.es;
+        const std::size_t i = forma.find("--" + op);
+        if (i == std::string::npos) {
+            continue;
+        }
+        // Lo que sigue al nombre HASTA la siguiente opción: si ahí aparece un «<», lleva
+        // valor. Se mira el tramo entero y no solo el carácter siguiente porque la forma
+        // puede escribirse de varias maneras —«--name <n>», «--set @<nombre>»,
+        // «--user <u> / --group <g>»— y mirar solo el carácter de al lado dejaba fuera
+        // `--set`, que sí lo lleva: el valor se tragaba como si fuera un argumento.
+        const std::size_t tras = i + op.size() + 2;
+        const std::size_t siguiente = forma.find(" / ", tras);
+        const std::string tramo =
+            forma.substr(tras, siguiente == std::string::npos ? std::string::npos : siguiente - tras);
+        if (tramo.find('<') != std::string::npos) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // La primera palabra de la línea, para poder hablar del verbo cuando el análisis falló
 // antes de reconocerlo.
 std::string primeraPalabra(const std::string& linea) {
@@ -23,7 +59,7 @@ std::string primeraPalabra(const std::string& linea) {
 LineaAnalizada analizaLinea(const std::string& linea) {
     LineaAnalizada out;
     AnalisisCli a;
-    zfsmCliAnaliza(linea.c_str(), &a);
+    zfsmCliAnaliza(linea.c_str(), &llevaValorLaOpcion, nullptr, &a);
     if (a.error) {
         // «syntax error» no le dice nada a nadie. Casi siempre lo que falta es una ranura
         // obligatoria, y la firma ya sabe cuál y cómo se escribe la orden: se dice eso.

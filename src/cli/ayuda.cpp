@@ -232,7 +232,7 @@ const std::vector<Orden> kOrdenes = {
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {},
-     Objetivo::Dataset,
+     Objetivo::Instantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
      Objetivo::Instantanea,
@@ -247,7 +247,7 @@ const std::vector<Orden> kOrdenes = {
     {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
-     Objetivo::Dataset,
+     Objetivo::DatasetOInstantanea,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
 
     // --- Pools

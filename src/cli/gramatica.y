@@ -48,7 +48,7 @@ int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 }
 
-%token <texto> URL PALABRA ASIGNACION OPCION_LARGA OPCION_CORTA
+%token <texto> URL PALABRA ASIGNACION
 %token <texto> FASE_START FASE_STOP FASE_CANCEL FASE_PAUSE FASE_SUSPEND
 %token CARACTER_MALO
 
@@ -65,7 +65,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
 %token <texto> V_DESCONOCIDO
 
-%type <texto> palabra valor_opcion componente_texto
+%type <texto> palabra componente_texto
 
 %destructor { free($$); } <texto>
 
@@ -73,7 +73,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
 linea
     : /* vacía */                        { res->vacia = 1; }
-    | orden opciones
+    | orden
     ;
 
 orden
@@ -227,21 +227,6 @@ palabra
     | FASE_SUSPEND   { $$ = $1; }
     ;
 
-opciones
-    : /* nada */
-    | opciones OPCION_LARGA              { astOpcion(res, $2, 0); }
-    | opciones OPCION_LARGA valor_opcion { astOpcion(res, $2, $3); }
-    | opciones OPCION_CORTA              { astBandera(res, $2); }
-/* `-o ashift=12 -O compression=lz4`, de la creación de pools: una opción corta CON valor
- * que se repite. Va en su propia lista porque el orden importa y la clave se repite. */
-    | opciones OPCION_CORTA ASIGNACION   { astOpcionRepetida(res, $2, $3); }
-    ;
-
-valor_opcion
-    : PALABRA        { $$ = $1; }
-    | URL            { $$ = $1; }
-    | ASIGNACION     { $$ = $1; }
-    ;
 
 %%
 

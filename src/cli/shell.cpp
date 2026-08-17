@@ -1437,11 +1437,18 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
+    // El nombre se toma como hijo del sitio actual salvo que ya venga con ruta, igual que en
+    // `create`. Sin esto había que escribir el nombre ZFS COMPLETO —`clone clonado`
+    // respondía «missing dataset name», que es del propio zfs y no dice qué falta— y la
+    // ayuda anunciaba `clone <nuevo>` como si un nombre suelto valiera. Venía de antes.
+    const std::string nombre = pet.uno("texto");
+    const std::string nuevo =
+        nombre.find('/') == std::string::npos ? origen.dataset + "/" + nombre : nombre;
     std::string out;
-    if (!agente(e, origen, {"--mutate-zfs-clone", origen.zfsName(), pet.uno("texto")}, out)) {
+    if (!agente(e, origen, {"--mutate-zfs-clone", origen.zfsName(), nuevo}, out)) {
         return false;
     }
-    std::fprintf(stderr, "clonado %s -> %s\n", origen.zfsName().c_str(), pet.uno("texto").c_str());
+    std::fprintf(stderr, "clonado %s -> %s\n", origen.zfsName().c_str(), nuevo.c_str());
     return true;
 }
 

@@ -95,12 +95,18 @@ void astLibera(AnalisisCli* r) {
  * extra, que es lo que flex ofrece para esto sin variables globales. */
 typedef struct {
     int arrancado;
+    AnalisisCli* res;
+    ZfsmCliLlevaValor llevaValor;
+    void* ctx;
+    char verbo[64];
+    char opcionPendiente[64];
 } ContextoLex;
 
 void zfsmcliset_extra(void* user, void* scanner);
 void* zfsmcliget_extra(void* scanner);
 
-int zfsmCliAnaliza(const char* linea, AnalisisCli* out) {
+int zfsmCliAnaliza(const char* linea, ZfsmCliLlevaValor llevaValor, void* ctx,
+                   AnalisisCli* out) {
     memset(out, 0, sizeof(*out));
     void* scanner = NULL;
     if (zfsmclilex_init(&scanner) != 0) {
@@ -108,7 +114,10 @@ int zfsmCliAnaliza(const char* linea, AnalisisCli* out) {
         return 1;
     }
     ContextoLex extra;
-    extra.arrancado = 0;
+    memset(&extra, 0, sizeof(extra));
+    extra.res = out;
+    extra.llevaValor = llevaValor;
+    extra.ctx = ctx;
     zfsmcliset_extra(&extra, scanner);
     void* buf = zfsmcli_scan_string(linea, scanner);
     const int rc = zfsmcliparse(scanner, out);

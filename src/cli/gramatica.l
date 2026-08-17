@@ -18,6 +18,7 @@
  * `ZFSMCLISTYPE`. Sin este puente el generado no compila. */
 #define YYSTYPE ZFSMCLISTYPE
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -61,6 +62,11 @@ static int tokenDeVerbo(const char* v) {
 
 typedef struct {
     int arrancado;
+    AnalisisCli* res;
+    ZfsmCliLlevaValor llevaValor;
+    void* ctx;
+    char verbo[64];
+    char opcionPendiente[64];
 } ContextoLex;
 
 static char* copia(const char* s, int n) {
@@ -93,8 +99,9 @@ static char* sinComillas(const char* s, int n) {
 %option extra-type="void*"
 %option prefix="zfsmcli"
 
-/* El primer componente de la línea es el VERBO y se trata aparte. */
-%x VERBO
+/* El primer componente de la línea es el VERBO y se trata aparte; y tras una opción que
+ * lleva valor, el siguiente componente ES ese valor. */
+%x VERBO VALOR VALOR2
 
 ESPACIO     [ \t]+
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
@@ -124,9 +131,30 @@ PALABRA     [^ \t=][^ \t]*
 
 <VERBO>{ESPACIO}    { /* separador delante del verbo */ }
 <VERBO>[^ \t]+      {
+                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
                         yylval->texto = copia(yytext, yyleng);
+                        if (cx) {
+                            snprintf(cx->verbo, sizeof(cx->verbo), "%s", yylval->texto);
+                        }
                         return tokenDeVerbo(yylval->texto);
+                    }
+
+  /* El valor de la opción anterior. No llega a la gramática: se anota y se sigue. */
+<VALOR>{ESPACIO}    { /* separador */ }
+<VALOR>[^ \t]+      {
+                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                        BEGIN(INITIAL);
+                        astOpcion(cx->res, copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
+                                  copia(yytext, yyleng));
+                    }
+<VALOR2>{ESPACIO}   { /* separador */ }
+<VALOR2>[^ \t]+     {
+                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                        BEGIN(INITIAL);
+                        astOpcionRepetida(cx->res,
+                                          copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
+                                          copia(yytext, yyleng));
                     }
 
 {ESPACIO}       { /* separador */ }
@@ -137,8 +165,31 @@ PALABRA     [^ \t=][^ \t]*
 "pause"         { yylval->texto = copia(yytext, yyleng); return FASE_PAUSE; }
 "suspend"       { yylval->texto = copia(yytext, yyleng); return FASE_SUSPEND; }
 
-{LARGA}         { yylval->texto = copia(yytext + 2, yyleng - 2); return OPCION_LARGA; }
-{CORTA}         { yylval->texto = copia(yytext, yyleng); return OPCION_CORTA; }
+  /* Las OPCIONES no pasan por la gramática: se anotan aquí. Su posición no significa nada
+   * —`allow --user u perms` y `allow perms --user u` son la misma orden—, así que meterlas
+   * en las producciones obligaba a escribirlas al final. Lo hacían: `allow --user linarese
+   * snapshot` no se analizaba. */
+{LARGA}         {
+                    ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                    char* nombre = copia(yytext + 2, yyleng - 2);
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                        snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", nombre);
+                        free(nombre);
+                        BEGIN(VALOR);
+                    } else {
+                        astOpcion(cx->res, nombre, 0);
+                    }
+                }
+{CORTA}/{ESPACIO}{ASIGNA} {
+                    /* `-o ashift=12`: opción corta CON valor, repetible. */
+                    ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                    snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", yytext);
+                    BEGIN(VALOR2);
+                }
+{CORTA}         {
+                    ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                    astBandera(cx->res, copia(yytext, yyleng));
+                }
 {URLTOK}        { yylval->texto = copia(yytext, yyleng); return URL; }
 {ASIGNA}        { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 

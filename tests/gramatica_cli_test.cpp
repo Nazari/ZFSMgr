@@ -156,6 +156,28 @@ int main() {
         }
     }
 
+    // --- La POSICIÓN de una opción no significa nada.
+    //
+    // `allow --user u perms` y `allow perms --user u` son la misma orden. Cuando las
+    // opciones estaban en la gramática solo se admitían al final, así que la primera forma
+    // —la que documenta la propia ayuda— no se analizaba. Por eso las recoge el léxico.
+    {
+        const auto a = analizaLinea("allow --user linarese snapshot,mount");
+        const auto b = analizaLinea("allow snapshot,mount --user linarese");
+        igual(a.opciones.count("user") ? a.opciones.at("user") : "", "linarese",
+              "«allow --user u perms»: la opción delante");
+        igual(a.uno("texto"), "snapshot,mount", "«allow --user u perms»: y el argumento detrás");
+        igual(b.opciones.count("user") ? b.opciones.at("user") : "", "linarese",
+              "«allow perms --user u»: la opción detrás");
+        igual(b.uno("texto"), "snapshot,mount", "«allow perms --user u»: mismo argumento");
+    }
+    {
+        // Una opción SIN valor no se traga el componente siguiente.
+        const auto a = analizaLinea("rsync --check /a/b");
+        igual(a.uno("destino"), "/a/b", "«rsync --check <url>»: --check no se come la URL");
+        comprueba(a.tiene("--check"), "«rsync --check <url>»: y --check se reconoce");
+    }
+
     // --- Toda opción DECLARADA tiene que reconocerse al escribirla.
     //
     // Es el fallo que se coló entero en la migración a la gramática: el léxico guarda las
@@ -195,6 +217,16 @@ int main() {
                 comprueba(a.tiene(opcion),
                           std::string("«") + o.nombre + " " + opcion + "»: la opción no se "
                           "reconoce al preguntarla con guiones");
+                // Y si LLEVA valor, que lo capture. Quién lleva valor lo decide el léxico
+                // consultando esta misma línea del catálogo, así que aquí se contrasta la
+                // decisión con lo que está escrito.
+                const bool conValor = forma.find('<') != std::string::npos;
+                if (conValor && a.error.empty()) {
+                    const auto it = a.opciones.find(opcion.substr(2));
+                    comprueba(it != a.opciones.end() && it->second == "x",
+                              std::string("«") + o.nombre + " " + opcion + " x»: no capturó el "
+                              "valor «x»");
+                }
             }
         }
     }
