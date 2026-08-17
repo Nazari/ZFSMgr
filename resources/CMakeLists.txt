@@ -194,6 +194,9 @@ add_library(zfsmgr_base STATIC
     ../src/base/transportcmd.h
     ../src/base/transportrpc.cpp
     ../src/base/transportrpc.h
+    ../src/base/transporttunnel.cpp
+    ../src/base/transporttunnel.h
+    ../src/base/transportsession.h
     ../src/base/daemonpayload.h
 )
 target_include_directories(zfsmgr_base PUBLIC ../src/base)

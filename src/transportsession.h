@@ -1,191 +1,58 @@
 #pragma once
 
-#include <QDateTime>
-#include <QMap>
-#include <QMutex>
-#include <QObject>
-#include <QThread>
-#include <QPointer>
-#include <QProcess>
-#include <QSet>
-#include <QByteArray>
-
+#include "base/transportsession.h"
 #include "connectionstore.h"
+
+#include <QByteArray>
 #include <QString>
-#include <QStringList>
-#include <QVector>
 
-#include <functional>
-
-// Lo que la aplicación mantiene ABIERTO mientras habla con las máquinas remotas: los
-// túneles del RPC y la memoria de los intentos que fallaron.
+// Adaptador de la sesión del transporte para el lado que todavía habla `QString`.
 //
-// Existe por dos motivos. Uno: es lo que un CLI necesitaría para hablar con el agente, y
-// mientras fueran campos sueltos de la ventana no se podía usar desde otro sitio. Dos, y
-// más importante hoy: **el cerrojo y lo que protege estaban separados**, y solo un
-// comentario decía cuáles iban juntos. Ahora viven en la misma estructura.
+// La sesión de verdad vive en `base/transportsession.h` y no depende de Qt: es la que
+// usan las funciones ya mudadas. Esto solo añade las mismas operaciones tomando tipos de
+// Qt, para no tener que reescribir en un único cambio los ochenta sitios que registran
+// mensajes mientras el resto del transporte se muda.
 //
-// Las claves NO son índices de conexión: salen de las coordenadas (usuario, host, puerto,
-// ruta de clave), así que sobreviven a que se reordene la lista. Ver
-// docs/diseno_tecnico_capa_base_sin_qt.md, sección de las cachés por posición, para lo
-// que pasa cuando no es así.
-struct RemoteRpcTunnelState {
-    QPointer<QProcess> process;
-    quint16 localPort{0};
-    quint16 remotePort{0};
-    QDateTime startedAtUtc;
-    QDateTime lastUsedUtc;
-};
+// **Es temporal.** Cuando la última función del transporte hable `std::string`, este
+// fichero desaparece y `TransportSession` pasa a ser directamente el de la base.
+struct TransportSession : zfsmgr::base::TransportSession {
+    using Base = zfsmgr::base::TransportSession;
 
-struct TransportSession {
-    // --- A dónde va lo que el transporte cuenta mientras trabaja.
-    //
-    // Se consideró que cada llamada DEVOLVIERA la lista de lo ocurrido y que quien llama
-    // decidiera qué hacer con ella. Es más limpio sobre el papel, pero **habría sido una
-    // regresión**: `appLog()` escribe en la interfaz al momento y `runSsh()` bombea el
-    // bucle de eventos seis veces, así que hoy el registro se llena MIENTRAS la operación
-    // ocurre. Acumular y devolver al final dejaría treinta segundos de silencio y luego
-    // un volcado de golpe.
-    //
-    // Así que se emite sobre la marcha, pero **a algo que se recibe**, no a algo que el
-    // transporte busca: aquí dentro no se nombra `appLog` ni `MainWindow`. La interfaz
-    // pone un destino que escribe en su pestaña; un CLI pondría uno que escriba por la
-    // salida de error.
-    enum class Nivel { Normal, Info, Warn, Error, Debug };
+    // Las de la base siguen visibles: las funciones ya mudadas llaman a estas.
+    using Base::askCredentials;
+    using Base::log;
+    using Base::logConn;
+    using Base::persistTls;
+    using Base::resolveLocalSudo;
 
-    // `connId` vacío significa «al registro general»; con valor, además al de esa
-    // conexión. Sin destino puesto, no se pierde nada importante: solo no se cuenta.
-    std::function<void(Nivel, const QString& connId, const QString& msg)> sink;
-
-    void log(Nivel n, const QString& msg) const {
-        if (sink) {
-            sink(n, QString(), msg);
-        }
-    }
-    // Al registro general Y al de la conexión, que es la pareja que se repetía a mano en
-    // treinta sitios.
+    void log(Nivel n, const QString& msg) const { Base::log(n, msg.toStdString()); }
     void logConn(Nivel n, const QString& connId, const QString& msg) const {
-        if (sink) {
-            sink(n, connId, msg);
-        }
+        Base::logConn(n, connId.toStdString(), msg.toStdString());
     }
-
-    // --- Transporte de mentira, para los tests.
-    //
-    // Vive aquí y no en la ventana porque es una propiedad DEL TRANSPORTE: mientras está
-    // puesto no se abre ninguna conexión, las órdenes por argv van a esa función, y las
-    // que salgan como cadena de shell se anotan y fracasan —para que un test pueda
-    // afirmar que algo NO se fue por ese camino—.
-    struct AgentCallForTest {
-        QStringList argv;      // vacío si la orden salió como cadena de shell
-        QString shellCommand;  // no vacío solo en ese caso
-        QByteArray stdinPayload;
-    };
-    using AgentTransportForTest =
-        std::function<bool(const QStringList& argv, QString& out, QString& err, int& rc)>;
-
-    AgentTransportForTest transportForTest;
-    QVector<AgentCallForTest> callsForTest;
-
-    // --- Cómo se piden credenciales cuando hacen falta.
-    //
-    // Es la segunda cosa que el transporte necesita del exterior, junto al destino del
-    // registro: **a dónde contar** y **cómo preguntar**. Las dos se reciben, ninguna se
-    // busca — y por eso aquí dentro no hay ni un widget.
-    //
-    // La interfaz pone uno que abre un diálogo. Un CLI pondría uno que lee del descriptor
-    // que se le pasó y, si no hay, pregunta por terminal. Ver
-    // docs/diseno_tecnico_capa_base_sin_qt.md, «Cómo entran los secretos sin ventana».
-    //
-    // Devuelve false si no se pudo obtener —el usuario canceló, o no había descriptor en
-    // un contexto no interactivo—. Sin proveedor puesto devuelve false, que es lo
-    // prudente: mejor no hacer nada que intentarlo sin credenciales.
-    using CredentialProvider =
-        std::function<bool(const QString& motivo, QString& usuario, QString& clave)>;
-    CredentialProvider credentialProvider;
-
     bool askCredentials(const QString& motivo, QString& usuario, QString& clave) const {
-        return credentialProvider ? credentialProvider(motivo, usuario, clave) : false;
+        std::string u = usuario.toStdString();
+        std::string c = clave.toStdString();
+        const bool ok = Base::askCredentials(motivo.toStdString(), u, c);
+        usuario = QString::fromStdString(u);
+        clave = QString::fromStdString(c);
+        return ok;
     }
-
-    // --- Quién es el dueño de los túneles.
-    //
-    // Los `QProcess` de los túneles viven en un hilo con bucle de eventos, y el montaje
-    // se ordena a ESE hilo. En la aplicación es la ventana; en una herramienta de un solo
-    // hilo esto se queda nulo y todo corre en línea, sin ordenar nada a nadie.
-    //
-    // Es una dependencia real, pero **no de la ventana**: de un objeto con bucle de
-    // eventos. Que hoy sea la ventana es lo que hace que el montaje de túneles se
-    // serialice ahí, cosa ya anotada como problema de arranque aparte de este refactor.
-    QObject* owner{nullptr};
-
-    // ¿Estamos en el hilo que puede tocar los túneles? Sin dueño, siempre sí: no hay
-    // nadie más con quien competir.
-    bool enHiloDeTuneles() const {
-        return !owner || QThread::currentThread() == owner->thread();
-    }
-
-    // --- Las dos cosas que el transporte necesita del REGISTRO de conexiones.
-    //
-    // No se le pasa el registro entero a propósito: lo que necesita no son los perfiles,
-    // son dos decisiones que dependen de ellos. Pasarle el registro le daría acceso a
-    // todo —incluidas las contraseñas de todas las máquinas— para hacer dos cosas
-    // concretas.
-    //
-    // Sin ponerlas, el transporte sigue funcionando: no resuelve credenciales locales y
-    // no guarda el material TLS que negocie. Un CLI de solo lectura puede vivir así.
-
-    // Rellena el perfil con las credenciales de `sudo` de la máquina local, buscándolas
-    // entre las conexiones conocidas y preguntando si no aparecen. Devuelve false si no
-    // se pudieron obtener.
-    using LocalSudoResolver = std::function<bool(ConnectionProfile& perfil)>;
-    LocalSudoResolver localSudoResolver;
-
-    // Guarda el material TLS negociado con el daemon de una conexión, para no repetir el
-    // arranque en cada arranque de la aplicación.
-    using TlsPersister = std::function<bool(const ConnectionProfile& p,
-                                            const QByteArray& serverCertPem,
-                                            const QByteArray& clientCertPem,
-                                            const QByteArray& clientKeyPem,
-                                            quint16 daemonPort,
-                                            QString* errorOut)>;
-    TlsPersister tlsPersister;
-
     bool resolveLocalSudo(ConnectionProfile& perfil) const {
-        return localSudoResolver ? localSudoResolver(perfil) : false;
+        zfsmgr::base::ConnectionProfile b = toBaseProfile(perfil);
+        const bool ok = Base::resolveLocalSudo(b);
+        perfil = fromBaseProfile(b);
+        return ok;
     }
     bool persistTls(const ConnectionProfile& p, const QByteArray& serverCertPem,
                     const QByteArray& clientCertPem, const QByteArray& clientKeyPem,
                     quint16 daemonPort, QString* errorOut) const {
-        if (!tlsPersister) {
-            if (errorOut) {
-                *errorOut = QStringLiteral("no hay dónde guardar el material TLS");
-            }
-            return false;
+        std::string e;
+        const bool ok = Base::persistTls(toBaseProfile(p), serverCertPem.toStdString(),
+                                         clientCertPem.toStdString(), clientKeyPem.toStdString(),
+                                         daemonPort, &e);
+        if (errorOut) {
+            *errorOut = QString::fromStdString(e);
         }
-        return tlsPersister(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, errorOut);
+        return ok;
     }
-
-    // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos
-    // (QtConcurrent) y estos mapas se tocan desde varios a la vez.
-    mutable QMutex mutex;
-
-    // Túneles `ssh -L` vivos, por clave de conexión.
-    QMap<QString, RemoteRpcTunnelState> tunnelsByConnKey;
-
-    // Claves cuyo túnel se está montando AHORA MISMO. Protege de la reentrancia que
-    // provoca el `processEvents` de la espera: sin esto se montaban túneles duplicados
-    // que quedaban huérfanos fuera del mapa.
-    QSet<QString> tunnelsBeingCreated;
-
-    // Hasta cuándo no se reintenta el RPC de una conexión, y por qué. Sin esto, una
-    // conexión con el daemon caído se lleva una ida y vuelta por SSH en cada operación.
-    QMap<QString, QDateTime> retryAfterByConnKey;
-    QMap<QString, QString> retryReasonByConnKey;
-
-    // Conexiones a las que se ha renunciado al multiplexado de SSH, y aquellas cuya
-    // resolución de nombre ya se anotó en el registro: las dos existen para no repetir
-    // el mismo mensaje en cada operación.
-    QSet<QString> disableMultiplexKeys;
-    QSet<QString> loggedResolutionKeys;
 };

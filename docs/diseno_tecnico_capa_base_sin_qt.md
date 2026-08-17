@@ -1032,6 +1032,82 @@ función `inline` en `connectionstore.h`.
 vive en `wrapRemoteCommand`. No se ha unificado en esta tanda porque esa función hace E/S
 por SSH y entra en la siguiente.
 
+## Paso 11: el transporte entero, tandas 2 y 3
+
+La segunda tanda mueve lo que **ejecuta**: `runSshRaw` —el último `QProcess` del camino de
+órdenes— y el RPC local por TLS. Va en un fichero aparte de `transportcmd` porque aquí sí
+hay E/S, y eso cambia cómo se verifica: lo de la primera tanda se contrasta byte a byte
+contra Qt, y esto hay que probarlo contra una máquina.
+
+La tercera es la delicada: el túnel `ssh -L`, `tryAgentRpcOverSsh` y `runSsh`. Por ahí
+pasan las mutaciones, y casi todo lo que hay existe para responder con precisión a una
+sola pregunta —**¿pudo la orden haber llegado al otro lado?**—, porque de ella depende si
+se puede reintentar.
+
+### Lo que hubo que construir antes
+
+El túnel no se podía mudar sin tres piezas que la base no tenía:
+
+- **`ChildProcess`**: un proceso que sigue VIVO entre llamadas. Todo lo que había en
+  `process.h` lanza algo, espera y recoge; un túnel se levanta, se usa muchas veces y se
+  cierra. **El destructor lo mata**, e `isRunning()` recoge al hijo si acaba de morir para
+  que no queden zombis.
+- **`reserveFreeLocalPort` y `canConnectLocal`**: el puerto del reenvío y la pregunta «¿ya
+  acepta?». Conectarse antes de tiempo da ECONNREFUSED, que el llamante contaba como fallo
+  del saludo TLS y le valía a la conexión un castigo que no arregla nada.
+- **Enganches en el cliente TLS**: `onBeforeWrite`, que marca el punto a partir del cual la
+  orden puede haber llegado, y `keepWaiting`, que permite abandonar en cuanto el túnel
+  muere. Con `keepWaiting` la espera se trocea, y por eso un `ioTimeout` de cero —«sin
+  límite», que es lo que piden las operaciones que copian datos— ya no bloquea para
+  siempre. También un `TlsFailure` que dice EN QUÉ PUNTO falló: no llegar a conectar y que
+  el saludo TLS falle apuntan a causas opuestas, y decidirlo buscando subcadenas en un
+  mensaje era frágil.
+
+### Lo que desapareció, y lo que se conservó a propósito
+
+Desapareció `TransportSession::owner`, el puntero a un objeto con bucle de eventos. Tenía
+tres cometidos: ser padre de los `QProcess` —ya no hay—, decidir dónde se puede montar un
+túnel, y saber cuándo bombear eventos. Los dos últimos son ahora enganches con nombre:
+`pump` y `tunnelsAllowedHere` / `runWhereTunnelsAllowed`.
+
+**El motivo original de la restricción de hilo ya no existe**, y está dicho en el código:
+estaba porque los túneles eran `QProcess` colgados de la ventana. Se conserva igualmente
+para no cambiar el comportamiento de concurrencia en el mismo paso en que se cambia de
+motor — quitarlo permitiría montar túneles desde los hilos de refresco, que es exactamente
+el arranque serializado anotado aparte, y merece medirse solo.
+
+También desapareció el recorrido por dos «nombres de par» en el saludo TLS. Existían para
+la verificación de nombre de host de Qt; con la fijación del certificado el nombre no
+interviene, y el propio código ya avisaba de que tras escribir la petición no se podía
+probar el segundo sin **enviar la misma orden otra vez**.
+
+Y con OpenSSL directo se cae el bloque que registraba qué backend TLS estaba activo: era
+para diagnosticar el SecureTransport de macOS, que ya no puede intervenir.
+
+### Cómo se verificó
+
+El camino completo, contra un daemon real: SSH → `ssh -L` → TLS con fijación → JSON por
+línea. Se usó **la propia máquina como remoto**, porque su material TLS sí se puede leer;
+para el código es una conexión SSH cualquiera. Ocho comprobaciones, todas correctas:
+
+| | |
+|---|---|
+| RPC por el túnel | 243 ms (montaje + saludo) |
+| Segunda llamada | 2 ms — el túnel se reutiliza |
+| `runSsh` con orden del agente | se desvía al RPC, 2 ms |
+| `runSsh` con orden corriente | va por SSH |
+| Líneas según llegan | 260 / 1263 / 2267 ms, con cuenta atrás |
+| Muerte por SILENCIO | tope 2 s sobre `sleep 20` → corta a los 2092 ms |
+| El tope es de INACTIVIDAD | 6 s de trabajo hablando con tope de 2 s → **no** muere |
+| Certificado equivocado | la fijación rechaza |
+
+Al terminar aparecieron cuatro `ssh -L` sueltos. **No eran de esta prueba**: llevaban ahí
+desde el día anterior, contra otras máquinas, y su padre era `systemd --user` — o sea,
+huérfanos que sobrevivieron a la aplicación que los creó. Es exactamente el fallo que el
+destructor de `ChildProcess` impide ahora, encontrado por accidente y sirviendo de prueba.
+
+Todo `src/base` compila además para Windows con mingw.
+
 ## Estado
 
 Hecho y verificado:

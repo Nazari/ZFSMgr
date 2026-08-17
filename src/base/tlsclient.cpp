@@ -5,8 +5,11 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -133,14 +136,44 @@ EVP_PKEY* leeClave(const std::string& pem) {
 
 }  // namespace
 
+bool pemCertificateIsValid(const std::string& pem) {
+    X509* c = leeCertificado(pem);
+    if (!c) {
+        return false;
+    }
+    X509_free(c);
+    return true;
+}
+
+bool pemPrivateKeyIsValid(const std::string& pem) {
+    EVP_PKEY* k = leeClave(pem);
+    if (!k) {
+        return false;
+    }
+    EVP_PKEY_free(k);
+    return true;
+}
+
 bool tlsRequestLine(const TlsClientConfig& cfg,
                     const std::string& requestLine,
                     std::string& responseLine,
                     std::string& error) {
+    TlsFailure f = TlsFailure::None;
+    return tlsRequestLine(cfg, requestLine, responseLine, error, f, TlsRequestHooks{});
+}
+
+bool tlsRequestLine(const TlsClientConfig& cfg,
+                    const std::string& requestLine,
+                    std::string& responseLine,
+                    std::string& error,
+                    TlsFailure& failure,
+                    const TlsRequestHooks& hooks) {
     responseLine.clear();
     error.clear();
+    failure = TlsFailure::None;
     if (cfg.host.empty() || cfg.port == 0) {
         error = "destino sin host o sin puerto";
+        failure = TlsFailure::Connect;
         return false;
     }
 
@@ -157,15 +190,18 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
     do {
         if (!certEsperado) {
             error = "el certificado del daemon no es un PEM válido";
+            failure = TlsFailure::BadMaterial;
             break;
         }
         if (!certCliente || !claveCliente) {
             error = "el certificado o la clave del cliente no son PEM válidos";
+            failure = TlsFailure::BadMaterial;
             break;
         }
         ctx = SSL_CTX_new(TLS_client_method());
         if (!ctx) {
             error = "no se pudo crear el contexto TLS";
+            failure = TlsFailure::Handshake;
             break;
         }
         // TLS 1.2 como mínimo, igual que la versión con Qt.
@@ -176,16 +212,19 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         if (SSL_CTX_use_certificate(ctx, certCliente) != 1
             || SSL_CTX_use_PrivateKey(ctx, claveCliente) != 1) {
             error = "el certificado y la clave del cliente no casan: " + ultimoErrorOpenssl();
+            failure = TlsFailure::BadMaterial;
             break;
         }
 
         sock = conecta(cfg.host, cfg.port, cfg.connectTimeoutMs, error);
         if (sock == kSockInvalido) {
+            failure = TlsFailure::Connect;
             break;
         }
         ssl = SSL_new(ctx);
         if (!ssl) {
             error = "no se pudo crear la sesión TLS";
+            failure = TlsFailure::Handshake;
             break;
         }
         SSL_set_fd(ssl, static_cast<int>(sock));
@@ -194,6 +233,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         SSL_set_tlsext_host_name(ssl, cfg.host.c_str());
         if (SSL_connect(ssl) != 1) {
             error = "no se pudo negociar TLS: " + ultimoErrorOpenssl();
+            failure = TlsFailure::Handshake;
             break;
         }
 
@@ -201,15 +241,20 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         X509* certPar = SSL_get1_peer_certificate(ssl);
         if (!certPar) {
             error = "el daemon no presentó certificado";
+            failure = TlsFailure::Pinning;
             break;
         }
         const bool esElEsperado = X509_cmp(certPar, certEsperado) == 0;
         X509_free(certPar);
         if (!esElEsperado) {
             error = "el certificado del daemon no es el esperado";
+            failure = TlsFailure::Pinning;
             break;
         }
 
+        if (hooks.onBeforeWrite) {
+            hooks.onBeforeWrite();
+        }
         std::string peticion = requestLine;
         if (peticion.empty() || peticion.back() != '\n') {
             peticion.push_back('\n');
@@ -220,6 +265,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
                                     static_cast<int>(peticion.size() - escrito));
             if (n <= 0) {
                 error = "se cortó al enviar la petición";
+                failure = TlsFailure::Write;
                 break;
             }
             escrito += static_cast<std::size_t>(n);
@@ -228,24 +274,73 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             break;
         }
 
-        // La respuesta es UNA línea. Se lee hasta el salto o hasta que el otro cierre;
-        // el tope evita que un daemon estropeado nos haga crecer sin fin.
+        // La respuesta es UNA línea. Se lee hasta el salto o hasta que el otro cierre; el
+        // tope evita que un daemon estropeado nos haga crecer sin fin.
+        //
+        // Con `keepWaiting` puesto la espera se trocea: el socket lleva un plazo CORTO y
+        // se vuelve a preguntar entre lectura y lectura. Sin eso, un `ioTimeoutMs` de cero
+        // —«sin límite», que es lo que piden las operaciones que copian datos de verdad—
+        // dejaría la lectura bloqueada para siempre y nunca se llegaría a mirar si el
+        // túnel sigue vivo.
         constexpr std::size_t kTope = 64u * 1024u * 1024u;
+        constexpr int kTrozoMs = 300;
+        if (hooks.keepWaiting) {
+            ponTiempoLimite(sock, kTrozoMs);
+        }
+        const auto inicioLectura = std::chrono::steady_clock::now();
+        const auto agotado = [&]() {
+            if (cfg.ioTimeoutMs <= 0) {
+                return false;  // sin límite
+            }
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::steady_clock::now() - inicioLectura)
+                       .count()
+                   > cfg.ioTimeoutMs;
+        };
+        bool abandonado = false;
         char buf[8192];
         while (responseLine.size() < kTope) {
             const int n = SSL_read(ssl, buf, static_cast<int>(sizeof(buf)));
-            if (n <= 0) {
+            if (n > 0) {
+                responseLine.append(buf, static_cast<std::size_t>(n));
+                const std::size_t nl = responseLine.find('\n');
+                if (nl != std::string::npos) {
+                    responseLine.resize(nl);
+                    break;
+                }
+                continue;
+            }
+            const int motivo = SSL_get_error(ssl, n);
+            // Al agotarse el trozo, OpenSSL suele decir WANT_READ; pero según la
+            // plataforma puede reportar SSL_ERROR_SYSCALL con EAGAIN, que significa lo
+            // mismo. Tomarlo por un corte cerraría la espera antes de tiempo, y eso en una
+            // transferencia larga es dar por muerta una operación que va bien.
+            const bool esperaDelSistema =
+                (motivo == SSL_ERROR_SYSCALL
+                 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR));
+            const bool soloEsperando =
+                (motivo == SSL_ERROR_WANT_READ || motivo == SSL_ERROR_WANT_WRITE
+                 || esperaDelSistema);
+            if (!soloEsperando || !hooks.keepWaiting) {
+                break;  // el otro cerró, o no hay a quién preguntar: se acabó
+            }
+            // Se agotó el trozo. Aquí es donde se pregunta si tiene sentido seguir.
+            if (!hooks.keepWaiting()) {
+                abandonado = true;
                 break;
             }
-            responseLine.append(buf, static_cast<std::size_t>(n));
-            const std::size_t nl = responseLine.find('\n');
-            if (nl != std::string::npos) {
-                responseLine.resize(nl);
+            if (agotado()) {
                 break;
             }
         }
+        if (abandonado) {
+            error = "se abandonó la espera de la respuesta";
+            failure = TlsFailure::Read;
+            break;
+        }
         if (responseLine.empty()) {
             error = "el daemon no respondió";
+            failure = TlsFailure::Read;
             break;
         }
         ok = true;

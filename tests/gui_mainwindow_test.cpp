@@ -113,8 +113,8 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
         window.setConnectionDaemonStateForTest(0, true, true);
         window.setAgentTransportForTest(
-            [](const QStringList&, QString& out, QString& err, int& rc) {
-                out = QStringLiteral("filesystem");
+            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
+                out = "filesystem";
                 err.clear();
                 rc = 0;
                 return true;
@@ -128,9 +128,8 @@ private Q_SLOTS:
         const auto calls = window.agentCallsForTest();
         QCOMPARE(calls.size(), 1);
         QCOMPARE(calls.at(0).argv,
-                 (QStringList{QStringLiteral("--dump-zfs-get-prop"), QStringLiteral("type"),
-                              QStringLiteral("tank/ds")}));
-        QVERIFY2(calls.at(0).shellCommand.isEmpty(),
+                 (std::vector<std::string>{"--dump-zfs-get-prop", "type", "tank/ds"}));
+        QVERIFY2(calls.at(0).shellCommand.empty(),
                  "la lectura no debe construirse como cadena de shell");
     }
 
@@ -145,7 +144,7 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
         window.setConnectionDaemonStateForTest(0, false, false);
         window.setAgentTransportForTest(
-            [](const QStringList&, QString&, QString&, int& rc) { rc = 0; return true; });
+            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) { rc = 0; return true; });
 
         QString value;
         QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
@@ -166,9 +165,9 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
         window.setConnectionDaemonStateForTest(0, true, true);
         window.setAgentTransportForTest(
-            [](const QStringList&, QString& out, QString& err, int& rc) {
+            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
                 out.clear();
-                err = QStringLiteral("el agente falla a propósito");
+                err = "el agente falla a propósito";
                 rc = 1;
                 return true;
             });
@@ -178,7 +177,7 @@ private Q_SLOTS:
                                                   QStringLiteral("type"), value));
         const auto calls = window.agentCallsForTest();
         QCOMPARE(calls.size(), 1);
-        QVERIFY2(calls.at(0).shellCommand.isEmpty(),
+        QVERIFY2(calls.at(0).shellCommand.empty(),
                  "tras fallar el agente no debe intentarse el comando clásico por shell");
     }
 
@@ -193,8 +192,8 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
         window.setConnectionDaemonStateForTest(0, true, true);
         window.setAgentTransportForTest(
-            [](const QStringList&, QString& out, QString&, int& rc) {
-                out = QStringLiteral("on");
+            [](const std::vector<std::string>&, std::string& out, std::string&, int& rc) {
+                out = "on";
                 rc = 0;
                 return true;
             });
@@ -204,8 +203,8 @@ private Q_SLOTS:
         QVERIFY(window.getDatasetPropertyForTest(0, hostile, QStringLiteral("mounted"), value));
         const auto calls = window.agentCallsForTest();
         QCOMPARE(calls.size(), 1);
-        QCOMPARE(calls.at(0).argv.size(), 3);
-        QCOMPARE(calls.at(0).argv.at(2), hostile);
+        QCOMPARE(calls.at(0).argv.size(), std::size_t(3));
+        QCOMPARE(QString::fromStdString(calls.at(0).argv.at(2)), hostile);
     }
 
     void createsMainWindowWithStableObjectNames() {
@@ -537,10 +536,11 @@ private Q_SLOTS:
                  "sin proveedor puesto NO debe intentarlo");
 
         QString motivoVisto;
-        ses.credentialProvider = [&motivoVisto](const QString& motivo, QString& u, QString& c) {
-            motivoVisto = motivo;
-            u = QStringLiteral("linarese");
-            c = QStringLiteral("secreta");
+        ses.credentialProvider = [&motivoVisto](const std::string& motivo, std::string& u,
+                                                std::string& c) {
+            motivoVisto = QString::fromStdString(motivo);
+            u = "linarese";
+            c = "secreta";
             return true;
         };
         QVERIFY(ses.askCredentials(QStringLiteral("por qué se piden"), usuario, clave));
@@ -549,7 +549,7 @@ private Q_SLOTS:
         QCOMPARE(clave, QStringLiteral("secreta"));
 
         // Cancelar tiene que propagarse tal cual: quien llama debe poder abortar.
-        ses.credentialProvider = [](const QString&, QString&, QString&) { return false; };
+        ses.credentialProvider = [](const std::string&, std::string&, std::string&) { return false; };
         QString u2;
         QString c2;
         QVERIFY(!ses.askCredentials(QStringLiteral("x"), u2, c2));
@@ -562,8 +562,10 @@ private Q_SLOTS:
         ses.log(TransportSession::Nivel::Info, QStringLiteral("nadie escucha"));  // no revienta
 
         QVector<QStringList> visto;
-        ses.sink = [&visto](TransportSession::Nivel n, const QString& connId, const QString& msg) {
-            visto.push_back({QString::number(static_cast<int>(n)), connId, msg});
+        ses.sink = [&visto](TransportSession::Nivel n, const std::string& connId,
+                            const std::string& msg) {
+            visto.push_back({QString::number(static_cast<int>(n)), QString::fromStdString(connId),
+                             QString::fromStdString(msg)});
         };
         ses.log(TransportSession::Nivel::Warn, QStringLiteral("general"));
         ses.logConn(TransportSession::Nivel::Error, QStringLiteral("unib"), QStringLiteral("de conexión"));

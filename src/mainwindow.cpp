@@ -192,7 +192,8 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     }
     // El transporte no sabe nada del registro de la aplicación: se le dice a dónde
     // escribir. En un CLI este destino iría a la salida de error.
-    m_transport.sink = [this](TransportSession::Nivel n, const QString& connId, const QString& msg) {
+    m_transport.sink = [this](TransportSession::Nivel n, const std::string& connId,
+                              const std::string& msg) {
         static const QMap<TransportSession::Nivel, QString> kNiveles = {
             {TransportSession::Nivel::Normal, QStringLiteral("NORMAL")},
             {TransportSession::Nivel::Info, QStringLiteral("INFO")},
@@ -200,17 +201,19 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
             {TransportSession::Nivel::Error, QStringLiteral("ERROR")},
             {TransportSession::Nivel::Debug, QStringLiteral("DEBUG")},
         };
-        appLog(kNiveles.value(n, QStringLiteral("INFO")), msg);
-        if (!connId.trimmed().isEmpty()) {
-            appendConnectionLog(connId, msg);
+        const QString texto = QString::fromStdString(msg);
+        appLog(kNiveles.value(n, QStringLiteral("INFO")), texto);
+        const QString id = QString::fromStdString(connId).trimmed();
+        if (!id.isEmpty()) {
+            appendConnectionLog(id, texto);
         }
     };
     // Cómo se piden credenciales cuando no las hay. En la interfaz, un diálogo; un CLI
     // pondría aquí uno que lee del descriptor o pregunta por terminal.
     m_transport.credentialProvider =
-        [this](const QString& motivo, QString& usuario, QString& clave) -> bool {
+        [this](const std::string& motivo, std::string& usuario, std::string& clave) -> bool {
         QDialog dlg(this);
-        dlg.setWindowTitle(motivo);
+        dlg.setWindowTitle(QString::fromStdString(motivo));
         dlg.setModal(true);
         auto* form = new QFormLayout(&dlg);
         auto* userEdit = new QLineEdit(&dlg);
@@ -234,22 +237,62 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         if (dlg.exec() != QDialog::Accepted) {
             return false;
         }
-        usuario = userEdit->text();
-        clave = passEdit->text();
+        usuario = userEdit->text().toStdString();
+        clave = passEdit->text().toStdString();
         return true;
     };
     // Las dos decisiones que el transporte necesita del registro. Se le dan como
     // políticas y no como acceso al registro entero: lo que necesita son estas dos cosas,
     // no las contraseñas de todas las máquinas.
-    // Los túneles viven en el hilo de la ventana. Ver TransportSession::owner.
-    m_transport.owner = this;
-    m_transport.localSudoResolver = [this](ConnectionProfile& perfil) {
-        return ensureLocalSudoCredentials(perfil);
+    // Dejar respirar a la ventana mientras el transporte espera. Sustituye al
+    // processEvents que el transporte hacía por su cuenta, y con él se va la última razón
+    // por la que la sesión necesitaba un puntero a la ventana.
+    //
+    // ExcludeUserInputEvents a propósito: deja pasar los repintados pero NO las acciones
+    // del usuario, así que no puede colarse por aquí nada que recargue las conexiones y
+    // deje colgando las referencias que sostiene quien llamó.
+    //
+    // Y SOLO en el hilo de la ventana: bombear el bucle de eventos desde un hilo de
+    // refresco no refresca nada y toca lo que no debe.
+    m_transport.pump = [this]() -> bool {
+        if (QThread::currentThread() == this->thread()) {
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 40);
+        }
+        return true;
     };
-    m_transport.tlsPersister = [this](const ConnectionProfile& p, const QByteArray& srv,
-                                      const QByteArray& cli, const QByteArray& key,
-                                      quint16 puerto, QString* errorOut) {
-        return persistDaemonTlsMaterialForConnection(p, srv, cli, key, puerto, errorOut);
+    // Dónde se pueden montar túneles, y cómo llegar hasta ahí. Los dos enganches
+    // sustituyen a lo que antes era `TransportSession::owner`.
+    //
+    // **Se conservan aunque su motivo original haya desaparecido.** Estaban porque los
+    // túneles eran QProcess colgados de la ventana y crearlos desde un hilo de refresco
+    // daba un aviso de afinidad o una caída; ahora son ChildProcess y no cuelgan de nadie.
+    // Quitarlos permitiría montar túneles desde los hilos de refresco, que es un cambio de
+    // concurrencia real —y es exactamente el arranque serializado que hay anotado aparte—,
+    // así que no se hace en el mismo paso en que se cambia de motor.
+    m_transport.tunnelsAllowedHere = [this]() {
+        return QThread::currentThread() == this->thread();
+    };
+    m_transport.runWhereTunnelsAllowed = [this](const std::function<void()>& tarea) {
+        QMetaObject::invokeMethod(this, tarea, Qt::BlockingQueuedConnection);
+    };
+    m_transport.localSudoResolver = [this](zfsmgr::base::ConnectionProfile& perfil) {
+        ConnectionProfile q = fromBaseProfile(perfil);
+        const bool ok = ensureLocalSudoCredentials(q);
+        perfil = toBaseProfile(q);
+        return ok;
+    };
+    m_transport.tlsPersister = [this](const zfsmgr::base::ConnectionProfile& p,
+                                      const std::string& srv, const std::string& cli,
+                                      const std::string& key, std::uint16_t puerto,
+                                      std::string* errorOut) {
+        QString e;
+        const bool ok = persistDaemonTlsMaterialForConnection(
+            fromBaseProfile(p), QByteArray::fromStdString(srv), QByteArray::fromStdString(cli),
+            QByteArray::fromStdString(key), puerto, &e);
+        if (errorOut) {
+            *errorOut = e.toStdString();
+        }
+        return ok;
     };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);

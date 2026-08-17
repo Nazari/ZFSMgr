@@ -14,6 +14,9 @@
 #include "secretcipher.h"
 #include "strutil.h"
 #include "transportcmd.h"
+#include "transportrpc.h"
+#include "transportsession.h"
+#include "transporttunnel.h"
 #include "zfsmurl.h"
 
 #include <chrono>
@@ -1091,6 +1094,122 @@ int main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             comprobar(pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0,
                       "ChildProcess: el destructor mata al hijo");
+        }
+    }
+
+    // --- El transporte de alto nivel. Lo que necesita una maquina se probo aparte, contra
+    // un daemon real por SSH; aqui queda lo que se puede afirmar sin salir de esta.
+    {
+        namespace T = zfsmgr::base::transport;
+
+        // La direccion de ESCUCHA no sirve como direccion de CONEXION: 0.0.0.0 y :: quieren
+        // decir «en todas», y a eso no se conecta nadie.
+        igual(T::bindAddressToConnectHost("0.0.0.0"), "127.0.0.1", "bind: 0.0.0.0 no es un destino");
+        igual(T::bindAddressToConnectHost("::"), "127.0.0.1", "bind: :: tampoco");
+        igual(T::bindAddressToConnectHost("192.168.1.5"), "192.168.1.5", "bind: una IPv4 concreta se respeta");
+        igual(T::bindAddressToConnectHost("::1"), "::1", "bind: una IPv6 concreta se respeta");
+        igual(T::bindAddressToConnectHost("localhost"), "127.0.0.1",
+              "bind: lo que no es una IP se toma como el daemon local");
+        igual(T::bindAddressToConnectHost(""), "127.0.0.1", "bind: vacio");
+
+        // Resolucion de nombres: solo se usa para CONTARLO en el registro.
+        const auto r = T::resolveHostAddresses("localhost");
+        comprobar(r.ok && !r.addresses.empty(), "resolveHostAddresses: localhost resuelve");
+        comprobar(!T::resolveHostAddresses("no.existe.invalido.zfsmgr").ok,
+                  "resolveHostAddresses: un nombre inexistente falla y lo dice");
+        comprobar(!T::resolveHostAddresses("").ok, "resolveHostAddresses: vacio no resuelve");
+
+        // La sesion sin nada puesto no debe reventar: un CLI de solo lectura vive asi.
+        {
+            TransportSession vacia;
+            vacia.log(TransportSession::Nivel::Info, "nadie escucha");  // no revienta
+            std::string u;
+            std::string c;
+            comprobar(!vacia.askCredentials("x", u, c),
+                      "sesion sin proveedor de credenciales: devuelve false");
+            comprobar(vacia.respira(), "sesion sin pump: respira() dice que siga");
+            comprobar(vacia.puedeMontarTuneles(),
+                      "sesion sin restriccion de hilo: se pueden montar tuneles");
+            std::string e;
+            comprobar(!vacia.persistTls(ConnectionProfile{}, "a", "b", "c", 1, &e)
+                          && !e.empty(),
+                      "sesion sin donde guardar el TLS: falla y explica");
+        }
+
+        // El destino del registro distingue el mensaje general del de una conexion.
+        {
+            TransportSession ses;
+            std::vector<std::string> visto;
+            ses.sink = [&visto](TransportSession::Nivel n, const std::string& id,
+                                const std::string& m) {
+                visto.push_back(std::to_string(static_cast<int>(n)) + "|" + id + "|" + m);
+            };
+            ses.log(TransportSession::Nivel::Warn, "general");
+            ses.logConn(TransportSession::Nivel::Error, "unib", "de conexion");
+            comprobar(visto.size() == 2, "sink: llegan los dos");
+            if (visto.size() == 2) {
+                igual(visto[0], "2||general", "sink: el general va sin identificador");
+                igual(visto[1], "3|unib|de conexion", "sink: el de conexion lo lleva");
+            }
+        }
+
+        // El desvio al hilo donde se pueden montar tuneles.
+        {
+            TransportSession ses;
+            bool ejecutado = false;
+            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            comprobar(ejecutado, "enElHiloDeTuneles: sin restriccion, se ejecuta en linea");
+
+            ejecutado = false;
+            bool desviado = false;
+            ses.tunnelsAllowedHere = [] { return false; };
+            ses.runWhereTunnelsAllowed = [&desviado](const std::function<void()>& t) {
+                desviado = true;
+                t();
+            };
+            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            comprobar(desviado && ejecutado, "enElHiloDeTuneles: con restriccion, se desvia");
+
+            // Y si NO hay a donde desviar, se ejecuta igualmente: no hacerlo dejaria la
+            // operacion sin ocurrir, que es peor.
+            ses.runWhereTunnelsAllowed = nullptr;
+            ejecutado = false;
+            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            comprobar(ejecutado, "enElHiloDeTuneles: sin desvio posible, se hace aqui");
+        }
+
+        // Con el transporte de mentira puesto NO se abre ninguna conexion. Lo que no sea
+        // una invocacion del agente se anota y fracasa: es lo que permite afirmar en un
+        // test que algo NO debia irse por shell.
+        {
+            TransportSession ses;
+            ses.transportForTest = [](const std::vector<std::string>& argv, std::string& out,
+                                      std::string& err, int& rc) {
+                out = "argv:" + std::to_string(argv.size());
+                err.clear();
+                rc = 0;
+                return true;
+            };
+            ConnectionProfile p;
+            p.id = "x";
+            p.connType = "SSH";
+            p.host = "no.se.debe.contactar";
+            std::string out;
+            std::string err;
+            int rc = -1;
+            comprobar(T::runSsh(ses, p, daemonpayload::unixBinPath() + " --dump-x uno", 1000, out,
+                                err, rc),
+                      "transporte de prueba: la orden del agente se atiende");
+            igual(out, "argv:2", "transporte de prueba: llegan los argumentos, no la cadena");
+            comprobar(ses.callsForTest.size() == 1 && !ses.callsForTest[0].argv.empty(),
+                      "transporte de prueba: se anota con argv");
+
+            comprobar(!T::runSsh(ses, p, "zfs list -H", 1000, out, err, rc),
+                      "transporte de prueba: una orden de shell FRACASA");
+            comprobar(rc == 127, "transporte de prueba: y con rc=127");
+            comprobar(ses.callsForTest.size() == 2 && ses.callsForTest[1].argv.empty()
+                          && !ses.callsForTest[1].shellCommand.empty(),
+                      "transporte de prueba: se anota como cadena de shell");
         }
     }
 
