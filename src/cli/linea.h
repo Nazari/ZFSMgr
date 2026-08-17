@@ -6,10 +6,10 @@
 
 // Leer una línea del terminal con historial y completado por tabulador.
 //
-// **Escrito a mano y no con `readline`**, por la misma razón por la que las expresiones
-// regulares son `std::regex`: meter una dependencia por comodidad va en contra de todo lo
-// hecho hasta ahora, y además GNU readline es GPL, que para un binario que se distribuye
-// no es una decisión que se tome de paso.
+// **Escrito a mano y no con `readline`.** El motivo NO es la licencia —ZFSMgr es GPL v3—:
+// es que readline **no existe en Windows**, y libedit tampoco. Sería una dependencia que
+// resuelve el problema en tres plataformas y deja fuera justo aquella donde este editor es
+// más flojo, obligando a mantener los dos caminos de todas formas.
 //
 // Cubre lo que se usa de verdad al teclear órdenes: escribir, borrar, moverse, historial
 // arriba y abajo, inicio y fin, y el tabulador. No pretende ser un editor completo.

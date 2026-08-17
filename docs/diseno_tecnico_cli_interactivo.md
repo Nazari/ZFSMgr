@@ -270,9 +270,11 @@ ancho se mide en **caracteres**, no en bytes, o «instantánea» descuadra la co
 
 ## El tabulador, sin `readline`
 
-Meter `readline` habría sido una dependencia nueva —contra la línea seguida en todo el
-proyecto— y además es GPL, que para un binario que se distribuye no es una decisión que se
-tome de paso. El editor de línea está escrito a mano: modo crudo, historial con las
+El motivo para no usar `readline` **no es la licencia** —ZFSMgr es GPL v3, así que
+enlazarla no plantea ningún problema ahí—: es que **readline no existe en Windows**, y
+libedit tampoco. Sería una dependencia que resuelve el problema en tres plataformas y deja
+fuera justo aquella donde este editor es más flojo, obligando a mantener los dos caminos de
+todas formas. El editor de línea está escrito a mano: modo crudo, historial con las
 flechas, inicio y fin, borrado, y el tabulador. **El modo del terminal se restaura siempre**,
 también al salir por error: dejarlo sin eco deja al usuario escribiendo a ciegas en su
 propia shell.
@@ -282,6 +284,13 @@ consola de Windows no interpreta ANSI si no se le activa el modo de terminal vir
 eso `\033[K` se imprime literal: la pantalla se llenaba de «[K». Se podría activar ese modo,
 pero repintar con `\r` funciona en cualquier terminal y en cualquier versión sin preguntar
 nada, y una cosa que funciona siempre vale más que dos caminos según la plataforma.
+
+**En Windows la entrada se pone en BINARIO mientras se edita.** En modo texto la biblioteca
+de C traduce CRLF a LF, y para saber si un `\r` va seguido de `\n` tiene que mirar el
+carácter siguiente: al pulsar Intro la consola entrega solo `\r`, así que `fgetc` se quedaba
+esperando otra tecla y había que **pulsar Intro dos veces**. Se cambia solo mientras dura la
+edición y se restaura al salir: en binario, una contraseña leída de una tubería se quedaría
+con un `\r` pegado, y eso es otra contraseña.
 
 El completado tiene tres casos, y el orden importa: la PRIMERA palabra es una orden; una
 que empieza por guion es una opción DE ESA orden; y cualquier otra cosa se trata como una

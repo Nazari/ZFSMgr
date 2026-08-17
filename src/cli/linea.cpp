@@ -7,6 +7,8 @@
 #include <iostream>
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #else
 #include <termios.h>
@@ -28,6 +30,17 @@ public:
         if (m_ok) {
             SetConsoleMode(m_h, m_viejo & ~static_cast<DWORD>(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
         }
+        // **Entrada en BINARIO mientras se edita, y esta es la parte que no es obvia.**
+        //
+        // En modo texto, la biblioteca de C traduce CRLF a LF, y para saber si un `\r` va
+        // seguido de `\n` tiene que MIRAR EL SIGUIENTE CARÁCTER. Al pulsar Intro la consola
+        // entrega solo `\r`, así que `fgetc` se quedaba esperando otra tecla: había que
+        // pulsar Intro DOS VECES para que se ejecutara una orden.
+        //
+        // Se cambia solo aquí y se restaura al salir: en binario, `getline` sobre una
+        // tubería de Windows dejaría un `\r` al final de cada línea, y una contraseña leída
+        // con ese `\r` pegado sería otra contraseña.
+        m_modoViejo = _setmode(_fileno(stdin), _O_BINARY);
 #else
         m_ok = ::tcgetattr(STDIN_FILENO, &m_viejo) == 0;
         if (m_ok) {
@@ -45,6 +58,9 @@ public:
         }
 #ifdef _WIN32
         SetConsoleMode(m_h, m_viejo);
+        if (m_modoViejo != -1) {
+            _setmode(_fileno(stdin), m_modoViejo);
+        }
 #else
         ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &m_viejo);
 #endif
@@ -56,6 +72,7 @@ private:
 #ifdef _WIN32
     HANDLE m_h{nullptr};
     DWORD m_viejo{0};
+    int m_modoViejo{-1};
 #else
     termios m_viejo{};
 #endif
@@ -213,6 +230,9 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
             std::fprintf(stderr, "\n");
             out = linea;
             return true;
+        }
+        if (c == 0) {
+            continue;  // relleno de algunas consolas
         }
         if (c == 4) {  // Ctrl-D
             if (linea.empty()) {
