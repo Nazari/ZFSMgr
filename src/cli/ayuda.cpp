@@ -213,10 +213,16 @@ const std::vector<Orden> kOrdenes = {
     {"promote", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {},
      Objetivo::Dataset,
      {}},
-    {"get", {"t_dataset_105268", "Dataset"}, {"t_propiedad_77632b", "[propiedad]"}, {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {}, {},
+    {"get", {"t_dataset_105268", "Dataset"}, {"t_propiedad_77632b", "[propiedad]"}, {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {},
+     {{"t_tab_props", "El tabulador completa el nombre PREGUNTÁNDOSELO a la máquina, así que ofrece "
+      "las que ese dataset tiene de verdad y no una lista escrita aquí que envejecería con "
+      "cada versión de OpenZFS."}},
      Objetivo::DatasetOInstantanea,
      {{"propiedad", Ranura::Tipo::Texto, Ranura::Cuantas::Opcional}}},
-    {"set", {"t_dataset_105268", "Dataset"}, {"t_prop_valor_b7871d", "<prop>=<valor> [más...]"}, {"t_escribe_pr_b449c1", "Escribe propiedades."}, {}, {},
+    {"set", {"t_dataset_105268", "Dataset"}, {"t_prop_valor_b7871d", "<prop>=<valor> [más...]"}, {"t_escribe_pr_b449c1", "Escribe propiedades."}, {},
+     {{"t_tab_valores", "El tabulador completa el nombre y, tras el « = », los valores posibles de "
+      "las que tienen lista cerrada —`compression`, `canmount`, `sync`…—. Para `quota` o "
+      "`mountpoint` no ofrece nada, que es mejor que inventar."}},
      Objetivo::DatasetOInstantanea,
      {{"props", Ranura::Tipo::Propiedad, Ranura::Cuantas::UnaOMas}}},
     {"load-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},

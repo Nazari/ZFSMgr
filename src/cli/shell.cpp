@@ -3,6 +3,7 @@
 #include "daemonpayload.h"
 #include "ayuda.h"
 #include "gramatica_cli.h"
+#include "zfsprops.h"
 #include "helpers.h"
 #include "linea.h"
 #include "json.h"
@@ -56,6 +57,8 @@ struct Estado {
     // Los pools de cada conexión. Ver destinoDePool: se usan para decidir si el primer
     // argumento suelto nombra un pool o es un argumento de la orden.
     std::map<std::string, std::set<std::string>> poolsPorConexion;
+    // Las propiedades de cada sitio, para el completado. Ver propiedadesDe.
+    std::map<std::string, std::vector<std::string>> propsPorSitio;
     Sesion* ses{nullptr};
     Conexiones conns;
     ZfsmUrl actual;   // conexión vacía = raíz
@@ -3288,6 +3291,38 @@ std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
 //
 // Tres casos, y el orden importa: la PRIMERA palabra es una orden; una palabra que empieza
 // por guion es una opción DE ESA orden; y cualquier otra cosa se trata como una URL.
+// Las propiedades que ese dataset tiene de verdad, recordadas durante la sesión.
+//
+// Se preguntan a la máquina —`zfs get all`— en vez de llevar una lista escrita: así no
+// envejece con OpenZFS y no se ofrece lo que ese pool no soporta. Se cachea porque el
+// tabulador se pulsa muchas veces y cada pulsación costaría una ida y vuelta.
+const std::vector<std::string>& propiedadesDe(Estado& e, const ZfsmUrl& donde) {
+    const std::string clave = textoDe(donde);
+    const auto ya = e.propsPorSitio.find(clave);
+    if (ya != e.propsPorSitio.end()) {
+        return ya->second;
+    }
+    std::vector<std::string> nombres;
+    if (nodoDe(donde) == Nodo::Dataset || nodoDe(donde) == Nodo::Snapshot) {
+        std::string out;
+        B::json::Value raiz;
+        std::string err;
+        // El verbo devuelve el JSON de `zfs get -j`, no columnas: los nombres son las claves
+        // de `properties`.
+        if (agente(e, donde, {"--dump-zfs-get-all", donde.zfsName()}, out, 20000)
+            && B::json::parse(out, raiz, &err)) {
+            for (const auto& ds : raiz["datasets"].toObject()) {
+                for (const auto& prop : ds.second["properties"].toObject()) {
+                    nombres.push_back(prop.first);
+                }
+            }
+        }
+    }
+    std::sort(nombres.begin(), nombres.end());
+    nombres.erase(std::unique(nombres.begin(), nombres.end()), nombres.end());
+    return e.propsPorSitio.emplace(clave, std::move(nombres)).first->second;
+}
+
 std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
                                     std::size_t& desde) {
     // El trozo que se está escribiendo: desde el último espacio antes del cursor.
@@ -3310,6 +3345,37 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     // `help` completa nombres de orden, que es lo que lleva detrás.
     if (orden == "help" || orden == "?") {
         return nombresQueEmpiezanPor(parcial);
+    }
+
+    // --- Propiedades, en `get` y `set`.
+    //
+    // Los NOMBRES salen de la máquina, no de una lista escrita aquí: se pregunta al dataset
+    // en el que uno está. Una lista propia envejecería con cada versión de OpenZFS y, peor,
+    // ofrecería propiedades que ese pool no tiene.
+    //
+    // Los VALORES salen del catálogo de la capa base, que es el mismo que usa el
+    // desplegable de la interfaz. Solo las de lista cerrada: para `quota` o `mountpoint` no
+    // se ofrece nada, que es mejor que inventar.
+    if (orden == "get" || orden == "set") {
+        const std::size_t igual = parcial.find('=');
+        if (igual != std::string::npos) {
+            const std::string prop = parcial.substr(0, igual);
+            const std::string escrito = parcial.substr(igual + 1);
+            std::vector<std::string> out;
+            for (const std::string& v : B::zfsprops::valoresDe(prop)) {
+                if (B::startsWith(v, escrito)) {
+                    out.push_back(prop + "=" + v);
+                }
+            }
+            return out;
+        }
+        std::vector<std::string> out;
+        for (const std::string& p : propiedadesDe(e, e.actual)) {
+            if (B::startsWith(p, parcial)) {
+                out.push_back(orden == "set" ? p + "=" : p);
+            }
+        }
+        return out;
     }
 
     // Una URL. Se separa lo ya escrito en «lo que ya está resuelto» y «lo que se teclea»,

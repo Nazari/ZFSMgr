@@ -553,6 +553,8 @@
     "t_suelta_t_n_bedff9": "Drop tunnel, TLS material and back-off, reread the configuration and probe again.",
     "t_sufijo_sn": " [y/N]: ",
     "t_sync_btn_001": "Sync",
+    "t_tab_props": "Tab completes the name by ASKING the machine, so it offers the ones that dataset really has and not a list written here that would age with every OpenZFS release.",
+    "t_tab_valores": "Tab completes the name and, after the « = », the possible values of the ones with a closed list —`compression`, `canmount`, `sync`…—. For `quota` or `mountpoint` it offers nothing, which beats making things up.",
     "t_tambi_n_de_5714fd": "Of the descendants too.",
     "t_tambi_n_en_33e099": "On the descendants too.",
     "t_text_es_pa_52ce5c": "text is for reading: aligned columns and human-readable sizes. tsv is for scripts: no header, tabs and fixed English columns. json adds TYPES: numbers are numbers and what does not apply is null.",

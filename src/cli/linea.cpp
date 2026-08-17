@@ -210,8 +210,10 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
     if (comun.size() > parcial.size()) {
         linea = linea.substr(0, desde) + comun + linea.substr(cursor);
         cursor = desde + comun.size();
-        // Una sola opción: se cierra con un espacio, que es lo que uno iba a teclear.
-        if (opciones.size() == 1) {
+        // Una sola opción: se cierra con un espacio, que es lo que uno iba a teclear. Salvo
+        // que acabe en `=`, donde lo siguiente es el VALOR y va pegado: `set atime= on` son
+        // dos componentes y no una asignación, así que el espacio rompería la orden.
+        if (opciones.size() == 1 && comun.back() != '=') {
             linea.insert(cursor, " ");
             ++cursor;
         }

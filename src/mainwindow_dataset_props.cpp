@@ -3,6 +3,8 @@
 
 #include <QApplication>
 #include <QAbstractScrollArea>
+#include "zfsprops.h"
+
 #include <QComboBox>
 #include <QFont>
 #include <QHeaderView>
@@ -1070,32 +1072,17 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
     table->setRowCount(0);
     m_propsOriginalValues.clear();
     m_propsOriginalInherit.clear();
-    const QMap<QString, QStringList> enumValues = {
-        {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("relatime"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("readonly"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("compression"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("lz4"), QStringLiteral("zstd"), QStringLiteral("gzip"), QStringLiteral("zle"), QStringLiteral("lzjb")}},
-        {QStringLiteral("checksum"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("fletcher2"), QStringLiteral("fletcher4"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
-        {QStringLiteral("sync"), {QStringLiteral("standard"), QStringLiteral("always"), QStringLiteral("disabled")}},
-        {QStringLiteral("logbias"), {QStringLiteral("latency"), QStringLiteral("throughput")}},
-        {QStringLiteral("primarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
-        {QStringLiteral("secondarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
-        {QStringLiteral("dedup"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("verify"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
-        {QStringLiteral("copies"), {QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("3")}},
-        {QStringLiteral("acltype"), {QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4")}},
-        {QStringLiteral("aclinherit"), {QStringLiteral("discard"), QStringLiteral("noallow"), QStringLiteral("restricted"), QStringLiteral("passthrough"), QStringLiteral("passthrough-x")}},
-        {QStringLiteral("xattr"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa"), QStringLiteral("dir")}},
-        {QStringLiteral("normalization"), {QStringLiteral("none"), QStringLiteral("formC"), QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")}},
-        {QStringLiteral("casesensitivity"), {QStringLiteral("sensitive"), QStringLiteral("insensitive"), QStringLiteral("mixed")}},
-        {QStringLiteral("utf8only"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("canmount"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")}},
-        {QStringLiteral("snapdir"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
-        {QStringLiteral("exec"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("setuid"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("devices"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("snapdev"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
-        {QStringLiteral("volmode"), {QStringLiteral("default"), QStringLiteral("full"), QStringLiteral("dev"), QStringLiteral("none"), QStringLiteral("geom")}},
-    };
+    // La tabla vive en la capa base: la comparten la interfaz y el intérprete, que la usa
+    // para completar con el tabulador. Tenerla aquí dentro impedía que el CLI la ofreciera,
+    // y copiarla habría sido garantizar que las dos se separen.
+    QMap<QString, QStringList> enumValues;
+    for (const auto& kv : zfsmgr::base::zfsprops::propiedadesConValores()) {
+        QStringList vals;
+        for (const std::string& v : kv.second) {
+            vals << QString::fromStdString(v);
+        }
+        enumValues.insert(QString::fromStdString(kv.first), vals);
+    }
     const int pinnedCount = (!snapshot.isEmpty() ? 1 : (windowsConn ? 5 : 4));
     table->setProperty("pinned_rows", pinnedCount);
     const bool encryptionOff = encryptionDisabledForRows(rows);

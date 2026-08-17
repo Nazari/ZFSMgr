@@ -217,6 +217,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/helpers.h
     ../src/base/transportcmd.cpp
     ../src/base/transportcmd.h
+    ../src/base/zfsprops.cpp
+    ../src/base/zfsprops.h
     ../src/base/transportreason.cpp
     ../src/base/transportreason.h
     ../src/base/transportrpc.cpp
