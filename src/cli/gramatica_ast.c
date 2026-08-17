@@ -53,6 +53,17 @@ void astBandera(AnalisisCli* r, char* bandera) {
     r->banderas[r->nBanderas++] = bandera;
 }
 
+void astOpcionRepetida(AnalisisCli* r, char* nombre, char* valor) {
+    if (r->nRepetidas >= ZFSMCLI_MAX_COMPONENTES) {
+        free(nombre);
+        free(valor);
+        return;
+    }
+    r->repetidas[r->nRepetidas].nombre = nombre;
+    r->repetidas[r->nRepetidas].valor = valor;
+    ++r->nRepetidas;
+}
+
 void astError(AnalisisCli* r, const char* msg) {
     if (!r->error) {
         r->error = dup0(msg);
@@ -72,6 +83,10 @@ void astLibera(AnalisisCli* r) {
     }
     for (int i = 0; i < r->nBanderas; ++i) {
         free(r->banderas[i]);
+    }
+    for (int i = 0; i < r->nRepetidas; ++i) {
+        free(r->repetidas[i].nombre);
+        free(r->repetidas[i].valor);
     }
     memset(r, 0, sizeof(*r));
 }

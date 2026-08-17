@@ -27,6 +27,8 @@ typedef struct {
     int nOpciones;
     char* banderas[ZFSMCLI_MAX_COMPONENTES];      /* -r, -rf */
     int nBanderas;
+    ZfsmCliPar repetidas[ZFSMCLI_MAX_COMPONENTES]; /* -o p=v, que se repite y ordena */
+    int nRepetidas;
     char* error;                                  /* NULL si fue bien */
 } AnalisisCli;
 
@@ -36,6 +38,7 @@ void astObjetivo(AnalisisCli* r, char* url);
 void astRanura(AnalisisCli* r, const char* nombre, char* valor);
 void astOpcion(AnalisisCli* r, char* nombre, char* valor);
 void astBandera(AnalisisCli* r, char* bandera);
+void astOpcionRepetida(AnalisisCli* r, char* nombre, char* valor);
 void astError(AnalisisCli* r, const char* msg);
 void astLibera(AnalisisCli* r);
 

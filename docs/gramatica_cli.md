@@ -348,13 +348,33 @@ largo y compensa.
 - **`get /local/tank/x compression` ahora se puede escribir**, y antes no: con las reglas a
   mano la ranura de texto se tragaba el destino y había que usar `--on`.
 
-### Lo que queda
+### Conectado
 
-Las 46 órdenes tienen firma y la gramática las cubre —lo comprueba
-`zfsmgr_gramatica_cli_test`, que además exige que una orden con ranura obligatoria FALLE
-sola y diga cuál falta—. Falta lo último: que el despacho del intérprete consuma
-`analizaLinea()` en vez de `trocea()`. Hasta entonces conviven el analizador nuevo,
-comprobado, y el troceo viejo, que es el que se ejecuta.
+El despacho consume `analizaLinea()`. **`trocea()` y `Opts` ya no existen**, y con ellos se
+fueron `destinoDe`, `destinoSuelto`, `destinoDePool`, `adoptaPoolSuelto`, `cabeEn` y
+`todasLlenas` —las cuatro maneras distintas de repartir argumentos que convivían—.
+
+Lo que queda de `prepara()` es lo único que no es sintaxis: convertir el texto del destino
+en una URL y comprobar que el nodo es del tipo que la orden pide. Treinta líneas de reglas
+de precedencia se fueron con la consulta al daemon que necesitaban.
+
+Las 46 órdenes pasan por ahí: `scripts/revisa_firmas_cli.py` lo mide.
+
+**Los mensajes de error salen ahora del catálogo.** Antes cada orden llevaba su propio
+texto de «uso:» escrito a mano, y por eso unas lo tenían y otras no. Ahora un fallo de
+análisis responde con la línea de sintaxis de esa orden y, si falta una ranura obligatoria,
+cuál:
+
+```text
+uso: clone <nuevo> [--from <@instantánea>]  (falta <texto>)
+uso: hold <etiqueta> [-r]  (falta <etiqueta>)
+```
+
+**Lo que se rompió al migrar, y cómo se caza en adelante.** Cinco órdenes —`copy`, `rsync`,
+`diff`, `todir`, `fromdir`— leían la ranura por el nombre viejo: la gramática llama
+«destino» a la URL de `copy` y ellas la buscaban como «texto», así que el argumento se
+perdía. `zfsmgr_gramatica_cli_test` fija ahora el contrato de nombres orden por orden, que
+es donde tenía que estar.
 
 ## Valoración: ¿yacc/lex de verdad? (escrita ANTES de construirlo)
 

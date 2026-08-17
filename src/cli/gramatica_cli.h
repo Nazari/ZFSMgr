@@ -22,6 +22,8 @@ struct LineaAnalizada {
     std::multimap<std::string, std::string> ranuras;
     std::map<std::string, std::string> opciones;  // --clave [valor]; valor vacío = bandera
     std::vector<std::string> banderas;            // -r, -rf
+    // `-o p=v` repetidas: en lista y no en mapa porque el orden importa y la clave se repite.
+    std::vector<std::pair<std::string, std::string>> repetidas;
     std::string error;                            // vacío si fue bien
     std::string faltaRanura;                      // qué ranura obligatoria falta, si esa fue la causa
 

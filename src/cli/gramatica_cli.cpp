@@ -2,6 +2,7 @@
 
 #include "ayuda.h"
 #include "gramatica_ast.h"
+#include "i18n.h"
 
 namespace zfsmgr::cli {
 namespace {
@@ -26,15 +27,23 @@ LineaAnalizada analizaLinea(const std::string& linea) {
     if (a.error) {
         // «syntax error» no le dice nada a nadie. Casi siempre lo que falta es una ranura
         // obligatoria, y la firma ya sabe cuál y cómo se escribe la orden: se dice eso.
+        // «syntax error» no le dice nada a nadie. Si el verbo se reconoce, lo útil es su
+        // línea de sintaxis —que ya está en el catálogo— y, si lo que falta es una ranura
+        // obligatoria, cuál es. Antes cada orden llevaba su propio texto de «uso:» escrito
+        // a mano, y por eso unas lo tenían y otras no.
         const Orden* o = ordenPorNombre(primeraPalabra(linea));
         out.error = a.error;
         if (o) {
             for (const Ranura& r : o->ranuras) {
                 if (r.cuantas == Ranura::Cuantas::Una || r.cuantas == Ranura::Cuantas::UnaOMas) {
-                    out.error = std::string("falta <") + r.nombre + ">";
                     out.faltaRanura = r.nombre;
                     break;
                 }
+            }
+            out.error = std::string("uso: ") + o->nombre + " "
+                        + zfsmgr::base::i18n::tr(o->uso.clave, o->uso.es);
+            if (!out.faltaRanura.empty()) {
+                out.error += "  (falta <" + out.faltaRanura + ">)";
             }
         }
     }
@@ -54,6 +63,9 @@ LineaAnalizada analizaLinea(const std::string& linea) {
     }
     for (int i = 0; i < a.nBanderas; ++i) {
         out.banderas.push_back(a.banderas[i]);
+    }
+    for (int i = 0; i < a.nRepetidas; ++i) {
+        out.repetidas.emplace_back(a.repetidas[i].nombre, a.repetidas[i].valor);
     }
     astLibera(&a);
     return out;

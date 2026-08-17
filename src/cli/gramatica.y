@@ -78,10 +78,10 @@ linea
 
 orden
 /* --- Navegación --------------------------------------------------------------------- */
-    : V_CD url_opt                       { astVerbo(res, $1); }
-    | V_LS url_opt                       { astVerbo(res, $1); }
+    : V_CD destino_opt                       { astVerbo(res, $1); }
+    | V_LS destino_opt                       { astVerbo(res, $1); }
     | V_PWD                              { astVerbo(res, $1); }
-    | V_INFO url_opt                     { astVerbo(res, $1); }
+    | V_INFO destino_opt                     { astVerbo(res, $1); }
 
 /* --- Del intérprete ----------------------------------------------------------------- */
     | V_HELP                             { astVerbo(res, $1); }
@@ -94,25 +94,25 @@ orden
 /* --- Conexiones ---------------------------------------------------------------------
  * Una conexión se nombra por su IDENTIFICADOR —`oldlau`—, que no lleva barra, así que aquí
  * una palabra suelta SÍ puede ser el destino. */
-    | V_CONNECT conexion_opt             { astVerbo(res, $1); }
-    | V_DISCONNECT conexion_opt          { astVerbo(res, $1); }
-    | V_REFRESH conexion_opt             { astVerbo(res, $1); }
-    | V_EDIT conexion_opt                { astVerbo(res, $1); }
-    | V_DEVICES conexion_opt             { astVerbo(res, $1); }
-    | V_INSTALL_DAEMON conexion_opt      { astVerbo(res, $1); }
-    | V_JOBS conexion_opt                { astVerbo(res, $1); }
+    | V_CONNECT destino_opt             { astVerbo(res, $1); }
+    | V_DISCONNECT destino_opt          { astVerbo(res, $1); }
+    | V_REFRESH destino_opt             { astVerbo(res, $1); }
+    | V_EDIT destino_opt                { astVerbo(res, $1); }
+    | V_DEVICES destino_opt             { astVerbo(res, $1); }
+    | V_INSTALL_DAEMON destino_opt      { astVerbo(res, $1); }
+    | V_JOBS destino_opt                { astVerbo(res, $1); }
 /* En estas dos la palabra ya es la ranura, así que la conexión va por URL o por `--on`. */
     | V_JOB url_opt palabra              { astVerbo(res, $1); astRanura(res, "texto", $3); }
     | V_IMPORT url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
 
 /* --- Pools --------------------------------------------------------------------------- */
-    | V_FLUSH url_opt                    { astVerbo(res, $1); }
-    | V_UPGRADE url_opt                  { astVerbo(res, $1); }
-    | V_REGUID url_opt                   { astVerbo(res, $1); }
-    | V_EXPORT url_opt                   { astVerbo(res, $1); }
-    | V_STATUS url_opt                   { astVerbo(res, $1); }
-    | V_HISTORY url_opt                  { astVerbo(res, $1); }
-    | V_SCRUB url_opt fase_opt           { astVerbo(res, $1); }
+    | V_FLUSH destino_opt                    { astVerbo(res, $1); }
+    | V_UPGRADE destino_opt                  { astVerbo(res, $1); }
+    | V_REGUID destino_opt                   { astVerbo(res, $1); }
+    | V_EXPORT destino_opt                   { astVerbo(res, $1); }
+    | V_STATUS destino_opt                   { astVerbo(res, $1); }
+    | V_HISTORY destino_opt                  { astVerbo(res, $1); }
+    | V_SCRUB destino_opt fase_opt           { astVerbo(res, $1); }
 /* Estas tres NO llevan destino posicional: su ranura también acepta una URL, así que
  * `clear /dev/sda1` sería a la vez «el pool /dev/sda1» y «el disco del pool actual». Bison
  * lo señala como conflicto; la versión escrita a mano elegía en silencio. Va por `--on`. */
@@ -121,23 +121,24 @@ orden
     | V_CLEAR vdev_opt                   { astVerbo(res, $1); }
 
 /* --- Datasets ------------------------------------------------------------------------ */
-    | V_MOUNT url_opt                    { astVerbo(res, $1); }
-    | V_UNMOUNT url_opt                  { astVerbo(res, $1); }
-    | V_PROMOTE url_opt                  { astVerbo(res, $1); }
-    | V_DESTROY url_opt                  { astVerbo(res, $1); }
-    | V_LOAD_KEY url_opt                 { astVerbo(res, $1); }
-    | V_UNLOAD_KEY url_opt               { astVerbo(res, $1); }
+    | V_MOUNT destino_opt                    { astVerbo(res, $1); }
+    | V_UNMOUNT destino_opt                  { astVerbo(res, $1); }
+    | V_PROMOTE destino_opt                  { astVerbo(res, $1); }
+    | V_DESTROY destino_opt                  { astVerbo(res, $1); }
+    | V_LOAD_KEY destino_opt                 { astVerbo(res, $1); }
+    | V_UNLOAD_KEY destino_opt               { astVerbo(res, $1); }
     | V_RENAME url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
-    | V_GET url_opt texto_opt            { astVerbo(res, $1); }
-    | V_SET url_opt asignaciones         { astVerbo(res, $1); }
+    | V_GET url_opt                      { astVerbo(res, $1); }
+    | V_GET url_opt palabra              { astVerbo(res, $1); astRanura(res, "propiedad", $3); }
+    | V_SET destino_opt asignaciones         { astVerbo(res, $1); }
     | V_CREATE textos                    { astVerbo(res, $1); }
     | V_CLONE textos                     { astVerbo(res, $1); }
     | V_ALLOW textos                     { astVerbo(res, $1); }
     | V_UNALLOW textos                   { astVerbo(res, $1); }
 
 /* --- Instantáneas -------------------------------------------------------------------- */
-    | V_ROLLBACK url_opt                 { astVerbo(res, $1); }
-    | V_HOLDS url_opt                    { astVerbo(res, $1); }
+    | V_ROLLBACK destino_opt                 { astVerbo(res, $1); }
+    | V_HOLDS destino_opt                    { astVerbo(res, $1); }
     | V_HOLD url_opt palabra             { astVerbo(res, $1); astRanura(res, "etiqueta", $3); }
     | V_RELEASE url_opt palabra          { astVerbo(res, $1); astRanura(res, "etiqueta", $3); }
 
@@ -159,15 +160,21 @@ orden
 
 /* --- Piezas comunes ------------------------------------------------------------------ */
 
+/* El destino, admitiendo un nombre suelto: `cd local`, `mount datos`. Vale en las órdenes
+ * que no tienen ranuras de palabra, que son la mayoría. */
+destino_opt
+    : /* nada: el sitio actual */
+    | URL                                { astObjetivo(res, $1); }
+    | PALABRA                            { astObjetivo(res, $1); }
+    ;
+
+/* El destino solo por URL. Lo usan las SEIS órdenes cuya ranura también es una palabra
+ * —`get <prop>`, `hold <etiqueta>`, `rename <nombre>`, `job <id>`, `import <pool>`—: ahí
+ * `get compression` sería a la vez «la propiedad compression» y «el dataset compression»,
+ * y bison lo señala. Para actuar sobre otro sitio, la URL o `--on`. */
 url_opt
     : /* nada: el sitio actual */
     | URL                                { astObjetivo(res, $1); }
-    ;
-
-conexion_opt
-    : /* nada */
-    | URL                                { astObjetivo(res, $1); }
-    | PALABRA                            { astObjetivo(res, $1); }
     ;
 
 fase_opt
@@ -185,10 +192,6 @@ vdev_opt
     | URL                                { astRanura(res, "disco", $1); }
     ;
 
-texto_opt
-    : /* nada */
-    | palabra                            { astRanura(res, "texto", $1); }
-    ;
 
 /* Una lista de componentes libres: `create <nombre> [prop=valor...]`,
  * `breakdown <directorio> <hijo> ...`. */
@@ -229,6 +232,9 @@ opciones
     | opciones OPCION_LARGA              { astOpcion(res, $2, 0); }
     | opciones OPCION_LARGA valor_opcion { astOpcion(res, $2, $3); }
     | opciones OPCION_CORTA              { astBandera(res, $2); }
+/* `-o ashift=12 -O compression=lz4`, de la creación de pools: una opción corta CON valor
+ * que se repite. Va en su propia lista porque el orden importa y la clave se repite. */
+    | opciones OPCION_CORTA ASIGNACION   { astOpcionRepetida(res, $2, $3); }
     ;
 
 valor_opcion

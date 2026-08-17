@@ -50,14 +50,14 @@ int main() {
     {
         const auto a = analizaLinea("get compression");
         igual(a.objetivo, "", "«get compression»: la propiedad no es el destino");
-        igual(a.uno("texto"), "compression", "«get compression»: es la propiedad");
+        igual(a.uno("propiedad"), "compression", "«get compression»: es la propiedad");
     }
     {
         // Esto NO se podía escribir con la versión anterior: el destino tenía que ir en
         // --on porque la ranura de texto se lo tragaba.
         const auto a = analizaLinea("get /local/tank/x compression");
         igual(a.objetivo, "/local/tank/x", "«get <url> <prop>»: la URL es el destino");
-        igual(a.uno("texto"), "compression", "«get <url> <prop>»: y la palabra la propiedad");
+        igual(a.uno("propiedad"), "compression", "«get <url> <prop>»: y la palabra la propiedad");
     }
     {
         const auto a = analizaLinea("trim stop /dev/sda1");
@@ -123,6 +123,36 @@ int main() {
             comprueba(a.error.empty(),
                       std::string("la orden «") + o.nombre + "» sola no se analiza: " + a.error);
             igual(a.verbo, o.nombre, std::string("«") + o.nombre + "»: el verbo");
+        }
+    }
+
+    // --- Cada orden con ranura tiene que emitirla con SU nombre.
+    //
+    // Es el fallo que aparece al migrar: la gramática llama «destino» a la URL de `copy` y
+    // la orden la buscaba como «texto», así que el mensaje salía vacío y el argumento se
+    // perdía. Aquí se fija el contrato: qué nombre emite cada una.
+    {
+        struct { const char* linea; const char* ranura; const char* valor; } casos[] = {
+            {"copy /a/b/c", "destino", "/a/b/c"},
+            {"rsync /a/b/c", "destino", "/a/b/c"},
+            {"diff /a/b/c", "destino", "/a/b/c"},
+            {"todir /mnt/x", "ruta", "/mnt/x"},
+            {"fromdir /mnt/x", "ruta", "/mnt/x"},
+            {"hold etiq", "etiqueta", "etiq"},
+            {"release etiq", "etiqueta", "etiq"},
+            {"get compression", "propiedad", "compression"},
+            {"set a=b", "props", "a=b"},
+            {"clear /dev/sda1", "disco", "/dev/sda1"},
+            {"scrub stop", "fase", "stop"},
+            {"rename nuevo", "texto", "nuevo"},
+            {"import tank", "texto", "tank"},
+            {"job abc123", "texto", "abc123"},
+            {"create hijo", "texto", "hijo"},
+        };
+        for (const auto& c : casos) {
+            const auto a = analizaLinea(c.linea);
+            igual(a.uno(c.ranura), c.valor,
+                  std::string("«") + c.linea + "»: la ranura se llama «" + c.ranura + "»");
         }
     }
 
