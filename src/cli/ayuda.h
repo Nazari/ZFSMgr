@@ -23,17 +23,18 @@ struct Texto {
 };
 
 struct Parametro {
-    // «--from <@instantánea>»: NO se traduce. Mezcla el nombre de la opción —que no cambia
-    // nunca— con un marcador que sí se leería mejor traducido; separarlos es trabajo
-    // aparte, y dejarlo a medias sería peor que dejarlo entero.
-    const char* forma;
+    // «--from <@instantánea>»: va ENTERA por el catálogo. Mezcla el nombre de la opción
+    // —que no cambia nunca— con un marcador que sí se lee; quien traduzca deja el nombre de
+    // la opción tal cual y traduce el marcador. Partirla en dos campos obligaría a
+    // recomponerla al imprimir sin ganar nada.
+    Texto forma;
     Texto que;  // qué hace
 };
 
 struct Orden {
     const char* nombre;  // el VERBO: no se traduce, es lo que se teclea
     Texto grupo;
-    const char* uso;  // la línea de invocación: ver Parametro::forma
+    Texto uso;  // la línea de invocación: ver Parametro::forma
     Texto resumen;
     std::vector<Parametro> params;
     // Lo que solo sale con `help <orden>`: el porqué, las trampas, los ejemplos. En la
