@@ -4,6 +4,7 @@
 
 #include "base/json.h"
 #include "base/transportcmd.h"
+#include "base/transportrpc.h"
 #include "base/process.h"
 #include "base/tlsclient.h"
 #include "mainwindow_helpers.h"
@@ -168,73 +169,29 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
                          QString& out,
                          QString& err,
                          int& rc) {
-    out.clear();
-    err.clear();
-    rc = -1;
-    if (agentArgs.isEmpty()) {
-        return false;
+    std::vector<std::string> args;
+    args.reserve(static_cast<std::size_t>(agentArgs.size()));
+    for (const QString& a : agentArgs) {
+        args.push_back(a.toStdString());
     }
-    const QString cmd = agentArgs.first();
-    const QStringList params = agentArgs.mid(1);
-    LocalAgentConfig cfg = loadLocalAgentConfig();
-    if (daemonPort > 0) {
-        cfg.port = daemonPort;
-    }
-    const QHostAddress bindAddr(cfg.bindAddress);
-    const bool bindIsAny = (bindAddr == QHostAddress::Any
-                            || bindAddr == QHostAddress::AnyIPv6
-                            || bindAddr == QHostAddress::AnyIPv4);
-    const QString host = (bindAddr.isNull() || bindIsAny) ? QStringLiteral("127.0.0.1")
-                                                           : bindAddr.toString();
-    // TLS contra localhost: o conecta en menos de 10 ms, o rechaza al instante. Un tope
-    // de 2500 ms desperdiciaba segundos por llamada con el daemon parado.
-    const int connectTimeout = qBound(200, timeoutMs > 0 ? timeoutMs / 20 : 400, 700);
-    // Igual que en el RPC remoto: 0 es «sin límite».
-    const int ioTimeout = (timeoutMs <= 0) ? 0 : qMax(800, timeoutMs);
-
-    zfsmgr::base::TlsClientConfig tls;
-    tls.host = host.toStdString();
-    tls.port = static_cast<unsigned short>(cfg.port);
-    tls.serverCertPem = QString::fromUtf8(serverCertPem).toStdString();
-    tls.clientCertPem = QString::fromUtf8(clientCertPem).toStdString();
-    tls.clientKeyPem = QString::fromUtf8(clientKeyPem).toStdString();
-    tls.connectTimeoutMs = connectTimeout;
-    tls.ioTimeoutMs = ioTimeout;
-
-    // La petición se arma con el JSON de la capa base, que escribe compacto igual que
-    // QJsonDocument::Compact.
-    zfsmgr::base::json::Value req;
-    req.set("cmd", zfsmgr::base::json::Value(cmd.toStdString()));
-    zfsmgr::base::json::Array args;
-    for (const QString& p : params) {
-        args.push_back(zfsmgr::base::json::Value(p.toStdString()));
-    }
-    req.set("args", zfsmgr::base::json::Value(std::move(args)));
-
-    QElapsedTimer rpcTimer;
-    rpcTimer.start();
-    // Ya no se prueban dos nombres de par. Existían para la verificación de nombre de
-    // host de Qt; con la fijación explícita del certificado el nombre no interviene en
-    // la validación, así que probar dos era gastar una conexión de más.
-    std::string respuesta;
-    std::string errorTls;
-    if (!zfsmgr::base::tlsRequestLine(tls, zfsmgr::base::json::toCompact(req), respuesta, errorTls)) {
+    std::string o;
+    std::string e;
+    BT::LocalRpcDiag diag;
+    const bool ok = BT::runLocalAgentRpc(args, serverCertPem.toStdString(),
+                                         clientCertPem.toStdString(), clientKeyPem.toStdString(),
+                                         daemonPort, timeoutMs, o, e, rc, &diag);
+    out = QString::fromStdString(o);
+    err = QString::fromStdString(e);
+    // El registro se queda en este lado: la capa base no sabe dónde está, así que devuelve
+    // lo que costó y por qué falló, y aquí se escribe como siempre.
+    const QString cmd = agentArgs.isEmpty() ? QString() : agentArgs.first();
+    if (ok) {
+        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK en %lld ms", qPrintable(cmd), diag.elapsedMs);
+    } else {
         qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FALLÓ en %lld ms: %s", qPrintable(cmd),
-                rpcTimer.elapsed(), errorTls.c_str());
-        return false;
+                diag.elapsedMs, diag.failure.c_str());
     }
-    zfsmgr::base::json::Value resp;
-    std::string errJson;
-    if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
-        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s respuesta ilegible: %s", qPrintable(cmd),
-                errJson.c_str());
-        return false;
-    }
-    rc = static_cast<int>(resp["rc"].toInt(1));
-    out = QString::fromStdString(resp["stdout"].toString());
-    err = QString::fromStdString(resp["stderr"].toString());
-    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK en %lld ms", qPrintable(cmd), rpcTimer.elapsed());
-    return true;
+    return ok;
 }
 
 } // end anonymous namespace — runSshRawNoLog must be externally linkable for background watcher threads.
@@ -245,71 +202,12 @@ bool runSshRawNoLog(const ConnectionProfile& p,
                     QString& out,
                     QString& err,
                     int& rc) {
-    out.clear();
-    err.clear();
-    rc = -1;
-
-    QString program = QStringLiteral("ssh");
-    QStringList sshpassPrefixArgs;
-    const bool hasPassword = !p.password.trimmed().isEmpty();
-    if (hasPassword) {
-        const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
-        if (!sshpassExe.isEmpty()) {
-            program = sshpassExe;
-            sshpassPrefixArgs << "-p" << p.password << "ssh";
-        }
-    }
-
-    QStringList args = sshpassPrefixArgs;
-    const QString familyOpt = mwhelpers::sshAddressFamilyOption(p);
-    if (!familyOpt.isEmpty()) {
-        args << familyOpt;
-    }
-    args << "-o" << "BatchMode=yes";
-    args << "-o" << "ConnectTimeout=10";
-    args << "-o" << "LogLevel=ERROR";
-    args << "-o" << "StrictHostKeyChecking=accept-new";
-    if (hasPassword && !sshpassPrefixArgs.isEmpty()) {
-        args << "-o" << "BatchMode=no";
-        args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
-        args << "-o" << "NumberOfPasswordPrompts=1";
-    }
-    if (p.port > 0) {
-        args << "-p" << QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        args << "-i" << p.keyPath;
-    }
-    // Ver asciiSafeShellCommand: en macOS los argumentos de un proceso se
-    // descomponen, y la orden remota es un argumento. Inocuo si ya es ASCII.
-    args << mwhelpers::sshUserHost(p) << mwhelpers::asciiSafeShellCommand(remoteCmd);
-
-    QProcess proc;
-    struct ProcessGuard {
-        QProcess* proc;
-        ~ProcessGuard() {
-            if (proc && proc->state() != QProcess::NotRunning) {
-                proc->kill();
-                proc->waitForFinished(2000);
-            }
-        }
-    } processGuard{&proc};  // ídem: que no quede un ssh suelto por ninguna salida
-    proc.start(program, args);
-    if (!proc.waitForStarted(4000)) {
-        err = QStringLiteral("cannot start ssh");
-        return false;
-    }
-    if (!proc.waitForFinished(timeoutMs > 0 ? timeoutMs : 15000)) {
-        proc.kill();
-        proc.waitForFinished(1000);
-        err = QStringLiteral("timeout");
-        rc = -1;
-        return false;
-    }
-    out = QString::fromUtf8(proc.readAllStandardOutput());
-    err = QString::fromUtf8(proc.readAllStandardError());
-    rc = proc.exitCode();
-    return true;
+    std::string o;
+    std::string e;
+    const bool ok = BT::runSshRaw(toBaseProfile(p), remoteCmd.toStdString(), timeoutMs, o, e, rc);
+    out = QString::fromStdString(o);
+    err = QString::fromStdString(e);
+    return ok;
 }
 
 namespace {

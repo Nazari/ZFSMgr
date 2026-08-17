@@ -162,6 +162,16 @@ std::string redactSecretsForStorage(const std::string& command,
 std::string restoreSecretsFromStorage(const std::string& stored,
                                       const std::vector<StorableSecret>& secrets);
 
+// Busca un ejecutable en el PATH y, si no aparece, en los directorios de siempre.
+//
+// Devuelve la ruta absoluta, o vacío si no está. El respaldo por directorios no es un
+// adorno: en macOS un proceso lanzado desde el Finder hereda un PATH mínimo que NO incluye
+// /opt/homebrew/bin, así que `sshpass` estaba instalado y aun así no se encontraba.
+//
+// En Windows se prueban además las extensiones de PATHEXT, porque «ssh» a secas no es el
+// nombre de ningún fichero.
+std::string findLocalExecutable(const std::string& name);
+
 // Si la orden tiene algo fuera de ASCII, la reescribe como `eval "$(printf '%b' '...')"`.
 // Ver shPrintfOctalEscaped: en macOS Qt descomponía los caracteres al pasarlos.
 std::string asciiSafeShellCommand(const std::string& cmd);

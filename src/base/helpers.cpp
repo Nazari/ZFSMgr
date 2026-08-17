@@ -5,6 +5,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <regex>
 #include <filesystem>
@@ -1021,6 +1022,91 @@ std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) 
     }
     flushCurrent();
     return rows;
+}
+
+}  // namespace zfsmgr::base::helpers
+
+namespace zfsmgr::base::helpers {
+
+namespace {
+
+bool esEjecutable(const std::filesystem::path& ruta) {
+    std::error_code ec;
+    const auto st = std::filesystem::status(ruta, ec);  // sigue los enlaces simbólicos
+    if (ec || !std::filesystem::is_regular_file(st)) {
+        return false;
+    }
+#ifdef _WIN32
+    return true;  // en Windows manda la extensión, no un bit de permiso
+#else
+    using P = std::filesystem::perms;
+    return (st.permissions() & (P::owner_exec | P::group_exec | P::others_exec)) != P::none;
+#endif
+}
+
+std::vector<std::string> directoriosDelPath() {
+    std::vector<std::string> dirs;
+    const char* path = std::getenv("PATH");
+    if (path && *path) {
+#ifdef _WIN32
+        const char sep = ';';
+#else
+        const char sep = ':';
+#endif
+        for (const std::string& d : split(path, std::string(1, sep), true)) {
+            dirs.push_back(d);
+        }
+    }
+    // Los de siempre, después del PATH y no en su lugar. En macOS un proceso lanzado desde
+    // el Finder hereda un PATH mínimo sin /opt/homebrew/bin, y por eso `sshpass` estaba
+    // instalado y no se encontraba.
+#ifdef __APPLE__
+    dirs.push_back("/opt/homebrew/bin");
+    dirs.push_back("/opt/homebrew/sbin");
+    dirs.push_back("/usr/local/bin");
+    dirs.push_back("/usr/local/sbin");
+#endif
+#ifndef _WIN32
+    dirs.push_back("/usr/bin");
+    dirs.push_back("/usr/sbin");
+    dirs.push_back("/bin");
+    dirs.push_back("/sbin");
+#endif
+    return dirs;
+}
+
+}  // namespace
+
+std::string findLocalExecutable(const std::string& name) {
+    const std::string n = trim(name);
+    if (n.empty()) {
+        return {};
+    }
+    std::error_code ec;
+    // Con separador dentro es una ruta, no un nombre: no se busca, se comprueba.
+    if (n.find('/') != std::string::npos || n.find('\\') != std::string::npos) {
+        return esEjecutable(n) ? std::filesystem::absolute(n, ec).string() : std::string();
+    }
+
+    std::vector<std::string> nombres{n};
+#ifdef _WIN32
+    // «ssh» a secas no es el nombre de ningún fichero en Windows.
+    const char* pathext = std::getenv("PATHEXT");
+    for (const std::string& e : split(pathext && *pathext ? pathext : ".COM;.EXE;.BAT;.CMD",
+                                     ";", true)) {
+        nombres.push_back(n + toLowerAscii(e));
+    }
+#endif
+    for (const std::string& dir : directoriosDelPath()) {
+        for (const std::string& cand : nombres) {
+            const std::filesystem::path p = std::filesystem::path(dir) / cand;
+            if (esEjecutable(p)) {
+                const auto abs = std::filesystem::absolute(p, ec);
+                return ec ? p.string() : abs.string();
+            }
+        }
+    }
+    return {};
 }
 
 }  // namespace zfsmgr::base::helpers
