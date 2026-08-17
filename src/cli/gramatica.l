@@ -86,7 +86,10 @@ static char* sinComillas(const char* s, int n) {
 }
 %}
 
-%option reentrant bison-bridge noyywrap nounput noinput never-interactive
+/* `nounistd`: sin él, el analizador generado incluye <unistd.h>, y en MinGW ese arrastra
+ * un <process.h> del sistema que choca con el `process.h` de la capa base —el cruce a
+ * Windows fallaba con «cstdint: No such file or directory» dentro de unistd.h—. */
+%option reentrant bison-bridge noyywrap nounput noinput never-interactive nounistd
 %option extra-type="void*"
 %option prefix="zfsmcli"
 

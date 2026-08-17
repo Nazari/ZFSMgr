@@ -866,12 +866,16 @@ static char* sinComillas(const char* s, int n) {
     return p;
 }
 #line 869 "generado/gramatica.lex.c"
+/* `nounistd`: sin él, el analizador generado incluye <unistd.h>, y en MinGW ese arrastra
+ * un <process.h> del sistema que choca con el `process.h` de la capa base —el cruce a
+ * Windows fallaba con «cstdint: No such file or directory» dentro de unistd.h—. */
 #define YY_NO_INPUT 1
+#define YY_NO_UNISTD_H 1
 /* El primer componente de la línea es el VERBO y se trata aparte. */
 
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
  * `@` o `#`, o ser uno de los tres atajos de navegación. */
-#line 875 "generado/gramatica.lex.c"
+#line 879 "generado/gramatica.lex.c"
 
 #define INITIAL 0
 #define VERBO 1
@@ -1142,11 +1146,11 @@ YY_DECL
 		}
 
 	{
-#line 105 "gramatica.l"
+#line 108 "gramatica.l"
 
 
 
-#line 109 "gramatica.l"
+#line 112 "gramatica.l"
     /* Se empieza esperando el VERBO, y una sola vez.
      *
      * Con una marca explícita y no mirando `yy_start`: `INITIAL` vale 1, así que la
@@ -1161,7 +1165,7 @@ YY_DECL
     }
 
 
-#line 1165 "generado/gramatica.lex.c"
+#line 1169 "generado/gramatica.lex.c"
 
 	while ( /*CONSTCOND*/1 )		/* loops until end-of-file is reached */
 		{
@@ -1216,13 +1220,13 @@ do_action:	/* This label is used only to access EOF actions. */
 
 case 1:
 YY_RULE_SETUP
-#line 123 "gramatica.l"
+#line 126 "gramatica.l"
 { /* separador delante del verbo */ }
 	YY_BREAK
 case 2:
 /* rule 2 can match eol */
 YY_RULE_SETUP
-#line 124 "gramatica.l"
+#line 127 "gramatica.l"
 {
                         BEGIN(INITIAL);
                         yylval->texto = copia(yytext, yyleng);
@@ -1231,85 +1235,85 @@ YY_RULE_SETUP
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 130 "gramatica.l"
+#line 133 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 4:
 YY_RULE_SETUP
-#line 132 "gramatica.l"
+#line 135 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_START; }
 	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 133 "gramatica.l"
+#line 136 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_STOP; }
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 134 "gramatica.l"
+#line 137 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_CANCEL; }
 	YY_BREAK
 case 7:
 YY_RULE_SETUP
-#line 135 "gramatica.l"
+#line 138 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_PAUSE; }
 	YY_BREAK
 case 8:
 YY_RULE_SETUP
-#line 136 "gramatica.l"
+#line 139 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_SUSPEND; }
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 138 "gramatica.l"
+#line 141 "gramatica.l"
 { yylval->texto = copia(yytext + 2, yyleng - 2); return OPCION_LARGA; }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 139 "gramatica.l"
+#line 142 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return OPCION_CORTA; }
 	YY_BREAK
 case 11:
 /* rule 11 can match eol */
 YY_RULE_SETUP
-#line 140 "gramatica.l"
+#line 143 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 12:
 /* rule 12 can match eol */
 YY_RULE_SETUP
-#line 141 "gramatica.l"
+#line 144 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 13:
 /* rule 13 can match eol */
 YY_RULE_SETUP
-#line 143 "gramatica.l"
+#line 146 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 14:
 /* rule 14 can match eol */
 YY_RULE_SETUP
-#line 144 "gramatica.l"
+#line 147 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 15:
 /* rule 15 can match eol */
 YY_RULE_SETUP
-#line 146 "gramatica.l"
+#line 149 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 16:
 YY_RULE_SETUP
-#line 148 "gramatica.l"
+#line 151 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 150 "gramatica.l"
+#line 153 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 1313 "generado/gramatica.lex.c"
+#line 1317 "generado/gramatica.lex.c"
 case YY_STATE_EOF(INITIAL):
 case YY_STATE_EOF(VERBO):
 	yyterminate();
@@ -2454,6 +2458,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 150 "gramatica.l"
+#line 153 "gramatica.l"
 
 

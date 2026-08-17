@@ -1140,6 +1140,24 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     return false;
 }
 
+// Mueve el sitio actual, sin pasar por la línea. Lo usan las órdenes que tienen que
+// reubicarse tras destruir algo: `destroy` sobre donde uno está deja el sitio apuntando a
+// lo que ya no existe.
+//
+// Existe porque `cmdCd(e, {".."})` dejó de significar lo que parecía en cuanto `cmdCd` pasó
+// a recibir la línea analizada: `".."` se convertía en el `bool vacia` de la estructura, así
+// que la llamada no movía nada. El compilador solo lo dijo como aviso de estrechamiento, y
+// se vio en el registro del cruce a Windows, no aquí.
+void vaA(Estado& e, const std::string& destino) {
+    ZfsmUrl u;
+    std::string err;
+    if (resuelve(e, destino, u, err)) {
+        e.anterior = e.actual;
+        e.hayAnterior = true;
+        e.actual = u;
+    }
+}
+
 bool cmdCd(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -1277,7 +1295,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
         }
         recarga(e);
         std::fprintf(stderr, TC("t_quitada_la_2486c6", "quitada la conexión %s\n"), id.c_str());
-        cmdCd(e, {"/"});
+        vaA(e, "/");
         return true;
     }
     // En un POOL, `destroy` es `zpool destroy`: `zfs destroy` sobre el dataset raíz de un
@@ -1299,7 +1317,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         std::fprintf(stderr, TC("t_destruido__a157ec", "destruido el pool %s\n"), destino.pool.c_str());
-        cmdCd(e, {".."});
+        vaA(e, "..");
         return true;
     }
     const std::string objetivo = destino.zfsName();
@@ -1330,7 +1348,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     // Si se ha borrado justo donde estábamos, se sube: quedarse apuntando a algo que ya no
     // existe hace que la siguiente orden falle sin que se entienda por qué.
     if (destino.zfsName() == e.actual.zfsName() && destino.connection == e.actual.connection) {
-        cmdCd(e, {".."});
+        vaA(e, "..");
     }
     return true;
 }
