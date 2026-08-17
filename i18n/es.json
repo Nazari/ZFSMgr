@@ -226,6 +226,8 @@
     "t_hace_falta_dc4ecf": "hace falta un dataset\n",
     "t_hace_falta_fdcdb6": "hace falta estar en un dataset (ahora: %s)\n",
     "t_hasta_from_64dcd2": "<@hasta> [--from <@desde>]",
+    "t_help_cfg_002": "Configuración y archivos",
+    "t_help_cli_001": "Línea de órdenes",
     "t_hijo_hijo_9a4172": "<hijo> [<hijo>...]",
     "t_host_3960ec": "Host",
     "t_host_port__2ddcc9": "--host / --port / --user / --key",

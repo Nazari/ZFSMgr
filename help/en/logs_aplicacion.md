@@ -2,11 +2,16 @@
 
 The bottom area uses tabs:
 
+- `Pending changes`: what will be applied when you press `Apply changes`.
 - `Settings`: log options and action confirmation.
 - `Combined log`: main application log.
-- `Terminal`: technical output of local/remote commands.
-- `Daemon`: remote daemon log (`/var/lib/zfsmgr/daemon.log`) and `Heartbeat` button.
-- `Transferencias`: list of background daemon transfer jobs (Copy/Level daemon-to-daemon).
+- `Transfers`: list of background daemon transfer jobs (Copy/Level daemon-to-daemon).
+
+Inside the `Combined log`, **each connection** also has its own sub-tabs:
+
+- `Terminal`: technical output of that machine's commands.
+- `Daemon`: its daemon log (`/var/lib/zfsmgr/daemon.log`, or
+  `C:\ProgramData\ZFSMgr\agent\daemon.log` on Windows) and the `Heartbeat` button.
 
 ## Daemon tab
 
@@ -14,9 +19,16 @@ The bottom area uses tabs:
 - The `Heartbeat` button pings the daemon to confirm it is responsive.
 - The log updates when a ZED event is detected or when `Heartbeat` is pressed.
 - The log is not cleared on connection refresh; it resets only if the daemon is reinstalled.
-- daemon-rpc TLS failures appear in logs as `daemon-rpc:fallback` or `daemon-rpc:skip`; ZFSMgr attempts TLS re-cache and daemon update without requiring manual uninstall.
+- daemon-rpc failures appear in the logs as `daemon-rpc:fallback` or `daemon-rpc:skip`,
+  followed by a stable tag naming the kind of failure (`tls-handshake`,
+  `conexion-rechazada`, `tunel-ocupado`…). That tag is deliberately not translated: it is
+  what you grep for in a log that may come from a machine set to another language.
+- **On a TLS failure, ZFSMgr does NOT reinstall the daemon or rebuild the material on its
+  own**: it flags the connection for attention and waits. Re-provisioning would regenerate
+  the TLS material and keep the failure → reinstall → failure loop going. Automatic
+  reinstall only happens when the reason is a version or API mismatch.
 
-## Transferencias tab
+## Transfers tab
 
 - Shows one row per background transfer job (daemon-to-daemon Copy or Level).
 - Each row shows: state, source/target datasets, bytes transferred, speed, elapsed time.

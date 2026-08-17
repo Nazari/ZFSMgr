@@ -49,6 +49,7 @@
     <file alias="help/es/conexiones_windows.md">../help/es/conexiones_windows.md</file>
     <file alias="help/es/logs_aplicacion.md">../help/es/logs_aplicacion.md</file>
     <file alias="help/es/configuracion_archivos.md">../help/es/configuracion_archivos.md</file>
+    <file alias="help/es/linea_de_ordenes.md">../help/es/linea_de_ordenes.md</file>
     <file alias="help/en/manual_rapido.md">../help/en/manual_rapido.md</file>
     <file alias="help/en/atajos_estados.md">../help/en/atajos_estados.md</file>
     <file alias="help/en/accion_copiar.md">../help/en/accion_copiar.md</file>
@@ -63,6 +64,7 @@
     <file alias="help/en/propiedades_inline_columnas.md">../help/en/propiedades_inline_columnas.md</file>
     <file alias="help/en/logs_aplicacion.md">../help/en/logs_aplicacion.md</file>
     <file alias="help/en/configuracion_archivos.md">../help/en/configuracion_archivos.md</file>
+    <file alias="help/en/linea_de_ordenes.md">../help/en/linea_de_ordenes.md</file>
     <file alias="help/en/accion_diff.md">../help/en/accion_diff.md</file>
     <file alias="help/en/conexiones_windows.md">../help/en/conexiones_windows.md</file>
     <file alias="help/zh/manual_rapido.md">../help/zh/manual_rapido.md</file>
@@ -80,6 +82,7 @@
     <file alias="help/zh/propiedades_inline_columnas.md">../help/zh/propiedades_inline_columnas.md</file>
     <file alias="help/zh/logs_aplicacion.md">../help/zh/logs_aplicacion.md</file>
     <file alias="help/zh/configuracion_archivos.md">../help/zh/configuracion_archivos.md</file>
+    <file alias="help/zh/linea_de_ordenes.md">../help/zh/linea_de_ordenes.md</file>
     <file alias="help/zh/conexiones_windows.md">../help/zh/conexiones_windows.md</file>
   </qresource>
 </RCC>

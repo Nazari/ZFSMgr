@@ -505,6 +505,17 @@ if(BUILD_TESTING)
     )
     add_test(NAME zfsmgr_ui_logic_test COMMAND zfsmgr_ui_logic_test)
 
+    # Los temas de ayuda TIENEN que estar dentro del recurso. Añadir uno exige tocar
+    # resources.qrc, y olvidarlo no rompe la compilación: el menú abre «Ayuda no
+    # disponible» y nadie se entera hasta que un usuario lo pulsa.
+    qt_add_executable(zfsmgr_help_resources_test
+        ../tests/help_resources_test.cpp
+        resources.qrc
+    )
+    target_link_libraries(zfsmgr_help_resources_test PRIVATE Qt6::Core)
+    target_compile_definitions(zfsmgr_help_resources_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_help_resources_test COMMAND zfsmgr_help_resources_test)
+
     qt_add_executable(zfsmgr_gui_mainwindow_test
         ../tests/gui_mainwindow_test.cpp
     )

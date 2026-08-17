@@ -8,8 +8,10 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 - Top area: a single unified tree spanning the full width and nearly the full height.
 - Middle band, a **single line**: `Source`, `Status` and `Progress`.
-- Bottom area: tabs (`Pending changes`, `Settings`, `Combined log`, `Terminal`, `Daemon`,
-  `Transfers`).
+- Bottom area: tabs (`Pending changes`, `Settings`, `Combined log`, `Transfers`).
+  `Terminal` and `Daemon` are not here: they are sub-tabs **of each connection**, inside
+  the `Combined log`.
+
 
 The `Actions` box with its six buttons is gone: `Copy`, `Move`, `Clone`, `Sync`, `Level`
 and `Diff` are requested from the target node's context menu (see `Context menus`).
@@ -25,11 +27,13 @@ and `Diff` are requested from the target node's context menu (see `Context menus
 - If a connection is disconnected:
   - the connection root stays visible
   - it shows no children (including auxiliary nodes)
-- Connection name shows active mode:
-  - `(libzfs_core)` when remote daemon is active
-  - `(ssh)` in fallback mode
-- If a connection needs daemon attention, its name shows `(*)`.
-- If daemon-rpc enters TLS backoff, the reason is shown temporarily on the connection node and ZFSMgr attempts to update the daemon and re-cache TLS automatically.
+- If a connection needs daemon attention, its name shows `(*)`, and the reason is spelled
+  out in the `Info` → `Daemon` node.
+- If daemon-rpc is waiting after a TLS problem, the reason appears in brackets next to the
+  connection name. ZFSMgr does **not** reinstall the daemon or rebuild the TLS material on
+  its own: it flags it and waits for you to ask from the context menu. That is deliberate —
+  re-provisioning just because a TLS handshake failed can lock you out of a connection that
+  was fine.
 - `Connection` and `Pool` nodes are shown in bold with a type prefix.
 - The pool root is merged with the pool root dataset:
   - it keeps the pool icon

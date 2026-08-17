@@ -8,8 +8,9 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 
 - Zona superior: un único árbol unificado que ocupa todo el ancho y casi todo el alto.
 - Banda central, de **una sola línea**: `Origen`, `Estado` y `Progreso`.
-- Zona inferior: pestañas (`Cambios pendientes`, `Ajustes`, `Log combinado`, `Terminal`,
-  `Daemon`, `Transferencias`).
+- Zona inferior: pestañas (`Cambios pendientes`, `Ajustes`, `Log combinado`,
+  `Transferencias`). `Terminal` y `Daemon` no están aquí: son sub-pestañas **de cada
+  conexión**, dentro del `Log combinado`.
 
 La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar`,
 `Sincronizar`, `Nivelar` y `Diff` se piden desde el menú contextual del nodo destino
@@ -25,11 +26,13 @@ La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar
 - Si una conexión está desconectada:
   - la conexión sigue visible
   - no muestra hijos (ni siquiera nodos auxiliares)
-- En el nombre de conexión se muestra el modo activo:
-  - `(libzfs_core)` cuando el daemon remoto está activo
-  - `(ssh)` en fallback
-- Si una conexión necesita atención del daemon, su nombre aparece con `(*)`.
-- Si daemon-rpc entra en backoff por TLS, el motivo aparece temporalmente en el nodo de conexión y ZFSMgr intenta actualizar el daemon y recachear TLS automáticamente.
+- Si una conexión necesita atención del daemon, su nombre aparece con `(*)`, y el motivo
+  se detalla en el nodo `Info` → `Daemon`.
+- Si daemon-rpc queda en espera por un problema de TLS, el motivo aparece entre corchetes
+  junto al nombre de la conexión. ZFSMgr **no** reinstala el daemon ni rehace el material
+  TLS por su cuenta: lo marca y espera a que usted lo pida desde el menú contextual. Es
+  deliberado — reaprovisionar solo porque un saludo TLS ha fallado puede dejar sin acceso
+  una conexión que estaba bien.
 - Los nodos `Conexión` y `Pool` se muestran en negrita y con prefijo de tipo.
 - El nodo raíz del pool está fusionado con el dataset raíz del pool:
   - mantiene icono de pool

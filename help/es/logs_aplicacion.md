@@ -2,11 +2,16 @@
 
 La parte inferior de la ventana usa pestañas:
 
+- `Cambios pendientes`: lo que se aplicará al pulsar `Aplicar cambios`.
 - `Ajustes`: opciones de log y confirmación de acciones.
 - `Log combinado`: log principal de aplicación.
-- `Terminal`: salida técnica de comandos locales/remotos.
-- `Daemon`: log del daemon remoto (`/var/lib/zfsmgr/daemon.log`) y botón `Heartbeat`.
 - `Transferencias`: lista de jobs de transferencia en background (Copy/Level daemon-a-daemon).
+
+Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pestañas:
+
+- `Terminal`: salida técnica de los comandos de esa máquina.
+- `Daemon`: log de su daemon (`/var/lib/zfsmgr/daemon.log`, o
+  `C:\ProgramData\ZFSMgr\agent\daemon.log` en Windows) y botón `Heartbeat`.
 
 ## Pestaña Daemon
 
@@ -14,7 +19,15 @@ La parte inferior de la ventana usa pestañas:
 - El botón `Heartbeat` envía un ping al daemon para confirmar que responde.
 - El log se actualiza al detectar un evento ZED o al pulsar `Heartbeat`.
 - El log no se borra al refrescar la conexión; solo se resetea si el daemon ha sido reinstalado.
-- Los fallos de daemon-rpc por TLS aparecen en los logs como `daemon-rpc:fallback` o `daemon-rpc:skip`; ZFSMgr intenta recachear TLS y actualizar el daemon sin pedir desinstalación manual.
+- Los fallos de daemon-rpc aparecen en los logs como `daemon-rpc:fallback` o
+  `daemon-rpc:skip`, seguidos de una etiqueta estable que dice de qué tipo fue el fallo
+  (`tls-handshake`, `conexion-rechazada`, `tunel-ocupado`…). Esa etiqueta no se traduce a
+  propósito: es lo que se busca con `grep` en un registro que puede venir de una máquina
+  configurada en otro idioma.
+- **Ante un fallo de TLS, ZFSMgr NO reinstala el daemon ni rehace el material por su
+  cuenta**: marca la conexión para atención y espera. Reaprovisionar regeneraría el
+  material TLS y perpetuaría el bucle fallo → reinstalación → fallo. La reinstalación
+  automática solo ocurre cuando el motivo es una desalineación de versión o de API.
 
 ## Pestaña Transferencias
 

@@ -2,11 +2,16 @@
 
 窗口底部使用多个标签页：
 
-- `Settings`：日志参数与执行确认选项。
-- `Combined log`：主应用日志。
-- `Terminal`：本地/远端命令技术输出。
-- `Daemon`：远端 daemon 日志（`/var/lib/zfsmgr/daemon.log`）及 `Heartbeat` 按钮。
-- `Transferencias`：后台传输 job 列表（Copy/Level daemon 间传输）。
+- `待应用更改`：按下 `应用更改` 时将要执行的内容。
+- `设置`：日志参数与执行确认选项。
+- `组合日志`：主应用日志。
+- `传输`：后台传输任务列表（守护进程之间的 Copy/Level）。
+
+在 `组合日志` 内部，**每个连接**还各有自己的子分页：
+
+- `终端`：该机器命令的技术输出。
+- `Daemon`：其守护进程日志（`/var/lib/zfsmgr/daemon.log`，Windows 上为
+  `C:\ProgramData\ZFSMgr\agent\daemon.log`）以及 `Heartbeat` 按钮。
 
 ## Daemon 标签页
 
@@ -14,9 +19,14 @@
 - `Heartbeat` 按钮向 daemon 发送心跳，确认其正常响应。
 - 检测到 ZED 事件或点击 `Heartbeat` 时日志会刷新。
 - 刷新连接时日志不会被清空；仅在重新安装 daemon 后重置。
-- daemon-rpc 的 TLS 失败会在日志中显示为 `daemon-rpc:fallback` 或 `daemon-rpc:skip`；ZFSMgr 会尝试重新缓存 TLS 并更新 daemon，而不要求手动卸载。
+- daemon-rpc 的失败会在日志中显示为 `daemon-rpc:fallback` 或 `daemon-rpc:skip`，其后跟着一个
+  稳定的标签，说明失败的类型（`tls-handshake`、`conexion-rechazada`、`tunel-ocupado` 等）。
+  该标签刻意不做翻译：日志可能来自设置为其他语言的机器，而这正是用 `grep` 检索的依据。
+- **发生 TLS 失败时，ZFSMgr 不会自行重装守护进程或重建材料**：它会把连接标记为需要关注并
+  等待。重新配置会重新生成 TLS 材料，使「失败 → 重装 → 失败」的循环延续下去。只有当原因是
+  版本或 API 不一致时，才会自动重装。
 
-## Transferencias 标签页
+## 传输分页
 
 - 每个后台传输 job 显示为一行（daemon 间 Copy 或 Level）。
 - 每行包含：状态、源/目标数据集、已传输字节数、速率、耗时。

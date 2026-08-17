@@ -1975,13 +1975,33 @@ void MainWindow::buildUi() {
                           QStringLiteral("Logs de aplicación")));
     });
 
+    // El rótulo decía «archivos INI». Ese formato se retiró hace tiempo —la configuración
+    // es config.json y trust-store.json— y el TEMA ya estaba corregido, pero la entrada de
+    // menú que lo abre seguía nombrando un fichero que no existe.
     QAction* cfgFilesHelpAct = helpMenu->addAction(
-        trk(QStringLiteral("t_help_cfg_001"),
-            QStringLiteral("Configuración, columnas y archivos INI")));
+        trk(QStringLiteral("t_help_cfg_002"),
+            QStringLiteral("Configuración y archivos"),
+            QStringLiteral("Configuration and files"),
+            QStringLiteral("配置与文件")));
     connect(cfgFilesHelpAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("configuracion_archivos"),
-                      trk(QStringLiteral("t_help_cfg_001"),
-                          QStringLiteral("Configuración, columnas y archivos INI")));
+                      trk(QStringLiteral("t_help_cfg_002"),
+                          QStringLiteral("Configuración y archivos"),
+                          QStringLiteral("Configuration and files"),
+                          QStringLiteral("配置与文件")));
+    });
+
+    QAction* cliHelpAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_cli_001"),
+            QStringLiteral("Línea de órdenes"),
+            QStringLiteral("Command line"),
+            QStringLiteral("命令行")));
+    connect(cliHelpAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("linea_de_ordenes"),
+                      trk(QStringLiteral("t_help_cli_001"),
+                          QStringLiteral("Línea de órdenes"),
+                          QStringLiteral("Command line"),
+                          QStringLiteral("命令行")));
     });
 
     QAction* aboutAct = helpMenu->addAction(
