@@ -654,6 +654,8 @@ private:
     // decisiones dependan de una frase que se puede reescribir o traducir; aquí, que es
     // donde hay idioma, se le pone texto. El CLI hace lo mismo por su cuenta.
     QString transportFailureText(const zfsmgr::base::transport::MotivoFallo& m) const;
+    // Y el de un aviso del transporte, por lo mismo.
+    QString transportNoticeText(const zfsmgr::base::transport::NotaDeAviso& a) const;
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;

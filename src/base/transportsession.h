@@ -73,6 +73,28 @@ struct TransportSession {
         }
     }
 
+    // --- Los avisos, que son PROSA y por tanto no los escribe esta capa.
+    //
+    // `sink` sigue siendo para las TRAZAS: la orden que se ejecuta, los `[daemon-rpc:...]`,
+    // las direcciones resueltas. Eso es rastro técnico y va tal cual. Lo que acaba delante
+    // del usuario en forma de frase entra por aquí tipificado, y lo redacta quien sabe el
+    // idioma. Sin esta separación, una sesión con `--lang en` salía salpicada de castellano.
+    std::function<void(Nivel, const std::string& connId, const transport::NotaDeAviso&)> avisoSink;
+
+    void aviso(Nivel n, const std::string& connId, const transport::NotaDeAviso& a) const {
+        if (avisoSink) {
+            avisoSink(n, connId, a);
+            return;
+        }
+        // Sin traductor puesto se cae a la etiqueta estable. Es fea, pero perder un aviso
+        // en silencio porque nadie ha conectado el traductor sería peor.
+        if (sink) {
+            sink(n, connId,
+                 std::string(transport::etiquetaDe(a.aviso))
+                     + (a.detalle.empty() ? std::string() : ": " + a.detalle));
+        }
+    }
+
     // --- Dejar respirar a quien nos llamó mientras esperamos.
     //
     // Sustituye al `QCoreApplication::processEvents` que había repartido por el

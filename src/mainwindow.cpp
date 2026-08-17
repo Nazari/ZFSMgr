@@ -192,6 +192,12 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     }
     // El transporte no sabe nada del registro de la aplicación: se le dice a dónde
     // escribir. En un CLI este destino iría a la salida de error.
+    // Los avisos —los que son PROSA— llegan tipificados y se redactan aquí, que es donde
+    // se sabe el idioma. El transporte solo dice cuál es; ver transportNoticeText.
+    m_transport.avisoSink = [this](TransportSession::Nivel n, const std::string& connId,
+                                   const zfsmgr::base::transport::NotaDeAviso& a) {
+        m_transport.logConn(n, connId, transportNoticeText(a).toStdString());
+    };
     m_transport.sink = [this](TransportSession::Nivel n, const std::string& connId,
                               const std::string& msg) {
         static const QMap<TransportSession::Nivel, QString> kNiveles = {

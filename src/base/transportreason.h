@@ -61,6 +61,50 @@ enum class Fallo {
     NoEspecificado,
 };
 
+// --- Los AVISOS que el transporte manda al registro.
+//
+// Misma razón que los motivos de fallo, distinto sitio: la capa base tampoco puede
+// escribir la prosa de estos, porque acaban delante del usuario. Con `--lang en` se veía
+// una sesión en inglés salpicada de «no se pudo leer el material TLS del daemon».
+//
+// Lo que NO pasa por aquí, y no es un olvido: las TRAZAS —la orden que se ejecuta, los
+// `[daemon-rpc:fallback]`, las direcciones resueltas—. Eso no es prosa, es el rastro
+// técnico que se lee con grep, y traducirlo estorbaría en vez de ayudar.
+enum class Aviso {
+    Ninguno = 0,
+
+    // --- Material TLS del daemon de ESTA máquina
+    TlsLocalNoLegible,  // ruta: dónde se esperaba encontrarlo
+    TlsLocalSinSudo,
+    TlsLocalNoSeLee,  // detalle: lo que dijo la orden
+    TlsLocalIncompleto,
+
+    // --- SSH
+    HostSshNoVerificado,
+    SinSshpass,
+    MultiplexadoFallo,
+    MultiplexadoDesactivado,
+
+    // --- Túnel. Dos avisos y no uno con el motivo dentro: «murió el ssh» y «se agotó la
+    // espera» son cosas distintas, y meter cuál fue en el detalle habría vuelto a poner
+    // texto donde tiene que haber tipo. En los dos, `detalle` son los milisegundos.
+    TunelNoAceptaSshMurio,
+    TunelNoAceptaEsperaAgotada,
+};
+
+// Un aviso con lo que lo acompaña. Campos con nombre, como en `store::Aviso`.
+struct NotaDeAviso {
+    Aviso aviso{Aviso::Ninguno};
+    std::string ruta;
+    std::string detalle;
+
+    bool vacio() const { return aviso == Aviso::Ninguno; }
+};
+
+// La etiqueta ASCII estable de un aviso. Se usa como RESPALDO cuando nadie ha puesto
+// traductor: es fea, pero perder un aviso en silencio es peor.
+const char* etiquetaDe(Aviso a);
+
 // El motivo con lo que lo acompaña. Ver `store::Aviso`: campo con nombre y no una lista de
 // argumentos, para que el sitio que lo construye se lea solo.
 struct MotivoFallo {

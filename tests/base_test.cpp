@@ -14,6 +14,7 @@
 #include "secretcipher.h"
 #include "strutil.h"
 #include "transportcmd.h"
+#include "transportsession.h"
 #include "transportrpc.h"
 #include "transportsession.h"
 #include "transporttunnel.h"
@@ -387,6 +388,45 @@ int main() {
     // pasa toda la salida de todas las ordenes.
     igual(H::maskSecretOutput("NAME  SIZE\nfc16  2.46T\n"), "NAME  SIZE\nfc16  2.46T\n",
           "una salida normal no se toca");
+
+    // --- Los avisos del transporte, que son PROSA y por eso no los redacta esta capa.
+    //
+    // Lo que se comprueba es que un aviso NO SE PIERDE cuando nadie ha conectado
+    // traductor: sale con su etiqueta estable. Un aviso mudo por falta de traductor seria
+    // peor que uno feo.
+    {
+        using zfsmgr::base::TransportSession;
+        namespace BTr = zfsmgr::base::transport;
+        TransportSession ses;
+        std::string visto;
+        ses.sink = [&visto](TransportSession::Nivel, const std::string&, const std::string& m) {
+            visto = m;
+        };
+        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Aviso::TlsLocalSinSudo, {}, {}});
+        igual(visto, "tls-local-sin-sudo", "sin traductor sale la etiqueta, no el silencio");
+        ses.aviso(TransportSession::Nivel::Warn, "local",
+                  {BTr::Aviso::TunelNoAceptaEsperaAgotada, {}, "5000"});
+        igual(visto, "tunel-espera-agotada: 5000", "y el detalle se conserva");
+        ses.avisoSink = [&visto](TransportSession::Nivel, const std::string&,
+                                 const BTr::NotaDeAviso& a) {
+            visto = std::string("traducido:") + BTr::etiquetaDe(a.aviso);
+        };
+        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Aviso::SinSshpass, {}, {}});
+        igual(visto, "traducido:sin-sshpass", "con traductor puesto, manda el traductor");
+    }
+    // Y las decisiones tipificadas sobre los fallos: lo que antes se leia de una frase.
+    {
+        namespace BTr = zfsmgr::base::transport;
+        comprobar(BTr::sugiereRevivirDaemon(BTr::Fallo::HandshakeFallido),
+                  "un saludo TLS fallido invita a levantar el daemon");
+        comprobar(!BTr::sugiereRevivirDaemon(BTr::Fallo::CertificadosInvalidos),
+                  "unos certificados malos NO se arreglan levantando el daemon");
+        comprobar(!BTr::mereceCastigo(BTr::Fallo::TunelOcupado),
+                  "ocupado no es roto: no se castiga la conexion");
+        comprobar(BTr::esDeTls(BTr::Fallo::CertificadoNoCoincide) &&
+                      !BTr::esDeTls(BTr::Fallo::TunelNoSeMonta),
+                  "de TLS es lo de TLS, no lo de red");
+    }
 
     igual(H::parseOpenZfsVersionText("zfs-2.3.3"), "2.3.3", "version de zfs");
     igual(H::parseOpenZfsVersionText("OpenZFS version: 2.4.1"), "2.4.1", "version de openzfs");

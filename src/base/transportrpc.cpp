@@ -401,9 +401,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         // que la lectura directa de arriba basta. Si ha fallado no queda camino
         // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo, y
         // lanzarlo daría un error que no dice nada. Se explica lo que pasa.
-        ses.log(Nivel::Warn, "Local: no se pudo leer el material TLS del daemon en "
-                                 + cfg.tlsCertPath
-                                 + ". Reinstale el daemon desde el menú de la conexión.");
+        ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalNoLegible, cfg.tlsCertPath, {}});
         return false;
 #else
         // Mismo guion y mismos marcadores que el camino remoto, para poder reutilizar su
@@ -431,9 +429,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         sudoProfile.connType = "LOCAL";
         sudoProfile.useSudo = true;
         if (!ses.resolveLocalSudo(sudoProfile)) {
-            ses.log(Nivel::Warn,
-                    "Local: no se pudo leer el material TLS del daemon (faltan credenciales sudo "
-                    "locales).");
+            ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalSinSudo, {}, {}});
             return false;
         }
         std::string out;
@@ -446,13 +442,14 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
                     15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
                     /*echoOutputToLog=*/false)
             || rc != 0) {
-            ses.log(Nivel::Warn, "Local: no se pudo leer el material TLS del daemon -> "
-                                     + H::oneLine(err.empty() ? out : err));
+            ses.aviso(Nivel::Warn, {},
+                      {Aviso::TlsLocalNoSeLee, {},
+                       H::maskSecretOutput(H::oneLine(err.empty() ? out : err))});
             return false;
         }
         RemoteTlsBundle paquete;
         if (!parseRemoteDaemonTlsBundle(out, paquete)) {
-            ses.log(Nivel::Warn, "Local: el material TLS del daemon llegó incompleto.");
+            ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalIncompleto, {}, {}});
             return false;
         }
         srv = paquete.serverCertPem;
@@ -780,7 +777,7 @@ bool runSsh(TransportSession& ses,
             const std::string pista = H::sshHostKeyProblemHint(err);
             if (!pista.empty()) {
                 err = pista + "\n\n" + err;
-                ses.log(Nivel::Warn, p.name + ": verificación de host SSH fallida");
+                ses.aviso(Nivel::Warn, p.id, {Aviso::HostSshNoVerificado, {}, {}});
             }
         }
         ecoResumen(ses, p.id, out, err, echoOutputToLog);
@@ -824,9 +821,7 @@ bool runSsh(TransportSession& ses,
     ses.logConn(Nivel::Info, p.id,
                 H::sshUserHostPort(p) + " $ " + H::maskCommandSecrets(wrappedCmd));
     if (hayClave && !conSshpass) {
-        ses.logConn(Nivel::Normal, p.id,
-                    "Password guardado, pero sshpass no está disponible; se usará SSH no "
-                    "interactivo.");
+        ses.aviso(Nivel::Normal, p.id, {Aviso::SinSshpass, {}, {}});
     }
 
     const auto intento = [&](bool conMultiplexado, std::string& aOut, std::string& aErr,
@@ -946,14 +941,10 @@ bool runSsh(TransportSession& ses,
             std::lock_guard<std::mutex> lock(ses.mutex);
             ses.disableMultiplexKeys.insert(sshConnKey);
         }
-        const std::string aviso =
-            "SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.";
-        ses.log(Nivel::Warn, p.name + ": " + aviso);
-        ses.logConn(Nivel::Normal, p.id, aviso);
+        ses.aviso(Nivel::Warn, p.id, {Aviso::MultiplexadoFallo, {}, {}});
         arrancoOk = intento(false, out, err, rc);
     } else if (!permiteMultiplexado) {
-        ses.logConn(Nivel::Normal, p.id,
-                    "SSH multiplexado deshabilitado para esta conexión en la sesión actual.");
+        ses.aviso(Nivel::Normal, p.id, {Aviso::MultiplexadoDesactivado, {}, {}});
     }
 
     if (!arrancoOk) {

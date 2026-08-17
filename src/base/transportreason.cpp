@@ -124,4 +124,22 @@ const char* etiquetaDe(Fallo f) {
     return "sin-motivo";
 }
 
+
+const char* etiquetaDe(Aviso a) {
+    switch (a) {
+        case Aviso::Ninguno: return "";
+        case Aviso::TlsLocalNoLegible: return "tls-local-no-legible";
+        case Aviso::TlsLocalSinSudo: return "tls-local-sin-sudo";
+        case Aviso::TlsLocalNoSeLee: return "tls-local-no-se-lee";
+        case Aviso::TlsLocalIncompleto: return "tls-local-incompleto";
+        case Aviso::HostSshNoVerificado: return "host-ssh-no-verificado";
+        case Aviso::SinSshpass: return "sin-sshpass";
+        case Aviso::MultiplexadoFallo: return "multiplexado-fallo";
+        case Aviso::MultiplexadoDesactivado: return "multiplexado-desactivado";
+        case Aviso::TunelNoAceptaSshMurio: return "tunel-ssh-murio";
+        case Aviso::TunelNoAceptaEsperaAgotada: return "tunel-espera-agotada";
+    }
+    return "";
+}
+
 }  // namespace zfsmgr::base::transport

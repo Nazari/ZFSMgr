@@ -793,6 +793,81 @@ void MainWindow::closeAllRemoteDaemonRpcTunnels() {
     BT::closeAllTunnels(m_transport);
 }
 
+QString MainWindow::transportNoticeText(const BT::NotaDeAviso& a) const {
+    using A = BT::Aviso;
+    const QString ruta = QString::fromStdString(a.ruta);
+    const QString detalle = QString::fromStdString(a.detalle);
+    switch (a.aviso) {
+        case A::Ninguno:
+            return QString();
+        case A::TlsLocalNoLegible:
+            return trk(QStringLiteral("t_notice_tls_unreadable"),
+                       QStringLiteral("No se pudo leer el material TLS del daemon local en %1. "
+                                      "Reinstale el daemon desde el menú de la conexión."),
+                       QStringLiteral("Could not read the local daemon's TLS material at %1. "
+                                      "Reinstall the daemon from the connection menu."),
+                       QStringLiteral("无法在 %1 读取本地守护进程的 TLS 材料。请从连接菜单重新安装守护进程。"))
+                .arg(ruta);
+        case A::TlsLocalSinSudo:
+            return trk(QStringLiteral("t_notice_tls_nosudo"),
+                       QStringLiteral("No se pudo leer el material TLS del daemon local: faltan "
+                                      "credenciales de sudo."),
+                       QStringLiteral("Could not read the local daemon's TLS material: sudo "
+                                      "credentials are missing."),
+                       QStringLiteral("无法读取本地守护进程的 TLS 材料：缺少 sudo 凭据。"));
+        case A::TlsLocalNoSeLee:
+            return trk(QStringLiteral("t_notice_tls_readfail"),
+                       QStringLiteral("No se pudo leer el material TLS del daemon local: %1"),
+                       QStringLiteral("Could not read the local daemon's TLS material: %1"),
+                       QStringLiteral("无法读取本地守护进程的 TLS 材料：%1"))
+                .arg(detalle);
+        case A::TlsLocalIncompleto:
+            return trk(QStringLiteral("t_notice_tls_partial"),
+                       QStringLiteral("El material TLS del daemon local llegó incompleto."),
+                       QStringLiteral("The local daemon's TLS material arrived incomplete."),
+                       QStringLiteral("本地守护进程的 TLS 材料不完整。"));
+        case A::HostSshNoVerificado:
+            return trk(QStringLiteral("t_notice_hostkey"),
+                       QStringLiteral("Falló la verificación del host SSH."),
+                       QStringLiteral("SSH host verification failed."),
+                       QStringLiteral("SSH 主机验证失败。"));
+        case A::SinSshpass:
+            return trk(QStringLiteral("t_notice_nosshpass"),
+                       QStringLiteral("Hay contraseña guardada, pero no está sshpass: se usará "
+                                      "SSH no interactivo."),
+                       QStringLiteral("A password is stored, but sshpass is missing: "
+                                      "non-interactive SSH will be used."),
+                       QStringLiteral("已保存密码，但缺少 sshpass：将使用非交互式 SSH。"));
+        case A::MultiplexadoFallo:
+            return trk(QStringLiteral("t_notice_muxfail"),
+                       QStringLiteral("El SSH multiplexado falló; se reintenta sin ControlMaster."),
+                       QStringLiteral("Multiplexed SSH failed; retrying without ControlMaster."),
+                       QStringLiteral("复用的 SSH 失败；正在不使用 ControlMaster 重试。"));
+        case A::MultiplexadoDesactivado:
+            return trk(QStringLiteral("t_notice_muxoff"),
+                       QStringLiteral("El SSH multiplexado queda desactivado para esta conexión "
+                                      "en esta sesión."),
+                       QStringLiteral("Multiplexed SSH is disabled for this connection in this "
+                                      "session."),
+                       QStringLiteral("本会话中此连接已停用 SSH 复用。"));
+        case A::TunelNoAceptaSshMurio:
+            return trk(QStringLiteral("t_notice_tunnel_died"),
+                       QStringLiteral("El túnel SSH no aceptó conexiones: el ssh terminó (%1 ms)."),
+                       QStringLiteral("The SSH tunnel accepted no connections: ssh exited (%1 ms)."),
+                       QStringLiteral("SSH 隧道未接受连接：ssh 已退出（%1 毫秒）。"))
+                .arg(detalle);
+        case A::TunelNoAceptaEsperaAgotada:
+            return trk(QStringLiteral("t_notice_tunnel_timeout"),
+                       QStringLiteral("El túnel SSH no aceptó conexiones: se agotó la espera "
+                                      "(%1 ms)."),
+                       QStringLiteral("The SSH tunnel accepted no connections: the wait timed out "
+                                      "(%1 ms)."),
+                       QStringLiteral("SSH 隧道未接受连接：等待超时（%1 毫秒）。"))
+                .arg(detalle);
+    }
+    return QString();
+}
+
 QString MainWindow::transportFailureText(const BT::MotivoFallo& m) const {
     using F = BT::Fallo;
     const QString detalle = QString::fromStdString(m.detalle).trimmed();

@@ -225,6 +225,12 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
     // A la salida de ERROR, para que la estándar quede limpia y se pueda redirigir. Sin
     // `-v` solo se cuentan los avisos y los errores: el detalle de cada orden es útil
     // depurando y ruido el resto del tiempo.
+    // Los avisos —que son prosa— se redactan AQUÍ, donde se sabe el idioma; el transporte
+    // solo dice cuál es. Ver textoDeAviso.
+    s->transporte.avisoSink = [raw](Nivel n, const std::string& connId,
+                                    const B::transport::NotaDeAviso& a) {
+        raw->transporte.logConn(n, connId, textoDeAviso(a));
+    };
     s->transporte.sink = [raw](Nivel n, const std::string& connId, const std::string& msg) {
         const bool importante = (n == Nivel::Warn || n == Nivel::Error);
         if (!importante && !raw->verboso) {
@@ -372,6 +378,50 @@ std::string clavePersistencia(const std::string& idONombre) {
 }  // namespace
 
 // El directorio del propio ejecutable. Sin Qt no hay `applicationDirPath()`.
+std::string textoDeAviso(const B::transport::NotaDeAviso& a) {
+    using A = B::transport::Aviso;
+    switch (a.aviso) {
+        case A::Ninguno:
+            return {};
+        case A::TlsLocalNoLegible:
+            return B::format(T("t_av_tls_no_legible",
+                               "no se pudo leer el material TLS del daemon local en %1. "
+                               "Reinstale el daemon."),
+                             {a.ruta});
+        case A::TlsLocalSinSudo:
+            return T("t_av_tls_sin_sudo",
+                     "no se pudo leer el material TLS del daemon local: faltan credenciales "
+                     "de sudo");
+        case A::TlsLocalNoSeLee:
+            return B::format(T("t_av_tls_no_se_lee",
+                               "no se pudo leer el material TLS del daemon local: %1"),
+                             {a.detalle});
+        case A::TlsLocalIncompleto:
+            return T("t_av_tls_incompleto",
+                     "el material TLS del daemon local llegó incompleto");
+        case A::HostSshNoVerificado:
+            return T("t_av_host_no_verificado", "falló la verificación del host SSH");
+        case A::SinSshpass:
+            return T("t_av_sin_sshpass",
+                     "hay contraseña guardada, pero no está sshpass: se usará SSH no interactivo");
+        case A::MultiplexadoFallo:
+            return T("t_av_mux_fallo",
+                     "el SSH multiplexado falló; se reintenta sin ControlMaster");
+        case A::MultiplexadoDesactivado:
+            return T("t_av_mux_off",
+                     "el SSH multiplexado queda desactivado para esta conexión en esta sesión");
+        case A::TunelNoAceptaSshMurio:
+            return B::format(T("t_av_tunel_ssh_murio",
+                               "el túnel SSH no aceptó conexiones: el ssh terminó (%1 ms)"),
+                             {a.detalle});
+        case A::TunelNoAceptaEsperaAgotada:
+            return B::format(T("t_av_tunel_espera",
+                               "el túnel SSH no aceptó conexiones: se agotó la espera (%1 ms)"),
+                             {a.detalle});
+    }
+    return {};
+}
+
 std::string textoDeFallo(const B::transport::MotivoFallo& m) {
     using F = B::transport::Fallo;
     // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene

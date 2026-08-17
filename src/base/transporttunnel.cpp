@@ -486,10 +486,9 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             // segundos cuando podían haber sido doscientos milisegundos. Un registro que
             // miente sobre cuánto tardó algo hace perder horas buscando la lentitud donde
             // no está.
-            ses.log(Nivel::Warn,
-                    "daemon-rpc: el túnel SSH a " + p.name + " no aceptó conexiones ("
-                        + (sshMurio ? "el ssh del túnel terminó" : "agotados los 5 s de espera")
-                        + ", " + std::to_string(msDesde(inicio)) + " ms)");
+            ses.aviso(Nivel::Warn, p.id,
+                      {sshMurio ? Aviso::TunelNoAceptaSshMurio : Aviso::TunelNoAceptaEsperaAgotada,
+                       {}, std::to_string(msDesde(inicio))});
             nuevo.process.stop(1500);
             return false;
         }

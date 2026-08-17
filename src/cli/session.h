@@ -138,6 +138,10 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
 // La interfaz gráfica hace lo mismo por su cuenta con `tr()`.
 std::string textoDeFallo(const zfsmgr::base::transport::MotivoFallo& m);
 
+// Y el de un aviso del transporte, por lo mismo: son frases que acaban delante del
+// usuario, así que las redacta quien sabe en qué idioma está la sesión.
+std::string textoDeAviso(const zfsmgr::base::transport::NotaDeAviso& a);
+
 // El directorio donde está este ejecutable. Hace falta para encontrar lo que viaja a su
 // lado: los agentes que se despliegan y los catálogos de traducción.
 std::string dirDelEjecutable();
