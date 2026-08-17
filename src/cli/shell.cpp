@@ -555,18 +555,46 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "pools";
-    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_estado", "ESTADO"),
-                        T("t_cab_tamano", "TAMAÑO"), T("t_cab_libre", "LIBRE"),
-                        T("t_cab_uso", "USO"), T("t_cab_salud", "SALUD")};
-    t.campos = {"name", "state", "size", "free", "capacity", "health"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"),   T("t_cab_estado", "ESTADO"),
+                        T("t_cab_tamano", "TAMAÑO"),   T("t_cab_libre", "LIBRE"),
+                        T("t_cab_uso", "USO"),         T("t_cab_salud", "SALUD"),
+                        T("t_cab_importado", "IMPORTADO")};
+    t.campos = {"name", "state", "size", "free", "capacity", "health", "imported"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,
+               Tipo::Cadena, Tipo::Cadena,   Tipo::Booleano};
     const auto prop = [](const B::json::Value& p, const char* k) {
         return p["properties"][k]["value"].toString();
     };
+    std::set<std::string> yaEstan;
     for (const auto& kv : raiz["pools"].toObject()) {
         const auto& p = kv.second;
-        t.filas.push_back({p["name"].toString(kv.first), p["state"].toString(), prop(p, "size"),
-                           prop(p, "free"), prop(p, "capacity"), prop(p, "health")});
+        const std::string nombre = p["name"].toString(kv.first);
+        yaEstan.insert(nombre);
+        t.filas.push_back({nombre, p["state"].toString(), prop(p, "size"), prop(p, "free"),
+                           prop(p, "capacity"), prop(p, "health"), "true"});
+    }
+
+    // Los que están AHÍ pero sin importar. `zpool list` no los ve —solo enumera los
+    // importados— y por eso un pool perfectamente visible en la interfaz no salía en `ls`:
+    // no es que estuviera oculto, es que se preguntaba por otra cosa.
+    //
+    // La sonda es una orden aparte y puede fallar sin que eso invalide lo ya listado (falta
+    // de permisos sobre los discos, un agente sin «Acceso total al disco» en macOS): si no
+    // responde, se enseña lo importado y se sigue, en vez de no enseñar nada.
+    std::string sonda;
+    if (agente(e, destino, {"--dump-zpool-import-probe"}, sonda, 25000)) {
+        for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(sonda)) {
+            // El mismo conjunto sirve para dos cosas: no repetir uno ya importado, y no
+            // repetirlo consigo mismo. La sonda ejecuta `zpool import` Y `zpool import -s`
+            // y pega las dos salidas, así que un pool que aparece en las dos —lo normal—
+            // llegaba aquí dos veces y salía dos veces en el listado.
+            if (imp.pool.empty() || !yaEstan.insert(imp.pool).second) {
+                continue;
+            }
+            // Sin tamaño ni uso: eso solo se sabe una vez importado, y rellenarlo con ceros
+            // diría que el pool está vacío.
+            t.filas.push_back({imp.pool, imp.state, "", "", "", imp.state, "false"});
+        }
     }
     t.imprime(e.formato);
     return true;
@@ -2216,6 +2244,25 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
     if (!destinoDe(e, o, destino)) {
         return false;
     }
+    // Por omisión, SOLO lo que está corriendo. Un daemon que lleva meses en pie acumula
+    // trabajos terminados, y enseñarlos todos convierte «¿qué está pasando ahora?» —que es
+    // la pregunta que uno tiene al teclear `jobs`— en buscar entre decenas de líneas.
+    //
+    // El filtro se pide por el NOMBRE DEL ESTADO, que es el mismo que sale en la columna:
+    // así no hay que aprender un vocabulario aparte ni mantener una tabla de traducción
+    // entre lo que se escribe y lo que devuelve el daemon.
+    std::set<std::string> estados;
+    if (!o.tiene("--all")) {
+        for (const char* est : {"running", "queued", "done", "failed", "cancelled"}) {
+            if (o.tiene(std::string("--") + est)) {
+                estados.insert(est);
+            }
+        }
+        if (estados.empty()) {
+            estados.insert("running");
+            estados.insert("queued");  // encolado es «todavía va a pasar», no historia
+        }
+    }
     std::string out;
     if (!agente(e, destino, {"--job-list"}, out, 30000)) {
         return false;
@@ -2239,6 +2286,9 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
         if (!B::json::parse(linea.substr(4), j, &err)) {
             continue;
         }
+        if (!estados.empty() && estados.count(j["state"].toString()) == 0) {
+            continue;
+        }
         // El ritmo con DOS decimales: `std::to_string` de un double da seis, y «0.000000»
         // ocupa una columna entera para no decir nada.
         char ritmo[32];
@@ -2252,7 +2302,12 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
                            std::to_string(j["elapsed"].toInt()), B::trim(textoErr)});
     }
     if (t.filas.empty()) {
-        std::fputs(TC("t_no_hay_tra_f891dc", "no hay trabajos\n"), stderr);
+        // Con filtro puesto, «no hay trabajos» es engañoso: puede haber diez terminados. Se
+        // dice cuál era el filtro para que la respuesta signifique lo que parece.
+        std::fputs(estados.empty()
+                       ? TC("t_no_hay_tra_f891dc", "no hay trabajos\n")
+                       : TC("t_no_hay_tra_filtro", "no hay trabajos en curso (pruebe «jobs --all»)\n"),
+                   stderr);
     }
     t.imprime(e.formato);
     return true;

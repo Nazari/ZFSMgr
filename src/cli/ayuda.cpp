@@ -262,7 +262,17 @@ const std::vector<Orden> kOrdenes = {
       "allí. Para eso están todir y fromdir."}}},
 
     // --- Trabajos
-    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"", ""}, {"t_los_trabaj_5039b6", "Los trabajos que hay en la máquina."}, {}, {}},
+    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso", "[--all|--<estado>...]"},
+     {"t_jobs_res", "Los trabajos EN CURSO de la máquina."},
+     {{{"t_jobs_all", "--all"}, {"t_jobs_all_q", "Todos, incluidos los terminados."}},
+      {{"t_jobs_est", "--running / --queued / --done / --failed / --cancelled"},
+       {"t_jobs_est_q", "Solo esos estados. Se pueden combinar."}}},
+     {{"t_jobs_det", "Sin argumentos salen los que están corriendo o encolados, que es lo que uno "
+      "pregunta al teclear «jobs». Un daemon lleva meses en pie y acumula trabajos "
+      "terminados: enseñarlos todos convierte la pregunta en buscar entre decenas de "
+      "líneas."},
+      {"t_jobs_det2", "El filtro se pide por el NOMBRE DEL ESTADO, el mismo que sale en la columna "
+      "ESTADO, para no tener que aprender un vocabulario aparte."}}},
     {"job", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_id_cancel__aab412", "<id> | cancel <id>"},
      {"t_el_estado__9c5ecc", "El estado de un trabajo, o su cancelación."},
      {},
