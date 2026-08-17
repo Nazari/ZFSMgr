@@ -108,6 +108,51 @@ if [[ ",${PLATFORMS}," == *",macos,"* ]]; then
     exit 1
   fi
   DOCKER_ARGS+=(-v "${OSXCROSS_DIR}:/opt/osxcross:ro")
+
+  # --- Las bibliotecas que osxcross necesita y la imagen no tiene.
+  #
+  # osxcross se compila EN EL ANFITRIÓN, contra las bibliotecas del anfitrión; la imagen es
+  # otra distribución. Aquí eso se traduce en que su enlazador —`ld` de cctools, y no hay
+  # alternativa: no incluye lld— pide `libxml2.so.16` (libxml2 2.13) mientras la imagen
+  # trae la 2.9, que es `libxml2.so.2`.
+  #
+  # El síntoma sin esto es de los que cuestan una tarde: el cruce arranca, compila OpenSSL
+  # durante minutos y muere al enlazar con «error while loading shared libraries», que no
+  # menciona ni osxcross ni macOS.
+  #
+  # Se detecta preguntándole al propio binario qué le falta, en vez de escribir aquí una
+  # lista que envejecería con cada actualización del anfitrión. Lo suyo a la larga es
+  # compilar osxcross DENTRO de la imagen, y entonces esto sobra.
+  OSX_LIBS_DIR="$(mktemp -d)"
+  trap 'rm -rf "${OSX_LIBS_DIR}"' EXIT
+  _osx_ld="$(ls "${OSXCROSS_DIR}"/target/bin/*-apple-darwin*-ld 2>/dev/null | head -1)"
+  if [[ -n "${_osx_ld}" ]]; then
+    faltan="$(docker run --rm -v "${OSXCROSS_DIR}:/opt/osxcross:ro" "${IMAGE}" -lc \
+      "ldd '${_osx_ld/${OSXCROSS_DIR}//opt/osxcross}' 2>/dev/null | awk '/not found/{print \$1}'" || true)"
+    for lib in $(printf '%s\n' ${faltan} | sort -u); do
+      # El orden de búsqueda es EXPLÍCITO y empieza por x86_64: con un `ls` de comodines,
+      # la de 32 bits gana por orden alfabético —`/lib/i386-linux-gnu/…`— y además suele ser
+      # un enlace roto, así que la copia fallaba y el guion moría sin decir por qué.
+      origen=""
+      for cand in "/usr/lib/x86_64-linux-gnu/${lib}" "/lib/x86_64-linux-gnu/${lib}" \
+                  "/usr/lib/${lib}" "/usr/local/lib/${lib}"; do
+        if [[ -r "${cand}" ]] && cp -L "${cand}" "${OSX_LIBS_DIR}/${lib}" 2>/dev/null; then
+          origen="${cand}"
+          break
+        fi
+      done
+      if [[ -z "${origen}" ]]; then
+        echo "osxcross necesita ${lib} y no hay una copia legible de 64 bits en este equipo." >&2
+        echo "Instálela, o compile osxcross dentro de la imagen." >&2
+        exit 1
+      fi
+      echo "[docker] osxcross: se aporta ${lib} desde ${origen}"
+    done
+  fi
+  if [[ -n "$(ls -A "${OSX_LIBS_DIR}" 2>/dev/null)" ]]; then
+    DOCKER_ARGS+=(-v "${OSX_LIBS_DIR}:/opt/osxcross-libs:ro")
+    DOCKER_ARGS+=(-e "LD_LIBRARY_PATH=/opt/osxcross-libs")
+  fi
 fi
 
 if [[ ${OPEN_SHELL} -eq 1 ]]; then
@@ -120,9 +165,12 @@ if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
 fi
 
 echo "[docker] compilando: ${PLATFORMS}${extra:+ (extra:${extra})}"
+# El `|| rc=$?` no es adorno: con `set -e`, un cruce que falle a mitad mataría el guion
+# AQUÍ y no llegaría a ejecutarse la copia de los agentes de vuelta —que es justo cuando
+# más falta hace, porque lo que sí se compiló se quedaría sin llegar a `builds/agents`—.
+rc=0
 docker run "${DOCKER_ARGS[@]}" "${IMAGE}" -lc \
-  "mkdir -p \"\${HOME}\" && ln -sfn /opt/toolchain/Qt \"\${HOME}/Qt\" && scripts/buildall-cross.sh --platforms '${PLATFORMS}'${extra}"
-rc=$?
+  "mkdir -p \"\${HOME}\" && ln -sfn /opt/toolchain/Qt \"\${HOME}/Qt\" && scripts/buildall-cross.sh --platforms '${PLATFORMS}'${extra}" || rc=$?
 
 # --- Los agentes VUELVEN a `builds/agents`, que es donde los busca el cliente.
 #

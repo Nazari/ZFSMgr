@@ -11,6 +11,8 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 RUN_DOCTOR=0
 DO_CONFIGURE=1
 DO_BUILD=1
+# Solo el agente: sin Qt. Ver --agent-only.
+AGENT_ONLY=0
 EXTRA_CMAKE_ARGS=()
 
 usage() {
@@ -24,6 +26,7 @@ Opciones:
   --build-type <t>    Tipo de build CMake (por defecto: Release)
   --jobs <n>          Paralelismo para cmake --build (por defecto: nproc)
   --doctor            Solo valida prerequisitos del target
+  --agent-only        Compila SOLO el agente (sin Qt ni interfaz)
   --no-configure      No ejecuta cmake -S/-B
   --no-build          No ejecuta cmake --build
   -h, --help          Muestra esta ayuda
@@ -83,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --doctor)
       RUN_DOCTOR=1
+      shift
+      ;;
+    --agent-only)
+      AGENT_ONLY=1
       shift
       ;;
     --no-configure)
@@ -496,8 +503,13 @@ doctor_macos() {
   need_cmd "${cc}" || ok=1
   need_cmd "${cxx}" || ok=1
   [[ -n "${OSX_SYSROOT:-}" ]] || { echo "Falta OSX_SYSROOT" >&2; ok=1; }
-  [[ -n "${QT6_MACOS_PREFIX:-}" ]] || { echo "Falta QT6_MACOS_PREFIX" >&2; ok=1; }
-  [[ -n "${QT_HOST_PATH:-}" ]] || { echo "Falta QT_HOST_PATH (Qt host Linux para moc/uic/rcc)" >&2; ok=1; }
+  # Con --agent-only no hay interfaz que compilar, así que Qt no hace falta. Es lo que
+  # permite tener el DAEMON de macOS sin un Qt para macOS instalado: el agente no usa Qt, y
+  # exigirlo dejaba a macOS sin daemon por una dependencia que no es suya.
+  if [[ "${AGENT_ONLY}" -eq 0 ]]; then
+    [[ -n "${QT6_MACOS_PREFIX:-}" ]] || { echo "Falta QT6_MACOS_PREFIX" >&2; ok=1; }
+    [[ -n "${QT_HOST_PATH:-}" ]] || { echo "Falta QT_HOST_PATH (Qt host Linux para moc/uic/rcc)" >&2; ok=1; }
+  fi
   if [[ -n "${QT6_MACOS_PREFIX:-}" ]] && [[ ! -f "${QT6_MACOS_PREFIX}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
     echo "QT6_MACOS_PREFIX no parece válido (falta Qt6Config.cmake): ${QT6_MACOS_PREFIX}" >&2
     ok=1
@@ -633,6 +645,9 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
     target_extra_args+=("-DCMAKE_BUILD_RPATH=@executable_path/../Frameworks")
     target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
   fi
+  if [[ "${AGENT_ONLY}" -eq 1 ]]; then
+    target_extra_args+=("-DZFSMGR_AGENT_ONLY=ON")
+  fi
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
     "${cmake_generator_args[@]}" \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
@@ -644,7 +659,7 @@ fi
 
 if [[ "${DO_BUILD}" -eq 1 ]]; then
   cmake --build "${BUILD_DIR}" -j"${JOBS}"
-  if [[ "${TARGET}" == "macos" ]]; then
+  if [[ "${TARGET}" == "macos" && "${AGENT_ONLY}" -eq 0 ]]; then
     # ZFSMgr.app primero: el bundle dejó de llevar la versión en el nombre para que al
     # copiarlo reemplace al anterior, y este find se quedó buscando el patrón antiguo.
     # El resultado era que Qt se desplegaba dentro de un bundle VIEJO que seguía en el

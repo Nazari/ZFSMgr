@@ -97,6 +97,70 @@ option(ZFSMGR_AGENT_ONLY "Compilar únicamente el agente, sin Qt ni GUI" OFF)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
+# Capa base: lógica del cliente SIN Qt.
+#
+# La regla que le da sentido es la de enlazado: este objetivo NO enlaza contra Qt, así
+# que si alguien mete aquí un QString el build falla en el sitio, no meses después
+# cuando ya haya media biblioteca contaminada. Esa es toda la garantía; el resto son
+# buenas intenciones.
+#
+# Lo usan tanto la GUI como el agente. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+add_library(zfsmgr_base STATIC
+    ../src/base/strutil.cpp
+    ../src/base/strutil.h
+    ../src/base/daemonpayload.cpp
+    ../src/base/zfsmurl.cpp
+    ../src/base/zfsmurl.h
+    ../src/base/tlsclient.cpp
+    ../src/base/tlsclient.h
+    ../src/base/process.cpp
+    ../src/base/process.h
+    ../src/base/refreshparse.cpp
+    ../src/base/refreshparse.h
+    ../src/base/storefiles.cpp
+    ../src/base/storefiles.h
+    ../src/base/storewarnings.h
+    ../src/base/connectionjson.cpp
+    ../src/base/connectionjson.h
+    ../src/base/secretcipher.cpp
+    ../src/base/secretcipher.h
+    ../src/base/json.cpp
+    ../src/base/json.h
+    ../src/base/i18n.cpp
+    ../src/base/i18n.h
+    ../src/base/helpers.cpp
+    ../src/base/helpers.h
+    ../src/base/transportcmd.cpp
+    ../src/base/transportcmd.h
+    ../src/base/zfsprops.cpp
+    ../src/base/zfsprops.h
+    ../src/base/transportreason.cpp
+    ../src/base/transportreason.h
+    ../src/base/transportrpc.cpp
+    ../src/base/transportrpc.h
+    ../src/base/transporttunnel.cpp
+    ../src/base/transporttunnel.h
+    ../src/base/transportsession.h
+    ../src/base/daemonpayload.h
+)
+target_include_directories(zfsmgr_base PUBLIC ../src/base)
+# OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
+# la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
+target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+if(WIN32)
+    # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
+    # y no con quien la use: si no, cada consumidor tendría que acordarse.
+    target_link_libraries(zfsmgr_base PUBLIC ws2_32 crypt32)
+endif()
+
+# La capa base se define ANTES del modo solo-agente, y no después.
+#
+# El agente la necesita —usa su JSON, su cliente TLS y su ejecución de procesos— y en
+# ese modo se salía con `return()` antes de llegar a definirla: `target_link_libraries`
+# la tomaba como un nombre de biblioteca suelto y sus cabeceras no entraban en la ruta
+# de inclusión. El cruce del agente de macOS moría con «json.h: file not found» sobre un
+# include que en la compilación normal funciona.
+
 if(ZFSMGR_AGENT_ONLY)
     add_executable(zfsmgr_agent ../src/daemon_main.cpp ../src/copytree.cpp)
     target_include_directories(zfsmgr_agent PRIVATE ../src)
@@ -182,61 +246,6 @@ set(ZFSMGR_CORE_SOURCES
     resources.qrc
 )
 
-# Capa base: lógica del cliente SIN Qt.
-#
-# La regla que le da sentido es la de enlazado: este objetivo NO enlaza contra Qt, así
-# que si alguien mete aquí un QString el build falla en el sitio, no meses después
-# cuando ya haya media biblioteca contaminada. Esa es toda la garantía; el resto son
-# buenas intenciones.
-#
-# Lo usan tanto la GUI como el agente. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
-add_library(zfsmgr_base STATIC
-    ../src/base/strutil.cpp
-    ../src/base/strutil.h
-    ../src/base/daemonpayload.cpp
-    ../src/base/zfsmurl.cpp
-    ../src/base/zfsmurl.h
-    ../src/base/tlsclient.cpp
-    ../src/base/tlsclient.h
-    ../src/base/process.cpp
-    ../src/base/process.h
-    ../src/base/refreshparse.cpp
-    ../src/base/refreshparse.h
-    ../src/base/storefiles.cpp
-    ../src/base/storefiles.h
-    ../src/base/storewarnings.h
-    ../src/base/connectionjson.cpp
-    ../src/base/connectionjson.h
-    ../src/base/secretcipher.cpp
-    ../src/base/secretcipher.h
-    ../src/base/json.cpp
-    ../src/base/json.h
-    ../src/base/i18n.cpp
-    ../src/base/i18n.h
-    ../src/base/helpers.cpp
-    ../src/base/helpers.h
-    ../src/base/transportcmd.cpp
-    ../src/base/transportcmd.h
-    ../src/base/zfsprops.cpp
-    ../src/base/zfsprops.h
-    ../src/base/transportreason.cpp
-    ../src/base/transportreason.h
-    ../src/base/transportrpc.cpp
-    ../src/base/transportrpc.h
-    ../src/base/transporttunnel.cpp
-    ../src/base/transporttunnel.h
-    ../src/base/transportsession.h
-    ../src/base/daemonpayload.h
-)
-target_include_directories(zfsmgr_base PUBLIC ../src/base)
-# OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
-# la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
-target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-if(WIN32)
-    # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
-    # y no con quien la use: si no, cada consumidor tendría que acordarse.
-    target_link_libraries(zfsmgr_base PUBLIC ws2_32 crypt32)
-endif()
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este

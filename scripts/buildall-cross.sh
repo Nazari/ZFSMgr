@@ -558,10 +558,20 @@ if has_platform "macos"; then
     [[ -n "${_target}" ]] || { echo "No se encontró OSXCROSS_TARGET para macOS/${_arch}" >&2; exit 1; }
     _openssl_prefix="$(ensure_macos_openssl "${_arch}" "${_target}")"
     _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
+    # Sin un Qt para macOS no se puede compilar la INTERFAZ, pero sí el AGENTE, que no usa
+    # Qt. Se compila lo que se pueda y se dice cuál de las dos cosas ha salido: rendirse
+    # entero dejaba a macOS sin daemon por una dependencia que no es del daemon, y desde el
+    # CLI se acababa instalando el agente de una compilación anterior.
+    _mac_args=(--target macos --build-dir "${_build_dir}" --jobs "${JOBS}")
+    if [[ -z "${QT6_MACOS_PREFIX:-}" ]] && [[ -z "$(ls -d "${HOME}"/Qt/*/macos 2>/dev/null | head -1)" ]]; then
+      echo "AVISO: sin Qt para macOS; se compila SOLO el agente de macOS/${_arch}." >&2
+      echo "       La interfaz (.app) de macOS no se genera en esta pasada." >&2
+      _mac_args+=(--agent-only)
+    fi
     run_phase "macos-local-${_arch}" env \
       OSXCROSS_TARGET="${_target}" \
       OPENSSL_ROOT_DIR="${_openssl_prefix}" \
-      "${SCRIPT_DIR}/build-cross.sh" --target macos --build-dir "${_build_dir}" --jobs "${JOBS}"
+      "${SCRIPT_DIR}/build-cross.sh" "${_mac_args[@]}"
     set_agent_path_if_exists "macos-${_arch}" "${_build_dir}/zfsmgr_agent"
   done
 fi
@@ -626,7 +636,17 @@ if has_platform "macos"; then
     if [[ ! -d "${mac_app}" ]]; then
       mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
     fi
-    [[ -n "${mac_app}" ]] || { echo "No se encontró .app de macOS cross (${_arch})" >&2; exit 1; }
+    # Sin .app: si se compiló SOLO el agente —porque no hay Qt para macOS— eso es lo
+    # esperado y no un fallo; se salta el empaquetado de la interfaz y se sigue. Abortar
+    # aquí tiraba también el agente, que sí estaba compilado, y dejaba a macOS sin daemon.
+    if [[ -z "${mac_app}" ]]; then
+      if [[ ! -f "${_build_dir}/zfsmgr_agent" ]]; then
+        echo "No se encontró .app de macOS cross (${_arch}) ni el agente" >&2
+        exit 1
+      fi
+      echo "AVISO: macOS/${_arch} sin .app (se compiló solo el agente); no se empaqueta la interfaz." >&2
+      continue
+    fi
     inject_agent_bundle_into_macos_app "${mac_app}"
     mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
     package_macos_app_zip "${mac_app}" "${mac_zip}"
