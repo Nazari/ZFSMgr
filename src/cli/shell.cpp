@@ -3,6 +3,7 @@
 #include "daemonpayload.h"
 #include "helpers.h"
 #include "json.h"
+#include "process.h"
 #include "secretinput.h"
 #include "strutil.h"
 #include "transportcmd.h"
@@ -11,10 +12,15 @@
 #include "zfsmurl.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <set>
+#include <chrono>
+#include <sstream>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -321,6 +327,7 @@ bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::str
 struct Opts;
 bool cmdCrearPool(Estado& e, const Opts& o, const ZfsmUrl& destino);
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+std::map<std::string, std::string> clavesDe(const std::string& texto);
 
 // --- Ejecutar un verbo del agente sobre el destino, contando lo que salga mal.
 bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& args,
@@ -1753,6 +1760,362 @@ bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
+// --- Transferencias entre máquinas.
+//
+// El protocolo tiene DOS EXTREMOS y no es una tubería:
+//
+//   1. En el DESTINO, `--zfs-recv-listen <dataset> 1` abre un puerto y devuelve
+//      `PORT=` y `TOKEN=`.
+//   2. En el ORIGEN, `--zfs-send-to-peer-async <snap> <host> <puerto> <testigo> …` conecta
+//      con ese puerto y devuelve un `JOB_ID=`.
+//   3. El avance se consulta con `job <id>` en la máquina de ORIGEN.
+//
+// Que sea un trabajo y no una espera es lo que permite mandar terabytes y cerrar la
+// sesión. Con `--wait` se espera aquí, sondeando.
+
+// Copiar una instantánea a otro dataset, en esta máquina o en otra.
+//
+// Con `--base` es INCREMENTAL: solo viaja lo que cambió desde esa instantánea, que es lo
+// que la interfaz llama «Nivelar». Sin ella va el flujo completo.
+bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from", "base", "flags", "to"});
+    if (o.libres.empty() && o.valor("to").empty()) {
+        std::fprintf(stderr,
+                     "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
+                     "          [--flags <banderas de zfs send>] [--wait]\n"
+                     "  El destino es una URL: puede estar en OTRA máquina.\n"
+                     "  Sin --from se usa el sitio actual como origen.\n"
+                     "  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n"
+                     "  llama «Nivelar»).\n");
+        return false;
+    }
+    ZfsmUrl origen;
+    if (!destinoDe(e, o, origen)) {
+        return false;
+    }
+    if (origen.snapshot.empty()) {
+        std::fprintf(stderr, "el origen tiene que ser una INSTANTÁNEA (ahora: %s)\n",
+                     textoDe(origen).c_str());
+        return false;
+    }
+    ZfsmUrl destino;
+    std::string error;
+    if (!resuelve(e, o.libres.empty() ? o.valor("to") : o.libres.front(), destino, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (destino.dataset.empty()) {
+        std::fprintf(stderr, "el destino tiene que ser un dataset\n");
+        return false;
+    }
+    const auto* pOrigen = perfilVivoDe(e, origen, error);
+    if (!pOrigen) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    const auto* pDestino = perfilVivoDe(e, destino, error);
+    if (!pDestino) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    // Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado
+    // allí. Decirlo AQUÍ evita un fallo a mitad de transferencia que no se entiende.
+    if (T::isWindowsConnection(*pOrigen) || T::isWindowsConnection(*pDestino)) {
+        std::fprintf(stderr,
+                     "la transferencia por socket no está disponible en Windows.\n"
+                     "Para llevar datos a o desde una máquina Windows, use «todir» y "
+                     "«fromdir».\n");
+        return false;
+    }
+    const bool mismaMaquina = B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
+
+    std::string base = o.valor("base");
+    if (!base.empty() && base.front() == '@') {
+        base = origen.dataset + base;
+    }
+    if (!confirma(e, std::string("Se va a ") + (base.empty() ? "copiar" : "nivelar") + " "
+                         + origen.zfsName() + " de " + origen.connection + " a "
+                         + destino.dataset + " en " + destino.connection
+                         + ".\nSi el destino existe y difiere, `zfs recv -F` lo SOBRESCRIBE. "
+                           "¿Continuar?")) {
+        std::fprintf(stderr, "cancelado\n");
+        return false;
+    }
+
+    // 1) El destino se pone a escuchar.
+    std::string recvOut;
+    if (!agente(e, destino, {"--zfs-recv-listen", destino.dataset, "1"}, recvOut, 20000)) {
+        return false;
+    }
+    const auto claves = clavesDe(recvOut);
+    const std::string puerto = claves.count("PORT") ? claves.at("PORT") : std::string();
+    const std::string testigo = claves.count("TOKEN") ? claves.at("TOKEN") : std::string();
+    if (puerto.empty() || testigo.size() != 64) {
+        std::fprintf(stderr, "el destino no abrió el puerto de recepción correctamente\n");
+        return false;
+    }
+
+    // 2) Con qué dirección ve el origen al destino. En la misma máquina, por el bucle
+    // local; si no, por el host del perfil — que es como el origen llega a él.
+    const std::string peer = mismaMaquina ? "127.0.0.1" : B::trim(pDestino->host);
+    if (peer.empty()) {
+        std::fprintf(stderr,
+                     "no se sabe con qué dirección ve %s a %s: la conexión de destino no "
+                     "tiene host\n",
+                     origen.connection.c_str(), destino.connection.c_str());
+        return false;
+    }
+
+    // 3) El origen envía. Como TRABAJO: una transferencia grande no cabe en una espera.
+    std::string sendOut;
+    if (!agente(e, origen,
+                {"--zfs-send-to-peer-async", origen.zfsName(), peer, puerto, testigo, base,
+                 o.valor("flags")},
+                sendOut, 30000)) {
+        return false;
+    }
+    const auto cs = clavesDe(sendOut);
+    const std::string jobId = cs.count("JOB_ID") ? cs.at("JOB_ID") : std::string();
+    if (jobId.empty()) {
+        std::fprintf(stderr, "el origen no devolvió identificador de trabajo\n");
+        return false;
+    }
+    std::fprintf(stdout, "%s\n", jobId.c_str());
+    std::fprintf(stderr, "transferencia en marcha como trabajo %s en %s\n", jobId.c_str(),
+                 origen.connection.c_str());
+
+    if (!o.tiene("--wait")) {
+        std::fprintf(stderr, "siga con «job %s --on %s»\n", jobId.c_str(),
+                     textoDe(origen).c_str());
+        return true;
+    }
+    // Con --wait se espera aquí. Se sondea cada dos segundos: más a menudo es carga sin
+    // información nueva, porque el daemon actualiza el avance a ese ritmo.
+    std::string ultimo;
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::string est;
+        if (!agente(e, origen, {"--job-status", jobId}, est, 20000)) {
+            return false;
+        }
+        const auto k = clavesDe(est);
+        const std::string estado = k.count("STATE") ? k.at("STATE") : std::string();
+        const std::string linea = k.count("PROGRESS_LINE") ? k.at("PROGRESS_LINE") : std::string();
+        if (!linea.empty() && linea != ultimo) {
+            ultimo = linea;
+            std::fprintf(stderr, "  %s\n", linea.c_str());
+        }
+        if (estado != "running") {
+            const std::string err = k.count("ERROR") ? k.at("ERROR") : std::string();
+            std::fprintf(stderr, "trabajo %s: %s%s\n", jobId.c_str(), estado.c_str(),
+                         err.empty() ? "" : (" — " + err).c_str());
+            e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
+            return e.ultimoRc == 0;
+        }
+    }
+}
+
+// --- Instalar o actualizar el daemon.
+//
+// Se sube el binario NATIVO y se instala con el arranque propio de cada sistema: systemd
+// en Linux, launchd en macOS, rc.d en FreeBSD, tarea programada en Windows. El binario
+// viaja por la ENTRADA ESTÁNDAR en Unix; en Windows va por scp, porque PowerShell no
+// devuelve de ReadToEnd() con megabytes y la instalación se quedaba colgada.
+//
+// **No hay respaldo por guion.** Si no está el binario de esa plataforma, no se instala
+// nada: un agente de guion no habla TLS, y dejarlo puesto da una máquina que PARECE
+// atendida y no lo está.
+bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    std::string error;
+    const auto* p = perfilVivoDe(e, destino, error);
+    if (!p) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    const std::string quien = p->name.empty() ? p->id : p->name;
+    const bool esWindows = T::isWindowsConnection(*p);
+    const std::string soBajo = B::toLowerAscii(p->osType);
+    const bool esMac = B::contains(soBajo, "mac") || B::contains(soBajo, "darwin")
+                       || B::contains(soBajo, "os x");
+    const bool esFreeBsd = B::contains(soBajo, "freebsd");
+    const std::string plataforma = esWindows ? "windows" : (esMac ? "macos" : (esFreeBsd ? "freebsd" : "linux"));
+
+    if (!confirma(e, "Se va a instalar o actualizar el daemon en " + quien
+                         + " y arrancarlo con el gestor de servicios del sistema. ¿Continuar?")) {
+        std::fprintf(stderr, "cancelado\n");
+        return false;
+    }
+
+    const B::ConnectionProfile perfil = conSudo(e, *p);
+
+    // La arquitectura del OTRO lado, no la de aquí: se despliega a máquinas distintas.
+    std::string arq = esWindows ? "x86_64" : "";
+    if (!esWindows) {
+        std::string out;
+        std::string err;
+        int rc = -1;
+        if (T::runSsh(e.ses->transporte, perfil, "uname -m", 15000, out, err, rc, {}, {}, {}, {},
+                      false, e.ses->verboso)
+            && rc == 0) {
+            arq = B::trim(out);
+        }
+    }
+    const std::string binario = rutaDelAgente(plataforma, arq);
+    if (binario.empty()) {
+        std::fprintf(stderr,
+                     "no se encontró el binario del daemon para %s/%s en este equipo.\n"
+                     "No se instala nada: el respaldo por guion no habla TLS, y dejarlo puesto\n"
+                     "daría una máquina que parece atendida y no lo está.\n",
+                     plataforma.c_str(), arq.empty() ? "?" : arq.c_str());
+        return false;
+    }
+    std::ifstream f(binario, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    const std::string contenido = ss.str();
+    if (contenido.empty()) {
+        std::fprintf(stderr, "el binario del daemon está vacío: %s\n", binario.c_str());
+        return false;
+    }
+    std::fprintf(stderr, "desplegando %s (%zu bytes) en %s...\n", binario.c_str(),
+                 contenido.size(), quien.c_str());
+
+    namespace DP = B::daemonpayload;
+    // La versión del agente y la del protocolo, que van en agent.conf. Vienen del
+    // compilador, igual que en la interfaz: la del agente NO es la de la aplicación, lleva
+    // el sufijo del marcador de esquema.
+    const std::string version = ZFSMGR_AGENT_VERSION_STRING;
+    const std::string api = "3";
+
+    if (esWindows) {
+        // Por scp y no por la entrada estándar: PowerShell no vuelve de ReadToEnd() con
+        // megabytes, y la instalación se colgaba hasta agotar el plazo.
+        const std::string subida = DP::windowsUploadPath();
+        if (T::isLocalConnection(*p)) {
+            std::error_code ec;
+            std::filesystem::remove(subida, ec);
+            std::filesystem::copy_file(binario, subida, ec);
+            if (ec) {
+                std::fprintf(stderr, "no se pudo copiar el daemon a %s\n", subida.c_str());
+                return false;
+            }
+        } else {
+            std::vector<std::string> scpArgs = H::scpUploadArgs(perfil, binario, subida, false);
+            const B::ExecResult r = B::runExecStream("scp", scpArgs, std::string(), 300000,
+                                                     B::StreamCallbacks{});
+            if (r.rc != 0) {
+                std::fprintf(stderr, "scp falló (código %d): %s\n", r.rc,
+                             B::trim(r.err).c_str());
+                return false;
+            }
+        }
+        std::string out;
+        std::string err;
+        int rc = -1;
+        if (!T::runSsh(e.ses->transporte, perfil,
+                       H::withSudoCommand(perfil, DP::windowsNativeInstallCommand()), 300000, out,
+                       err, rc, {}, {}, {}, {}, false, e.ses->verboso)
+            || rc != 0) {
+            std::fprintf(stderr, "la instalación falló (código %d): %s\n", rc,
+                         B::trim(err.empty() ? out : err).c_str());
+            return false;
+        }
+        std::fprintf(stderr, "daemon instalado en %s\n", quien.c_str());
+        return true;
+    }
+
+    // Unix. El binario entra por la entrada estándar y el guion lo coloca con `install`.
+    const std::string despliegue =
+        "tmp_bin='/tmp/zfsmgr-agent.bin.$$'; cat > \"$tmp_bin\"; install -m 700 \"$tmp_bin\" "
+        + B::shSingleQuote(DP::unixBinPath()) + "; rm -f \"$tmp_bin\"; ";
+    const std::string conf = DP::simpleConfigPayload(version, api);
+    const std::string tls = DP::tlsBootstrapShellCommand();
+    const std::string bin = DP::unixBinPath();
+    const std::string confPath = DP::unixConfigPath();
+    const std::string tlsFiles = DP::tlsDirPath() + " " + DP::tlsServerCertPath() + " "
+                                 + DP::tlsServerKeyPath() + " " + DP::tlsClientCertPath() + " "
+                                 + DP::tlsClientKeyPath();
+    std::string guion;
+    if (esMac) {
+        guion = "mkdir -p /usr/local/libexec /etc/zfsmgr; " + despliegue
+                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+                + "cat > " + DP::macPlistPath() + " <<'EOF_AGENT_PLIST'\n" + DP::macLaunchdPlist()
+                + "\nEOF_AGENT_PLIST\n" + tls + "; "
+                + "chmod 600 " + confPath + "; chmod 644 " + DP::macPlistPath() + "; "
+                + "chown root:wheel " + bin + " " + confPath + " " + DP::macPlistPath() + "; "
+                + "chown root:wheel " + tlsFiles + "; "
+                  "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                  "launchctl bootstrap system "
+                + DP::macPlistPath() + " >/dev/null 2>&1 || true; "
+                  "launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                  "ok=0; i=0; "
+                  "while [ \"$i\" -lt 30 ]; do "
+                  "  if launchctl print system/org.zfsmgr.agent >/dev/null 2>&1; then ok=1; break; fi; "
+                  "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                  "  i=$((i+1)); sleep 1; "
+                  "done; "
+                  "if [ \"$ok\" -ne 1 ]; then echo 'launchd agent not active after install' >&2; exit 1; fi";
+    } else if (esFreeBsd) {
+        guion = "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; " + despliegue
+                // Sin OpenSSL el daemon se instala y no arranca, y el motivo real queda en
+                // un error del cargador que no dice qué falta.
+                + "ldd_missing=$(ldd " + bin + " 2>&1 | grep 'not found' || true); "
+                  "if [ -n \"$ldd_missing\" ]; then "
+                  "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
+                  "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; exit 1; fi; "
+                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+                + "cat > " + DP::freeBsdRcPath() + " <<'EOF_AGENT_RC'\n" + DP::freeBsdRcScript()
+                + "\nEOF_AGENT_RC\n" + tls + "; "
+                + "chmod 700 " + DP::freeBsdRcPath() + "; chmod 600 " + confPath + "; "
+                + "chown root:wheel " + bin + " " + confPath + " " + DP::freeBsdRcPath() + "; "
+                + "chown root:wheel " + tlsFiles + "; "
+                  "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
+                  "service zfsmgr_agent start; sleep 2; "
+                  "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
+                  "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; exit 1; fi";
+    } else {
+        guion = "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; "
+                "exit 1; fi; mkdir -p /usr/local/libexec /etc/zfsmgr; "
+                + despliegue
+                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+                + "cat > " + DP::linuxServicePath() + " <<'EOF_AGENT_SERVICE'\n"
+                + DP::linuxSystemdService() + "\nEOF_AGENT_SERVICE\n" + tls + "; "
+                + "chmod 600 " + confPath + "; chmod 644 " + DP::linuxServicePath() + "; "
+                + "chown root:root " + bin + " " + confPath + " " + DP::linuxServicePath() + "; "
+                + "chown root:root " + tlsFiles + "; "
+                  "systemctl daemon-reload; systemctl enable zfsmgr-agent.service; "
+                  "systemctl restart zfsmgr-agent.service";
+    }
+
+    std::string out;
+    std::string err;
+    int rc = -1;
+    // allowAgentRpc=false: se está INSTALANDO el agente; desviar esto al RPC del agente que
+    // se quiere sustituir no tendría ningún sentido.
+    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoStreamInputCommand(perfil, guion), 300000,
+                   out, err, rc,
+                   [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); },
+                   [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, {},
+                   contenido, false, e.ses->verboso)
+        || rc != 0) {
+        std::fprintf(stderr, "la instalación falló (código %d): %s\n", rc,
+                     B::trim(err.empty() ? out : err).c_str());
+        e.ultimoRc = rc == 0 ? 1 : rc;
+        return false;
+    }
+    // Lo que había cacheado del daemon anterior ya no vale.
+    T::closeTunnelForConnection(e.ses->transporte, *p);
+    T::clearRemoteDaemonTlsCacheForConnection(*p);
+    T::clearLocalDaemonTlsCache();
+    std::fprintf(stderr, "daemon instalado en %s\n", quien.c_str());
+    return true;
+}
+
 // --- Trabajos en segundo plano.
 //
 // El daemon puede ejecutar las operaciones LARGAS sin que nadie espere al otro lado:
@@ -1799,10 +2162,17 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
         if (!B::json::parse(linea.substr(4), j, &err)) {
             continue;
         }
+        // El ritmo con DOS decimales: `std::to_string` de un double da seis, y «0.000000»
+        // ocupa una columna entera para no decir nada.
+        char ritmo[32];
+        std::snprintf(ritmo, sizeof(ritmo), "%.2f", j["rate"].toDouble());
+        // El texto de error puede traer saltos de línea; en una tabla los rompe.
+        std::string textoErr = j["error"].toString();
+        B::replaceAll(textoErr, "\n", " ");
+        B::replaceAll(textoErr, "\r", " ");
         t.filas.push_back({j["id"].toString(), j["state"].toString(), j["type"].toString(),
-                           j["snap"].toString(), std::to_string(j["bytes"].toInt()),
-                           std::to_string(j["rate"].toDouble()),
-                           std::to_string(j["elapsed"].toInt()), j["error"].toString()});
+                           j["snap"].toString(), std::to_string(j["bytes"].toInt()), ritmo,
+                           std::to_string(j["elapsed"].toInt()), B::trim(textoErr)});
     }
     if (t.filas.empty()) {
         std::fprintf(stderr, "no hay trabajos\n");
@@ -2438,6 +2808,17 @@ void ayuda() {
         "                                    ESCRIBE en los dispositivos\n"
         "  destroy                           Estando en un pool, lo destruye entero\n"
         "\n"
+        "Transferencias entre máquinas:\n"
+        "  copy <destino> [--from <@inst>] [--base <@inst>] [--flags …] [--wait]\n"
+        "                                    Manda una instantánea a otro dataset, aquí\n"
+        "                                    o en otra máquina. Con --base solo viaja lo\n"
+        "                                    que cambió («Nivelar»). Va como trabajo;\n"
+        "                                    con --wait se espera aquí.\n"
+        "\n"
+        "Daemon:\n"
+        "  install-daemon [--on <url>]       Instala o actualiza el daemon y lo arranca\n"
+        "                                    con el gestor de servicios del sistema\n"
+        "\n"
         "Trabajos en segundo plano:\n"
         "  jobs                              Los que hay en la máquina\n"
         "  job <id>                          Estado de uno\n"
@@ -2533,6 +2914,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"status", cmdStatus},
         {"jobs", cmdJobs},
         {"job", cmdJob},
+        {"install-daemon", cmdInstalarDaemon},
+        {"copy", cmdCopy},
         {"history", cmdHistory},
         {"allow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, true); }},
         {"unallow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, false); }},

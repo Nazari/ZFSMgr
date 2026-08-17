@@ -188,6 +188,55 @@ Y la consola de Windows interpreta lo que le llega con la página de códigos OE
 el programa pone la suya en UTF-8 al arrancar: sin eso, «— «help»» salía como
 «ÔÇö ┬½help┬½».
 
+## Pools, permisos, trabajos, daemon y transferencias
+
+**`create` y `destroy` son el mismo verbo en los tres niveles**, porque es la misma idea:
+en la RAÍZ una conexión, en una CONEXIÓN un pool, en un DATASET un hijo. Y `destroy` en un
+pool es `zpool destroy` —`zfs destroy` sobre el dataset raíz de un pool no funciona, así
+que es la única lectura posible—.
+
+**Crear un pool es la orden más destructiva de todas**: escribe en los dispositivos que se
+le den. La confirmación los ENUMERA uno a uno, porque «¿seguro?» sobre una lista que no se
+ve es cómo se formatea el disco equivocado.
+
+**`zfs allow` no tiene salida tabulada**: escribe un bloque para leer, con secciones y
+entradas indentadas. Se analiza para poder darlo en los tres formatos, que es lo que
+permite comprobar quién tiene qué sin leer prosa. Sin argumentos, `allow` LISTA, que es lo
+que hace `zfs allow` a secas.
+
+**Los trabajos existen porque una transferencia grande no cabe en una espera.** El daemon
+ejecuta breakdown, assemble, todir y rsync sin que nadie aguarde al otro lado; se piden con
+`--job` y se siguen con `jobs` y `job <id>`.
+
+**La transferencia entre máquinas tiene DOS EXTREMOS**, no es una tubería:
+
+1. En el DESTINO, `--zfs-recv-listen <dataset> 1` abre un puerto y devuelve `PORT=` y
+   `TOKEN=`.
+2. En el ORIGEN, `--zfs-send-to-peer-async <snap> <host> <puerto> <testigo> …` conecta con
+   ese puerto y devuelve un `JOB_ID=`.
+3. El avance se consulta en la máquina de ORIGEN.
+
+`copy` con `--base` es incremental —lo que la interfaz llama «Nivelar»—: es la misma
+operación con o sin instantánea de partida, así que es una sola orden y no dos.
+
+**Ninguno de los dos extremos puede ser Windows**: el flujo por socket no está portado
+allí. Se dice ANTES de empezar, porque un fallo a mitad de transferencia no se entiende.
+
+**Instalar el daemon no tiene respaldo por guion, a propósito.** Si falta el binario nativo
+de esa plataforma no se instala nada: un agente de guion no habla TLS, y dejarlo puesto da
+una máquina que PARECE atendida y no lo está. El binario viaja por la entrada estándar en
+Unix; en Windows por scp, porque PowerShell no vuelve de `ReadToEnd()` con megabytes.
+
+## Un fallo del daemon que salió al probar esto
+
+`--job-list` devolvía errores con las barras multiplicadas: `\\\\n` donde debería haber un
+salto. La causa está en la persistencia de trabajos de `daemon_main.cpp`: al guardar se
+aplica `jsonEscape()`, pero al releer el `getStr` toma la subcadena entre comillas **sin
+des-escapar**. Cada reescritura del fichero dobla las barras, sin límite.
+
+Es del daemon y no del CLI, y arreglarlo es cambiar el formato de un fichero que ya está
+en las máquinas, así que se deja anotado y no se toca de paso.
+
 ## Lo que falta
 
 - La resolución de rutas es lógica pura y está probada solo por las pruebas en vivo.

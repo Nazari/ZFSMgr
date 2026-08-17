@@ -226,6 +226,9 @@ add_executable(zfsmgr_cli
 target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
 target_compile_definitions(zfsmgr_cli PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    # La versión del AGENTE, que no es la de la aplicación: lleva el sufijo del marcador de
+    # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
+    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})

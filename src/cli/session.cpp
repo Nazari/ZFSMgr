@@ -10,7 +10,14 @@
 #include "strutil.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <map>
+#include <sstream>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <mutex>
 
 namespace zfsmgr::cli {
@@ -353,6 +360,70 @@ std::string clavePersistencia(const std::string& idONombre) {
 }
 
 }  // namespace
+
+namespace {
+
+// El directorio del propio ejecutable. Sin Qt no hay `applicationDirPath()`.
+std::string dirDelEjecutable() {
+#ifdef _WIN32
+    char buf[4096] = {0};
+    const DWORD n = GetModuleFileNameA(nullptr, buf, sizeof(buf));
+    if (n == 0) {
+        return ".";
+    }
+    std::string ruta(buf, n);
+#else
+    std::error_code ec;
+    const auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    std::string ruta = ec ? std::string() : p.string();
+    if (ruta.empty()) {
+        // macOS y FreeBSD no tienen /proc/self/exe. Con el cwd basta para el caso que
+        // importa: el árbol de compilación.
+        return ".";
+    }
+#endif
+    const std::size_t barra = ruta.find_last_of("/\\");
+    return barra == std::string::npos ? std::string(".") : ruta.substr(0, barra);
+}
+
+// Los nombres con los que puede aparecer una arquitectura. `uname -m` dice «x86_64» en
+// Linux y «amd64» en FreeBSD para lo mismo, y «arm64»/«aarch64» también son la misma.
+std::vector<std::string> aliasDeArquitectura(const std::string& arqCruda) {
+    const std::string a = B::toLowerAscii(B::trim(arqCruda));
+    if (a == "amd64" || a == "x86_64" || a == "x64") {
+        return {"x86_64", "amd64"};
+    }
+    if (a == "arm64" || a == "aarch64") {
+        return {"arm64", "aarch64"};
+    }
+    if (!a.empty()) {
+        return {a};
+    }
+    return {"x86_64", "amd64", "arm64", "aarch64"};
+}
+
+}  // namespace
+
+std::string rutaDelAgente(const std::string& plataforma, const std::string& arquitectura) {
+    const std::string ext = plataforma == "windows" ? ".exe" : "";
+    const std::string dir = dirDelEjecutable();
+    std::error_code ec;
+    for (const std::string& arq : aliasDeArquitectura(arquitectura)) {
+        const std::string rel = plataforma + "-" + arq + "/zfsmgr_agent" + ext;
+        for (const std::string& base : {dir + "/agents/", dir + "/../agents/",
+                                        dir + "/../Resources/agents/",
+                                        dir + "/../share/zfsmgr/agents/",
+                                        dir + "/builds/agents/", dir + "/../builds/agents/",
+                                        dir + "/../../builds/agents/",
+                                        std::string("builds/agents/")}) {
+            const std::string cand = base + rel;
+            if (std::filesystem::is_regular_file(cand, ec)) {
+                return std::filesystem::absolute(cand, ec).string();
+            }
+        }
+    }
+    return {};
+}
 
 bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& error) {
     error.clear();

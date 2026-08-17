@@ -122,6 +122,14 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error);
 // formas de saber lo mismo es cómo acaban discrepando.
 bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error);
 
+// El binario del agente que hay que desplegar en una máquina de esa plataforma.
+//
+// Busca en los mismos sitios que la interfaz: junto al ejecutable (`agents/<plat>-<arq>/`)
+// y, si no, en el árbol de compilación (`builds/agents/`). Devuelve vacío si no está — y
+// entonces NO se instala nada: el respaldo por guion no habla TLS, y desplegarlo dejaría
+// una máquina que parece atendida y no lo está.
+std::string rutaDelAgente(const std::string& plataforma, const std::string& arquitectura);
+
 // Ejecuta un verbo del agente por RPC TIPADO: argv, sin intérprete de por medio.
 //
 // **No hay respaldo por shell, y es deliberado.** En la interfaz existe por historia; aquí
