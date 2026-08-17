@@ -120,5 +120,35 @@ if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
 fi
 
 echo "[docker] compilando: ${PLATFORMS}${extra:+ (extra:${extra})}"
-exec docker run "${DOCKER_ARGS[@]}" "${IMAGE}" -lc \
+docker run "${DOCKER_ARGS[@]}" "${IMAGE}" -lc \
   "mkdir -p \"\${HOME}\" && ln -sfn /opt/toolchain/Qt \"\${HOME}/Qt\" && scripts/buildall-cross.sh --platforms '${PLATFORMS}'${extra}"
+rc=$?
+
+# --- Los agentes VUELVEN a `builds/agents`, que es donde los busca el cliente.
+#
+# Dentro del contenedor, `builds/` es en realidad `builds-docker/` del anfitrión, así que
+# lo que se compila aquí NO llega solo a `builds/agents/`, que es la ruta que consultan el
+# CLI y la interfaz al instalar el daemon en otra máquina.
+#
+# Sin esta copia pasaba lo peor que puede pasar en un despliegue: se instalaba el agente de
+# una compilación ANTERIOR, la máquina quedaba atendida por un daemon de otra versión de
+# protocolo, y el único síntoma era un asterisco en el listado.
+#
+# Se copia AUNQUE el cruce haya fallado a mitad: lo que sí se compiló es válido y reciente,
+# y quedarse con lo viejo por un fallo en otra plataforma es justo el problema que esto
+# viene a quitar.
+if [[ -d "${PROJECT_ROOT}/builds-docker/agents" ]]; then
+  mkdir -p "${PROJECT_ROOT}/builds/agents"
+  cp -a "${PROJECT_ROOT}/builds-docker/agents/." "${PROJECT_ROOT}/builds/agents/"
+  echo "[docker] agentes disponibles para instalar (builds/agents):"
+  for d in "${PROJECT_ROOT}"/builds/agents/*/; do
+    [[ -d "${d}" ]] || continue
+    bin="$(ls "${d}"zfsmgr_agent* 2>/dev/null | head -1)"
+    [[ -n "${bin}" ]] || continue
+    # La versión sale del propio binario: es la única que no puede mentir.
+    ver="$(strings "${bin}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{6,}' | sort -u | head -1)"
+    printf '           %-18s %s\n' "$(basename "${d%/}")" "${ver:-?}"
+  done
+fi
+
+exit ${rc}

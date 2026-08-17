@@ -349,11 +349,21 @@ ensure_macos_openssl() {
 AGENT_BUNDLE_DIR="${PROJECT_ROOT}/builds/agent-bundle"
 declare -A AGENT_BIN_PATHS=()
 
+# Registra el agente recién compilado Y LO CACHEA EN EL ACTO.
+#
+# Cachear aquí y no al empaquetar es el arreglo de un fallo real: la caché se rellenaba en
+# `build_agent_bundle_dir`, que corre al final, así que un cruce que abortara a mitad
+# —macOS sin poder enlazar, por ejemplo— dejaba en `builds/agents/` los binarios de la
+# compilación ANTERIOR. Desde el CLI se instalaban esos, y el daemon recién puesto salía
+# marcado como desactualizado sin que se entendiera por qué.
 set_agent_path_if_exists() {
   local key="$1"
   local path="$2"
+  local ext=""
+  [[ "${key}" == windows-* ]] && ext=".exe"
   if [[ -f "${path}" ]]; then
     AGENT_BIN_PATHS["${key}"]="${path}"
+    cache_agent_binary "${path}" "${key}" "${ext}"
   fi
 }
 
@@ -367,6 +377,10 @@ resolve_agent_source() {
   fi
   local cache="${PROJECT_ROOT}/builds/agents/${key}/zfsmgr_agent${ext}"
   if [[ -f "${cache}" ]]; then
+    # Se REUTILIZA uno de una compilación anterior. Se avisa en voz alta: empaquetar un
+    # agente viejo junto a un cliente nuevo da una máquina que parece atendida y responde
+    # con otra versión de protocolo, y en silencio eso no se descubre hasta usarla.
+    echo "AVISO: ${key} no se compiló en esta pasada; se reutiliza ${cache}" >&2
     printf '%s\n' "${cache}"
     return 0
   fi
