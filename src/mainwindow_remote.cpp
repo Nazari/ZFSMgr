@@ -3,6 +3,7 @@
 #include "transport.h"
 
 #include "base/json.h"
+#include "base/process.h"
 #include "base/tlsclient.h"
 #include "mainwindow_helpers.h"
 #include "agentversion.h"
@@ -2012,7 +2013,6 @@ bool transport::runSsh(TransportSession& ses,
             }
         }
 
-        QProcess proc;
         QString program;
         QStringList args;
 #ifdef Q_OS_WIN
@@ -2022,126 +2022,91 @@ bool transport::runSsh(TransportSession& ses,
         program = QStringLiteral("sh");
         args << "-c" << mwhelpers::asciiSafeShellCommand(localCmd);
 #endif
-        QElapsedTimer timer;
-        timer.start();
-        proc.start(program, args);
-        if (!proc.waitForStarted(4000)) {
+        // Una línea completa: se recorta y las vacías se descartan, que es lo que hacía
+        // el reparto anterior. Lo que llega ya viene cortado por salto O por retorno de
+        // carro, así que el progreso de `zfs send` sigue apareciendo según avanza.
+        const auto entregaLinea = [&](const QString& cruda,
+                                      const std::function<void(const QString&)>& cbUsuario) {
+            const QString line = cruda.trimmed();
+            if (line.isEmpty()) {
+                return;
+            }
+            if (cbUsuario) {
+                cbUsuario(line);
+            }
+            if (echoOutputToLog) {
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
+            }
+        };
+
+        // El tope es de INACTIVIDAD, no total: se reinicia con cada trozo que llega. Una
+        // transferencia de horas no puede morir por durar; sí debe morir si se queda
+        // muda. Por eso runExecStream corre sin límite propio y el control va en onTick.
+        QElapsedTimer inactividad;
+        inactividad.start();
+        int ultimoAvisoSeg = -1;
+        bool porInactividad = false;
+
+        zfsmgr::base::StreamCallbacks cbs;
+        cbs.onStdoutLine = [&](const std::string& l) {
+            inactividad.restart();
+            ultimoAvisoSeg = -1;
+            entregaLinea(QString::fromStdString(l), onStdoutLine);
+        };
+        cbs.onStderrLine = [&](const std::string& l) {
+            inactividad.restart();
+            ultimoAvisoSeg = -1;
+            entregaLinea(QString::fromStdString(l), onStderrLine);
+        };
+        cbs.onTick = [&](int) -> bool {
+            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
+                const int quedanSeg = qMax(0, (timeoutMs - int(inactividad.elapsed()) + 999) / 1000);
+                if (quedanSeg != ultimoAvisoSeg) {
+                    ultimoAvisoSeg = quedanSeg;
+                    onIdleTimeoutRemaining(quedanSeg);
+                }
+            }
+            if (timeoutMs > 0 && inactividad.elapsed() > timeoutMs) {
+                porInactividad = true;
+                return false;  // cancela: es la muerte por silencio
+            }
+            // Dejar respirar a la interfaz, solo en su hilo. Sin dueño no hay nada que
+            // refrescar.
+            if (ses.owner && QThread::currentThread() == ses.owner->thread()) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+            return true;
+        };
+
+        const zfsmgr::base::ExecResult res = zfsmgr::base::runExecStream(
+            program.toStdString(),
+            [&args] {
+                std::vector<std::string> v;
+                v.reserve(static_cast<std::size_t>(args.size()));
+                for (const QString& a : args) {
+                    v.push_back(a.toStdString());
+                }
+                return v;
+            }(),
+            std::string(stdinPayload.constData(), static_cast<std::size_t>(stdinPayload.size())),
+            0,
+            cbs);
+        out = QString::fromStdString(res.out);
+        err = QString::fromStdString(res.err);
+        const bool timedOut = porInactividad;
+        if (res.rc == 127 && !timedOut) {
             err = QStringLiteral("No se pudo iniciar %1").arg(program);
             ses.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
-        if (!stdinPayload.isEmpty()) {
-            proc.write(stdinPayload);
-            proc.closeWriteChannel();
-        }
-        QString outLineBuf;
-        QString errLineBuf;
-        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
-            if (!chunk.isEmpty()) {
-                buf += chunk;
-            }
-            while (true) {
-                const int nl = buf.indexOf('\n');
-                const int cr = buf.indexOf('\r');
-                int sep = -1;
-                if (nl >= 0 && cr >= 0) {
-                    sep = qMin(nl, cr);
-                } else if (nl >= 0) {
-                    sep = nl;
-                } else if (cr >= 0) {
-                    sep = cr;
-                }
-                if (sep < 0) {
-                    break;
-                }
-                QString line = buf.left(sep);
-                buf.remove(0, sep + 1);
-                line = line.trimmed();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (cb) {
-                    cb(line);
-                }
-                if (echoOutputToLog) {
-                    ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-                }
-            }
-        };
 
-        bool timedOut = false;
-        int lastIdleRemainingSec = -1;
-        while (proc.state() != QProcess::NotRunning) {
-            proc.waitForReadyRead(120);
-            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
-            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
-            if (!outChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                out += outChunk;
-                flushLines(outLineBuf, outChunk, onStdoutLine);
-            }
-            if (!errChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                err += errChunk;
-                flushLines(errLineBuf, errChunk, onStderrLine);
-            }
-            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
-                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
-                if (remainingSec != lastIdleRemainingSec) {
-                    lastIdleRemainingSec = remainingSec;
-                    onIdleTimeoutRemaining(remainingSec);
-                }
-            }
-            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
-                timedOut = true;
-                proc.kill();
-                proc.waitForFinished(1000);
-                break;
-            }
-            // Bombear el bucle solo en el hilo del dueño: es lo que evita que la
-            // ventana se congele durante la espera. Sin dueño —una herramienta de un
-            // solo hilo— no hay interfaz que refrescar y no se bombea nada.
-            if (ses.owner && QThread::currentThread() == ses.owner->thread()) {
-                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
-            }
-        }
-        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
-        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
-        if (!outTail.isEmpty()) {
-            out += outTail;
-            flushLines(outLineBuf, outTail, onStdoutLine);
-        }
-        if (!errTail.isEmpty()) {
-            err += errTail;
-            flushLines(errLineBuf, errTail, onStderrLine);
-        }
-        if (!outLineBuf.trimmed().isEmpty()) {
-            const QString line = outLineBuf.trimmed();
-            if (onStdoutLine) {
-                onStdoutLine(line);
-            }
-            if (echoOutputToLog) {
-                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-            }
-        }
-        if (!errLineBuf.trimmed().isEmpty()) {
-            const QString line = errLineBuf.trimmed();
-            if (onStderrLine) {
-                onStderrLine(line);
-            }
-            if (echoOutputToLog) {
-                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-            }
-        }
         if (timedOut) {
             rc = -1;
             err = QStringLiteral("Timeout");
             ses.logConn(TransportSession::Nivel::Normal, p.id, err);
             return false;
         }
-        rc = proc.exitCode();
+        rc = res.rc;
         // ssh sale con 255 y un "Host key verification failed" escueto cuando la
         // clave del host no coincide. Sin traducirlo, eso llega al usuario como un
         // fallo de red cualquiera, y es precisamente el caso que no debe ignorar.
@@ -2243,134 +2208,78 @@ bool transport::runSsh(TransportSession& ses,
         args << sshUserHost(p);
         args << mwhelpers::asciiSafeShellCommand(wrappedCmd);
 
-        QProcess proc;
-        // Garantiza que el hijo no sobreviva al QProcess, salga por donde salga esta
-        // función. Qt avisa —"Destroyed while process is still running"— y el `ssh` o el
-        // `sshpass` se quedan sueltos, reteniendo su socket de multiplexado. Había ramas
-        // que ya mataban y otras que no; en vez de perseguirlas una a una, se cubre el
-        // destructor, que es por donde pasan todas.
-        struct ProcessGuard {
-            QProcess* proc;
-            ~ProcessGuard() {
-                if (proc && proc->state() != QProcess::NotRunning) {
-                    proc->kill();
-                    proc->waitForFinished(2000);
-                }
+        // Ya no hace falta un guardián que mate al hijo: runExecStream espera SIEMPRE al
+        // proceso, salga por donde salga. El QProcess anterior necesitaba uno porque Qt
+        // avisaba —"Destroyed while process is still running"— y dejaba sueltos el `ssh`
+        // o el `sshpass`, reteniendo su socket de multiplexado.
+        QElapsedTimer inactividad;
+        inactividad.start();
+        int ultimoAvisoSeg = -1;
+        bool porInactividad = false;
+
+        const auto entregaLinea = [&](const QString& cruda,
+                                      const std::function<void(const QString&)>& cbUsuario) {
+            const QString line = cruda.trimmed();
+            if (line.isEmpty()) {
+                return;
             }
-        } processGuard{&proc};
-        QElapsedTimer timer;
-        timer.start();
-        proc.start(program, args);
-        if (!proc.waitForStarted(4000)) {
-            attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
-            ses.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
-            return false;
-        }
-        if (!stdinPayload.isEmpty()) {
-            proc.write(stdinPayload);
-            proc.closeWriteChannel();
-        }
-        QString outLineBuf;
-        QString errLineBuf;
-        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
-            if (!chunk.isEmpty()) {
-                buf += chunk;
+            if (cbUsuario) {
+                cbUsuario(line);
             }
-            while (true) {
-                const int nl = buf.indexOf('\n');
-                const int cr = buf.indexOf('\r');
-                int sep = -1;
-                if (nl >= 0 && cr >= 0) {
-                    sep = qMin(nl, cr);
-                } else if (nl >= 0) {
-                    sep = nl;
-                } else if (cr >= 0) {
-                    sep = cr;
-                }
-                if (sep < 0) {
-                    break;
-                }
-                QString line = buf.left(sep);
-                buf.remove(0, sep + 1);
-                line = line.trimmed();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (cb) {
-                    cb(line);
-                }
-                if (echoOutputToLog) {
-                    ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-                }
+            if (echoOutputToLog) {
+                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
             }
         };
 
-        bool timedOut = false;
-        int lastIdleRemainingSec = -1;
-        while (proc.state() != QProcess::NotRunning) {
-            proc.waitForReadyRead(120);
-            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
-            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
-            if (!outChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                attemptOut += outChunk;
-                flushLines(outLineBuf, outChunk, onStdoutLine);
-            }
-            if (!errChunk.isEmpty()) {
-                timer.restart();
-                lastIdleRemainingSec = -1;
-                attemptErr += errChunk;
-                flushLines(errLineBuf, errChunk, onStderrLine);
-            }
+        zfsmgr::base::StreamCallbacks cbs;
+        cbs.onStdoutLine = [&](const std::string& l) {
+            inactividad.restart();
+            ultimoAvisoSeg = -1;
+            entregaLinea(QString::fromStdString(l), onStdoutLine);
+        };
+        cbs.onStderrLine = [&](const std::string& l) {
+            inactividad.restart();
+            ultimoAvisoSeg = -1;
+            entregaLinea(QString::fromStdString(l), onStderrLine);
+        };
+        cbs.onTick = [&](int) -> bool {
             if (timeoutMs > 0 && onIdleTimeoutRemaining) {
-                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
-                if (remainingSec != lastIdleRemainingSec) {
-                    lastIdleRemainingSec = remainingSec;
-                    onIdleTimeoutRemaining(remainingSec);
+                const int quedanSeg = qMax(0, (timeoutMs - int(inactividad.elapsed()) + 999) / 1000);
+                if (quedanSeg != ultimoAvisoSeg) {
+                    ultimoAvisoSeg = quedanSeg;
+                    onIdleTimeoutRemaining(quedanSeg);
                 }
             }
-            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
-                timedOut = true;
-                proc.kill();
-                proc.waitForFinished(1000);
-                break;
+            if (timeoutMs > 0 && inactividad.elapsed() > timeoutMs) {
+                porInactividad = true;
+                return false;
             }
-            // Bombear el bucle solo en el hilo del dueño: es lo que evita que la
-            // ventana se congele durante la espera. Sin dueño —una herramienta de un
-            // solo hilo— no hay interfaz que refrescar y no se bombea nada.
             if (ses.owner && QThread::currentThread() == ses.owner->thread()) {
                 QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             }
-        }
+            return true;
+        };
 
-        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
-        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
-        if (!outTail.isEmpty()) {
-            attemptOut += outTail;
-            flushLines(outLineBuf, outTail, onStdoutLine);
-        }
-        if (!errTail.isEmpty()) {
-            attemptErr += errTail;
-            flushLines(errLineBuf, errTail, onStderrLine);
-        }
-        if (!outLineBuf.trimmed().isEmpty()) {
-            const QString line = outLineBuf.trimmed();
-            if (onStdoutLine) {
-                onStdoutLine(line);
-            }
-            if (echoOutputToLog) {
-                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-            }
-        }
-        if (!errLineBuf.trimmed().isEmpty()) {
-            const QString line = errLineBuf.trimmed();
-            if (onStderrLine) {
-                onStderrLine(line);
-            }
-            if (echoOutputToLog) {
-                ses.logConn(TransportSession::Nivel::Normal, p.id, line);
-            }
+        const zfsmgr::base::ExecResult res = zfsmgr::base::runExecStream(
+            program.toStdString(),
+            [&args] {
+                std::vector<std::string> v;
+                v.reserve(static_cast<std::size_t>(args.size()));
+                for (const QString& a : args) {
+                    v.push_back(a.toStdString());
+                }
+                return v;
+            }(),
+            std::string(stdinPayload.constData(), static_cast<std::size_t>(stdinPayload.size())),
+            0,
+            cbs);
+        attemptOut = QString::fromStdString(res.out);
+        attemptErr = QString::fromStdString(res.err);
+        const bool timedOut = porInactividad;
+        if (res.rc == 127 && !timedOut) {
+            attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
+            ses.logConn(TransportSession::Nivel::Normal, p.id, attemptErr);
+            return false;
         }
 
         if (timedOut) {
@@ -2380,7 +2289,7 @@ bool transport::runSsh(TransportSession& ses,
             return false;
         }
 
-        attemptRc = proc.exitCode();
+        attemptRc = res.rc;
         return true;
     };
 

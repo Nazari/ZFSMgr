@@ -939,6 +939,43 @@ que un argumento con `;` o `|` llegue **literal** —porque no hay shell de por 
 Son POSIX solamente. En Windows harían falta otras rutas, y una prueba que solo corre en
 una plataforma es mejor declararla que fingirla.
 
+## Paso 9: `runSsh` sin `QProcess`
+
+Los dos bucles de `QProcess` de `runSsh` —el local y el remoto, con la misma forma—
+pasan a `runExecStream`. En la función ya no queda ninguna mención a `QProcess` salvo un
+comentario histórico.
+
+**El detalle que había que no romper:** el tope de tiempo es de **INACTIVIDAD**, no total.
+El temporizador se reiniciaba con cada trozo que llegaba. Una transferencia de horas no
+puede morir por durar; sí debe morir si se queda muda. Como `runExecStream` lleva un tope
+total, se le pasa cero —sin límite— y la cuenta de inactividad va en `onTick`, que es
+también donde se avisa de cuánto queda y se deja respirar a la interfaz.
+
+De paso desaparece un guardián: el `ProcessGuard` que mataba al hijo en el destructor
+existía porque Qt avisaba —«Destroyed while process is still running»— y dejaba sueltos
+el `ssh` o el `sshpass` reteniendo su socket de multiplexado. `runExecStream` espera
+siempre al proceso, salga por donde salga.
+
+### Probado contra una máquina real
+
+Aquí las referencias doradas no valen: un `ssh` de verdad falla de maneras que ningún
+volcado reproduce.
+
+| | |
+|---|---|
+| orden simple, tres líneas | llegan por retrollamada, `rc=0` |
+| orden que falla | `rc=7`, propagado |
+| 10.000 líneas de salida | todas, en 18 ms —la tubería no se atasca— |
+| 4 MB por la entrada estándar | `wc -c` responde 4194304 |
+| callar 8 s con tope de 3 | corta a los 3.054 ms, `err=Timeout`, 4 avisos de cuenta atrás |
+| **hablar 6 s con tope de 3** | **sobrevive**: el tope es de inactividad, no total |
+
+El último es el que de verdad valida el diseño: si el tope fuera total, una transferencia
+larga moriría a mitad.
+
+**Sigue sin probarse la rama de Windows** de `runExecStream`, escrita con `PeekNamedPipe`
+y sin ejecutar.
+
 ## Estado
 
 Hecho y verificado:
