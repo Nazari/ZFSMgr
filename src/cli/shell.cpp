@@ -1054,12 +1054,22 @@ bool exigeDataset(const ZfsmUrl& u) {
     return true;
 }
 
-bool cmdSnapshot(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
-        return false;
-    }
+// Crear una INSTANTÁNEA. No es una orden suelta: es la rama de `create` para cuando el
+// nombre empieza por `@`.
+//
+// Antes tenía verbo propio, `snapshot`, heredado de que en la interfaz hay un botón
+// distinto. Pero el modelo del intérprete no es el de la interfaz: aquí `create` significa
+// «crea un nodo donde estás» —una conexión en la raíz, un pool en una conexión, un hijo en
+// un dataset—, y una instantánea es otro nodo que se crea donde estás. El `@` ya es el
+// marcador que la distingue en la propia URL, y `ls` dentro de un dataset ya lista hijos e
+// instantáneas como hermanos.
+//
+// Lo que había antes era el peor de los dos mundos: `create @x` construía el nombre
+// `tank/datos/@x` y lo mandaba a ZFS, que respondía «snapshot delimiter '@' is not
+// expected here». El programa tenía delante todo lo necesario para saber qué se le pedía y
+// devolvía un mensaje sobre delimitadores.
+bool creaInstantanea(Estado& e, const Opts& o, const ZfsmUrl& destinoEntrada) {
+    ZfsmUrl destino = destinoEntrada;
     if (!exigeDataset(destino)) {
         return false;
     }
@@ -1068,7 +1078,7 @@ bool cmdSnapshot(Estado& e, const std::vector<std::string>& args) {
         nombre = nombre.substr(1);
     }
     if (nombre.empty()) {
-        std::fputs(TC("t_hace_falta_638a1d", "hace falta un nombre: snapshot @<nombre>\n"), stderr);
+        std::fputs(TC("t_hace_falta_638a1d", "hace falta un nombre: create @<nombre>\n"), stderr);
         return false;
     }
     const bool recursivo = o.tiene("-r");
@@ -1452,6 +1462,12 @@ bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
     if (o.libres.empty()) {
         std::fputs(TC("t_uso_create_c8fa17", "uso: create <nombre> [prop=valor...]\n"), stderr);
         return false;
+    }
+    // Un nombre que empieza por `@` nombra una INSTANTÁNEA, no un hijo. Se decide por el
+    // marcador y no por una opción, porque `@` es lo que ya distingue una instantánea en la
+    // URL: `zfsm://local/tank/datos@ayer`.
+    if (o.libres.front().rfind('@', 0) == 0) {
+        return creaInstantanea(e, o, destino);
     }
     if (!exigeDataset(destino)) {
         return false;
@@ -3020,7 +3036,6 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"history", cmdHistory},
         {"allow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, true); }},
         {"unallow", [](Estado& s, const std::vector<std::string>& a) { return cmdPermisos(s, a, false); }},
-        {"snapshot", cmdSnapshot},
         {"rollback", cmdRollback},
         {"clone", cmdClone},
         {"get", cmdGet},

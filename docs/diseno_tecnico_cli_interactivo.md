@@ -6,7 +6,7 @@ una URL `zfsm://`, y todas las órdenes actúan sobre ella salvo que se diga otr
 ```
 zfsm://local> cd fc16/work
 zfsm://local/fc16/work> ls
-zfsm://local/fc16/work> snapshot @antes
+zfsm://local/fc16/work> create @antes
 zfsm://local/fc16/work> ls --on /unibody/sback
 ```
 
@@ -107,8 +107,8 @@ printf 'cd fc16/work\nsnapshot @nocturna -r\n' | zfsmgr-cli --password-fd 3 -y 3
 
 Contra el daemon real de la máquina, y sobre un **pool de pruebas montado en un fichero**
 —creado y destruido para la ocasión, sin tocar nada existente—: navegación completa,
-listados en los tres formatos, `#content` y `#properties`, `snapshot`, `get`/`set`,
-`create`, `clone`, `destroy`, `rollback`, `breakdown`, `assemble`, `todir` y `fromdir`.
+listados en los tres formatos, `#content` y `#properties`, `get`/`set`, `create`
+—de dataset, de pool y de instantánea—, `clone`, `destroy`, `rollback`, `breakdown`, `assemble`, `todir` y `fromdir`.
 
 Se condujo por un pseudoterminal, porque el material TLS del daemon local vive en
 `/etc/zfsmgr` con permisos de root y hace falta poder contestar a la petición de sudo.
@@ -194,6 +194,17 @@ el programa pone la suya en UTF-8 al arrancar: sin eso, «— «help»» salía 
 en la RAÍZ una conexión, en una CONEXIÓN un pool, en un DATASET un hijo. Y `destroy` en un
 pool es `zpool destroy` —`zfs destroy` sobre el dataset raíz de un pool no funciona, así
 que es la única lectura posible—.
+
+**Y en un dataset, `create @nombre` crea una instantánea.** Hubo un verbo aparte,
+`snapshot`, heredado de que en la interfaz hay un botón distinto; se retiró. El modelo del
+intérprete no es el de la interfaz: aquí una instantánea es otro nodo que se crea donde uno
+está, el `@` ya es el marcador que la distingue en la URL, y `ls` dentro de un dataset ya
+lista hijos e instantáneas como hermanos. Con el verbo aparte, `create @x` construía
+`tank/datos/@x` y ZFS respondía «snapshot delimiter '@' is not expected here»: el programa
+tenía delante todo lo necesario para saber qué se le pedía y contestaba sobre
+delimitadores. Se retiró sin dejar alias a propósito —dos formas de pedir lo mismo son dos
+formas de que la ayuda y la costumbre discrepen—, y se pudo hacer porque el intérprete
+todavía no está publicado.
 
 **Crear un pool es la orden más destructiva de todas**: escribe en los dispositivos que se
 le den. La confirmación los ENUMERA uno a uno, porque «¿seguro?» sobre una lista que no se

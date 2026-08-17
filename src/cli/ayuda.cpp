@@ -125,9 +125,9 @@ const std::vector<Orden> kOrdenes = {
     {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {}},
 
     // --- Conexiones
-    {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_nombre_434fd8", "<nombre> …"},
-     {"t_crea_un_no_5c2798", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
-     "dataset un hijo."},
+    {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
+     {"t_create_res2", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
+     "dataset un hijo, y con « @ » delante una instantánea."},
      {{{"t_name_type__f51f24", "--name / --type / --os"}, {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
       {{"t_host_port__2ddcc9", "--host / --port / --user / --key"}, {"t_conexi_n_c_c0e9ec", "Conexión: cómo se llega a la máquina."}},
       {{"t_sudo_d34723", "--sudo"}, {"t_conexi_n_l_0e9498", "Conexión: la máquina necesita elevar."}},
@@ -135,13 +135,18 @@ const std::vector<Orden> kOrdenes = {
       {{"t_dispositiv_538150", "<dispositivo>..."}, {"t_pool_en_cu_472c48", "Pool: en cuáles se crea. SE ESCRIBEN."}},
       {{"t_o_p_v_o_p__3f8555", "-o p=v / -O p=v / --mountpoint"}, {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
       {{"t_f_0abbcb", "-f"}, {"t_pool_fuerz_68fe4a", "Pool: fuerza aunque parezcan en uso."}},
-      {{"t_prop_valor_4ef240", "prop=valor"}, {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}}},
+      {{"t_prop_valor_4ef240", "prop=valor"}, {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}},
+      {{"t_create_arroba", "@<nombre>"}, {"t_create_arroba_q", "Instantánea del dataset donde está."}},
+      {{"t_r_90cdb7", "-r"}, {"t_tambi_n_de_5714fd", "Instantánea: también de los descendientes."}}},
      {{"t_la_contras_46d37f", "La contraseña NUNCA se pasa por argumento: iría en argv y se vería en `ps` para "
       "cualquier usuario de la máquina. O se teclea, o entra por un descriptor."},
       {"t_se_guarda__a5a7bd", "Se guarda cifrada con la contraseña maestra. Sin ella no se guarda en claro."},
       {"t_crear_un_p_9b7a8c", "Crear un POOL es la orden más destructiva de todas: escribe en los dispositivos que "
       "se le den y lo que hubiera en ellos se pierde. La confirmación los enumera uno a "
-      "uno."}}},
+      "uno."},
+      {"t_create_arroba_det", "Un nombre con « @ » delante crea una instantánea y no un hijo: `create @ayer` "
+      "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue una "
+      "instantánea en la URL, así que no hay una regla nueva que recordar."}}},
     {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name …] [--host …] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
      {{{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}}},
@@ -176,8 +181,6 @@ const std::vector<Orden> kOrdenes = {
     {"unload-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {}},
 
     // --- Instantáneas
-    {"snapshot", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_r_534685", "@<nombre> [-r]"}, {"t_crea_una_i_ab30dc", "Crea una instantánea."},
-     {{{"t_r_90cdb7", "-r"}, {"t_tambi_n_de_5714fd", "También de los descendientes."}}}, {}},
     {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
      {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
