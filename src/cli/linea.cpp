@@ -128,16 +128,28 @@ void LectorDeLinea::recuerda(const std::string& linea) {
 }
 
 void LectorDeLinea::repinta(const std::string& indicador, const std::string& linea,
-                            std::size_t cursor) {
-    // \r al principio y borrado hasta el final: se reescribe la línea entera en vez de
-    // llevar la cuenta de lo que cambió, que es donde se cuelan los desajustes.
-    std::fprintf(stderr, "\r\033[K%s%s", indicador.c_str(), linea.c_str());
-    const std::size_t total = columnas(indicador) + columnas(linea);
-    const std::size_t hasta = columnas(indicador) + columnas(linea.substr(0, cursor));
-    if (total > hasta) {
-        std::fprintf(stderr, "\033[%zuD", total - hasta);
+                            std::size_t cursor, std::size_t& anchoPintado) {
+    // **Sin una sola secuencia de escape**: solo retorno de carro y espacios.
+    //
+    // La consola de Windows no interpreta ANSI si no se le activa el modo de terminal
+    // virtual, y sin eso `\033[K` se imprime LITERAL: la pantalla se llenaba de «[K». Se
+    // podría activar ese modo, pero repintar con `\r` funciona en cualquier terminal, en
+    // cualquier versión, sin preguntar nada — y una cosa que funciona siempre vale más que
+    // dos caminos según la plataforma.
+    //
+    // Se reescribe la línea ENTERA en vez de llevar la cuenta de lo que cambió, que es
+    // donde se cuelan los desajustes; y el cursor se coloca reescribiendo hasta él, no
+    // moviéndolo.
+    const std::string completa = indicador + linea;
+    const std::size_t ancho = columnas(completa);
+    std::string salida = "\r" + completa;
+    if (anchoPintado > ancho) {
+        salida += std::string(anchoPintado - ancho, ' ');
     }
+    salida += "\r" + indicador + linea.substr(0, cursor);
+    std::fputs(salida.c_str(), stderr);
     std::fflush(stderr);
+    anchoPintado = ancho;
 }
 
 bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
@@ -188,7 +200,8 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     std::size_t cursor = 0;
     std::size_t enHistorial = m_historial.size();  // uno más allá = la línea que se escribe
     std::string enCurso;
-    repinta(indicador, linea, cursor);
+    std::size_t anchoPintado = 0;
+    repinta(indicador, linea, cursor, anchoPintado);
 
     while (true) {
         const int c = std::fgetc(stdin);
@@ -215,18 +228,18 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
         }
         if (c == 1) {  // Ctrl-A
             cursor = 0;
-            repinta(indicador, linea, cursor);
+            repinta(indicador, linea, cursor, anchoPintado);
             continue;
         }
         if (c == 5) {  // Ctrl-E
             cursor = linea.size();
-            repinta(indicador, linea, cursor);
+            repinta(indicador, linea, cursor, anchoPintado);
             continue;
         }
         if (c == 21) {  // Ctrl-U: borra hasta el principio
             linea.erase(0, cursor);
             cursor = 0;
-            repinta(indicador, linea, cursor);
+            repinta(indicador, linea, cursor, anchoPintado);
             continue;
         }
         if (c == 127 || c == 8) {  // Retroceso
@@ -235,12 +248,15 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
                 linea.erase(cursor - n, n);
                 cursor -= n;
             }
-            repinta(indicador, linea, cursor);
+            repinta(indicador, linea, cursor, anchoPintado);
             continue;
         }
         if (c == '\t') {
             if (completa(linea, cursor)) {
-                repinta(indicador, linea, cursor);
+                // Si se enseñó la lista de opciones, hubo un salto de línea: lo pintado
+                // antes ya no está donde estaba y no hay cola que borrar.
+                anchoPintado = 0;
+                repinta(indicador, linea, cursor, anchoPintado);
             }
             continue;
         }
@@ -282,7 +298,7 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
                     linea.erase(cursor, n);
                 }
             }
-            repinta(indicador, linea, cursor);
+            repinta(indicador, linea, cursor, anchoPintado);
             continue;
         }
         if (c < 32) {
@@ -290,7 +306,7 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
         }
         linea.insert(cursor, 1, static_cast<char>(c));
         ++cursor;
-        repinta(indicador, linea, cursor);
+        repinta(indicador, linea, cursor, anchoPintado);
     }
 }
 

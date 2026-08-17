@@ -34,7 +34,11 @@ public:
     void recuerda(const std::string& linea);
 
 private:
-    void repinta(const std::string& indicador, const std::string& linea, std::size_t cursor);
+    // `anchoPintado` entra con lo que ocupaba el repintado anterior y sale con lo que
+    // ocupa este: hace falta para saber cuántos espacios borran la cola de la línea
+    // anterior cuando esta es más corta.
+    void repinta(const std::string& indicador, const std::string& linea, std::size_t cursor,
+                 std::size_t& anchoPintado);
     bool completa(std::string& linea, std::size_t& cursor);
 
     std::vector<std::string> m_historial;

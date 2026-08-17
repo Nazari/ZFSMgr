@@ -277,6 +277,12 @@ flechas, inicio y fin, borrado, y el tabulador. **El modo del terminal se restau
 también al salir por error: dejarlo sin eco deja al usuario escribiendo a ciegas en su
 propia shell.
 
+**El repintado no usa NI UNA secuencia de escape**, solo retorno de carro y espacios. La
+consola de Windows no interpreta ANSI si no se le activa el modo de terminal virtual, y sin
+eso `\033[K` se imprime literal: la pantalla se llenaba de «[K». Se podría activar ese modo,
+pero repintar con `\r` funciona en cualquier terminal y en cualquier versión sin preguntar
+nada, y una cosa que funciona siempre vale más que dos caminos según la plataforma.
+
 El completado tiene tres casos, y el orden importa: la PRIMERA palabra es una orden; una
 que empieza por guion es una opción DE ESA orden; y cualquier otra cosa se trata como una
 URL, preguntando a la máquina por los hijos del sitio.
