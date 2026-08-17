@@ -58,6 +58,15 @@ public:
     // testigo de estado: el testigo tiene que salir IGUAL desde los tres sitios.
     QString connToken(int connIdx) const;
 
+    // Ganchos para ejercitar la pila ENTERA sin pantalla: configuración real, descifrado,
+    // transporte, SSH y RPC del agente. Es lo único que permite comprobar contra máquinas
+    // de verdad sin que haya alguien pulsando botones, y por eso viven aquí y no en un
+    // fichero de pruebas: la alternativa era no comprobarlo.
+    int connectionCountForTest() const;
+    QString connectionNameForTest(int connIdx) const;
+    // Refresca y devuelve una línea con lo esencial de lo que se averiguó.
+    QString refreshConnectionSummaryForTest(int connIdx);
+
     enum class DatasetTreeContext {
         Origin,
         Destination,
