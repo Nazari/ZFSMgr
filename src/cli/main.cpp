@@ -10,6 +10,7 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 
 #include "connectionjson.h"
+#include "i18n.h"
 #include "session.h"
 #include "shell.h"
 #include "tabla.h"
@@ -19,6 +20,7 @@
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "strutil.h"
+#include "tr.h"
 #include "zfsmurl.h"
 
 #include <cstdio>
@@ -45,7 +47,7 @@ constexpr const char* kNombre = "zfsmgr-cli";
 
 void uso() {
     std::fprintf(stderr,
-                 "Uso: %s [opciones] <orden>\n"
+                 TC("t_uso_s_opci_010447", "Uso: %s [opciones] <orden>\n"
                  "\n"
                  "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
                  "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
@@ -73,6 +75,8 @@ void uso() {
                  "                        connections list: id, name, type, os, user,\n"
                  "                        host, port, sudo, tls, connected\n"
                  "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
+                 "  --lang es|en|zh       Idioma de los mensajes. Sin él, el que use la\n"
+                 "                        interfaz gráfica (app.language de config.json).\n"
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
                  "                        transporte con cada máquina\n"
                  "  -y, --yes             No preguntar antes de las acciones destructivas\n"
@@ -83,7 +87,7 @@ void uso() {
                  "de la máquina. Con el descriptor se puede usar cualquier gestor de\n"
                  "secretos:\n"
                  "\n"
-                 "  %s --password-fd 3 connections list  3< <(pass show zfsmgr)\n",
+                 "  %s --password-fd 3 connections list  3< <(pass show zfsmgr)\n"),
                  kNombre, kNombre);
 }
 
@@ -138,6 +142,7 @@ struct Opciones {
     bool sinSecretos{false};
     Formato formato{Formato::Texto};
     std::string urlInicial;
+    std::string idioma;
     bool verboso{false};
     bool asumirSi{false};
     std::vector<std::string> orden;
@@ -175,7 +180,7 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
         return 1;
     }
     if (conns.perfiles.empty()) {
-        std::fprintf(stderr, "%s: no hay conexiones configuradas en %s\n", kNombre,
+        std::fprintf(stderr, TC("t_s_no_hay_c_8978da", "%s: no hay conexiones configuradas en %s\n"), kNombre,
                      ST::rutaConfig(op.dirConfig).c_str());
     }
     zfsmgr::cli::tablaDeConexiones(conns).imprime(op.formato);
@@ -218,6 +223,13 @@ int main(int argc, char** argv) {
 #endif
     Opciones op;
     op.dirConfig = dirConfigPorOmision();
+    // Los catálogos de traducción, donde estén: junto al ejecutable y en el árbol de
+    // compilación. Se busca antes de leer nada para que hasta el mensaje de una opción
+    // desconocida salga en el idioma que toque.
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../share/zfsmgr/i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../Resources/i18n");
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-h" || a == "--help") {
@@ -234,6 +246,10 @@ int main(int argc, char** argv) {
         }
         if (a == "--no-secrets") {
             op.sinSecretos = true;
+            continue;
+        }
+        if (a == "--lang" && i + 1 < argc) {
+            op.idioma = argv[++i];
             continue;
         }
         if (a == "--url" && i + 1 < argc) {
@@ -257,7 +273,7 @@ int main(int argc, char** argv) {
             } else if (v == "text") {
                 op.formato = Formato::Texto;
             } else {
-                std::fprintf(stderr, "%s: formato desconocido: %s (use text, tsv o json)\n",
+                std::fprintf(stderr, TC("t_s_formato__3b41bf", "%s: formato desconocido: %s (use text, tsv o json)\n"),
                              kNombre, v.c_str());
                 return 2;
             }
@@ -269,6 +285,23 @@ int main(int argc, char** argv) {
             return 2;
         }
         op.orden.push_back(a);
+    }
+
+    // El idioma: lo que diga --lang y, si no, el de la interfaz gráfica. Va DESPUÉS de
+    // leer los argumentos porque --config-dir puede cambiar dónde está esa preferencia.
+    {
+        std::string idioma = op.idioma;
+        if (idioma.empty()) {
+            ST::Aviso aviso;
+            const auto root = ST::leerConfig(op.dirConfig, aviso);
+            idioma = root["app"]["language"].toString();
+            if (idioma.empty()) {
+                idioma = root["ui"]["language"].toString();
+            }
+        }
+        if (!idioma.empty()) {
+            zfsmgr::base::i18n::setLanguage(idioma);
+        }
     }
 
     // Sin ninguna orden se entra en el intérprete, así que a partir de aquí NO se puede
@@ -287,7 +320,7 @@ int main(int argc, char** argv) {
         zfsmgr::base::ZfsmUrl u;
         std::string err;
         if (!zfsmgr::base::parseZfsmUrl(op.orden[2], u, err)) {
-            std::fprintf(stderr, "%s: URL no válida: %s\n", kNombre, err.c_str());
+            std::fprintf(stderr, TC("t_s_url_no_v_46bbde", "%s: URL no válida: %s\n"), kNombre, err.c_str());
             return 2;
         }
         // Los nombres de campo son parte de la interfaz pública: un guion que haga
@@ -356,7 +389,7 @@ int main(int argc, char** argv) {
 
     if (!op.orden.empty()
         && (op.orden.size() < 2 || op.orden[0] != "connections" || op.orden[1] != "list")) {
-        std::fprintf(stderr, "%s: orden desconocida\n", kNombre);
+        std::fprintf(stderr, TC("t_s_orden_de_81e64c", "%s: orden desconocida\n"), kNombre);
         uso();
         return 2;
     }

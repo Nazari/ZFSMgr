@@ -8,6 +8,7 @@
 #include "transportcmd.h"
 #include "transportrpc.h"
 #include "strutil.h"
+#include "tr.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -269,7 +270,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         }
         std::string err;
         std::string clave;
-        std::fprintf(stderr, "Se necesita la contraseña de sudo de esta máquina.\n");
+        std::fprintf(stderr, TC("t_se_necesit_50a033", "Se necesita la contraseña de sudo de esta máquina.\n"));
         if (!preguntarSecretoPorTerminal("Contraseña de sudo: ", clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
@@ -363,8 +364,6 @@ std::string clavePersistencia(const std::string& idONombre) {
 
 }  // namespace
 
-namespace {
-
 // El directorio del propio ejecutable. Sin Qt no hay `applicationDirPath()`.
 std::string dirDelEjecutable() {
 #ifdef _WIN32
@@ -387,6 +386,8 @@ std::string dirDelEjecutable() {
     const std::size_t barra = ruta.find_last_of("/\\");
     return barra == std::string::npos ? std::string(".") : ruta.substr(0, barra);
 }
+
+namespace {
 
 // Los nombres con los que puede aparecer una arquitectura. `uname -m` dice «x86_64» en
 // Linux y «amd64» en FreeBSD para lo mismo, y «arm64»/«aarch64» también son la misma.

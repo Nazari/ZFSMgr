@@ -130,6 +130,10 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error);
 // formas de saber lo mismo es cómo acaban discrepando.
 bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error);
 
+// El directorio donde está este ejecutable. Hace falta para encontrar lo que viaja a su
+// lado: los agentes que se despliegan y los catálogos de traducción.
+std::string dirDelEjecutable();
+
 // El binario del agente que hay que desplegar en una máquina de esa plataforma.
 //
 // Busca en los mismos sitios que la interfaz: junto al ejecutable (`agents/<plat>-<arq>/`)

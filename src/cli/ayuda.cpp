@@ -1,6 +1,7 @@
 #include "ayuda.h"
 
 #include "strutil.h"
+#include "tr.h"
 
 #include <cstdio>
 #include <cstring>
@@ -80,17 +81,18 @@ void fila(const std::string& izquierda, const std::string& derecha, int sangria,
 void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
     const std::string uso =
         std::string(o.nombre) + (o.uso && *o.uso ? std::string(" ") + o.uso : std::string());
-    fila(uso, o.resumen, 2, ancho);
+    fila(uso, T(o.resumen.clave, o.resumen.es), 2, ancho);
     // Los parámetros van DEBAJO y tabulados, uno por línea. Metidos en la misma línea que
     // la orden, una con cinco opciones ocupaba tres renglones sin que se viera cuál es
     // cuál.
     for (const Parametro& p : o.params) {
-        fila(p.forma, p.que, 6, ancho);
+        fila(p.forma, T(p.que.clave, p.que.es), 6, ancho);
     }
     if (conDetalle) {
-        for (const char* d : o.detalle) {
+        for (const Texto& d : o.detalle) {
             std::fprintf(stderr, "\n");
-            for (const std::string& t : parte(d, static_cast<std::size_t>(ancho > 24 ? ancho - 4 : 60))) {
+            for (const std::string& t :
+                 parte(T(d.clave, d.es), static_cast<std::size_t>(ancho > 24 ? ancho - 4 : 60))) {
                 std::fprintf(stderr, "  %s\n", t.c_str());
             }
         }
@@ -99,189 +101,189 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
 
 const std::vector<Orden> kOrdenes = {
     // --- Navegación
-    {"cd", "Navegación", "[destino]", "Cambia de sitio. Sin argumento, a la raíz.",
+    {"cd", {"t_navegaci_n_60cb06", "Navegación"}, "[destino]", {"t_cambia_de__33cb85", "Cambia de sitio. Sin argumento, a la raíz."},
      {{"<destino>",
-       "Ruta relativa, absoluta (/OldLau/winpool), URL completa, «..», «.» o «-» (el sitio "
-       "anterior)."}},
-     {"La posición es una URL, y todas las órdenes actúan sobre ella. Eso hace que "
+       {"t_ruta_relat_fb879d", "Ruta relativa, absoluta (/OldLau/winpool), URL completa, «..», «.» o «-» (el sitio "
+       "anterior)."}}},
+     {{"t_la_posici__ad7fe5", "La posición es una URL, y todas las órdenes actúan sobre ella. Eso hace que "
       "cualquier orden se pueda copiar del historial, ponerle --on <url> y ejecutarla "
-      "suelta.",
-      "Dos reglas quitan ambigüedad a una ruta relativa: si el primer tramo nombra una "
+      "suelta."},
+      {"t_dos_reglas_8d26b6", "Dos reglas quitan ambigüedad a una ruta relativa: si el primer tramo nombra una "
       "CONEXIÓN, la ruta es absoluta; y si es el POOL en el que ya estás, es el nombre ZFS "
-      "completo.",
-      "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."}},
-    {"pwd", "Navegación", "", "La URL actual.", {}, {}},
-    {"ls", "Navegación", "[destino]",
-     "Lista lo que hay. En la raíz las conexiones, en una conexión los pools, en un dataset "
-     "sus hijos e instantáneas.",
-     {{"#content[/ruta]", "Los ficheros de dentro."},
-      {"#properties[/prop]", "Las propiedades."},
-      {"#permissions", "Los permisos delegados."}},
-     {"En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
-      "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}},
-    {"info", "Navegación", "[destino]", "Qué hay aquí y estado del daemon.", {}, {}},
+      "completo."},
+      {"t_se_comprue_d745a0", "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."}}},
+    {"pwd", {"t_navegaci_n_60cb06", "Navegación"}, "", {"t_la_url_act_1bd7d8", "La URL actual."}, {}, {}},
+    {"ls", {"t_navegaci_n_60cb06", "Navegación"}, "[destino]",
+     {"t_lista_lo_q_661d7f", "Lista lo que hay. En la raíz las conexiones, en una conexión los pools, en un dataset "
+     "sus hijos e instantáneas."},
+     {{"#content[/ruta]", {"t_los_ficher_2b8359", "Los ficheros de dentro."}},
+      {"#properties[/prop]", {"t_las_propie_137429", "Las propiedades."}},
+      {"#permissions", {"t_los_permis_7d7f8b", "Los permisos delegados."}}},
+     {{"t_en_windows_42a2d3", "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
+      "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}}},
+    {"info", {"t_navegaci_n_60cb06", "Navegación"}, "[destino]", {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {}},
 
     // --- Conexiones
-    {"create", "Conexiones y pools", "<nombre> …",
-     "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
-     "dataset un hijo.",
-     {{"--name / --type / --os", "Conexión: nombre visible, LOCAL o SSH, sistema."},
-      {"--host / --port / --user / --key", "Conexión: cómo se llega a la máquina."},
-      {"--sudo", "Conexión: la máquina necesita elevar."},
-      {"--password-fd <n>", "Conexión: la contraseña, por descriptor."},
-      {"<dispositivo>...", "Pool: en cuáles se crea. SE ESCRIBEN."},
-      {"-o p=v / -O p=v / --mountpoint", "Pool: propiedades y punto de montaje."},
-      {"-f", "Pool: fuerza aunque parezcan en uso."},
-      {"prop=valor", "Dataset: propiedades del hijo."}},
-     {"La contraseña NUNCA se pasa por argumento: iría en argv y se vería en `ps` para "
-      "cualquier usuario de la máquina. O se teclea, o entra por un descriptor.",
-      "Se guarda cifrada con la contraseña maestra. Sin ella no se guarda en claro.",
-      "Crear un POOL es la orden más destructiva de todas: escribe en los dispositivos que "
+    {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, "<nombre> …",
+     {"t_crea_un_no_5c2798", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
+     "dataset un hijo."},
+     {{"--name / --type / --os", {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
+      {"--host / --port / --user / --key", {"t_conexi_n_c_c0e9ec", "Conexión: cómo se llega a la máquina."}},
+      {"--sudo", {"t_conexi_n_l_0e9498", "Conexión: la máquina necesita elevar."}},
+      {"--password-fd <n>", {"t_conexi_n_l_ffa8ae", "Conexión: la contraseña, por descriptor."}},
+      {"<dispositivo>...", {"t_pool_en_cu_472c48", "Pool: en cuáles se crea. SE ESCRIBEN."}},
+      {"-o p=v / -O p=v / --mountpoint", {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
+      {"-f", {"t_pool_fuerz_68fe4a", "Pool: fuerza aunque parezcan en uso."}},
+      {"prop=valor", {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}}},
+     {{"t_la_contras_46d37f", "La contraseña NUNCA se pasa por argumento: iría en argv y se vería en `ps` para "
+      "cualquier usuario de la máquina. O se teclea, o entra por un descriptor."},
+      {"t_se_guarda__a5a7bd", "Se guarda cifrada con la contraseña maestra. Sin ella no se guarda en claro."},
+      {"t_crear_un_p_9b7a8c", "Crear un POOL es la orden más destructiva de todas: escribe en los dispositivos que "
       "se le den y lo que hubiera en ellos se pierde. La confirmación los enumera uno a "
-      "uno."}},
-    {"edit", "Conexiones y pools", "[--name …] [--host …] …",
-     "Cambia una conexión. Pulsar Intro conserva el valor actual.",
-     {{"--password", "Pide una contraseña nueva. Sin ella, se conserva la que había."}},
+      "uno."}}},
+    {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, "[--name …] [--host …] …",
+     {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
+     {{"--password", {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}}},
      {}},
-    {"destroy", "Conexiones y pools", "[destino] [-r|-R] [-f]",
-     "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre.",
-     {{"-r", "Con sus descendientes."},
-      {"-R", "Con sus descendientes y lo que dependa de ellos."},
-      {"-f", "Fuerza aunque esté en uso."}},
-     {"En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
+    {"destroy", {"t_conexiones_3785cd", "Conexiones y pools"}, "[destino] [-r|-R] [-f]",
+     {"t_destruye_l_77f9b5", "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre."},
+     {{"-r", {"t_con_sus_de_7eb43b", "Con sus descendientes."}},
+      {"-R", {"t_con_sus_de_b90f87", "Con sus descendientes y lo que dependa de ellos."}},
+      {"-f", {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
+     {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
-      "funciona—. En un dataset o instantánea, `zfs destroy`."}},
-    {"connect", "Conexiones y pools", "[destino]", "Marca la conexión como usable.", {}, {}},
-    {"disconnect", "Conexiones y pools", "[destino]",
-     "La aparta: el intérprete deja de hablar con ella y se cierra su túnel.",
+      "funciona—. En un dataset o instantánea, `zfs destroy`."}}},
+    {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, "[destino]", {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {}},
+    {"disconnect", {"t_conexiones_3785cd", "Conexiones y pools"}, "[destino]",
+     {"t_la_aparta__62eeb8", "La aparta: el intérprete deja de hablar con ella y se cierra su túnel."},
      {},
-     {"Es la MISMA marca que usa la interfaz gráfica. Navegar hasta una conexión apartada sí "
-      "se permite, porque hay que poder llegar para volver a conectarla."}},
-    {"refresh", "Conexiones y pools", "[destino]",
-     "Suelta túnel, material TLS y castigos, relee la configuración y vuelve a sondear.",
+     {{"t_es_la_mism_796aa1", "Es la MISMA marca que usa la interfaz gráfica. Navegar hasta una conexión apartada sí "
+      "se permite, porque hay que poder llegar para volver a conectarla."}}},
+    {"refresh", {"t_conexiones_3785cd", "Conexiones y pools"}, "[destino]",
+     {"t_suelta_t_n_bedff9", "Suelta túnel, material TLS y castigos, relee la configuración y vuelve a sondear."},
      {},
-     {"No es un listado: es lo que hay que hacer cuando algo se ha quedado colgado."}},
+     {{"t_no_es_un_l_2b8c41", "No es un listado: es lo que hay que hacer cuando algo se ha quedado colgado."}}},
 
     // --- Dataset
-    {"rename", "Dataset", "<nuevo>", "Renombra el dataset.", {}, {}},
-    {"mount", "Dataset", "[-f]", "Lo monta.", {}, {}},
-    {"unmount", "Dataset", "[-f]", "Lo desmonta.", {}, {}},
-    {"promote", "Dataset", "", "Promueve un clon a dataset independiente.", {}, {}},
-    {"get", "Dataset", "[propiedad]", "Lee las propiedades. Sin nombre, todas.", {}, {}},
-    {"set", "Dataset", "<prop>=<valor> [más...]", "Escribe propiedades.", {}, {}},
-    {"load-key", "Dataset", "", "Carga la clave de cifrado. La frase se teclea.", {}, {}},
-    {"unload-key", "Dataset", "", "Descarga la clave de cifrado.", {}, {}},
+    {"rename", {"t_dataset_105268", "Dataset"}, "<nuevo>", {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {}},
+    {"mount", {"t_dataset_105268", "Dataset"}, "[-f]", {"t_lo_monta_6d9042", "Lo monta."}, {}, {}},
+    {"unmount", {"t_dataset_105268", "Dataset"}, "[-f]", {"t_lo_desmont_a9975c", "Lo desmonta."}, {}, {}},
+    {"promote", {"t_dataset_105268", "Dataset"}, "", {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {}},
+    {"get", {"t_dataset_105268", "Dataset"}, "[propiedad]", {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {}, {}},
+    {"set", {"t_dataset_105268", "Dataset"}, "<prop>=<valor> [más...]", {"t_escribe_pr_b449c1", "Escribe propiedades."}, {}, {}},
+    {"load-key", {"t_dataset_105268", "Dataset"}, "", {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {}},
+    {"unload-key", {"t_dataset_105268", "Dataset"}, "", {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {}},
 
     // --- Instantáneas
-    {"snapshot", "Instantáneas", "@<nombre> [-r]", "Crea una instantánea.",
-     {{"-r", "También de los descendientes."}}, {}},
-    {"rollback", "Instantáneas", "[@<nombre>] [-f|-r|-R]",
-     "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior.", {}, {}},
-    {"clone", "Instantáneas", "<nuevo> [--from <@instantánea>]",
-     "Crea un dataset a partir de una instantánea.",
-     {{"--from <@inst>", "Cuál se clona. Sin ella, el sitio actual."}}, {}},
-    {"holds", "Instantáneas", "[destino]", "Las retenciones de una instantánea.", {}, {}},
-    {"hold", "Instantáneas", "<etiqueta> [-r]",
-     "Pone una retención: impide borrarla hasta quitarla.", {}, {}},
-    {"release", "Instantáneas", "<etiqueta> [-r]", "Quita una retención.", {}, {}},
-    {"diff", "Instantáneas", "<@hasta> [--from <@desde>]",
-     "Qué cambió entre dos puntos del mismo dataset.",
-     {{"--from <@inst>", "El punto de partida. Sin ella, el sitio actual."}}, {}},
+    {"snapshot", {"t_instant_ne_bff51f", "Instantáneas"}, "@<nombre> [-r]", {"t_crea_una_i_ab30dc", "Crea una instantánea."},
+     {{"-r", {"t_tambi_n_de_5714fd", "También de los descendientes."}}}, {}},
+    {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, "[@<nombre>] [-f|-r|-R]",
+     {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {}},
+    {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, "<nuevo> [--from <@instantánea>]",
+     {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
+     {{"--from <@inst>", {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {}},
+    {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, "[destino]", {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {}},
+    {"hold", {"t_instant_ne_bff51f", "Instantáneas"}, "<etiqueta> [-r]",
+     {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {}},
+    {"release", {"t_instant_ne_bff51f", "Instantáneas"}, "<etiqueta> [-r]", {"t_quita_una__478a77", "Quita una retención."}, {}, {}},
+    {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, "<@hasta> [--from <@desde>]",
+     {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
+     {{"--from <@inst>", {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {}},
 
     // --- Pools
-    {"status", "Pools", "", "El estado detallado del pool, tal y como lo da zpool.", {}, {}},
-    {"history", "Pools", "", "Qué se le ha hecho al pool y cuándo.", {}, {}},
-    {"scrub", "Pools", "[stop|pause]", "Verifica todo el contenido del pool.", {}, {}},
-    {"trim", "Pools", "[stop|pause] [<vdev>]", "Avisa a los discos de qué bloques sobran.",
+    {"status", {"t_pools_2fd96d", "Pools"}, "", {"t_el_estado__f8428b", "El estado detallado del pool, tal y como lo da zpool."}, {}, {}},
+    {"history", {"t_pools_2fd96d", "Pools"}, "", {"t_qu_se_le_h_a13b5d", "Qué se le ha hecho al pool y cuándo."}, {}, {}},
+    {"scrub", {"t_pools_2fd96d", "Pools"}, "[stop|pause]", {"t_verifica_t_9c1250", "Verifica todo el contenido del pool."}, {}, {}},
+    {"trim", {"t_pools_2fd96d", "Pools"}, "[stop|pause] [<vdev>]", {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
      {}, {}},
-    {"initialize", "Pools", "[stop|pause] [<vdev>]", "Escribe en el espacio no usado.", {},
+    {"initialize", {"t_pools_2fd96d", "Pools"}, "[stop|pause] [<vdev>]", {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {}},
-    {"clear", "Pools", "[<vdev>]", "Pone a cero los errores contados.", {}, {}},
-    {"sync", "Pools", "", "Fuerza la escritura de lo pendiente.", {}, {}},
-    {"upgrade", "Pools", "", "Sube la versión del pool. NO se puede deshacer.", {}, {}},
-    {"reguid", "Pools", "", "Cambia el identificador único del pool.", {}, {}},
-    {"export", "Pools", "[-f]", "Lo desmonta y lo suelta, para llevarlo a otra máquina.", {},
+    {"clear", {"t_pools_2fd96d", "Pools"}, "[<vdev>]", {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {}},
+    {"sync", {"t_pools_2fd96d", "Pools"}, "", {"t_fuerza_la__286d39", "Fuerza la escritura de lo pendiente."}, {}, {}},
+    {"upgrade", {"t_pools_2fd96d", "Pools"}, "", {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {}},
+    {"reguid", {"t_pools_2fd96d", "Pools"}, "", {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {}},
+    {"export", {"t_pools_2fd96d", "Pools"}, "[-f]", {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
      {}},
-    {"import", "Pools", "[<pool>] [--as <nuevo>] [-f]",
-     "Importa un pool. Sin nombre, enseña los que hay disponibles.",
-     {{"--as <nuevo>", "Lo importa con otro nombre."}}, {}},
+    {"import", {"t_pools_2fd96d", "Pools"}, "[<pool>] [--as <nuevo>] [-f]",
+     {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
+     {{"--as <nuevo>", {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {}},
 
     // --- Permisos
-    {"allow", "Permisos delegados", "[--user <u>] <permisos...>",
-     "Delega permisos. Sin argumentos, los LISTA.",
-     {{"--user <u> / --group <g>", "A quién."},
-      {"--everyone", "A todos."},
-      {"--set @<nombre>", "A un conjunto con nombre."},
-      {"--local", "Solo en este dataset."},
-      {"--descend", "Solo en los descendientes."},
-      {"--create", "Solo en los que se creen a partir de ahora."}},
+    {"allow", {"t_permisos_d_3db5da", "Permisos delegados"}, "[--user <u>] <permisos...>",
+     {"t_delega_per_60be91", "Delega permisos. Sin argumentos, los LISTA."},
+     {{"--user <u> / --group <g>", {"t_a_qui_n_1cc417", "A quién."}},
+      {"--everyone", {"t_a_todos_2ed0f3", "A todos."}},
+      {"--set @<nombre>", {"t_a_un_conju_58094e", "A un conjunto con nombre."}},
+      {"--local", {"t_solo_en_es_4019d0", "Solo en este dataset."}},
+      {"--descend", {"t_solo_en_lo_9b33ba", "Solo en los descendientes."}},
+      {"--create", {"t_solo_en_lo_9dcb23", "Solo en los que se creen a partir de ahora."}}},
      {}},
-    {"unallow", "Permisos delegados", "[--user <u>] [permisos...]",
-     "Retira permisos. Sin lista de permisos, TODOS los de ese destinatario.",
-     {{"-r", "También en los descendientes."}}, {}},
+    {"unallow", {"t_permisos_d_3db5da", "Permisos delegados"}, "[--user <u>] [permisos...]",
+     {"t_retira_per_6104b6", "Retira permisos. Sin lista de permisos, TODOS los de ese destinatario."},
+     {{"-r", {"t_tambi_n_en_33e099", "También en los descendientes."}}}, {}},
 
     // --- Acciones
-    {"breakdown", "Acciones", "<directorio> <hijo> [<directorio> <hijo>...]",
-     "Convierte directorios del dataset en datasets hijos.",
-     {{"--job", "Lo manda al daemon en vez de esperarlo."}}, {}},
-    {"assemble", "Acciones", "<hijo> [<hijo>...]",
-     "Lo contrario de breakdown: devuelve datasets hijos a directorios.",
-     {{"--job", "Lo manda al daemon en vez de esperarlo."}},
-     {"Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}},
-    {"todir", "Acciones", "<directorio-destino>",
-     "Vuelca el contenido del dataset a un directorio corriente.",
-     {{"--delete-source", "Destruye el dataset de origen al terminar."},
-      {"--job", "Lo manda al daemon en vez de esperarlo."}},
+    {"breakdown", {"t_acciones_79bd0e", "Acciones"}, "<directorio> <hijo> [<directorio> <hijo>...]",
+     {"t_convierte__9a9063", "Convierte directorios del dataset en datasets hijos."},
+     {{"--job", {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}}, {}},
+    {"assemble", {"t_acciones_79bd0e", "Acciones"}, "<hijo> [<hijo>...]",
+     {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve datasets hijos a directorios."},
+     {{"--job", {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}},
+     {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}}},
+    {"todir", {"t_acciones_79bd0e", "Acciones"}, "<directorio-destino>",
+     {"t_vuelca_el__e8430a", "Vuelca el contenido del dataset a un directorio corriente."},
+     {{"--delete-source", {"t_destruye_e_228abc", "Destruye el dataset de origen al terminar."}},
+      {"--job", {"t_lo_manda_a_fd9fef", "Lo manda al daemon en vez de esperarlo."}}},
      {}},
-    {"fromdir", "Acciones", "<directorio-origen>",
-     "Vuelca un directorio DENTRO del dataset actual. El origen puede estar en otra máquina.",
-     {{"--from <url>", "La máquina de la que sale el directorio."},
-      {"--subdir <rel>", "Dónde dejarlo dentro del dataset."}},
-     {"NO es la inversa de todir, aunque el nombre lo sugiera: la inversa de todir es "
-      "assemble. Esto crea el contenido de un dataset A PARTIR de un directorio.",
-      "Va como una tubería tar entre las dos máquinas, no por RPC: el verbo del agente lee "
-      "el tar por la entrada estándar y el canal RPC no tiene stdin."}},
+    {"fromdir", {"t_acciones_79bd0e", "Acciones"}, "<directorio-origen>",
+     {"t_vuelca_un__c2bd33", "Vuelca un directorio DENTRO del dataset actual. El origen puede estar en otra máquina."},
+     {{"--from <url>", {"t_la_m_quina_cdb6da", "La máquina de la que sale el directorio."}},
+      {"--subdir <rel>", {"t_d_nde_deja_f3173a", "Dónde dejarlo dentro del dataset."}}},
+     {{"t_no_es_la_i_ace907", "NO es la inversa de todir, aunque el nombre lo sugiera: la inversa de todir es "
+      "assemble. Esto crea el contenido de un dataset A PARTIR de un directorio."},
+      {"t_va_como_un_682722", "Va como una tubería tar entre las dos máquinas, no por RPC: el verbo del agente lee "
+      "el tar por la entrada estándar y el canal RPC no tiene stdin."}}},
 
     // --- Transferencias
-    {"copy", "Transferencias entre máquinas", "<destino>",
-     "Manda una instantánea a otro dataset, aquí o en otra máquina.",
-     {{"--from <@instantánea>", "Qué se manda. Sin ella, el sitio actual."},
-      {"--base <@instantánea>", "Solo viaja lo que cambió desde ahí («Nivelar»)."},
-      {"--flags <...>", "Banderas que se pasan a zfs send."},
-      {"--wait", "Espera aquí a que termine, en vez de devolver el trabajo."}},
-     {"El destino es una URL: puede estar en OTRA máquina.",
-      "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
-      "sesión. Se sigue con «job <id>» en la máquina de ORIGEN.",
-      "Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado "
-      "allí. Para eso están todir y fromdir."}},
+    {"copy", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, "<destino>",
+     {"t_manda_una__2d0418", "Manda una instantánea a otro dataset, aquí o en otra máquina."},
+     {{"--from <@instantánea>", {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
+      {"--base <@instantánea>", {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
+      {"--flags <...>", {"t_banderas_q_714c60", "Banderas que se pasan a zfs send."}},
+      {"--wait", {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+     {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
+      {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
+      "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
+      {"t_ninguno_de_0490e5", "Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado "
+      "allí. Para eso están todir y fromdir."}}},
 
     // --- Trabajos
-    {"jobs", "Trabajos en segundo plano", "", "Los trabajos que hay en la máquina.", {}, {}},
-    {"job", "Trabajos en segundo plano", "<id> | cancel <id>",
-     "El estado de un trabajo, o su cancelación.",
+    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, "", {"t_los_trabaj_5039b6", "Los trabajos que hay en la máquina."}, {}, {}},
+    {"job", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, "<id> | cancel <id>",
+     {"t_el_estado__9c5ecc", "El estado de un trabajo, o su cancelación."},
      {},
-     {"Cancelar no deshace lo que ya se hizo."}},
+     {{"t_cancelar_n_391b27", "Cancelar no deshace lo que ya se hizo."}}},
 
     // --- Daemon
-    {"install-daemon", "Daemon", "[--on <url>]",
-     "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema.",
+    {"install-daemon", {"t_daemon_48e665", "Daemon"}, "[--on <url>]",
+     {"t_instala_o__7022d3", "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema."},
      {},
-     {"No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
+     {{"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "
-      "PARECE atendida y no lo está."}},
+      "PARECE atendida y no lo está."}}},
 
     // --- Del intérprete
-    {"format", "Del intérprete", "[text|tsv|json]",
-     "Cambia el formato de los listados. Sin argumento, dice cuál está puesto.",
+    {"format", {"t_del_int_rp_d5d82a", "Del intérprete"}, "[text|tsv|json]",
+     {"t_cambia_el__e00af9", "Cambia el formato de los listados. Sin argumento, dice cuál está puesto."},
      {},
-     {"text es para leer: columnas alineadas y tamaños legibles. tsv es para guiones: sin "
+     {{"t_text_es_pa_52ce5c", "text es para leer: columnas alineadas y tamaños legibles. tsv es para guiones: sin "
       "encabezado, tabuladores y columnas fijas en inglés. json añade TIPOS: los números "
-      "son números y lo que no aplica es null."}},
-    {"yes", "Del intérprete", "[on|off]",
-     "Deja de preguntar antes de lo destructivo, o vuelve a hacerlo.", {}, {}},
-    {"help", "Del intérprete", "[orden]",
-     "Esta ayuda. Con el nombre de una orden, la suya con todo el detalle.", {}, {}},
-    {"exit", "Del intérprete", "", "Salir. También «quit» y Ctrl-D.", {}, {}},
+      "son números y lo que no aplica es null."}}},
+    {"yes", {"t_del_int_rp_d5d82a", "Del intérprete"}, "[on|off]",
+     {"t_deja_de_pr_b69a39", "Deja de preguntar antes de lo destructivo, o vuelve a hacerlo."}, {}, {}},
+    {"help", {"t_del_int_rp_d5d82a", "Del intérprete"}, "[orden]",
+     {"t_esta_ayuda_346008", "Esta ayuda. Con el nombre de una orden, la suya con todo el detalle."}, {}, {}},
+    {"exit", {"t_del_int_rp_d5d82a", "Del intérprete"}, "", {"t_salir_tamb_d12c74", "Salir. También «quit» y Ctrl-D."}, {}, {}},
 };
 
 }  // namespace
@@ -301,16 +303,17 @@ const Orden* ordenPorNombre(const std::string& nombre) {
 void imprimeAyuda(int ancho) {
     std::string grupoActual;
     for (const Orden& o : kOrdenes) {
-        if (grupoActual != o.grupo) {
-            grupoActual = o.grupo;
-            std::fprintf(stderr, "\n%s:\n", grupoActual.c_str());
+        if (grupoActual != o.grupo.es) {
+            grupoActual = o.grupo.es;
+            std::fprintf(stderr, "\n%s:\n", TC(o.grupo.clave, o.grupo.es));
         }
         imprimeOrden(o, ancho, false);
     }
-    std::fprintf(stderr,
-                 "\nTodas las órdenes admiten --on <url> (o --from, que es lo mismo) para\n"
-                 "actuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n"
-                 "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL.\n");
+    std::fprintf(stderr, "\n%s\n",
+                 TC("t_todas_las__c1ee0e",
+                    "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\n"
+                    "actuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n"
+                    "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL."));
 }
 
 bool imprimeAyudaDe(const std::string& nombre, int ancho) {

@@ -317,6 +317,44 @@ sin argumentos propios aceptan el destino suelto, y sobra uno de más se dice.
 Y un esquema equivocado se nombra: `zfsmgr://fc16` decía algo sobre un tramo llamado
 «zfsmgr:», que no ayuda a ver que lo único que sobran son tres letras.
 
+## El idioma
+
+`--lang es|en|zh`, y sin él **el mismo que use la interfaz gráfica** —`app.language` de
+`config.json`—: dos sitios donde elegir idioma para el mismo programa serían dos sitios
+donde discrepar.
+
+Se reutiliza el catálogo que ya existe: los mismos ficheros `i18n/*.json` y la misma regla
+de claves. El cargador está en `base/i18n.cpp`, sin Qt, y viaja al lado del ejecutable.
+
+**El castellano va escrito en el código**, con la clave al lado: `T("t_x_ab12", "texto")`.
+Así el fuente se lee sin ir a buscar qué dice cada mensaje, y si el catálogo falta, está
+incompleto o está roto, la herramienta **sale en castellano** en vez de escupir claves.
+
+Lo que NO pasa por el catálogo, y no es un olvido: los verbos, los nombres de campo de tsv
+y json, y los literales de las URL. Son interfaz para programas y van en inglés siempre;
+traducirlos rompería cualquier guion en cuanto alguien cambiara de idioma.
+
+### Cómo se comprobó que no se rompía nada
+
+Con una **referencia dorada**: 545 líneas con toda la salida que el CLI produce sin tocar
+ninguna máquina —ayudas, errores de uso, rechazos, validaciones—, capturadas ANTES de
+empezar. Tras cada tanda, la salida en castellano tiene que salir idéntica.
+
+Cazó una regresión de verdad: al pasar el detalle de la ayuda a pares {clave, texto}, las
+entradas con un solo párrafo se quedaron sin clave y **el párrafo desaparecía**. El arreglo
+no fue poner la clave que faltaba sino cambiar el tipo, para que **lo exija el compilador**:
+una lista plana de cadenas alternas no se queja si falta una; una lista de `Texto`, sí.
+
+### Lo que queda en castellano
+
+Los marcadores de la línea de sintaxis —`<destino>`, `<@instantánea>`— siguen en
+castellano, porque van mezclados con los nombres de opción, que no cambian nunca.
+Separarlos es trabajo aparte; dejarlo a medias sería peor que dejarlo entero.
+
+Y los mensajes que se construyen concatenando trozos (≈220) tampoco: envolver cada trozo
+suelto es mala práctica —un traductor no puede reordenarlos—, así que piden pasar a
+`format()` con marcadores. Es la continuación natural.
+
 ## Lo que falta
 
 - La resolución de rutas es lógica pura y está probada solo por las pruebas en vivo.

@@ -11,20 +11,34 @@
 // tabulador, que necesitan saber qué órdenes hay y qué acepta cada una.
 namespace zfsmgr::cli {
 
+// Un texto traducible: la clave y el castellano, JUNTOS.
+//
+// Van en una estructura y no en una lista plana de cadenas alternas a propósito: con la
+// lista, olvidar una clave no daba error de compilación, solo hacía que un párrafo
+// desapareciera de la ayuda. Pasó, y lo cazó el contraste de la salida en castellano — que
+// es justo el fallo que no debe depender de que alguien mire.
+struct Texto {
+    const char* clave;
+    const char* es;
+};
+
 struct Parametro {
-    const char* forma;  // «--from <@instantánea>»
-    const char* que;    // qué hace
+    // «--from <@instantánea>»: NO se traduce. Mezcla el nombre de la opción —que no cambia
+    // nunca— con un marcador que sí se leería mejor traducido; separarlos es trabajo
+    // aparte, y dejarlo a medias sería peor que dejarlo entero.
+    const char* forma;
+    Texto que;  // qué hace
 };
 
 struct Orden {
-    const char* nombre;
-    const char* grupo;
-    const char* uso;      // la línea de invocación, sin el nombre repetido
-    const char* resumen;  // una línea
+    const char* nombre;  // el VERBO: no se traduce, es lo que se teclea
+    Texto grupo;
+    const char* uso;  // la línea de invocación: ver Parametro::forma
+    Texto resumen;
     std::vector<Parametro> params;
     // Lo que solo sale con `help <orden>`: el porqué, las trampas, los ejemplos. En la
     // lista general estorbaría; buscándola a propósito es justo lo que hace falta.
-    std::vector<const char*> detalle;
+    std::vector<Texto> detalle;
 };
 
 // Todas, en el orden en que se enseñan.

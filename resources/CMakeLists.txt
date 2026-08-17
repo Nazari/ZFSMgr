@@ -188,6 +188,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/secretcipher.h
     ../src/base/json.cpp
     ../src/base/json.h
+    ../src/base/i18n.cpp
+    ../src/base/i18n.h
     ../src/base/helpers.cpp
     ../src/base/helpers.h
     ../src/base/transportcmd.cpp
@@ -228,6 +230,11 @@ add_executable(zfsmgr_cli
     ../src/cli/tabla.h
 )
 target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
+# Los catálogos de traducción, al lado del ejecutable: el CLI los busca ahí primero.
+add_custom_command(TARGET zfsmgr_cli POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr_cli>/i18n)
+
 target_compile_definitions(zfsmgr_cli PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     # La versión del AGENTE, que no es la de la aplicación: lleva el sufijo del marcador de

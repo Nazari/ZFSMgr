@@ -298,6 +298,11 @@ prepare_payload() {
       # Aviso y no error: el instalador sale igual, solo más grande.
       echo "[payload] Aviso: no está ${strip_tool}; bin/ irá con las DLLs sin estripar." >&2
     fi
+    # Los catálogos de traducción viajan al lado del CLI: es donde los busca primero.
+    if [[ -d "${SCRIPT_DIR}/../i18n" ]]; then
+      cp -a "${SCRIPT_DIR}/../i18n" "${PAYLOAD_DIR}/bin/"
+      echo "[payload] Catálogos de traducción incluidos en bin/i18n"
+    fi
     echo "[payload] CLI incluido en bin/: ${CLI_EXE}"
   else
     # Aviso y no error: la aplicación gráfica no depende del CLI, y abortar el instalador
