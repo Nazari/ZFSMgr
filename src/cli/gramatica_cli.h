@@ -38,13 +38,28 @@ struct LineaAnalizada {
         const auto it = ranuras.find(nombre);
         return it == ranuras.end() ? std::string() : it->second;
     }
+    // Se acepta con guiones y sin ellos. El léxico guarda las opciones largas SIN los dos
+    // guiones —`--wait` se almacena como «wait»— y las banderas cortas CON el suyo, así que
+    // preguntar `tiene("--wait")` devolvía siempre false. Ninguna opción larga funcionaba, y
+    // no fallaba nada: la orden seguía adelante como si no se hubiera escrito.
     bool tiene(const std::string& bandera) const {
+        std::string limpia = bandera;
+        while (!limpia.empty() && limpia.front() == '-') {
+            limpia.erase(limpia.begin());
+        }
+        if (opciones.count(limpia) > 0) {
+            return true;
+        }
         for (const auto& b : banderas) {
-            if (b == bandera) {
+            std::string bl = b;
+            while (!bl.empty() && bl.front() == '-') {
+                bl.erase(bl.begin());
+            }
+            if (bl == limpia) {
                 return true;
             }
         }
-        return opciones.count(bandera) > 0;
+        return false;
     }
 };
 

@@ -374,7 +374,11 @@ struct Peticion {
     std::string uno(const std::string& n) const { return l->uno(n); }
     bool tiene(const std::string& b) const { return l->tiene(b); }
     std::string valor(const std::string& k) const {
-        const auto it = l->opciones.find(k);
+        std::string limpia = k;
+        while (!limpia.empty() && limpia.front() == '-') {
+            limpia.erase(limpia.begin());
+        }
+        const auto it = l->opciones.find(limpia);
         return it == l->opciones.end() ? std::string() : it->second;
     }
 };
@@ -583,6 +587,37 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         }
     } else {
         p.objetivo = subeHasta(e.actual, orden->objetivo);
+    }
+
+    // Las OPCIONES que la orden no declara son un error, no ruido que se ignora.
+    //
+    // Sin esto, `ls --daemon` dentro de una conexión se tragaba la opción y listaba los
+    // pools como si nada: `ls` sí declara `--daemon`, pero solo hace algo en la raíz. Y una
+    // opción mal escrita —`--daemn`— desaparecía sin más. Es la misma familia que los
+    // argumentos ignorados, por la otra puerta.
+    //
+    // Las declaradas se leen del catálogo, que ya las tiene como datos: la línea de un
+    // parámetro es «--delete» o «--name / --type / --os» o «--password-fd <n>», así que se
+    // saca de ahí cada palabra que empiece por dos guiones.
+    for (const auto& kv : linea.opciones) {
+        static const std::set<std::string> universales{"on", "from"};
+        if (universales.count(kv.first) > 0) {
+            continue;
+        }
+        bool declarada = false;
+        for (const Parametro& par : orden->params) {
+            const std::string forma = T(par.forma.clave, par.forma.es);
+            for (const std::string& trozo : B::split(forma, " ", true)) {
+                if (B::startsWith(trozo, "--") && trozo.substr(2) == kv.first) {
+                    declarada = true;
+                }
+            }
+        }
+        if (!declarada) {
+            std::fprintf(stderr, TC("t_opcion_no_admitida", "«--%s» no es una opción de %s\n"),
+                         kv.first.c_str(), orden->nombre);
+            return false;
+        }
     }
 
     if (orden->objetivo != Objetivo::Ninguno && !encaja(p.objetivo, orden->objetivo)) {
@@ -1122,6 +1157,16 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     }
     if (!sec.empty()) {
         std::fprintf(stderr, TC("t_no_s_lista_57ee7d", "no sé listar la sección «%s»\n"), sec.c_str());
+        return false;
+    }
+    // `--daemon` solo significa algo en la RAÍZ, que es donde se listan las máquinas. En
+    // cualquier otro sitio se decía que sí y se listaban los pools como si nada: la opción
+    // está declarada, así que la comprobación general la daba por buena. Aceptar algo y no
+    // hacerlo es peor que rechazarlo.
+    if (pet.tiene("daemon") && nodoDe(destino) != Nodo::Raiz) {
+        std::fputs(TC("t_daemon_solo_raiz",
+                      "«--daemon» solo vale en la raíz, que es donde se listan las máquinas\n"),
+                   stderr);
         return false;
     }
     switch (nodoDe(destino)) {

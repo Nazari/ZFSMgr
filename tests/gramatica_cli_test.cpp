@@ -156,6 +156,49 @@ int main() {
         }
     }
 
+    // --- Toda opción DECLARADA tiene que reconocerse al escribirla.
+    //
+    // Es el fallo que se coló entero en la migración a la gramática: el léxico guarda las
+    // opciones largas SIN los dos guiones, y el código preguntaba `tiene("--wait")`, que
+    // devolvía siempre false. NINGUNA opción larga funcionaba —`--daemon`, `--delete`,
+    // `--check`, `--wait`, `--all`…— y no fallaba nada: la orden seguía como si no se
+    // hubiera escrito. Lo encontró el usuario, no las pruebas.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        for (const zfsmgr::cli::Parametro& par : o.params) {
+            const std::string forma = par.forma.es;
+            // La línea puede ser «--delete», «--name / --type / --os» o «--password-fd <n>».
+            std::size_t i = 0;
+            while ((i = forma.find("--", i)) != std::string::npos) {
+                std::size_t fin = forma.find_first_of(" /<", i);
+                const std::string opcion =
+                    forma.substr(i, fin == std::string::npos ? std::string::npos : fin - i);
+                i += 2;
+                if (opcion.size() <= 2) {
+                    continue;
+                }
+                // Un relleno para las ranuras OBLIGATORIAS: `create --name x` no es una
+                // orden válida —le falta el nombre— y sin esto la prueba culparía a la
+                // opción de un fallo que es de la ranura.
+                std::string relleno;
+                for (const zfsmgr::cli::Ranura& r : o.ranuras) {
+                    if (r.cuantas != zfsmgr::cli::Ranura::Cuantas::Una
+                        && r.cuantas != zfsmgr::cli::Ranura::Cuantas::UnaOMas) {
+                        continue;
+                    }
+                    switch (r.tipo) {
+                        case zfsmgr::cli::Ranura::Tipo::Url: relleno += " /a/b"; break;
+                        case zfsmgr::cli::Ranura::Tipo::Propiedad: relleno += " k=v"; break;
+                        default: relleno += " relleno"; break;
+                    }
+                }
+                const auto a = analizaLinea(std::string(o.nombre) + relleno + " " + opcion + " x");
+                comprueba(a.tiene(opcion),
+                          std::string("«") + o.nombre + " " + opcion + "»: la opción no se "
+                          "reconoce al preguntarla con guiones");
+            }
+        }
+    }
+
     std::printf(fallos ? "FALLOS: %d\n" : "gramatica_cli_test OK\n", fallos);
     return fallos ? 1 : 0;
 }
