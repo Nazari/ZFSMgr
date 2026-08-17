@@ -1065,6 +1065,13 @@ El túnel no se podía mudar sin tres piezas que la base no tenía:
 
 ### Lo que desapareció, y lo que se conservó a propósito
 
+**El bombeo de eventos tiene dos contextos, y unificarlos rompía algo.** Al sacarlos a un
+solo `pump` dejé el estricto para ambos, y eso habría hecho que **Cancelar dejara de
+funcionar durante una transferencia**: la espera del túnel excluye la entrada del usuario a
+propósito —por ahí se colaba una recarga de conexiones que dejaba colgando referencias—,
+pero `runSsh` la permite justamente para poder cancelar. El enganche lleva ahora un
+parámetro que dice en cuál de los dos está.
+
 Desapareció `TransportSession::owner`, el puntero a un objeto con bucle de eventos. Tenía
 tres cometidos: ser padre de los `QProcess` —ya no hay—, decidir dónde se puede montar un
 túnel, y saber cuándo bombear eventos. Los dos últimos son ahora enganches con nombre:

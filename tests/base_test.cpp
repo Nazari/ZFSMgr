@@ -1127,7 +1127,8 @@ int main() {
             std::string c;
             comprobar(!vacia.askCredentials("x", u, c),
                       "sesion sin proveedor de credenciales: devuelve false");
-            comprobar(vacia.respira(), "sesion sin pump: respira() dice que siga");
+            comprobar(vacia.respira(true) && vacia.respira(false),
+                      "sesion sin pump: respira() dice que siga en los dos contextos");
             comprobar(vacia.puedeMontarTuneles(),
                       "sesion sin restriccion de hilo: se pueden montar tuneles");
             std::string e;

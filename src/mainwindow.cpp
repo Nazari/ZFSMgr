@@ -254,10 +254,17 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     //
     // Y SOLO en el hilo de la ventana: bombear el bucle de eventos desde un hilo de
     // refresco no refresca nada y toca lo que no debe.
-    m_transport.pump = [this]() -> bool {
-        if (QThread::currentThread() == this->thread()) {
-            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 40);
+    m_transport.pump = [this](bool permitirEntradaDeUsuario) -> bool {
+        // Solo en el hilo de la ventana: bombear desde un hilo de refresco no refresca nada
+        // y toca lo que no debe.
+        if (QThread::currentThread() != this->thread()) {
+            return true;
         }
+        // Los dos contextos que la versión anterior ya distinguía. Ver
+        // TransportSession::pump: unificarlos rompe una cosa u otra.
+        QCoreApplication::processEvents(
+            permitirEntradaDeUsuario ? QEventLoop::AllEvents : QEventLoop::ExcludeUserInputEvents,
+            permitirEntradaDeUsuario ? 20 : 40);
         return true;
     };
     // Dónde se pueden montar túneles, y cómo llegar hasta ahí. Los dos enganches

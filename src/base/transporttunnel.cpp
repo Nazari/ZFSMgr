@@ -469,7 +469,9 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                 listo = true;
                 break;
             }
-            ses.respira();
+            // Sin entrada de usuario: ver TransportSession::pump. Por aquí se colaba una
+            // recarga de conexiones que dejaba colgando las referencias de quien llamó.
+            ses.respira(/*permitirEntradaDeUsuario=*/false);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!listo) {
@@ -569,7 +571,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // Mientras se espera respuesta: dejar respirar a quien nos llamó y comprobar que el
         // túnel sigue vivo. Si murió, no hay nada que esperar.
         hooks.keepWaiting = [&ses, &rpcConnKey]() {
-            ses.respira();
+            ses.respira(/*permitirEntradaDeUsuario=*/false);
             std::lock_guard<std::mutex> lock(ses.mutex);
             const auto it = ses.tunnelsByConnKey.find(rpcConnKey);
             return it != ses.tunnelsByConnKey.end() && it->second.process.isRunning();

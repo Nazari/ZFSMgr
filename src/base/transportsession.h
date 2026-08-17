@@ -82,12 +82,22 @@ struct TransportSession {
     // **Devolver false CANCELA** la espera en curso. Quien no tenga interfaz no lo pone, y
     // entonces la espera simplemente duerme.
     //
-    // La interfaz es responsable de que su versión sea segura: bombear eventos reentra, y
-    // por ahí se colaba una recarga de conexiones que dejaba colgando las referencias que
-    // sostenía quien había llamado.
-    std::function<bool()> pump;
+    // **El parámetro NO es un detalle.** Distingue los dos contextos que la versión con Qt
+    // trataba distinto a propósito:
+    //
+    // - Mientras se ESPERA a que un túnel acepte conexiones: `false`. Bombear eventos
+    //   reentra, y dejando pasar acciones del usuario se colaba por ahí una recarga de
+    //   conexiones que dejaba colgando las referencias que sostenía quien había llamado.
+    // - Mientras CORRE una orden larga: `true`. Es lo que permite pulsar Cancelar durante
+    //   una transferencia; sin ello la ventana se pinta pero no responde.
+    //
+    // Unificarlos en el estricto haría que Cancelar dejara de funcionar en las
+    // transferencias, y en el permisivo reabriría la reentrancia. Son dos cosas distintas.
+    std::function<bool(bool permitirEntradaDeUsuario)> pump;
 
-    bool respira() const { return pump ? pump() : true; }
+    bool respira(bool permitirEntradaDeUsuario = true) const {
+        return pump ? pump(permitirEntradaDeUsuario) : true;
+    }
 
     // --- ¿Se pueden montar túneles desde aquí?
     //

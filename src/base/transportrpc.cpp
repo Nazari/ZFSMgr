@@ -609,7 +609,9 @@ struct VigilanteDeInactividad {
                 porInactividad = true;
                 return false;  // cancela: es la muerte por silencio
             }
-            ses.respira();
+            // CON entrada de usuario: es lo que permite pulsar Cancelar mientras corre
+            // una transferencia larga.
+            ses.respira(/*permitirEntradaDeUsuario=*/true);
             return true;
         };
         return cbs;
