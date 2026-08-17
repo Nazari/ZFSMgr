@@ -535,40 +535,112 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    // El punto de montaje del dataset, que es donde empieza la ruta.
-    std::string mp;
-    if (!agente(e, destino, {"--dump-zfs-get-prop", "mountpoint", destino.zfsName()}, mp)) {
-        return false;
-    }
-    std::string base = B::trim(mp);
-    if (base.empty() || base == "none" || base == "-") {
-        std::fprintf(stderr, "%s no está montado en ningún sitio\n", destino.zfsName().c_str());
-        return false;
-    }
-    // En una instantánea el contenido vive bajo el directorio oculto `.zfs`.
-    if (!destino.snapshot.empty()) {
-        base += "/.zfs/snapshot/" + destino.snapshot;
-    }
-    for (const std::string& d : destino.detail) {
-        base += "/" + d;
+    // Dónde empieza la ruta. Y aquí Windows NO se parece a nada de lo demás.
+    //
+    // En Unix es el `mountpoint` del dataset y ya está. En Windows ese mismo `mountpoint`
+    // dice «/winpool/sa» y ESA RUTA NO EXISTE: el pool se monta en una letra de unidad y
+    // los descendientes heredan la del POOL, no la suya. `winpool/sa` vive en `Z:\sa`.
+    // Comprobado contra OldLau: `Test-Path /winpool/sa` da False y `Test-Path Z:\sa` da
+    // True. Preguntar `driveletter` al dataset tampoco vale — hay que preguntárselo al
+    // pool, que es de donde sale la letra.
+    std::string base;
+    const bool esWindows = T::isWindowsConnection(*p);
+    if (esWindows) {
+        std::string letra;
+        if (!agente(e, destino, {"--dump-zfs-get-prop", "driveletter", destino.pool}, letra)) {
+            return false;
+        }
+        letra = B::trim(letra);
+        if (letra.empty() || letra == "-" || letra == "none") {
+            std::fprintf(stderr, "el pool %s no tiene letra de unidad asignada\n",
+                         destino.pool.c_str());
+            return false;
+        }
+        base = letra;
+        // Lo que cuelga del pool, con las barras de Windows. Si el dataset ES el pool, no
+        // cuelga nada y la ruta es la raíz de la unidad.
+        if (destino.dataset.size() > destino.pool.size()) {
+            std::string rel = destino.dataset.substr(destino.pool.size() + 1);
+            B::replaceAll(rel, "/", "\\");
+            base += "\\" + rel;
+        } else {
+            base += "\\";
+        }
+        if (!destino.snapshot.empty()) {
+            base += "\\.zfs\\snapshot\\" + destino.snapshot;
+        }
+        for (const std::string& d : destino.detail) {
+            std::string t = d;
+            B::replaceAll(t, "/", "\\");
+            base += "\\" + t;
+        }
+    } else {
+        std::string mp;
+        if (!agente(e, destino, {"--dump-zfs-get-prop", "mountpoint", destino.zfsName()}, mp)) {
+            return false;
+        }
+        base = B::trim(mp);
+        if (base.empty() || base == "none" || base == "-") {
+            std::fprintf(stderr, "%s no está montado en ningún sitio\n",
+                         destino.zfsName().c_str());
+            return false;
+        }
+        // En una instantánea el contenido vive bajo el directorio oculto `.zfs`.
+        if (!destino.snapshot.empty()) {
+            base += "/.zfs/snapshot/" + destino.snapshot;
+        }
+        for (const std::string& d : destino.detail) {
+            base += "/" + d;
+        }
     }
 
-    const std::string guion =
-        "p=" + B::shSingleQuote(base)
-        + "; if [ -d \"$p\" ]; then ls -lA \"$p\" 2>&1; "
-          "elif [ -e \"$p\" ]; then echo \"no es un directorio: $p\" >&2; exit 2; "
-          "else echo \"no existe: $p\" >&2; exit 3; fi";
+    // La orden que lista. **SIN envolver en PowerShell aquí**: `runSsh` ya envuelve lo que
+    // va a una conexión Windows, y hacerlo dos veces devolvía el script expandido como
+    // texto en vez de ejecutarlo —las variables `$p` las resolvía el envoltorio de fuera y
+    // llegaban vacías—. Es el mismo motivo por el que la rama Unix pasa `sh -lc` en crudo.
+    std::string orden;
+    if (esWindows) {
+        // En Windows NO hay `sh`: el intérprete respondía «sh : The term 'sh' is not
+        // recognized as the name of a cmdlet». Se usa Get-ChildItem con campos separados
+        // por tabuladores, igual que el navegador de ficheros de la interfaz — y por el
+        // mismo motivo: imitar `ls -l` obligaría a inventar permisos, propietario y grupo
+        // que allí no significan lo mismo.
+        std::string entrecomillada = base;
+        B::replaceAll(entrecomillada, "'", "''");  // en PowerShell la comilla se dobla
+        orden = "$ErrorActionPreference='Stop'; $p='" + entrecomillada + "'; "
+                "if(-not (Test-Path -LiteralPath $p)){ Write-Error ('no existe: ' + $p); exit 3 }; "
+                "if(-not (Test-Path -LiteralPath $p -PathType Container)){ "
+                "  Write-Error ('no es un directorio: ' + $p); exit 2 }; "
+                "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
+                "  $d = if($_.PSIsContainer){'d'}else{'-'}; "
+                "  $z = if($_.PSIsContainer){0}else{$_.Length}; "
+                "  ($d + \"`t\" + $z + \"`t\" + $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') "
+                "     + \"`t\" + $_.Name) }";
+    } else {
+        const std::string guion =
+            "p=" + B::shSingleQuote(base)
+            + "; if [ -d \"$p\" ]; then ls -lA \"$p\" 2>&1; "
+              "elif [ -e \"$p\" ]; then echo \"no es un directorio: $p\" >&2; exit 2; "
+              "else echo \"no existe: $p\" >&2; exit 3; fi";
+        orden = "sh -lc " + B::shSingleQuote(guion);
+    }
+
     const B::ConnectionProfile perfil = conSudo(e, *p);
     std::string out;
     std::string err;
     int rc = -1;
-    if (!T::runSsh(e.ses->transporte, perfil,
-                   H::withSudoCommand(perfil, "sh -lc " + B::shSingleQuote(guion)),
+    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, orden),
                    20000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
                    /*echoOutputToLog=*/e.ses->verboso)
         || rc != 0) {
+        // Con el CLIXML limpiado, un fallo de PowerShell puede quedarse SIN texto: se dice
+        // al menos qué ruta y con qué código, que es lo que hace falta para entenderlo.
         const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        std::fprintf(stderr, "%s\n", detalle.empty() ? "no se pudo listar" : detalle.c_str());
+        if (detalle.empty()) {
+            std::fprintf(stderr, "no se pudo listar %s (código %d)\n", base.c_str(), rc);
+        } else {
+            std::fprintf(stderr, "%s\n", detalle.c_str());
+        }
         e.ultimoRc = rc == 0 ? 1 : rc;
         return false;
     }
@@ -1270,9 +1342,13 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
 
     // Se empieza en la máquina donde uno ya está. Si no hay conexión «Local» configurada,
     // se empieza en la raíz en vez de en una URL que no nombra nada.
+    // Se resuelve con `resuelve()` y no con `parseZfsmUrl()` a secas para que el nombre de
+    // la conexión quede normalizado a su IDENTIFICADOR desde el primer momento: si no, el
+    // indicador decía «zfsm://Local» al arrancar y «zfsm://local/...» tras el primer `cd`,
+    // que parecen dos sitios distintos.
     const std::string inicio = urlInicial.empty() ? std::string("zfsm://Local") : urlInicial;
     std::string errInicio;
-    if (!B::parseZfsmUrl(inicio, e.actual, errInicio)
+    if (!resuelve(e, inicio, e.actual, errInicio)
         || buscarConexion(e.conns, e.actual.connection) == nullptr) {
         if (!urlInicial.empty()) {
             std::fprintf(stderr, "no se pudo empezar en %s: %s\n", inicio.c_str(),

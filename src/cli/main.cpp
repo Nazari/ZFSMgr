@@ -23,6 +23,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <algorithm>
 #include <map>
 #include <string>
@@ -99,17 +103,32 @@ std::string textoDe(const ST::Aviso& a) {
     }
 }
 
+// El directorio de configuración, que tiene que ser EL MISMO que usa la interfaz.
+//
+// `<home>/.config/ZFSMgr` en las cuatro plataformas, Windows incluido — que es lo que hace
+// `ConnectionStore::configDir()`. Aquí se prefería `%APPDATA%\ZFSMgr` en Windows, que es
+// lo idiomático allí pero NO es donde está el fichero: el CLI no veía ninguna conexión y
+// arrancaba en la raíz aunque la interfaz tuviera media docena configuradas.
+//
+// El orden para averiguar el «home» imita al de `QDir::homePath()`, para que las dos
+// mitades del programa no puedan discrepar: HOME, luego USERPROFILE, luego
+// HOMEDRIVE+HOMEPATH.
 std::string dirConfigPorOmision() {
-#ifdef _WIN32
-    const char* base = std::getenv("APPDATA");
-    if (base && *base) {
-        return std::string(base) + "/ZFSMgr";
-    }
-#endif
     const char* home = std::getenv("HOME");
     if (home && *home) {
         return std::string(home) + "/.config/ZFSMgr";
     }
+#ifdef _WIN32
+    const char* perfil = std::getenv("USERPROFILE");
+    if (perfil && *perfil) {
+        return std::string(perfil) + "/.config/ZFSMgr";
+    }
+    const char* unidad = std::getenv("HOMEDRIVE");
+    const char* ruta = std::getenv("HOMEPATH");
+    if (unidad && *unidad && ruta && *ruta) {
+        return std::string(unidad) + ruta + "/.config/ZFSMgr";
+    }
+#endif
     return ".config/ZFSMgr";
 }
 
@@ -227,6 +246,17 @@ bool hayAlgoCifrado(const std::string& dirConfig) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // La consola de Windows interpreta lo que le llega con la página de códigos OEM (850
+    // en un Windows en español), y todo lo que escribe este programa es UTF-8: sin esto,
+    // «— «help»» salía como «ÔÇö ┬½help┬½». Se ajustan las dos direcciones, porque por la
+    // entrada llegan nombres de dataset con acentos.
+    //
+    // Si la salida está redirigida no hay consola y las llamadas fallan sin efecto, que es
+    // lo correcto: a un fichero van los bytes UTF-8 tal cual.
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
     Opciones op;
     op.dirConfig = dirConfigPorOmision();
     for (int i = 1; i < argc; ++i) {

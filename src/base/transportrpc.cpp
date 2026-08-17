@@ -716,6 +716,16 @@ bool runSsh(TransportSession& ses,
             return false;
         }
         rc = res.rc;
+        // El ruido con forma de XML que escupe PowerShell, también en la conexión LOCAL.
+        //
+        // Solo se limpiaba en la rama de SSH, y una máquina Windows que se gestiona a sí
+        // misma entra por AQUÍ: la orden se envuelve igualmente en PowerShell, así que un
+        // fallo llegaba con doscientas líneas de CLIXML por delante del motivo. Venía de
+        // antes de sacar el transporte de Qt; se arregla aquí porque es donde toca.
+        if (isWindowsConnection(p)) {
+            out = sanitizeWindowsCliXml(out);
+            err = sanitizeWindowsCliXml(err);
+        }
         if (rc != 0) {
             // ssh sale con 255 y un «Host key verification failed» escueto cuando la clave
             // del host no coincide. Sin traducirlo, eso le llega al usuario como un fallo de

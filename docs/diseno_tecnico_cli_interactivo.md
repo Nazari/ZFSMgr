@@ -120,6 +120,26 @@ Se condujo por un pseudoterminal, porque el material TLS del daemon local vive e
    «ya absorbido» y **rc=0**: parecía haber funcionado sin hacer nada.
 2. `-y` se parseaba y no se pasaba al intérprete, así que seguía preguntando.
 
+## Windows no se parece a lo demás en dos sitios
+
+**El directorio de configuración es `<home>/.config/ZFSMgr` también en Windows**, no
+`%APPDATA%`. Es lo que hace `ConnectionStore::configDir()`, y el CLI tiene que mirar
+exactamente ahí: cuando prefería `%APPDATA%` no veía NINGUNA conexión y arrancaba en la
+raíz aunque la interfaz tuviera media docena configuradas. El orden para averiguar el
+«home» imita al de `QDir::homePath()` —HOME, USERPROFILE, HOMEDRIVE+HOMEPATH— para que
+las dos mitades del programa no puedan discrepar.
+
+**El `mountpoint` de un dataset NO es una ruta que exista.** OpenZFS en Windows dice
+`/winpool/sa`, y esa ruta no está: el pool se monta en una letra de unidad y los
+descendientes heredan la del POOL, no la suya. `winpool/sa` vive en `Z:\sa`. Comprobado
+contra una máquina real: `Test-Path /winpool/sa` da False y `Test-Path Z:\sa` da True.
+Hay que preguntar `driveletter` **al pool**. Las instantáneas sí están donde se espera,
+bajo `.zfs\snapshot\`.
+
+Y la consola de Windows interpreta lo que le llega con la página de códigos OEM, así que
+el programa pone la suya en UTF-8 al arrancar: sin eso, «— «help»» salía como
+«ÔÇö ┬½help┬½».
+
 ## Lo que falta
 
 - La resolución de rutas es lógica pura y está probada solo por las pruebas en vivo.
