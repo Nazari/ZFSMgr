@@ -1,6 +1,7 @@
 #include "process.h"
 
 #include <cstring>
+#include <chrono>
 #include <cstdio>
 #include <iostream>
 
@@ -9,6 +10,7 @@
 #else
 #include <fcntl.h>
 #include <signal.h>
+#include <poll.h>
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -469,5 +471,358 @@ ExecResult runExecCaptureWithStdin(const std::string& program,
     return r;
 #endif
 }
+
+namespace {
+
+// Reparte lo que llega en líneas completas y llama a la función con cada una. Lo que
+// quede a medias se guarda para el siguiente trozo.
+//
+// El retorno de carro se trata como fin de línea igual que el salto: `zfs send` escribe
+// el progreso con retornos, sin saltos, y si no se cortara ahí la barra de progreso no
+// aparecería hasta el final.
+void repartaLineas(std::string& pendiente, const std::string& trozo,
+                   const std::function<void(const std::string&)>& fn) {
+    if (!fn) {
+        return;
+    }
+    pendiente += trozo;
+    std::size_t ini = 0;
+    for (std::size_t i = 0; i < pendiente.size(); ++i) {
+        const char c = pendiente[i];
+        if (c != '\n' && c != '\r') {
+            continue;
+        }
+        if (i > ini) {
+            fn(pendiente.substr(ini, i - ini));
+        }
+        ini = i + 1;
+    }
+    pendiente.erase(0, ini);
+}
+
+void ultimaLinea(std::string& pendiente, const std::function<void(const std::string&)>& fn) {
+    if (fn && !pendiente.empty()) {
+        fn(pendiente);
+    }
+    pendiente.clear();
+}
+
+}  // namespace
+
+#ifndef _WIN32
+
+ExecResult runExecStream(const std::string& program,
+                         const std::vector<std::string>& args,
+                         const std::string& stdinData,
+                         int timeoutMs,
+                         const StreamCallbacks& cb) {
+    ExecResult r;
+    int inPipe[2] = {-1, -1};
+    int outPipe[2] = {-1, -1};
+    int errPipe[2] = {-1, -1};
+    if (pipe(inPipe) != 0 || pipe(outPipe) != 0 || pipe(errPipe) != 0) {
+        r.rc = 125;
+        r.err = "pipe failed";
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) {
+            if (fd >= 0) {
+                close(fd);
+            }
+        }
+        return r;
+    }
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        r.rc = 125;
+        r.err = "fork failed";
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) {
+            close(fd);
+        }
+        return r;
+    }
+    if (pid == 0) {
+        dup2(inPipe[0], STDIN_FILENO);
+        dup2(outPipe[1], STDOUT_FILENO);
+        dup2(errPipe[1], STDERR_FILENO);
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) {
+            close(fd);
+        }
+        std::vector<char*> argv;
+        argv.push_back(const_cast<char*>(program.c_str()));
+        for (const std::string& a : args) {
+            argv.push_back(const_cast<char*>(a.c_str()));
+        }
+        argv.push_back(nullptr);
+        execvp(program.c_str(), argv.data());
+        _exit(127);
+    }
+
+    close(inPipe[0]);
+    close(outPipe[1]);
+    close(errPipe[1]);
+    // Sin bloqueo en las tres: con el proceso escribiendo y nosotros escribiendo a la vez,
+    // una lectura o escritura bloqueante puede dejar a los dos esperándose.
+    for (int fd : {inPipe[1], outPipe[0], errPipe[0]}) {
+        const int fl = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    }
+
+    std::string porEscribir = stdinData;
+    std::string pendOut;
+    std::string pendErr;
+    bool outAbierto = true;
+    bool errAbierto = true;
+    bool cancelado = false;
+    bool porTiempo = false;
+
+    const auto t0 = std::chrono::steady_clock::now();
+    auto transcurrido = [&t0]() {
+        return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - t0)
+                                    .count());
+    };
+
+    char buf[8192];
+    while (outAbierto || errAbierto || !porEscribir.empty()) {
+        pollfd fds[3];
+        int n = 0;
+        int idxOut = -1;
+        int idxErr = -1;
+        int idxIn = -1;
+        if (outAbierto) {
+            idxOut = n;
+            fds[n++] = {outPipe[0], POLLIN, 0};
+        }
+        if (errAbierto) {
+            idxErr = n;
+            fds[n++] = {errPipe[0], POLLIN, 0};
+        }
+        if (!porEscribir.empty() && inPipe[1] >= 0) {
+            idxIn = n;
+            fds[n++] = {inPipe[1], POLLOUT, 0};
+        }
+        if (n == 0) {
+            break;
+        }
+        // 120 ms, el mismo intervalo con el que la versión de Qt sondeaba: es lo que hace
+        // que la interfaz siga respondiendo sin quemar CPU.
+        const int listos = ::poll(fds, static_cast<nfds_t>(n), 120);
+        if (listos < 0 && errno == EINTR) {
+            continue;  // una señal, no un error
+        }
+
+        if (idxOut >= 0 && (fds[idxOut].revents & (POLLIN | POLLHUP))) {
+            const ssize_t leidos = read(outPipe[0], buf, sizeof(buf));
+            if (leidos > 0) {
+                const std::string trozo(buf, static_cast<std::size_t>(leidos));
+                r.out += trozo;
+                repartaLineas(pendOut, trozo, cb.onStdoutLine);
+            } else if (leidos == 0) {
+                outAbierto = false;
+            }
+        }
+        if (idxErr >= 0 && (fds[idxErr].revents & (POLLIN | POLLHUP))) {
+            const ssize_t leidos = read(errPipe[0], buf, sizeof(buf));
+            if (leidos > 0) {
+                const std::string trozo(buf, static_cast<std::size_t>(leidos));
+                r.err += trozo;
+                repartaLineas(pendErr, trozo, cb.onStderrLine);
+            } else if (leidos == 0) {
+                errAbierto = false;
+            }
+        }
+        if (idxIn >= 0 && (fds[idxIn].revents & POLLOUT)) {
+            const ssize_t escritos = write(inPipe[1], porEscribir.data(), porEscribir.size());
+            if (escritos > 0) {
+                porEscribir.erase(0, static_cast<std::size_t>(escritos));
+            } else if (escritos < 0 && errno != EAGAIN && errno != EINTR) {
+                porEscribir.clear();  // el otro extremo se fue; no hay a quién escribir
+            }
+            if (porEscribir.empty() && inPipe[1] >= 0) {
+                // Cerrar la entrada es lo que le dice al programa que ya no hay más. Sin
+                // esto, `zfs recv` se queda esperando para siempre.
+                close(inPipe[1]);
+                inPipe[1] = -1;
+            }
+        }
+
+        if (cb.onTick && !cb.onTick(transcurrido())) {
+            cancelado = true;
+            break;
+        }
+        if (timeoutMs > 0 && transcurrido() > timeoutMs) {
+            porTiempo = true;
+            break;
+        }
+    }
+
+    ultimaLinea(pendOut, cb.onStdoutLine);
+    ultimaLinea(pendErr, cb.onStderrLine);
+
+    if (cancelado || porTiempo) {
+        // TERM primero y KILL si no se va: matar de golpe deja los hijos del proceso
+        // —el `ssh` que a su vez lanzó otra cosa— huérfanos y vivos.
+        kill(pid, SIGTERM);
+        for (int i = 0; i < 20; ++i) {
+            int st = 0;
+            if (waitpid(pid, &st, WNOHANG) == pid) {
+                r.rc = cancelado ? 130 : 124;
+                goto limpiar;
+            }
+            usleep(50 * 1000);
+        }
+        kill(pid, SIGKILL);
+    }
+    {
+        int st = 0;
+        waitpid(pid, &st, 0);
+        r.rc = (cancelado || porTiempo) ? (cancelado ? 130 : 124) : decodeWaitStatus(st);
+    }
+
+limpiar:
+    if (inPipe[1] >= 0) {
+        close(inPipe[1]);
+    }
+    close(outPipe[0]);
+    close(errPipe[0]);
+    return r;
+}
+
+#else  // _WIN32
+
+ExecResult runExecStream(const std::string& program,
+                         const std::vector<std::string>& args,
+                         const std::string& stdinData,
+                         int timeoutMs,
+                         const StreamCallbacks& cb) {
+    ExecResult r;
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE inR = nullptr, inW = nullptr, outR = nullptr, outW = nullptr, errR = nullptr, errW = nullptr;
+    if (!CreatePipe(&inR, &inW, &sa, 0) || !CreatePipe(&outR, &outW, &sa, 0)
+        || !CreatePipe(&errR, &errW, &sa, 0)) {
+        r.rc = 125;
+        r.err = "CreatePipe failed";
+        return r;
+    }
+    // Los extremos nuestros NO se heredan: si el hijo los tuviera, la tubería no se
+    // cerraría al morir él y la lectura no terminaría nunca.
+    SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(errR, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = inR;
+    si.hStdOutput = outW;
+    si.hStdError = errW;
+    PROCESS_INFORMATION pi{};
+    std::string cmdline = winBuildCommandLine(program, args);
+    std::vector<char> cmdbuf(cmdline.begin(), cmdline.end());
+    cmdbuf.push_back('\0');
+    if (!CreateProcessA(nullptr, cmdbuf.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                        nullptr, nullptr, &si, &pi)) {
+        r.rc = 127;
+        r.err = "CreateProcess failed";
+        for (HANDLE h : {inR, inW, outR, outW, errR, errW}) {
+            CloseHandle(h);
+        }
+        return r;
+    }
+    CloseHandle(inR);
+    CloseHandle(outW);
+    CloseHandle(errW);
+
+    std::string porEscribir = stdinData;
+    std::string pendOut;
+    std::string pendErr;
+    bool cancelado = false;
+    bool porTiempo = false;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto transcurrido = [&t0]() {
+        return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - t0)
+                                    .count());
+    };
+
+    // Sondeo con PeekNamedPipe: las tuberías anónimas de Windows no admiten espera con
+    // tiempo límite, así que se mira si hay algo antes de leer. Leer a ciegas bloquearía.
+    auto drena = [&](HANDLE h, std::string& acumulado, std::string& pendiente,
+                     const std::function<void(const std::string&)>& fn) {
+        DWORD disponible = 0;
+        while (PeekNamedPipe(h, nullptr, 0, nullptr, &disponible, nullptr) && disponible > 0) {
+            char buf[8192];
+            DWORD leidos = 0;
+            const DWORD pedir = disponible < sizeof(buf) ? disponible : sizeof(buf);
+            if (!ReadFile(h, buf, pedir, &leidos, nullptr) || leidos == 0) {
+                break;
+            }
+            const std::string trozo(buf, leidos);
+            acumulado += trozo;
+            repartaLineas(pendiente, trozo, fn);
+        }
+    };
+
+    while (true) {
+        if (!porEscribir.empty() && inW) {
+            DWORD escritos = 0;
+            if (WriteFile(inW, porEscribir.data(), static_cast<DWORD>(porEscribir.size()), &escritos,
+                          nullptr)
+                && escritos > 0) {
+                porEscribir.erase(0, escritos);
+            } else {
+                porEscribir.clear();
+            }
+            if (porEscribir.empty()) {
+                CloseHandle(inW);
+                inW = nullptr;
+            }
+        }
+        drena(outR, r.out, pendOut, cb.onStdoutLine);
+        drena(errR, r.err, pendErr, cb.onStderrLine);
+
+        const DWORD esperado = WaitForSingleObject(pi.hProcess, 120);
+        if (esperado == WAIT_OBJECT_0) {
+            // Una última pasada: entre el penúltimo drenaje y su muerte pudo escribir.
+            drena(outR, r.out, pendOut, cb.onStdoutLine);
+            drena(errR, r.err, pendErr, cb.onStderrLine);
+            break;
+        }
+        if (cb.onTick && !cb.onTick(transcurrido())) {
+            cancelado = true;
+            break;
+        }
+        if (timeoutMs > 0 && transcurrido() > timeoutMs) {
+            porTiempo = true;
+            break;
+        }
+    }
+
+    ultimaLinea(pendOut, cb.onStdoutLine);
+    ultimaLinea(pendErr, cb.onStderrLine);
+
+    if (cancelado || porTiempo) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 2000);
+        r.rc = cancelado ? 130 : 124;
+    } else {
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        r.rc = static_cast<int>(code);
+    }
+    if (inW) {
+        CloseHandle(inW);
+    }
+    CloseHandle(outR);
+    CloseHandle(errR);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return r;
+}
+
+#endif  // _WIN32
 
 }  // namespace zfsmgr::base

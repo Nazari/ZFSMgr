@@ -898,6 +898,47 @@ Verificado que la petición sale **byte a byte idéntica** a la que construía
 saltos de línea y argumentos vacíos: **0 diferencias**. Es lo que había que comprobar,
 porque una petición con otra forma la rechaza el daemon.
 
+## Paso 8: ejecución con retroalimentación
+
+`base::runExecCapture` no bastaba para `runSsh`. Lo que hace falta para una transferencia
+no es ejecutar y esperar: es **enseñar las líneas según llegan, avisar de cuánto queda y
+poder cancelar**. Eso lo hacía `QProcess` bombeando el bucle de eventos de Qt, y es
+precisamente lo que ataba el transporte a la interfaz.
+
+`runExecStream` lo cubre con **un solo punto de enganche**, `onTick`: se llama cada pocos
+milisegundos aunque no llegue nada, y **devolver false cancela**. Con eso, quien tiene
+interfaz deja respirar a la ventana, cuenta cuánto queda y mira si el usuario canceló —las
+tres cosas del bucle de Qt— y quien no la tiene simplemente no lo pone.
+
+Detalles que no son evidentes y están en el código:
+
+- **El retorno de carro corta línea igual que el salto.** `zfs send` escribe el progreso
+  con retornos y sin saltos; sin esto la barra no aparecería hasta el final.
+- **Cerrar la entrada estándar** cuando se acaba lo que hay que escribir. Sin eso,
+  `zfs recv` espera para siempre.
+- **TERM antes que KILL** al cancelar: matar de golpe deja huérfanos los hijos del proceso
+  —el `ssh` que a su vez lanzó otra cosa—.
+- Todo sin bloqueo y con `poll`: escribir y leer a la vez sobre tuberías bloqueantes es
+  cómo se abrazan los dos procesos.
+
+### Probado, no leído
+
+Doce casos, en el test permanente. Tres importaban de verdad:
+
+| | |
+|---|---|
+| las líneas llegan **mientras** corre | medido: la primera antes de 200 ms, la segunda pasados 300 |
+| **4 MB** por la entrada estándar | la tubería se llena y hay que alternar escritura y lectura |
+| cancelar **corta de verdad** | un `sleep 30` cancelado a los 300 ms termina en menos de 3 s |
+
+Y los que delatan errores tontos: `stdout` y `stderr` separados, código de salida
+propagado, 127 si el programa no existe, 124 por tiempo, 130 por cancelación,
+`timeoutMs=0` como «sin límite» y no como cero, la última línea sin salto entregada, y
+que un argumento con `;` o `|` llegue **literal** —porque no hay shell de por medio—.
+
+Son POSIX solamente. En Windows harían falta otras rutas, y una prueba que solo corre en
+una plataforma es mejor declararla que fingirla.
+
 ## Estado
 
 Hecho y verificado:

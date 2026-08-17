@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,39 @@ int runExecStreaming(const std::string& program, const std::vector<std::string>&
 ExecResult runExecCaptureWithStdin(const std::string& program,
                                    const std::vector<std::string>& args,
                                    const std::string& stdinData);
+
+// --- Ejecución con retroalimentación, para operaciones largas.
+//
+// `runExecCapture` basta para una orden que responde y termina. Lo que NO cubre es lo que
+// necesita una transferencia: enseñar las líneas según llegan, avisar de cuánto queda y
+// poder cancelar. Eso lo hacía `QProcess` bombeando el bucle de eventos de Qt, y es lo
+// que ataba el transporte a la interfaz.
+struct StreamCallbacks {
+    // Se llaman con cada línea COMPLETA, sin el salto final. Lo que quede sin terminar en
+    // línea al acabar el proceso se entrega igualmente: `zfs send` escribe el progreso
+    // con retornos de carro y no siempre cierra la última.
+    std::function<void(const std::string& linea)> onStdoutLine;
+    std::function<void(const std::string& linea)> onStderrLine;
+
+    // Se llama cada pocos milisegundos aunque no llegue nada. **Devolver false CANCELA**:
+    // el proceso se termina y el resultado sale con el código correspondiente.
+    //
+    // Un solo punto de enganche para las tres cosas que hacía el bucle de Qt: dejar
+    // respirar a la interfaz, contar cuánto queda, y mirar si el usuario canceló. Quien
+    // no tenga interfaz simplemente no lo pone.
+    std::function<bool(int msTranscurridos)> onTick;
+};
+
+// Ejecuta con retroalimentación. `timeoutMs <= 0` significa SIN límite, que es lo que
+// necesita una transferencia larga; el control queda entonces en manos de `onTick`.
+//
+// `out` y `err` del resultado traen además el texto completo, para quien lo quiera al
+// final sin haber ido acumulando.
+ExecResult runExecStream(const std::string& program,
+                         const std::vector<std::string>& args,
+                         const std::string& stdinData,
+                         int timeoutMs,
+                         const StreamCallbacks& cb);
 
 #ifdef _WIN32
 // CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así

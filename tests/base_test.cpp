@@ -9,10 +9,12 @@
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
+#include "process.h"
 #include "refreshparse.h"
 #include "secretcipher.h"
 #include "strutil.h"
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -637,6 +639,125 @@ int main() {
         comprobar(R::zfsmgrUnixCommandSet().size() == 6,
                   "la lista de herramientas es corta a proposito");
     }
+
+
+    // --- ejecución de procesos con retroalimentación
+    //
+    // Estos casos NO son ceremonia: es la pieza que sustituye a QProcess, y sus fallos
+    // —tuberías que se llenan, hijos que no mueren, líneas que no salen hasta el final—
+    // no se ven leyendo el código. Solo se ven ejecutándolo.
+    //
+    // POSIX solamente: en Windows haría falta cmd.exe y otras rutas, y una prueba que
+    // solo corre en una plataforma es peor que declararlo.
+#ifndef _WIN32
+    {
+        auto comprobar2 = [](bool ok, const char* q) { comprobar(ok, q); };
+    // 1) Captura básica y código de salida
+        {
+            StreamCallbacks cb;
+            std::vector<std::string> lineas;
+            cb.onStdoutLine = [&](const std::string& l) { lineas.push_back(l); };
+            auto r = runExecStream("/bin/sh", {"-c", "echo uno; echo dos; exit 3"}, "", 5000, cb);
+            comprobar2(r.rc == 3, "código de salida");
+            comprobar2(lineas.size() == 2 && lineas[0] == "uno" && lineas[1] == "dos", "líneas por callback");
+            comprobar2(r.out == "uno\ndos\n", "texto completo también");
+        }
+        // 2) Las líneas llegan MIENTRAS corre, no al final: es el punto de todo esto
+        {
+            StreamCallbacks cb;
+            std::vector<int> momentos;
+            const auto t0 = std::chrono::steady_clock::now();
+            cb.onStdoutLine = [&](const std::string&) {
+                momentos.push_back((int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - t0).count());
+            };
+            auto r = runExecStream("/bin/sh", {"-c", "echo a; sleep 0.4; echo b"}, "", 5000, cb);
+            comprobar2(r.rc == 0, "sale bien");
+            comprobar2(momentos.size() == 2, "dos líneas");
+            comprobar2(momentos.size() == 2 && momentos[0] < 200 && momentos[1] > 300,
+                "la primera llega ANTES de terminar");
+        }
+        // 3) stderr por separado
+        {
+            StreamCallbacks cb;
+            std::string o, e;
+            cb.onStdoutLine = [&](const std::string& l) { o += l; };
+            cb.onStderrLine = [&](const std::string& l) { e += l; };
+            auto r = runExecStream("/bin/sh", {"-c", "echo salida; echo error >&2"}, "", 5000, cb);
+            comprobar2(o == "salida" && e == "error", "stdout y stderr separados");
+        }
+        // 4) Entrada estándar: hay que CERRARLA o el otro espera para siempre
+        {
+            StreamCallbacks cb;
+            std::string o;
+            cb.onStdoutLine = [&](const std::string& l) { o += l; };
+            auto r = runExecStream("/bin/cat", {}, "hola mundo\n", 5000, cb);
+            comprobar2(r.rc == 0, "cat termina (la entrada se cierra)");
+            comprobar2(o == "hola mundo", "cat devuelve lo que se le dio");
+        }
+        // 5) Entrada GRANDE: la tubería se llena y hay que alternar escritura y lectura
+        {
+            StreamCallbacks cb;
+            const std::string grande(4 * 1024 * 1024, 'x');
+            auto r = runExecStream("/bin/cat", {}, grande, 20000, cb);
+            comprobar2(r.rc == 0, "4 MB por la entrada no bloquea");
+            comprobar2(r.out.size() == grande.size(), "vuelven los 4 MB enteros");
+        }
+        // 6) Cancelación desde onTick
+        {
+            StreamCallbacks cb;
+            cb.onTick = [](int ms) { return ms < 300; };
+            const auto t0 = std::chrono::steady_clock::now();
+            auto r = runExecStream("/bin/sh", {"-c", "sleep 30"}, "", 0, cb);
+            const int ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            comprobar2(r.rc == 130, "cancelado da 130");
+            comprobar2(ms < 3000, "y corta de verdad, no espera los 30 s");
+        }
+        // 7) Tiempo límite
+        {
+            StreamCallbacks cb;
+            auto r = runExecStream("/bin/sh", {"-c", "sleep 30"}, "", 400, cb);
+            comprobar2(r.rc == 124, "el tiempo límite da 124");
+        }
+        // 8) timeoutMs=0 es SIN límite, no "cero milisegundos"
+        {
+            StreamCallbacks cb;
+            auto r = runExecStream("/bin/sh", {"-c", "sleep 0.3; echo ya"}, "", 0, cb);
+            comprobar2(r.rc == 0 && r.out == "ya\n", "0 = sin límite");
+        }
+        // 9) Programa inexistente
+        {
+            StreamCallbacks cb;
+            auto r = runExecStream("/no/existe/programa", {}, "", 2000, cb);
+            comprobar2(r.rc == 127, "programa inexistente da 127");
+        }
+        // 10) Retorno de carro como fin de línea (el progreso de zfs send)
+        {
+            StreamCallbacks cb;
+            std::vector<std::string> l;
+            cb.onStdoutLine = [&](const std::string& x) { l.push_back(x); };
+            auto r = runExecStream("/bin/sh", {"-c", "printf 'a\\rb\\rc'"}, "", 5000, cb);
+            comprobar2(l.size() == 3, "el retorno de carro corta línea (progreso de zfs send)");
+        }
+        // 11) Argumentos con caracteres que un shell interpretaría
+        {
+            StreamCallbacks cb;
+            std::string o;
+            cb.onStdoutLine = [&](const std::string& x) { o += x; };
+            auto r = runExecStream("/bin/echo", {"a;rm -rf /", "b|c", "d$e"}, "", 5000, cb);
+            comprobar2(o == "a;rm -rf / b|c d$e", "sin shell: los metacaracteres son literales");
+        }
+        // 12) Salida sin salto final
+        {
+            StreamCallbacks cb;
+            std::vector<std::string> l;
+            cb.onStdoutLine = [&](const std::string& x) { l.push_back(x); };
+            auto r = runExecStream("/bin/printf", {"sin salto"}, "", 5000, cb);
+            comprobar2(l.size() == 1 && l[0] == "sin salto", "la última línea sin salto se entrega");
+        }
+    }
+#endif
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
