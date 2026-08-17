@@ -181,8 +181,9 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
     }
 
     if (!snapCrudo.empty()) {
-        if (tramos.size() < 2) {
-            // Un snapshot cuelga de un dataset, y un pool a secas no lo es.
+        if (tramos.empty()) {
+            // Lo único que no puede llevar snapshot es la conexión. El POOL sí: en ZFS
+            // es un dataset como cualquier otro y `zfs snapshot winpool@snap1` funciona.
             error = "un snapshot necesita un dataset";
             return false;
         }
@@ -217,10 +218,9 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
 
     if (!out.snapshot.empty()) {
         out.kind = ZfsmKind::Snapshot;
-    } else if (tramos.size() >= 2) {
+    } else if (!tramos.empty()) {
+        // Uno o veinte tramos, es un dataset: el pool también lo es.
         out.kind = ZfsmKind::Dataset;
-    } else if (tramos.size() == 1) {
-        out.kind = ZfsmKind::Pool;
     } else {
         out.kind = ZfsmKind::Conexion;
     }

@@ -771,12 +771,15 @@ int main() {
         comprobar(U::parseZfsmUrl("zfsm://unibody", u, err) && u.kind == U::ZfsmKind::Conexion,
                   "solo conexion");
         igual(u.conexion, "unibody", "la conexion es la autoridad");
-        comprobar(U::parseZfsmUrl("zfsm://unibody/sback", u, err) && u.kind == U::ZfsmKind::Pool,
-                  "un tramo es un pool");
+        // Un pool ES un dataset en ZFS: `zfs list sback` lo devuelve. Por eso no hay
+        // clase aparte, y por eso puede tener snapshots.
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback", u, err) && u.kind == U::ZfsmKind::Dataset,
+                  "un tramo tambien es un dataset");
+        comprobar(u.esRaizDePool(), "y ademas es la raiz de su pool");
         igual(u.pool, "sback", "el primer tramo es el pool");
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user", u, err)
-                      && u.kind == U::ZfsmKind::Dataset,
-                  "dos tramos son un dataset");
+                      && u.kind == U::ZfsmKind::Dataset && !u.esRaizDePool(),
+                  "dos tramos son un dataset que NO es la raiz");
         // El nombre ZFS sale ya montado, que es como se le pasa a `zfs`.
         igual(u.dataset, "sback/user", "el dataset lleva el pool delante");
         igual(u.nombreZfs(), "sback/user", "nombreZfs sin snapshot");
@@ -789,11 +792,11 @@ int main() {
         igual(u.nombreZfs(), "sback/user@ayer", "nombreZfs como lo escribe ZFS");
 
         // El fragmento es el arbol: seccion y despues la ruta dentro.
-        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#propiedades/compression", u, err),
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#properties/compression", u, err),
                   "una propiedad");
-        igual(u.seccion, "propiedades", "la seccion");
+        igual(u.seccion, "properties", "la seccion, en ingles");
         comprobar(u.detalle.size() == 1 && u.detalle[0] == "compression", "el detalle");
-        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#contenido/docs/a.pdf", u, err)
+        comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#content/docs/a.pdf", u, err)
                       && u.detalle.size() == 2 && u.detalle[1] == "a.pdf",
                   "un fichero dentro del contenido");
         comprobar(U::parseZfsmUrl("zfsm://unibody#daemon", u, err)
@@ -803,7 +806,7 @@ int main() {
         comprobar(U::parseZfsmUrl("zfsm://unibody/sback/user#loquesea", u, err),
                   "una seccion desconocida se acepta");
         // La seccion no distingue mayusculas.
-        comprobar(U::parseZfsmUrl("zfsm://u/p/d#PROPIEDADES", u, err) && u.seccion == "propiedades",
+        comprobar(U::parseZfsmUrl("zfsm://u/p/d#PROPERTIES", u, err) && u.seccion == "properties",
                   "la seccion se normaliza a minusculas");
         comprobar(U::parseZfsmUrl("ZFSM://u/p/d", u, err), "el esquema tampoco distingue caja");
 
@@ -817,14 +820,25 @@ int main() {
         // Los legales de ZFS que NO hay que codificar: seria ruido inutil.
         igual(U::percentEncodeSegment("a-b_c.d:e"), "a-b_c.d:e", "los legales de ZFS van tal cual");
 
+        // El caso que el modelo anterior rechazaba por error: un pool ES un dataset, así
+        // que puede tener snapshots. Variable propia para no pisar la de arriba.
+        {
+            U::ZfsmUrl pu;
+            std::string pe;
+            comprobar(U::parseZfsmUrl("zfsm://OldLau/winpool@snap1", pu, pe), "snapshot de un POOL");
+            comprobar(pu.kind == U::ZfsmKind::Snapshot, "y es de clase snapshot");
+            comprobar(pu.esRaizDePool(), "sobre la raiz del pool");
+            igual(pu.nombreZfs(), "winpool@snap1", "nombreZfs del snapshot de un pool");
+        }
+
         // Ida y vuelta: es lo que impide que las dos mitades se separen con el tiempo.
         for (const char* caso : {"zfsm://unibody",
                                  "zfsm://unibody#daemon",
                                  "zfsm://unibody/sback",
                                  "zfsm://unibody/sback/user",
                                  "zfsm://unibody/sback/user@ayer",
-                                 "zfsm://unibody/sback/user#propiedades/compression",
-                                 "zfsm://unibody/sback/user#contenido/docs/a.pdf",
+                                 "zfsm://unibody/sback/user#properties/compression",
+                                 "zfsm://unibody/sback/user#content/docs/a.pdf",
                                  "zfsm://local/winpool/sa@antes%20de%20migrar"}) {
             U::ZfsmUrl x;
             std::string e2;
@@ -839,7 +853,6 @@ int main() {
             {"zfsm:///sback", "conexion vacia"},
             {"zfsm://u/p/d@", "'@' sin nombre"},
             {"zfsm://u/p/d@a@b", "dos '@'"},
-            {"zfsm://u/p@snap", "un snapshot necesita dataset, no solo pool"},
             {"zfsm://u/p/d@con/barra", "el snapshot no lleva '/'"},
             {"zfsm://u/p//d", "tramo vacio"},
             {"zfsm://u/p/d#", "'#' sin seccion"},

@@ -17,11 +17,12 @@
 //
 //     zfsm://unibody                                    la conexión
 //     zfsm://unibody#daemon                             su pestaña Daemon
-//     zfsm://unibody/sback                              el pool
-//     zfsm://unibody/sback/user                         un dataset
-//     zfsm://unibody/sback/user@ayer                    un snapshot
-//     zfsm://unibody/sback/user#propiedades/compression una propiedad
-//     zfsm://unibody/sback/user#contenido/docs/a.pdf    un fichero dentro
+//     zfsm://unibody/sback                             el pool, que TAMBIÉN es un dataset
+//     zfsm://unibody/sback@antes                       su snapshot
+//     zfsm://unibody/sback/user                        un dataset
+//     zfsm://unibody/sback/user@ayer                   un snapshot
+//     zfsm://unibody/sback/user#properties/compression una propiedad
+//     zfsm://unibody/sback/user#content/docs/a.pdf     un fichero dentro
 //
 // **Por ahora solo NOMBRA.** Resolver —ir a buscar lo que nombra, abrirlo en el árbol,
 // aceptarlo desde la línea de órdenes del sistema— vendrá después y se construye encima
@@ -31,25 +32,36 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
-// Qué nombra la URL. Lo decide cuántos tramos de ruta hay, no la sección.
+// Qué nombra la URL.
+//
+// **No hay una clase «pool» aparte, y no es un olvido:** en ZFS el pool ES un dataset
+// —`zfs list sback` lo devuelve, y `zfs snapshot sback@antes` funciona—. Tenerlo como
+// clase distinta era una mentira que además impedía nombrar el snapshot de un pool. Para
+// saber si un dataset es la raíz de su pool está `esRaizDePool()`.
 enum class ZfsmKind {
     Invalida,
     Conexion,   // zfsm://unibody
-    Pool,       // zfsm://unibody/sback
-    Dataset,    // zfsm://unibody/sback/user
-    Snapshot,   // zfsm://unibody/sback/user@ayer
+    Dataset,    // zfsm://unibody/sback  y  zfsm://unibody/sback/user
+    Snapshot,   // zfsm://unibody/sback@antes  y  zfsm://unibody/sback/user@ayer
 };
 
-// Nombres de sección que la aplicación conoce hoy. Se aceptan otros: una URL con una
-// sección desconocida es válida y quien la resuelva decidirá qué hacer. Rechazarlas
-// obligaría a cambiar este fichero cada vez que el árbol gane una pestaña.
-namespace zfsmSeccion {
-constexpr const char* kContenido = "contenido";
-constexpr const char* kPropiedades = "propiedades";
-constexpr const char* kPermisos = "permisos";
+// Nombres de sección que la aplicación conoce hoy.
+//
+// **En inglés, aunque el árbol se vea en español o en chino.** Una URL es un
+// identificador, no texto para leer: si el literal dependiera del idioma de quien la
+// escribió, la misma cosa tendría tres nombres y ninguno serviría para guardarla o
+// compararla.
+//
+// Se aceptan otros nombres: una sección desconocida es válida y quien la resuelva
+// decidirá qué hacer. Rechazarlas obligaría a tocar este fichero cada vez que el árbol
+// gane una pestaña.
+namespace zfsmSection {
+constexpr const char* kContent = "content";
+constexpr const char* kProperties = "properties";
+constexpr const char* kPermissions = "permissions";
 constexpr const char* kInfo = "info";
 constexpr const char* kDaemon = "daemon";
-}  // namespace zfsmSeccion
+}  // namespace zfsmSection
 
 struct ZfsmUrl {
     ZfsmKind kind{ZfsmKind::Invalida};
@@ -77,6 +89,10 @@ struct ZfsmUrl {
     std::vector<std::string> detalle;
 
     bool valida() const { return kind != ZfsmKind::Invalida; }
+
+    // ¿El dataset nombrado es la raíz de su pool? Es lo que sustituye a la antigua clase
+    // «pool», sin fingir que sea otra cosa que un dataset.
+    bool esRaizDePool() const { return !dataset.empty() && dataset == pool; }
 
     // `dataset@snapshot`, que es como lo escribe ZFS. Sin snapshot, solo el dataset.
     std::string nombreZfs() const;

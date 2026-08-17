@@ -242,7 +242,6 @@ int main(int argc, char** argv) {
         const char* clase = "?";
         switch (u.kind) {
             case zfsmgr::base::ZfsmKind::Conexion: clase = "conexión"; break;
-            case zfsmgr::base::ZfsmKind::Pool: clase = "pool"; break;
             case zfsmgr::base::ZfsmKind::Dataset: clase = "dataset"; break;
             case zfsmgr::base::ZfsmKind::Snapshot: clase = "snapshot"; break;
             default: break;
@@ -250,6 +249,9 @@ int main(int argc, char** argv) {
         std::printf("clase\t%s\n", clase);
         std::printf("conexion\t%s\n", u.conexion.c_str());
         if (!u.pool.empty()) std::printf("pool\t%s\n", u.pool.c_str());
+        // Un pool ES un dataset en ZFS, así que no hay clase aparte: se dice si además
+        // es la raíz de su pool.
+        if (u.esRaizDePool()) std::printf("raiz_de_pool\tsí\n");
         if (!u.dataset.empty()) std::printf("dataset\t%s\n", u.dataset.c_str());
         if (!u.snapshot.empty()) std::printf("snapshot\t%s\n", u.snapshot.c_str());
         if (!u.nombreZfs().empty()) std::printf("nombre_zfs\t%s\n", u.nombreZfs().c_str());

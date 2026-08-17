@@ -10,14 +10,15 @@ zfsm://<conexión>/<pool>/<dataset>[@snapshot][#<sección>[/<detalle>]]
 objeto, con los mismos nombres que se ven en el árbol.
 
 ```
-zfsm://unibody                                     la conexión
-zfsm://unibody#daemon                              su pestaña Daemon
-zfsm://unibody/sback                               el pool
-zfsm://unibody/sback/user                          un dataset
-zfsm://unibody/sback/user@ayer                     un snapshot
-zfsm://unibody/sback/user#propiedades/compression  una propiedad
-zfsm://unibody/sback/user#permisos                 sus permisos
-zfsm://unibody/sback/user#contenido/docs/a.pdf     un fichero dentro
+zfsm://unibody                                    la conexión
+zfsm://unibody#daemon                             su pestaña Daemon
+zfsm://unibody/sback                              el pool, que TAMBIÉN es un dataset
+zfsm://unibody/sback@antes                        su snapshot
+zfsm://unibody/sback/user                         un dataset
+zfsm://unibody/sback/user@ayer                    un snapshot
+zfsm://unibody/sback/user#properties/compression  una propiedad
+zfsm://unibody/sback/user#permissions             sus permisos
+zfsm://unibody/sback/user#content/docs/a.pdf      un fichero dentro
 ```
 
 ## Por qué así
@@ -44,6 +45,25 @@ confunde.
   Hará cómodo un CLI interactivo, cuando llegue.
 - **Todo el mundo sabe leerlas.**
 
+## Un pool es un dataset
+
+No hay clase «pool» aparte, y no es un olvido. En ZFS el pool **es** un dataset:
+`zfs list sback` lo devuelve y `zfs snapshot winpool@snap1` funciona —comprobado contra
+una máquina real—. Tenerlo como clase distinta era una mentira del modelo, y además
+impedía nombrar el snapshot de un pool, que es un caso normal.
+
+Las clases son **conexión, dataset y snapshot**. Para saber si un dataset es la raíz de su
+pool está `esRaizDePool()`, sin fingir que sea otra cosa.
+
+## Los literales van en inglés
+
+`content`, `properties`, `permissions`, `info`, `daemon` — aunque el árbol se vea en
+español o en chino.
+
+Una URL es un **identificador**, no texto para leer. Si el literal dependiera del idioma
+de quien la escribió, la misma cosa tendría tres nombres y ninguno serviría para guardarla
+ni compararla.
+
 ## Decisiones del analizador
 
 **Estricto con lo que puede ocultar un fallo, tolerante con lo que no.**
@@ -69,11 +89,11 @@ devuelve la forma **canónica**, que es la que hay que guardar o comparar — no
 
 ## Estado
 
-**Solo nombra.** `src/base/zfsmurl.{h,cpp}`, sin Qt, con 40 casos de prueba. Y una orden
+**Solo nombra.** `src/base/zfsmurl.{h,cpp}`, sin Qt, con 45 casos de prueba. Y una orden
 en el CLI para verlo:
 
 ```
-zfsmgr-cli url parse "zfsm://unibody/sback/user@ayer#contenido/docs/a.pdf"
+zfsmgr-cli url parse "zfsm://unibody/sback/user@ayer#content/docs/a.pdf"
 ```
 
 **Resolver** —ir a buscar lo que la URL nombra, abrirlo en el árbol, aceptarlo desde la
