@@ -31,6 +31,43 @@ struct Parametro {
     Texto que;  // qué hace
 };
 
+// Sobre qué nodo actúa una orden. Es la primera mitad de su FIRMA.
+//
+// Existe porque hasta ahora cada orden resolvía su destino por su cuenta, con cuatro
+// convenciones distintas conviviendo: 27 órdenes troceaban a mano, 10 usaban una función,
+// 5 usaban otra que NO miraba los argumentos sueltos —de ahí que `install-daemon oldlau`
+// reinstalara en la máquina local sin decir nada— y 4 una tercera.
+//
+// Ver docs/gramatica_cli.md.
+enum class Objetivo {
+    Ninguno,     // la orden no actúa sobre un nodo (help, exit, format…)
+    Cualquiera,  // vale donde sea, incluida la raíz (info, ls, cd)
+    Conexion,    // la máquina
+    Pool,        // la raíz de un pool
+    Dataset,     // un dataset, pool incluido
+    Instantanea,
+    DatasetOInstantanea,
+};
+
+// Una ranura posicional de la orden. La segunda mitad de la firma.
+struct Ranura {
+    enum class Tipo {
+        Url,        // se resuelve y se COMPRUEBA que el nodo es del tipo pedido
+        Palabra,    // de un conjunto cerrado: stop, pause, start
+        Vdev,       // ruta de dispositivo
+        Propiedad,  // nombre=valor
+        Ruta,       // una ruta del sistema de ficheros de la máquina
+        Texto,      // cualquier cosa
+    };
+    enum class Cuantas { Una, Opcional, CeroOMas, UnaOMas };
+
+    const char* nombre;
+    Tipo tipo{Tipo::Texto};
+    Cuantas cuantas{Cuantas::Una};
+    Objetivo nodo{Objetivo::Ninguno};             // solo si tipo == Url
+    std::vector<const char*> palabras;            // solo si tipo == Palabra
+};
+
 struct Orden {
     const char* nombre;  // el VERBO: no se traduce, es lo que se teclea
     Texto grupo;
@@ -40,6 +77,14 @@ struct Orden {
     // Lo que solo sale con `help <orden>`: el porqué, las trampas, los ejemplos. En la
     // lista general estorbaría; buscándola a propósito es justo lo que hace falta.
     std::vector<Texto> detalle;
+
+    // --- La FIRMA. Lo que convierte este catálogo de documentación en fuente de verdad.
+    //
+    // Con ella, un único preámbulo resuelve el destino y reparte los argumentos, y **lo
+    // que sobra es un error**. Esa regla es la que mata de golpe la familia de fallos de
+    // «acepta un argumento y no le hace caso».
+    Objetivo objetivo{Objetivo::Ninguno};
+    std::vector<Ranura> ranuras;
 };
 
 // Todas, en el orden en que se enseñan.

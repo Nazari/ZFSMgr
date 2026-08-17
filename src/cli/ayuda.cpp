@@ -124,7 +124,8 @@ const std::vector<Orden> kOrdenes = {
        {"t_ls_daemon_q", "En la raíz: la versión del agente de cada máquina, con « * » si no es la esperada."}}},
      {{"t_en_windows_42a2d3", "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
       "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}}},
-    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {}},
+    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {},
+     Objetivo::Cualquiera, {}},
 
     // --- Conexiones
     {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
@@ -188,8 +189,10 @@ const std::vector<Orden> kOrdenes = {
     {"promote", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {}},
     {"get", {"t_dataset_105268", "Dataset"}, {"t_propiedad_77632b", "[propiedad]"}, {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {}, {}},
     {"set", {"t_dataset_105268", "Dataset"}, {"t_prop_valor_b7871d", "<prop>=<valor> [más...]"}, {"t_escribe_pr_b449c1", "Escribe propiedades."}, {}, {}},
-    {"load-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {}},
-    {"unload-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {}},
+    {"load-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},
+     Objetivo::Dataset, {}},
+    {"unload-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
+     Objetivo::Dataset, {}},
 
     // --- Instantáneas
     {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
@@ -303,7 +306,8 @@ const std::vector<Orden> kOrdenes = {
       "terminados: enseñarlos todos convierte la pregunta en buscar entre decenas de "
       "líneas."},
       {"t_jobs_det2", "El filtro se pide por el NOMBRE DEL ESTADO, el mismo que sale en la columna "
-      "ESTADO, para no tener que aprender un vocabulario aparte."}}},
+      "ESTADO, para no tener que aprender un vocabulario aparte."}},
+     Objetivo::Conexion, {}},
     {"job", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_id_cancel__aab412", "<id> | cancel <id>"},
      {"t_el_estado__9c5ecc", "El estado de un trabajo, o su cancelación."},
      {},
@@ -315,7 +319,8 @@ const std::vector<Orden> kOrdenes = {
      {},
      {{"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "
-      "PARECE atendida y no lo está."}}},
+      "PARECE atendida y no lo está."}},
+     Objetivo::Conexion, {}},
 
     // --- Del intérprete
     {"format", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_text_tsv_j_5794d8", "[text|tsv|json]"},

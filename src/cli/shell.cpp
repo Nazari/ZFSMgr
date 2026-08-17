@@ -479,6 +479,7 @@ Opts trocea(const std::vector<std::string>& args, const std::vector<std::string>
 // uno estaba — decía «actualizada la conexión local» y uno se quedaba pensando que había
 // editado fc16. Ignorar un argumento en silencio es la peor manera de equivocarse.
 bool destinoSuelto(const Estado& e, const Opts& o, ZfsmUrl& out);
+const std::set<std::string>& poolsDe(Estado& e, const ZfsmUrl& donde);
 
 bool destinoDe(const Estado& e, const Opts& o, ZfsmUrl& out) {
     std::string texto = o.valor("on");
@@ -524,6 +525,165 @@ bool destinoSuelto(const Estado& e, const Opts& o, ZfsmUrl& out) {
     }
     return destinoDe(e, o, out);
 }
+
+// --- El preámbulo único: resolver el destino y repartir los argumentos contra la FIRMA.
+//
+// Sustituye a las cuatro maneras que convivían de hacer lo mismo. Ver docs/gramatica_cli.md.
+//
+// Lo importante no es que centralice: es la última comprobación. **Lo que no consume
+// ninguna ranura es un error.** Sin ella, una orden que no mira sus argumentos sueltos los
+// ignora en silencio, que es como `install-daemon oldlau` acabó reinstalando el daemon en
+// la máquina local sin decir nada.
+
+// ¿Encaja este nodo en lo que la orden pide?
+bool encaja(const ZfsmUrl& u, Objetivo qué) {
+    switch (qué) {
+        case Objetivo::Ninguno:
+        case Objetivo::Cualquiera:
+            return true;
+        case Objetivo::Conexion:
+            // La conexión y NADA MÁS. Antes bastaba con que la URL tuviera conexión, y con
+            // eso `install-daemon local/sobra1` se daba por bueno tomando «sobra1» como si
+            // fuera una máquina.
+            return nodoDe(u) == Nodo::Conexion;
+        case Objetivo::Pool:
+            return nodoDe(u) == Nodo::Dataset && u.isPoolRoot();
+        case Objetivo::Dataset:
+            return nodoDe(u) == Nodo::Dataset;
+        case Objetivo::Instantanea:
+            return nodoDe(u) == Nodo::Snapshot;
+        case Objetivo::DatasetOInstantanea:
+            return nodoDe(u) == Nodo::Dataset || nodoDe(u) == Nodo::Snapshot;
+    }
+    return false;
+}
+
+// Devuelve `std::string` y NO `const char*`: `TC()` da el `c_str()` de un temporal, así
+// que un puntero a eso queda colgando en cuanto termina la expresión. Se coló aquí y el
+// mensaje salió sin el objeto —«hace falta  (ahora: zfsm://local)»—, que es el mismo fallo
+// que ya había mordido en `etiqueta()`. El compilador no lo ve: no es un switch incompleto,
+// es una vida útil.
+std::string nombreDe(Objetivo qué) {
+    switch (qué) {
+        case Objetivo::Ninguno: return {};
+        case Objetivo::Cualquiera: return {};
+        case Objetivo::Conexion: return T("t_obj_conexion", "una conexión");
+        case Objetivo::Pool: return T("t_obj_pool", "un pool");
+        case Objetivo::Dataset: return T("t_obj_dataset", "un dataset");
+        case Objetivo::Instantanea: return T("t_obj_snap", "una instantánea");
+        case Objetivo::DatasetOInstantanea:
+            return T("t_obj_ds_snap", "un dataset o una instantánea");
+    }
+    return {};
+}
+
+// El sitio ACTUAL, subido hasta lo que la orden pide.
+//
+// Un argumento explícito tiene que ser exactamente lo que se pide —si escribo algo, quiero
+// eso—, pero el sitio actual se interpreta con sentido: estando en `local/tank/datos`,
+// `install-daemon` habla de la MÁQUINA, no del dataset, y no tiene sentido obligar a subir
+// a mano antes de teclearlo.
+ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo qué) {
+    ZfsmUrl r = u;
+    switch (qué) {
+        case Objetivo::Conexion:
+            r.pool.clear();
+            r.dataset.clear();
+            r.snapshot.clear();
+            r.section.clear();
+            r.detail.clear();
+            if (!r.connection.empty()) {
+                r.kind = ZfsmKind::Connection;
+            }
+            return r;
+        case Objetivo::Pool:
+            if (!r.pool.empty()) {
+                r.dataset = r.pool;
+                r.snapshot.clear();
+                r.section.clear();
+                r.detail.clear();
+                r.kind = ZfsmKind::Dataset;
+            }
+            return r;
+        case Objetivo::Dataset:
+            // De una instantánea se sube a su dataset; de un dataset no se sube.
+            if (!r.snapshot.empty()) {
+                r.snapshot.clear();
+                r.section.clear();
+                r.detail.clear();
+                r.kind = ZfsmKind::Dataset;
+            }
+            return r;
+        case Objetivo::Ninguno:
+        case Objetivo::Cualquiera:
+        case Objetivo::Instantanea:
+        case Objetivo::DatasetOInstantanea:
+            return r;
+    }
+    return r;
+}
+
+struct Peticion {
+    ZfsmUrl objetivo;
+    Opts o;  // con las ranuras ya retiradas de `libres`
+};
+
+// Resuelve el destino de la orden y comprueba que no sobra nada.
+//
+// El orden de preferencia para el destino, que es único para todas las órdenes:
+//   1. `--on <url>` (o `--from`), si se dio.
+//   2. El primer argumento suelto, SI se resuelve y encaja en lo que la orden pide.
+//   3. El sitio actual.
+bool prepara(Estado& e, const std::string& verbo, const std::vector<std::string>& args,
+             Peticion& p) {
+    const Orden* orden = ordenPorNombre(verbo);
+    if (!orden) {
+        return false;
+    }
+    p.o = trocea(args, {"on", "from"});
+
+    const std::string explicito = p.o.valor("on").empty() ? p.o.valor("from") : p.o.valor("on");
+    if (!explicito.empty()) {
+        std::string err;
+        if (!resuelve(e, explicito, p.objetivo, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+    } else {
+        p.objetivo = subeHasta(e.actual, orden->objetivo);
+        // El primer suelto se toma como destino solo si ENCAJA. Así `install-daemon oldlau`
+        // va a oldlau, y `scrub stop` deja `stop` para su ranura porque no resuelve a un
+        // pool.
+        if (!p.o.libres.empty() && orden->objetivo != Objetivo::Ninguno) {
+            ZfsmUrl candidato;
+            std::string err;
+            if (resuelve(e, p.o.libres.front(), candidato, err)
+                && encaja(candidato, orden->objetivo)
+                && (orden->objetivo != Objetivo::Pool
+                    || poolsDe(e, candidato).count(candidato.pool) > 0)) {
+                p.objetivo = candidato;
+                p.o.libres.erase(p.o.libres.begin());
+            }
+        }
+    }
+
+    if (orden->objetivo != Objetivo::Ninguno && !encaja(p.objetivo, orden->objetivo)) {
+        std::fprintf(stderr, TC("t_hace_falta_obj", "hace falta %s (ahora: %s)\n"),
+                     nombreDe(orden->objetivo).c_str(), textoDe(p.objetivo).c_str());
+        return false;
+    }
+
+    // Y la regla que da sentido a todo esto: sin ranuras declaradas, no puede quedar nada
+    // suelto. Las órdenes que aún no han declarado las suyas se saltan la comprobación —
+    // ver la migración en docs/gramatica_cli.md—, y por eso se mira `ranuras` y no a secas.
+    if (orden->ranuras.empty() && !p.o.libres.empty()) {
+        std::fprintf(stderr, TC("t_sobra_argumento", "«%s» sobra en esta orden\n"),
+                     p.o.libres.front().c_str());
+        return false;
+    }
+    return true;
+}
+
 
 bool confirma(const Estado& e, const std::string& que) {
     if (e.asumirSi) {
@@ -1681,11 +1841,11 @@ bool cmdGet(Estado& e, const std::vector<std::string>& args) {
 }
 
 bool cmdClaves(Estado& e, const std::vector<std::string>& args, const char* op) {
-    const Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDe(e, o, destino) || !exigeDataset(destino)) {
+    Peticion pet;
+    if (!prepara(e, op, args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     if (std::string(op) == "load-key") {
         // La frase de paso NUNCA por argumento: iría en `argv` y se vería en `ps` en las
         // dos máquinas. El verbo dedicado la lleva en base64 dentro de la petición RPC.
@@ -2063,11 +2223,11 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
 // nada: un agente de guion no habla TLS, y dejarlo puesto da una máquina que PARECE
 // atendida y no lo está.
 bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    Peticion pet;
+    if (!prepara(e, "install-daemon", args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     std::string error;
     const auto* p = perfilVivoDe(e, destino, error);
     if (!p) {
@@ -2270,11 +2430,12 @@ std::map<std::string, std::string> clavesDe(const std::string& texto) {
 }
 
 bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    Peticion pet;
+    if (!prepara(e, "jobs", args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
+    const Opts& o = pet.o;
     // Por omisión, SOLO lo que está corriendo. Un daemon que lleva meses en pie acumula
     // trabajos terminados, y enseñarlos todos convierte «¿qué está pasando ahora?» —que es
     // la pregunta que uno tiene al teclear `jobs`— en buscar entre decenas de líneas.
@@ -3126,11 +3287,11 @@ bool cmdRsync(Estado& e, const std::vector<std::string>& args) {
 }
 
 bool cmdInfo(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
-    ZfsmUrl destino;
-    if (!destinoDe(e, o, destino)) {
+    Peticion pet;
+    if (!prepara(e, "info", args, pet)) {
         return false;
     }
+    const ZfsmUrl& destino = pet.objetivo;
     if (nodoDe(destino) == Nodo::Raiz) {
         std::fprintf(stdout, "kind\troot\nconnections\t%zu\n", e.conns.perfiles.size());
         return true;

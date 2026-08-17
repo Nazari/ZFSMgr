@@ -252,6 +252,31 @@ en las URLs, así que cae en `fase` sin preguntar nada.
 **3. Sensibilidad a mayúsculas.** Hoy los identificadores de conexión se comparan en
 minúsculas y los nombres ZFS no. Conviene escribirlo, porque no está en ningún sitio.
 
+## Estado de la migración
+
+El mecanismo está puesto: `Objetivo` y `Ranura` en `ayuda.h`, y `prepara()` en `shell.cpp`
+como preámbulo único. Se mide con:
+
+```sh
+python3 scripts/revisa_firmas_cli.py     # sale con error si queda alguna orden muda
+```
+
+Al cerrar esta tanda: **5 migradas** —`info`, `install-daemon`, `jobs`, `load-key`,
+`unload-key`, que eran justo las cinco que ignoraban en silencio— y **0 mudas**. Las 41
+restantes resuelven su destino a mano; ninguna es muda, pero cada una lleva su criterio.
+
+La decisión de la barra inicial está tomada: **se queda como está**. `/x` es absoluta y su
+primer tramo es una conexión, así que la forma completa de un pool es `/conexion/pool`.
+
+Dos reglas que salieron al implementarlo y no estaban en el diseño:
+
+- **Un argumento EXPLÍCITO tiene que ser exactamente lo que se pide**; el sitio ACTUAL se
+  sube hasta lo que haga falta. Estando en `local/tank/datos`, `install-daemon` habla de la
+  MÁQUINA —no obliga a subir a mano—, pero `install-daemon local/sobra1` se rechaza en vez
+  de tomar «sobra1» por una máquina.
+- **`Objetivo::Conexion` significa la conexión y nada más.** Con la comprobación laxa
+  —«que la URL tenga conexión»— cualquier dataset pasaba por máquina.
+
 ## Valoración: ¿yacc/lex de verdad?
 
 Con franqueza: **la gramática vale la pena escribirla; generar el analizador con yacc/lex
