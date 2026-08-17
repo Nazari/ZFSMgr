@@ -23,6 +23,7 @@ INNO_URL="${INNO_URL:-https://github.com/jrsoftware/issrc/releases/download/is-6
 INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
 APP_EXE="zfsmgr_qt.exe"
+CLI_EXE="zfsmgr_cli.exe"
 APP_VERSION=""
 QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
 MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
@@ -38,6 +39,9 @@ Opciones:
   --output-dir <dir>    Directorio de salida del instalador (default: builds/windows-installer)
   --version <v>         Versión del instalador (si no, se lee de CMakeLists)
   --exe <name.exe>      Ejecutable principal (default: zfsmgr_qt.exe)
+  --cli <name.exe>      Herramienta de línea de órdenes (default: zfsmgr_cli.exe).
+                        Si no está en --input-dir se omite y el instalador se genera
+                        igual: la aplicación gráfica no depende de ella.
   --qt-prefix <dir>     Prefijo Qt6 para Windows (bin/Qt6*.dll y plugins/). Por defecto
                         se usa QT6_WINDOWS_PREFIX del entorno.
   --mingw-triple <t>    Triple MinGW para localizar DLLs de runtime (default: x86_64-w64-mingw32)
@@ -59,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --output-dir) shift; OUTPUT_DIR="${1:-}"; shift ;;
     --version) shift; APP_VERSION="${1:-}"; shift ;;
     --exe) shift; APP_EXE="${1:-}"; shift ;;
+    --cli) shift; CLI_EXE="${1:-}"; shift ;;
     --qt-prefix) shift; QT6_PREFIX="${1:-}"; shift ;;
     --mingw-triple) shift; MINGW_TRIPLE="${1:-}"; shift ;;
     --wineprefix) shift; WINEPREFIX="${1:-}"; shift ;;
@@ -263,6 +268,43 @@ prepare_payload() {
   cp "${SCRIPT_DIR}/windows-enable-openssh.ps1" "${PAYLOAD_DIR}/" 2>/dev/null || \
     cp "$(dirname "$0")/windows-enable-openssh.ps1" "${PAYLOAD_DIR}/"
 
+  # La herramienta de línea de órdenes va en SU PROPIO subdirectorio, con su copia del
+  # runtime de MinGW, y es ese subdirectorio —no {app}— el que se añade al PATH.
+  #
+  # Cuesta unos tres megas de DLLs repetidas y evita poner en el PATH DE LA MÁQUINA el
+  # directorio donde viven Qt6Core.dll, Qt6Gui.dll y compañía. Una aplicación Qt mal
+  # desplegada que no lleve sus propias DLL las encontraría ahí y cargaría LAS NUESTRAS,
+  # con la versión de Qt que a nosotros nos toque. Tres megas por no crear esa trampa.
+  #
+  # No depende de OpenSSL: el CLI lo lleva enlazado estáticamente, cosa que se comprobó
+  # mirando sus importaciones y no suponiéndola.
+  if [[ -n "${CLI_EXE}" && -f "${INPUT_DIR}/${CLI_EXE}" ]]; then
+    mkdir -p "${PAYLOAD_DIR}/bin"
+    cp -f "${INPUT_DIR}/${CLI_EXE}" "${PAYLOAD_DIR}/bin/"
+    copy_mingw_runtime "${PAYLOAD_DIR}/bin"
+    # Se quita la información de depuración SOLO de estas copias, que son las duplicadas.
+    # libstdc++-6.dll viene sin depurar y pesa 26,8 MB: sin esto, bin/ ocuparía 28 MB en
+    # disco repitiendo lo que ya está en {app}. Estripado son 4,9 MB y conserva sus 11.868
+    # exportaciones —comprobado, no supuesto—. Las copias de {app} se dejan intactas: son
+    # las únicas de su clase y aligerarlas es otro cambio, no este.
+    local strip_tool="${MINGW_TRIPLE}-strip"
+    if command -v "${strip_tool}" >/dev/null 2>&1; then
+      local dll
+      for dll in "${PAYLOAD_DIR}"/bin/*.dll; do
+        "${strip_tool}" --strip-debug "${dll}" 2>/dev/null || true
+      done
+      echo "[payload] Runtime de bin/ sin información de depuración"
+    else
+      # Aviso y no error: el instalador sale igual, solo más grande.
+      echo "[payload] Aviso: no está ${strip_tool}; bin/ irá con las DLLs sin estripar." >&2
+    fi
+    echo "[payload] CLI incluido en bin/: ${CLI_EXE}"
+  else
+    # Aviso y no error: la aplicación gráfica no depende del CLI, y abortar el instalador
+    # entero porque falte sería desproporcionado.
+    echo "[payload] Aviso: no se encontró ${INPUT_DIR}/${CLI_EXE}; el instalador irá sin CLI." >&2
+  fi
+
   # Incluir bundle multi-OS de agentes, si está disponible.
   if [[ -n "${AGENT_BUNDLE_DIR}" && -d "${AGENT_BUNDLE_DIR}" ]]; then
     mkdir -p "${PAYLOAD_DIR}/agents"
@@ -290,6 +332,9 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 PrivilegesRequired=admin
+; Sin esto Windows no recibe el WM_SETTINGCHANGE y el PATH nuevo no lo ve NADIE hasta
+; cerrar sesión: ni una consola recién abierta, porque hereda el entorno de Explorer.
+ChangesEnvironment=yes
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -314,6 +359,21 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 ; que va a gestionar en remoto, pero VISIBLE y desmarcable: levantar un servidor SSH
 ; cambia la exposición del equipo en la red y eso no se hace en silencio.
 Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage this machine remotely from another ZFSMgr)"; GroupDescription: "Remote access:"
+; Poner zfsmgr-cli en el PATH de la máquina.
+;
+; Marcada por omisión porque es a lo que viene quien quiere la herramienta de línea de
+; órdenes, pero VISIBLE y desmarcable por el mismo motivo que la de OpenSSH: tocar el
+; PATH del sistema cambia lo que ejecuta cualquier consola del equipo, y eso no se hace
+; en silencio.
+Name: "addtopath"; Description: "Add zfsmgr-cli to the system PATH"; GroupDescription: "Command line:"
+
+[Registry]
+; expandsz y NO string: el Path del sistema suele traer %SystemRoot% dentro, y
+; reescribirlo como REG_SZ deja esas variables sin expandir. Es una de las formas
+; clásicas de romperle el PATH a una máquina entera.
+;
+; {olddata} conserva lo que hubiera; el Check evita añadirlo dos veces al reinstalar.
+Root: HKLM; Subkey: "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\\bin"; Tasks: addtopath; Check: FaltaEnElPath(ExpandConstant('{app}\\bin'))
 
 [Run]
 ; shellexec: el ejecutable pide requireAdministrator en su manifiesto, y el lanzamiento
@@ -345,6 +405,99 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Win
 Filename: "{app}\\${APP_EXE}"; Description: "Run ${APP_NAME}"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser
 
 [Code]
+const
+  ClaveEntorno = 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
+
+// ¿Falta este directorio en el PATH de la máquina?
+//
+// Se compara tramo a tramo y sin distinguir mayúsculas, no con Pos() sobre la cadena
+// entera: buscar "C:\ZFSMgr\bin" dentro del PATH daría por presente un
+// "C:\ZFSMgr\bin2", y al revés, un tramo con espacios alrededor no se reconocería.
+function FaltaEnElPath(const Dir: string): Boolean;
+var
+  Path, Resto, Tramo: string;
+  P: Integer;
+begin
+  Result := True;
+  if not RegQueryStringValue(HKEY_LOCAL_MACHINE, ClaveEntorno, 'Path', Path) then
+    exit;
+  Resto := Path;
+  while Resto <> '' do
+  begin
+    P := Pos(';', Resto);
+    if P > 0 then
+    begin
+      Tramo := Copy(Resto, 1, P - 1);
+      Resto := Copy(Resto, P + 1, Length(Resto));
+    end
+    else
+    begin
+      Tramo := Resto;
+      Resto := '';
+    end;
+    if CompareText(Trim(Tramo), Dir) = 0 then
+    begin
+      Result := False;
+      exit;
+    end;
+  end;
+end;
+
+// El PATH sin ese directorio. Se reconstruye tramo a tramo por el mismo motivo, y se
+// conservan los tramos vacíos tal cual: son una rareza, pero quitarlos sería cambiar el
+// PATH del usuario más allá de lo que se vino a hacer.
+function PathSinElDirectorio(const Path, Dir: string): string;
+var
+  Resto, Tramo: string;
+  P: Integer;
+  Primero: Boolean;
+begin
+  Result := '';
+  Resto := Path;
+  Primero := True;
+  while Resto <> '' do
+  begin
+    P := Pos(';', Resto);
+    if P > 0 then
+    begin
+      Tramo := Copy(Resto, 1, P - 1);
+      Resto := Copy(Resto, P + 1, Length(Resto));
+    end
+    else
+    begin
+      Tramo := Resto;
+      Resto := '';
+    end;
+    if CompareText(Trim(Tramo), Dir) <> 0 then
+    begin
+      if not Primero then
+        Result := Result + ';';
+      Result := Result + Tramo;
+      Primero := False;
+    end;
+  end;
+end;
+
+// Al desinstalar hay que quitarlo A MANO: Inno deshace lo que escribió en el registro,
+// pero aquí no se escribió un valor propio sino que se MODIFICÓ el Path del sistema, y
+// eso no lo sabe deshacer. Sin esto quedaría un directorio muerto en el PATH de la
+// máquina para siempre.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Path, Nuevo, Dir: string;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Dir := ExpandConstant('{app}\\bin');
+    if RegQueryStringValue(HKEY_LOCAL_MACHINE, ClaveEntorno, 'Path', Path) then
+    begin
+      Nuevo := PathSinElDirectorio(Path, Dir);
+      if Nuevo <> Path then
+        RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, ClaveEntorno, 'Path', Nuevo);
+    end;
+  end;
+end;
+
 // Avisar si no está OpenZFS, que es lo que da sentido a todo lo demás.
 //
 // Sin él no hay ni zfs.exe ni zpool.exe, así que ZFSMgr se instala y no puede hacer
