@@ -849,8 +849,35 @@ impide que un nombre de dataset con `;` se convierta en otra orden.
 Verificado con el agente contra el pool real: `--version`, `--dump-zpool-list` y
 `--mutate-copy-tree` responden igual que antes.
 
-**Queda `QSslSocket`**, y esa sí hay que escribirla: el agente tiene el lado SERVIDOR con
-OpenSSL, pero no el de cliente.
+### El cliente TLS
+
+`src/base/tlsclient.{h,cpp}`, la única de las tres que había que escribir: el agente tenía
+el lado servidor con OpenSSL, no el de cliente.
+
+**La validación es por FIJACIÓN de certificado, no por CA**, y se conserva tal cual estaba
+porque su motivo está medido: en macOS, SecureTransport nunca validaba la cadena —«The
+root CA certificate is not trusted for this purpose»— ni con `subjectAltName`,
+`extendedKeyUsage`, `keyUsage` y `basicConstraints` correctos. Como el certificado del
+daemon se trae POR SSH y se guarda, comparar contra ESE certificado exacto es más
+estricto que confiar en una cadena. La autenticación mutua se mantiene entera.
+
+Dos detalles del puerto: la fijación se comprueba **antes de escribir nada** —no tiene
+sentido mandarle una petición a quien no sabemos quién es— y la clave del cliente se lee
+con `PEM_read_bio_PrivateKey`, que reconoce RSA y EC sin distinguir, cosa que en la
+versión con Qt había que intentar por separado.
+
+Probado **contra el daemon local real**, que responde `STATUS=OK`. Y los cuatro caminos de
+fallo, que es lo que importa de una pieza así:
+
+| | |
+|---|---|
+| certificado esperado distinto (un intermediario) | rechazado: «no es el esperado» |
+| sin certificado de cliente válido | el daemon corta, mTLS funciona |
+| PEM corrupto | rechazado antes de conectar |
+| puerto sin nadie | falla al conectar, no se cuelga |
+
+Con esto, **las tres piezas están**: procesos, hilos (`std::thread`) y TLS. El transporte
+ya puede vivir fuera de Qt.
 
 ## Estado
 

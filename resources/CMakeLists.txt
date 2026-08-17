@@ -171,6 +171,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
     ../src/base/daemonpayload.cpp
+    ../src/base/tlsclient.cpp
+    ../src/base/tlsclient.h
     ../src/base/process.cpp
     ../src/base/process.h
     ../src/base/refreshparse.cpp
@@ -191,7 +193,7 @@ add_library(zfsmgr_base STATIC
 target_include_directories(zfsmgr_base PUBLIC ../src/base)
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
-target_link_libraries(zfsmgr_base PUBLIC OpenSSL::Crypto)
+target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este
