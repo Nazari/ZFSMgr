@@ -191,6 +191,19 @@ target_include_directories(zfsmgr_base PUBLIC ../src/base)
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::Crypto)
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este
+# binario, y ese es el contrato — si algún día deja de compilar por un símbolo de Qt, es
+# que se ha metido interfaz en la capa de lógica.
+add_executable(zfsmgr_cli
+    ../src/cli/main.cpp
+    ../src/cli/secretinput.cpp
+    ../src/cli/secretinput.h
+)
+target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
+target_compile_definitions(zfsmgr_cli PRIVATE
+    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+)
+
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
 # OpenSSL::SSL además de Crypto aunque el código no la use directamente: hace que

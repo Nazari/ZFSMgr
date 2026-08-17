@@ -743,6 +743,49 @@ la sesión, el registro sale por su destino y las credenciales por su proveedor.
 además llevar `ensureLocalSudoCredentials` a la sesión como política, porque la cadena la
 llama.
 
+## Paso 4: el CLI existe
+
+`src/cli/`, objetivo `zfsmgr_cli`. **Enlaza solo contra `zfsmgr_base`**, y eso no es un
+detalle de empaquetado: es el contrato. Si algún día deja de compilar por un símbolo de
+Qt, es que se ha metido interfaz en la capa de lógica.
+
+Los números, frente a lo que había:
+
+| | |
+|---|---|
+| CLI | **349 KB**, compila desde cero en **5,14 s** |
+| Agente | 814 KB |
+| AppImage de la GUI | 53.142 KB |
+
+`zfsmgr-cli connections list` funciona **hoy**, contra la configuración real, sin tocar el
+transporte: leer la configuración, unir el almacén de confianza, descifrar los campos y
+sacar columnas separadas por tabulador —troceables con `cut` sin adivinar anchos—.
+
+### Los secretos, de punta a punta
+
+Es la primera vez que se ejercita la decisión completa:
+
+    zfsmgr-cli --password-fd 3 connections list  3< <(pass show zfsmgr)   # cualquier gestor
+    zfsmgr-cli connections list                                           # pregunta, sin eco
+    zfsmgr-cli --no-secrets connections list                              # ni pregunta
+
+Comprobado con una configuración preparada al efecto —porque en la real el usuario NO va
+cifrado y la prueba obvia no probaba nada—: con la contraseña correcta descifra; con la
+equivocada sale `<no se pudo descifrar>` y **nunca el texto cifrado**; sin terminal ni
+descriptor falla con `rc=1` diciendo qué usar, que es el caso `cron`.
+
+Detalle deliberado: **solo se pide la contraseña maestra si hay algo cifrado**.
+Preguntarla sin necesidad es la clase de fricción que lleva a la gente a ponerla en un
+alias de shell.
+
+### Un fallo que cazó la propia herramienta
+
+La primera versión daba «TLS: no» para una conexión que **sí** lo tiene. El material TLS
+no vive en `config.json` sino en `trust-store.json`, que es un fichero aparte justamente
+para separarlo de las contraseñas. Lo delató comparar la salida con lo que ya se sabía de
+esa conexión — y es exactamente para lo que sirve tener una segunda vía de leer los mismos
+datos.
+
 ## Estado
 
 Hecho y verificado:
