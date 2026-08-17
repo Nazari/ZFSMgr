@@ -256,6 +256,35 @@ des-escapar**. Cada reescritura del fichero dobla las barras, sin límite.
 Es del daemon y no del CLI, y arreglarlo es cambiar el formato de un fichero que ya está
 en las máquinas, así que se deja anotado y no se toca de paso.
 
+## La ayuda es un CATÁLOGO, no un bloque de texto
+
+Empezó siendo un `fprintf` de sesenta líneas con la alineación puesta a mano, que se
+descuadraba en cuanto una orden crecía. Pasarla a datos —nombre, uso, resumen, parámetros y
+detalle— arregla la alineación y da gratis dos cosas que con texto no se podían: `help
+<orden>` y el completado con el tabulador, que necesitan saber qué órdenes hay y qué acepta
+cada una.
+
+Los parámetros van **debajo y tabulados**, uno por línea: metidos en la misma línea que la
+orden, una con cinco opciones ocupaba tres renglones sin que se viera cuál es cuál. Y el
+ancho se mide en **caracteres**, no en bytes, o «instantánea» descuadra la columna.
+
+## El tabulador, sin `readline`
+
+Meter `readline` habría sido una dependencia nueva —contra la línea seguida en todo el
+proyecto— y además es GPL, que para un binario que se distribuye no es una decisión que se
+tome de paso. El editor de línea está escrito a mano: modo crudo, historial con las
+flechas, inicio y fin, borrado, y el tabulador. **El modo del terminal se restaura siempre**,
+también al salir por error: dejarlo sin eco deja al usuario escribiendo a ciegas en su
+propia shell.
+
+El completado tiene tres casos, y el orden importa: la PRIMERA palabra es una orden; una
+que empieza por guion es una opción DE ESA orden; y cualquier otra cosa se trata como una
+URL, preguntando a la máquina por los hijos del sitio.
+
+**Los fallos del completado se tragan a propósito.** Pulsar el tabulador no es pedir una
+operación: llenar la pantalla de errores porque una máquina está apagada convertiría una
+comodidad en un estorbo. Sin respuesta, simplemente no completa.
+
 ## Lo que falta
 
 - La resolución de rutas es lógica pura y está probada solo por las pruebas en vivo.

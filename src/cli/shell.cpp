@@ -1,7 +1,9 @@
 #include "shell.h"
 
 #include "daemonpayload.h"
+#include "ayuda.h"
 #include "helpers.h"
+#include "linea.h"
 #include "json.h"
 #include "process.h"
 #include "secretinput.h"
@@ -10,6 +12,13 @@
 #include "transporttunnel.h"
 #include "transportrpc.h"
 #include "zfsmurl.h"
+
+#ifndef _WIN32
+#include <sys/ioctl.h>
+#include <unistd.h>
+#else
+#include <windows.h>
+#endif
 
 #include <cstdio>
 #include <filesystem>
@@ -2745,111 +2754,150 @@ bool cmdInfo(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
-void ayuda() {
-    std::fprintf(stderr,
-        "Navegación (la posición es una URL, y todas las órdenes actúan sobre ella):\n"
-        "  cd [destino]        Cambia de sitio. Sin argumento, a la raíz.\n"
-        "                      Acepta ruta relativa, absoluta (/OldLau/winpool),\n"
-        "                      URL completa, «..», «.» y «-» (el sitio anterior).\n"
-        "  pwd                 La URL actual\n"
-        "  ls [destino]        Lista. En la raíz, las conexiones; en una conexión,\n"
-        "                      los pools; en un dataset, sus hijos e instantáneas.\n"
-        "                      Con #content lista ficheros, con #properties propiedades\n"
-        "                      y con #permissions los permisos delegados.\n"
-        "  info [--on <url>]   Qué hay aquí y estado del daemon\n"
-        "\n"
-        "Conexiones (en la raíz, «cd /»):\n"
-        "  create <id> [--name …] [--type LOCAL|SSH] [--os …] [--host …] [--port …]\n"
-        "         [--user …] [--key …] [--sudo] [--password-fd <n>]\n"
-        "                      Da de alta una conexión. Lo que falte se pregunta.\n"
-        "                      La contraseña NUNCA por argumento: se teclea o entra\n"
-        "                      por descriptor.\n"
-        "  edit [--name …] [--host …] …\n"
-        "                      Cambia una conexión. Lo que no se dé se pregunta, y\n"
-        "                      pulsar Intro conserva el valor actual. --password para\n"
-        "                      cambiar la contraseña; si no, se conserva.\n"
-        "  destroy             Estando en una conexión, la quita de la configuración.\n"
-        "                      No toca nada en la máquina.\n"
-        "  connect / disconnect [destino]\n"
-        "                      Marca la conexión como usable o no. Al desconectar se\n"
-        "                      cierra su túnel. Es la misma marca que usa la interfaz.\n"
-        "  refresh [destino]   Suelta túnel, material TLS y castigos, relee la\n"
-        "                      configuración y vuelve a sondear la máquina.\n"
-        "\n"
-        "Dataset:\n"
-        "  create <nombre> [prop=valor...]   Crea un dataset hijo\n"
-        "  rename <nuevo>                    Renombra\n"
-        "  destroy [destino] [-r|-R] [-f]    DESTRUYE. Pide confirmación.\n"
-        "  mount / unmount [-f]              Monta o desmonta\n"
-        "  promote                           Promueve un clon\n"
-        "  snapshot @<nombre> [-r]           Crea una instantánea\n"
-        "  rollback [@<nombre>] [-f|-r|-R]   Vuelve a una instantánea. Pide confirmación.\n"
-        "  clone <nuevo> [--from @<inst>]    Clona una instantánea\n"
-        "  get [propiedad]                   Lee propiedades\n"
-        "  set <prop>=<valor> [más...]       Escribe propiedades\n"
-        "  load-key / unload-key             Carga o descarga la clave de cifrado\n"
-        "\n"
-        "Instantáneas:\n"
-        "  holds [destino]                   Retenciones de una instantánea\n"
-        "  hold <etiqueta> [-r]              Pone una retención\n"
-        "  release <etiqueta> [-r]           La quita\n"
-        "  diff <@hasta> [--from <@desde>]   Qué cambió entre dos instantáneas\n"
-        "\n"
-        "Pools (estando en uno; import y create, en la conexión):\n"
-        "  status / history                  Estado detallado / historial\n"
-        "  scrub [stop|pause]                Verificación\n"
-        "  trim / initialize [stop|pause] [<vdev>]\n"
-        "  clear [<vdev>]                    Borra los errores contados\n"
-        "  sync / upgrade / reguid           Mantenimiento\n"
-        "  export [-f]                       Lo desmonta y lo suelta\n"
-        "  import [<pool>] [--as <nuevo>] [-f]\n"
-        "                                    Sin nombre, enseña los importables\n"
-        "  create <pool> <dispositivo>... [-f] [-o p=v] [-O p=v] [--mountpoint <r>]\n"
-        "                                    ESCRIBE en los dispositivos\n"
-        "  destroy                           Estando en un pool, lo destruye entero\n"
-        "\n"
-        "Transferencias entre máquinas:\n"
-        "  copy <destino> [--from <@inst>] [--base <@inst>] [--flags …] [--wait]\n"
-        "                                    Manda una instantánea a otro dataset, aquí\n"
-        "                                    o en otra máquina. Con --base solo viaja lo\n"
-        "                                    que cambió («Nivelar»). Va como trabajo;\n"
-        "                                    con --wait se espera aquí.\n"
-        "\n"
-        "Daemon:\n"
-        "  install-daemon [--on <url>]       Instala o actualiza el daemon y lo arranca\n"
-        "                                    con el gestor de servicios del sistema\n"
-        "\n"
-        "Trabajos en segundo plano:\n"
-        "  jobs                              Los que hay en la máquina\n"
-        "  job <id>                          Estado de uno\n"
-        "  job cancel <id>                   Lo cancela\n"
-        "  breakdown/assemble/todir --job    Los manda al daemon en vez de esperarlos\n"
-        "\n"
-        "Permisos delegados:\n"
-        "  allow                             Los lista (igual que «ls #permissions»)\n"
-        "  allow --user <u> <permisos...>    Delega. También --group, --everyone, --set\n"
-        "        [--local] [--descend] [--create]\n"
-        "  unallow --user <u> [permisos...]  Retira. Sin permisos, TODOS los suyos.\n"
-        "\n"
-        "Acciones:\n"
-        "  breakdown <dir> <hijo> [...]      Convierte directorios en datasets hijos\n"
-        "  assemble <hijo> [...]             Lo contrario de breakdown\n"
-        "  todir <directorio> [--delete-source]  Vuelca el dataset a un directorio\n"
-        "  fromdir <dir> [--from <url>] [--subdir <rel>]\n"
-        "                                    Vuelca un directorio —de esta máquina o de\n"
-        "                                    otra— dentro del dataset actual\n"
-        "\n"
-        "Del intérprete:\n"
-        "  format text|tsv|json  Cambia el formato de los listados\n"
-        "  yes on|off            Deja de preguntar antes de lo destructivo (o vuelve a hacerlo)\n"
-        "  help                  Esta ayuda\n"
-        "  exit, quit, Ctrl-D    Salir\n"
-        "\n"
-        "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para actuar\n"
-        "sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n");
+// El ancho del terminal, para partir las descripciones de la ayuda. Sin poder
+// averiguarlo se toman 80, que es lo que siempre se ha supuesto.
+int anchoTerminal() {
+#ifndef _WIN32
+    winsize w{};
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 40) {
+        return w.ws_col;
+    }
+#else
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)) {
+        const int ancho = info.srWindow.Right - info.srWindow.Left + 1;
+        if (ancho > 40) {
+            return ancho;
+        }
+    }
+#endif
+    return 80;
 }
 
 }  // namespace
+
+// Los hijos de un sitio, para completar una URL. Se pregunta a la máquina, que por un
+// túnel ya montado son un par de milisegundos.
+//
+// Los fallos se TRAGAN a propósito: pulsar el tabulador no es pedir una operación, y llenar
+// la pantalla de errores porque una máquina está apagada convierte una comodidad en un
+// estorbo. Sin respuesta, simplemente no completa.
+std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
+    std::vector<std::string> out;
+    switch (nodoDe(u)) {
+        case Nodo::Raiz:
+            for (const auto& p : e.conns.perfiles) {
+                out.push_back(p.id.empty() ? p.name : p.id);
+            }
+            return out;
+        case Nodo::Snapshot:
+            return out;  // una instantánea no tiene hijos
+        case Nodo::Conexion: {
+            std::string texto;
+            std::string err;
+            int rc = -1;
+            const auto* p = buscarConexion(e.conns, u.connection);
+            if (!p || e.conns.desconectada(u.connection)
+                || !ejecutarAgente(*e.ses, *p, {"--dump-zpool-list"}, texto, err, rc, nullptr, 8000)
+                || rc != 0) {
+                return out;
+            }
+            B::json::Value raiz;
+            std::string errJson;
+            if (!B::json::parse(texto, raiz, &errJson)) {
+                return out;
+            }
+            for (const auto& kv : raiz["pools"].toObject()) {
+                out.push_back(kv.first);
+            }
+            return out;
+        }
+        case Nodo::Dataset: {
+            std::string texto;
+            std::string err;
+            int rc = -1;
+            const auto* p = buscarConexion(e.conns, u.connection);
+            if (!p || e.conns.desconectada(u.connection)
+                || !ejecutarAgente(*e.ses, *p, {"--dump-zfs-list-all", u.dataset}, texto, err, rc,
+                                   nullptr, 12000)
+                || rc != 0) {
+                return out;
+            }
+            const std::string prefijo = u.dataset + "/";
+            for (const std::string& linea : B::split(texto, "\n", true)) {
+                const std::size_t tab = linea.find('\t');
+                const std::string nombre = tab == std::string::npos ? linea : linea.substr(0, tab);
+                const std::size_t arroba = nombre.find('@');
+                if (arroba != std::string::npos) {
+                    if (nombre.substr(0, arroba) == u.dataset) {
+                        out.push_back("@" + nombre.substr(arroba + 1));
+                    }
+                    continue;
+                }
+                if (B::startsWith(nombre, prefijo)
+                    && nombre.find('/', prefijo.size()) == std::string::npos) {
+                    out.push_back(nombre.substr(prefijo.size()));
+                }
+            }
+            return out;
+        }
+    }
+    return out;
+}
+
+// Qué se puede escribir donde está el cursor.
+//
+// Tres casos, y el orden importa: la PRIMERA palabra es una orden; una palabra que empieza
+// por guion es una opción DE ESA orden; y cualquier otra cosa se trata como una URL.
+std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
+                                    std::size_t& desde) {
+    // El trozo que se está escribiendo: desde el último espacio antes del cursor.
+    desde = linea.rfind(' ', cursor == 0 ? 0 : cursor - 1);
+    desde = (desde == std::string::npos || cursor == 0) ? 0 : desde + 1;
+    if (desde > cursor) {
+        desde = cursor;
+    }
+    const std::string parcial = linea.substr(desde, cursor - desde);
+    const std::string antes = B::trim(linea.substr(0, desde));
+
+    if (antes.empty()) {
+        return nombresQueEmpiezanPor(parcial);
+    }
+    const std::vector<std::string> palabras = B::split(antes, " ", true);
+    const std::string orden = B::toLowerAscii(palabras.front());
+    if (!parcial.empty() && parcial.front() == '-') {
+        return opcionesQueEmpiezanPor(orden, parcial);
+    }
+    // `help` completa nombres de orden, que es lo que lleva detrás.
+    if (orden == "help" || orden == "?") {
+        return nombresQueEmpiezanPor(parcial);
+    }
+
+    // Una URL. Se separa lo ya escrito en «lo que ya está resuelto» y «lo que se teclea»,
+    // para preguntar por los hijos del sitio correcto.
+    std::string base = parcial;
+    std::string cola;
+    const std::size_t corte = base.find_last_of("/@");
+    if (corte == std::string::npos) {
+        cola = base;
+        base.clear();
+    } else {
+        cola = base.substr(base[corte] == '@' ? corte : corte + 1);
+        base = base.substr(0, base[corte] == '@' ? corte : corte + 1);
+    }
+    ZfsmUrl sitio;
+    std::string err;
+    if (!resuelve(e, base.empty() ? std::string(".") : base, sitio, err)) {
+        return {};
+    }
+    std::vector<std::string> out;
+    for (const std::string& h : hijosDe(e, sitio)) {
+        if (B::startsWith(h, cola)) {
+            out.push_back(base + h);
+        }
+    }
+    return out;
+}
 
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi) {
     Estado e;
@@ -2880,7 +2928,9 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
 
     const bool interactivo = hayTerminal();
     if (interactivo) {
-        std::fprintf(stderr, "zfsmgr-cli — «help» para la lista de órdenes, «exit» para salir.\n");
+        std::fprintf(stderr,
+                     "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
+                     "El tabulador completa órdenes y URL; las flechas recorren el historial.\n");
     }
 
     using Manejador = std::function<bool(Estado&, const std::vector<std::string>&)>;
@@ -2932,16 +2982,14 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"fromdir", cmdFromDir},
     };
 
+    LectorDeLinea lector;
+    lector.setCompletador([&e](const std::string& l, std::size_t c, std::size_t& d) {
+        return completaEn(e, l, c, d);
+    });
+
     std::string linea;
     while (!e.salir) {
-        if (interactivo) {
-            std::fprintf(stderr, "%s> ", textoDe(e.actual).c_str());
-            std::fflush(stderr);
-        }
-        if (!std::getline(std::cin, linea)) {
-            if (interactivo) {
-                std::fprintf(stderr, "\n");
-            }
+        if (!lector.lee(textoDe(e.actual) + "> ", linea)) {
             break;
         }
         const std::string recortada = B::trim(linea);
@@ -2950,6 +2998,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         }
         // Se trocea como lo haría un shell POSIX: las comillas protegen los espacios, que
         // es lo que hace falta para un nombre de dataset o un directorio con espacios.
+        lector.recuerda(recortada);
         const std::vector<std::string> partes = H::posixShellSplitArgs(recortada);
         if (partes.empty()) {
             continue;
@@ -2962,7 +3011,13 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             continue;
         }
         if (orden == "help" || orden == "?") {
-            ayuda();
+            if (!args.empty()) {
+                if (!imprimeAyudaDe(args.front(), anchoTerminal())) {
+                    std::fprintf(stderr, "no hay ninguna orden «%s»\n", args.front().c_str());
+                }
+            } else {
+                imprimeAyuda(anchoTerminal());
+            }
             continue;
         }
         if (orden == "pwd") {

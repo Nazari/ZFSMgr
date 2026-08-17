@@ -214,6 +214,10 @@ set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # binario, y ese es el contrato — si algún día deja de compilar por un símbolo de Qt, es
 # que se ha metido interfaz en la capa de lógica.
 add_executable(zfsmgr_cli
+    ../src/cli/ayuda.cpp
+    ../src/cli/ayuda.h
+    ../src/cli/linea.cpp
+    ../src/cli/linea.h
     ../src/cli/main.cpp
     ../src/cli/secretinput.cpp
     ../src/cli/secretinput.h

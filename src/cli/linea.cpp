@@ -1,0 +1,297 @@
+#include "linea.h"
+
+#include "secretinput.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <iostream>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
+
+namespace zfsmgr::cli {
+namespace {
+
+// El terminal en modo CRUDO mientras se edita: sin él, el sistema no entrega nada hasta el
+// Intro y no hay forma de ver un tabulador. Se restaura SIEMPRE, también al salir por
+// error: dejar un terminal sin eco deja al usuario escribiendo a ciegas en su propia shell.
+class ModoCrudo {
+public:
+    ModoCrudo() {
+#ifdef _WIN32
+        m_h = GetStdHandle(STD_INPUT_HANDLE);
+        m_ok = GetConsoleMode(m_h, &m_viejo) != 0;
+        if (m_ok) {
+            SetConsoleMode(m_h, m_viejo & ~static_cast<DWORD>(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+        }
+#else
+        m_ok = ::tcgetattr(STDIN_FILENO, &m_viejo) == 0;
+        if (m_ok) {
+            termios nuevo = m_viejo;
+            nuevo.c_lflag &= ~static_cast<tcflag_t>(ICANON | ECHO);
+            nuevo.c_cc[VMIN] = 1;
+            nuevo.c_cc[VTIME] = 0;
+            ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &nuevo);
+        }
+#endif
+    }
+    ~ModoCrudo() {
+        if (!m_ok) {
+            return;
+        }
+#ifdef _WIN32
+        SetConsoleMode(m_h, m_viejo);
+#else
+        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &m_viejo);
+#endif
+    }
+    bool ok() const { return m_ok; }
+
+private:
+    bool m_ok{false};
+#ifdef _WIN32
+    HANDLE m_h{nullptr};
+    DWORD m_viejo{0};
+#else
+    termios m_viejo{};
+#endif
+};
+
+// Cuántas COLUMNAS ocupa: los bytes de continuación de UTF-8 no ocupan ninguna. Sin esto,
+// el cursor se descoloca en cuanto se escribe un nombre con tilde.
+std::size_t columnas(const std::string& s) {
+    std::size_t n = 0;
+    for (const char c : s) {
+        if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+// El byte donde empieza el carácter anterior a `pos`. Borrar un byte partiría una letra
+// acentuada por la mitad y dejaría basura en la línea.
+std::size_t bytesAtras(const std::string& s, std::size_t pos) {
+    if (pos == 0) {
+        return 0;
+    }
+    std::size_t i = pos - 1;
+    while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) {
+        --i;
+    }
+    return pos - i;
+}
+
+std::size_t bytesAdelante(const std::string& s, std::size_t pos) {
+    if (pos >= s.size()) {
+        return 0;
+    }
+    std::size_t i = pos + 1;
+    while (i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) {
+        ++i;
+    }
+    return i - pos;
+}
+
+// El prefijo más largo que comparten todas: es lo que se escribe cuando hay varias
+// opciones, para no obligar a teclear lo que ya se sabe.
+std::string prefijoComun(const std::vector<std::string>& v) {
+    if (v.empty()) {
+        return {};
+    }
+    std::string p = v.front();
+    for (const std::string& s : v) {
+        std::size_t i = 0;
+        while (i < p.size() && i < s.size() && p[i] == s[i]) {
+            ++i;
+        }
+        p.resize(i);
+    }
+    return p;
+}
+
+}  // namespace
+
+void LectorDeLinea::recuerda(const std::string& linea) {
+    if (linea.empty() || (!m_historial.empty() && m_historial.back() == linea)) {
+        return;
+    }
+    m_historial.push_back(linea);
+    // Un tope: una sesión larga no tiene por qué crecer sin fin.
+    if (m_historial.size() > 500) {
+        m_historial.erase(m_historial.begin());
+    }
+}
+
+void LectorDeLinea::repinta(const std::string& indicador, const std::string& linea,
+                            std::size_t cursor) {
+    // \r al principio y borrado hasta el final: se reescribe la línea entera en vez de
+    // llevar la cuenta de lo que cambió, que es donde se cuelan los desajustes.
+    std::fprintf(stderr, "\r\033[K%s%s", indicador.c_str(), linea.c_str());
+    const std::size_t total = columnas(indicador) + columnas(linea);
+    const std::size_t hasta = columnas(indicador) + columnas(linea.substr(0, cursor));
+    if (total > hasta) {
+        std::fprintf(stderr, "\033[%zuD", total - hasta);
+    }
+    std::fflush(stderr);
+}
+
+bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
+    if (!m_completa) {
+        return false;
+    }
+    std::size_t desde = cursor;
+    const std::vector<std::string> opciones = m_completa(linea, cursor, desde);
+    if (opciones.empty() || desde > cursor) {
+        return false;
+    }
+    const std::string parcial = linea.substr(desde, cursor - desde);
+    const std::string comun = prefijoComun(opciones);
+    if (comun.size() > parcial.size()) {
+        linea = linea.substr(0, desde) + comun + linea.substr(cursor);
+        cursor = desde + comun.size();
+        // Una sola opción: se cierra con un espacio, que es lo que uno iba a teclear.
+        if (opciones.size() == 1) {
+            linea.insert(cursor, " ");
+            ++cursor;
+        }
+        return true;
+    }
+    if (opciones.size() > 1) {
+        // Ya no se puede alargar: se enseñan, que es la otra cosa que puede querer quien
+        // pulsa el tabulador dos veces.
+        std::fprintf(stderr, "\n");
+        for (const std::string& o : opciones) {
+            std::fprintf(stderr, "  %s", o.c_str());
+        }
+        std::fprintf(stderr, "\n");
+    }
+    return true;
+}
+
+bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
+    out.clear();
+    if (!hayTerminal()) {
+        // Sin terminal no hay nada que editar: se lee la línea y ya.
+        return static_cast<bool>(std::getline(std::cin, out));
+    }
+    ModoCrudo crudo;
+    if (!crudo.ok()) {
+        return static_cast<bool>(std::getline(std::cin, out));
+    }
+
+    std::string linea;
+    std::size_t cursor = 0;
+    std::size_t enHistorial = m_historial.size();  // uno más allá = la línea que se escribe
+    std::string enCurso;
+    repinta(indicador, linea, cursor);
+
+    while (true) {
+        const int c = std::fgetc(stdin);
+        if (c == EOF) {
+            std::fprintf(stderr, "\n");
+            return false;
+        }
+        if (c == '\n' || c == '\r') {
+            std::fprintf(stderr, "\n");
+            out = linea;
+            return true;
+        }
+        if (c == 4) {  // Ctrl-D
+            if (linea.empty()) {
+                std::fprintf(stderr, "\n");
+                return false;
+            }
+            continue;
+        }
+        if (c == 3) {  // Ctrl-C: se abandona la línea, no la sesión
+            std::fprintf(stderr, "^C\n");
+            out.clear();
+            return true;
+        }
+        if (c == 1) {  // Ctrl-A
+            cursor = 0;
+            repinta(indicador, linea, cursor);
+            continue;
+        }
+        if (c == 5) {  // Ctrl-E
+            cursor = linea.size();
+            repinta(indicador, linea, cursor);
+            continue;
+        }
+        if (c == 21) {  // Ctrl-U: borra hasta el principio
+            linea.erase(0, cursor);
+            cursor = 0;
+            repinta(indicador, linea, cursor);
+            continue;
+        }
+        if (c == 127 || c == 8) {  // Retroceso
+            const std::size_t n = bytesAtras(linea, cursor);
+            if (n > 0) {
+                linea.erase(cursor - n, n);
+                cursor -= n;
+            }
+            repinta(indicador, linea, cursor);
+            continue;
+        }
+        if (c == '\t') {
+            if (completa(linea, cursor)) {
+                repinta(indicador, linea, cursor);
+            }
+            continue;
+        }
+        if (c == 27) {  // secuencias de escape: flechas, Inicio, Fin, Suprimir
+            const int a = std::fgetc(stdin);
+            if (a != '[' && a != 'O') {
+                continue;
+            }
+            const int b = std::fgetc(stdin);
+            if (b == 'C') {  // derecha
+                cursor += bytesAdelante(linea, cursor);
+            } else if (b == 'D') {  // izquierda
+                cursor -= bytesAtras(linea, cursor);
+            } else if (b == 'A' || b == 'B') {  // arriba y abajo: historial
+                if (enHistorial == m_historial.size()) {
+                    enCurso = linea;
+                }
+                if (b == 'A' && enHistorial > 0) {
+                    --enHistorial;
+                } else if (b == 'B' && enHistorial < m_historial.size()) {
+                    ++enHistorial;
+                }
+                linea = enHistorial < m_historial.size() ? m_historial[enHistorial] : enCurso;
+                cursor = linea.size();
+            } else if (b == 'H') {
+                cursor = 0;
+            } else if (b == 'F') {
+                cursor = linea.size();
+            } else if (b >= '0' && b <= '9') {
+                // Inicio/Fin/Suprimir largos: «[1~», «[4~», «[3~».
+                const int t = std::fgetc(stdin);
+                (void)t;
+                if (b == '1') {
+                    cursor = 0;
+                } else if (b == '4') {
+                    cursor = linea.size();
+                } else if (b == '3') {
+                    const std::size_t n = bytesAdelante(linea, cursor);
+                    linea.erase(cursor, n);
+                }
+            }
+            repinta(indicador, linea, cursor);
+            continue;
+        }
+        if (c < 32) {
+            continue;  // el resto de los caracteres de control no significan nada aquí
+        }
+        linea.insert(cursor, 1, static_cast<char>(c));
+        ++cursor;
+        repinta(indicador, linea, cursor);
+    }
+}
+
+}  // namespace zfsmgr::cli
