@@ -190,6 +190,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/json.h
     ../src/base/helpers.cpp
     ../src/base/helpers.h
+    ../src/base/transportcmd.cpp
+    ../src/base/transportcmd.h
     ../src/base/daemonpayload.h
 )
 target_include_directories(zfsmgr_base PUBLIC ../src/base)

@@ -13,6 +13,7 @@
 #include "refreshparse.h"
 #include "secretcipher.h"
 #include "strutil.h"
+#include "transportcmd.h"
 #include "zfsmurl.h"
 
 #include <chrono>
@@ -865,6 +866,180 @@ int main() {
             comprobar(!U::parseZfsmUrl(m.url, x, e2),
                       std::string("rechaza (") + m.porque + "): " + m.url);
             comprobar(!e2.empty(), std::string("y explica por que: ") + m.url);
+        }
+    }
+
+    // --- transportcmd: la parte del transporte que decide y analiza texto.
+    //
+    // Estos valores esperados NO estan inventados: salen de contrastar la traduccion
+    // contra la version con Qt sobre 9.279 casos, con control negativo para comprobar
+    // que el contraste sabe fallar. Se fijan aqui para que no se pierdan cuando el
+    // arnes de contraste se tire.
+    {
+        namespace T = zfsmgr::base::transport;
+
+        // Que clase de maquina hay al otro lado.
+        zfsmgr::base::ConnectionProfile win;
+        win.osType = "Windows 11";
+        win.connType = "SSH";
+        zfsmgr::base::ConnectionProfile lin;
+        lin.osType = "Linux";
+        lin.connType = "local";  // en minuscula: la comparacion no distingue mayusculas
+        comprobar(T::isWindowsConnection(win), "isWindowsConnection: Windows 11");
+        comprobar(!T::isWindowsConnection(lin), "isWindowsConnection: Linux no");
+        comprobar(T::isLocalConnection(lin), "isLocalConnection: 'local' en minuscula");
+        comprobar(!T::isLocalConnection(win), "isLocalConnection: SSH no");
+
+        // La clave sale de las COORDENADAS, no de la posicion en la lista.
+        zfsmgr::base::ConnectionProfile k;
+        k.username = "  Eladio  ";
+        k.host = " OldLau.LOCAL ";
+        k.port = 0;
+        k.keyPath = " /k/id_rsa ";
+        igual(T::remoteDaemonTlsCacheKey(k), "eladio|oldlau.local|22|/k/id_rsa",
+              "remoteDaemonTlsCacheKey: recorta, baja a minusculas y pone el 22 por omision");
+
+        // Que ordenes cambian el estado del otro lado. Es la funcion de la que depende
+        // que una mutacion que pudo llegar NO se reenvie.
+        struct { const char* verbo; bool muta; } verbos[] = {
+            {"--mutate-zfs-destroy", true}, {"--zfs-pipe-local", true},
+            {"--zfs-send-to-peer", true},   {"--zfs-recv-listen", true},
+            {"--repair-alt-mountpoints", true},
+            {"--job-submit", true},         {"--job-cancel", true},
+            {"--dump-zfs-list-all", false}, {"--health", false},
+            {"--heartbeat", false},         {"--job-status", false},
+        };
+        for (const auto& v : verbos) {
+            comprobar(T::isMutatingAgentCommand({v.verbo}) == v.muta,
+                      std::string("isMutatingAgentCommand: ") + v.verbo);
+        }
+        comprobar(!T::isMutatingAgentCommand({}), "isMutatingAgentCommand: vacio no muta");
+
+        // El corte por separador respeta las comillas. Un directorio llamado
+        // «Copias & Backups» truncaba la orden, y con --mutate-advanced-todir ese
+        // directorio lo elige el usuario: se perdian el destino y el indicador de borrar.
+        {
+            std::vector<std::string> a;
+            const std::string cmd = daemonpayload::unixBinPath()
+                                    + " --mutate-advanced-todir '/tmp/Copias & Backups' 1";
+            comprobar(T::extractLocalAgentArgs(cmd, a), "extractLocalAgentArgs: reconoce la ruta Unix");
+            comprobar(a.size() == 3, "extractLocalAgentArgs: tres argumentos",
+                      "obtenidos " + std::to_string(a.size()));
+            if (a.size() == 3) {
+                igual(a[1], "/tmp/Copias & Backups",
+                      "extractLocalAgentArgs: el '&' entrecomillado NO corta");
+                igual(a[2], "1", "extractLocalAgentArgs: no se pierde el ultimo argumento");
+            }
+        }
+        {
+            // Y sin comillas si corta, que es lo que evita ejecutar lo que venga detras.
+            std::vector<std::string> a;
+            comprobar(T::extractLocalAgentArgs(daemonpayload::unixBinPath() + " --dump-x & echo y", a),
+                      "extractLocalAgentArgs: corta en el '&' suelto");
+            comprobar(a.size() == 1 && a[0] == "--dump-x",
+                      "extractLocalAgentArgs: se queda con el verbo y tira el resto",
+                      "argumentos: " + std::to_string(a.size()));
+        }
+        {
+            // La ruta de WINDOWS tambien. Buscar solo la Unix es lo que dejaba a Windows
+            // fuera del RPC: el comando se iba por SSH en crudo, sin el mTLS del tunel.
+            std::vector<std::string> a;
+            comprobar(T::extractLocalAgentArgs("& \"" + daemonpayload::windowsBinPath() + "\" --health", a),
+                      "extractLocalAgentArgs: reconoce la ruta Windows");
+            comprobar(a.size() == 1 && a[0] == "--health", "extractLocalAgentArgs: --health");
+        }
+        {
+            // Los verbos que el daemon NO sirve por RPC se quedan fuera a proposito.
+            std::vector<std::string> a;
+            comprobar(!T::extractLocalAgentArgs(
+                          daemonpayload::unixBinPath() + " --mutate-shell-generic 'zfs list'", a),
+                      "extractLocalAgentArgs: --mutate-shell-generic no se desvia al RPC");
+            comprobar(!T::extractLocalAgentArgs("zfs list -H -p", a),
+                      "extractLocalAgentArgs: sin marcador, no es del agente");
+        }
+
+        // El volcado TLS que llega por SSH.
+        {
+            T::RemoteTlsBundle b;
+            const std::string txt =
+                "__ZFSMGR_AGENT_PORT__:47700\n"
+                "__ZFSMGR_TLS_BEGIN__:/etc/zfsmgr/tls/server.crt\n  AAA  \n"
+                "__ZFSMGR_TLS_END__:/etc/zfsmgr/tls/server.crt\n"
+                "__ZFSMGR_TLS_BEGIN__:/etc/zfsmgr/tls/client.crt\nBBB\n"
+                "__ZFSMGR_TLS_END__:/etc/zfsmgr/tls/client.crt\n";
+            comprobar(T::parseRemoteDaemonTlsBundle(txt, b), "parseRemoteDaemonTlsBundle: server+client bastan");
+            igual(b.serverCertPem, "AAA\n", "bundle: el contenido se recorta y acaba en salto");
+            igual(b.clientCertPem, "BBB\n", "bundle: certificado de cliente");
+            comprobar(b.port == 47700, "bundle: el puerto anunciado");
+            comprobar(!b.clientKeyIncluded, "bundle: sin clave privada, y se dice");
+            // Sin certificado de cliente no hay conversacion posible.
+            T::RemoteTlsBundle b2;
+            comprobar(!T::parseRemoteDaemonTlsBundle(
+                          "__ZFSMGR_TLS_BEGIN__:/x/server.crt\nA\n__ZFSMGR_TLS_END__:/x/server.crt\n", b2),
+                      "parseRemoteDaemonTlsBundle: falta el del cliente");
+            // Un END que no casa con su BEGIN no guarda nada.
+            T::RemoteTlsBundle b3;
+            comprobar(!T::parseRemoteDaemonTlsBundle(
+                          "__ZFSMGR_TLS_BEGIN__:/x/server.crt\nA\n__ZFSMGR_TLS_END__:/otro\n", b3),
+                      "parseRemoteDaemonTlsBundle: el END tiene que casar");
+        }
+
+        // agent.conf: lo que no aparezca conserva su valor por omision.
+        {
+            const auto c = T::parseLocalAgentConfig("# nota\n\nPORT = 47700 \nBIND=  \"::1\"  \n"
+                                                    "TLS_CERT='/a/b.crt'\nsinigual\n=novale\n");
+            igual(c.bindAddress, "::1", "agent.conf: se quitan las comillas y los espacios");
+            comprobar(c.port == 47700, "agent.conf: PORT vale igual que AGENT_PORT");
+            igual(c.tlsCertPath, "/a/b.crt", "agent.conf: TLS_CERT");
+            igual(c.tlsClientKeyPath, T::defaultAgentTlsClientKeyPath(),
+                  "agent.conf: lo ausente conserva su valor por omision");
+            // Un puerto fuera de rango o con basura detras NO se acepta: medio leido es
+            // peor que ninguno.
+            comprobar(T::parseLocalAgentConfig("PORT=70000\n").port == 47653, "agent.conf: 70000 no vale");
+            comprobar(T::parseLocalAgentConfig("PORT=12x\n").port == 47653, "agent.conf: '12x' no vale");
+        }
+
+        // El ruido con forma de XML que escupe PowerShell por la salida de error.
+        igual(T::sanitizeWindowsCliXml("#< CLIXML\n<Objs Version=\"1.1\"><S>x</S></Objs>"), "",
+              "sanitizeWindowsCliXml: solo preambulo");
+        igual(T::sanitizeWindowsCliXml("salida util\n#< CLIXML<objs version=\"1\">basura"), "salida util",
+              "sanitizeWindowsCliXml: sin distinguir mayusculas, y conserva lo util");
+        igual(T::sanitizeWindowsCliXml("hola"), "hola", "sanitizeWindowsCliXml: sin CLIXML no toca nada");
+
+        // Reintentar sin multiplexado SOLO ante lo que delata que el socket de control no
+        // sirve; ante cualquier otro fallo seria esconder el problema.
+        comprobar(T::shouldRetrySshWithoutMultiplexing("mux_client: getsockname failed"),
+                  "shouldRetrySsh: getsockname failed");
+        comprobar(T::shouldRetrySshWithoutMultiplexing("NOT A SOCKET"), "shouldRetrySsh: en mayusculas");
+        comprobar(!T::shouldRetrySshWithoutMultiplexing("Permission denied (publickey)."),
+                  "shouldRetrySsh: una clave rechazada NO se reintenta");
+
+        // wrapRemoteCommand. En una conexion que no es Windows no toca NADA.
+        igual(T::wrapRemoteCommand(lin, "zfs list -H -p"), "zfs list -H -p",
+              "wrapRemoteCommand: fuera de Windows pasa tal cual");
+        {
+            // En Windows va en base64 de UTF-16LE, que es lo que come -EncodedCommand.
+            const std::string w = T::wrapRemoteCommand(win, "zfs list");
+            comprobar(zfsmgr::base::startsWith(w, "powershell -NoProfile -NonInteractive -EncodedCommand "),
+                      "wrapRemoteCommand: -EncodedCommand", w.substr(0, 60));
+            std::string crudo;
+            comprobar(zfsmgr::base::base64Decode(w.substr(w.rfind(' ') + 1), crudo),
+                      "wrapRemoteCommand: el base64 se descodifica");
+            // UTF-16LE: cada caracter ASCII deja un byte nulo detras.
+            comprobar(crudo.size() % 2 == 0 && crudo.size() > 2 && crudo[1] == '\0',
+                      "wrapRemoteCommand: es UTF-16LE, no UTF-8");
+            comprobar(zfsmgr::base::endsWith(crudo, std::string("z\0f\0s\0 \0l\0i\0s\0t\0", 16)),
+                      "wrapRemoteCommand: la orden va al final del prologo");
+        }
+        {
+            // El prologo Unix «PATH="..."; export PATH; » se quita: en PowerShell es un
+            // error de sintaxis, y el prologo de PowerShell ya pone las rutas de OpenZFS.
+            const std::string con = T::wrapRemoteCommand(win, "PATH=\"/usr/sbin\"; export PATH; zfs list");
+            igual(con, T::wrapRemoteCommand(win, "zfs list"),
+                  "wrapRemoteCommand: se retira el prologo PATH de sintaxis Unix");
+            // Pero solo entero: sin el ';' final no es ese prologo y no se toca.
+            comprobar(T::wrapRemoteCommand(win, "PATH=\"a\"; export PATH") != T::wrapRemoteCommand(win, ""),
+                      "wrapRemoteCommand: un prologo a medias no se retira");
         }
     }
 

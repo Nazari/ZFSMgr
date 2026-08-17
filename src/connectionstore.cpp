@@ -96,47 +96,13 @@ namespace {
 QString qs(const std::string& s) { return QString::fromStdString(s); }
 std::string bs(const QString& s) { return s.toStdString(); }
 
-BP::ConnectionProfile aBase(const ConnectionProfile& p) {
-    BP::ConnectionProfile o;
-    o.id = bs(p.id);
-    o.name = bs(p.name);
-    o.machineUid = bs(p.machineUid);
-    o.connType = bs(p.connType);
-    o.osType = bs(p.osType);
-    o.host = bs(p.host);
-    o.port = p.port;
-    o.sshAddressFamily = bs(p.sshAddressFamily);
-    o.username = bs(p.username);
-    o.password = bs(p.password);
-    o.keyPath = bs(p.keyPath);
-    o.useSudo = p.useSudo;
-    o.daemonTlsServerCertPem = bs(p.daemonTlsServerCertPem);
-    o.daemonTlsClientCertPem = bs(p.daemonTlsClientCertPem);
-    o.daemonTlsClientKeyPem = bs(p.daemonTlsClientKeyPem);
-    o.daemonTlsPort = p.daemonTlsPort;
-    return o;
-}
+BP::ConnectionProfile aBase(const ConnectionProfile& p) { return toBaseProfile(p); }
+ConnectionProfile deBase(const BP::ConnectionProfile& o) { return fromBaseProfile(o); }
 
-ConnectionProfile deBase(const BP::ConnectionProfile& o) {
-    ConnectionProfile p;
-    p.id = qs(o.id);
-    p.name = qs(o.name);
-    p.machineUid = qs(o.machineUid);
-    p.connType = qs(o.connType);
-    p.osType = qs(o.osType);
-    p.host = qs(o.host);
-    p.port = o.port;
-    p.sshAddressFamily = qs(o.sshAddressFamily);
-    p.username = qs(o.username);
-    p.password = qs(o.password);
-    p.keyPath = qs(o.keyPath);
-    p.useSudo = o.useSudo;
-    p.daemonTlsServerCertPem = qs(o.daemonTlsServerCertPem);
-    p.daemonTlsClientCertPem = qs(o.daemonTlsClientCertPem);
-    p.daemonTlsClientKeyPem = qs(o.daemonTlsClientKeyPem);
-    p.daemonTlsPort = o.daemonTlsPort;
-    return p;
-}
+}  // namespace
+
+
+namespace {
 
 // Puente Qt <-> capa base para el JSON. Se pasa por el texto compacto: es la única forma
 // de que las dos representaciones coincidan sin duplicar el árbol de tipos, y el coste

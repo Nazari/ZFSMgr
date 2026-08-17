@@ -3,6 +3,7 @@
 #include "transport.h"
 
 #include "base/json.h"
+#include "base/transportcmd.h"
 #include "base/process.h"
 #include "base/tlsclient.h"
 #include "mainwindow_helpers.h"
@@ -40,31 +41,22 @@
 #include <algorithm>
 #include <cstring>
 
-namespace {
-// Rutas del agente EN ESTA MÁQUINA. Estaban fijas a las POSIX, así que en Windows la
-// conexión Local nunca encontraba su material TLS, no podía hablar por RPC con su
-// propio daemon y todo el refresco caía al camino de shell: cada orden arranca un
-// PowerShell nuevo y el refresco medía 102 s, de los que 99 eran sondas.
-// Tienen que coincidir con kDefaultTlsDir/kDefaultAgentConfigPath de daemon_main.cpp.
-#ifdef Q_OS_WIN
-constexpr const char* kDefaultAgentConfigPath = "C:\\ProgramData\\ZFSMgr\\agent\\agent.conf";
-constexpr const char* kDefaultAgentTlsCertPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\server.crt";
-constexpr const char* kDefaultAgentTlsClientCertPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\client.crt";
-constexpr const char* kDefaultAgentTlsClientKeyPath = "C:\\ProgramData\\ZFSMgr\\agent\\tls\\client.key";
-#else
-constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
-constexpr const char* kDefaultAgentTlsCertPath = "/etc/zfsmgr/tls/server.crt";
-constexpr const char* kDefaultAgentTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
-constexpr const char* kDefaultAgentTlsClientKeyPath = "/etc/zfsmgr/tls/client.key";
-#endif
+namespace BT = zfsmgr::base::transport;
 
+namespace {
+// Las rutas del agente EN ESTA MÁQUINA viven en base/transportcmd.h, con los mismos
+// #ifdef. Estaban fijas a las POSIX, y por eso en Windows la conexión Local nunca
+// encontraba su material TLS, no podía hablar por RPC con su propio daemon y todo el
+// refresco caía al camino de shell: el refresco medía 102 s, de los que 99 eran sondas.
+
+// Espejo con QString del de la capa base, para no tocar los sitios que lo leen.
 struct LocalAgentConfig {
-    QString bindAddress{QStringLiteral("127.0.0.1")};
+    QString bindAddress;
     quint16 port{47653};
-    QString tlsCertPath{QString::fromLatin1(kDefaultAgentTlsCertPath)};
-    QString tlsClientCertPath{QString::fromLatin1(kDefaultAgentTlsClientCertPath)};
-    QString tlsClientKeyPath{QString::fromLatin1(kDefaultAgentTlsClientKeyPath)};
-};
+    QString tlsCertPath;
+    QString tlsClientCertPath;
+    QString tlsClientKeyPath;
+};;
 
 struct RemoteDaemonTlsCacheEntry {
     QByteArray serverCertPem;
@@ -79,65 +71,17 @@ QHash<QString, RemoteDaemonTlsCacheEntry> s_remoteDaemonTlsCache;
 QMutex s_remoteDaemonTlsPersistMutex;
 
 QString remoteDaemonTlsCacheKey(const ConnectionProfile& p) {
-    return QStringLiteral("%1|%2|%3|%4")
-        .arg(p.username.trimmed().toLower(),
-             p.host.trimmed().toLower(),
-             QString::number((p.port > 0) ? p.port : 22),
-             p.keyPath.trimmed());
-}
-
-QString stripConfigQuotes(QString v) {
-    v = v.trimmed();
-    if (v.size() >= 2) {
-        const QChar first = v.front();
-        const QChar last = v.back();
-        if ((first == QLatin1Char('\'') && last == QLatin1Char('\''))
-            || (first == QLatin1Char('"') && last == QLatin1Char('"'))) {
-            return v.mid(1, v.size() - 2);
-        }
-    }
-    return v;
-}
-
-int parseConfigInt(QString v, int fallback) {
-    bool ok = false;
-    const int parsed = stripConfigQuotes(v).trimmed().toInt(&ok);
-    return ok ? parsed : fallback;
+    return QString::fromStdString(BT::remoteDaemonTlsCacheKey(toBaseProfile(p)));
 }
 
 LocalAgentConfig loadLocalAgentConfig() {
+    const auto c = BT::loadLocalAgentConfig();
     LocalAgentConfig cfg;
-    QFile f(QString::fromLatin1(kDefaultAgentConfigPath));
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return cfg;
-    }
-    const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
-    for (const QString& raw : lines) {
-        const QString line = raw.trimmed();
-        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
-            continue;
-        }
-        const int eq = line.indexOf(QLatin1Char('='));
-        if (eq <= 0) {
-            continue;
-        }
-        const QString key = line.left(eq).trimmed().toUpper();
-        const QString value = line.mid(eq + 1).trimmed();
-        if (key == QStringLiteral("AGENT_BIND") || key == QStringLiteral("BIND")) {
-            cfg.bindAddress = stripConfigQuotes(value);
-        } else if (key == QStringLiteral("AGENT_PORT") || key == QStringLiteral("PORT")) {
-            const int parsedPort = parseConfigInt(value, cfg.port);
-            if (parsedPort > 0 && parsedPort <= 65535) {
-                cfg.port = static_cast<quint16>(parsedPort);
-            }
-        } else if (key == QStringLiteral("TLS_CERT")) {
-            cfg.tlsCertPath = stripConfigQuotes(value);
-        } else if (key == QStringLiteral("TLS_CLIENT_CERT")) {
-            cfg.tlsClientCertPath = stripConfigQuotes(value);
-        } else if (key == QStringLiteral("TLS_CLIENT_KEY")) {
-            cfg.tlsClientKeyPath = stripConfigQuotes(value);
-        }
-    }
+    cfg.bindAddress = QString::fromStdString(c.bindAddress);
+    cfg.port = c.port;
+    cfg.tlsCertPath = QString::fromStdString(c.tlsCertPath);
+    cfg.tlsClientCertPath = QString::fromStdString(c.tlsClientCertPath);
+    cfg.tlsClientKeyPath = QString::fromStdString(c.tlsClientKeyPath);
     return cfg;
 }
 
@@ -146,20 +90,12 @@ LocalAgentConfig loadLocalAgentConfig() {
 // nothing, but re-sending a mutation that may already be running is how a single
 // destructive operation ends up executed twice.
 bool isMutatingAgentCommand(const QStringList& agentArgs) {
-    if (agentArgs.isEmpty()) {
-        return false;
+    std::vector<std::string> a;
+    a.reserve(static_cast<std::size_t>(agentArgs.size()));
+    for (const QString& x : agentArgs) {
+        a.push_back(x.toStdString());
     }
-    const QString cmd = agentArgs.first().trimmed();
-    return cmd.startsWith(QStringLiteral("--mutate-"))
-           || cmd.startsWith(QStringLiteral("--zfs-pipe-"))
-           || cmd.startsWith(QStringLiteral("--zfs-send-"))
-           || cmd.startsWith(QStringLiteral("--zfs-recv-"))
-           || cmd == QStringLiteral("--repair-alt-mountpoints")
-           // --job-submit también: reenviarlo lanza la MISMA transferencia por segunda
-           // vez, con dos jobs corriendo a la vez sobre los mismos datos. Estaba
-           // --job-cancel pero no éste, que es el que causa daño al duplicarse.
-           || cmd == QStringLiteral("--job-submit")
-           || cmd == QStringLiteral("--job-cancel");
+    return BT::isMutatingAgentCommand(a);
 }
 
 // Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
@@ -173,97 +109,13 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
 // cadena, y cada una ha fallado al menos una vez.
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
-    // El resultado de esta función se usa para DESVIAR la orden al RPC. Hay verbos que
-    // el daemon no sirve por ahí a propósito —transportan flujos por la entrada o la
-    // salida estándar, y --mutate-shell-generic además ejecuta shell arbitrario como
-    // root—, así que desviarlos es garantizar un "unknown command".
-    //
-    // runAgentCommand ya lo comprobaba, pero este camino heredado no, y sus TRES
-    // interceptaciones tampoco. Resultado: borrar un dataset fallaba con
-    // «unknown command: --mutate-shell-generic». Se filtra aquí, que es el único sitio
-    // por el que pasan las tres.
-    // Se prueban las dos rutas del agente, no solo la de Unix. Buscar únicamente la
-    // Unix es lo que dejaba a Windows fuera del RPC: agentCommand() emite la ruta de
-    // Windows, no casaba con el marcador, y el comando acababa ejecutándose por SSH en
-    // crudo, sin el mTLS del túnel, sin que nada lo advirtiera.
-    int pos = -1;
-    int markerLen = 0;
-    for (const QString& marker : {daemonpayload::unixBinPath(), daemonpayload::windowsBinPath()}) {
-        const int found = remoteCmd.lastIndexOf(marker);
-        if (found > pos) {
-            pos = found;
-            markerLen = marker.size();
-        }
-    }
-    if (pos < 0) {
+    std::vector<std::string> a;
+    if (!BT::extractLocalAgentArgs(remoteCmd.toStdString(), a)) {
         return false;
     }
-    QString tail = remoteCmd.mid(pos + markerLen).trimmed();
-    // La forma de Windows es: & "C:\...\zfsmgr-agent.exe" --health
-    // Tras el marcador queda la comilla de cierre, que no es parte de los argumentos.
-    if (tail.startsWith(QLatin1Char('"'))) {
-        tail = tail.mid(1).trimmed();
+    for (const std::string& x : a) {
+        argsOut << QString::fromStdString(x);
     }
-    if (tail.isEmpty()) {
-        return false;
-    }
-    // Cortamos en el primer separador de shell NO entrecomillado.
-    //
-    // El comentario decía "no entrecomillado" pero la regex no lo comprobaba: cortaba
-    // en el primer ';', '&' o '|' apareciera donde apareciera, incluso dentro de un
-    // argumento correctamente protegido. Un directorio llamado "Copias & Backups"
-    // truncaba la orden, y con --mutate-advanced-todir ese directorio lo elige el
-    // usuario: se perdían el destino y el indicador de borrar el origen.
-    {
-        bool inSQ = false;
-        bool inDQ = false;
-        int sep = -1;
-        for (int i = 0; i < tail.size(); ++i) {
-            const QChar c = tail.at(i);
-            if (inSQ) {
-                if (c == QLatin1Char('\'')) { inSQ = false; }
-                continue;
-            }
-            if (inDQ) {
-                if (c == QLatin1Char('\\') && i + 1 < tail.size()) { ++i; continue; }
-                if (c == QLatin1Char('"')) { inDQ = false; }
-                continue;
-            }
-            if (c == QLatin1Char('\'')) { inSQ = true; continue; }
-            if (c == QLatin1Char('"')) { inDQ = true; continue; }
-            if (c == QLatin1Char(';') || c == QLatin1Char('&') || c == QLatin1Char('|')
-                || c == QLatin1Char('\n') || c == QLatin1Char('\r')) {
-                sep = i;
-                break;
-            }
-        }
-        if (sep >= 0) {
-            tail = tail.left(sep).trimmed();
-        }
-    }
-    // Los args vienen del comando construido con shSingleQuote() luego envuelto en otro
-    // shSingleQuote() para el argumento de `sh -c '...'`.  El patrón '"'"' representa un
-    // carácter ' escapado en ese doble-envoltorio.  Reemplazarlo antes de parsear evita
-    // que el parser interprete los " como delimitadores adicionales de cita.
-    tail.replace(QStringLiteral("'\"'\"'"), QStringLiteral("'"));
-    if (tail.isEmpty()) {
-        return false;
-    }
-    const QStringList parsed = mwhelpers::posixShellSplitArgs(tail);
-    if (parsed.isEmpty()) {
-        return false;
-    }
-    const QString cmd = parsed.first().trimmed();
-    if (!(cmd == QStringLiteral("--health")
-          || cmd == QStringLiteral("--heartbeat")
-          || cmd.startsWith(QStringLiteral("--dump-"))
-          || cmd.startsWith(QStringLiteral("--mutate-")))) {
-        return false;
-    }
-    if (mwhelpers::isCliOnlyAgentCommand(cmd)) {
-        return false;  // se queda en el camino clásico; el RPC no lo sirve
-    }
-    argsOut = parsed;
     return true;
 }
 
@@ -468,57 +320,16 @@ bool parseRemoteDaemonTlsBundle(const QString& text,
                                 QByteArray& clientKeyPem,
                                 quint16& portOut,
                                 bool* clientKeyIncludedOut = nullptr) {
-    serverCertPem.clear();
-    clientCertPem.clear();
-    clientKeyPem.clear();
-    portOut = 47653;
+    BT::RemoteTlsBundle b;
+    const bool ok = BT::parseRemoteDaemonTlsBundle(text.toStdString(), b);
+    serverCertPem = QByteArray::fromStdString(b.serverCertPem);
+    clientCertPem = QByteArray::fromStdString(b.clientCertPem);
+    clientKeyPem = QByteArray::fromStdString(b.clientKeyPem);
+    portOut = b.port;
     if (clientKeyIncludedOut) {
-        *clientKeyIncludedOut = false;
+        *clientKeyIncludedOut = b.clientKeyIncluded;
     }
-
-    QString currentPath;
-    QByteArray currentContent;
-    const QStringList lines = text.split('\n', Qt::KeepEmptyParts);
-    for (const QString& rawLine : lines) {
-        const QString line = rawLine;
-        if (line.startsWith(QStringLiteral("__ZFSMGR_TLS_BEGIN__:"))) {
-            currentPath = line.mid(QStringLiteral("__ZFSMGR_TLS_BEGIN__:").size()).trimmed();
-            currentContent.clear();
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("__ZFSMGR_TLS_END__:"))) {
-            const QString endPath = line.mid(QStringLiteral("__ZFSMGR_TLS_END__:").size()).trimmed();
-            if (!currentPath.isEmpty() && endPath == currentPath) {
-                const QByteArray content = currentContent.trimmed() + QByteArray("\n");
-                if (currentPath.endsWith(QStringLiteral("/server.crt"))) {
-                    serverCertPem = content;
-                } else if (currentPath.endsWith(QStringLiteral("/client.crt"))) {
-                    clientCertPem = content;
-                } else if (currentPath.endsWith(QStringLiteral("/client.key"))) {
-                    clientKeyPem = content;
-                    if (clientKeyIncludedOut) {
-                        *clientKeyIncludedOut = true;
-                    }
-                }
-            }
-            currentPath.clear();
-            currentContent.clear();
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("__ZFSMGR_AGENT_PORT__:"))) {
-            bool ok = false;
-            const int parsed = line.mid(QStringLiteral("__ZFSMGR_AGENT_PORT__:").size()).trimmed().toInt(&ok);
-            if (ok && parsed > 0 && parsed <= 65535) {
-                portOut = static_cast<quint16>(parsed);
-            }
-            continue;
-        }
-        if (!currentPath.isEmpty()) {
-            currentContent += rawLine.toUtf8();
-            currentContent += '\n';
-        }
-    }
-    return !serverCertPem.isEmpty() && !clientCertPem.isEmpty();
+    return ok;
 }
 
 bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
@@ -729,23 +540,11 @@ bool tryReviveRemoteDaemonService(const ConnectionProfile& p) {
 }
 
 QString sanitizeWindowsCliXml(const QString& raw) {
-    QString s = raw;
-    if (s.isEmpty()) {
-        return s;
-    }
-    s.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
-    const int xmlPos = s.indexOf(QStringLiteral("<Objs Version="), 0, Qt::CaseInsensitive);
-    if (xmlPos >= 0) {
-        s = s.left(xmlPos);
-    }
-    return s.trimmed();
+    return QString::fromStdString(BT::sanitizeWindowsCliXml(raw.toStdString()));
 }
 
 bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
-    const QString lowered = stderrText.toLower();
-    return lowered.contains(QStringLiteral("getsockname failed"))
-        || lowered.contains(QStringLiteral("not a socket"))
-        || lowered.contains(QStringLiteral("bad stdio forwarding specification"));
+    return BT::shouldRetrySshWithoutMultiplexing(stderrText.toStdString());
 }
 
 using mwhelpers::isMountedValueTrue;
@@ -1651,7 +1450,7 @@ bool transport::ensureLocalDaemonTlsMaterial(TransportSession& ses,
                 .arg(mwhelpers::shSingleQuote(cfg.tlsCertPath),
                      mwhelpers::shSingleQuote(cfg.tlsClientCertPath),
                      mwhelpers::shSingleQuote(cfg.tlsClientKeyPath),
-                     mwhelpers::shSingleQuote(QString::fromLatin1(kDefaultAgentConfigPath)));
+                     mwhelpers::shSingleQuote(QString::fromLatin1(BT::defaultAgentConfigPath())));
 
         ConnectionProfile sudoProfile;
         sudoProfile.id = QStringLiteral("local");
@@ -2584,7 +2383,7 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
 }
 
 bool transport::isLocalConnection(const ConnectionProfile& p) {
-    return p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+    return BT::isLocalConnection(toBaseProfile(p));
 }
 
 bool MainWindow::isLocalConnection(int connIdx) const {
@@ -2595,7 +2394,7 @@ bool MainWindow::isLocalConnection(int connIdx) const {
 }
 
 bool transport::isWindowsConnection(const ConnectionProfile& p) {
-    return mwhelpers::isWindowsOsType(p.osType);
+    return BT::isWindowsConnection(toBaseProfile(p));
 }
 
 bool MainWindow::isWindowsConnection(int connIdx) const {
@@ -2622,50 +2421,8 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString transport::wrapRemoteCommand(const ConnectionProfile& p,
-                                      const QString& remoteCmd) {
-    if (!isWindowsConnection(p)) {
-        return remoteCmd;
-    }
-    QString trimmed = remoteCmd.trimmed();
-    // Los comandos clásicos llegan envueltos por withUnixSearchPathCommand, que antepone
-    // un "PATH=...; export PATH; " de sintaxis Unix. Eso existía para el bash de MSYS2;
-    // en PowerShell es un error de sintaxis. Se retira aquí, en un único punto, en vez
-    // de en la treintena de sitios que lo aplican: el prólogo de abajo ya pone las rutas
-    // de OpenZFS en $env:Path, que es lo único que ese prefijo aportaba.
-    //
-    // Comprobado contra un Windows 11 real: "zfs version" y "zpool list -H -p -o ..."
-    // se ejecutan así sin ninguna capa Unix de por medio.
-    static const QRegularExpression unixPathPrefix(
-        QStringLiteral("^PATH=\"[^\"]*\";\\s*export PATH;\\s*"));
-    trimmed.remove(unixPathPrefix);
-
-    QString script = QStringLiteral(
-        "$ProgressPreference='SilentlyContinue'; "
-        "$InformationPreference='SilentlyContinue'; "
-        "$WarningPreference='Continue'; "
-        "$zfsPaths=@("
-        "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
-        "'C:\\\\Program Files\\\\OpenZFS On Windows'"
-        "); "
-        "foreach($p in $zfsPaths){ "
-        "  if(Test-Path -LiteralPath $p){ "
-        "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
-        "  } "
-        "}; ");
-    script += trimmed;
-
-    const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
-    const QString b64 = QString::fromLatin1(utf16.toBase64());
-    // La línea de comandos de cmd.exe se agota con payloads muy grandes en ejecución
-    // local. Por SSH no se usa -Command: el shell remoto expandiría las variables de
-    // PowerShell (p. ej. "$p") y rompería los foreach.
-    if (isLocalConnection(p) && b64.size() > 7000) {
-        QString inlineScript = script;
-        inlineScript.replace(QStringLiteral("\""), QStringLiteral("`\""));
-        return QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
-            .arg(inlineScript);
-    }
-    return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
+                                     const QString& remoteCmd) {
+    return QString::fromStdString(BT::wrapRemoteCommand(toBaseProfile(p), remoteCmd.toStdString()));
 }
 
 QString MainWindow::sshExecFromLocal(const ConnectionProfile& p,

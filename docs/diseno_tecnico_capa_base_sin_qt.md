@@ -976,6 +976,62 @@ larga moriría a mitad.
 **Sigue sin probarse la rama de Windows** de `runExecStream`, escrita con `PeekNamedPipe`
 y sin ejecutar.
 
+## Paso 10: el transporte se muda a la base — primera tanda
+
+`transport::` ya eran funciones libres desde el paso 3, pero su implementación seguía
+dentro de `mainwindow_remote.cpp` y hablando en `QString`. La mudanza a `src/base/` se
+hace por tandas, y **el corte no es por tamaño: es por qué se puede verificar sin una
+máquina delante**.
+
+Esta primera tanda es todo lo que **decide y analiza texto**: funciones puras a las que
+entra un perfil o una cadena y sale una decisión u otra cadena. Diez, unas 350 líneas, en
+`src/base/transportcmd.{h,cpp}`. Lo que abre sockets, lanza procesos y mantiene túneles se
+queda para después, porque necesita piezas nuevas en la base.
+
+No se llama `transport.h` porque `src/base` está en la ruta de inclusión junto a `src/`, y
+mientras exista el adaptador `src/transport.h` dos ficheros con el mismo nombre harían
+ambiguo el `#include`.
+
+### Cómo se verificó: un contraste con control negativo
+
+Se extrajeron las diez implementaciones **literalmente** del fichero original —no de
+memoria— a un programa que enlaza Qt y la base a la vez y las ejecuta en paralelo sobre el
+mismo corpus: perfiles con acentos y mayúsculas mezcladas, órdenes reales, volcados TLS a
+medias, `agent.conf` con basura, y 4.000 cadenas al azar hechas con los caracteres que han
+roto esto alguna vez. **9.279 casos, ninguna diferencia.**
+
+Pero «ninguna diferencia» no significa nada si el contraste no sabe fallar, así que se
+metieron averías a propósito. Y ahí apareció lo interesante: **la avería del byte alto de
+UTF-16 no se detectó.** El corpus escrito a mano tenía `ñ á é € 💾`, y resulta que todos
+ellos tienen el byte alto PAR, de modo que la conversión a UTF-16LE —la pieza más
+intrincada de la tanda, la que decide si PowerShell entiende la orden o recibe basura—
+estaba efectivamente sin comprobar.
+
+Con el corpus ampliado a un barrido de puntos de código de los tres tamaños, incluidos los
+de byte alto impar y los que necesitan pareja suplente, las tres averías se detectan: 120
+diferencias la del byte alto, 12 la de la pareja suplente, 41 la del corte por `&`.
+
+La lección no es sobre UTF-16. Es que **un corpus escrito a mano tiende a parecerse a lo
+que ya se tenía en la cabeza**, y sin control negativo no hay forma de saberlo.
+
+Lo verificado se fijó luego como aserciones permanentes en `tests/base_test.cpp`, porque
+el arnés de contraste se tira en cuanto la mudanza termina.
+
+### De paso: el conversor de perfil, en un solo sitio
+
+Había **dos copias idénticas** de la traducción entre `ConnectionProfile` y su espejo sin
+Qt —una en `connectionstore.cpp`, otra en `mainwindow_helpers.cpp`— y esta tanda estaba a
+punto de añadir la tercera. Es un espejo de 16 campos: si una copia se queda atrás al
+añadir un campo, ese campo llega **vacío** al otro lado sin que nada falle, que es
+exactamente el fallo del que avisa la cabecera de `base/connectionprofile.h`. Ahora es una
+función `inline` en `connectionstore.h`.
+
+### Lo que queda pendiente de esta zona
+
+`fetchRemoteDaemonTlsMaterial` repite a mano la codificación UTF-16LE + base64 que ahora
+vive en `wrapRemoteCommand`. No se ha unificado en esta tanda porque esa función hace E/S
+por SSH y entra en la siguiente.
+
 ## Estado
 
 Hecho y verificado:

@@ -98,26 +98,9 @@ QString stripToJson(const QString& output) { return q(B::stripToJson(b(output)))
 // `toBase` copia los 16 campos. Es un espejo completo a propósito: uno parcial invita a
 // que alguien lea más adelante un campo silenciosamente vacío.
 namespace {
-BP::ConnectionProfile toBase(const ConnectionProfile& p) {
-    BP::ConnectionProfile o;
-    o.id = b(p.id);
-    o.name = b(p.name);
-    o.machineUid = b(p.machineUid);
-    o.connType = b(p.connType);
-    o.osType = b(p.osType);
-    o.host = b(p.host);
-    o.port = p.port;
-    o.sshAddressFamily = b(p.sshAddressFamily);
-    o.username = b(p.username);
-    o.password = b(p.password);
-    o.keyPath = b(p.keyPath);
-    o.useSudo = p.useSudo;
-    o.daemonTlsServerCertPem = b(p.daemonTlsServerCertPem);
-    o.daemonTlsClientCertPem = b(p.daemonTlsClientCertPem);
-    o.daemonTlsClientKeyPem = b(p.daemonTlsClientKeyPem);
-    o.daemonTlsPort = p.daemonTlsPort;
-    return o;
-}
+// El conversor vive en connectionstore.h: era la SEGUNDA copia idéntica del espejo de 16
+// campos, y una copia que se queda atrás hace que un campo llegue vacío sin que falle nada.
+BP::ConnectionProfile toBase(const ConnectionProfile& p) { return toBaseProfile(p); }
 std::vector<std::string> bl(const QStringList& v) {
     std::vector<std::string> o;
     o.reserve(static_cast<std::size_t>(v.size()));
