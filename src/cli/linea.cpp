@@ -18,6 +18,15 @@
 namespace zfsmgr::cli {
 namespace {
 
+#ifdef _WIN32
+// No está en las cabeceras de MinGW más antiguas, y su valor es fijo desde Windows 10.
+#ifdef ENABLE_VIRTUAL_TERMINAL_INPUT
+constexpr DWORD kEntradaVirtual = ENABLE_VIRTUAL_TERMINAL_INPUT;
+#else
+constexpr DWORD kEntradaVirtual = 0x0200;
+#endif
+#endif
+
 // El terminal en modo CRUDO mientras se edita: sin él, el sistema no entrega nada hasta el
 // Intro y no hay forma de ver un tabulador. Se restaura SIEMPRE, también al salir por
 // error: dejar un terminal sin eco deja al usuario escribiendo a ciegas en su propia shell.
@@ -28,7 +37,25 @@ public:
         m_h = GetStdHandle(STD_INPUT_HANDLE);
         m_ok = GetConsoleMode(m_h, &m_viejo) != 0;
         if (m_ok) {
-            SetConsoleMode(m_h, m_viejo & ~static_cast<DWORD>(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+            const DWORD base = m_viejo & ~static_cast<DWORD>(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+            // **Las flechas no son caracteres, y sin esto la consola NO las entrega.**
+            //
+            // Quitar ENABLE_LINE_INPUT basta para recibir letra a letra, pero solo llega lo
+            // que produce un CARÁCTER. Una flecha, Inicio, Fin o Suprimir son teclas
+            // virtuales sin carácter asociado: `fgetc` no ve absolutamente nada y el
+            // historial parecía no existir. En Linux y macOS el terminal las manda como
+            // secuencias de escape desde siempre, así que el fallo era solo de Windows.
+            //
+            // Con ENABLE_VIRTUAL_TERMINAL_INPUT la consola las traduce a esas mismas
+            // secuencias (`ESC [ A`), que es justo lo que el analizador de abajo ya sabe
+            // leer: no hay un segundo camino que mantener.
+            //
+            // Si la consola es demasiado vieja para admitirlo, `SetConsoleMode` falla y se
+            // vuelve a poner el modo sin la bandera: se pierden las flechas —como hasta
+            // ahora— pero escribir y borrar siguen funcionando.
+            if (!SetConsoleMode(m_h, base | kEntradaVirtual)) {
+                SetConsoleMode(m_h, base);
+            }
         }
         // **Entrada en BINARIO mientras se edita, y esta es la parte que no es obvia.**
         //
