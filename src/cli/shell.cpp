@@ -115,7 +115,8 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         const std::size_t dosPuntos = texto.find("://");
         if (dosPuntos != std::string::npos
             && B::toLowerAscii(texto.substr(0, dosPuntos)) != "zfsm") {
-            error = "el esquema es «zfsm://», no «" + texto.substr(0, dosPuntos) + "://»";
+            error = B::format(T("t_esquema_malo", "el esquema es «zfsm://», no «%1://»"),
+                              {texto.substr(0, dosPuntos)});
             return false;
         }
     }
@@ -130,7 +131,8 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         // ser siempre la misma, o dos formas de decir lo mismo parecen dos sitios.
         const auto* p = buscarConexion(e.conns, out.connection);
         if (!p) {
-            error = "no hay ninguna conexión llamada «" + out.connection + "»";
+            error = B::format(T("t_no_conn_nombre", "no hay ninguna conexión llamada «%1»"),
+                              {out.connection});
             return false;
         }
         out.connection = p->id.empty() ? p->name : p->id;
@@ -139,7 +141,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
 
     if (texto == "-") {
         if (!e.hayAnterior) {
-            error = "no hay sitio anterior";
+            error = T("t_no_hay_anterior", "no hay sitio anterior");
             return false;
         }
         out = e.anterior;
@@ -151,7 +153,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
     if (texto.front() == '#' || texto.front() == '@') {
         const std::string base = textoDe(e.actual);
         if (e.actual.connection.empty()) {
-            error = "hace falta estar en un dataset";
+            error = T("t_falta_estar_ds", "hace falta estar en un dataset");
             return false;
         }
         // Al pegar un `@` hay que quitar antes el que hubiera: `@a` desde `ds@b` es `ds@a`,
@@ -176,7 +178,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         for (const std::string& tramoCrudo : tramos) {
             std::string tramo;
             if (!B::percentDecode(tramoCrudo, tramo)) {
-                err = "tramo mal codificado: " + tramoCrudo;
+                err = B::format(T("t_tramo_malo", "tramo mal codificado: %1"), {tramoCrudo});
                 return false;
             }
             if (tramo.empty() || tramo == ".") {
@@ -222,7 +224,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
                 case Nodo::Raiz: {
                     const auto* p = buscarConexion(e.conns, nombre);
                     if (!p) {
-                        err = "no hay ninguna conexión llamada «" + nombre + "»";
+                        err = B::format(T("t_no_conn_nombre", "no hay ninguna conexión llamada «%1»"), {nombre});
                         return false;
                     }
                     base = ZfsmUrl{};
@@ -239,7 +241,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
                     base.dataset += "/" + nombre;
                     break;
                 case Nodo::Snapshot:
-                    err = "una instantánea no tiene hijos: " + nombre;
+                    err = B::format(T("t_snap_sin_hijos", "una instantánea no tiene hijos: %1"), {nombre});
                     return false;
             }
             if (!snap.empty()) {
@@ -314,12 +316,13 @@ bool estaApartada(const Estado& e, const std::string& id) { return e.conns.desco
 // El perfil de la conexión que nombra una URL.
 const B::ConnectionProfile* perfilDe(const Estado& e, const ZfsmUrl& u, std::string& error) {
     if (u.connection.empty()) {
-        error = "hace falta estar en una conexión";
+        error = T("t_falta_conexion", "hace falta estar en una conexión");
         return nullptr;
     }
     const auto* p = buscarConexion(e.conns, u.connection);
     if (!p) {
-        error = "no hay ninguna conexión llamada «" + u.connection + "»";
+        error = B::format(T("t_no_conn_nombre", "no hay ninguna conexión llamada «%1»"),
+                          {u.connection});
     }
     return p;
 }
@@ -336,7 +339,9 @@ const B::ConnectionProfile* perfilVivoDe(const Estado& e, const ZfsmUrl& u, std:
     }
     const std::string id = p->id.empty() ? p->name : p->id;
     if (estaApartada(e, id)) {
-        error = id + " está marcada como desconectada; use «connect " + id + "» para usarla";
+        error = B::format(T("t_apartada",
+                        "%1 está marcada como desconectada; use «connect %1» para usarla"),
+                      {id});
         return nullptr;
     }
     return p;
@@ -365,8 +370,7 @@ bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& a
     int rc = -1;
     std::string motivo;
     if (!ejecutarAgente(*e.ses, *p, args, out, err, rc, &motivo, timeoutMs)) {
-        std::fprintf(stderr, TC("t_no_se_pudo_f6e380", "no se pudo hablar con %s: %s\n"),
-                     (p->name.empty() ? p->id : p->name).c_str(), motivo.c_str());
+        std::fprintf(stderr, TC("t_no_se_pudo_f6e380", "no se pudo hablar con %s: %s\n"), (p->name.empty() ? p->id : p->name).c_str(), motivo.c_str());
         e.ultimoRc = 1;
         return false;
     }
@@ -491,8 +495,7 @@ bool pide(const std::string& etiqueta, const std::string& porOmision, std::strin
 
 bool destinoSuelto(const Estado& e, const Opts& o, ZfsmUrl& out) {
     if (o.libres.size() > 1) {
-        std::fprintf(stderr, TC("t_esta_orden_33fa8b", "esta orden solo admite un destino; sobra «%s»\n"),
-                     o.libres[1].c_str());
+        std::fprintf(stderr, TC("t_esta_orden_33fa8b", "esta orden solo admite un destino; sobra «%s»\n"), o.libres[1].c_str());
         return false;
     }
     if (!o.libres.empty()) {
@@ -511,14 +514,12 @@ bool confirma(const Estado& e, const std::string& que) {
         return true;
     }
     if (!hayTerminal()) {
-        std::fprintf(stderr,
-                     TC("t_s_hace_fal_27dc69", "%s: hace falta confirmación y no hay terminal. Use -y si está seguro.\n"),
-                     que.c_str());
+        std::fprintf(stderr, TC("t_s_hace_fal_27dc69", "%s: hace falta confirmación y no hay terminal. Use -y si está seguro.\n"), que.c_str());
         return false;
     }
     std::string resp;
     std::string err;
-    if (!preguntarPorTerminal(que + " [s/N]: ", resp, err)) {
+    if (!preguntarPorTerminal(que + T("t_sufijo_sn", " [s/N]: "), resp, err)) {
         return false;
     }
     const std::string r = B::toLowerAscii(B::trim(resp));
@@ -546,7 +547,9 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "pools";
-    t.cabecerasTexto = {"NOMBRE", "ESTADO", "TAMAÑO", "LIBRE", "USO", "SALUD"};
+    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_estado", "ESTADO"),
+                        T("t_cab_tamano", "TAMAÑO"), T("t_cab_libre", "LIBRE"),
+                        T("t_cab_uso", "USO"), T("t_cab_salud", "SALUD")};
     t.campos = {"name", "state", "size", "free", "capacity", "health"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     const auto prop = [](const B::json::Value& p, const char* k) {
@@ -571,7 +574,10 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "entries";
-    t.cabecerasTexto = {"NOMBRE", "TIPO", "USADO", "COMPR", "MONTADO", "PUNTO DE MONTAJE"};
+    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_tipo", "TIPO"),
+                        T("t_cab_usado", "USADO"), T("t_cab_compr", "COMPR"),
+                        T("t_cab_montado", "MONTADO"),
+                        T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
     t.campos = {"name", "type", "used", "compressratio", "mounted", "mountpoint"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     const std::string prefijo = destino.dataset + "/";
@@ -627,7 +633,8 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "properties";
-    t.cabecerasTexto = {"PROPIEDAD", "VALOR", "ORIGEN"};
+    t.cabecerasTexto = {T("t_cab_propiedad", "PROPIEDAD"), T("t_cab_valor", "VALOR"),
+                        T("t_cab_origen", "ORIGEN")};
     t.campos = {"property", "value", "source"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     for (const auto& ds : raiz["datasets"].toObject()) {
@@ -652,7 +659,7 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
 bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
     const std::string objetivo = destino.zfsName();
     if (objetivo.empty()) {
-        std::fprintf(stderr, TC("t_hace_falta_dc4ecf", "hace falta un dataset\n"));
+        std::fputs(TC("t_hace_falta_dc4ecf", "hace falta un dataset\n"), stderr);
         return false;
     }
     std::string out;
@@ -661,7 +668,8 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "permissions";
-    t.cabecerasTexto = {"ALCANCE", "CLASE", "QUIÉN", "PERMISOS"};
+    t.cabecerasTexto = {T("t_cab_alcance", "ALCANCE"), T("t_cab_clase", "CLASE"),
+                        T("t_cab_quien", "QUIÉN"), T("t_cab_permisos", "PERMISOS")};
     t.campos = {"scope", "kind", "who", "permissions"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     std::string alcance;
@@ -769,7 +777,7 @@ bool cmdPermisos(Estado& e, const std::vector<std::string>& args, bool conceder)
     }
     if (aQuien > 1) {
         // zfs acepta uno solo, y pasarle dos da un error suyo que no dice cuál sobra.
-        std::fprintf(stderr, TC("t_elija_uno__6ccf67", "elija UNO: --user, --group, --everyone o --set\n"));
+        std::fputs(TC("t_elija_uno__6ccf67", "elija UNO: --user, --group, --everyone o --set\n"), stderr);
         return false;
     }
     // Los permisos. En `unallow` pueden omitirse: entonces se quitan TODOS los de ese
@@ -777,25 +785,27 @@ bool cmdPermisos(Estado& e, const std::vector<std::string>& args, bool conceder)
     if (!o.libres.empty()) {
         argv.push_back(B::join(o.libres, ","));
     } else if (conceder) {
-        std::fprintf(stderr, TC("t_hace_falta_7ead59", "hace falta al menos un permiso\n"));
+        std::fputs(TC("t_hace_falta_7ead59", "hace falta al menos un permiso\n"), stderr);
         return false;
     }
     argv.push_back(objetivo);
 
     if (!conceder
         && !confirma(e, o.libres.empty()
-                            ? "Se van a quitar TODOS los permisos delegados de ese destinatario en "
-                                  + objetivo + ". ¿Continuar?"
-                            : "Se van a quitar los permisos " + B::join(o.libres, ",") + " en "
-                                  + objetivo + ". ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+                            ? B::format(T("t_conf_unallow_todos",
+                                          "Se van a quitar TODOS los permisos delegados de ese "
+                                          "destinatario en %1. ¿Continuar?"),
+                                        {objetivo})
+                            : B::format(T("t_conf_unallow",
+                                          "Se van a quitar los permisos %1 en %2. ¿Continuar?"),
+                                        {B::join(o.libres, ","), objetivo}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     if (!zfsGenerico(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_s_en_s_35a806", "%s en %s\n"), conceder ? "permisos delegados" : "permisos retirados",
-                 objetivo.c_str());
+    std::fprintf(stderr, TC("t_s_en_s_35a806", "%s en %s\n"), conceder ? "permisos delegados" : "permisos retirados", objetivo.c_str());
     return true;
 }
 
@@ -828,8 +838,7 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         }
         letra = B::trim(letra);
         if (letra.empty() || letra == "-" || letra == "none") {
-            std::fprintf(stderr, TC("t_el_pool_s__020fd2", "el pool %s no tiene letra de unidad asignada\n"),
-                         destino.pool.c_str());
+            std::fprintf(stderr, TC("t_el_pool_s__020fd2", "el pool %s no tiene letra de unidad asignada\n"), destino.pool.c_str());
             return false;
         }
         base = letra;
@@ -857,8 +866,7 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         }
         base = B::trim(mp);
         if (base.empty() || base == "none" || base == "-") {
-            std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"),
-                         destino.zfsName().c_str());
+            std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
             return false;
         }
         // En una instantánea el contenido vive bajo el directorio oculto `.zfs`.
@@ -963,8 +971,7 @@ bool cmdLs(Estado& e, const std::vector<std::string>& args) {
             return listaDataset(e, destino);
         case Nodo::Snapshot:
             // Una instantánea no tiene hijos; lo interesante es lo que hay dentro.
-            std::fprintf(stderr,
-                         TC("t_una_instan_e727ff", "una instantánea no tiene hijos: pruebe «ls #content» o «ls #properties»\n"));
+            std::fputs(TC("t_una_instan_e727ff", "una instantánea no tiene hijos: pruebe «ls #content» o «ls #properties»\n"), stderr);
             return false;
     }
     return false;
@@ -1004,8 +1011,7 @@ bool cmdCd(Estado& e, const std::vector<std::string>& args) {
         std::string motivo;
         if (!ejecutarAgente(*e.ses, *p, {"--dump-zfs-exists", destino.zfsName()}, out, err, rc,
                             &motivo, 20000)) {
-            std::fprintf(stderr, TC("t_no_se_pudo_1253da", "no se pudo comprobar %s: %s\n"), destino.zfsName().c_str(),
-                         motivo.c_str());
+            std::fprintf(stderr, TC("t_no_se_pudo_1253da", "no se pudo comprobar %s: %s\n"), destino.zfsName().c_str(), motivo.c_str());
             e.ultimoRc = 1;
             return false;
         }
@@ -1054,7 +1060,7 @@ bool cmdSnapshot(Estado& e, const std::vector<std::string>& args) {
         nombre = nombre.substr(1);
     }
     if (nombre.empty()) {
-        std::fprintf(stderr, TC("t_hace_falta_638a1d", "hace falta un nombre: snapshot @<nombre>\n"));
+        std::fputs(TC("t_hace_falta_638a1d", "hace falta un nombre: snapshot @<nombre>\n"), stderr);
         return false;
     }
     const bool recursivo = o.tiene("-r");
@@ -1084,9 +1090,11 @@ bool cmdDestroy(Estado& e, const std::vector<std::string>& args) {
     // «destruir» ahí, y la pregunta lo deja claro: no se toca nada en la máquina.
     if (nodoDe(destino) == Nodo::Conexion) {
         const std::string id = idDe(e, destino);
-        if (!confirma(e, "Se va a quitar la conexión " + id
-                             + " de la configuración. NO se toca nada en la máquina. ¿Continuar?")) {
-            std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+        if (!confirma(e, B::format(T("t_conf_quitar_conn",
+                                     "Se va a quitar la conexión %1 de la configuración. NO "
+                                     "se toca nada en la máquina. ¿Continuar?"),
+                                   {id}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
         std::string error;
@@ -1102,9 +1110,11 @@ bool cmdDestroy(Estado& e, const std::vector<std::string>& args) {
     // En un POOL, `destroy` es `zpool destroy`: `zfs destroy` sobre el dataset raíz de un
     // pool no funciona, así que es la única lectura posible.
     if (nodoDe(destino) == Nodo::Dataset && destino.isPoolRoot() && destino.snapshot.empty()) {
-        if (!confirma(e, "Se va a DESTRUIR EL POOL " + destino.pool + " en " + destino.connection
-                             + ", con todos sus datasets y todos sus datos. ¿Continuar?")) {
-            std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+        if (!confirma(e, B::format(T("t_conf_destroy_pool",
+                                     "Se va a DESTRUIR EL POOL %1 en %2, con todos sus "
+                                     "datasets y todos sus datos. ¿Continuar?"),
+                                   {destino.pool, destino.connection}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
         std::vector<std::string> argv{"destroy"};
@@ -1127,10 +1137,13 @@ bool cmdDestroy(Estado& e, const std::vector<std::string>& args) {
     const bool recursivo = o.tiene("-r") || o.tiene("-R");
     // La pregunta dice QUÉ se va a borrar y con qué alcance: «¿seguro?» a secas es lo que
     // hace que se conteste que sí sin leer.
-    if (!confirma(e, std::string("Se va a DESTRUIR ") + objetivo
-                         + (recursivo ? " y todos sus descendientes" : "") + " en "
-                         + destino.connection + ". ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_destroy_ds",
+                                 "Se va a DESTRUIR %1%2 en %3. ¿Continuar?"),
+                               {objetivo,
+                                recursivo ? T("t_conf_y_desc", " y todos sus descendientes")
+                                          : std::string(),
+                                destino.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::string out;
@@ -1162,12 +1175,14 @@ bool cmdRollback(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (destino.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_hace_falta_d8294d", "hace falta una instantánea: rollback @<nombre>\n"));
+        std::fputs(TC("t_hace_falta_d8294d", "hace falta una instantánea: rollback @<nombre>\n"), stderr);
         return false;
     }
-    if (!confirma(e, "Se va a volver " + destino.dataset + " al estado de @" + destino.snapshot
-                         + ", DESCARTANDO todo lo posterior. ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_rollback",
+                                 "Se va a volver %1 al estado de @%2, DESCARTANDO todo lo "
+                                 "posterior. ¿Continuar?"),
+                               {destino.dataset, destino.snapshot}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::string out;
@@ -1184,7 +1199,7 @@ bool cmdRollback(Estado& e, const std::vector<std::string>& args) {
 bool cmdClone(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     if (o.libres.empty()) {
-        std::fprintf(stderr, TC("t_uso_clone__ea5ed7", "uso: clone <nuevo-dataset> [--from <@instantánea>]\n"));
+        std::fputs(TC("t_uso_clone__ea5ed7", "uso: clone <nuevo-dataset> [--from <@instantánea>]\n"), stderr);
         return false;
     }
     ZfsmUrl origen;
@@ -1192,8 +1207,7 @@ bool cmdClone(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"),
-                     textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     std::string out;
@@ -1212,11 +1226,10 @@ bool cmdClone(Estado& e, const std::vector<std::string>& args) {
 // O se teclea, o entra por un descriptor con --password-fd.
 bool cmdCrearConexion(Estado& e, const Opts& o) {
     if (o.libres.empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_create_ac2703", "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n"
+        std::fputs(TC("t_uso_create_ac2703", "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n"
                      "            [--host <h>] [--port <p>] [--user <u>] [--key <ruta>]\n"
                      "            [--sudo] [--password-fd <n>]\n"
-                     "  Da de alta una conexión. Lo que no se dé por opciones se pregunta.\n"));
+                     "  Da de alta una conexión. Lo que no se dé por opciones se pregunta.\n"), stderr);
         return false;
     }
     B::ConnectionProfile p;
@@ -1250,11 +1263,11 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
     if (!local) {
         if (p.host.empty() && interactivo && !pide("Host", "", p.host)) return false;
         if (p.host.empty()) {
-            std::fprintf(stderr, TC("t_una_conexi_86be2f", "una conexión SSH necesita un host\n"));
+            std::fputs(TC("t_una_conexi_86be2f", "una conexión SSH necesita un host\n"), stderr);
             return false;
         }
-        if (p.username.empty() && interactivo && !pide("Usuario", "", p.username)) return false;
-        if (p.keyPath.empty() && interactivo && !pide("Ruta de clave SSH (vacío = contraseña)", "",
+        if (p.username.empty() && interactivo && !pide(TC("t_p_usuario", "Usuario"), "", p.username)) return false;
+        if (p.keyPath.empty() && interactivo && !pide(TC("t_p_ruta_clave", "Ruta de clave SSH (vacío = contraseña)"), "",
                                                       p.keyPath)) {
             return false;
         }
@@ -1273,21 +1286,19 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
     std::string err;
     if (quiereClave && e.ses->maestra.empty()) {
         if (interactivo) {
-            std::fprintf(stderr,
-                         TC("t_para_guard_a024db", "Para guardar la contraseña de una conexión hace falta una "
+            std::fputs(TC("t_para_guard_a024db", "Para guardar la contraseña de una conexión hace falta una "
                          "contraseña maestra:\n"
                          "es con la que se cifra en config.json, y sin ella no se guarda en "
-                         "claro.\n"));
+                         "claro.\n"), stderr);
             std::string maestra;
-            if (!preguntarSecretoPorTerminal("Contraseña maestra: ", maestra, err)) {
+            if (!preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "), maestra, err)) {
                 std::fprintf(stderr, "%s\n", err.c_str());
                 return false;
             }
             e.ses->maestra = maestra;
         } else {
-            std::fprintf(stderr,
-                         TC("t_aviso_sin__287990", "aviso: sin contraseña maestra (--password-fd) la conexión se crea "
-                         "SIN contraseña\n"));
+            std::fputs(TC("t_aviso_sin__287990", "aviso: sin contraseña maestra (--password-fd) la conexión se crea "
+                         "SIN contraseña\n"), stderr);
         }
     }
     if (!fdTexto.empty()) {
@@ -1297,7 +1308,7 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
         }
     } else if (interactivo && quiereClave && !e.ses->maestra.empty()) {
         std::string clave;
-        if (!preguntarSecretoPorTerminal("Contraseña (vacío = ninguna): ", clave, err)) {
+        if (!preguntarSecretoPorTerminal(T("t_p_pass_vacio", "Contraseña (vacío = ninguna): "), clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
@@ -1305,7 +1316,7 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
     }
     if (!o.tiene("--sudo") && interactivo) {
         std::string resp;
-        if (!pide("¿Usa sudo? (s/N)", "n", resp)) return false;
+        if (!pide(TC("t_p_sudo_n", "¿Usa sudo? (s/N)"), "n", resp)) return false;
         const std::string r = B::toLowerAscii(resp);
         p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
     }
@@ -1320,8 +1331,7 @@ bool cmdCrearConexion(Estado& e, const Opts& o) {
     for (char& c : p.password) { c = 0; }
     // Se recargan: a partir de ahora se puede navegar a ella.
     recarga(e);
-    std::fprintf(stderr, TC("t_creada_la__d038ed", "creada la conexión %s (%s)\n"), p.id.c_str(),
-                 local ? "local" : (p.username + "@" + p.host).c_str());
+    std::fprintf(stderr, TC("t_creada_la__d038ed", "creada la conexión %s (%s)\n"), p.id.c_str(), local ? "local" : (p.username + "@" + p.host).c_str());
     return true;
 }
 
@@ -1329,8 +1339,7 @@ bool cmdEditarConexion(Estado& e, const Opts& o, const ZfsmUrl& destino) {
     const std::string id = idDe(e, destino);
     const auto* actual = buscarConexion(e.conns, id);
     if (!actual) {
-        std::fprintf(stderr, TC("t_hace_falta_2bed6d", "hace falta estar en una conexión (ahora: %s)\n"),
-                     textoDe(destino).c_str());
+        std::fprintf(stderr, TC("t_hace_falta_2bed6d", "hace falta estar en una conexión (ahora: %s)\n"), textoDe(destino).c_str());
         return false;
     }
     B::ConnectionProfile p = *actual;
@@ -1369,7 +1378,7 @@ bool cmdEditarConexion(Estado& e, const Opts& o, const ZfsmUrl& destino) {
         p.useSudo = false;
     } else if (interactivo) {
         std::string resp;
-        if (!pide("¿Usa sudo? (s/n)", p.useSudo ? "s" : "n", resp)) return false;
+        if (!pide(TC("t_p_sudo", "¿Usa sudo? (s/n)"), p.useSudo ? "s" : "n", resp)) return false;
         const std::string r = B::toLowerAscii(resp);
         p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
     }
@@ -1387,7 +1396,7 @@ bool cmdEditarConexion(Estado& e, const Opts& o, const ZfsmUrl& destino) {
     } else if (o.tiene("--password") && interactivo) {
         std::string err;
         std::string clave;
-        if (!preguntarSecretoPorTerminal("Contraseña nueva: ", clave, err)) {
+        if (!preguntarSecretoPorTerminal(T("t_p_pass_nueva", "Contraseña nueva: "), clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
@@ -1433,7 +1442,7 @@ bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
         return cmdCrearPool(e, o, destino);
     }
     if (o.libres.empty()) {
-        std::fprintf(stderr, TC("t_uso_create_c8fa17", "uso: create <nombre> [prop=valor...]\n"));
+        std::fputs(TC("t_uso_create_c8fa17", "uso: create <nombre> [prop=valor...]\n"), stderr);
         return false;
     }
     if (!exigeDataset(destino)) {
@@ -1458,7 +1467,7 @@ bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
 bool cmdRename(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     if (o.libres.empty()) {
-        std::fprintf(stderr, TC("t_uso_rename_c4838f", "uso: rename <nuevo-nombre>\n"));
+        std::fputs(TC("t_uso_rename_c4838f", "uso: rename <nuevo-nombre>\n"), stderr);
         return false;
     }
     ZfsmUrl destino;
@@ -1518,7 +1527,7 @@ bool cmdPromote(Estado& e, const std::vector<std::string>& args) {
 bool cmdSet(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     if (o.libres.empty()) {
-        std::fprintf(stderr, TC("t_uso_set_pr_8ca313", "uso: set <propiedad>=<valor> [más...]\n"));
+        std::fputs(TC("t_uso_set_pr_8ca313", "uso: set <propiedad>=<valor> [más...]\n"), stderr);
         return false;
     }
     ZfsmUrl destino;
@@ -1527,7 +1536,7 @@ bool cmdSet(Estado& e, const std::vector<std::string>& args) {
     }
     const std::string objetivo = destino.zfsName();
     if (objetivo.empty()) {
-        std::fprintf(stderr, TC("t_hace_falta_6443ef", "hace falta un dataset o una instantánea\n"));
+        std::fputs(TC("t_hace_falta_6443ef", "hace falta un dataset o una instantánea\n"), stderr);
         return false;
     }
     std::vector<std::string> argv{"set"};
@@ -1607,15 +1616,15 @@ bool cmdBreakdown(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (o.libres.size() < 2 || o.libres.size() % 2 != 0) {
-        std::fprintf(stderr,
-                     TC("t_uso_breakd_14be27", "uso: breakdown <directorio> <nombre-hijo> [<directorio> <nombre-hijo>...]\n"
-                     "  Convierte cada directorio del dataset en un dataset hijo.\n"));
+        std::fputs(TC("t_uso_breakd_14be27", "uso: breakdown <directorio> <nombre-hijo> [<directorio> <nombre-hijo>...]\n"
+                     "  Convierte cada directorio del dataset en un dataset hijo.\n"), stderr);
         return false;
     }
-    if (!confirma(e, "Se van a convertir " + std::to_string(o.libres.size() / 2)
-                         + " directorios de " + destino.dataset
-                         + " en datasets hijos. ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_breakdown",
+                                 "Se van a convertir %1 directorios de %2 en datasets hijos. "
+                                 "¿Continuar?"),
+                               {std::to_string(o.libres.size() / 2), destino.dataset}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::vector<std::string> argv{"--mutate-advanced-breakdown", destino.dataset};
@@ -1642,14 +1651,15 @@ bool cmdAssemble(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (o.libres.empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_assemb_8aa75c", "uso: assemble <hijo> [<hijo>...]\n"
-                     "  Deshace lo de breakdown: devuelve cada dataset hijo a directorio.\n"));
+        std::fputs(TC("t_uso_assemb_8aa75c", "uso: assemble <hijo> [<hijo>...]\n"
+                     "  Deshace lo de breakdown: devuelve cada dataset hijo a directorio.\n"), stderr);
         return false;
     }
-    if (!confirma(e, "Se van a reintegrar " + std::to_string(o.libres.size()) + " datasets hijos en "
-                         + destino.dataset + " como directorios. ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_assemble",
+                                 "Se van a reintegrar %1 datasets hijos en %2 como "
+                                 "directorios. ¿Continuar?"),
+                               {std::to_string(o.libres.size()), destino.dataset}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     // Los hijos van con NOMBRE COMPLETO. El agente los comprueba con `zfs list <hijo>`, así
@@ -1677,15 +1687,17 @@ bool cmdToDir(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (o.libres.empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_todir__d626ba", "uso: todir <directorio-destino> [--delete-source]\n"
-                     "  Vuelca el contenido del dataset a un directorio.\n"));
+        std::fputs(TC("t_uso_todir__d626ba", "uso: todir <directorio-destino> [--delete-source]\n"
+                     "  Vuelca el contenido del dataset a un directorio.\n"), stderr);
         return false;
     }
     const bool borraOrigen = o.tiene("--delete-source");
-    if (!confirma(e, "Se va a volcar " + destino.dataset + " a " + o.libres.front()
-                         + (borraOrigen ? " y DESTRUIR el dataset de origen" : "") + ". ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_todir", "Se va a volcar %1 a %2%3. ¿Continuar?"),
+                               {destino.dataset, o.libres.front(),
+                                borraOrigen ? T("t_conf_y_destruir_origen",
+                                                " y DESTRUIR el dataset de origen")
+                                            : std::string()}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     const std::vector<std::string> argvTodir{"--mutate-advanced-todir", destino.dataset,
@@ -1714,10 +1726,9 @@ bool cmdToDir(Estado& e, const std::vector<std::string>& args) {
 bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from", "subdir"});
     if (o.libres.empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_fromdi_d4b854", "uso: fromdir <directorio-origen> [--from <url-origen>] [--subdir <rel>]\n"
+        std::fputs(TC("t_uso_fromdi_d4b854", "uso: fromdir <directorio-origen> [--from <url-origen>] [--subdir <rel>]\n"
                      "  Vuelca un directorio dentro del dataset actual. El origen puede estar\n"
-                     "  en otra máquina: --from acepta cualquier URL zfsm://.\n"));
+                     "  en otra máquina: --from acepta cualquier URL zfsm://.\n"), stderr);
         return false;
     }
     // El DESTINO es donde estamos. `--from` nombra el origen, que aquí es otra máquina y no
@@ -1757,9 +1768,11 @@ bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
 
     const std::string dir = o.libres.front();
     const std::string rel = o.valor("subdir");
-    if (!confirma(e, "Se va a volcar " + dir + " de " + origen.connection + " dentro de "
-                         + destino.dataset + " en " + destino.connection + ". ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_fromdir",
+                                 "Se va a volcar %1 de %2 dentro de %3 en %4. ¿Continuar?"),
+                               {dir, origen.connection, destino.dataset,
+                                destino.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
 
@@ -1826,13 +1839,12 @@ bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
 bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from", "base", "flags", "to"});
     if (o.libres.empty() && o.valor("to").empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_copy_d_f6efbc", "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
+        std::fputs(TC("t_uso_copy_d_f6efbc", "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
                      "          [--flags <banderas de zfs send>] [--wait]\n"
                      "  El destino es una URL: puede estar en OTRA máquina.\n"
                      "  Sin --from se usa el sitio actual como origen.\n"
                      "  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n"
-                     "  llama «Nivelar»).\n"));
+                     "  llama «Nivelar»).\n"), stderr);
         return false;
     }
     ZfsmUrl origen;
@@ -1840,8 +1852,7 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__886ec5", "el origen tiene que ser una INSTANTÁNEA (ahora: %s)\n"),
-                     textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__886ec5", "el origen tiene que ser una INSTANTÁNEA (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     ZfsmUrl destino;
@@ -1851,7 +1862,7 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (destino.dataset.empty()) {
-        std::fprintf(stderr, TC("t_el_destino_e077ee", "el destino tiene que ser un dataset\n"));
+        std::fputs(TC("t_el_destino_e077ee", "el destino tiene que ser un dataset\n"), stderr);
         return false;
     }
     const auto* pOrigen = perfilVivoDe(e, origen, error);
@@ -1867,10 +1878,9 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     // Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado
     // allí. Decirlo AQUÍ evita un fallo a mitad de transferencia que no se entiende.
     if (T::isWindowsConnection(*pOrigen) || T::isWindowsConnection(*pDestino)) {
-        std::fprintf(stderr,
-                     TC("t_la_transfe_6f9799", "la transferencia por socket no está disponible en Windows.\n"
+        std::fputs(TC("t_la_transfe_6f9799", "la transferencia por socket no está disponible en Windows.\n"
                      "Para llevar datos a o desde una máquina Windows, use «todir» y "
-                     "«fromdir».\n"));
+                     "«fromdir».\n"), stderr);
         return false;
     }
     const bool mismaMaquina = B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
@@ -1879,12 +1889,14 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     if (!base.empty() && base.front() == '@') {
         base = origen.dataset + base;
     }
-    if (!confirma(e, std::string("Se va a ") + (base.empty() ? "copiar" : "nivelar") + " "
-                         + origen.zfsName() + " de " + origen.connection + " a "
-                         + destino.dataset + " en " + destino.connection
-                         + ".\nSi el destino existe y difiere, `zfs recv -F` lo SOBRESCRIBE. "
-                           "¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_copy",
+                                 "Se va a %1 %2 de %3 a %4 en %5.\nSi el destino existe y "
+                                 "difiere, `zfs recv -F` lo SOBRESCRIBE. ¿Continuar?"),
+                               {base.empty() ? T("t_copiar", "copiar")
+                                             : T("t_nivelar", "nivelar"),
+                                origen.zfsName(), origen.connection, destino.dataset,
+                                destino.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
 
@@ -1897,7 +1909,7 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     const std::string puerto = claves.count("PORT") ? claves.at("PORT") : std::string();
     const std::string testigo = claves.count("TOKEN") ? claves.at("TOKEN") : std::string();
     if (puerto.empty() || testigo.size() != 64) {
-        std::fprintf(stderr, TC("t_el_destino_5cc244", "el destino no abrió el puerto de recepción correctamente\n"));
+        std::fputs(TC("t_el_destino_5cc244", "el destino no abrió el puerto de recepción correctamente\n"), stderr);
         return false;
     }
 
@@ -1905,10 +1917,8 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     // local; si no, por el host del perfil — que es como el origen llega a él.
     const std::string peer = mismaMaquina ? "127.0.0.1" : B::trim(pDestino->host);
     if (peer.empty()) {
-        std::fprintf(stderr,
-                     TC("t_no_se_sabe_0d2422", "no se sabe con qué dirección ve %s a %s: la conexión de destino no "
-                     "tiene host\n"),
-                     origen.connection.c_str(), destino.connection.c_str());
+        std::fprintf(stderr, TC("t_no_se_sabe_0d2422", "no se sabe con qué dirección ve %s a %s: la conexión de destino no "
+                     "tiene host\n"), origen.connection.c_str(), destino.connection.c_str());
         return false;
     }
 
@@ -1923,16 +1933,14 @@ bool cmdCopy(Estado& e, const std::vector<std::string>& args) {
     const auto cs = clavesDe(sendOut);
     const std::string jobId = cs.count("JOB_ID") ? cs.at("JOB_ID") : std::string();
     if (jobId.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__722922", "el origen no devolvió identificador de trabajo\n"));
+        std::fputs(TC("t_el_origen__722922", "el origen no devolvió identificador de trabajo\n"), stderr);
         return false;
     }
     std::fprintf(stdout, "%s\n", jobId.c_str());
-    std::fprintf(stderr, TC("t_transferen_07aa2e", "transferencia en marcha como trabajo %s en %s\n"), jobId.c_str(),
-                 origen.connection.c_str());
+    std::fprintf(stderr, TC("t_transferen_07aa2e", "transferencia en marcha como trabajo %s en %s\n"), jobId.c_str(), origen.connection.c_str());
 
     if (!o.tiene("--wait")) {
-        std::fprintf(stderr, TC("t_siga_con_j_2debd4", "siga con «job %s --on %s»\n"), jobId.c_str(),
-                     textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_siga_con_j_2debd4", "siga con «job %s --on %s»\n"), jobId.c_str(), textoDe(origen).c_str());
         return true;
     }
     // Con --wait se espera aquí. Se sondea cada dos segundos: más a menudo es carga sin
@@ -1991,9 +1999,11 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
     const bool esFreeBsd = B::contains(soBajo, "freebsd");
     const std::string plataforma = esWindows ? "windows" : (esMac ? "macos" : (esFreeBsd ? "freebsd" : "linux"));
 
-    if (!confirma(e, "Se va a instalar o actualizar el daemon en " + quien
-                         + " y arrancarlo con el gestor de servicios del sistema. ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_install_daemon",
+                                 "Se va a instalar o actualizar el daemon en %1 y arrancarlo "
+                                 "con el gestor de servicios del sistema. ¿Continuar?"),
+                               {quien}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
 
@@ -2013,11 +2023,9 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
     }
     const std::string binario = rutaDelAgente(plataforma, arq);
     if (binario.empty()) {
-        std::fprintf(stderr,
-                     TC("t_no_se_enco_393030", "no se encontró el binario del daemon para %s/%s en este equipo.\n"
+        std::fprintf(stderr, TC("t_no_se_enco_393030", "no se encontró el binario del daemon para %s/%s en este equipo.\n"
                      "No se instala nada: el respaldo por guion no habla TLS, y dejarlo puesto\n"
-                     "daría una máquina que parece atendida y no lo está.\n"),
-                     plataforma.c_str(), arq.empty() ? "?" : arq.c_str());
+                     "daría una máquina que parece atendida y no lo está.\n"), plataforma.c_str(), arq.empty() ? "?" : arq.c_str());
         return false;
     }
     std::ifstream f(binario, std::ios::binary);
@@ -2028,8 +2036,7 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
         std::fprintf(stderr, TC("t_el_binario_ce2086", "el binario del daemon está vacío: %s\n"), binario.c_str());
         return false;
     }
-    std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s (%zu bytes) en %s...\n"), binario.c_str(),
-                 contenido.size(), quien.c_str());
+    std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s (%zu bytes) en %s...\n"), binario.c_str(), contenido.size(), quien.c_str());
 
     namespace DP = B::daemonpayload;
     // La versión del agente y la del protocolo, que van en agent.conf. Vienen del
@@ -2055,8 +2062,7 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
             const B::ExecResult r =
                 B::runExecStream(inv.program, inv.args, std::string(), 300000, B::StreamCallbacks{});
             if (r.rc != 0) {
-                std::fprintf(stderr, TC("t_scp_fall_c_1d482f", "scp falló (código %d): %s\n"), r.rc,
-                             B::trim(r.err).c_str());
+                std::fprintf(stderr, TC("t_scp_fall_c_1d482f", "scp falló (código %d): %s\n"), r.rc, B::trim(r.err).c_str());
                 return false;
             }
         }
@@ -2067,8 +2073,7 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
                        H::withSudoCommand(perfil, DP::windowsNativeInstallCommand()), 300000, out,
                        err, rc, {}, {}, {}, {}, false, e.ses->verboso)
             || rc != 0) {
-            std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc,
-                         B::trim(err.empty() ? out : err).c_str());
+            std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc, B::trim(err.empty() ? out : err).c_str());
             return false;
         }
         std::fprintf(stderr, TC("t_daemon_ins_3282b0", "daemon instalado en %s\n"), quien.c_str());
@@ -2149,8 +2154,7 @@ bool cmdInstalarDaemon(Estado& e, const std::vector<std::string>& args) {
                    [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, {},
                    contenido, false, e.ses->verboso)
         || rc != 0) {
-        std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc,
-                     B::trim(err.empty() ? out : err).c_str());
+        std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc, B::trim(err.empty() ? out : err).c_str());
         e.ultimoRc = rc == 0 ? 1 : rc;
         return false;
     }
@@ -2194,7 +2198,10 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
     }
     Tabla t;
     t.nombreJson = "jobs";
-    t.cabecerasTexto = {"ID", "ESTADO", "TIPO", "INSTANTÁNEA", "BYTES", "MiB/s", "SEGUNDOS", "ERROR"};
+    t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_estado", "ESTADO"), T("t_cab_tipo", "TIPO"),
+                        T("t_cab_instantanea", "INSTANTÁNEA"), T("t_cab_bytes", "BYTES"),
+                        T("t_cab_mib_s", "MiB/s"), T("t_cab_segundos", "SEGUNDOS"),
+                        T("t_cab_error", "ERROR")};
     t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
                Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
@@ -2221,7 +2228,7 @@ bool cmdJobs(Estado& e, const std::vector<std::string>& args) {
                            std::to_string(j["elapsed"].toInt()), B::trim(textoErr)});
     }
     if (t.filas.empty()) {
-        std::fprintf(stderr, TC("t_no_hay_tra_f891dc", "no hay trabajos\n"));
+        std::fputs(TC("t_no_hay_tra_f891dc", "no hay trabajos\n"), stderr);
     }
     t.imprime(e.formato);
     return true;
@@ -2234,19 +2241,21 @@ bool cmdJob(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (o.libres.empty()) {
-        std::fprintf(stderr, TC("t_uso_job_id_7597d2", "uso: job <id> | job cancel <id>\n"));
+        std::fputs(TC("t_uso_job_id_7597d2", "uso: job <id> | job cancel <id>\n"), stderr);
         return false;
     }
     const bool cancelar = B::toLowerAscii(o.libres.front()) == "cancel";
     if (cancelar && o.libres.size() < 2) {
-        std::fprintf(stderr, TC("t_uso_job_ca_1e9ae2", "uso: job cancel <id>\n"));
+        std::fputs(TC("t_uso_job_ca_1e9ae2", "uso: job cancel <id>\n"), stderr);
         return false;
     }
     const std::string id = cancelar ? o.libres[1] : o.libres.front();
     if (cancelar) {
-        if (!confirma(e, "Se va a cancelar el trabajo " + id
-                             + ". Lo que ya haya hecho NO se deshace. ¿Continuar?")) {
-            std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+        if (!confirma(e, B::format(T("t_conf_job_cancel",
+                                     "Se va a cancelar el trabajo %1. Lo que ya haya hecho NO "
+                                     "se deshace. ¿Continuar?"),
+                                   {id}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
         std::string out;
@@ -2262,7 +2271,7 @@ bool cmdJob(Estado& e, const std::vector<std::string>& args) {
     }
     Tabla t;
     t.nombreJson = "job";
-    t.cabecerasTexto = {"CAMPO", "VALOR"};
+    t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
     t.campos = {"field", "value"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena};
     for (const auto& kv : clavesDe(out)) {
@@ -2286,12 +2295,11 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
     const auto claves = clavesDe(out);
     const auto it = claves.find("JOB_ID");
     if (it == claves.end()) {
-        std::fprintf(stderr, TC("t_el_daemon__64a9ed", "el daemon no devolvió identificador de trabajo\n"));
+        std::fputs(TC("t_el_daemon__64a9ed", "el daemon no devolvió identificador de trabajo\n"), stderr);
         return false;
     }
     std::fprintf(stdout, "%s\n", it->second.c_str());
-    std::fprintf(stderr, TC("t_en_marcha__e494cb", "en marcha como trabajo %s; siga con «job %s»\n"), it->second.c_str(),
-                 it->second.c_str());
+    std::fprintf(stderr, TC("t_en_marcha__e494cb", "en marcha como trabajo %s; siga con «job %s»\n"), it->second.c_str(), it->second.c_str());
     return true;
 }
 
@@ -2364,8 +2372,9 @@ bool cmdPoolSimple(Estado& e, const std::vector<std::string>& args, const char* 
     if (!destinoDe(e, o, destino) || !exigePool(destino)) {
         return false;
     }
-    if (aviso && !confirma(e, std::string(aviso) + " en " + destino.pool + ". ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (aviso && !confirma(e, B::format(T("t_conf_en_pool", "%1 en %2. ¿Continuar?"),
+                                {aviso, destino.pool}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::vector<std::string> argv{op};
@@ -2419,7 +2428,7 @@ bool cmdHistory(Estado& e, const std::vector<std::string>& args) {
     }
     Tabla t;
     t.nombreJson = "history";
-    t.cabecerasTexto = {"CUÁNDO", "ORDEN"};
+    t.cabecerasTexto = {T("t_cab_cuando", "CUÁNDO"), T("t_cab_orden", "ORDEN")};
     t.campos = {"when", "command"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena};
     for (const std::string& linea : B::split(out, "\n", true)) {
@@ -2447,7 +2456,7 @@ bool cmdImport(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (destino.connection.empty()) {
-        std::fprintf(stderr, TC("t_hace_falta_6a3acd", "hace falta una conexión\n"));
+        std::fputs(TC("t_hace_falta_6a3acd", "hace falta una conexión\n"), stderr);
         return false;
     }
     if (o.libres.empty()) {
@@ -2480,18 +2489,18 @@ bool cmdImport(Estado& e, const std::vector<std::string>& args) {
 // le den, y si alguno tenía datos, desaparecen. La confirmación los enumera uno a uno.
 bool cmdCrearPool(Estado& e, const Opts& o, const ZfsmUrl& destino) {
     if (o.libres.size() < 2) {
-        std::fprintf(stderr,
-                     TC("t_uso_create_63b88e", "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n"
+        std::fputs(TC("t_uso_create_63b88e", "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n"
                      "            [-o prop=valor] [-O prop-fs=valor] [--mountpoint <ruta>]\n"
-                     "  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n"));
+                     "  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n"), stderr);
         return false;
     }
     const std::string pool = o.libres.front();
     const std::vector<std::string> vdevs(o.libres.begin() + 1, o.libres.end());
-    if (!confirma(e, "Se va a crear el pool " + pool + " en " + destino.connection
-                         + " ESCRIBIENDO en: " + B::join(vdevs, ", ")
-                         + ".\nLo que hubiera en esos dispositivos SE PIERDE. ¿Continuar?")) {
-        std::fprintf(stderr, TC("t_cancelado_329c0e", "cancelado\n"));
+    if (!confirma(e, B::format(T("t_conf_create_pool",
+                                 "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "
+                                 "hubiera en esos dispositivos SE PIERDE. ¿Continuar?"),
+                               {pool, destino.connection, B::join(vdevs, ", ")}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     std::vector<std::string> argv{"create"};
@@ -2614,7 +2623,7 @@ bool cmdRefrescar(Estado& e, const std::vector<std::string>& args) {
 
     Tabla t;
     t.nombreJson = "refresh";
-    t.cabecerasTexto = {"CAMPO", "VALOR"};
+    t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
     t.campos = {"field", "value"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena};
     t.filas.push_back({"connection", id});
@@ -2676,7 +2685,8 @@ bool cmdHolds(Estado& e, const std::vector<std::string>& args) {
     }
     Tabla t;
     t.nombreJson = "holds";
-    t.cabecerasTexto = {"INSTANTÁNEA", "ETIQUETA", "CREADA"};
+    t.cabecerasTexto = {T("t_cab_instantanea", "INSTANTÁNEA"), T("t_cab_etiqueta", "ETIQUETA"),
+                        T("t_cab_creada", "CREADA")};
     t.campos = {"snapshot", "tag", "created"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     for (const std::string& linea : B::split(out, "\n", true)) {
@@ -2713,8 +2723,7 @@ bool cmdRetencion(Estado& e, const std::vector<std::string>& args, bool poner) {
     if (!zfsGenerico(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_s_la_reten_cb09d7", "%s la retención «%s» en %s\n"), poner ? "puesta" : "quitada",
-                 o.libres.front().c_str(), destino.zfsName().c_str());
+    std::fprintf(stderr, TC("t_s_la_reten_cb09d7", "%s la retención «%s» en %s\n"), poner ? "puesta" : "quitada", o.libres.front().c_str(), destino.zfsName().c_str());
     return true;
 }
 
@@ -2722,10 +2731,9 @@ bool cmdRetencion(Estado& e, const std::vector<std::string>& args, bool poner) {
 bool cmdDiff(Estado& e, const std::vector<std::string>& args) {
     const Opts o = trocea(args, {"on", "from"});
     if (o.libres.empty()) {
-        std::fprintf(stderr,
-                     TC("t_uso_diff_i_10a43a", "uso: diff <@instantánea-o-dataset> [--from <@instantánea>]\n"
+        std::fputs(TC("t_uso_diff_i_10a43a", "uso: diff <@instantánea-o-dataset> [--from <@instantánea>]\n"
                      "  Compara dos puntos del MISMO dataset. Sin --from se usa el sitio\n"
-                     "  actual como origen.\n"));
+                     "  actual como origen.\n"), stderr);
         return false;
     }
     ZfsmUrl origen;
@@ -2739,8 +2747,7 @@ bool cmdDiff(Estado& e, const std::vector<std::string>& args) {
         return false;
     }
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"),
-                     textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     std::string out;
@@ -2749,7 +2756,8 @@ bool cmdDiff(Estado& e, const std::vector<std::string>& args) {
     }
     Tabla t;
     t.nombreJson = "changes";
-    t.cabecerasTexto = {"CAMBIO", "RUTA", "RENOMBRADO A"};
+    t.cabecerasTexto = {T("t_cab_cambio", "CAMBIO"), T("t_cab_ruta", "RUTA"),
+                        T("t_cab_renombrado_a", "RENOMBRADO A")};
     t.campos = {"change", "path", "renamed_to"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     // `zfs diff -H` da: <marca>\t<ruta>[\t<ruta nueva>]. La marca es +, -, M o R.
@@ -2957,17 +2965,15 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     if (!resuelve(e, inicio, e.actual, errInicio)
         || buscarConexion(e.conns, e.actual.connection) == nullptr) {
         if (!urlInicial.empty()) {
-            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"), inicio.c_str(),
-                         errInicio.empty() ? "esa conexión no existe" : errInicio.c_str());
+            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"), inicio.c_str(), errInicio.empty() ? "esa conexión no existe" : errInicio.c_str());
         }
         e.actual = ZfsmUrl{};
     }
 
     const bool interactivo = hayTerminal();
     if (interactivo) {
-        std::fprintf(stderr,
-                     TC("t_zfsmgr_cli_44809f", "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
-                     "El tabulador completa órdenes y URL; las flechas recorren el historial.\n"));
+        std::fputs(TC("t_zfsmgr_cli_44809f", "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
+                     "El tabulador completa órdenes y URL; las flechas recorren el historial.\n"), stderr);
     }
 
     using Manejador = std::function<bool(Estado&, const std::vector<std::string>&)>;

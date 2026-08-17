@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tr.h"
+
 #include "json.h"
 
 #include <cstdio>
@@ -57,7 +59,7 @@ struct Tabla {
     // debería tener que saberlo.
     std::string celdaTexto(std::size_t col, const std::string& v) const {
         if (tipoDe(col) == Tipo::Booleano) {
-            return v == "true" ? "sí" : (v == "false" ? "no" : v);
+            return v == "true" ? T("t_si", "sí") : (v == "false" ? T("t_no", "no") : v);
         }
         if (tipoDe(col) == Tipo::Bytes) {
             return tamanoLegible(v);

@@ -1,5 +1,7 @@
 #include "secretinput.h"
 
+#include "tr.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -41,7 +43,7 @@ bool leerSecretoDeDescriptor(int fd, std::string& out, std::string& error) {
     out.clear();
     error.clear();
     if (fd < 0) {
-        error = "descriptor no válido";
+        error = T("t_desc_no_valido", "descriptor no válido");
         return false;
     }
     char buf[512];
@@ -86,7 +88,7 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
     out.clear();
     error.clear();
     if (!hayTerminal()) {
-        error = "no hay terminal: use --password-fd";
+        error = T("t_no_hay_term_fd", "no hay terminal: use --password-fd");
         return false;
     }
     // El aviso va por la salida de ERROR, no por la estándar: así se puede canalizar la
@@ -136,7 +138,7 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
 #endif
     std::fputs("\n", stderr);  // el salto que el usuario no vio al pulsar Intro
     if (!ok) {
-        error = "no se leyó nada";
+        error = T("t_no_se_leyo_nada", "no se leyó nada");
     }
     return ok;
 }
@@ -145,7 +147,7 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
     out.clear();
     error.clear();
     if (!hayTerminal()) {
-        error = "no hay terminal para preguntar";
+        error = T("t_no_hay_term_preg", "no hay terminal para preguntar");
         return false;
     }
     // Igual que la de arriba menos el apagado del eco, y por el mismo motivo el aviso va
@@ -160,7 +162,7 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
         }
     }
     if (linea.empty() && c == EOF) {
-        error = "no se leyó nada";
+        error = T("t_no_se_leyo_nada", "no se leyó nada");
         return false;
     }
     out = linea;

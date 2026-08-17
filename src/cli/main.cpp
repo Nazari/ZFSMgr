@@ -97,13 +97,16 @@ void uso() {
 std::string textoDe(const ST::Aviso& a) {
     switch (a.motivo) {
         case ST::Motivo::Ninguno: return {};
-        case ST::Motivo::ConfigNoSeAbre: return "no se pudo abrir config.json";
+        case ST::Motivo::ConfigNoSeAbre: return T("t_no_abre_config", "no se pudo abrir config.json");
         case ST::Motivo::ConfigNoValido:
-            return "config.json no es válido" + (a.detalle.empty() ? std::string() : ": " + a.detalle);
-        case ST::Motivo::TrustNoSeAbre: return "no se pudo abrir trust-store.json";
+            return T("t_config_no_valido", "config.json no es válido")
+                   + (a.detalle.empty() ? std::string() : ": " + a.detalle);
+        case ST::Motivo::TrustNoSeAbre:
+            return T("t_no_abre_trust", "no se pudo abrir trust-store.json");
         case ST::Motivo::TrustNoValido:
-            return "trust-store.json no es válido" + (a.detalle.empty() ? std::string() : ": " + a.detalle);
-        default: return "error al leer la configuración";
+            return T("t_trust_no_valido", "trust-store.json no es válido")
+                   + (a.detalle.empty() ? std::string() : ": " + a.detalle);
+        default: return T("t_error_leer_config", "error al leer la configuración");
     }
 }
 
@@ -180,8 +183,7 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
         return 1;
     }
     if (conns.perfiles.empty()) {
-        std::fprintf(stderr, TC("t_s_no_hay_c_8978da", "%s: no hay conexiones configuradas en %s\n"), kNombre,
-                     ST::rutaConfig(op.dirConfig).c_str());
+        std::fprintf(stderr, TC("t_s_no_hay_c_8978da", "%s: no hay conexiones configuradas en %s\n"), kNombre, ST::rutaConfig(op.dirConfig).c_str());
     }
     zfsmgr::cli::tablaDeConexiones(conns).imprime(op.formato);
     return 0;
@@ -273,14 +275,13 @@ int main(int argc, char** argv) {
             } else if (v == "text") {
                 op.formato = Formato::Texto;
             } else {
-                std::fprintf(stderr, TC("t_s_formato__3b41bf", "%s: formato desconocido: %s (use text, tsv o json)\n"),
-                             kNombre, v.c_str());
+                std::fprintf(stderr, TC("t_s_formato__3b41bf", "%s: formato desconocido: %s (use text, tsv o json)\n"), kNombre, v.c_str());
                 return 2;
             }
             continue;
         }
         if (!a.empty() && a[0] == '-') {
-            std::fprintf(stderr, "%s: opción desconocida: %s\n", kNombre, a.c_str());
+            std::fprintf(stderr, TC("t_opcion_desconocida", "%s: opción desconocida: %s\n"), kNombre, a.c_str());
             uso();
             return 2;
         }
@@ -311,7 +312,7 @@ int main(int argc, char** argv) {
 #ifdef ZFSMGR_APP_VERSION
         std::printf("%s %s\n", kNombre, ZFSMGR_APP_VERSION);
 #else
-        std::printf("%s (sin versión)\n", kNombre);
+        std::printf(TC("t_sin_version", "%s (sin versión)\n"), kNombre);
 #endif
         return 0;
     }
@@ -406,7 +407,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
                 return 1;
             }
-        } else if (!zfsmgr::cli::preguntarSecretoPorTerminal("Contraseña maestra: ", maestra, err)) {
+        } else if (!zfsmgr::cli::preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "), maestra, err)) {
             std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
             return 1;
         }

@@ -70,13 +70,16 @@ void descifraPerfil(B::ConnectionProfile& p, const std::string& maestra) {
     p.daemonTlsClientKeyPem = abrir(p.daemonTlsClientKeyPem, maestra);
 }
 
-const char* etiqueta(Nivel n) {
+// Devuelve `std::string` y no `const char*`: el texto traducido vive en el catálogo, pero
+// el castellano de reserva es el temporal que se le pasa a `tr`, y un puntero a eso queda
+// colgando en cuanto termina la expresión.
+std::string etiqueta(Nivel n) {
     switch (n) {
-        case Nivel::Warn: return "aviso";
-        case Nivel::Error: return "error";
-        case Nivel::Debug: return "depuración";
-        case Nivel::Info: return "info";
-        default: return "";
+        case Nivel::Warn: return T("t_niv_aviso", "aviso");
+        case Nivel::Error: return T("t_niv_error", "error");
+        case Nivel::Debug: return T("t_niv_depuracion", "depuración");
+        case Nivel::Info: return T("t_niv_info", "info");
+        default: return {};
     }
 }
 
@@ -95,8 +98,11 @@ bool Conexiones::desconectada(const std::string& id) const {
 Tabla tablaDeConexiones(const Conexiones& c) {
     Tabla t;
     t.nombreJson = "connections";
-    t.cabecerasTexto = {"ID",     "NOMBRE", "TIPO", "SO",  "USUARIO",
-                        "HOST",   "PUERTO", "SUDO", "TLS", "CONECTADA"};
+    t.cabecerasTexto = {T("t_cab_id", "ID"),       T("t_cab_nombre", "NOMBRE"),
+                        T("t_cab_tipo", "TIPO"),   T("t_cab_so", "SO"),
+                        T("t_cab_usuario", "USUARIO"), T("t_cab_host", "HOST"),
+                        T("t_cab_puerto", "PUERTO"), T("t_cab_sudo", "SUDO"),
+                        T("t_cab_tls", "TLS"),     T("t_cab_conectada", "CONECTADA")};
     t.campos = {"id",   "name",   "type", "os",  "user",
                 "host", "port",   "sudo", "tls", "connected"};
     t.tipos = {Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,   Tipo::Cadena,
@@ -131,7 +137,7 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     ST::Aviso aviso;
     const auto root = ST::leerConfig(dirConfig, aviso);
     if (!aviso.vacio()) {
-        c.aviso = "no se pudo leer config.json";
+        c.aviso = T("t_no_lee_config", "no se pudo leer config.json");
         return c;
     }
     // El material TLS del almacén de confianza, indexado por identificador para fundirlo
@@ -224,9 +230,10 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         if (!importante && !raw->verboso) {
             return;
         }
-        const char* et = etiqueta(n);
-        std::fprintf(stderr, "%s%s%s%s%s\n", *et ? "[" : "", et, *et ? "] " : "",
-                     connId.empty() ? "" : (connId + ": ").c_str(), msg.c_str());
+        const std::string et = etiqueta(n);
+        std::fprintf(stderr, "%s%s%s%s%s\n", et.empty() ? "" : "[", et.c_str(),
+                     et.empty() ? "" : "] ", connId.empty() ? "" : (connId + ": ").c_str(),
+                     msg.c_str());
     };
 
     // Por el TERMINAL, nunca por argumento ni por variable de entorno: las dos cosas
@@ -235,11 +242,11 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                           std::string& clave) {
         std::fprintf(stderr, "%s\n", motivo.c_str());
         std::string err;
-        if (!preguntarPorTerminal("Usuario: ", usuario, err)) {
+        if (!preguntarPorTerminal(T("t_p_usuario_dp", "Usuario: "), usuario, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-        if (!preguntarSecretoPorTerminal("Contraseña: ", clave, err)) {
+        if (!preguntarSecretoPorTerminal(T("t_p_pass", "Contraseña: "), clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
@@ -270,8 +277,8 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         }
         std::string err;
         std::string clave;
-        std::fprintf(stderr, TC("t_se_necesit_50a033", "Se necesita la contraseña de sudo de esta máquina.\n"));
-        if (!preguntarSecretoPorTerminal("Contraseña de sudo: ", clave, err)) {
+        std::fputs(TC("t_se_necesit_50a033", "Se necesita la contraseña de sudo de esta máquina.\n"), stderr);
+        if (!preguntarSecretoPorTerminal(T("t_p_pass_sudo", "Contraseña de sudo: "), clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
@@ -290,7 +297,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                        std::uint16_t puerto, std::string* errorOut) {
         if (p.id.empty()) {
             if (errorOut) {
-                *errorOut = "la conexión no tiene identificador";
+                *errorOut = T("t_conn_sin_id", "la conexión no tiene identificador");
             }
             return false;
         }
@@ -306,7 +313,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         // ahorrarse una lectura por SSH es un mal cambio.
         if (raw->maestra.empty()) {
             if (errorOut) {
-                *errorOut = "sin contraseña maestra no se guarda el material TLS en claro";
+                *errorOut = T("t_tls_sin_maestra", "sin contraseña maestra no se guarda el material TLS en claro");
             }
             return false;
         }
@@ -341,7 +348,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         ST::Aviso avisoEscritura;
         if (!ST::escribirTrustStore(raw->dirConfig, root, avisoEscritura)) {
             if (errorOut) {
-                *errorOut = "no se pudo escribir trust-store.json";
+                *errorOut = T("t_no_escribe_trust", "no se pudo escribir trust-store.json");
             }
             return false;
         }
@@ -431,15 +438,16 @@ std::string rutaDelAgente(const std::string& plataforma, const std::string& arqu
 bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& error) {
     error.clear();
     if (B::trim(p.id).empty()) {
-        error = "la conexión necesita un identificador";
+        error = T("t_conn_necesita_id", "la conexión necesita un identificador");
         return false;
     }
     // **Sin poder leer los secretos NO se escribe.** Un perfil cargado con --no-secrets
     // trae los campos cifrados VACÍOS, y guardarlo así los deja vacíos en el fichero: se
     // pierde la contraseña, sin aviso y sin vuelta atrás. Pasó de verdad con un `edit`.
     if (s.sinSecretos) {
-        error = "con --no-secrets no se escribe la configuración: los campos cifrados no se "
-                "han podido leer y guardarlos los borraría";
+        error = T("t_no_secrets_no_escribe",
+                  "con --no-secrets no se escribe la configuración: los campos cifrados no se "
+                  "han podido leer y guardarlos los borraría");
         return false;
     }
     B::ConnectionProfile guardado = p;
@@ -452,13 +460,13 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
     // la misma regla que aplica la interfaz.
     if (!guardado.password.empty() && !B::SecretCipher::isEncrypted(guardado.password)) {
         if (s.maestra.empty()) {
-            error = "hace falta la contraseña maestra para cifrar la de la conexión";
+            error = T("t_falta_maestra_cifrar", "hace falta la contraseña maestra para cifrar la de la conexión");
             return false;
         }
         std::string cifrada;
         std::string err;
         if (!B::SecretCipher::encryptEncv1(guardado.password, s.maestra, cifrada, err)) {
-            error = "no se pudo cifrar la contraseña: " + err;
+            error = B::format(T("t_no_cifra_pass", "no se pudo cifrar la contraseña: %1"), {err});
             return false;
         }
         guardado.password = cifrada;
@@ -483,7 +491,7 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
     root.set("connections", B::json::Value(std::move(salida)));
     ST::Aviso avisoEscritura;
     if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
-        error = "no se pudo escribir config.json";
+        error = T("t_no_escribe_config", "no se pudo escribir config.json");
         return false;
     }
     return true;
@@ -504,13 +512,13 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
         salida.push_back(v);
     }
     if (!encontrada) {
-        error = "no hay ninguna conexión con identificador «" + id + "»";
+        error = B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id});
         return false;
     }
     root.set("connections", B::json::Value(std::move(salida)));
     ST::Aviso avisoEscritura;
     if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
-        error = "no se pudo escribir config.json";
+        error = T("t_no_escribe_config", "no se pudo escribir config.json");
         return false;
     }
     return true;
@@ -521,7 +529,7 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
     error.clear();
     const std::string clave = clavePersistencia(id);
     if (clave.empty()) {
-        error = "identificador vacío";
+        error = T("t_id_vacio", "identificador vacío");
         return false;
     }
     ST::Aviso aviso;
@@ -540,7 +548,7 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
     root.set("app", app);
     ST::Aviso avisoEscritura;
     if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
-        error = "no se pudo escribir config.json";
+        error = T("t_no_escribe_config", "no se pudo escribir config.json");
         return false;
     }
     return true;
@@ -562,7 +570,7 @@ bool ejecutarAgente(Sesion& s,
     }
     if (args.empty()) {
         if (motivo) {
-            *motivo = "sin verbo";
+            *motivo = T("t_sin_verbo", "sin verbo");
         }
         return false;
     }
@@ -575,14 +583,15 @@ bool ejecutarAgente(Sesion& s,
         std::uint16_t puerto = 47653;
         if (!T::ensureLocalDaemonTlsMaterial(s.transporte, srv, cli, key, puerto)) {
             if (motivo) {
-                *motivo = "no se pudo leer el material TLS del daemon local";
+                *motivo = T("t_no_tls_local", "no se pudo leer el material TLS del daemon local");
             }
             return false;
         }
         T::LocalRpcDiag diag;
         if (!T::runLocalAgentRpc(args, srv, cli, key, puerto, timeoutMs, out, err, rc, &diag)) {
             if (motivo) {
-                *motivo = diag.failure.empty() ? "el daemon local no respondió" : diag.failure;
+                *motivo = diag.failure.empty() ? T("t_daemon_local_mudo", "el daemon local no respondió")
+                                               : diag.failure;
             }
             return false;
         }
@@ -607,8 +616,10 @@ bool ejecutarAgente(Sesion& s,
                 }
             }
             const std::string quien = p.name.empty() ? p.id : p.name;
-            *motivo = razon.empty() ? "el daemon de " + quien + " no respondió por RPC"
-                                    : "el daemon de " + quien + " no respondió: " + razon;
+            *motivo = razon.empty()
+                          ? B::format(T("t_daemon_mudo", "el daemon de %1 no respondió por RPC"), {quien})
+                          : B::format(T("t_daemon_mudo_por", "el daemon de %1 no respondió: %2"),
+                                      {quien, razon});
         }
         return false;
     }
