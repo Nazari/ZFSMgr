@@ -141,4 +141,30 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
     return ok;
 }
 
+bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::string& error) {
+    out.clear();
+    error.clear();
+    if (!hayTerminal()) {
+        error = "no hay terminal para preguntar";
+        return false;
+    }
+    // Igual que la de arriba menos el apagado del eco, y por el mismo motivo el aviso va
+    // por la salida de ERROR: así la estándar se puede canalizar a un fichero.
+    std::fputs(aviso.c_str(), stderr);
+    std::fflush(stderr);
+    std::string linea;
+    int c = 0;
+    while ((c = std::fgetc(stdin)) != EOF && c != '\n') {
+        if (c != '\r') {
+            linea.push_back(static_cast<char>(c));
+        }
+    }
+    if (linea.empty() && c == EOF) {
+        error = "no se leyó nada";
+        return false;
+    }
+    out = linea;
+    return true;
+}
+
 }  // namespace zfsmgr::cli

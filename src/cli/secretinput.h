@@ -21,6 +21,13 @@ bool leerSecretoDeDescriptor(int fd, std::string& out, std::string& error);
 // `cron`, por ejemplo—, que es justamente el caso en el que hay que usar el descriptor.
 bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std::string& error);
 
+// Pregunta por el terminal CON eco, para lo que no es secreto —un nombre de usuario—.
+//
+// Vive aquí, junto a su gemela, porque el manejo del terminal es el mismo y la única
+// diferencia es si se apaga el eco. Separarlas invitaría a que una de las dos se olvidara
+// de comprobar que hay terminal.
+bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::string& error);
+
 // ¿Hay un terminal al otro lado? Sirve para decidir si tiene sentido preguntar.
 bool hayTerminal();
 

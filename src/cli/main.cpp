@@ -10,6 +10,9 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 
 #include "connectionjson.h"
+#include "session.h"
+#include "shell.h"
+#include "tabla.h"
 #include "json.h"
 #include "secretcipher.h"
 #include "secretinput.h"
@@ -28,6 +31,9 @@
 namespace {
 
 namespace B = zfsmgr::base;
+using zfsmgr::cli::Formato;
+using zfsmgr::cli::Tabla;
+using zfsmgr::cli::Tipo;
 namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
 
@@ -37,7 +43,11 @@ void uso() {
     std::fprintf(stderr,
                  "Uso: %s [opciones] <orden>\n"
                  "\n"
+                 "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
+                 "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
+                 "\n"
                  "Órdenes:\n"
+                 "  (ninguna)             Modo interactivo, empezando en zfsm://Local\n"
                  "  connections list      Lista las conexiones configuradas\n"
                  "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
                  "  version               Versión de esta herramienta\n"
@@ -58,6 +68,10 @@ void uso() {
                  "                        booleanos y lo que no aplica como null.\n"
                  "                        connections list: id, name, type, os, user,\n"
                  "                        host, port, sudo, tls\n"
+                 "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
+                 "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
+                 "                        transporte con cada máquina\n"
+                 "  -y, --yes             No preguntar antes de las acciones destructivas\n"
                  "  -h, --help            Esta ayuda\n"
                  "\n"
                  "La contraseña maestra NO se pasa por argumento ni por variable de\n"
@@ -99,148 +113,15 @@ std::string dirConfigPorOmision() {
     return ".config/ZFSMgr";
 }
 
-// Cómo se saca lo que se lista.
-//
-// `Texto` es para leer: columnas alineadas y encabezados en el idioma de la aplicación.
-// `Tsv` es para guiones: **sin encabezado**, separado por tabuladores, columnas fijas y
-// en inglés. Es la misma convención que `zfs list -H`, que quien use esta herramienta ya
-// conoce, y por eso no lleva encabezado: una línea de más que hay que saltarse.
-//
-// Los campos vacíos salen como «-», también como en `zfs`: así el número de columnas no
-// cambia y `cut -f4` sigue apuntando a lo mismo.
-//
-// `Json` es para programas, y aporta lo ÚNICO que tsv no puede dar: **tipos**. Un puerto
-// sale como número y no como «22», `sudo` como booleano y no como «true», y lo que no
-// aplica sale como `null` en vez de «-». Si se emitiera todo como cadenas, JSON no
-// añadiría nada sobre tsv salvo comillas y una dependencia más de quien lo lea.
-enum class Formato { Texto, Tsv, Json };
-
-// De qué tipo es una columna. Solo lo usa JSON: texto y tsv lo sacan todo como texto,
-// que es lo que son.
-enum class Tipo { Cadena, Booleano, Entero };
-
 struct Opciones {
     int passwordFd{-1};
     std::string dirConfig;
     bool sinSecretos{false};
     Formato formato{Formato::Texto};
+    std::string urlInicial;
+    bool verboso{false};
+    bool asumirSi{false};
     std::vector<std::string> orden;
-};
-
-// Una tabla que se sabe imprimir de las tres maneras. Existe para que añadir una orden de
-// listado no obligue a escribir tres veces la misma salida y que se separen con el tiempo.
-//
-// **Las celdas se guardan SIEMPRE en forma canónica**, no en la de salida: un booleano se
-// guarda como «true», y es el impresor de texto quien lo traduce a «sí». Antes lo decidía
-// quien rellenaba la fila mirando el formato, lo que obligaba a cada orden de listado a
-// conocer los tres y a acertar en todos.
-struct Tabla {
-    std::string nombreJson;                   // la clave de la colección: "connections"
-    std::vector<std::string> cabecerasTexto;  // en el idioma de la aplicación
-    std::vector<std::string> campos;          // estables, en inglés; los usan tsv y json
-    std::vector<Tipo> tipos;                  // por columna; solo lo mira json
-    std::vector<std::vector<std::string>> filas;
-
-    Tipo tipoDe(std::size_t i) const { return i < tipos.size() ? tipos[i] : Tipo::Cadena; }
-
-    // Una celda tal y como la ve una PERSONA. Los booleanos van en el idioma de la
-    // aplicación; en tsv y en json no, porque «sí» depende del idioma y un guion no
-    // debería tener que saberlo.
-    std::string celdaTexto(std::size_t col, const std::string& v) const {
-        if (tipoDe(col) == Tipo::Booleano) {
-            return v == "true" ? "sí" : (v == "false" ? "no" : v);
-        }
-        return v;
-    }
-
-    void imprimeJson() const {
-        // Array VACÍO, no un Value nulo: sin filas se quedaría en `null`, y
-        // `jq '.connections[]'` sobre null no da cero elementos, da un error. Es una lista
-        // siempre, tenga cero o mil.
-        B::json::Value filasJson{B::json::Array{}};
-        for (const auto& fila : filas) {
-            B::json::Value o;
-            for (std::size_t i = 0; i < fila.size() && i < campos.size(); ++i) {
-                // Vacío es `null`, NO «-»: el guion es una convención de columnas, que en
-                // JSON no hace falta. Un programa que leyera «-» en `port` tendría que
-                // saberlo, y es justo lo que este formato viene a evitar.
-                if (fila[i].empty()) {
-                    o.set(campos[i], B::json::Value());
-                    continue;
-                }
-                switch (tipoDe(i)) {
-                    case Tipo::Booleano:
-                        o.set(campos[i], B::json::Value(fila[i] == "true"));
-                        break;
-                    case Tipo::Entero:
-                        o.set(campos[i], B::json::Value(std::atoll(fila[i].c_str())));
-                        break;
-                    case Tipo::Cadena:
-                        o.set(campos[i], B::json::Value(fila[i]));
-                        break;
-                }
-            }
-            filasJson.push(std::move(o));
-        }
-        // Un objeto en la raíz y no un array suelto: deja sitio para añadir después algo
-        // al lado —avisos, la versión— sin que a quien ya lo lea se le rompa el guion.
-        B::json::Value raiz;
-        raiz.set(nombreJson.empty() ? std::string("items") : nombreJson, std::move(filasJson));
-        std::printf("%s", B::json::toIndented(raiz).c_str());
-    }
-
-    void imprime(Formato f) const {
-        if (f == Formato::Json) {
-            imprimeJson();
-            return;
-        }
-        if (f == Formato::Tsv) {
-            for (const auto& fila : filas) {
-                for (std::size_t i = 0; i < fila.size(); ++i) {
-                    std::printf("%s%s", i ? "\t" : "", fila[i].empty() ? "-" : fila[i].c_str());
-                }
-                std::printf("\n");
-            }
-            return;
-        }
-        // Anchos por columna, contando CARACTERES y no bytes: «sí» ocupa tres bytes y
-        // dos columnas, y con printf("%-*s") las últimas columnas salían desplazadas.
-        const auto anchoVisible = [](const std::string& s) {
-            std::size_t n = 0;
-            for (const char c : s) {
-                if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) {
-                    ++n;  // los bytes de continuación de UTF-8 no ocupan columna
-                }
-            }
-            return n;
-        };
-        std::vector<std::size_t> ancho(cabecerasTexto.size(), 0);
-        for (std::size_t i = 0; i < cabecerasTexto.size(); ++i) {
-            ancho[i] = anchoVisible(cabecerasTexto[i]);
-        }
-        for (const auto& fila : filas) {
-            for (std::size_t i = 0; i < fila.size() && i < ancho.size(); ++i) {
-                const std::string c = celdaTexto(i, fila[i]);
-                ancho[i] = std::max(ancho[i], anchoVisible(c.empty() ? "-" : c));
-            }
-        }
-        auto linea = [&](const std::vector<std::string>& celdas, bool esCabecera) {
-            for (std::size_t i = 0; i < celdas.size(); ++i) {
-                const bool ultima = (i + 1 == celdas.size());
-                const std::string bruta = esCabecera ? celdas[i] : celdaTexto(i, celdas[i]);
-                const std::string celda = bruta.empty() ? std::string("-") : bruta;
-                std::printf("%s", celda.c_str());
-                if (!ultima) {
-                    std::printf("%*s", static_cast<int>(ancho[i] - anchoVisible(celda) + 2), "");
-                }
-            }
-            std::printf("\n");
-        };
-        linea(cabecerasTexto, true);
-        for (const auto& fila : filas) {
-            linea(fila, false);
-        }
-    }
 };
 
 // Descifra si hace falta. Devuelve el valor tal cual si no está cifrado, y una marca
@@ -366,6 +247,18 @@ int main(int argc, char** argv) {
             op.sinSecretos = true;
             continue;
         }
+        if (a == "--url" && i + 1 < argc) {
+            op.urlInicial = argv[++i];
+            continue;
+        }
+        if (a == "-v" || a == "--verbose") {
+            op.verboso = true;
+            continue;
+        }
+        if (a == "-y" || a == "--yes") {
+            op.asumirSi = true;
+            continue;
+        }
         if (a == "--format" && i + 1 < argc) {
             const std::string v = argv[++i];
             if (v == "tsv") {
@@ -388,12 +281,11 @@ int main(int argc, char** argv) {
         }
         op.orden.push_back(a);
     }
-    if (op.orden.empty()) {
-        uso();
-        return 2;
-    }
 
-    if (op.orden[0] == "version") {
+    // Sin ninguna orden se entra en el intérprete, así que a partir de aquí NO se puede
+    // indexar `op.orden` sin comprobar: quitar la guarda que había y dejar op.orden[0]
+    // fue exactamente lo que hizo que el binario se cayera al arrancar sin argumentos.
+    if (!op.orden.empty() && op.orden[0] == "version") {
 #ifdef ZFSMGR_APP_VERSION
         std::printf("%s %s\n", kNombre, ZFSMGR_APP_VERSION);
 #else
@@ -473,7 +365,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (op.orden.size() < 2 || op.orden[0] != "connections" || op.orden[1] != "list") {
+    if (!op.orden.empty()
+        && (op.orden.size() < 2 || op.orden[0] != "connections" || op.orden[1] != "list")) {
         std::fprintf(stderr, "%s: orden desconocida\n", kNombre);
         uso();
         return 2;
@@ -493,7 +386,15 @@ int main(int argc, char** argv) {
         }
     }
 
-    const int rc = listarConexiones(op, maestra);
+    int rc = 0;
+    if (op.orden.empty()) {
+        // Sin orden, el intérprete. Es la puerta por la que el CLI pasa de leer la
+        // configuración a hablar con las máquinas.
+        auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso);
+        rc = zfsmgr::cli::ejecutarShell(*ses, op.formato, op.urlInicial, op.asumirSi);
+    } else {
+        rc = listarConexiones(op, maestra);
+    }
     // El secreto no se queda en memoria más de lo necesario.
     if (!maestra.empty()) {
         volatile char* p = &maestra[0];

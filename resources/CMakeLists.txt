@@ -217,6 +217,11 @@ add_executable(zfsmgr_cli
     ../src/cli/main.cpp
     ../src/cli/secretinput.cpp
     ../src/cli/secretinput.h
+    ../src/cli/session.cpp
+    ../src/cli/session.h
+    ../src/cli/shell.cpp
+    ../src/cli/shell.h
+    ../src/cli/tabla.h
 )
 target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
 target_compile_definitions(zfsmgr_cli PRIVATE
