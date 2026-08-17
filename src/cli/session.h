@@ -69,6 +69,27 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                     const std::string& maestra,
                                     bool verboso);
 
+// --- Cambiar la configuración, no solo leerla.
+
+// Da de alta o actualiza una conexión en config.json.
+//
+// **La contraseña se guarda CIFRADA con la contraseña maestra**, igual que hace la
+// interfaz. Sin contraseña maestra no se guarda en claro: se falla y se dice por qué.
+// El resto del fichero —ajustes, acciones pendientes, estado del árbol— se conserva tal
+// cual: aquí se toca únicamente la lista de conexiones.
+bool guardarConexion(Sesion& s, const zfsmgr::base::ConnectionProfile& p, std::string& error);
+
+// Quita una conexión de la configuración. NO toca nada en la máquina.
+bool borrarConexion(Sesion& s, const std::string& id, std::string& error);
+
+// La marca de «desconectada», que vive en `app.disconnected_connections` de config.json y
+// es la misma que usa la interfaz.
+//
+// Significa «no hables con esta máquina»: la interfaz se salta las desconectadas al
+// refrescar y al recoger registros, y el intérprete se niega a operar sobre ellas.
+bool estaDesconectada(const Sesion& s, const std::string& id);
+bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error);
+
 // Ejecuta un verbo del agente por RPC TIPADO: argv, sin intérprete de por medio.
 //
 // **No hay respaldo por shell, y es deliberado.** En la interfaz existe por historia; aquí

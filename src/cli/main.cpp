@@ -403,7 +403,11 @@ int main(int argc, char** argv) {
     }
 
     std::string maestra;
-    if (!op.sinSecretos && hayAlgoCifrado(op.dirConfig)) {
+    // Si se da un descriptor, se lee SIEMPRE, aunque todavía no haya nada cifrado. Antes
+    // solo se leía cuando ya lo había, y eso es un pez que se muerde la cola: para dar de
+    // alta la PRIMERA conexión con contraseña hace falta una maestra, y no se pedía porque
+    // aún no había nada que descifrar.
+    if (!op.sinSecretos && (op.passwordFd >= 0 || hayAlgoCifrado(op.dirConfig))) {
         std::string err;
         if (op.passwordFd >= 0) {
             if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, maestra, err)) {

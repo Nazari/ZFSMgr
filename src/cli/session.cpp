@@ -11,6 +11,7 @@
 
 #include <cstdio>
 #include <map>
+#include <mutex>
 
 namespace zfsmgr::cli {
 namespace {
@@ -258,6 +259,138 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
     return s;
 }
 
+namespace {
+
+// La clave con la que la interfaz recuerda una conexión en sus ajustes: el identificador
+// en minúsculas, o el nombre si no hay identificador. Tiene que coincidir EXACTAMENTE con
+// `MainWindow::connectionPersistKey`, o cada mitad marcaría una cosa distinta.
+std::string clavePersistencia(const std::string& idONombre) {
+    return B::toLowerAscii(B::trim(idONombre));
+}
+
+}  // namespace
+
+bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& error) {
+    error.clear();
+    if (B::trim(p.id).empty()) {
+        error = "la conexión necesita un identificador";
+        return false;
+    }
+    B::ConnectionProfile guardado = p;
+    guardado.port = CJ::ensurePort(guardado.connType, guardado.port);
+    if (guardado.daemonTlsPort <= 0 || guardado.daemonTlsPort > 65535) {
+        guardado.daemonTlsPort = 47653;
+    }
+    // La contraseña, cifrada. Sin contraseña maestra NO se guarda en claro: dejar una
+    // contraseña de acceso legible en disco para ahorrarse un paso es un mal cambio, y es
+    // la misma regla que aplica la interfaz.
+    if (!guardado.password.empty() && !B::SecretCipher::isEncrypted(guardado.password)) {
+        if (s.maestra.empty()) {
+            error = "hace falta la contraseña maestra para cifrar la de la conexión";
+            return false;
+        }
+        std::string cifrada;
+        std::string err;
+        if (!B::SecretCipher::encryptEncv1(guardado.password, s.maestra, cifrada, err)) {
+            error = "no se pudo cifrar la contraseña: " + err;
+            return false;
+        }
+        guardado.password = cifrada;
+    }
+
+    ST::Aviso aviso;
+    auto root = ST::leerConfig(s.dirConfig, aviso);
+    B::json::Array salida;
+    bool sustituida = false;
+    for (const auto& v : root["connections"].toArray()) {
+        const auto existente = CJ::connectionFromJson(v, std::string());
+        if (B::toLowerAscii(existente.id) == B::toLowerAscii(guardado.id)) {
+            salida.push_back(CJ::connectionToJson(guardado, std::string()));
+            sustituida = true;
+        } else {
+            salida.push_back(v);
+        }
+    }
+    if (!sustituida) {
+        salida.push_back(CJ::connectionToJson(guardado, std::string()));
+    }
+    root.set("connections", B::json::Value(std::move(salida)));
+    ST::Aviso avisoEscritura;
+    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
+        error = "no se pudo escribir config.json";
+        return false;
+    }
+    return true;
+}
+
+bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
+    error.clear();
+    ST::Aviso aviso;
+    auto root = ST::leerConfig(s.dirConfig, aviso);
+    B::json::Array salida;
+    bool encontrada = false;
+    for (const auto& v : root["connections"].toArray()) {
+        const auto existente = CJ::connectionFromJson(v, std::string());
+        if (B::toLowerAscii(existente.id) == B::toLowerAscii(B::trim(id))) {
+            encontrada = true;
+            continue;
+        }
+        salida.push_back(v);
+    }
+    if (!encontrada) {
+        error = "no hay ninguna conexión con identificador «" + id + "»";
+        return false;
+    }
+    root.set("connections", B::json::Value(std::move(salida)));
+    ST::Aviso avisoEscritura;
+    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
+        error = "no se pudo escribir config.json";
+        return false;
+    }
+    return true;
+}
+
+bool estaDesconectada(const Sesion& s, const std::string& id) {
+    ST::Aviso aviso;
+    const auto root = ST::leerConfig(s.dirConfig, aviso);
+    const std::string clave = clavePersistencia(id);
+    for (const auto& v : root["app"]["disconnected_connections"].toArray()) {
+        if (clavePersistencia(v.toString()) == clave) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error) {
+    error.clear();
+    const std::string clave = clavePersistencia(id);
+    if (clave.empty()) {
+        error = "identificador vacío";
+        return false;
+    }
+    ST::Aviso aviso;
+    auto root = ST::leerConfig(s.dirConfig, aviso);
+    auto app = root["app"];
+    B::json::Array lista;
+    for (const auto& v : app["disconnected_connections"].toArray()) {
+        if (clavePersistencia(v.toString()) != clave) {
+            lista.push_back(v);
+        }
+    }
+    if (desconectada) {
+        lista.push_back(B::json::Value(clave));
+    }
+    app.set("disconnected_connections", B::json::Value(std::move(lista)));
+    root.set("app", app);
+    ST::Aviso avisoEscritura;
+    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
+        error = "no se pudo escribir config.json";
+        return false;
+    }
+    return true;
+}
+
 bool ejecutarAgente(Sesion& s,
                     const B::ConnectionProfile& p,
                     const std::vector<std::string>& args,
@@ -304,7 +437,23 @@ bool ejecutarAgente(Sesion& s,
     if (!T::tryAgentRpcOverSsh(s.transporte, p, args, timeoutMs, out, err, rc, {}, {},
                                /*echoOutputToLog=*/s.verboso)) {
         if (motivo) {
-            *motivo = "el daemon de " + (p.name.empty() ? p.id : p.name) + " no respondió por RPC";
+            // El POR QUÉ, no solo el qué. `tryAgentRpcOverSsh` no lo devuelve, pero lo deja
+            // anotado en el mapa de castigos al decidir cuánto esperar antes de reintentar:
+            // se lee de ahí. Sin esto el usuario recibía «no respondió por RPC», que no
+            // dice si falta el material TLS, si la máquina está apagada o si el daemon no
+            // está instalado — tres cosas con arreglos distintos.
+            std::string razon;
+            {
+                std::lock_guard<std::mutex> lock(s.transporte.mutex);
+                const auto it = s.transporte.retryReasonByConnKey.find(
+                    T::remoteDaemonTlsCacheKey(p));
+                if (it != s.transporte.retryReasonByConnKey.end()) {
+                    razon = it->second;
+                }
+            }
+            const std::string quien = p.name.empty() ? p.id : p.name;
+            *motivo = razon.empty() ? "el daemon de " + quien + " no respondió por RPC"
+                                    : "el daemon de " + quien + " no respondió: " + razon;
         }
         return false;
     }

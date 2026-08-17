@@ -120,6 +120,35 @@ Se condujo por un pseudoterminal, porque el material TLS del daemon local vive e
    «ya absorbido» y **rc=0**: parecía haber funcionado sin hacer nada.
 2. `-y` se parseaba y no se pasaba al intérprete, así que seguía preguntando.
 
+## Las conexiones: crear, apartar, refrescar
+
+**`create` en la RAÍZ crea una conexión**, por la misma regla que hace que `create` en un
+dataset cree un hijo: se crea un nodo donde uno está. Y `destroy` estando en una conexión
+la quita de la configuración —la pregunta dice explícitamente que no se toca nada en la
+máquina—.
+
+**La contraseña nunca por argumento**: se teclea o entra por `--password-fd`. Y se guarda
+CIFRADA con la contraseña maestra, como hace la interfaz; sin maestra no se guarda en
+claro. Eso destapó un pez que se muerde la cola: la maestra solo se pedía si YA había algo
+cifrado, así que para dar de alta la primera conexión con contraseña no había ninguna. Se
+arregló leyendo el descriptor siempre que se dé, y pidiéndola en el momento si hay
+terminal. Y se comprueba ANTES de pedir la contraseña de la conexión: hacerla teclear para
+tirarla después es la peor forma de contarlo.
+
+**`disconnect` es la misma marca que usa la interfaz** —`app.disconnected_connections` en
+config.json, con la clave que calcula `MainWindow::connectionPersistKey`—. Significa «no
+hables con esta máquina»: al apartarla se cierra su túnel, y el intérprete se niega a
+tocarla. Navegar hasta ella sí se permite, porque hay que poder llegar para reconectarla.
+
+**`refresh` no es un listado.** Suelta el túnel, vacía la caché del material TLS, quita el
+castigo por fallos recientes, relee la configuración —por si la interfaz la ha cambiado
+mientras tanto— y vuelve a sondear. Es lo que uno espera cuando algo se ha quedado colgado.
+
+Al probarlo salió que el motivo real de un fallo solo se veía con `-v`: el mensaje decía
+«no respondió por RPC» y no si faltaba el material TLS, si la máquina estaba apagada o si
+el daemon no estaba instalado —tres cosas con arreglos distintos—. Ahora se lee del mapa de
+castigos, donde el transporte ya lo anota, y sale en el error.
+
 ## Windows no se parece a lo demás en dos sitios
 
 **El directorio de configuración es `<home>/.config/ZFSMgr` también en Windows**, no

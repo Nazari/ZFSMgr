@@ -6,6 +6,7 @@
 #include "secretinput.h"
 #include "strutil.h"
 #include "transportcmd.h"
+#include "transporttunnel.h"
 #include "transportrpc.h"
 #include "zfsmurl.h"
 
@@ -13,6 +14,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,9 @@ enum class Nodo { Raiz, Conexion, Dataset, Snapshot };
 struct Estado {
     Sesion* ses{nullptr};
     Conexiones conns;
+    // Las marcadas como desconectadas, en minúsculas. Se guardan aquí y no se consulta el
+    // fichero en cada orden: un `ls` de la raíz preguntaría una vez por conexión.
+    std::set<std::string> desconectadas;
     ZfsmUrl actual;   // conexión vacía = raíz
     ZfsmUrl anterior;
     bool hayAnterior{false};
@@ -271,6 +276,27 @@ B::ConnectionProfile conSudo(Estado& e, const B::ConnectionProfile& p) {
     return copia;
 }
 
+// El identificador de la conexión que nombra una URL, o vacío si es la raíz.
+std::string idDe(const Estado& e, const ZfsmUrl& u);
+
+// Relee las conexiones y con ellas las marcas de desconexión, que viven en el mismo
+// fichero. Van juntas a propósito: leer unas sin las otras deja el intérprete creyendo que
+// una conexión está disponible cuando acaban de apartarla.
+void recarga(Estado& e) {
+    e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra);
+    e.desconectadas.clear();
+    for (const auto& p : e.conns.perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        if (estaDesconectada(*e.ses, id)) {
+            e.desconectadas.insert(B::toLowerAscii(id));
+        }
+    }
+}
+
+bool estaApartada(const Estado& e, const std::string& id) {
+    return e.desconectadas.count(B::toLowerAscii(id)) > 0;
+}
+
 // El perfil de la conexión que nombra una URL.
 const B::ConnectionProfile* perfilDe(const Estado& e, const ZfsmUrl& u, std::string& error) {
     if (u.connection.empty()) {
@@ -284,12 +310,30 @@ const B::ConnectionProfile* perfilDe(const Estado& e, const ZfsmUrl& u, std::str
     return p;
 }
 
+// El perfil de una conexión CON LA QUE SE VA A HABLAR. Distinto de `perfilDe`: aquí se
+// respeta la marca de desconexión, que es lo que le da sentido.
+//
+// Navegar a una conexión apartada sí se permite —hay que poder llegar a ella para volver a
+// conectarla—; lo que no se hace es tocar la máquina.
+const B::ConnectionProfile* perfilVivoDe(const Estado& e, const ZfsmUrl& u, std::string& error) {
+    const auto* p = perfilDe(e, u, error);
+    if (!p) {
+        return nullptr;
+    }
+    const std::string id = p->id.empty() ? p->name : p->id;
+    if (estaApartada(e, id)) {
+        error = id + " está marcada como desconectada; use «connect " + id + "» para usarla";
+        return nullptr;
+    }
+    return p;
+}
+
 // --- Ejecutar un verbo del agente sobre el destino, contando lo que salga mal.
 bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& args,
             std::string& out, int timeoutMs = 60000) {
     out.clear();
     std::string error;
-    const auto* p = perfilDe(e, destino, error);
+    const auto* p = perfilVivoDe(e, destino, error);
     if (!p) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
@@ -381,6 +425,22 @@ bool destinoDe(const Estado& e, const Opts& o, ZfsmUrl& out) {
     return true;
 }
 
+// Pide un campo por el terminal, ofreciendo un valor por omisión entre corchetes.
+// Devuelve false solo si no hay terminal: en un guion se usan las opciones.
+bool pide(const std::string& etiqueta, const std::string& porOmision, std::string& out) {
+    std::string err;
+    const std::string aviso =
+        etiqueta + (porOmision.empty() ? "" : " [" + porOmision + "]") + ": ";
+    if (!preguntarPorTerminal(aviso, out, err)) {
+        return false;
+    }
+    out = B::trim(out);
+    if (out.empty()) {
+        out = porOmision;
+    }
+    return true;
+}
+
 bool confirma(const Estado& e, const std::string& que) {
     if (e.asumirSi) {
         return true;
@@ -405,12 +465,19 @@ bool confirma(const Estado& e, const std::string& que) {
 void listaConexiones(const Estado& e) {
     Tabla t;
     t.nombreJson = "connections";
-    t.cabecerasTexto = {"ID", "NOMBRE", "TIPO", "SO", "HOST"};
-    t.campos = {"id", "name", "type", "os", "host"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    t.cabecerasTexto = {"ID", "NOMBRE", "TIPO", "SO", "USUARIO", "HOST", "PUERTO", "SUDO",
+                        "CONECTADA"};
+    t.campos = {"id", "name", "type", "os", "user", "host", "port", "sudo", "connected"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
+               Tipo::Cadena, Tipo::Entero, Tipo::Booleano, Tipo::Booleano};
     for (const auto& p : e.conns.perfiles) {
+        const bool local = T::isLocalConnection(p);
         t.filas.push_back({p.id, p.name, p.connType.empty() ? std::string("SSH") : p.connType,
-                           p.osType, T::isLocalConnection(p) ? std::string() : p.host});
+                           p.osType, local ? std::string() : p.username,
+                           local ? std::string() : p.host,
+                           local ? std::string() : std::to_string(p.port),
+                           p.useSudo ? "true" : "false",
+                           estaApartada(e, p.id.empty() ? p.name : p.id) ? "false" : "true"});
     }
     t.imprime(e.formato);
 }
@@ -530,7 +597,7 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
 // añadirlo es trabajo aparte.
 bool listaContenido(Estado& e, const ZfsmUrl& destino) {
     std::string error;
-    const auto* p = perfilDe(e, destino, error);
+    const auto* p = perfilVivoDe(e, destino, error);
     if (!p) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
@@ -711,7 +778,7 @@ bool cmdCd(Estado& e, const std::vector<std::string>& args) {
     // en la raíz y en las conexiones no hace falta preguntar a nadie.
     if (nodoDe(destino) == Nodo::Dataset || nodoDe(destino) == Nodo::Snapshot) {
         std::string errPerfil;
-        const auto* p = perfilDe(e, destino, errPerfil);
+        const auto* p = perfilVivoDe(e, destino, errPerfil);
         if (!p) {
             std::fprintf(stderr, "%s\n", errPerfil.c_str());
             return false;
@@ -801,6 +868,25 @@ bool cmdDestroy(Estado& e, const std::vector<std::string>& args) {
     } else if (!destinoDe(e, o, destino)) {
         return false;
     }
+    // En una CONEXIÓN, `destroy` la quita de la configuración. Es lo único que se puede
+    // «destruir» ahí, y la pregunta lo deja claro: no se toca nada en la máquina.
+    if (nodoDe(destino) == Nodo::Conexion) {
+        const std::string id = idDe(e, destino);
+        if (!confirma(e, "Se va a quitar la conexión " + id
+                             + " de la configuración. NO se toca nada en la máquina. ¿Continuar?")) {
+            std::fprintf(stderr, "cancelado\n");
+            return false;
+        }
+        std::string error;
+        if (!borrarConexion(*e.ses, id, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+        recarga(e);
+        std::fprintf(stderr, "quitada la conexión %s\n", id.c_str());
+        cmdCd(e, {"/"});
+        return true;
+    }
     const std::string objetivo = destino.zfsName();
     if (objetivo.empty()) {
         std::fprintf(stderr, "no hay nada que borrar en %s\n", textoDe(destino).c_str());
@@ -886,14 +972,141 @@ bool cmdClone(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
-bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
-    const Opts o = trocea(args, {"on", "from"});
+// Alta de una conexión. Es `create` estando en la RAÍZ, por la misma regla que hace que
+// `create` en un dataset cree un hijo: se crea un nodo donde uno está.
+//
+// Los campos se piden por el terminal si no vienen por opciones, y **la contraseña NUNCA
+// por argumento**: iría en `argv` y se vería en `ps` para cualquier usuario de la máquina.
+// O se teclea, o entra por un descriptor con --password-fd.
+bool cmdCrearConexion(Estado& e, const Opts& o) {
     if (o.libres.empty()) {
-        std::fprintf(stderr, "uso: create <nombre> [prop=valor...]\n");
+        std::fprintf(stderr,
+                     "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n"
+                     "            [--host <h>] [--port <p>] [--user <u>] [--key <ruta>]\n"
+                     "            [--sudo] [--password-fd <n>]\n"
+                     "  Da de alta una conexión. Lo que no se dé por opciones se pregunta.\n");
         return false;
     }
+    B::ConnectionProfile p;
+    p.id = B::trim(o.libres.front());
+    if (buscarConexion(e.conns, p.id) != nullptr) {
+        std::fprintf(stderr, "ya existe una conexión «%s»\n", p.id.c_str());
+        return false;
+    }
+    const bool interactivo = hayTerminal();
+
+    p.name = o.valor("name");
+    p.connType = B::toUpperAscii(o.valor("type"));
+    p.osType = o.valor("os");
+    p.host = o.valor("host");
+    p.username = o.valor("user");
+    p.keyPath = o.valor("key");
+    p.useSudo = o.tiene("--sudo");
+    const std::string puertoTexto = o.valor("port");
+
+    if (interactivo) {
+        if (p.name.empty() && !pide("Nombre visible", p.id, p.name)) return false;
+        if (p.connType.empty() && !pide("Tipo (LOCAL/SSH)", "SSH", p.connType)) return false;
+        p.connType = B::toUpperAscii(p.connType);
+        if (p.osType.empty() && !pide("Sistema operativo", "Linux", p.osType)) return false;
+    }
+    if (p.name.empty()) p.name = p.id;
+    if (p.connType.empty()) p.connType = "SSH";
+    if (p.osType.empty()) p.osType = "Linux";
+
+    const bool local = B::toLowerAscii(p.connType) == "local";
+    if (!local) {
+        if (p.host.empty() && interactivo && !pide("Host", "", p.host)) return false;
+        if (p.host.empty()) {
+            std::fprintf(stderr, "una conexión SSH necesita un host\n");
+            return false;
+        }
+        if (p.username.empty() && interactivo && !pide("Usuario", "", p.username)) return false;
+        if (p.keyPath.empty() && interactivo && !pide("Ruta de clave SSH (vacío = contraseña)", "",
+                                                      p.keyPath)) {
+            return false;
+        }
+    }
+    p.port = puertoTexto.empty() ? 0 : std::atoi(puertoTexto.c_str());
+
+    // La contraseña. Por descriptor si se dio, y si no por el terminal con el eco apagado.
+    // Solo hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
+    //
+    // **Se comprueba ANTES si hay dónde cifrarla.** Guardar una contraseña de acceso en
+    // claro no se hace, así que sin contraseña maestra la creación fracasaría — y hacerla
+    // teclear para tirarla después es la peor forma de contarlo. Si hay terminal se pide la
+    // maestra en ese momento; si no, se avisa y se crea sin contraseña.
+    const std::string fdTexto = o.valor("password-fd");
+    const bool quiereClave = !fdTexto.empty() || (p.keyPath.empty() || p.useSudo || local);
+    std::string err;
+    if (quiereClave && e.ses->maestra.empty()) {
+        if (interactivo) {
+            std::fprintf(stderr,
+                         "Para guardar la contraseña de una conexión hace falta una "
+                         "contraseña maestra:\n"
+                         "es con la que se cifra en config.json, y sin ella no se guarda en "
+                         "claro.\n");
+            std::string maestra;
+            if (!preguntarSecretoPorTerminal("Contraseña maestra: ", maestra, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+            e.ses->maestra = maestra;
+        } else {
+            std::fprintf(stderr,
+                         "aviso: sin contraseña maestra (--password-fd) la conexión se crea "
+                         "SIN contraseña\n");
+        }
+    }
+    if (!fdTexto.empty()) {
+        if (!leerSecretoDeDescriptor(std::atoi(fdTexto.c_str()), p.password, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+    } else if (interactivo && quiereClave && !e.ses->maestra.empty()) {
+        std::string clave;
+        if (!preguntarSecretoPorTerminal("Contraseña (vacío = ninguna): ", clave, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+        p.password = clave;
+    }
+    if (!o.tiene("--sudo") && interactivo) {
+        std::string resp;
+        if (!pide("¿Usa sudo? (s/N)", "n", resp)) return false;
+        const std::string r = B::toLowerAscii(resp);
+        p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
+    }
+
+    std::string error;
+    if (!guardarConexion(*e.ses, p, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        // La contraseña no se queda en memoria si no se llegó a guardar.
+        for (char& c : p.password) { c = 0; }
+        return false;
+    }
+    for (char& c : p.password) { c = 0; }
+    // Se recargan: a partir de ahora se puede navegar a ella.
+    recarga(e);
+    std::fprintf(stderr, "creada la conexión %s (%s)\n", p.id.c_str(),
+                 local ? "local" : (p.username + "@" + p.host).c_str());
+    return true;
+}
+
+bool cmdCreate(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from", "name", "type", "os", "host", "port", "user",
+                                 "key", "password-fd"});
     ZfsmUrl destino;
     if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    // En la RAÍZ se crea una conexión; en un dataset, un hijo. Es el mismo verbo porque es
+    // la misma idea: crear un nodo donde uno está.
+    if (nodoDe(destino) == Nodo::Raiz) {
+        return cmdCrearConexion(e, o);
+    }
+    if (o.libres.empty()) {
+        std::fprintf(stderr, "uso: create <nombre> [prop=valor...]\n");
         return false;
     }
     if (!exigeDataset(destino)) {
@@ -1257,6 +1470,116 @@ bool cmdFromDir(Estado& e, const std::vector<std::string>& args) {
     return true;
 }
 
+// --- Conectar, desconectar y refrescar.
+
+std::string idDe(const Estado& e, const ZfsmUrl& u) {
+    const auto* p = buscarConexion(e.conns, u.connection);
+    return p ? (p->id.empty() ? p->name : p->id) : std::string();
+}
+
+bool cmdConectar(Estado& e, const std::vector<std::string>& args, bool conectar) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!o.libres.empty()) {
+        std::string error;
+        if (!resuelve(e, o.libres.front(), destino, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+    } else if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    const std::string id = idDe(e, destino);
+    if (id.empty()) {
+        std::fprintf(stderr, "hace falta una conexión (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    std::string error;
+    if (!marcarDesconectada(*e.ses, id, !conectar, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (!conectar) {
+        // Se cierran el túnel y la caché TLS: dejar una conexión abierta contra una máquina
+        // que se acaba de marcar como desconectada es exactamente lo contrario de lo que se
+        // ha pedido.
+        T::closeTunnelForConnection(e.ses->transporte, *buscarConexion(e.conns, id));
+        T::clearRemoteDaemonTlsCacheForConnection(*buscarConexion(e.conns, id));
+    }
+    recarga(e);
+    std::fprintf(stderr, "%s marcada como %s\n", id.c_str(),
+                 conectar ? "conectada" : "desconectada");
+    return true;
+}
+
+// Refrescar: soltar lo que se tenía guardado de esa máquina y volver a preguntárselo.
+//
+// No es solo un listado: se cierra el túnel, se vacía la caché del material TLS, se quita
+// el castigo por fallos recientes y se releen las conexiones del disco —por si la interfaz
+// las ha cambiado mientras tanto—. Después se sondea. Es lo que uno espera de «refrescar»
+// cuando algo se ha quedado colgado.
+bool cmdRefrescar(Estado& e, const std::vector<std::string>& args) {
+    const Opts o = trocea(args, {"on", "from"});
+    ZfsmUrl destino;
+    if (!o.libres.empty()) {
+        std::string error;
+        if (!resuelve(e, o.libres.front(), destino, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+    } else if (!destinoDe(e, o, destino)) {
+        return false;
+    }
+    const std::string id = idDe(e, destino);
+    if (id.empty()) {
+        std::fprintf(stderr, "hace falta una conexión (ahora: %s)\n", textoDe(destino).c_str());
+        return false;
+    }
+    {
+        const auto* p = buscarConexion(e.conns, id);
+        T::closeTunnelForConnection(e.ses->transporte, *p);
+        T::clearRemoteDaemonTlsCacheForConnection(*p);
+        std::lock_guard<std::mutex> lock(e.ses->transporte.mutex);
+        const std::string clave = T::remoteDaemonTlsCacheKey(*p);
+        e.ses->transporte.retryAfterByConnKey.erase(clave);
+        e.ses->transporte.retryReasonByConnKey.erase(clave);
+    }
+    recarga(e);
+
+    // Y ahora se pregunta a la máquina. Los dos verbos que la interfaz usa para lo mismo.
+    std::string basicos;
+    if (!agente(e, destino, {"--dump-refresh-basics"}, basicos, 30000)) {
+        return false;
+    }
+    std::string salud;
+    std::string err;
+    int rc = -1;
+    std::string motivo;
+    const auto* p = buscarConexion(e.conns, id);
+    ejecutarAgente(*e.ses, *p, {"--health"}, salud, err, rc, &motivo, 20000);
+
+    Tabla t;
+    t.nombreJson = "refresh";
+    t.cabecerasTexto = {"CAMPO", "VALOR"};
+    t.campos = {"field", "value"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena};
+    t.filas.push_back({"connection", id});
+    t.filas.push_back({"url", textoDe(destino)});
+    // Las dos salidas son «CLAVE=valor» por línea, que es el formato del agente.
+    for (const std::string& bloque : {basicos, salud}) {
+        for (const std::string& linea : B::split(bloque, "\n", true)) {
+            const std::size_t igual = linea.find('=');
+            if (igual == std::string::npos) {
+                continue;
+            }
+            t.filas.push_back({B::toLowerAscii(B::trim(linea.substr(0, igual))),
+                               B::trim(linea.substr(igual + 1))});
+        }
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
 // --- Información suelta.
 
 bool cmdInfo(Estado& e, const std::vector<std::string>& args) {
@@ -1297,6 +1620,20 @@ void ayuda() {
         "                      Con #content lista ficheros; con #properties, propiedades.\n"
         "  info [--on <url>]   Qué hay aquí y estado del daemon\n"
         "\n"
+        "Conexiones (en la raíz, «cd /»):\n"
+        "  create <id> [--name …] [--type LOCAL|SSH] [--os …] [--host …] [--port …]\n"
+        "         [--user …] [--key …] [--sudo] [--password-fd <n>]\n"
+        "                      Da de alta una conexión. Lo que falte se pregunta.\n"
+        "                      La contraseña NUNCA por argumento: se teclea o entra\n"
+        "                      por descriptor.\n"
+        "  destroy             Estando en una conexión, la quita de la configuración.\n"
+        "                      No toca nada en la máquina.\n"
+        "  connect / disconnect [destino]\n"
+        "                      Marca la conexión como usable o no. Al desconectar se\n"
+        "                      cierra su túnel. Es la misma marca que usa la interfaz.\n"
+        "  refresh [destino]   Suelta túnel, material TLS y castigos, relee la\n"
+        "                      configuración y vuelve a sondear la máquina.\n"
+        "\n"
         "Dataset:\n"
         "  create <nombre> [prop=valor...]   Crea un dataset hijo\n"
         "  rename <nuevo>                    Renombra\n"
@@ -1335,7 +1672,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     e.ses = &ses;
     e.formato = formato;
     e.asumirSi = asumirSi;
-    e.conns = cargarConexiones(ses.dirConfig, ses.maestra);
+    recarga(e);
     if (!e.conns.aviso.empty()) {
         std::fprintf(stderr, "%s\n", e.conns.aviso.c_str());
     }
@@ -1373,6 +1710,9 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"mount", [](Estado& s, const std::vector<std::string>& a) { return cmdMontaje(s, a, true); }},
         {"unmount", [](Estado& s, const std::vector<std::string>& a) { return cmdMontaje(s, a, false); }},
         {"promote", cmdPromote},
+        {"connect", [](Estado& s, const std::vector<std::string>& a) { return cmdConectar(s, a, true); }},
+        {"disconnect", [](Estado& s, const std::vector<std::string>& a) { return cmdConectar(s, a, false); }},
+        {"refresh", cmdRefrescar},
         {"snapshot", cmdSnapshot},
         {"rollback", cmdRollback},
         {"clone", cmdClone},
