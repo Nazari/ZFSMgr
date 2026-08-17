@@ -879,6 +879,25 @@ fallo, que es lo que importa de una pieza así:
 Con esto, **las tres piezas están**: procesos, hilos (`std::thread`) y TLS. El transporte
 ya puede vivir fuera de Qt.
 
+## Paso 7: el RPC local pasa a usarlas
+
+`tryRunLocalAgentRpc` —el camino de la conexión Local— ya no usa `QSslSocket` ni
+`QJsonDocument`: usa `base::tlsRequestLine` y `base::json`. De 85 líneas a 60.
+
+Dos cosas cambian de comportamiento, las dos a mejor:
+
+- **Se prueba UN nombre de par, no dos.** El bucle sobre `zfsmgr-agent-server` y
+  `zfsmgr-agent` existía para la verificación de nombre de host de Qt; con la fijación
+  explícita del certificado el nombre no interviene en la validación, así que probar dos
+  era gastar una conexión de más.
+- **La clave del cliente no se lee dos veces.** Antes se intentaba como RSA y, si fallaba,
+  como EC. `PEM_read_bio_PrivateKey` reconoce las dos.
+
+Verificado que la petición sale **byte a byte idéntica** a la que construía
+`QJsonDocument(...).toJson(Compact)`, sobre cinco casos con comillas, barras invertidas,
+saltos de línea y argumentos vacíos: **0 diferencias**. Es lo que había que comprobar,
+porque una petición con otra forma la rechaza el daemon.
+
 ## Estado
 
 Hecho y verificado:

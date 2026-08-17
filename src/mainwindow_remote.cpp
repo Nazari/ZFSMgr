@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 
 #include "transport.h"
+
+#include "base/json.h"
+#include "base/tlsclient.h"
 #include "mainwindow_helpers.h"
 #include "agentversion.h"
 #include "daemonpayload.h"
@@ -320,107 +323,65 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     }
     const QString cmd = agentArgs.first();
     const QStringList params = agentArgs.mid(1);
-    const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
-    const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
-    QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
-    if (clientKey.isNull()) {
-        clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
-    }
-    if (caCerts.isEmpty() || clientCerts.isEmpty() || clientKey.isNull()) {
-        return false;
-    }
     LocalAgentConfig cfg = loadLocalAgentConfig();
     if (daemonPort > 0) {
         cfg.port = daemonPort;
     }
-
     const QHostAddress bindAddr(cfg.bindAddress);
     const bool bindIsAny = (bindAddr == QHostAddress::Any
                             || bindAddr == QHostAddress::AnyIPv6
                             || bindAddr == QHostAddress::AnyIPv4);
     const QString host = (bindAddr.isNull() || bindIsAny) ? QStringLiteral("127.0.0.1")
                                                            : bindAddr.toString();
-    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
-    // Localhost TLS: either connects in <10ms or ECONNREFUSED immediately.
-    // A 2500ms cap was wasting seconds per call when daemon is not running.
+    // TLS contra localhost: o conecta en menos de 10 ms, o rechaza al instante. Un tope
+    // de 2500 ms desperdiciaba segundos por llamada con el daemon parado.
     const int connectTimeout = qBound(200, timeoutMs > 0 ? timeoutMs / 20 : 400, 700);
-    // Igual que en el RPC remoto: 0 es "sin límite". Ver la nota de allí.
-    const bool noIoDeadline = (timeoutMs <= 0);
-    const qint64 ioTimeout = noIoDeadline ? 0 : qMax(800, timeoutMs);
+    // Igual que en el RPC remoto: 0 es «sin límite».
+    const int ioTimeout = (timeoutMs <= 0) ? 0 : qMax(800, timeoutMs);
+
+    zfsmgr::base::TlsClientConfig tls;
+    tls.host = host.toStdString();
+    tls.port = static_cast<unsigned short>(cfg.port);
+    tls.serverCertPem = QString::fromUtf8(serverCertPem).toStdString();
+    tls.clientCertPem = QString::fromUtf8(clientCertPem).toStdString();
+    tls.clientKeyPem = QString::fromUtf8(clientKeyPem).toStdString();
+    tls.connectTimeoutMs = connectTimeout;
+    tls.ioTimeoutMs = ioTimeout;
+
+    // La petición se arma con el JSON de la capa base, que escribe compacto igual que
+    // QJsonDocument::Compact.
+    zfsmgr::base::json::Value req;
+    req.set("cmd", zfsmgr::base::json::Value(cmd.toStdString()));
+    zfsmgr::base::json::Array args;
+    for (const QString& p : params) {
+        args.push_back(zfsmgr::base::json::Value(p.toStdString()));
+    }
+    req.set("args", zfsmgr::base::json::Value(std::move(args)));
+
     QElapsedTimer rpcTimer;
     rpcTimer.start();
-    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s port=%d connectTimeout=%d", qPrintable(cmd), cfg.port, connectTimeout);
-    for (const QString& peerName : peerNames) {
-        const qint64 t0 = rpcTimer.elapsed();
-        QSslSocket sock;
-        sock.setProtocol(QSsl::TlsV1_2OrLater);
-        QSslConfiguration conf = sock.sslConfiguration();
-        conf.setCaCertificates(caCerts);
-        conf.setLocalCertificate(clientCerts.first());
-        conf.setPrivateKey(clientKey);
-        conf.setProtocol(QSsl::TlsV1_2OrLater);
-        // VerifyNone + fijación: la validación la hace peerCertificateIsPinned, no
-        // la política PKI del backend, que difiere entre OpenSSL y Apple.
-        conf.setPeerVerifyMode(QSslSocket::VerifyNone);
-        sock.setSslConfiguration(conf);
-
-        sock.connectToHostEncrypted(host, cfg.port, peerName);
-        if (!sock.waitForEncrypted(connectTimeout)) {
-            qCDebug(lcAgentRpc, "[agent-rpc] peerName=%s FAILED in %lld ms (err: %s)",
-                   qPrintable(peerName), rpcTimer.elapsed() - t0,
-                   qPrintable(sock.errorString()));
-            continue;
-        }
-        if (!peerCertificateIsPinned(sock, caCerts)) {
-            qCDebug(lcAgentRpc, "[agent-rpc] peerName=%s certificado del daemon NO coincide con el fijado",
-                   qPrintable(peerName));
-            sock.abort();
-            continue;
-        }
-
-        QJsonObject req;
-        req.insert(QStringLiteral("cmd"), cmd);
-        QJsonArray args;
-        for (const QString& p : params) {
-            args.push_back(p);
-        }
-        req.insert(QStringLiteral("args"), args);
-        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
-        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
-            continue;
-        }
-
-        QByteArray line;
-        QElapsedTimer timer;
-        timer.start();
-        while (noIoDeadline || timer.elapsed() < ioTimeout) {
-            if (!sock.waitForReadyRead(300)) {
-                // Escape imprescindible ahora que 0 significa "sin límite": aquí no hay
-                // proceso de túnel cuya muerte delate al daemon, así que el equivalente
-                // es el estado del socket. Si el daemon cae, la sesión se corta y sin
-                // esto el bucle quedaría girando para siempre.
-                if (sock.state() != QAbstractSocket::ConnectedState) {
-                    break;
-                }
-                continue;
-            }
-            line.append(sock.readAll());
-            const int nl = line.indexOf('\n');
-            if (nl < 0) {
-                continue;
-            }
-            const QByteArray one = line.left(nl).trimmed();
-            const QJsonObject resp = QJsonDocument::fromJson(one).object();
-            rc = resp.value(QStringLiteral("rc")).toInt(1);
-            out = resp.value(QStringLiteral("stdout")).toString();
-            err = resp.value(QStringLiteral("stderr")).toString();
-            qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK via peerName=%s total=%lld ms",
-                   qPrintable(cmd), qPrintable(peerName), rpcTimer.elapsed());
-            return true;
-        }
+    // Ya no se prueban dos nombres de par. Existían para la verificación de nombre de
+    // host de Qt; con la fijación explícita del certificado el nombre no interviene en
+    // la validación, así que probar dos era gastar una conexión de más.
+    std::string respuesta;
+    std::string errorTls;
+    if (!zfsmgr::base::tlsRequestLine(tls, zfsmgr::base::json::toCompact(req), respuesta, errorTls)) {
+        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FALLÓ en %lld ms: %s", qPrintable(cmd),
+                rpcTimer.elapsed(), errorTls.c_str());
+        return false;
     }
-    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FAILED total=%lld ms", qPrintable(cmd), rpcTimer.elapsed());
-    return false;
+    zfsmgr::base::json::Value resp;
+    std::string errJson;
+    if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
+        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s respuesta ilegible: %s", qPrintable(cmd),
+                errJson.c_str());
+        return false;
+    }
+    rc = static_cast<int>(resp["rc"].toInt(1));
+    out = QString::fromStdString(resp["stdout"].toString());
+    err = QString::fromStdString(resp["stderr"].toString());
+    qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK en %lld ms", qPrintable(cmd), rpcTimer.elapsed());
+    return true;
 }
 
 } // end anonymous namespace — runSshRawNoLog must be externally linkable for background watcher threads.
