@@ -19,6 +19,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -47,6 +48,12 @@ void uso() {
                  "                        ~/.config/ZFSMgr)\n"
                  "  --no-secrets          No descifra nada: no pide contraseña maestra.\n"
                  "                        Los campos cifrados salen como <cifrado>.\n"
+                 "  --format text|tsv     text (por omisión) es para leer; tsv es para\n"
+                 "                        guiones: sin encabezado, tabuladores, columnas\n"
+                 "                        fijas en inglés y «-» donde no hay valor, igual\n"
+                 "                        que `zfs list -H`.\n"
+                 "                        connections list: id, name, type, os, user,\n"
+                 "                        host, port, sudo, tls\n"
                  "  -h, --help            Esta ayuda\n"
                  "\n"
                  "La contraseña maestra NO se pasa por argumento ni por variable de\n"
@@ -88,11 +95,78 @@ std::string dirConfigPorOmision() {
     return ".config/ZFSMgr";
 }
 
+// Cómo se saca lo que se lista.
+//
+// `Texto` es para leer: columnas alineadas y encabezados en el idioma de la aplicación.
+// `Tsv` es para guiones: **sin encabezado**, separado por tabuladores, columnas fijas y
+// en inglés. Es la misma convención que `zfs list -H`, que quien use esta herramienta ya
+// conoce, y por eso no lleva encabezado: una línea de más que hay que saltarse.
+//
+// Los campos vacíos salen como «-», también como en `zfs`: así el número de columnas no
+// cambia y `cut -f4` sigue apuntando a lo mismo.
+enum class Formato { Texto, Tsv };
+
 struct Opciones {
     int passwordFd{-1};
     std::string dirConfig;
     bool sinSecretos{false};
+    Formato formato{Formato::Texto};
     std::vector<std::string> orden;
+};
+
+// Una tabla que se sabe imprimir de las dos maneras. Existe para que añadir una orden de
+// listado no obligue a escribir dos veces la misma salida y que se separen.
+struct Tabla {
+    std::vector<std::string> cabecerasTexto;  // en el idioma de la aplicación
+    std::vector<std::string> camposTsv;       // estables, en inglés
+    std::vector<std::vector<std::string>> filas;
+
+    void imprime(Formato f) const {
+        if (f == Formato::Tsv) {
+            for (const auto& fila : filas) {
+                for (std::size_t i = 0; i < fila.size(); ++i) {
+                    std::printf("%s%s", i ? "\t" : "", fila[i].empty() ? "-" : fila[i].c_str());
+                }
+                std::printf("\n");
+            }
+            return;
+        }
+        // Anchos por columna, contando CARACTERES y no bytes: «sí» ocupa tres bytes y
+        // dos columnas, y con printf("%-*s") las últimas columnas salían desplazadas.
+        const auto anchoVisible = [](const std::string& s) {
+            std::size_t n = 0;
+            for (const char c : s) {
+                if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) {
+                    ++n;  // los bytes de continuación de UTF-8 no ocupan columna
+                }
+            }
+            return n;
+        };
+        std::vector<std::size_t> ancho(cabecerasTexto.size(), 0);
+        for (std::size_t i = 0; i < cabecerasTexto.size(); ++i) {
+            ancho[i] = anchoVisible(cabecerasTexto[i]);
+        }
+        for (const auto& fila : filas) {
+            for (std::size_t i = 0; i < fila.size() && i < ancho.size(); ++i) {
+                ancho[i] = std::max(ancho[i], anchoVisible(fila[i].empty() ? "-" : fila[i]));
+            }
+        }
+        auto linea = [&](const std::vector<std::string>& celdas) {
+            for (std::size_t i = 0; i < celdas.size(); ++i) {
+                const bool ultima = (i + 1 == celdas.size());
+                const std::string celda = celdas[i].empty() ? std::string("-") : celdas[i];
+                std::printf("%s", celda.c_str());
+                if (!ultima) {
+                    std::printf("%*s", static_cast<int>(ancho[i] - anchoVisible(celda) + 2), "");
+                }
+            }
+            std::printf("\n");
+        };
+        linea(cabecerasTexto);
+        for (const auto& fila : filas) {
+            linea(fila);
+        }
+    }
 };
 
 // Descifra si hace falta. Devuelve el valor tal cual si no está cifrado, y una marca
@@ -142,29 +216,36 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
                      ST::rutaConfig(op.dirConfig).c_str());
         return 0;
     }
-    // Columnas separadas por tabulador: legible a ojo y troceable con cut/awk sin
-    // adivinar anchos. Es lo que espera quien mete esto en un guion.
-    std::printf("ID\tNOMBRE\tTIPO\tSO\tDESTINO\tSUDO\tTLS\n");
+    Tabla t;
+    t.cabecerasTexto = {"ID", "NOMBRE", "TIPO", "SO", "USUARIO", "HOST", "PUERTO", "SUDO", "TLS"};
+    t.camposTsv = {"id", "name", "type", "os", "user", "host", "port", "sudo", "tls"};
     for (const auto& v : conns) {
         const auto p = CJ::connectionFromJson(v, std::string());
         const bool local = CJ::isLocalProfile(p);
-        const std::string destino =
-            local ? std::string("(local)")
-                  : abrir(p.username, maestra, op.sinSecretos) + "@" + p.host + ":"
-                        + std::to_string(CJ::ensurePort(p.connType, p.port));
-        std::printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                    p.id.c_str(),
-                    p.name.c_str(),
-                    p.connType.empty() ? "SSH" : p.connType.c_str(),
-                    p.osType.empty() ? "-" : p.osType.c_str(),
-                    destino.c_str(),
-                    p.useSudo ? "sí" : "no",
-                    (CJ::profileHasDaemonTls(p)
-                     || tlsPorId.count(B::toLowerAscii(p.id)) > 0
-                            && tlsPorId.at(B::toLowerAscii(p.id)))
-                        ? "sí"
-                        : "no");
+        const bool tls = CJ::profileHasDaemonTls(p)
+                      || (tlsPorId.count(B::toLowerAscii(p.id)) > 0
+                          && tlsPorId.at(B::toLowerAscii(p.id)));
+        // En tsv los booleanos van como true/false: «sí» depende del idioma y un guion no
+        // debería tener que saberlo.
+        const auto boole = [&op](bool b) -> std::string {
+            if (op.formato == Formato::Tsv) {
+                return b ? "true" : "false";
+            }
+            return b ? "sí" : "no";
+        };
+        t.filas.push_back({
+            p.id,
+            p.name,
+            p.connType.empty() ? std::string("SSH") : p.connType,
+            p.osType,
+            local ? std::string() : abrir(p.username, maestra, op.sinSecretos),
+            local ? std::string() : p.host,
+            local ? std::string() : std::to_string(CJ::ensurePort(p.connType, p.port)),
+            boole(p.useSudo),
+            boole(tls),
+        });
     }
+    t.imprime(op.formato);
     return 0;
 }
 
@@ -211,6 +292,19 @@ int main(int argc, char** argv) {
             op.sinSecretos = true;
             continue;
         }
+        if (a == "--format" && i + 1 < argc) {
+            const std::string v = argv[++i];
+            if (v == "tsv") {
+                op.formato = Formato::Tsv;
+            } else if (v == "text") {
+                op.formato = Formato::Texto;
+            } else {
+                std::fprintf(stderr, "%s: formato desconocido: %s (use text o tsv)\n", kNombre,
+                             v.c_str());
+                return 2;
+            }
+            continue;
+        }
         if (!a.empty() && a[0] == '-') {
             std::fprintf(stderr, "%s: opción desconocida: %s\n", kNombre, a.c_str());
             uso();
@@ -242,6 +336,10 @@ int main(int argc, char** argv) {
         // Los nombres de campo son parte de la interfaz pública: un guion que haga
         // `grep dataset` depende de ellos, así que van en inglés como la URL. El resto
         // de la salida del CLI sigue en el idioma de la aplicación.
+        //
+        // Aquí NO hay dos formatos: la salida es campo/valor y ya es estable, así que
+        // `--format` no cambiaría nada. Inventarle una variante «para leer» sería dar a
+        // elegir entre dos cosas iguales.
         const char* kind = "?";
         switch (u.kind) {
             case zfsmgr::base::ZfsmKind::Connection: kind = "connection"; break;

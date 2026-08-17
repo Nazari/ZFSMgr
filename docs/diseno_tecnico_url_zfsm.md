@@ -102,6 +102,9 @@ en el CLI para verlo:
 zfsmgr-cli url parse "zfsm://unibody/sback/user@ayer#content/docs/a.pdf"
 ```
 
+Su salida es campo/valor con nombres estables en inglés, así que no tiene dos formatos:
+`--format` no cambiaría nada. Los listados sí los tienen —ver `--format text|tsv`—.
+
 **Resolver** —ir a buscar lo que la URL nombra, abrirlo en el árbol, aceptarlo desde la
 línea de órdenes del sistema, o que otra aplicación pueda lanzarla— viene después. Se
 construye encima sin cambiar nada de esto: por eso el análisis devuelve una estructura y
