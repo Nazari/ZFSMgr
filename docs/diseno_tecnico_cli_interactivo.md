@@ -120,6 +120,25 @@ Se condujo por un pseudoterminal, porque el material TLS del daemon local vive e
    «ya absorbido» y **rc=0**: parecía haber funcionado sin hacer nada.
 2. `-y` se parseaba y no se pasaba al intérprete, así que seguía preguntando.
 
+## Una sola lista de conexiones
+
+`connections list` y el `ls` de la raíz dan **exactamente la misma salida**: la tabla se
+construye en un solo sitio. Eran dos, con columnas distintas, y la misma pregunta se
+contestaba de dos maneras según por dónde se preguntara — justo lo que se quería evitar al
+sacar `Tabla` a su propio fichero.
+
+Al unificarlas hubo que conservar dos cosas que se pierden si uno copia sin mirar:
+
+- **Si una conexión tiene TLS se anota mirando el valor CRUDO**, antes de descifrar. Un
+  campo que no se puede abrir queda vacío, así que con `--no-secrets` una conexión con TLS
+  aparecería como si no lo tuviera.
+- **Un usuario que no se ha podido descifrar sale como `<cifrado>`, nunca vacío.** Vacío se
+  leería como «no tiene usuario», que es otra cosa. Sale igual en los tres formatos porque
+  es un dato y no una decoración: quien lo lea tiene que saber que ahí falta la contraseña
+  maestra.
+
+Los conjuntos que llevan esa información van por **identificador**, nunca por posición.
+
 ## Las conexiones: crear, apartar, refrescar
 
 **`create` en la RAÍZ crea una conexión**, por la misma regla que hace que `create` en un

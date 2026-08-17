@@ -35,9 +35,6 @@ enum class Nodo { Raiz, Conexion, Dataset, Snapshot };
 struct Estado {
     Sesion* ses{nullptr};
     Conexiones conns;
-    // Las marcadas como desconectadas, en minúsculas. Se guardan aquí y no se consulta el
-    // fichero en cada orden: un `ls` de la raíz preguntaría una vez por conexión.
-    std::set<std::string> desconectadas;
     ZfsmUrl actual;   // conexión vacía = raíz
     ZfsmUrl anterior;
     bool hayAnterior{false};
@@ -282,20 +279,9 @@ std::string idDe(const Estado& e, const ZfsmUrl& u);
 // Relee las conexiones y con ellas las marcas de desconexión, que viven en el mismo
 // fichero. Van juntas a propósito: leer unas sin las otras deja el intérprete creyendo que
 // una conexión está disponible cuando acaban de apartarla.
-void recarga(Estado& e) {
-    e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra);
-    e.desconectadas.clear();
-    for (const auto& p : e.conns.perfiles) {
-        const std::string id = p.id.empty() ? p.name : p.id;
-        if (estaDesconectada(*e.ses, id)) {
-            e.desconectadas.insert(B::toLowerAscii(id));
-        }
-    }
-}
+void recarga(Estado& e) { e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra); }
 
-bool estaApartada(const Estado& e, const std::string& id) {
-    return e.desconectadas.count(B::toLowerAscii(id)) > 0;
-}
+bool estaApartada(const Estado& e, const std::string& id) { return e.conns.desconectada(id); }
 
 // El perfil de la conexión que nombra una URL.
 const B::ConnectionProfile* perfilDe(const Estado& e, const ZfsmUrl& u, std::string& error) {
@@ -462,25 +448,10 @@ bool confirma(const Estado& e, const std::string& que) {
 
 // --- ls
 
-void listaConexiones(const Estado& e) {
-    Tabla t;
-    t.nombreJson = "connections";
-    t.cabecerasTexto = {"ID", "NOMBRE", "TIPO", "SO", "USUARIO", "HOST", "PUERTO", "SUDO",
-                        "CONECTADA"};
-    t.campos = {"id", "name", "type", "os", "user", "host", "port", "sudo", "connected"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Entero, Tipo::Booleano, Tipo::Booleano};
-    for (const auto& p : e.conns.perfiles) {
-        const bool local = T::isLocalConnection(p);
-        t.filas.push_back({p.id, p.name, p.connType.empty() ? std::string("SSH") : p.connType,
-                           p.osType, local ? std::string() : p.username,
-                           local ? std::string() : p.host,
-                           local ? std::string() : std::to_string(p.port),
-                           p.useSudo ? "true" : "false",
-                           estaApartada(e, p.id.empty() ? p.name : p.id) ? "false" : "true"});
-    }
-    t.imprime(e.formato);
-}
+// El listado de conexiones es EL MISMO que el de la orden suelta `connections list`. La
+// tabla se construye en un solo sitio (session.cpp): tenerla duplicada hacía que la misma
+// pregunta se contestara con columnas distintas según por dónde se preguntara.
+void listaConexiones(const Estado& e) { tablaDeConexiones(e.conns).imprime(e.formato); }
 
 // Los pools de una conexión, del JSON de `zpool list`.
 bool listaPools(Estado& e, const ZfsmUrl& destino) {

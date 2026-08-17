@@ -71,7 +71,7 @@ void uso() {
                  "                        números salen como números, los booleanos como\n"
                  "                        booleanos y lo que no aplica como null.\n"
                  "                        connections list: id, name, type, os, user,\n"
-                 "                        host, port, sudo, tls\n"
+                 "                        host, port, sudo, tls, connected\n"
                  "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
                  "                        transporte con cada máquina\n"
@@ -161,65 +161,24 @@ std::string abrir(const std::string& valor, const std::string& maestra, bool sin
     return claro;
 }
 
+// La lista de conexiones. La tabla se construye en `session.cpp`, en el mismo sitio que la
+// del `ls` de la raíz del intérprete: eran dos, con columnas distintas, y la misma pregunta
+// se contestaba de dos maneras según por dónde se preguntara.
+//
+// De paso desaparece de aquí la lectura de config.json y del almacén de confianza, que
+// también estaba duplicada — y con ella el fallo de mirar solo el primero, que hacía que
+// una conexión CON TLS apareciera como si no lo tuviera.
 int listarConexiones(const Opciones& op, const std::string& maestra) {
-    ST::Aviso aviso;
-    const auto root = ST::leerConfig(op.dirConfig, aviso);
-    if (!aviso.vacio()) {
-        std::fprintf(stderr, "%s: %s\n", kNombre, textoDe(aviso).c_str());
+    const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
+    if (!conns.aviso.empty()) {
+        std::fprintf(stderr, "%s: %s\n", kNombre, conns.aviso.c_str());
         return 1;
     }
-    // El material TLS NO vive en config.json sino en trust-store.json, que es un fichero
-    // aparte precisamente para separarlo de las contraseñas de acceso. Leer solo el
-    // primero hacía que una conexión CON TLS apareciera como si no lo tuviera.
-    ST::Aviso avisoTrust;
-    const auto trust = ST::leerTrustStore(op.dirConfig, avisoTrust);
-    if (!avisoTrust.vacio()) {
-        std::fprintf(stderr, "%s: aviso: %s\n", kNombre, textoDe(avisoTrust).c_str());
-    }
-    std::map<std::string, bool> tlsPorId;
-    for (const auto& v : trust["connections"].toArray()) {
-        const auto t = CJ::connectionFromJson(v, std::string());
-        if (!t.id.empty()) {
-            tlsPorId[B::toLowerAscii(t.id)] = CJ::profileHasDaemonTls(t);
-        }
-    }
-
-    const auto& conns = root["connections"].toArray();
-    // Sin conexiones NO se sale antes de tiempo: en json hay que sacar igualmente
-    // `{"connections": []}`, o un guion que haga `jq \'.connections | length\'` recibe una
-    // entrada vacía y falla en vez de leer cero.
-    if (conns.empty()) {
+    if (conns.perfiles.empty()) {
         std::fprintf(stderr, "%s: no hay conexiones configuradas en %s\n", kNombre,
                      ST::rutaConfig(op.dirConfig).c_str());
     }
-    Tabla t;
-    t.nombreJson = "connections";
-    t.cabecerasTexto = {"ID", "NOMBRE", "TIPO", "SO", "USUARIO", "HOST", "PUERTO", "SUDO", "TLS"};
-    t.campos = {"id", "name", "type", "os", "user", "host", "port", "sudo", "tls"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Entero, Tipo::Booleano, Tipo::Booleano};
-    for (const auto& v : conns) {
-        const auto p = CJ::connectionFromJson(v, std::string());
-        const bool local = CJ::isLocalProfile(p);
-        const bool tls = CJ::profileHasDaemonTls(p)
-                      || (tlsPorId.count(B::toLowerAscii(p.id)) > 0
-                          && tlsPorId.at(B::toLowerAscii(p.id)));
-        // Forma canónica, no la de salida: es la Tabla quien sabe cómo se enseña cada
-        // tipo en cada formato. Aquí no hay que saber en cuál estamos.
-        const auto boole = [](bool b) -> std::string { return b ? "true" : "false"; };
-        t.filas.push_back({
-            p.id,
-            p.name,
-            p.connType.empty() ? std::string("SSH") : p.connType,
-            p.osType,
-            local ? std::string() : abrir(p.username, maestra, op.sinSecretos),
-            local ? std::string() : p.host,
-            local ? std::string() : std::to_string(CJ::ensurePort(p.connType, p.port)),
-            boole(p.useSudo),
-            boole(tls),
-        });
-    }
-    t.imprime(op.formato);
+    zfsmgr::cli::tablaDeConexiones(conns).imprime(op.formato);
     return 0;
 }
 

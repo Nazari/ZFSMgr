@@ -3,7 +3,10 @@
 #include "connectionprofile.h"
 #include "transportsession.h"
 
+#include "tabla.h"
+
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,8 +30,35 @@ namespace zfsmgr::cli {
 // almacén de confianza puesto.
 struct Conexiones {
     std::vector<zfsmgr::base::ConnectionProfile> perfiles;
+
+    // --- Lo que solo se sabe mirando los valores CRUDOS, antes de descifrar.
+    //
+    // Va aparte porque un campo que no se puede abrir queda VACÍO, y entonces «tiene TLS» y
+    // «no tiene TLS» serían indistinguibles: con `--no-secrets` una conexión con TLS
+    // aparecería como si no lo tuviera. Los conjuntos van por identificador en minúsculas,
+    // NUNCA por posición — ver docs/diseno_tecnico_capa_base_sin_qt.md sobre lo que pasa
+    // cuando se indexa por índice y se borra una conexión.
+    std::set<std::string> conTls;
+    std::set<std::string> secretosSinAbrir;
+
+    // Las apartadas con `disconnect`. Se leen en la MISMA pasada que las conexiones, que
+    // están en el mismo fichero: preguntarlo por separado era abrir config.json una vez
+    // por conexión.
+    std::set<std::string> desconectadas;
+
     std::string aviso;  // vacío si todo fue bien
+
+    bool tieneTls(const std::string& id) const;
+    bool secretoSinAbrir(const std::string& id) const;
+    bool desconectada(const std::string& id) const;
 };
+
+// La tabla de conexiones, en UN SOLO SITIO.
+//
+// La usan la orden suelta `connections list` y el `ls` de la raíz del intérprete. Tenerla
+// duplicada hacía que la misma pregunta se contestara con columnas distintas según por
+// dónde se preguntara, que es justo lo que se quería evitar al sacar `Tabla` a su fichero.
+Tabla tablaDeConexiones(const Conexiones& c);
 
 // Carga config.json y trust-store.json de `dirConfig` y funde los dos.
 //
@@ -87,7 +117,9 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error);
 //
 // Significa «no hables con esta máquina»: la interfaz se salta las desconectadas al
 // refrescar y al recoger registros, y el intérprete se niega a operar sobre ellas.
-bool estaDesconectada(const Sesion& s, const std::string& id);
+//
+// Para CONSULTARLA se usa `Conexiones::desconectada()`, que ya viene leída: tener dos
+// formas de saber lo mismo es cómo acaban discrepando.
 bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error);
 
 // Ejecuta un verbo del agente por RPC TIPADO: argv, sin intérprete de por medio.

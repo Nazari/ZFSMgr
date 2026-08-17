@@ -35,6 +35,25 @@ std::string abrir(const std::string& valor, const std::string& maestra) {
     return B::SecretCipher::decryptEncv1(valor, maestra, claro, err) ? claro : std::string();
 }
 
+// ¿Se quedó algún secreto sin abrir? Es distinto de «no hay secreto»: con --no-secrets o
+// con la maestra equivocada los campos quedan vacíos, y sin esta marca el listado diría
+// que la conexión no tiene usuario cuando lo que pasa es que no se puede leer.
+bool algunSecretoSinAbrir(const B::ConnectionProfile& crudo, const std::string& maestra) {
+    for (const std::string* campo : {&crudo.username, &crudo.password,
+                                     &crudo.daemonTlsServerCertPem, &crudo.daemonTlsClientCertPem,
+                                     &crudo.daemonTlsClientKeyPem}) {
+        if (!B::SecretCipher::isEncrypted(*campo)) {
+            continue;
+        }
+        std::string claro;
+        std::string err;
+        if (maestra.empty() || !B::SecretCipher::decryptEncv1(*campo, maestra, claro, err)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void descifraPerfil(B::ConnectionProfile& p, const std::string& maestra) {
     p.username = abrir(p.username, maestra);
     p.password = abrir(p.password, maestra);
@@ -55,6 +74,50 @@ const char* etiqueta(Nivel n) {
 
 }  // namespace
 
+bool Conexiones::tieneTls(const std::string& id) const {
+    return conTls.count(B::toLowerAscii(B::trim(id))) > 0;
+}
+bool Conexiones::secretoSinAbrir(const std::string& id) const {
+    return secretosSinAbrir.count(B::toLowerAscii(B::trim(id))) > 0;
+}
+bool Conexiones::desconectada(const std::string& id) const {
+    return desconectadas.count(B::toLowerAscii(B::trim(id))) > 0;
+}
+
+Tabla tablaDeConexiones(const Conexiones& c) {
+    Tabla t;
+    t.nombreJson = "connections";
+    t.cabecerasTexto = {"ID",     "NOMBRE", "TIPO", "SO",  "USUARIO",
+                        "HOST",   "PUERTO", "SUDO", "TLS", "CONECTADA"};
+    t.campos = {"id",   "name",   "type", "os",  "user",
+                "host", "port",   "sudo", "tls", "connected"};
+    t.tipos = {Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,   Tipo::Cadena,
+               Tipo::Cadena,   Tipo::Entero, Tipo::Booleano, Tipo::Booleano, Tipo::Booleano};
+    for (const auto& p : c.perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        const bool local = CJ::isLocalProfile(p);
+        // Un usuario que no se ha podido descifrar sale marcado y NUNCA vacío: vacío se
+        // leería como «no tiene usuario», que es otra cosa. Sale igual en los tres
+        // formatos porque es un dato, no una decoración: quien lo lea tiene que saber que
+        // ahí falta la contraseña maestra.
+        std::string usuario;
+        if (!local) {
+            usuario = p.username.empty() && c.secretoSinAbrir(id) ? "<cifrado>" : p.username;
+        }
+        t.filas.push_back({p.id,
+                           p.name,
+                           p.connType.empty() ? std::string("SSH") : p.connType,
+                           p.osType,
+                           usuario,
+                           local ? std::string() : p.host,
+                           local ? std::string() : std::to_string(p.port),
+                           p.useSudo ? "true" : "false",
+                           c.tieneTls(id) ? "true" : "false",
+                           c.desconectada(id) ? "false" : "true"});
+    }
+    return t;
+}
+
 Conexiones cargarConexiones(const std::string& dirConfig, const std::string& maestra) {
     Conexiones c;
     ST::Aviso aviso;
@@ -71,14 +134,35 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     std::map<std::string, B::ConnectionProfile> tlsPorId;
     for (const auto& v : trust["connections"].toArray()) {
         auto t = CJ::connectionFromJson(v, std::string());
-        if (!t.id.empty()) {
-            descifraPerfil(t, maestra);
-            tlsPorId[B::toLowerAscii(t.id)] = t;
+        if (t.id.empty()) {
+            continue;
         }
+        // Si TIENE material, se anota AHORA, mirando el valor crudo: descifrarlo puede
+        // fallar y dejarlo vacío, y entonces parecería que no lo tiene.
+        if (CJ::profileHasDaemonTls(t)) {
+            c.conTls.insert(B::toLowerAscii(t.id));
+        }
+        if (algunSecretoSinAbrir(t, maestra)) {
+            c.secretosSinAbrir.insert(B::toLowerAscii(t.id));
+        }
+        descifraPerfil(t, maestra);
+        tlsPorId[B::toLowerAscii(t.id)] = t;
+    }
+
+    // Las apartadas, de la misma lectura del fichero.
+    for (const auto& v : root["app"]["disconnected_connections"].toArray()) {
+        c.desconectadas.insert(B::toLowerAscii(B::trim(v.toString())));
     }
 
     for (const auto& v : root["connections"].toArray()) {
         auto p = CJ::connectionFromJson(v, std::string());
+        const std::string idBajo = B::toLowerAscii(p.id.empty() ? p.name : p.id);
+        if (CJ::profileHasDaemonTls(p)) {
+            c.conTls.insert(idBajo);
+        }
+        if (algunSecretoSinAbrir(p, maestra)) {
+            c.secretosSinAbrir.insert(idBajo);
+        }
         descifraPerfil(p, maestra);
         const auto it = tlsPorId.find(B::toLowerAscii(p.id));
         if (it != tlsPorId.end() && !CJ::profileHasDaemonTls(p)) {
@@ -350,17 +434,6 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
     return true;
 }
 
-bool estaDesconectada(const Sesion& s, const std::string& id) {
-    ST::Aviso aviso;
-    const auto root = ST::leerConfig(s.dirConfig, aviso);
-    const std::string clave = clavePersistencia(id);
-    for (const auto& v : root["app"]["disconnected_connections"].toArray()) {
-        if (clavePersistencia(v.toString()) == clave) {
-            return true;
-        }
-    }
-    return false;
-}
 
 bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std::string& error) {
     error.clear();
