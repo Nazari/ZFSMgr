@@ -214,7 +214,7 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Cualquiera, {}},
 
     // --- Conexiones
-    {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
+    {"create", {"t_grupo_crear", "Crear y destruir, en cualquier nivel"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
      {"t_create_res2", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
      "dataset un hijo, y con « @ » delante una instantánea."},
      {{{"t_name_type__f51f24", "--name <n> / --type <LOCAL|SSH> / --os <s>"}, {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
@@ -250,7 +250,21 @@ const std::vector<Orden> kOrdenes = {
      {{"-n", false, {"t_nat_create_n", "Ensayo: enseña lo que haría y no lo hace."}}, {"-d", false, {"t_nat_create_d", "Pool: sin activar ninguna característica."}}, {"-R", true, {"t_nat_create_Rmay", "Pool: raíz alternativa donde montarlo."}}, {"-t", true, {"t_nat_create_t", "Pool: nombre temporal, solo hasta el próximo arranque."}},
       {"-p", false, {"t_nat_create_p", "Dataset: crea también los padres que falten."}}, {"-u", false, {"t_nat_create_u", "Dataset: no lo monta al crearlo."}}, {"-v", false, {"t_nat_create_v", "Dataset: cuenta lo que va haciendo."}}, {"-P", false, {"t_nat_create_Pmay", "Dataset: ensayo, en formato analizable."}},
       {"-s", false, {"t_nat_create_s", "Volumen: sin reservar el espacio por adelantado."}}, {"-b", true, {"t_nat_create_b", "Volumen: tamaño de bloque."}}, {"-V", true, {"t_nat_create_Vmay", "Crea un VOLUMEN de ese tamaño, no un sistema de ficheros."}}}},
-    {"devices", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_devices_uso", "[--free]"},
+    {"destroy", {"t_grupo_crear", "Crear y destruir, en cualquier nivel"}, {"t_destino_r__8b306f", "[destino] [-r|-R] [-f]"},
+     {"t_destruye_l_77f9b5", "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre."},
+     {{{"t_r_90cdb7", "-r"}, {"t_con_sus_de_7eb43b", "Con sus descendientes."}},
+      {{"t_r_24fd93", "-R"}, {"t_con_sus_de_b90f87", "Con sus descendientes y lo que dependa de ellos."}},
+      {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
+     {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
+      "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
+      "funciona—. En un dataset o instantánea, `zfs destroy`."}},
+     // Lo mismo que `create`: en una conexión la quita, en la raíz de un pool destruye el
+     // pool, y en un dataset o una instantánea es `zfs destroy` —lo que dice el párrafo de
+     // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
+     Objetivo::Cualquiera,
+     {},
+     {{"-f", false, {"t_nat_destroy_f", "Fuerza el desmontaje de lo que esté en uso."}}, {"-n", false, {"t_nat_destroy_n", "Ensayo: no borra nada, dice qué borraría."}}, {"-p", false, {"t_nat_destroy_p", "Con las estadísticas en formato analizable."}}, {"-R", false, {"t_nat_destroy_Rmay", "También los clones que dependan de ello."}}, {"-r", false, {"t_nat_destroy_r", "También sus descendientes."}}, {"-v", false, {"t_nat_destroy_v", "Cuenta lo que va borrando."}}, {"-d", false, {"t_nat_destroy_d", "Lo marca para borrarlo cuando se suelte la última retención."}}}},
+    {"devices", {"t_conexiones_3785cd", "Conexiones"}, {"t_devices_uso", "[--free]"},
      {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
      {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
      {{"t_devices_det", "Salen todos, con la columna OCUPADO, y no solo los libres: esconder los "
@@ -261,7 +275,7 @@ const std::vector<Orden> kOrdenes = {
       "en él decide."}},
      Objetivo::Conexion,
      {}},
-    {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name <n>] [--host <h>] …"},
+    {"edit", {"t_conexiones_3785cd", "Conexiones"}, {"t_name_host_73f07e", "[--name <n>] [--host <h>] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
      // Cada opción con su «<...>»: es lo que le dice al léxico que se lleva por delante el
      // componente siguiente. Sin eso, `edit prueba --name Renombrada` no era «cambia el
@@ -278,31 +292,17 @@ const std::vector<Orden> kOrdenes = {
      {},
      Objetivo::Conexion,
      {}},
-    {"destroy", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_r__8b306f", "[destino] [-r|-R] [-f]"},
-     {"t_destruye_l_77f9b5", "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre."},
-     {{{"t_r_90cdb7", "-r"}, {"t_con_sus_de_7eb43b", "Con sus descendientes."}},
-      {{"t_r_24fd93", "-R"}, {"t_con_sus_de_b90f87", "Con sus descendientes y lo que dependa de ellos."}},
-      {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
-     {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
-      "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
-      "funciona—. En un dataset o instantánea, `zfs destroy`."}},
-     // Lo mismo que `create`: en una conexión la quita, en la raíz de un pool destruye el
-     // pool, y en un dataset o una instantánea es `zfs destroy` —lo que dice el párrafo de
-     // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
-     Objetivo::Cualquiera,
-     {},
-     {{"-f", false, {"t_nat_destroy_f", "Fuerza el desmontaje de lo que esté en uso."}}, {"-n", false, {"t_nat_destroy_n", "Ensayo: no borra nada, dice qué borraría."}}, {"-p", false, {"t_nat_destroy_p", "Con las estadísticas en formato analizable."}}, {"-R", false, {"t_nat_destroy_Rmay", "También los clones que dependan de ello."}}, {"-r", false, {"t_nat_destroy_r", "También sus descendientes."}}, {"-v", false, {"t_nat_destroy_v", "Cuenta lo que va borrando."}}, {"-d", false, {"t_nat_destroy_d", "Lo marca para borrarlo cuando se suelte la última retención."}}}},
-    {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
+    {"connect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
      Objetivo::Conexion,
      {}},
-    {"disconnect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"},
+    {"disconnect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"},
      {"t_la_aparta__62eeb8", "La aparta: el intérprete deja de hablar con ella y se cierra su túnel."},
      {},
      {{"t_es_la_mism_796aa1", "Es la MISMA marca que usa la interfaz gráfica. Navegar hasta una conexión apartada sí "
       "se permite, porque hay que poder llegar para volver a conectarla."}},
      Objetivo::Conexion,
      {}},
-    {"refresh", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"},
+    {"refresh", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"},
      {"t_suelta_t_n_bedff9", "Suelta túnel, material TLS y castigos, relee la configuración y vuelve a sondear."},
      {},
      {{"t_no_es_un_l_2b8c41", "No es un listado: es lo que hay que hacer cuando algo se ha quedado colgado."}},
@@ -310,36 +310,36 @@ const std::vector<Orden> kOrdenes = {
      {}},
 
     // --- Dataset
-    {"rename", {"t_dataset_105268", "Dataset"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
+    {"rename", {"t_dataset_105268", "Datasets"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
      Objetivo::DatasetOInstantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-f", false, {"t_nat_rename_f", "Fuerza el desmontaje del destino si hace falta."}}, {"-p", false, {"t_nat_rename_p", "Crea los padres que falten en el nombre nuevo."}}, {"-u", false, {"t_nat_rename_u", "No vuelve a montarlo después."}}, {"-r", false, {"t_nat_rename_r", "Renombra la instantánea en todos los descendientes."}}}},
-    {"mount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
+    {"mount", {"t_dataset_105268", "Datasets"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
      Objetivo::Dataset,
      {},
      {{"-f", false, {"t_nat_mount_f", "Fuerza el montaje."}}, {"-l", false, {"t_nat_mount_l", "Carga antes la clave de cifrado si hace falta."}}, {"-v", false, {"t_nat_mount_v", "Cuenta lo que va haciendo."}}, {"-O", false, {"t_nat_mount_Omay", "Monta encima aunque el punto de montaje no esté vacío."}}, {"-o", true, {"t_nat_mount_o", "Opciones de montaje, solo para esta vez."}}, {"-a", false, {"t_nat_mount_a", "Todos los datasets que deban montarse."}}}},
-    {"unmount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_a9975c", "Lo desmonta."}, {}, {},
+    {"unmount", {"t_dataset_105268", "Datasets"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_a9975c", "Lo desmonta."}, {}, {},
      Objetivo::Dataset,
      {},
      {{"-f", false, {"t_nat_unmount_f", "Fuerza aunque haya ficheros abiertos."}}, {"-u", false, {"t_nat_unmount_u", "Descarga además la clave de cifrado."}}, {"-a", false, {"t_nat_unmount_a", "Todos los que estén montados."}}}},
-    {"promote", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {},
+    {"promote", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {},
      Objetivo::Dataset,
      {}},
-    {"get", {"t_dataset_105268", "Dataset"}, {"t_propiedad_77632b", "[propiedad]"}, {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {},
+    {"get", {"t_dataset_105268", "Datasets"}, {"t_propiedad_77632b", "[propiedad]"}, {"t_lee_las_pr_521610", "Lee las propiedades. Sin nombre, todas."}, {},
      {{"t_tab_props", "El tabulador completa el nombre PREGUNTÁNDOSELO a la máquina, así que ofrece "
       "las que ese dataset tiene de verdad y no una lista escrita aquí que envejecería con "
       "cada versión de OpenZFS."}},
      Objetivo::DatasetOInstantanea,
      {{"propiedad", Ranura::Tipo::Texto, Ranura::Cuantas::Opcional}}},
-    {"set", {"t_dataset_105268", "Dataset"}, {"t_prop_valor_b7871d", "<prop>=<valor> [más...]"}, {"t_escribe_pr_b449c1", "Escribe propiedades."}, {},
+    {"set", {"t_dataset_105268", "Datasets"}, {"t_prop_valor_b7871d", "<prop>=<valor> [más...]"}, {"t_escribe_pr_b449c1", "Escribe propiedades."}, {},
      {{"t_tab_valores", "El tabulador completa el nombre y, tras el « = », los valores posibles de "
       "las que tienen lista cerrada —`compression`, `canmount`, `sync`…—. Para `quota` o "
       "`mountpoint` no ofrece nada, que es mejor que inventar."}},
      Objetivo::DatasetOInstantanea,
      {{"props", Ranura::Tipo::Propiedad, Ranura::Cuantas::UnaOMas}}},
-    {"load-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},
+    {"load-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},
      Objetivo::Dataset, {}},
-    {"unload-key", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
+    {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
 
     // --- Instantáneas
