@@ -342,7 +342,10 @@ const std::vector<Orden> kOrdenes = {
        {"start", "stop", "cancel", "pause", "suspend"}},
       {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
      {{"-c", false}, {"-s", false}, {"-u", false}, {"-w", false}, {"-a", false}}},
-    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_on", "[<vdev>] [--on <pool>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {}, {},
+    {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_on", "[<vdev>] [--on <pool>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {},
+     {{"t_clear_det", "PREGUNTA antes, aunque no destruya datos: se escribe `clear` queriendo limpiar el "
+      "terminal, y entonces se pierde la cuenta de errores de un pool —que es justo lo que "
+      "uno estaba mirando— sin haberlo pedido. Para limpiar la pantalla, «cls»."}},
      Objetivo::Pool,
      {{"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
      {{"--power", false}, {"-n", false}, {"-F", false}}},
@@ -496,6 +499,11 @@ const std::vector<Orden> kOrdenes = {
      {{"t_text_es_pa_52ce5c", "text es para leer: columnas alineadas y tamaños legibles. tsv es para guiones: sin "
       "encabezado, tabuladores y columnas fijas en inglés. json añade TIPOS: los números "
       "son números y lo que no aplica es null."}}},
+    {"cls", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"", ""},
+     {"t_cls_res", "Limpia la pantalla."},
+     {}, {{"t_cls_det", "Se llama «cls» y no «clear» porque `clear` ya existe y es la del pool: pone a "
+      "cero sus contadores de error. Escribir `clear` esperando limpiar el terminal es "
+      "fácil y no era inocuo, así que aquélla pregunta antes."}}},
     {"yes", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_on_off_14009f", "[on|off]"},
      {"t_deja_de_pr_b69a39", "Deja de preguntar antes de lo destructivo, o vuelve a hacerlo."}, {}, {}},
     {"help", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_orden_f088c5", "[orden]"},

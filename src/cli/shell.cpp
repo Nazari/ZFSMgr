@@ -3849,7 +3849,14 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"flush", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "flush", "sync", nullptr); }},
         {"upgrade", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "upgrade", "upgrade", "Se va a subir la versión del pool, y eso NO se puede deshacer"); }},
         {"reguid", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "reguid", "reguid", "Se va a cambiar el identificador único del pool"); }},
-        {"clear", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "clear", "clear", nullptr); }},
+        // `clear` PREGUNTA. No borra datos, pero borra la cuenta de errores del pool, y se
+        // teclea queriendo limpiar el terminal —dos veces en una misma sesión de pruebas—.
+        // Perder eso sin haberlo pedido es perder justo lo que uno estaba mirando.
+        {"clear", [](Estado& s, const LineaAnalizada& l) {
+             return cmdPoolSimple(s, l, "clear", "clear",
+                                  "Se van a poner a cero los errores contados del pool (para limpiar "
+                                  "la PANTALLA la orden es «cls»)");
+         }},
         {"export", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "export", "export", "Se va a exportar el pool y dejará de estar disponible"); }},
         {"import", cmdImport},
         {"status", cmdStatus},
@@ -3913,6 +3920,18 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
                 }
             } else {
                 imprimeAyuda(anchoTerminal());
+            }
+            continue;
+        }
+        // Limpiar la pantalla. Con la secuencia ANSI y no llamando a `clear(1)`: no hay que
+        // lanzar un proceso para esto, y en Windows ese binario no existe.
+        //
+        // Se borra también el HISTORIAL de desplazamiento —`3J`—, que es lo que uno espera
+        // de limpiar: sin eso queda todo ahí arriba y basta con subir para verlo.
+        if (orden == "cls") {
+            if (hayTerminal()) {
+                std::fputs("\033[H\033[2J\033[3J", stdout);
+                std::fflush(stdout);
             }
             continue;
         }

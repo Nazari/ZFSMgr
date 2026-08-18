@@ -33,6 +33,7 @@
 static const struct { const char* nombre; int token; } kVerbos[] = {
     {"cd", V_CD}, {"ls", V_LS}, {"pwd", V_PWD}, {"info", V_INFO},
     {"help", V_HELP}, {"exit", V_EXIT}, {"quit", V_EXIT}, {"format", V_FORMAT}, {"yes", V_YES},
+    {"cls", V_CLS},
     {"connect", V_CONNECT}, {"disconnect", V_DISCONNECT}, {"refresh", V_REFRESH},
     {"edit", V_EDIT}, {"devices", V_DEVICES}, {"install-daemon", V_INSTALL_DAEMON},
     {"jobs", V_JOBS}, {"job", V_JOB}, {"import", V_IMPORT},
