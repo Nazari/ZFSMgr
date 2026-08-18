@@ -140,8 +140,20 @@ PALABRA     [^ \t=][^ \t]*
                         return tokenDeVerbo(yylval->texto);
                     }
 
-  /* El valor de la opción anterior. No llega a la gramática: se anota y se sigue. */
+  /* El valor de la opción anterior. No llega a la gramática: se anota y se sigue.
+   *
+   * ENTRECOMILLADO, es UN valor aunque lleve espacios: `--flags "-w -L"`, o un punto de
+   * montaje con espacios. Sin esta regla se cortaba en el primer espacio y el resto se
+   * leía como un componente suelto de la orden —el valor quedaba en «"-w» y la orden
+   * fallaba por sintaxis en «-L"»—, que es lo mismo que ya pasaba con los componentes
+   * corrientes antes de que se les quitaran las comillas. */
 <VALOR>{ESPACIO}    { /* separador */ }
+<VALOR>\"([^"\\]|\\.)*\"|'([^'\\]|\\.)*' {
+                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                        BEGIN(INITIAL);
+                        astOpcion(cx->res, copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
+                                  sinComillas(yytext, yyleng));
+                    }
 <VALOR>[^ \t]+      {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -149,6 +161,13 @@ PALABRA     [^ \t=][^ \t]*
                                   copia(yytext, yyleng));
                     }
 <VALOR2>{ESPACIO}   { /* separador */ }
+<VALOR2>\"([^"\\]|\\.)*\"|'([^'\\]|\\.)*' {
+                        ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
+                        BEGIN(INITIAL);
+                        astOpcionRepetida(cx->res,
+                                          copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
+                                          sinComillas(yytext, yyleng));
+                    }
 <VALOR2>[^ \t]+     {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);

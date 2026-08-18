@@ -19,6 +19,7 @@
 #include "transportsession.h"
 #include "transporttunnel.h"
 #include "zfsmurl.h"
+#include "zfsprops.h"
 
 #include <chrono>
 #include <thread>
@@ -1306,6 +1307,32 @@ int main() {
                           && !ses.callsForTest[1].shellCommand.empty(),
                       "transporte de prueba: se anota como cadena de shell");
         }
+    }
+
+    // --- Las banderas de `zfs send` que se dejan llegar al mandato.
+    //
+    // Esta lista es una frontera de SEGURIDAD, no una comodidad: lo que la pase acaba en el
+    // argv de un `zfs send` que corre con privilegios. Por eso se comprueba también el caso
+    // que la motivó —un nombre de dataset colado entre las banderas—, y no solo que las
+    // buenas pasen: un validador que acepte todo también haría pasar las buenas.
+    {
+        using zfsmgr::base::zfsprops::banderasDeSendValidas;
+        std::string mala;
+        comprobar(banderasDeSendValidas("", mala), "send: sin banderas vale");
+        comprobar(banderasDeSendValidas("-w -L -c", mala), "send: las banderas de verdad pasan");
+        comprobar(banderasDeSendValidas("-R -X tank/otro", mala),
+                  "send: -X se lleva su dataset por delante");
+        comprobar(!banderasDeSendValidas("tank/otro@ayer", mala),
+                  "send: un dataset suelto NO pasa");
+        igual(mala, "tank/otro@ayer", "send: y se dice cuál era");
+        comprobar(!banderasDeSendValidas("-w tank/otro@ayer", mala),
+                  "send: ni escondido detrás de una buena");
+        comprobar(!banderasDeSendValidas("-Z", mala), "send: una bandera inventada NO pasa");
+        comprobar(!banderasDeSendValidas("-i tank@a", mala),
+                  "send: -i es del programa, no del usuario");
+        comprobar(!banderasDeSendValidas("-t testigo", mala),
+                  "send: -t tampoco");
+        comprobar(!banderasDeSendValidas("-R -X", mala), "send: -X sin dataset NO pasa");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

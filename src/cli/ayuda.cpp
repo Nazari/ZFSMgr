@@ -1,5 +1,7 @@
 #include "ayuda.h"
 
+#include "zfsprops.h"
+
 #include "strutil.h"
 #include "tr.h"
 
@@ -123,6 +125,19 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
     }
 }
 
+// Las banderas de `zfs send`, tomadas de la capa base.
+//
+// Copiarlas aquí sería tener dos listas: la que el intérprete acepta y la que el daemon
+// deja pasar. Se desincronizarían en el primer cambio, y la que manda es la del daemon,
+// así que el usuario vería aceptada una bandera que luego muere al otro lado.
+std::vector<Nativa> nativasDeSend() {
+    std::vector<Nativa> out;
+    for (const auto& b : zfsmgr::base::zfsprops::banderasDeSend()) {
+        out.push_back({b.forma, b.valor});
+    }
+    return out;
+}
+
 const std::vector<Orden> kOrdenes = {
     // --- Navegación
     {"cd", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_cambia_de__33cb85", "Cambia de sitio. Sin argumento, a la raíz."},
@@ -158,12 +173,12 @@ const std::vector<Orden> kOrdenes = {
     {"create", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
      {"t_create_res2", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
      "dataset un hijo, y con « @ » delante una instantánea."},
-     {{{"t_name_type__f51f24", "--name / --type / --os"}, {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
-      {{"t_host_port__2ddcc9", "--host / --port / --user / --key"}, {"t_conexi_n_c_c0e9ec", "Conexión: cómo se llega a la máquina."}},
+     {{{"t_name_type__f51f24", "--name <n> / --type <LOCAL|SSH> / --os <s>"}, {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
+      {{"t_host_port__2ddcc9", "--host <h> / --port <n> / --user <u> / --key <ruta>"}, {"t_conexi_n_c_c0e9ec", "Conexión: cómo se llega a la máquina."}},
       {{"t_sudo_d34723", "--sudo"}, {"t_conexi_n_l_0e9498", "Conexión: la máquina necesita elevar."}},
       {{"t_password_f_33329f", "--password-fd <n>"}, {"t_conexi_n_l_ffa8ae", "Conexión: la contraseña, por descriptor."}},
       {{"t_dispositiv_538150", "<dispositivo>..."}, {"t_pool_en_cu_472c48", "Pool: en cuáles se crea. SE ESCRIBEN."}},
-      {{"t_o_p_v_o_p__3f8555", "-o p=v / -O p=v / --mountpoint"}, {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
+      {{"t_o_p_v_o_p__3f8555", "-o p=v / -O p=v / --mountpoint <ruta>"}, {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
       {{"t_f_0abbcb", "-f"}, {"t_pool_fuerz_68fe4a", "Pool: fuerza aunque parezcan en uso."}},
       {{"t_prop_valor_4ef240", "prop=valor"}, {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}},
       {{"t_create_arroba", "@<nombre>"}, {"t_create_arroba_q", "Instantánea del dataset donde está."}},
@@ -177,8 +192,20 @@ const std::vector<Orden> kOrdenes = {
       {"t_create_arroba_det", "Un nombre con « @ » delante crea una instantánea y no un hijo: `create @ayer` "
       "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue una "
       "instantánea en la URL, así que no hay una regla nueva que recordar."}},
-     Objetivo::Dataset,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
+     // `create` vale en TODOS los niveles —raíz, conexión, dataset— y decide por dónde se
+     // está. Declarando `Dataset`, el preámbulo exigía estar en uno y crear un pool desde
+     // el intérprete era imposible: `create <pool> <disco>` en una conexión moría con
+     // «hace falta un dataset» antes de llegar a la orden.
+     Objetivo::Cualquiera,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}},
+     // De `zpool create [-fnd] [-R root] [-t nombre]` y de
+     // `zfs create [-Pnpuv] [-b bloque] [-V tamaño]`, menos las que la orden ya declara
+     // arriba —`-f`, `-o`, `-O`, `--mountpoint`, `-r`—. Es la UNIÓN de los dos mandatos
+     // porque `create` es uno solo: cuál se usa lo decide dónde se está, y si una bandera
+     // no vale en ese nivel lo dice el propio zfs/zpool, que es quien lo sabe.
+     {{"-n", false}, {"-d", false}, {"-R", true}, {"-t", true},
+      {"-p", false}, {"-u", false}, {"-v", false}, {"-P", false},
+      {"-s", false}, {"-b", true}, {"-V", true}}},
     {"devices", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_devices_uso", "[--free]"},
      {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
      {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
@@ -204,7 +231,10 @@ const std::vector<Orden> kOrdenes = {
      {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
       "funciona—. En un dataset o instantánea, `zfs destroy`."}},
-     Objetivo::DatasetOInstantanea,
+     // Lo mismo que `create`: en una conexión la quita, en la raíz de un pool destruye el
+     // pool, y en un dataset o una instantánea es `zfs destroy` —lo que dice el párrafo de
+     // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
+     Objetivo::Cualquiera,
      {},
      {{"-f", false}, {"-n", false}, {"-p", false}, {"-R", false}, {"-r", false}, {"-v", false}, {"-d", false}}},
     {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
@@ -422,7 +452,8 @@ const std::vector<Orden> kOrdenes = {
       {"t_ninguno_de_0490e5", "Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado "
       "allí. Para eso están todir y fromdir."}},
      Objetivo::Instantanea,
-     {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
+     {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}},
+     nativasDeSend()},
 
     // --- Trabajos
     {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso", "[--all|--<estado>...]"},

@@ -189,6 +189,25 @@ int main() {
               "«allow perms --user u»: la opción detrás");
         igual(b.uno("texto"), "snapshot,mount", "«allow perms --user u»: mismo argumento");
     }
+    // --- El valor de una opción, ENTRECOMILLADO, es uno solo aunque lleve espacios.
+    //
+    // Sin esto se cortaba en el primer espacio: `--flags "-w -L"` dejaba el valor en «"-w»
+    // y «-L"» se leía como un componente suelto de la orden. Es el mismo trato que ya
+    // tenían los componentes corrientes, que a un punto de montaje con espacios le quitan
+    // las comillas desde el principio.
+    {
+        const auto a = analizaLinea("copy /otra/x --flags \"-w -L\"");
+        igual(a.opciones.count("flags") ? a.opciones.at("flags") : "", "-w -L",
+              "«--flags \"-w -L\"»: un solo valor, sin comillas");
+        igual(a.uno("destino"), "/otra/x", "«--flags \"-w -L\"»: y el destino sigue en su sitio");
+        const auto b = analizaLinea("create datos --mountpoint \"/mnt/con espacio\"");
+        igual(b.opciones.count("mountpoint") ? b.opciones.at("mountpoint") : "",
+              "/mnt/con espacio", "«--mountpoint \"/mnt/con espacio\"»: el espacio no parte el valor");
+        // Control: sin comillas SÍ se parte, que es lo que hace falta cuando no las lleva.
+        const auto c = analizaLinea("copy /otra/x --flags -w");
+        igual(c.opciones.count("flags") ? c.opciones.at("flags") : "", "-w",
+              "«--flags -w»: sin comillas, el valor es el componente");
+    }
     {
         // Una opción SIN valor no se traga el componente siguiente.
         const auto a = analizaLinea("rsync --check /a/b");

@@ -1373,6 +1373,13 @@ bool exigeDataset(const ZfsmUrl& u) {
 // devolvía un mensaje sobre delimitadores.
 bool creaInstantanea(Estado& e, const Peticion& pet, const ZfsmUrl& destinoEntrada) {
     ZfsmUrl destino = destinoEntrada;
+    // Estando en una instantánea, `create @hoy` se entiende sobre SU dataset: de una
+    // instantánea no cuelga nada. Lo hacía el preámbulo, que subía hasta el dataset porque
+    // la orden pedía uno; ahora `create` no pide nivel —vale en todos—, así que sube aquí.
+    if (nodoDe(destino) == Nodo::Snapshot) {
+        destino.snapshot.clear();
+        destino.kind = ZfsmKind::Dataset;
+    }
     if (!exigeDataset(destino)) {
         return false;
     }
@@ -1385,6 +1392,15 @@ bool creaInstantanea(Estado& e, const Peticion& pet, const ZfsmUrl& destinoEntra
         return false;
     }
     const bool recursivo = pet.tiene("-r");
+    // Una instantánea no pasa por un argv de `zfs`, sino por un verbo del daemon que solo
+    // entiende «recursiva o no». Las demás banderas de `create` —las del pool y las del
+    // dataset— no tienen dónde ir, así que se DICE. Callarlas sería justo el fallo que se
+    // está persiguiendo: aceptar algo y no hacerle caso.
+    for (const std::string& n : pet.nativas()) {
+        std::fprintf(stderr, TC("t_bandera_no_instantanea", "«%s» no vale al crear una instantánea: "
+                     "solo -r\n"), n.c_str());
+        return false;
+    }
     std::string out;
     if (!agente(e, destino,
                 {"--mutate-zfs-snapshot", destino.dataset + "@" + nombre, recursivo ? "1" : "0"},
@@ -1764,6 +1780,9 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::vector<std::string> argv{"create"};
+    for (const std::string& n : pet.nativas()) {
+        argv.push_back(n);
+    }
     for (std::size_t i = 1; i < pet.lista("texto").size(); ++i) {
         argv.push_back("-o");
         argv.push_back(pet.lista("texto")[i]);
@@ -2119,6 +2138,28 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
+    // Las banderas de `zfs send` se pueden escribir sueltas —`copy /otra/x -w -L`— o en
+    // bloque con `--flags "-w -L"`, que es como se hacía. Las dos acaban en la misma cadena
+    // y las dos se comprueban contra la misma lista.
+    //
+    // `--flags` era texto libre hasta el argv de un `zfs send` con privilegios: lo que se
+    // escribiera ahí se troceaba por espacios y se metía tal cual, así que un
+    // `--flags "tank/otro@ayer"` sacaba por el socket un dataset que no era el pedido. El
+    // daemon lo rechaza igualmente; aquí se comprueba ANTES de preguntar, porque hacer
+    // confirmar una copia para luego decir que la bandera no vale es preguntar en balde.
+    std::string banderasSend;
+    for (const std::string& n : pet.nativas()) {
+        banderasSend += (banderasSend.empty() ? "" : " ") + n;
+    }
+    if (!pet.valor("flags").empty()) {
+        std::string mala;
+        if (!B::zfsprops::banderasDeSendValidas(pet.valor("flags"), mala)) {
+            std::fprintf(stderr, TC("t_bandera_send_no_admitida",
+                         "«%s» no es una bandera de zfs send\n"), mala.c_str());
+            return false;
+        }
+        banderasSend += (banderasSend.empty() ? "" : " ") + pet.valor("flags");
+    }
     if (pet.lista("destino").empty() && pet.valor("to").empty()) {
         std::fputs(TC("t_uso_copy_d_f6efbc", "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
                      "          [--flags <banderas de zfs send>] [--wait]\n"
@@ -2201,10 +2242,11 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
     }
 
     // 3) El origen envía. Como TRABAJO: una transferencia grande no cabe en una espera.
+    //
     std::string sendOut;
     if (!agente(e, origen,
                 {"--zfs-send-to-peer-async", origen.zfsName(), peer, puerto, testigo, base,
-                 pet.valor("flags")},
+                 banderasSend},
                 sendOut, 30000)) {
         return false;
     }
@@ -2870,8 +2912,14 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
                      "  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n"), stderr);
         return false;
     }
-    const std::string pool = pet.uno("texto");
-    const std::vector<std::string> vdevs(pet.lista("texto").begin() + 1, pet.lista("texto").end());
+    // Una sola copia de la lista, y los iteradores DE ESA. `lista()` devuelve por valor, así
+    // que `pet.lista(...).begin()` y `pet.lista(...).end()` eran extremos de dos vectores
+    // distintos: el rango no significaba nada y el intérprete se caía al construir los
+    // nombres. No se veía porque hasta ahora no se llegaba aquí: el preámbulo exigía estar
+    // en un dataset y crear un pool era imposible, así que el fallo estaba tapado.
+    const std::vector<std::string> textos = pet.lista("texto");
+    const std::string pool = textos.front();
+    const std::vector<std::string> vdevs(textos.begin() + 1, textos.end());
     if (!confirma(e, B::format(T("t_conf_create_pool",
                                  "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "
                                  "hubiera en esos dispositivos SE PIERDE. ¿Continuar?"),
@@ -2880,6 +2928,12 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         return false;
     }
     std::vector<std::string> argv{"create"};
+    // Las banderas nativas van DELANTE del nombre del pool. Detrás, zpool las toma por
+    // dispositivos o las ignora sin decir nada: `zpool trim pruebacli -r 100M` se tragó el
+    // ritmo en silencio, y ese fue el fallo que enseñó dónde tienen que ir.
+    for (const std::string& n : pet.nativas()) {
+        argv.push_back(n);
+    }
     if (pet.tiene("-f")) {
         argv.push_back("-f");
     }
@@ -2898,7 +2952,11 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
     if (!zpoolGenerico(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_creado_el__2de5da", "creado el pool %s\n"), pool.c_str());
+    // Con `-n` no se ha creado nada: zpool solo enseña la disposición que saldría. Decir
+    // «creado el pool» ahí sería mentir sobre lo único que importa de esta orden.
+    if (!pet.tiene("-n")) {
+        std::fprintf(stderr, TC("t_creado_el__2de5da", "creado el pool %s\n"), pool.c_str());
+    }
     return true;
 }
 

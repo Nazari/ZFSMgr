@@ -10,7 +10,8 @@ resolviendo su destino por su cuenta.
 Ver docs/gramatica_cli.md.
 
     python3 scripts/revisa_firmas_cli.py          # el resumen
-    python3 scripts/revisa_firmas_cli.py --mudas  # solo las que pueden ignorar argumentos
+    python3 scripts/revisa_firmas_cli.py --mudas   # solo las que pueden ignorar argumentos
+    python3 scripts/revisa_firmas_cli.py --sordas  # solo las que piden un valor sin declararlo
 """
 import re
 import sys
@@ -21,10 +22,10 @@ SHELL = RAIZ / "src/cli/shell.cpp"
 AYUDA = RAIZ / "src/cli/ayuda.cpp"
 
 
-def cuerpos_de_funciones(texto):
-    """El código de cada `bool cmdX(...)`, equilibrando llaves."""
+def cuerpos_de_funciones(texto, patron=r"^bool (cmd[A-Za-z]+)\(Estado&"):
+    """El código de cada función que case, equilibrando llaves."""
     out = {}
-    for m in re.finditer(r"^bool (cmd[A-Za-z]+)\(Estado&", texto, re.M):
+    for m in re.finditer(patron, texto, re.M):
         i = texto.index("{", m.start())
         prof, j = 0, i
         while j < len(texto):
@@ -82,6 +83,71 @@ def main():
         else:
             sin_destino.append(verbo)
 
+    # --- Las opciones que se LEEN con valor y no lo declaran.
+    #
+    # El léxico decide si una opción se lleva por delante el componente siguiente mirando su
+    # forma en el catálogo: si ahí no hay un «<...>», la opción es una bandera suelta. Una
+    # orden que luego pida `pet.valor("x")` no recibe nada, y el valor que el usuario
+    # escribió se cuela como un argumento más.
+    #
+    # No es teórico: `--mountpoint` estaba declarado sin valor, así que
+    # `create pool disco --mountpoint /mnt/x` mandaba «/mnt/x» a la lista de DISPOSITIVOS
+    # del pool. Se descubrió de casualidad; esto lo convierte en algo que se comprueba.
+    formas = {}
+    for m in re.finditer(r'\{"([a-z-]+)",', ayuda):
+        verbo = m.group(1)
+        prof, j = 0, m.start()
+        while j < len(ayuda):
+            if ayuda[j] == "{":
+                prof += 1
+            elif ayuda[j] == "}":
+                prof -= 1
+                if prof == 0:
+                    break
+            j += 1
+        # Cualquier cadena de la entrada que MENCIONE una opción larga, no solo las que
+        # empiezan por ella: la forma «-o p=v / -O p=v / --mountpoint <ruta>» empieza por
+        # una corta, y pidiendo que empezara por «--» se quedaba fuera justo esa.
+        formas[verbo] = [s for s in re.findall(r'"([^"]*)"', ayuda[m.start():j]) if "--" in s]
+
+    # El cuerpo de la orden NO basta: `create` lee `--mountpoint` dentro de `cmdCrearPool`,
+    # a la que llama. Sin seguir las llamadas, el comprobador daba por bueno justo el caso
+    # que lo motivó —se verificó reintroduciendo el fallo y viendo que no lo cantaba—.
+    todas = cuerpos_de_funciones(shell, r"^(?:bool|std::string|void) ([a-zA-Z_][A-Za-z0-9_]*)\(")
+
+    def alcanzable(fn, vistas=None):
+        """El código de `fn` y el de todo lo que llama, hasta donde llegue."""
+        vistas = vistas if vistas is not None else set()
+        if fn in vistas or fn not in todas:
+            return ""
+        vistas.add(fn)
+        c = todas[fn]
+        for llamada in set(re.findall(r"\b([a-zA-Z_][A-Za-z0-9_]*)\s*\(", c)):
+            if llamada in todas:
+                c += alcanzable(llamada, vistas)
+        return c
+
+    sordas = []
+    for verbo, fn in sorted(mapa.items()):
+        c = alcanzable(fn)
+        for opcion in sorted(set(re.findall(r'\bvalor\("([a-z][a-z0-9-]*)"\)', c))):
+            if opcion in ("on", "from"):      # universales: el léxico ya sabe que llevan valor
+                continue
+            declarada = [f for f in formas.get(verbo, []) if ("--" + opcion) in f]
+            if not declarada:
+                continue                       # no declarada: eso lo canta el propio intérprete
+            # El tramo que sigue al nombre, hasta la siguiente opción, igual que el léxico.
+            for f in declarada:
+                i = f.find("--" + opcion) + len(opcion) + 2
+                tramo = f[i:].split(" / ")[0]
+                if "<" not in tramo:
+                    sordas.append(f"{verbo} --{opcion}   (declarada como «{f}»)")
+
+    if "--sordas" in sys.argv:
+        for s in sordas:
+            print(s)
+        return 1 if sordas else 0
+
     if "--mudas" in sys.argv:
         for v in mudas:
             print(v)
@@ -103,8 +169,15 @@ def main():
         print()
         print(f"  sin destino ({len(sin_destino)}): {', '.join(sin_destino)}")
 
-    # Sale con error si queda alguna muda: así vale para integración continua.
-    return 1 if mudas else 0
+    print()
+    print(f"  PIDEN UN VALOR QUE NO DECLARAN ({len(sordas)}):")
+    for s in sordas:
+        print("     ", s)
+    if not sordas:
+        print("      ninguna")
+
+    # Sale con error si queda alguna: así vale para integración continua.
+    return 1 if (mudas or sordas) else 0
 
 
 if __name__ == "__main__":

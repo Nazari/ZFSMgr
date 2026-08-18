@@ -74,7 +74,9 @@ Tres notas que no son obvias:
 - **`-rf` es una sola opción corta con dos letras**, no dos componentes. Es como se
   comporta hoy `trocea()`.
 - **Las comillas se desescapan en el léxico.** Un punto de montaje con espacios es un
-  argumento, no dos.
+  argumento, no dos. Y también cuando es el VALOR de una opción: `--flags "-w -L"` es un
+  valor y no dos componentes. Faltaba esa regla, así que el valor quedaba en «"-w» y «-L"»
+  se leía como un argumento suelto de la orden.
 
 ## 2. Sintaxis
 
@@ -375,6 +377,61 @@ uso: hold <etiqueta> [-r]  (falta <etiqueta>)
 «destino» a la URL de `copy` y ellas la buscaban como «texto», así que el argumento se
 perdía. `zfsmgr_gramatica_cli_test` fija ahora el contrato de nombres orden por orden, que
 es donde tenía que estar.
+
+### Las banderas del mandato original
+
+Las órdenes que envuelven un `zfs` o un `zpool` admiten **las banderas de ese mandato**, y
+solo esas. Cada orden las declara en el catálogo (`Nativa{forma, ¿lleva valor?}`), leídas de
+la ayuda del propio OpenZFS; el intérprete reconstruye el argv **desde lo declarado** —no
+copiando lo que llegó—, y lo que no esté en la lista se rechaza por su nombre:
+
+```text
+zfsm://local> import apar -Z
+«-Z» no es una bandera de import
+```
+
+Tres cosas que se aprendieron poniéndolas:
+
+- **Van DELANTE del nombre.** Detrás, `zpool` las toma por dispositivos o las ignora sin
+  decir nada: `zpool trim pruebacli -r 100M` se tragó el ritmo en silencio.
+- **Las de `zfs send` no las guarda el catálogo del intérprete sino la capa base**
+  (`zfsprops::banderasDeSend`), porque quien tiene que hacer cumplir la lista es el
+  **daemon**: es él quien ejecuta el `zfs send` con privilegios. `--flags` era texto libre
+  que se troceaba por espacios y se metía tal cual en ese argv, así que
+  `--flags "tank/otro@ayer"` sacaba por el socket un dataset que nadie había pedido.
+  Validar solo en el cliente no valida nada.
+- **`-i`, `-I` y `-t` quedan fuera a propósito**: las pone el programa a partir de `--base`
+  y del testigo de reanudación.
+
+### Una orden puede valer en varios niveles
+
+`create` y `destroy` hacen cosas distintas según dónde se esté —conexión, pool, dataset,
+instantánea— y lo deciden ellas. Declarar un `Objetivo` concreto para esas dos las rompía:
+el preámbulo exigía estar en un dataset y **crear un pool desde el intérprete era
+imposible**, con un «hace falta un dataset» que ni siquiera nombraba la orden. Para ellas el
+objetivo es `Cualquiera`: el preámbulo no coacciona el destino y la orden reparte.
+
+El fallo tapaba otro: la rama de crear un pool llevaba un rango construido con
+`pet.lista(...).begin()` y `pet.lista(...).end()` **de dos temporales distintos**, y en
+cuanto se volvió alcanzable el intérprete se caía al construir los nombres.
+
+### Lo que se comprueba solo
+
+`scripts/revisa_firmas_cli.py` compara las 46 órdenes entre sí, que es donde se ven los
+fallos que no se ven mirando una:
+
+- `--mudas`: órdenes que resuelven su destino a mano y pueden ignorar argumentos.
+- `--sordas`: opciones que el código lee **con valor** —`pet.valor("x")`— y que el catálogo
+  declara **sin** él. El léxico decide si una opción se lleva por delante el componente
+  siguiente mirando su forma: sin un `<...>` ahí, la opción es una bandera suelta y el valor
+  que el usuario escribió se cuela como un argumento más. Así estaba `--mountpoint`, de modo
+  que `create pool disco --mountpoint /mnt/x` mandaba `/mnt/x` a la lista de DISPOSITIVOS
+  del pool; y así estaban `--name`, `--type`, `--os`, `--host`, `--port`, `--user` y `--key`
+  al dar de alta una conexión.
+
+  Sigue las llamadas, y no solo el cuerpo de la orden: `create` lee `--mountpoint` dentro de
+  `cmdCrearPool`. La primera versión no lo hacía y daba por bueno justo el caso que la
+  motivó —se vio reintroduciendo el fallo a propósito y comprobando que no lo cantaba—.
 
 ## Valoración: ¿yacc/lex de verdad? (escrita ANTES de construirlo)
 

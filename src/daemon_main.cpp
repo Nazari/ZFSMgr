@@ -57,6 +57,7 @@ typedef int pid_t;
 #include "copytree.h"
 #include "json.h"
 #include "base/process.h"
+#include "base/zfsprops.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
@@ -5034,6 +5035,18 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     const std::string token    = params[3];
     const std::string baseSnap = (params.size() > 4 && !params[4].empty()) ? params[4] : "";
     const std::string flagsStr = params.size() > 5 ? params[5] : "";
+    // Las banderas se comprueban AQUÍ, contra la lista de la capa base, y no solo en quien
+    // llama: lo que se escribe abajo es el argv de un `zfs send` que corre con privilegios,
+    // así que cualquier componente que no sea una bandera conocida —un `tank/otro@ayer`
+    // suelto, por ejemplo— sacaría por el socket un dataset que nadie pidió.
+    {
+        std::string mala;
+        if (!zfsmgr::base::zfsprops::banderasDeSendValidas(flagsStr, mala)) {
+            r.rc = 2;
+            r.err = "bandera de send no admitida: " + mala + "\n";
+            return r;
+        }
+    }
     // Séptimo parámetro opcional: el testigo de reanudación que devuelve el receptor
     // cuando una transferencia se cortó a medias. Con él se emite `zfs send -t`, que
     // continúa desde donde se quedó en vez de mandarlo todo otra vez.
@@ -6581,9 +6594,17 @@ int runServeLoop() {
             // la ruta del fichero de estado. Las tres cosas están resueltas.
             } else if (cmd == "--zfs-send-to-peer-async") {
                 // args: snap peerHost peerPort token [baseSnap [sendFlags]]
+                std::string malaBandera;
                 if (rpcArgs.size() < 4) {
                     exec.rc = 1;
                     exec.err = "usage: --zfs-send-to-peer-async <snap> <peerHost> <peerPort> <token> [<baseSnap> [<sendFlags>]]\n";
+                // Aquí se comprueba otra vez, aunque el envío ya lo haga: si no, la orden
+                // se acepta, devuelve un identificador de trabajo y el trabajo muere al
+                // instante. El error hay que darlo donde se pidió.
+                } else if (rpcArgs.size() > 5 &&
+                           !zfsmgr::base::zfsprops::banderasDeSendValidas(rpcArgs[5], malaBandera)) {
+                    exec.rc = 2;
+                    exec.err = "bandera de send no admitida: " + malaBandera + "\n";
                 } else {
                     DaemonJob job;
                     job.id = generateJobId();
