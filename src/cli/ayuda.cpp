@@ -32,7 +32,20 @@ std::size_t anchoVisible(const std::string& s) {
 }
 
 // Parte un texto en líneas que quepan, sin cortar palabras.
+//
+// Un salto de línea ESCRITO se respeta y empieza renglón. Sin esto, un ejemplo de dos
+// líneas dentro de una explicación se fundía con la prosa y salía con la sangría rota, que
+// es justo lo contrario de lo que un ejemplo viene a hacer.
 std::vector<std::string> parte(const std::string& texto, std::size_t ancho) {
+    if (texto.find('\n') != std::string::npos) {
+        std::vector<std::string> lineas;
+        for (const std::string& trozo : B::split(texto, "\n", false)) {
+            for (const std::string& l : parte(trozo, ancho)) {
+                lineas.push_back(l);
+            }
+        }
+        return lineas;
+    }
     std::vector<std::string> lineas;
     std::string actual;
     for (const std::string& palabra : B::split(texto, " ", true)) {
@@ -113,6 +126,18 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
     // cuál.
     for (const Parametro& p : o.params) {
         fila(T(p.forma.clave, p.forma.es), T(p.que.clave, p.que.es), 6, ancho);
+    }
+    // El `--on <url>` universal, GENERADO: vale en toda orden que actúe sobre un sitio.
+    //
+    // Estaba solo en el pie de la ayuda general, así que quien buscaba «cómo le digo a
+    // `breakdown` que actúe sobre otro dataset» miraba `help breakdown`, no lo veía, y
+    // concluía —razonablemente— que la orden depende del sitio donde uno esté. Escribirlo
+    // en las 47 fichas a mano sería copiarlo 47 veces; sale de si la orden tiene objetivo.
+    if (conDetalle && o.objetivo != Objetivo::Ninguno) {
+        fila(T("t_on_url_generado", "--on <url>"),
+             T("t_on_url_generado_q", "Sobre QUÉ actúa. Sin ella, el sitio actual. «--from» es "
+               "lo mismo."),
+             6, ancho);
     }
     if (conDetalle) {
         const std::string nativas = lineaDeNativas(o);
@@ -433,13 +458,33 @@ const std::vector<Orden> kOrdenes = {
       "interfaz usa `tar` sobre SSH, que no está portado aquí."}},
      Objetivo::Dataset,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
-    {"breakdown", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_0a6bbc", "<directorio> <hijo> [<directorio> <hijo>...]"},
-     {"t_convierte__9a9063", "Convierte directorios del dataset en datasets hijos."},
-     {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}}, {},
+    {"breakdown", {"t_acciones_79bd0e", "Acciones"},
+     {"t_bd_uso", "<subdir> <dataset-nuevo> [<subdir> <dataset-nuevo>...]"},
+     {"t_bd_res", "Convierte un SUBDIRECTORIO en un dataset hijo que ocupa su sitio."},
+     {{{"t_bd_subdir", "<subdir>"},
+       {"t_bd_subdir_q", "Un directorio CORRIENTE de dentro del dataset, no un dataset. Se escribe "
+        "relativo a su punto de montaje."}},
+      {{"t_bd_nuevo", "<dataset-nuevo>"},
+       {"t_bd_nuevo_q", "El dataset hijo que va a sustituirlo, relativo al dataset actual."}},
+      {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+     {{"t_bd_det1", "Los argumentos van en PARES: cada subdirectorio con el nombre del dataset que "
+       "lo sustituye. El contenido no se mueve de sitio para quien mira desde fuera: donde "
+       "había un directorio queda un dataset con lo mismo dentro, y ya con sus propiedades, "
+       "sus instantáneas y su cuota."},
+      {"t_bd_det2", "El nombre NO tiene que reflejar la ruta: crear un dataset solo exige que exista "
+       "su padre por nombre, así que `breakdown a/b/c a:b:c` convierte el de tres niveles "
+       "sin convertir `a` ni `b`."},
+      {"t_bd_det3", "Cada byte se mueve UNA vez y los originales se borran al final, cuando todas "
+       "las copias están verificadas: si algo falla a mitad, lo original sigue intacto. Por "
+       "eso conviene dejarlo como TRABAJO —sin --wait— cuando hay volumen: se sigue con "
+       "«job <id>» y el intérprete queda libre."},
+      {"t_bd_det4", "Ejemplo, estando en zfsm://local/tank/media:\n"
+       "  breakdown fotos fotos videos videos\n"
+       "deja tank/media/fotos y tank/media/videos donde había dos directorios."}},
      Objetivo::Dataset,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
-    {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<hijo> [<hijo>...]"},
-     {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve datasets hijos a directorios."},
+    {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<dataset-hijo> [<dataset-hijo>...]"},
+     {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve un dataset hijo a ser un directorio."},
      {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
      {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}},
      Objetivo::Dataset,
