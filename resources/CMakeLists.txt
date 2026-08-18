@@ -467,6 +467,30 @@ install(TARGETS zfsmgr_agent
     RUNTIME DESTINATION bin
 )
 
+# El intérprete, al mismo bin/ que los otros dos.
+#
+# No estaba, y por eso no salía en NINGÚN paquete de Unix: ni en el .deb de Linux ni en el
+# pkg de FreeBSD, que los dos se arman a partir de estas reglas. En Windows sí se instala
+# porque el .iss lo copia a mano a {app}\bin. Aquí basta con nombrarlo.
+install(TARGETS zfsmgr_cli
+    RUNTIME DESTINATION bin
+)
+
+# Y sus catálogos, que NO puede llevar dentro.
+#
+# La interfaz tiene los suyos compilados como recurso de Qt y funciona sin fichero
+# ninguno; el intérprete no enlaza Qt —ese es su contrato—, así que los lee del disco. Sin
+# esto se instala y arranca, pero solo habla castellano: los textos en inglés y en chino
+# se quedan en el literal de reserva.
+#
+# `share/zfsmgr/i18n` no es un sitio elegido al azar: es una de las cuatro rutas que
+# `src/cli/main.cpp` ya busca a partir del ejecutable, justo la pensada para un binario
+# instalado en `<prefijo>/bin`.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../i18n/"
+    DESTINATION share/zfsmgr/i18n
+    FILES_MATCHING PATTERN "*.json"
+)
+
 if(DEFINED ZFSMGR_AGENT_BUNDLE_DIR AND EXISTS "${ZFSMGR_AGENT_BUNDLE_DIR}")
     install(DIRECTORY "${ZFSMGR_AGENT_BUNDLE_DIR}/"
         DESTINATION share/zfsmgr/agents

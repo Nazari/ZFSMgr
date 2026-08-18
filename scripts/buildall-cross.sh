@@ -461,12 +461,23 @@ package_freebsd_with_agent_bundle() {
   payload="${stage}/payload"
   manifest="${stage}/+MANIFEST"
   compact="${stage}/+COMPACT_MANIFEST"
-  mkdir -p "${payload}/usr/local/bin" "${payload}/usr/local/share/zfsmgr/agents"
+  mkdir -p "${payload}/usr/local/bin" "${payload}/usr/local/share/zfsmgr/agents" \
+           "${payload}/usr/local/share/zfsmgr/i18n"
 
   cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_qt"
   cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent" "${payload}/usr/local/bin/zfsmgr_agent"
-  chmod 0755 "${payload}/usr/local/bin/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_agent" || true
+  # El intérprete va con los otros dos.
+  #
+  # Este paquete se arma A MANO y no con `cmake --install`, así que las reglas de
+  # instalación de CMake —que sí lo nombran— no llegan hasta aquí: había que decirlo
+  # también en este sitio. Lo mismo vale para los catálogos: el intérprete no enlaza Qt,
+  # así que los lee del disco, y `share/zfsmgr/i18n` es una de las rutas que ya busca a
+  # partir de su propio ejecutable.
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_cli" "${payload}/usr/local/bin/zfsmgr_cli"
+  chmod 0755 "${payload}/usr/local/bin/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_agent" \
+             "${payload}/usr/local/bin/zfsmgr_cli" || true
   cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"
+  cp -f "${PROJECT_ROOT}"/i18n/*.json "${payload}/usr/local/share/zfsmgr/i18n/"
 
   python3 - "${payload}" "${APP_VERSION}" "${manifest}" "${compact}" <<'PY'
 import hashlib
