@@ -116,7 +116,12 @@ def main():
         # Cualquier cadena de la entrada que MENCIONE una opción larga, no solo las que
         # empiezan por ella: la forma «-o p=v / -O p=v / --mountpoint <ruta>» empieza por
         # una corta, y pidiendo que empezara por «--» se quedaba fuera justo esa.
-        formas[verbo] = [s for s in re.findall(r'"([^"]*)"', ayuda[m.start():j]) if "--" in s]
+        # Solo las FORMAS, no las descripciones: una forma empieza por «-» o por «<»
+        # —«--host <h> / --port <n>», «<subdir>»— y una descripción es prosa. Sin este
+        # filtro, la frase «Exige --to.» de un parámetro contaba como declaración de
+        # «--to» sin valor y el guion denunciaba una opción que estaba bien puesta.
+        formas[verbo] = [s for s in re.findall(r'"([^"]*)"', ayuda[m.start():j])
+                         if "--" in s and s[:1] in "-<"]
 
     # El cuerpo de la orden NO basta: `create` lee `--mountpoint` dentro de `cmdCrearPool`,
     # a la que llama. Sin seguir las llamadas, el comprobador daba por bueno justo el caso

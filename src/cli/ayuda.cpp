@@ -341,6 +341,37 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Dataset, {}},
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
+    {"schedule", {"t_dataset_105268", "Datasets"},
+     {"t_sch_uso", "[--daily <n>] [--recursive] [--to <Con::pool/ds>] [--off|--clear]"},
+     {"t_sch_res", "La programación de instantáneas del dataset. Sin opciones, la enseña."},
+     {{{"t_sch_ret", "--hourly <n> / --daily <n> / --weekly <n> / --monthly <n> / --yearly <n>"},
+       {"t_sch_ret_q", "Cuántas guardar de cada clase. 0 es «ninguna de esas»."}},
+      {{"t_sch_rec", "--recursive / --no-recursive"},
+       {"t_sch_rec_q", "Si cubre también a los descendientes."}},
+      {{"t_sch_to", "--to <Conexión::pool/dataset>"},
+       {"t_sch_to_q", "A dónde se nivela lo programado."}},
+      {{"t_sch_level", "--level / --no-level"},
+       {"t_sch_level_q", "Nivelar contra el destino después de cada instantánea. Exige --to."}},
+      {{"t_sch_off", "--off"}, {"t_sch_off_q", "La apaga CONSERVANDO lo configurado."}},
+      {{"t_sch_clear", "--clear"}, {"t_sch_clear_q", "Borra la programación: como si nunca la hubiera tenido."}}},
+     {{"t_sch_det1", "Fijar cualquier valor la ACTIVA: `schedule --daily 7` quiere decir «guarda siete "
+       "diarias», y programarla apagada no significaría nada. Para apagarla sin perder lo "
+       "puesto, «--off»; para quitarla del todo, «--clear»."},
+      {"t_sch_det2", "La programación no es un fichero de este programa: son PROPIEDADES del dataset "
+       "—`org.fc16.gsa:*`—, así que sobrevive a reinstalar el cliente y viaja con el pool "
+       "si se exporta. Se pueden ver con «ls #properties»."},
+      {"t_sch_det3", "Quien hace las instantáneas es el agente GSA de esa máquina, no este programa: "
+       "si no está instalado, la programación queda escrita y no pasa nada. Las reglas se "
+       "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
+       "haría instantáneas y las borraría."}},
+     Objetivo::Dataset, {}},
+    {"schedules", {"t_dataset_105268", "Datasets"}, {"t_schs_uso", "[--all]"},
+     {"t_schs_res", "Qué hay programado en esta máquina."},
+     {{{"t_schs_all", "--all"}, {"t_schs_all_q", "En todas las conexiones, no solo en esta."}}},
+     {{"t_schs_det", "Por omisión mira SOLO la máquina actual: con --all hay que preguntarle a cada "
+       "una, y una apagada se cobra su plazo de espera entero — justo cuando uno está "
+       "mirando por qué algo no salió."}},
+     Objetivo::Conexion, {}},
     {"change-key", {"t_dataset_105268", "Datasets"}, {"t_ck_uso", "[--password-fd <n>]"},
      {"t_ck_res", "Cambia la frase de paso de un dataset cifrado."},
      {{{"t_edit_pfd", "--password-fd <n>"}, {"t_ck_fd_q", "La frase nueva, por descriptor. Sin ella se "

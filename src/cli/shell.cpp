@@ -3,6 +3,7 @@
 #include "daemonpayload.h"
 #include "ayuda.h"
 #include "gramatica_cli.h"
+#include "gsa.h"
 #include "zfsprops.h"
 #include "helpers.h"
 #include "linea.h"
@@ -2006,6 +2007,269 @@ bool cmdGet(Estado& e, const LineaAnalizada& linea) {
     return listaPropiedades(e, destino);
 }
 
+// --- Las instantáneas PROGRAMADAS (GSA).
+//
+// La programación son propiedades del dataset, y las REGLAS de lo que es válido están en
+// la capa base —`src/base/gsa.h`—, compartidas con la interfaz gráfica. Aquí solo se
+// hablan: leer lo que hay, escribir lo que se pide y enseñarlo.
+
+// La salida cruda del agente: «dataset<TAB>propiedad<TAB>valor[<TAB>origen]», una línea por
+// propiedad. Se agrupa por dataset y se descartan las HEREDADAS: una programación heredada
+// no es de ese dataset, es del padre, y enseñarla como suya haría creer que hay dos.
+std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::string& crudo) {
+    std::map<std::string, std::map<std::string, std::string>> out;
+    for (const std::string& linea : B::split(crudo, "\n", true)) {
+        const std::vector<std::string> campos = B::split(linea, "\t", false);
+        if (campos.size() < 3) {
+            continue;
+        }
+        const std::string origen = campos.size() > 3 ? B::toLowerAscii(B::trim(campos[3])) : "";
+        if (B::startsWith(origen, "inherited")) {
+            continue;
+        }
+        const std::string valor = B::trim(campos[2]);
+        if (valor.empty() || valor == "-") {
+            continue;
+        }
+        out[B::trim(campos[0])][B::trim(campos[1])] = valor;
+    }
+    return out;
+}
+
+// Lo programado bajo un dataset o un pool, ya convertido a estructuras.
+bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
+                       std::vector<B::gsa::Entrada>& out) {
+    std::string crudo;
+    if (!agente(e, destino, {"--dump-zfs-get-gsa-raw-recursive", raiz}, crudo, 30000)) {
+        return false;
+    }
+    for (const auto& kv : agrupaGsa(crudo)) {
+        B::gsa::Programacion p;
+        B::gsa::Motivo m;
+        if (!B::gsa::desdePropiedades(kv.second, p, m)) {
+            // Un valor que no es un entero está PUESTO en la máquina: no se puede corregir
+            // desde aquí, pero callarlo dejaría una fila que miente.
+            std::fprintf(stderr, TC("t_sch_valor_malo", "aviso: %s tiene %s con un valor que no es un "
+                         "número; se ignora esa programación\n"), kv.first.c_str(), m.detalle.c_str());
+            continue;
+        }
+        out.push_back({kv.first, p});
+    }
+    return true;
+}
+
+Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entrada>>& filas) {
+    Tabla t;
+    t.nombreJson = "schedules";
+    t.cabecerasTexto = {T("t_cab_maquina", "MÁQUINA"), T("t_cab_dataset", "DATASET"),
+                        T("t_cab_activa", "ACTIVA"), T("t_cab_recursiva", "RECURSIVA"),
+                        T("t_cab_hora", "HORA"), T("t_cab_dia", "DÍA"), T("t_cab_sem", "SEM"),
+                        T("t_cab_mes", "MES"), T("t_cab_ano", "AÑO"),
+                        T("t_cab_destino", "DESTINO")};
+    t.campos = {"connection", "dataset", "enabled", "recursive",
+                "hourly", "daily", "weekly", "monthly", "yearly", "destination"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Booleano, Tipo::Booleano,
+               Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero,
+               Tipo::Cadena};
+    for (const auto& f : filas) {
+        const B::gsa::Programacion& p = f.second.prog;
+        t.filas.push_back({f.first, f.second.dataset, p.activado ? "true" : "false",
+                           p.recursivo ? "true" : "false", std::to_string(p.horario),
+                           std::to_string(p.diario), std::to_string(p.semanal),
+                           std::to_string(p.mensual), std::to_string(p.anual),
+                           p.destino.empty() ? "-" : p.destino});
+    }
+    return t;
+}
+
+bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    std::vector<std::pair<std::string, B::gsa::Entrada>> filas;
+    std::vector<std::string> maquinas;
+    if (pet.tiene("--all")) {
+        for (const auto& p : e.conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (!e.conns.desconectada(id)) {
+                maquinas.push_back(id);
+            }
+        }
+    } else {
+        maquinas.push_back(pet.objetivo.connection);
+    }
+    for (const std::string& id : maquinas) {
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Connection;
+        u.connection = id;
+        std::string listaPools;
+        if (!agente(e, u, {"--dump-zpool-list"}, listaPools, 20000)) {
+            continue;   // con --all, una máquina que no contesta no invalida a las demás
+        }
+        B::json::Value raiz;
+        std::string err;
+        if (B::trim(listaPools).empty() || !B::json::parse(listaPools, raiz, &err)) {
+            continue;
+        }
+        for (const auto& kv : raiz["pools"].toObject()) {
+            std::vector<B::gsa::Entrada> deEstePool;
+            if (!leeProgramaciones(e, u, kv.first, deEstePool)) {
+                continue;
+            }
+            for (const B::gsa::Entrada& en : deEstePool) {
+                filas.push_back({id, en});
+            }
+        }
+    }
+    tablaDeProgramaciones(filas).imprime(e.formato);
+    return true;
+}
+
+bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const ZfsmUrl& destino = pet.objetivo;
+    if (!exigeDataset(destino)) {
+        return false;
+    }
+    // Lo que hay puesto AHORA. Se lee siempre, también para escribir: fijar `--daily` no
+    // debe borrar el resto de la programación.
+    std::vector<B::gsa::Entrada> aqui;
+    if (!leeProgramaciones(e, destino, destino.dataset, aqui)) {
+        return false;
+    }
+    B::gsa::Programacion actual;
+    for (const B::gsa::Entrada& en : aqui) {
+        if (en.dataset == destino.dataset) {
+            actual = en.prog;
+        }
+    }
+
+    // Quitarla del todo: se heredan las propiedades, que es lo contrario de escribirlas.
+    if (pet.tiene("--clear")) {
+        if (!confirma(e, B::format(T("t_conf_sch_clear", "Se va a borrar la programación de %1. "
+                                     "¿Continuar?"), {destino.dataset}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
+        for (const auto& kv : B::gsa::aPropiedades(B::gsa::Programacion{})) {
+            std::string sinUsar;
+            if (!zfsGenerico(e, destino, {"inherit", kv.first, destino.dataset})) {
+                return false;
+            }
+        }
+        std::fprintf(stderr, TC("t_sch_borrada", "borrada la programación de %s\n"),
+                     destino.dataset.c_str());
+        return true;
+    }
+
+    // ¿Se pide algún cambio? Sin ninguno, esta orden solo ENSEÑA.
+    const char* const kOpciones[] = {"hourly", "daily", "weekly", "monthly", "yearly", "to"};
+    bool cambia = pet.tiene("--off") || pet.tiene("--recursive") || pet.tiene("--no-recursive")
+                  || pet.tiene("--level") || pet.tiene("--no-level");
+    for (const char* o : kOpciones) {
+        if (!pet.valor(o).empty()) {
+            cambia = true;
+        }
+    }
+    if (!cambia) {
+        std::vector<std::pair<std::string, B::gsa::Entrada>> filas;
+        if (!aqui.empty()) {
+            for (const B::gsa::Entrada& en : aqui) {
+                filas.push_back({destino.connection, en});
+            }
+        }
+        if (filas.empty()) {
+            std::fprintf(stderr, TC("t_sch_ninguna", "%s no tiene programación\n"),
+                         destino.dataset.c_str());
+            return true;
+        }
+        tablaDeProgramaciones(filas).imprime(e.formato);
+        return true;
+    }
+
+    B::gsa::Programacion nueva = actual;
+    const auto retencion = [&](const char* opcion, int& campo) {
+        const std::string v = pet.valor(opcion);
+        if (v.empty()) {
+            return true;
+        }
+        std::map<std::string, std::string> uno{{std::string(B::gsa::kPrefijo) + "diario", v}};
+        B::gsa::Programacion tmp;
+        B::gsa::Motivo m;
+        if (!B::gsa::desdePropiedades(uno, tmp, m)) {
+            std::fprintf(stderr, TC("t_sch_no_entero", "«%s» no es un número de instantáneas válido "
+                         "para --%s\n"), v.c_str(), opcion);
+            return false;
+        }
+        campo = tmp.diario;
+        return true;
+    };
+    if (!retencion("hourly", nueva.horario) || !retencion("daily", nueva.diario)
+        || !retencion("weekly", nueva.semanal) || !retencion("monthly", nueva.mensual)
+        || !retencion("yearly", nueva.anual)) {
+        return false;
+    }
+    if (pet.tiene("--recursive")) { nueva.recursivo = true; }
+    if (pet.tiene("--no-recursive")) { nueva.recursivo = false; }
+    if (pet.tiene("--level")) { nueva.nivelar = true; }
+    if (pet.tiene("--no-level")) { nueva.nivelar = false; }
+    if (!pet.valor("to").empty()) { nueva.destino = pet.valor("to"); }
+    // Fijar cualquier valor la ACTIVA: programar algo apagado no significa nada. `--off`
+    // es lo que la apaga, y por eso se aplica al final.
+    nueva.activado = !pet.tiene("--off");
+
+    // Y ahora las reglas, ANTES de escribir. Primero la programación en sí.
+    const auto conexionExiste = [&](const std::string& nombre) {
+        return buscarConexion(e.conns, nombre) != nullptr;
+    };
+    B::gsa::Motivo motivo;
+    if (!B::gsa::valida(destino.dataset, nueva, conexionExiste, motivo)) {
+        std::fprintf(stderr, "%s: %s\n", destino.dataset.c_str(),
+                     B::gsa::etiquetaDe(motivo.fallo).c_str());
+        if (!motivo.detalle.empty()) {
+            std::fprintf(stderr, "  %s\n", motivo.detalle.c_str());
+        }
+        return false;
+    }
+    // Y después el conjunto: dos activadas del mismo pool no pueden solaparse si una es
+    // recursiva. Hace falta lo que ya hay programado en el POOL, no solo aquí debajo.
+    std::vector<B::gsa::Entrada> delPool;
+    ZfsmUrl raizPool = destino;
+    raizPool.dataset = destino.pool;
+    if (leeProgramaciones(e, destino, destino.pool, delPool)) {
+        bool sustituido = false;
+        for (B::gsa::Entrada& en : delPool) {
+            if (en.dataset == destino.dataset) {
+                en.prog = nueva;
+                sustituido = true;
+            }
+        }
+        if (!sustituido) {
+            delPool.push_back({destino.dataset, nueva});
+        }
+        if (!B::gsa::validaConjunto(delPool, motivo)) {
+            std::fprintf(stderr, "%s: %s (%s)\n", motivo.dataset.c_str(),
+                         B::gsa::etiquetaDe(motivo.fallo).c_str(), motivo.detalle.c_str());
+            return false;
+        }
+    }
+
+    std::vector<std::string> argv{"set"};
+    for (const auto& kv : B::gsa::aPropiedades(nueva)) {
+        argv.push_back(kv.first + "=" + kv.second);
+    }
+    argv.push_back(destino.dataset);
+    if (!zfsGenerico(e, destino, argv)) {
+        return false;
+    }
+    std::fprintf(stderr, TC("t_sch_puesta", "programación puesta en %s\n"), destino.dataset.c_str());
+    return true;
+}
+
 bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -3913,6 +4177,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"load-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "load-key"); }},
         {"unload-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "unload-key"); }},
         {"change-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "change-key"); }},
+        {"schedule", cmdSchedule},
+        {"schedules", cmdSchedules},
         {"breakdown", cmdBreakdown},
         {"assemble", cmdAssemble},
         {"todir", cmdToDir},

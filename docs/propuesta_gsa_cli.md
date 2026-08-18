@@ -1,7 +1,7 @@
 # Propuesta: las instantáneas programadas (GSA) en el intérprete
 
-Escrita el 2026-08-18. **La fase 1 ya está hecha** (`src/base/gsa.{h,cpp}`); el resto sigue
-siendo propuesta.
+Escrita el 2026-08-18. **Hechas las fases 1 y 2**: las reglas en `src/base/gsa.{h,cpp}` y
+las órdenes `schedule` y `schedules`. Quedan la 3 —`gsa-log` y la línea de `info`— y la 4.
 
 Decidido: el verbo será **`schedule`** —también es como conviene llamarlo en la interfaz—,
 y **`schedules` mira la máquina actual**, con `--all` para recorrerlas todas.
@@ -138,7 +138,7 @@ primera programación en una máquina sin agente GSA.
 | Fase | Qué | Por qué antes |
 |---|---|---|
 | 1 | ~~`src/base/gsa.*` + la interfaz pasa a usarlo~~ **HECHO** | sin esto, dos copias de las reglas |
-| 2 | `schedule` y `schedules` | es el 90 % del uso |
+| 2 | ~~`schedule` y `schedules`~~ **HECHO** | es el 90 % del uso |
 | 3 | `gsa-log` y la línea de `info` | barato, y es lo que se mira cuando algo no salió |
 | 4 | `install-gsa` | opcional, y con su propio riesgo |
 
