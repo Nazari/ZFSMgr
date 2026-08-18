@@ -289,7 +289,11 @@ const std::vector<Orden> kOrdenes = {
       {{"t_edit_sudo", "--sudo / --no-sudo"}, {"t_edit_sudo_q", "Si la máquina necesita elevar."}},
       {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}},
       {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}}},
-     {},
+     {{"t_edit_det_local", "Sobre la conexión LOCAL, esto es lo que cambia las credenciales de sudo de "
+       "esta máquina: «edit local --user <u> --password». Se comprueban al vuelo —si no "
+       "elevan, se dice— y se refresca lo que la sesión tenía recordado, incluido el "
+       "material TLS que se leyó elevando con la contraseña anterior. Sin eso, el cambio "
+       "parecía no surtir efecto hasta salir y volver a entrar."}},
      Objetivo::Conexion,
      {}},
     {"connect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},

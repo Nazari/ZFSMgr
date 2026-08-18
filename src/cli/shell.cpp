@@ -3,6 +3,7 @@
 #include "daemonpayload.h"
 #include "ayuda.h"
 #include "gramatica_cli.h"
+#include "connectionjson.h"
 #include "gsa.h"
 #include "storefiles.h"
 #include "zfsprops.h"
@@ -1855,9 +1856,47 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         for (char& c : p.password) { c = 0; }
         return false;
     }
+
+    // Si lo editado es la conexión LOCAL, guardar no basta: hay dos copias vivas de esas
+    // credenciales y las dos se quedarían con las de antes.
+    //
+    //  - La sesión las recuerda para no preguntar en cada orden que eleve.
+    //  - Y el material TLS del daemon local se leyó ELEVANDO con la contraseña anterior,
+    //    así que el RPC seguiría usando lo cacheado.
+    //
+    // Sin esto, cambiar la contraseña de sudo parecía no surtir efecto hasta salir y
+    // volver a entrar — que es justo el fallo que la interfaz comenta en su propio código.
+    if (B::connjson::isLocalProfile(p)) {
+        e.ses->sudoUsuario = p.username;
+        e.ses->sudoClave = p.password;
+        e.ses->sudoResuelto = !p.password.empty();
+        T::clearLocalDaemonTlsCache();
+    }
+    const bool eraLocal = B::connjson::isLocalProfile(p);
     for (char& c : p.password) { c = 0; }
     recarga(e);
     std::fprintf(stderr, TC("t_actualizad_41b05c", "actualizada la conexión %s\n"), id.c_str());
+
+    // Y se COMPRUEBAN, que es lo que uno quiere saber al cambiarlas: si la contraseña
+    // nueva no eleva, enterarse ahora y no la próxima vez que haga falta de verdad.
+    if (eraLocal && e.ses->sudoResuelto) {
+        std::string out;
+        std::string err;
+        int rc = -1;
+        const auto* vivo = buscarConexion(e.conns, id);
+        if (vivo) {
+            const B::ConnectionProfile perfil = conSudo(e, *vivo);
+            if (T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, "id -u"), 15000, out,
+                          err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
+                          /*echoOutputToLog=*/false)
+                && rc == 0 && B::trim(out) == "0") {
+                std::fputs(TC("t_sudo_ok", "las credenciales de sudo elevan correctamente\n"), stderr);
+            } else {
+                std::fputs(TC("t_sudo_mal", "aviso: con esas credenciales NO se consigue elevar en "
+                             "esta máquina\n"), stderr);
+            }
+        }
+    }
     return true;
 }
 
