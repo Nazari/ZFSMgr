@@ -348,6 +348,8 @@
     "t_los_trabaj_5039b6": "The jobs on the machine.",
     "t_ls_daemon": "--daemon",
     "t_ls_daemon_q": "At the root: each machine's agent version, with « * » if it is not the expected one.",
+    "t_mac_acceso_disco": "\nOn macOS the agent needs Full Disk Access, or it will not see the disks and\nwill find no pools to import:\n  System Settings → Privacy & Security → Full Disk Access →\n  add /usr/local/libexec/zfsmgr-agent\n",
+    "t_mac_acceso_disco_ayuda": "On macOS ONE step is left to do by hand: grant the agent Full Disk Access in System Settings → Privacy & Security, adding /usr/local/libexec/zfsmgr-agent. Without it the agent starts and answers STATUS=OK, but does not see the disks: it finds no pool to import and everything looks right except the result.",
     "t_maestra_no_abre": "wrong master password: it does not open the stored secrets\n",
     "t_manage_props_vis001": "Manage property display",
     "t_manda_una__2d0418": "Send a snapshot to another dataset, here or on another machine.",

@@ -2496,6 +2496,17 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     T::clearRemoteDaemonTlsCacheForConnection(*p);
     T::clearLocalDaemonTlsCache();
     std::fprintf(stderr, TC("t_daemon_ins_3282b0", "daemon instalado en %s\n"), quien.c_str());
+    // En macOS hace falta UN PASO MÁS, y a mano: sin «Acceso total al disco» el agente
+    // arranca, contesta y responde STATUS=OK, pero no ve los discos, así que no encuentra
+    // ningún pool para importar. Todo parece bien salvo el resultado, que es la peor forma
+    // de fallar; por eso se dice aquí, al instalar, y no cuando la lista salga vacía. La
+    // interfaz gráfica ya lo avisa —`mainwindow_connections.cpp`—, y el intérprete callaba.
+    if (esMac) {
+        std::fputs(TC("t_mac_acceso_disco", "\nEn macOS hace falta concederle «Acceso total al disco» al agente, o no verá\n"
+                     "los discos y no encontrará pools que importar:\n"
+                     "  Configuración del Sistema → Privacidad y Seguridad → Acceso total al\n"
+                     "  disco → añadir /usr/local/libexec/zfsmgr-agent\n"), stderr);
+    }
     return true;
 }
 

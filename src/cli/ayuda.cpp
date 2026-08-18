@@ -481,7 +481,12 @@ const std::vector<Orden> kOrdenes = {
      {},
      {{"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "
-      "PARECE atendida y no lo está."}},
+      "PARECE atendida y no lo está."},
+      {"t_mac_acceso_disco_ayuda", "En macOS queda UN PASO a mano: concederle «Acceso total al disco» al agente en "
+      "Configuración del Sistema → Privacidad y Seguridad, añadiendo "
+      "/usr/local/libexec/zfsmgr-agent. Sin eso el agente arranca y contesta STATUS=OK, "
+      "pero no ve los discos: no encuentra ningún pool que importar y todo parece bien "
+      "menos el resultado."}},
      Objetivo::Conexion, {}},
 
     // --- Del intérprete

@@ -299,6 +299,8 @@
     "t_los_trabaj_5039b6": "Los trabajos que hay en la máquina.",
     "t_ls_daemon": "--daemon",
     "t_ls_daemon_q": "En la raíz: la versión del agente de cada máquina, con « * » si no es la esperada.",
+    "t_mac_acceso_disco": "\nEn macOS hace falta concederle «Acceso total al disco» al agente, o no verá\nlos discos y no encontrará pools que importar:\n  Configuración del Sistema → Privacidad y Seguridad → Acceso total al\n  disco → añadir /usr/local/libexec/zfsmgr-agent\n",
+    "t_mac_acceso_disco_ayuda": "En macOS queda UN PASO a mano: concederle «Acceso total al disco» al agente en Configuración del Sistema → Privacidad y Seguridad, añadiendo /usr/local/libexec/zfsmgr-agent. Sin eso el agente arranca y contesta STATUS=OK, pero no ve los discos: no encuentra ningún pool que importar y todo parece bien menos el resultado.",
     "t_maestra_no_abre": "contraseña maestra incorrecta: no abre los secretos guardados\n",
     "t_manda_una__2d0418": "Manda una instantánea a otro dataset, aquí o en otra máquina.",
     "t_marca_la_c_c52a74": "Marca la conexión como usable.",
