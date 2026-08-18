@@ -133,7 +133,17 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
     // `breakdown` que actúe sobre otro dataset» miraba `help breakdown`, no lo veía, y
     // concluía —razonablemente— que la orden depende del sitio donde uno esté. Escribirlo
     // en las 47 fichas a mano sería copiarlo 47 veces; sale de si la orden tiene objetivo.
-    if (conDetalle && o.objetivo != Objetivo::Ninguno) {
+    // Salvo que la orden YA la documente por su cuenta: `clone` explica «--from <@inst>»
+    // como «cuál se clona», y debajo salía la línea genérica diciendo que «--from» es lo
+    // mismo que «--on». Las dos son ciertas y juntas se leen como una contradicción.
+    bool yaLaDice = false;
+    for (const Parametro& par : o.params) {
+        const std::string forma = T(par.forma.clave, par.forma.es);
+        if (forma.find("--on") != std::string::npos || forma.find("--from") != std::string::npos) {
+            yaLaDice = true;
+        }
+    }
+    if (conDetalle && !yaLaDice && o.objetivo != Objetivo::Ninguno) {
         fila(T("t_on_url_generado", "--on <url>"),
              T("t_on_url_generado_q", "Sobre QUÉ actúa. Sin ella, el sitio actual. «--from» es "
                "lo mismo."),
@@ -340,7 +350,17 @@ const std::vector<Orden> kOrdenes = {
      {{"-r", false, {"t_nat_rollback_r", "Destruye las instantáneas posteriores a esa."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
-     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {},
+     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}},
+     {{"t_clone_det1", "Un nombre RELATIVO cuelga del dataset de la instantánea: estando en "
+       "`tank/datos@ayer`, «clone copia» deja `tank/datos/copia`. Para ponerlo en otro "
+       "sitio se da el nombre ZFS entero: «clone tank/copia»."},
+      {"t_clone_det2", "El clon comparte los bloques con la instantánea, así que al principio no ocupa "
+       "casi nada — y esa instantánea NO se puede destruir mientras el clon exista. Para "
+       "romper esa atadura está «promote»."},
+      {"t_clone_det3", "Ejemplo:\n"
+       "  cd /local/tank/datos@ayer\n"
+       "  clone recuperado\n"
+       "o desde cualquier sitio: «clone tank/recuperado --from /local/tank/datos@ayer»."}},
      Objetivo::Instantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
