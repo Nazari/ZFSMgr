@@ -106,6 +106,32 @@ Software you compile locally is never quarantined, so it just runs:
 Requires Xcode command line tools and Qt 6. See `docs/cross-compiling-linux.md` for
 the toolchain details.
 
+## Installing the command-line tool
+
+`zfsmgr_cli` is the shell: the same operations as the window, driven from a terminal,
+with a `zfsm://` URL as the current location. Where it lands depends on how the platform
+installs software:
+
+| Platform | Installer | Where the tool ends up |
+|---|---|---|
+| Windows | `ZFSMgr-setup.exe` | `%ProgramFiles%\ZFSMgr\bin\zfsmgr_cli.exe`, and the installer offers to add that directory to the system `Path` |
+| Linux | `.deb` | `/usr/bin/zfsmgr_cli` — on the `PATH` already |
+| FreeBSD | `.pkg` | `/usr/local/bin/zfsmgr_cli` — on the `PATH` already |
+| macOS | *(none — the `.app` is drag-and-drop)* | inside the bundle, at `ZFSMgr.app/Contents/MacOS/zfsmgr_cli` |
+
+macOS has no installer, so the link is yours to make:
+
+```bash
+sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+zfsmgr_cli --help
+```
+
+Deleting the `.app` leaves that symlink dangling; remove it with
+`sudo rm /usr/local/bin/zfsmgr_cli`.
+
+The AppImage is the graphical application only. It is a single self-contained file, so
+nothing inside it is on your `PATH`; use the `.deb` if you want the shell.
+
 ## Cross-compiling from Linux
 
 There is now a Linux cross-compiling base for:
