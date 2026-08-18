@@ -183,33 +183,34 @@ enum yysymbol_kind_t
   YYSYMBOL_V_CHANGE_KEY = 50,              /* V_CHANGE_KEY  */
   YYSYMBOL_V_SCHEDULE = 51,                /* V_SCHEDULE  */
   YYSYMBOL_V_SCHEDULES = 52,               /* V_SCHEDULES  */
-  YYSYMBOL_V_ROLLBACK = 53,                /* V_ROLLBACK  */
-  YYSYMBOL_V_HOLDS = 54,                   /* V_HOLDS  */
-  YYSYMBOL_V_HOLD = 55,                    /* V_HOLD  */
-  YYSYMBOL_V_RELEASE = 56,                 /* V_RELEASE  */
-  YYSYMBOL_V_CLONE = 57,                   /* V_CLONE  */
-  YYSYMBOL_V_DIFF = 58,                    /* V_DIFF  */
-  YYSYMBOL_V_COPY = 59,                    /* V_COPY  */
-  YYSYMBOL_V_ALLOW = 60,                   /* V_ALLOW  */
-  YYSYMBOL_V_UNALLOW = 61,                 /* V_UNALLOW  */
-  YYSYMBOL_V_BREAKDOWN = 62,               /* V_BREAKDOWN  */
-  YYSYMBOL_V_ASSEMBLE = 63,                /* V_ASSEMBLE  */
-  YYSYMBOL_V_TODIR = 64,                   /* V_TODIR  */
-  YYSYMBOL_V_FROMDIR = 65,                 /* V_FROMDIR  */
-  YYSYMBOL_V_RSYNC = 66,                   /* V_RSYNC  */
-  YYSYMBOL_V_DESCONOCIDO = 67,             /* V_DESCONOCIDO  */
-  YYSYMBOL_YYACCEPT = 68,                  /* $accept  */
-  YYSYMBOL_linea = 69,                     /* linea  */
-  YYSYMBOL_orden = 70,                     /* orden  */
-  YYSYMBOL_destino_opt = 71,               /* destino_opt  */
-  YYSYMBOL_url_opt = 72,                   /* url_opt  */
-  YYSYMBOL_fase_opt = 73,                  /* fase_opt  */
-  YYSYMBOL_vdev_opt = 74,                  /* vdev_opt  */
-  YYSYMBOL_textos = 75,                    /* textos  */
-  YYSYMBOL_componente_texto = 76,          /* componente_texto  */
-  YYSYMBOL_ruta = 77,                      /* ruta  */
-  YYSYMBOL_asignaciones = 78,              /* asignaciones  */
-  YYSYMBOL_palabra = 79                    /* palabra  */
+  YYSYMBOL_V_LOG = 53,                     /* V_LOG  */
+  YYSYMBOL_V_ROLLBACK = 54,                /* V_ROLLBACK  */
+  YYSYMBOL_V_HOLDS = 55,                   /* V_HOLDS  */
+  YYSYMBOL_V_HOLD = 56,                    /* V_HOLD  */
+  YYSYMBOL_V_RELEASE = 57,                 /* V_RELEASE  */
+  YYSYMBOL_V_CLONE = 58,                   /* V_CLONE  */
+  YYSYMBOL_V_DIFF = 59,                    /* V_DIFF  */
+  YYSYMBOL_V_COPY = 60,                    /* V_COPY  */
+  YYSYMBOL_V_ALLOW = 61,                   /* V_ALLOW  */
+  YYSYMBOL_V_UNALLOW = 62,                 /* V_UNALLOW  */
+  YYSYMBOL_V_BREAKDOWN = 63,               /* V_BREAKDOWN  */
+  YYSYMBOL_V_ASSEMBLE = 64,                /* V_ASSEMBLE  */
+  YYSYMBOL_V_TODIR = 65,                   /* V_TODIR  */
+  YYSYMBOL_V_FROMDIR = 66,                 /* V_FROMDIR  */
+  YYSYMBOL_V_RSYNC = 67,                   /* V_RSYNC  */
+  YYSYMBOL_V_DESCONOCIDO = 68,             /* V_DESCONOCIDO  */
+  YYSYMBOL_YYACCEPT = 69,                  /* $accept  */
+  YYSYMBOL_linea = 70,                     /* linea  */
+  YYSYMBOL_orden = 71,                     /* orden  */
+  YYSYMBOL_destino_opt = 72,               /* destino_opt  */
+  YYSYMBOL_url_opt = 73,                   /* url_opt  */
+  YYSYMBOL_fase_opt = 74,                  /* fase_opt  */
+  YYSYMBOL_vdev_opt = 75,                  /* vdev_opt  */
+  YYSYMBOL_textos = 76,                    /* textos  */
+  YYSYMBOL_componente_texto = 77,          /* componente_texto  */
+  YYSYMBOL_ruta = 78,                      /* ruta  */
+  YYSYMBOL_asignaciones = 79,              /* asignaciones  */
+  YYSYMBOL_palabra = 80                    /* palabra  */
 };
 typedef enum yysymbol_kind_t yysymbol_kind_t;
 
@@ -535,21 +536,21 @@ union yyalloc
 #endif /* !YYCOPY_NEEDED */
 
 /* YYFINAL -- State number of the termination state.  */
-#define YYFINAL  132
+#define YYFINAL  134
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   146
+#define YYLAST   149
 
 /* YYNTOKENS -- Number of terminals.  */
-#define YYNTOKENS  68
+#define YYNTOKENS  69
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  12
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  91
+#define YYNRULES  92
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  146
+#define YYNSTATES  148
 
 /* YYMAXUTOK -- Last valid token kind.  */
-#define YYMAXUTOK   322
+#define YYMAXUTOK   323
 
 
 /* YYTRANSLATE(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
@@ -595,7 +596,7 @@ static const yytype_int8 yytranslate[] =
       35,    36,    37,    38,    39,    40,    41,    42,    43,    44,
       45,    46,    47,    48,    49,    50,    51,    52,    53,    54,
       55,    56,    57,    58,    59,    60,    61,    62,    63,    64,
-      65,    66,    67
+      65,    66,    67,    68
 };
 
 #if ZFSMCLIDEBUG
@@ -607,11 +608,11 @@ static const yytype_uint8 yyrline[] =
      104,   105,   107,   108,   111,   112,   113,   114,   115,   116,
      117,   121,   122,   123,   126,   127,   128,   129,   130,   131,
      132,   133,   134,   135,   136,   137,   138,   139,   140,   141,
-     142,   145,   146,   147,   148,   153,   154,   155,   156,   157,
-     158,   159,   163,   171,   172,   173,   181,   182,   186,   187,
-     188,   189,   190,   191,   195,   196,   197,   204,   205,   209,
-     210,   211,   215,   216,   220,   221,   227,   228,   229,   230,
-     231,   232
+     142,   143,   146,   147,   148,   149,   154,   155,   156,   157,
+     158,   159,   160,   164,   172,   173,   174,   182,   183,   187,
+     188,   189,   190,   191,   192,   196,   197,   198,   205,   206,
+     210,   211,   212,   216,   217,   221,   222,   228,   229,   230,
+     231,   232,   233
 };
 #endif
 
@@ -636,12 +637,12 @@ static const char *const yytname[] =
   "V_EXPORT", "V_STATUS", "V_HISTORY", "V_SCRUB", "V_TRIM", "V_INITIALIZE",
   "V_CLEAR", "V_CREATE", "V_DESTROY", "V_RENAME", "V_MOUNT", "V_UNMOUNT",
   "V_PROMOTE", "V_GET", "V_SET", "V_LOAD_KEY", "V_UNLOAD_KEY",
-  "V_CHANGE_KEY", "V_SCHEDULE", "V_SCHEDULES", "V_ROLLBACK", "V_HOLDS",
-  "V_HOLD", "V_RELEASE", "V_CLONE", "V_DIFF", "V_COPY", "V_ALLOW",
-  "V_UNALLOW", "V_BREAKDOWN", "V_ASSEMBLE", "V_TODIR", "V_FROMDIR",
-  "V_RSYNC", "V_DESCONOCIDO", "$accept", "linea", "orden", "destino_opt",
-  "url_opt", "fase_opt", "vdev_opt", "textos", "componente_texto", "ruta",
-  "asignaciones", "palabra", YY_NULLPTR
+  "V_CHANGE_KEY", "V_SCHEDULE", "V_SCHEDULES", "V_LOG", "V_ROLLBACK",
+  "V_HOLDS", "V_HOLD", "V_RELEASE", "V_CLONE", "V_DIFF", "V_COPY",
+  "V_ALLOW", "V_UNALLOW", "V_BREAKDOWN", "V_ASSEMBLE", "V_TODIR",
+  "V_FROMDIR", "V_RSYNC", "V_DESCONOCIDO", "$accept", "linea", "orden",
+  "destino_opt", "url_opt", "fase_opt", "vdev_opt", "textos",
+  "componente_texto", "ruta", "asignaciones", "palabra", YY_NULLPTR
 };
 
 static const char *
@@ -663,23 +664,23 @@ yysymbol_name (yysymbol_kind_t yysymbol)
 
 /* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
    STATE-NUM.  */
-static const yytype_int8 yypact[] =
+static const yytype_int16 yypact[] =
 {
-      -9,    56,    56,   -27,    56,   127,   -27,   127,   -27,   -27,
-      56,    56,    56,    56,    56,    56,    56,    58,    58,    56,
-      56,    56,    56,    56,    56,    56,   117,   117,    74,    60,
-      56,    58,    56,    56,    56,    58,    56,    56,    56,    56,
-      56,    56,    56,    56,    58,    58,    60,    71,    95,    60,
-      60,    60,    60,    83,    83,   114,   -27,    72,   -27,   -27,
+      -9,    57,    57,   -27,    57,   129,   -27,   129,   -27,   -27,
+      57,    57,    57,    57,    57,    57,    57,    59,    59,    57,
+      57,    57,    57,    57,    57,    57,   119,   119,    75,    61,
+      57,    59,    57,    57,    57,    59,    57,    57,    57,    57,
+      57,    57,    57,    57,    57,    59,    59,    61,    72,   116,
+      61,    61,    61,    61,    84,    84,   117,   -27,    73,   -27,
      -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,
      -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,
-     127,   127,   -27,   -27,   -27,   -27,   -27,   -27,   117,   -27,
-     -27,   -27,   -27,   -27,    74,    74,   -27,   -27,   -27,   -27,
-     -27,    60,   -27,   -27,   -27,   127,   -27,   -27,   -27,   127,
-     113,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   127,   127,
-      60,   -27,   -27,    60,    60,    60,    60,   -27,   -27,   -27,
+     -27,   129,   129,   -27,   -27,   -27,   -27,   -27,   -27,   119,
+     -27,   -27,   -27,   -27,   -27,    75,    75,   -27,   -27,   -27,
+     -27,   -27,    61,   -27,   -27,   -27,   129,   -27,   -27,   -27,
+     129,    94,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,
+     129,   129,    61,   -27,   -27,    61,    61,    61,    61,   -27,
      -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,   -27,
-     -27,   -27,   124,   -27,   -27,   -27
+     -27,   -27,   -27,   -27,   126,   -27,   -27,   -27
 };
 
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -687,35 +688,35 @@ static const yytype_int8 yypact[] =
    means the default is an error.  */
 static const yytype_int8 yydefact[] =
 {
-       2,    63,    63,     6,    63,     8,    10,    12,    11,    14,
-      63,    63,    63,    63,    63,    63,    63,    66,    66,    63,
-      63,    63,    63,    63,    63,    63,    68,    68,    74,     0,
-      63,    66,    63,    63,    63,    66,    63,    63,    63,    63,
-      63,    63,    63,    63,    66,    66,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,    62,     0,     3,    64,
-      65,     4,     5,     7,    86,    87,    88,    89,    90,    91,
-       9,    13,    15,    16,    17,    18,    19,    20,    21,    67,
-       0,     0,    24,    25,    26,    27,    28,    29,    68,    69,
-      70,    71,    72,    73,    74,    74,    76,    75,    33,    80,
-      81,    47,    77,    79,    37,     0,    34,    35,    36,    44,
-       0,    38,    39,    40,    41,    42,    51,    52,     0,     0,
-      48,    57,    55,    49,    50,    60,    61,    82,    83,    58,
-      59,    56,     1,    22,    23,    30,    31,    32,    78,    43,
-      45,    84,    46,    53,    54,    85
+       2,    64,    64,     6,    64,     8,    10,    12,    11,    14,
+      64,    64,    64,    64,    64,    64,    64,    67,    67,    64,
+      64,    64,    64,    64,    64,    64,    69,    69,    75,     0,
+      64,    67,    64,    64,    64,    67,    64,    64,    64,    64,
+      64,    64,    64,    64,    64,    67,    67,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,    63,     0,     3,
+      65,    66,     4,     5,     7,    87,    88,    89,    90,    91,
+      92,     9,    13,    15,    16,    17,    18,    19,    20,    21,
+      68,     0,     0,    24,    25,    26,    27,    28,    29,    69,
+      70,    71,    72,    73,    74,    75,    75,    77,    76,    33,
+      81,    82,    48,    78,    80,    37,     0,    34,    35,    36,
+      45,     0,    38,    39,    40,    41,    42,    43,    52,    53,
+       0,     0,    49,    58,    56,    50,    51,    61,    62,    83,
+      84,    59,    60,    57,     1,    22,    23,    30,    31,    32,
+      79,    44,    46,    85,    47,    54,    55,    86
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -27,   -27,   -27,    69,    97,   -26,     1,    94,    -4,    76,
+     -27,   -27,   -27,    70,    99,   -26,     1,    96,    -4,    77,
      -27,    -5
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_uint8 yydefgoto[] =
 {
-       0,    57,    58,    61,    80,    94,    98,   101,   102,   129,
-     142,   103
+       0,    58,    59,    62,    81,    95,    99,   102,   103,   131,
+     144,   104
 };
 
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
@@ -723,40 +724,40 @@ static const yytype_uint8 yydefgoto[] =
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_uint8 yytable[] =
 {
-      70,    95,    71,     1,     2,     3,     4,     5,     6,     7,
+      71,    96,    72,     1,     2,     3,     4,     5,     6,     7,
        8,     9,    10,    11,    12,    13,    14,    15,    16,    17,
       18,    19,    20,    21,    22,    23,    24,    25,    26,    27,
       28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
       38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    56,    59,
-      60,    79,   135,    99,    64,   100,    65,    66,    67,    68,
-      69,    62,   132,    63,   121,   133,   134,    96,    97,    72,
-      73,    74,    75,    76,    77,    78,   127,   128,    82,    83,
-      84,    85,    86,    87,    88,   136,   137,   138,   122,   104,
-     139,   106,   107,   108,   140,   110,   111,   112,   113,   114,
-     115,   116,   117,   143,   144,    81,   138,   131,   141,   138,
-     138,   138,   138,    89,    90,    91,    92,    93,   105,   145,
-     130,    64,   109,    65,    66,    67,    68,    69,     0,     0,
-     120,   118,   119,   123,   124,   125,   126
+      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
+      60,    61,    80,   137,   100,    65,   101,    66,    67,    68,
+      69,    70,    63,   134,    64,   123,   135,   136,    97,    98,
+      73,    74,    75,    76,    77,    78,    79,   129,   130,    83,
+      84,    85,    86,    87,    88,    89,   138,   139,   140,   143,
+     105,   141,   107,   108,   109,   142,   111,   112,   113,   114,
+     115,   116,   117,   118,   119,   145,   146,    82,   140,   124,
+     133,   140,   140,   140,   140,    90,    91,    92,    93,    94,
+     106,   147,   132,    65,   110,    66,    67,    68,    69,    70,
+       0,     0,     0,   122,   120,   121,   125,   126,   127,   128
 };
 
-static const yytype_int8 yycheck[] =
+static const yytype_int16 yycheck[] =
 {
        5,    27,     7,    12,    13,    14,    15,    16,    17,    18,
       19,    20,    21,    22,    23,    24,    25,    26,    27,    28,
       29,    30,    31,    32,    33,    34,    35,    36,    37,    38,
       39,    40,    41,    42,    43,    44,    45,    46,    47,    48,
       49,    50,    51,    52,    53,    54,    55,    56,    57,    58,
-      59,    60,    61,    62,    63,    64,    65,    66,    67,     3,
-       4,     3,    88,     3,     4,     5,     6,     7,     8,     9,
-      10,     2,     0,     4,     3,    80,    81,     3,     4,    10,
-      11,    12,    13,    14,    15,    16,     3,     4,    19,    20,
-      21,    22,    23,    24,    25,    94,    95,   101,     3,    30,
-     105,    32,    33,    34,   109,    36,    37,    38,    39,    40,
-      41,    42,    43,   118,   119,    18,   120,     3,     5,   123,
-     124,   125,   126,     6,     7,     8,     9,    10,    31,     5,
-      54,     4,    35,     6,     7,     8,     9,    10,    -1,    -1,
-      46,    44,    45,    49,    50,    51,    52
+      59,    60,    61,    62,    63,    64,    65,    66,    67,    68,
+       3,     4,     3,    89,     3,     4,     5,     6,     7,     8,
+       9,    10,     2,     0,     4,     3,    81,    82,     3,     4,
+      10,    11,    12,    13,    14,    15,    16,     3,     4,    19,
+      20,    21,    22,    23,    24,    25,    95,    96,   102,     5,
+      30,   106,    32,    33,    34,   110,    36,    37,    38,    39,
+      40,    41,    42,    43,    44,   120,   121,    18,   122,     3,
+       3,   125,   126,   127,   128,     6,     7,     8,     9,    10,
+      31,     5,    55,     4,    35,     6,     7,     8,     9,    10,
+      -1,    -1,    -1,    47,    45,    46,    50,    51,    52,    53
 };
 
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
@@ -768,31 +769,31 @@ static const yytype_int8 yystos[] =
       31,    32,    33,    34,    35,    36,    37,    38,    39,    40,
       41,    42,    43,    44,    45,    46,    47,    48,    49,    50,
       51,    52,    53,    54,    55,    56,    57,    58,    59,    60,
-      61,    62,    63,    64,    65,    66,    67,    69,    70,     3,
-       4,    71,    71,    71,     4,     6,     7,     8,     9,    10,
-      79,    79,    71,    71,    71,    71,    71,    71,    71,     3,
-      72,    72,    71,    71,    71,    71,    71,    71,    71,     6,
-       7,     8,     9,    10,    73,    73,     3,     4,    74,     3,
-       5,    75,    76,    79,    71,    72,    71,    71,    71,    72,
-      71,    71,    71,    71,    71,    71,    71,    71,    72,    72,
-      75,     3,     3,    75,    75,    75,    75,     3,     4,    77,
-      77,     3,     0,    79,    79,    73,    74,    74,    76,    79,
-      79,     5,    78,    79,    79,     5
+      61,    62,    63,    64,    65,    66,    67,    68,    70,    71,
+       3,     4,    72,    72,    72,     4,     6,     7,     8,     9,
+      10,    80,    80,    72,    72,    72,    72,    72,    72,    72,
+       3,    73,    73,    72,    72,    72,    72,    72,    72,    72,
+       6,     7,     8,     9,    10,    74,    74,     3,     4,    75,
+       3,     5,    76,    77,    80,    72,    73,    72,    72,    72,
+      73,    72,    72,    72,    72,    72,    72,    72,    72,    72,
+      73,    73,    76,     3,     3,    76,    76,    76,    76,     3,
+       4,    78,    78,     3,     0,    80,    80,    74,    75,    75,
+      77,    80,    80,     5,    79,    80,    80,     5
 };
 
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr1[] =
 {
-       0,    68,    69,    69,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    70,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    70,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    70,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    70,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    70,    70,    70,    70,    70,    70,    70,
-      70,    70,    70,    71,    71,    71,    72,    72,    73,    73,
-      73,    73,    73,    73,    74,    74,    74,    75,    75,    76,
-      76,    76,    77,    77,    78,    78,    79,    79,    79,    79,
-      79,    79
+       0,    69,    70,    70,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    71,    71,    71,    71,    71,    71,
+      71,    71,    71,    71,    72,    72,    72,    73,    73,    74,
+      74,    74,    74,    74,    74,    75,    75,    75,    76,    76,
+      77,    77,    77,    78,    78,    79,    79,    80,    80,    80,
+      80,    80,    80
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
@@ -802,12 +803,12 @@ static const yytype_int8 yyr2[] =
        1,     1,     1,     2,     1,     2,     2,     2,     2,     2,
        2,     2,     3,     3,     2,     2,     2,     2,     2,     2,
        3,     3,     3,     2,     2,     2,     2,     2,     2,     2,
-       2,     2,     2,     3,     2,     3,     3,     2,     2,     2,
-       2,     2,     2,     3,     3,     2,     2,     2,     2,     2,
-       2,     2,     1,     0,     1,     1,     0,     1,     0,     1,
-       1,     1,     1,     1,     0,     1,     1,     1,     2,     1,
-       1,     1,     1,     1,     1,     2,     1,     1,     1,     1,
-       1,     1
+       2,     2,     2,     2,     3,     2,     3,     3,     2,     2,
+       2,     2,     2,     2,     3,     3,     2,     2,     2,     2,
+       2,     2,     2,     1,     0,     1,     1,     0,     1,     0,
+       1,     1,     1,     1,     1,     0,     1,     1,     1,     2,
+       1,     1,     1,     1,     1,     1,     2,     1,     1,     1,
+       1,     1,     1
 };
 
 
@@ -1017,397 +1018,403 @@ yydestruct (const char *yymsg,
     case YYSYMBOL_URL: /* URL  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1021 "generado/gramatica.tab.c"
+#line 1022 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_PALABRA: /* PALABRA  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1027 "generado/gramatica.tab.c"
+#line 1028 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_ASIGNACION: /* ASIGNACION  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1033 "generado/gramatica.tab.c"
+#line 1034 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_FASE_START: /* FASE_START  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1039 "generado/gramatica.tab.c"
+#line 1040 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_FASE_STOP: /* FASE_STOP  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1045 "generado/gramatica.tab.c"
+#line 1046 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_FASE_CANCEL: /* FASE_CANCEL  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1051 "generado/gramatica.tab.c"
+#line 1052 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_FASE_PAUSE: /* FASE_PAUSE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1057 "generado/gramatica.tab.c"
+#line 1058 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_FASE_SUSPEND: /* FASE_SUSPEND  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1063 "generado/gramatica.tab.c"
+#line 1064 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CD: /* V_CD  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1069 "generado/gramatica.tab.c"
+#line 1070 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_LS: /* V_LS  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1075 "generado/gramatica.tab.c"
+#line 1076 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_PWD: /* V_PWD  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1081 "generado/gramatica.tab.c"
+#line 1082 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_INFO: /* V_INFO  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1087 "generado/gramatica.tab.c"
+#line 1088 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_HELP: /* V_HELP  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1093 "generado/gramatica.tab.c"
+#line 1094 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_EXIT: /* V_EXIT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1099 "generado/gramatica.tab.c"
+#line 1100 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_FORMAT: /* V_FORMAT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1105 "generado/gramatica.tab.c"
+#line 1106 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_YES: /* V_YES  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1111 "generado/gramatica.tab.c"
+#line 1112 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CLS: /* V_CLS  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1117 "generado/gramatica.tab.c"
+#line 1118 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CONNECT: /* V_CONNECT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1123 "generado/gramatica.tab.c"
+#line 1124 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_DISCONNECT: /* V_DISCONNECT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1129 "generado/gramatica.tab.c"
+#line 1130 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_REFRESH: /* V_REFRESH  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1135 "generado/gramatica.tab.c"
+#line 1136 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_EDIT: /* V_EDIT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1141 "generado/gramatica.tab.c"
+#line 1142 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_DEVICES: /* V_DEVICES  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1147 "generado/gramatica.tab.c"
+#line 1148 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_INSTALL_DAEMON: /* V_INSTALL_DAEMON  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1153 "generado/gramatica.tab.c"
+#line 1154 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_JOBS: /* V_JOBS  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1159 "generado/gramatica.tab.c"
+#line 1160 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_JOB: /* V_JOB  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1165 "generado/gramatica.tab.c"
+#line 1166 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_IMPORT: /* V_IMPORT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1171 "generado/gramatica.tab.c"
+#line 1172 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_FLUSH: /* V_FLUSH  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1177 "generado/gramatica.tab.c"
+#line 1178 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_UPGRADE: /* V_UPGRADE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1183 "generado/gramatica.tab.c"
+#line 1184 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_REGUID: /* V_REGUID  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1189 "generado/gramatica.tab.c"
+#line 1190 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_EXPORT: /* V_EXPORT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1195 "generado/gramatica.tab.c"
+#line 1196 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_STATUS: /* V_STATUS  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1201 "generado/gramatica.tab.c"
+#line 1202 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_HISTORY: /* V_HISTORY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1207 "generado/gramatica.tab.c"
+#line 1208 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_SCRUB: /* V_SCRUB  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1213 "generado/gramatica.tab.c"
+#line 1214 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_TRIM: /* V_TRIM  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1219 "generado/gramatica.tab.c"
+#line 1220 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_INITIALIZE: /* V_INITIALIZE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1225 "generado/gramatica.tab.c"
+#line 1226 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CLEAR: /* V_CLEAR  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1231 "generado/gramatica.tab.c"
+#line 1232 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CREATE: /* V_CREATE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1237 "generado/gramatica.tab.c"
+#line 1238 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_DESTROY: /* V_DESTROY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1243 "generado/gramatica.tab.c"
+#line 1244 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_RENAME: /* V_RENAME  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1249 "generado/gramatica.tab.c"
+#line 1250 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_MOUNT: /* V_MOUNT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1255 "generado/gramatica.tab.c"
+#line 1256 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_UNMOUNT: /* V_UNMOUNT  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1261 "generado/gramatica.tab.c"
+#line 1262 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_PROMOTE: /* V_PROMOTE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1267 "generado/gramatica.tab.c"
+#line 1268 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_GET: /* V_GET  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1273 "generado/gramatica.tab.c"
+#line 1274 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_SET: /* V_SET  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1279 "generado/gramatica.tab.c"
+#line 1280 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_LOAD_KEY: /* V_LOAD_KEY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1285 "generado/gramatica.tab.c"
+#line 1286 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_UNLOAD_KEY: /* V_UNLOAD_KEY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1291 "generado/gramatica.tab.c"
+#line 1292 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CHANGE_KEY: /* V_CHANGE_KEY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1297 "generado/gramatica.tab.c"
+#line 1298 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_SCHEDULE: /* V_SCHEDULE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1303 "generado/gramatica.tab.c"
+#line 1304 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_SCHEDULES: /* V_SCHEDULES  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1309 "generado/gramatica.tab.c"
+#line 1310 "generado/gramatica.tab.c"
+        break;
+
+    case YYSYMBOL_V_LOG: /* V_LOG  */
+#line 71 "gramatica.y"
+            { free(((*yyvaluep).texto)); }
+#line 1316 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_ROLLBACK: /* V_ROLLBACK  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1315 "generado/gramatica.tab.c"
+#line 1322 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_HOLDS: /* V_HOLDS  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1321 "generado/gramatica.tab.c"
+#line 1328 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_HOLD: /* V_HOLD  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1327 "generado/gramatica.tab.c"
+#line 1334 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_RELEASE: /* V_RELEASE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1333 "generado/gramatica.tab.c"
+#line 1340 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_CLONE: /* V_CLONE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1339 "generado/gramatica.tab.c"
+#line 1346 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_DIFF: /* V_DIFF  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1345 "generado/gramatica.tab.c"
+#line 1352 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_COPY: /* V_COPY  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1351 "generado/gramatica.tab.c"
+#line 1358 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_ALLOW: /* V_ALLOW  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1357 "generado/gramatica.tab.c"
+#line 1364 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_UNALLOW: /* V_UNALLOW  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1363 "generado/gramatica.tab.c"
+#line 1370 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_BREAKDOWN: /* V_BREAKDOWN  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1369 "generado/gramatica.tab.c"
+#line 1376 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_ASSEMBLE: /* V_ASSEMBLE  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1375 "generado/gramatica.tab.c"
+#line 1382 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_TODIR: /* V_TODIR  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1381 "generado/gramatica.tab.c"
+#line 1388 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_FROMDIR: /* V_FROMDIR  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1387 "generado/gramatica.tab.c"
+#line 1394 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_RSYNC: /* V_RSYNC  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1393 "generado/gramatica.tab.c"
+#line 1400 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_V_DESCONOCIDO: /* V_DESCONOCIDO  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1399 "generado/gramatica.tab.c"
+#line 1406 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_componente_texto: /* componente_texto  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1405 "generado/gramatica.tab.c"
+#line 1412 "generado/gramatica.tab.c"
         break;
 
     case YYSYMBOL_palabra: /* palabra  */
 #line 71 "gramatica.y"
             { free(((*yyvaluep).texto)); }
-#line 1411 "generado/gramatica.tab.c"
+#line 1418 "generado/gramatica.tab.c"
         break;
 
       default:
@@ -1683,515 +1690,521 @@ yyreduce:
   case 2: /* linea: %empty  */
 #line 76 "gramatica.y"
                                           { res->vacia = 1; }
-#line 1687 "generado/gramatica.tab.c"
+#line 1694 "generado/gramatica.tab.c"
     break;
 
   case 4: /* orden: V_CD destino_opt  */
 #line 82 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1693 "generado/gramatica.tab.c"
+#line 1700 "generado/gramatica.tab.c"
     break;
 
   case 5: /* orden: V_LS destino_opt  */
 #line 83 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1699 "generado/gramatica.tab.c"
+#line 1706 "generado/gramatica.tab.c"
     break;
 
   case 6: /* orden: V_PWD  */
 #line 84 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1705 "generado/gramatica.tab.c"
+#line 1712 "generado/gramatica.tab.c"
     break;
 
   case 7: /* orden: V_INFO destino_opt  */
 #line 85 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1711 "generado/gramatica.tab.c"
+#line 1718 "generado/gramatica.tab.c"
     break;
 
   case 8: /* orden: V_HELP  */
 #line 88 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1717 "generado/gramatica.tab.c"
+#line 1724 "generado/gramatica.tab.c"
     break;
 
   case 9: /* orden: V_HELP palabra  */
 #line 89 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 1723 "generado/gramatica.tab.c"
+#line 1730 "generado/gramatica.tab.c"
     break;
 
   case 10: /* orden: V_EXIT  */
 #line 90 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1729 "generado/gramatica.tab.c"
+#line 1736 "generado/gramatica.tab.c"
     break;
 
   case 11: /* orden: V_YES  */
 #line 91 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1735 "generado/gramatica.tab.c"
+#line 1742 "generado/gramatica.tab.c"
     break;
 
   case 12: /* orden: V_FORMAT  */
 #line 92 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1741 "generado/gramatica.tab.c"
+#line 1748 "generado/gramatica.tab.c"
     break;
 
   case 13: /* orden: V_FORMAT palabra  */
 #line 93 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 1747 "generado/gramatica.tab.c"
+#line 1754 "generado/gramatica.tab.c"
     break;
 
   case 14: /* orden: V_CLS  */
 #line 94 "gramatica.y"
                                          { astVerbo(res, (yyvsp[0].texto)); }
-#line 1753 "generado/gramatica.tab.c"
+#line 1760 "generado/gramatica.tab.c"
     break;
 
   case 15: /* orden: V_CONNECT destino_opt  */
 #line 99 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1759 "generado/gramatica.tab.c"
+#line 1766 "generado/gramatica.tab.c"
     break;
 
   case 16: /* orden: V_DISCONNECT destino_opt  */
 #line 100 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1765 "generado/gramatica.tab.c"
+#line 1772 "generado/gramatica.tab.c"
     break;
 
   case 17: /* orden: V_REFRESH destino_opt  */
 #line 101 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1771 "generado/gramatica.tab.c"
+#line 1778 "generado/gramatica.tab.c"
     break;
 
   case 18: /* orden: V_EDIT destino_opt  */
 #line 102 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1777 "generado/gramatica.tab.c"
+#line 1784 "generado/gramatica.tab.c"
     break;
 
   case 19: /* orden: V_DEVICES destino_opt  */
 #line 103 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1783 "generado/gramatica.tab.c"
+#line 1790 "generado/gramatica.tab.c"
     break;
 
   case 20: /* orden: V_INSTALL_DAEMON destino_opt  */
 #line 104 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1789 "generado/gramatica.tab.c"
+#line 1796 "generado/gramatica.tab.c"
     break;
 
   case 21: /* orden: V_JOBS destino_opt  */
 #line 105 "gramatica.y"
                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1795 "generado/gramatica.tab.c"
+#line 1802 "generado/gramatica.tab.c"
     break;
 
   case 22: /* orden: V_JOB url_opt palabra  */
 #line 107 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 1801 "generado/gramatica.tab.c"
+#line 1808 "generado/gramatica.tab.c"
     break;
 
   case 23: /* orden: V_IMPORT url_opt palabra  */
 #line 108 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 1807 "generado/gramatica.tab.c"
+#line 1814 "generado/gramatica.tab.c"
     break;
 
   case 24: /* orden: V_FLUSH destino_opt  */
 #line 111 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1813 "generado/gramatica.tab.c"
+#line 1820 "generado/gramatica.tab.c"
     break;
 
   case 25: /* orden: V_UPGRADE destino_opt  */
 #line 112 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1819 "generado/gramatica.tab.c"
+#line 1826 "generado/gramatica.tab.c"
     break;
 
   case 26: /* orden: V_REGUID destino_opt  */
 #line 113 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1825 "generado/gramatica.tab.c"
+#line 1832 "generado/gramatica.tab.c"
     break;
 
   case 27: /* orden: V_EXPORT destino_opt  */
 #line 114 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1831 "generado/gramatica.tab.c"
+#line 1838 "generado/gramatica.tab.c"
     break;
 
   case 28: /* orden: V_STATUS destino_opt  */
 #line 115 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1837 "generado/gramatica.tab.c"
+#line 1844 "generado/gramatica.tab.c"
     break;
 
   case 29: /* orden: V_HISTORY destino_opt  */
 #line 116 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1843 "generado/gramatica.tab.c"
+#line 1850 "generado/gramatica.tab.c"
     break;
 
   case 30: /* orden: V_SCRUB destino_opt fase_opt  */
 #line 117 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-2].texto)); }
-#line 1849 "generado/gramatica.tab.c"
+#line 1856 "generado/gramatica.tab.c"
     break;
 
   case 31: /* orden: V_TRIM fase_opt vdev_opt  */
 #line 121 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-2].texto)); }
-#line 1855 "generado/gramatica.tab.c"
+#line 1862 "generado/gramatica.tab.c"
     break;
 
   case 32: /* orden: V_INITIALIZE fase_opt vdev_opt  */
 #line 122 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-2].texto)); }
-#line 1861 "generado/gramatica.tab.c"
+#line 1868 "generado/gramatica.tab.c"
     break;
 
   case 33: /* orden: V_CLEAR vdev_opt  */
 #line 123 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1867 "generado/gramatica.tab.c"
+#line 1874 "generado/gramatica.tab.c"
     break;
 
   case 34: /* orden: V_MOUNT destino_opt  */
 #line 126 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1873 "generado/gramatica.tab.c"
+#line 1880 "generado/gramatica.tab.c"
     break;
 
   case 35: /* orden: V_UNMOUNT destino_opt  */
 #line 127 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1879 "generado/gramatica.tab.c"
+#line 1886 "generado/gramatica.tab.c"
     break;
 
   case 36: /* orden: V_PROMOTE destino_opt  */
 #line 128 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1885 "generado/gramatica.tab.c"
+#line 1892 "generado/gramatica.tab.c"
     break;
 
   case 37: /* orden: V_DESTROY destino_opt  */
 #line 129 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1891 "generado/gramatica.tab.c"
+#line 1898 "generado/gramatica.tab.c"
     break;
 
   case 38: /* orden: V_LOAD_KEY destino_opt  */
 #line 130 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1897 "generado/gramatica.tab.c"
+#line 1904 "generado/gramatica.tab.c"
     break;
 
   case 39: /* orden: V_UNLOAD_KEY destino_opt  */
 #line 131 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1903 "generado/gramatica.tab.c"
+#line 1910 "generado/gramatica.tab.c"
     break;
 
   case 40: /* orden: V_CHANGE_KEY destino_opt  */
 #line 132 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1909 "generado/gramatica.tab.c"
+#line 1916 "generado/gramatica.tab.c"
     break;
 
   case 41: /* orden: V_SCHEDULE destino_opt  */
 #line 133 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1915 "generado/gramatica.tab.c"
+#line 1922 "generado/gramatica.tab.c"
     break;
 
   case 42: /* orden: V_SCHEDULES destino_opt  */
 #line 134 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1921 "generado/gramatica.tab.c"
+#line 1928 "generado/gramatica.tab.c"
     break;
 
-  case 43: /* orden: V_RENAME url_opt palabra  */
+  case 43: /* orden: V_LOG destino_opt  */
 #line 135 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 1927 "generado/gramatica.tab.c"
+                                             { astVerbo(res, (yyvsp[-1].texto)); }
+#line 1934 "generado/gramatica.tab.c"
     break;
 
-  case 44: /* orden: V_GET url_opt  */
+  case 44: /* orden: V_RENAME url_opt palabra  */
 #line 136 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1933 "generado/gramatica.tab.c"
+                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "texto", (yyvsp[0].texto)); }
+#line 1940 "generado/gramatica.tab.c"
     break;
 
-  case 45: /* orden: V_GET url_opt palabra  */
+  case 45: /* orden: V_GET url_opt  */
 #line 137 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "propiedad", (yyvsp[0].texto)); }
-#line 1939 "generado/gramatica.tab.c"
-    break;
-
-  case 46: /* orden: V_SET destino_opt asignaciones  */
-#line 138 "gramatica.y"
-                                             { astVerbo(res, (yyvsp[-2].texto)); }
-#line 1945 "generado/gramatica.tab.c"
-    break;
-
-  case 47: /* orden: V_CREATE textos  */
-#line 139 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1951 "generado/gramatica.tab.c"
+#line 1946 "generado/gramatica.tab.c"
     break;
 
-  case 48: /* orden: V_CLONE textos  */
+  case 46: /* orden: V_GET url_opt palabra  */
+#line 138 "gramatica.y"
+                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "propiedad", (yyvsp[0].texto)); }
+#line 1952 "generado/gramatica.tab.c"
+    break;
+
+  case 47: /* orden: V_SET destino_opt asignaciones  */
+#line 139 "gramatica.y"
+                                             { astVerbo(res, (yyvsp[-2].texto)); }
+#line 1958 "generado/gramatica.tab.c"
+    break;
+
+  case 48: /* orden: V_CREATE textos  */
 #line 140 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1957 "generado/gramatica.tab.c"
+#line 1964 "generado/gramatica.tab.c"
     break;
 
-  case 49: /* orden: V_ALLOW textos  */
+  case 49: /* orden: V_CLONE textos  */
 #line 141 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1963 "generado/gramatica.tab.c"
+#line 1970 "generado/gramatica.tab.c"
     break;
 
-  case 50: /* orden: V_UNALLOW textos  */
+  case 50: /* orden: V_ALLOW textos  */
 #line 142 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1969 "generado/gramatica.tab.c"
+#line 1976 "generado/gramatica.tab.c"
     break;
 
-  case 51: /* orden: V_ROLLBACK destino_opt  */
-#line 145 "gramatica.y"
-                                             { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1975 "generado/gramatica.tab.c"
+  case 51: /* orden: V_UNALLOW textos  */
+#line 143 "gramatica.y"
+                                         { astVerbo(res, (yyvsp[-1].texto)); }
+#line 1982 "generado/gramatica.tab.c"
     break;
 
-  case 52: /* orden: V_HOLDS destino_opt  */
+  case 52: /* orden: V_ROLLBACK destino_opt  */
 #line 146 "gramatica.y"
                                              { astVerbo(res, (yyvsp[-1].texto)); }
-#line 1981 "generado/gramatica.tab.c"
+#line 1988 "generado/gramatica.tab.c"
     break;
 
-  case 53: /* orden: V_HOLD url_opt palabra  */
+  case 53: /* orden: V_HOLDS destino_opt  */
 #line 147 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "etiqueta", (yyvsp[0].texto)); }
-#line 1987 "generado/gramatica.tab.c"
+                                             { astVerbo(res, (yyvsp[-1].texto)); }
+#line 1994 "generado/gramatica.tab.c"
     break;
 
-  case 54: /* orden: V_RELEASE url_opt palabra  */
+  case 54: /* orden: V_HOLD url_opt palabra  */
 #line 148 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "etiqueta", (yyvsp[0].texto)); }
-#line 1993 "generado/gramatica.tab.c"
+#line 2000 "generado/gramatica.tab.c"
     break;
 
-  case 55: /* orden: V_COPY URL  */
-#line 153 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "destino", (yyvsp[0].texto)); }
-#line 1999 "generado/gramatica.tab.c"
+  case 55: /* orden: V_RELEASE url_opt palabra  */
+#line 149 "gramatica.y"
+                                         { astVerbo(res, (yyvsp[-2].texto)); astRanura(res, "etiqueta", (yyvsp[0].texto)); }
+#line 2006 "generado/gramatica.tab.c"
     break;
 
-  case 56: /* orden: V_RSYNC URL  */
+  case 56: /* orden: V_COPY URL  */
 #line 154 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "destino", (yyvsp[0].texto)); }
-#line 2005 "generado/gramatica.tab.c"
+#line 2012 "generado/gramatica.tab.c"
     break;
 
-  case 57: /* orden: V_DIFF URL  */
+  case 57: /* orden: V_RSYNC URL  */
 #line 155 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "destino", (yyvsp[0].texto)); }
-#line 2011 "generado/gramatica.tab.c"
+#line 2018 "generado/gramatica.tab.c"
     break;
 
-  case 58: /* orden: V_TODIR ruta  */
+  case 58: /* orden: V_DIFF URL  */
 #line 156 "gramatica.y"
-                                         { astVerbo(res, (yyvsp[-1].texto)); }
-#line 2017 "generado/gramatica.tab.c"
+                                         { astVerbo(res, (yyvsp[-1].texto)); astRanura(res, "destino", (yyvsp[0].texto)); }
+#line 2024 "generado/gramatica.tab.c"
     break;
 
-  case 59: /* orden: V_FROMDIR ruta  */
+  case 59: /* orden: V_TODIR ruta  */
 #line 157 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 2023 "generado/gramatica.tab.c"
+#line 2030 "generado/gramatica.tab.c"
     break;
 
-  case 60: /* orden: V_BREAKDOWN textos  */
+  case 60: /* orden: V_FROMDIR ruta  */
 #line 158 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 2029 "generado/gramatica.tab.c"
+#line 2036 "generado/gramatica.tab.c"
     break;
 
-  case 61: /* orden: V_ASSEMBLE textos  */
+  case 61: /* orden: V_BREAKDOWN textos  */
 #line 159 "gramatica.y"
                                          { astVerbo(res, (yyvsp[-1].texto)); }
-#line 2035 "generado/gramatica.tab.c"
+#line 2042 "generado/gramatica.tab.c"
     break;
 
-  case 62: /* orden: V_DESCONOCIDO  */
-#line 163 "gramatica.y"
+  case 62: /* orden: V_ASSEMBLE textos  */
+#line 160 "gramatica.y"
+                                         { astVerbo(res, (yyvsp[-1].texto)); }
+#line 2048 "generado/gramatica.tab.c"
+    break;
+
+  case 63: /* orden: V_DESCONOCIDO  */
+#line 164 "gramatica.y"
                                          { astVerboDesconocido(res, (yyvsp[0].texto)); }
-#line 2041 "generado/gramatica.tab.c"
+#line 2054 "generado/gramatica.tab.c"
     break;
 
-  case 64: /* destino_opt: URL  */
-#line 172 "gramatica.y"
-                                         { astObjetivo(res, (yyvsp[0].texto)); }
-#line 2047 "generado/gramatica.tab.c"
-    break;
-
-  case 65: /* destino_opt: PALABRA  */
+  case 65: /* destino_opt: URL  */
 #line 173 "gramatica.y"
                                          { astObjetivo(res, (yyvsp[0].texto)); }
-#line 2053 "generado/gramatica.tab.c"
+#line 2060 "generado/gramatica.tab.c"
     break;
 
-  case 67: /* url_opt: URL  */
-#line 182 "gramatica.y"
+  case 66: /* destino_opt: PALABRA  */
+#line 174 "gramatica.y"
                                          { astObjetivo(res, (yyvsp[0].texto)); }
-#line 2059 "generado/gramatica.tab.c"
+#line 2066 "generado/gramatica.tab.c"
     break;
 
-  case 69: /* fase_opt: FASE_START  */
-#line 187 "gramatica.y"
-                                         { astRanura(res, "fase", (yyvsp[0].texto)); }
-#line 2065 "generado/gramatica.tab.c"
+  case 68: /* url_opt: URL  */
+#line 183 "gramatica.y"
+                                         { astObjetivo(res, (yyvsp[0].texto)); }
+#line 2072 "generado/gramatica.tab.c"
     break;
 
-  case 70: /* fase_opt: FASE_STOP  */
+  case 70: /* fase_opt: FASE_START  */
 #line 188 "gramatica.y"
                                          { astRanura(res, "fase", (yyvsp[0].texto)); }
-#line 2071 "generado/gramatica.tab.c"
+#line 2078 "generado/gramatica.tab.c"
     break;
 
-  case 71: /* fase_opt: FASE_CANCEL  */
+  case 71: /* fase_opt: FASE_STOP  */
 #line 189 "gramatica.y"
                                          { astRanura(res, "fase", (yyvsp[0].texto)); }
-#line 2077 "generado/gramatica.tab.c"
+#line 2084 "generado/gramatica.tab.c"
     break;
 
-  case 72: /* fase_opt: FASE_PAUSE  */
+  case 72: /* fase_opt: FASE_CANCEL  */
 #line 190 "gramatica.y"
                                          { astRanura(res, "fase", (yyvsp[0].texto)); }
-#line 2083 "generado/gramatica.tab.c"
+#line 2090 "generado/gramatica.tab.c"
     break;
 
-  case 73: /* fase_opt: FASE_SUSPEND  */
+  case 73: /* fase_opt: FASE_PAUSE  */
 #line 191 "gramatica.y"
                                          { astRanura(res, "fase", (yyvsp[0].texto)); }
-#line 2089 "generado/gramatica.tab.c"
+#line 2096 "generado/gramatica.tab.c"
     break;
 
-  case 75: /* vdev_opt: PALABRA  */
-#line 196 "gramatica.y"
-                                         { astRanura(res, "disco", (yyvsp[0].texto)); }
-#line 2095 "generado/gramatica.tab.c"
+  case 74: /* fase_opt: FASE_SUSPEND  */
+#line 192 "gramatica.y"
+                                         { astRanura(res, "fase", (yyvsp[0].texto)); }
+#line 2102 "generado/gramatica.tab.c"
     break;
 
-  case 76: /* vdev_opt: URL  */
+  case 76: /* vdev_opt: PALABRA  */
 #line 197 "gramatica.y"
                                          { astRanura(res, "disco", (yyvsp[0].texto)); }
-#line 2101 "generado/gramatica.tab.c"
+#line 2108 "generado/gramatica.tab.c"
     break;
 
-  case 77: /* textos: componente_texto  */
-#line 204 "gramatica.y"
-                                         { astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 2107 "generado/gramatica.tab.c"
+  case 77: /* vdev_opt: URL  */
+#line 198 "gramatica.y"
+                                         { astRanura(res, "disco", (yyvsp[0].texto)); }
+#line 2114 "generado/gramatica.tab.c"
     break;
 
-  case 78: /* textos: textos componente_texto  */
+  case 78: /* textos: componente_texto  */
 #line 205 "gramatica.y"
                                          { astRanura(res, "texto", (yyvsp[0].texto)); }
-#line 2113 "generado/gramatica.tab.c"
+#line 2120 "generado/gramatica.tab.c"
     break;
 
-  case 79: /* componente_texto: palabra  */
-#line 209 "gramatica.y"
-                   { (yyval.texto) = (yyvsp[0].texto); }
-#line 2119 "generado/gramatica.tab.c"
+  case 79: /* textos: textos componente_texto  */
+#line 206 "gramatica.y"
+                                         { astRanura(res, "texto", (yyvsp[0].texto)); }
+#line 2126 "generado/gramatica.tab.c"
     break;
 
-  case 80: /* componente_texto: URL  */
+  case 80: /* componente_texto: palabra  */
 #line 210 "gramatica.y"
                    { (yyval.texto) = (yyvsp[0].texto); }
-#line 2125 "generado/gramatica.tab.c"
+#line 2132 "generado/gramatica.tab.c"
     break;
 
-  case 81: /* componente_texto: ASIGNACION  */
+  case 81: /* componente_texto: URL  */
 #line 211 "gramatica.y"
                    { (yyval.texto) = (yyvsp[0].texto); }
-#line 2131 "generado/gramatica.tab.c"
+#line 2138 "generado/gramatica.tab.c"
     break;
 
-  case 82: /* ruta: URL  */
-#line 215 "gramatica.y"
-                                         { astRanura(res, "ruta", (yyvsp[0].texto)); }
-#line 2137 "generado/gramatica.tab.c"
+  case 82: /* componente_texto: ASIGNACION  */
+#line 212 "gramatica.y"
+                   { (yyval.texto) = (yyvsp[0].texto); }
+#line 2144 "generado/gramatica.tab.c"
     break;
 
-  case 83: /* ruta: PALABRA  */
+  case 83: /* ruta: URL  */
 #line 216 "gramatica.y"
                                          { astRanura(res, "ruta", (yyvsp[0].texto)); }
-#line 2143 "generado/gramatica.tab.c"
+#line 2150 "generado/gramatica.tab.c"
     break;
 
-  case 84: /* asignaciones: ASIGNACION  */
-#line 220 "gramatica.y"
-                                         { astRanura(res, "props", (yyvsp[0].texto)); }
-#line 2149 "generado/gramatica.tab.c"
+  case 84: /* ruta: PALABRA  */
+#line 217 "gramatica.y"
+                                         { astRanura(res, "ruta", (yyvsp[0].texto)); }
+#line 2156 "generado/gramatica.tab.c"
     break;
 
-  case 85: /* asignaciones: asignaciones ASIGNACION  */
+  case 85: /* asignaciones: ASIGNACION  */
 #line 221 "gramatica.y"
                                          { astRanura(res, "props", (yyvsp[0].texto)); }
-#line 2155 "generado/gramatica.tab.c"
+#line 2162 "generado/gramatica.tab.c"
     break;
 
-  case 86: /* palabra: PALABRA  */
-#line 227 "gramatica.y"
-                     { (yyval.texto) = (yyvsp[0].texto); }
-#line 2161 "generado/gramatica.tab.c"
+  case 86: /* asignaciones: asignaciones ASIGNACION  */
+#line 222 "gramatica.y"
+                                         { astRanura(res, "props", (yyvsp[0].texto)); }
+#line 2168 "generado/gramatica.tab.c"
     break;
 
-  case 87: /* palabra: FASE_START  */
+  case 87: /* palabra: PALABRA  */
 #line 228 "gramatica.y"
                      { (yyval.texto) = (yyvsp[0].texto); }
-#line 2167 "generado/gramatica.tab.c"
+#line 2174 "generado/gramatica.tab.c"
     break;
 
-  case 88: /* palabra: FASE_STOP  */
+  case 88: /* palabra: FASE_START  */
 #line 229 "gramatica.y"
                      { (yyval.texto) = (yyvsp[0].texto); }
-#line 2173 "generado/gramatica.tab.c"
+#line 2180 "generado/gramatica.tab.c"
     break;
 
-  case 89: /* palabra: FASE_CANCEL  */
+  case 89: /* palabra: FASE_STOP  */
 #line 230 "gramatica.y"
                      { (yyval.texto) = (yyvsp[0].texto); }
-#line 2179 "generado/gramatica.tab.c"
+#line 2186 "generado/gramatica.tab.c"
     break;
 
-  case 90: /* palabra: FASE_PAUSE  */
+  case 90: /* palabra: FASE_CANCEL  */
 #line 231 "gramatica.y"
                      { (yyval.texto) = (yyvsp[0].texto); }
-#line 2185 "generado/gramatica.tab.c"
+#line 2192 "generado/gramatica.tab.c"
     break;
 
-  case 91: /* palabra: FASE_SUSPEND  */
+  case 91: /* palabra: FASE_PAUSE  */
 #line 232 "gramatica.y"
                      { (yyval.texto) = (yyvsp[0].texto); }
-#line 2191 "generado/gramatica.tab.c"
+#line 2198 "generado/gramatica.tab.c"
+    break;
+
+  case 92: /* palabra: FASE_SUSPEND  */
+#line 233 "gramatica.y"
+                     { (yyval.texto) = (yyvsp[0].texto); }
+#line 2204 "generado/gramatica.tab.c"
     break;
 
 
-#line 2195 "generado/gramatica.tab.c"
+#line 2208 "generado/gramatica.tab.c"
 
       default: break;
     }
@@ -2384,7 +2397,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 236 "gramatica.y"
+#line 237 "gramatica.y"
 
 
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg) {

@@ -1,7 +1,8 @@
 # Propuesta: las instantáneas programadas (GSA) en el intérprete
 
-Escrita el 2026-08-18. **Hechas las fases 1 y 2**: las reglas en `src/base/gsa.{h,cpp}` y
-las órdenes `schedule` y `schedules`. Quedan la 3 —`gsa-log` y la línea de `info`— y la 4.
+Escrita el 2026-08-18. **Hechas las fases 1, 2 y 3**: las reglas en `src/base/gsa.{h,cpp}`,
+las órdenes `schedule` y `schedules`, y `log`. Queda la 4, que ha cambiado de forma —ver
+«GSA se fusiona con el daemon», abajo—.
 
 Decidido: el verbo será **`schedule`** —también es como conviene llamarlo en la interfaz—,
 y **`schedules` mira la máquina actual**, con `--all` para recorrerlas todas.
@@ -117,21 +118,62 @@ tank/datos           sí   sí     24    7    4   12    0  oldlau::tank/copias
 tank/media           sí   no      0    7    0    0    0  -
 ```
 
-### 4. `gsa-log` y una línea en `info`
+### 4. `log` — el registro del daemon
 
-`--dump-gsa-log` ya existe y el intérprete no lo usa: es el sitio donde se ve por qué una
-instantánea programada no se hizo. Y `info` gana una línea diciendo si el agente GSA está
-instalado y con qué versión, junto a la del daemon.
+Donde queda lo que la máquina hizo por su cuenta, y donde quedarán las instantáneas
+programadas cuando las haga el daemon. La interfaz lo enseñaba en su pestaña; desde el
+intérprete no había forma de mirarlo.
 
-## Lo que NO se propone (todavía)
+La otra mitad que esta fase tenía —«una línea en `info` con la versión del agente GSA»—
+**se cae**: `info` ya vuelca el `--health` entero, que trae la versión del agente, y con la
+fusión no habrá un segundo agente cuya versión enseñar.
 
-**Instalar el propio GSA desde el intérprete.** Es un `install-daemon` paralelo: coloca un
-guion, una unidad de systemd o un plist, un `gsa.conf`, un fichero de conexiones y un
-`known_hosts`. Se puede hacer —el molde está en `gsaversion.cpp`— pero es trabajo aparte,
-con su propio riesgo, y no bloquea nada de lo anterior: quien programe desde el intérprete
-una máquina donde GSA no está instalado verá las propiedades puestas y ninguna instantánea,
-que es exactamente lo que pasa hoy en la interfaz. Merece, eso sí, un aviso al fijar la
-primera programación en una máquina sin agente GSA.
+## GSA se fusiona con el daemon (decidido el 2026-08-18)
+
+Antes de seguir se fue a mirar qué hay desplegado, y el terreno no era el que parecía:
+
+- **`src/gsaversion.{h,cpp}` —la plantilla del guion y su versionado, 454 líneas— nunca ha
+  estado en el build.** Ningún commit lo añadió a `CMakeLists.txt`, nadie en `src/` lo
+  referencia y no se toca desde el 2026-04-01.
+- **GSA no está instalado en ninguna máquina**: ni aquí —no existe
+  `/usr/local/libexec/zfsmgr-gsa.sh` y `systemctl list-timers` da cero— ni en unibody, con
+  el temporizador `inactive`. Las propiedades que se ven en `fc16/user` son restos.
+
+O sea que la aplicación sabe LEER el estado de GSA y no puede instalarlo ni actualizarlo.
+Así que no se trataba de fusionar dos cosas que funcionan, sino de decidir dónde vive el
+planificador cuando se construya. **Va en el daemon**, por este orden de peso:
+
+1. **La pata de «nivelar» es el grueso de GSA, y el guion la hace con `ssh` + `sshpass` +
+   su propio `known_hosts` + `sudo -S` con la contraseña por tubería** — exactamente el
+   patrón que el endurecimiento está borrando. El daemon ya hace esa pata, y mejor: mTLS,
+   `--zfs-send-to-peer` con reanudación y seguimiento como trabajo.
+2. **Un almacén de credenciales en vez de dos.** `gsa-connections.conf` guarda contraseñas
+   en un fichero y duplica el trust-store.
+3. **Un instalador en vez de dos.** `install-daemon` funciona en cinco plataformas; la
+   prueba de que dos era demasiado es que el segundo murió como código muerto.
+4. **Windows.** El daemon es nativo allí; un guion de shell no lo será nunca.
+
+**Lo único que hay que conservar** es que la máquina sepa llegar al destino sin el cliente
+delante —para eso existía `gsa-connections.conf`—. Fusionado, eso es «el daemon guarda las
+credenciales de sus pares», y el mecanismo ya existe: «Exportar trust-store a esta
+conexión».
+
+Cómo hacerlo, con los dos riesgos que trae:
+
+- **Las ejecuciones perdidas.** Un temporizador de systemd con `Persistent=true` recupera
+  lo que no corrió con la máquina apagada; dentro del daemon hay que implementarlo. Se
+  guarda la marca de última ejecución POR CUBO en el fichero de estado donde ya persiste
+  los trabajos, y al arrancar se decide qué está vencido. Son pocas líneas y es donde
+  viven los fallos: merece prueba propia.
+- **El radio de daño.** Cada programación corre como TRABAJO del registro que ya existe
+  —con su hilo y su cancelación—, nunca en el hilo del RPC. Y en código nativo con
+  `execvp`, no lanzando shell, que es la regla que el daemon ya se aplica.
+
+Lo que NO se hace: un intérprete de cron. Los cubos son fijos —horario, diario, semanal,
+mensual, anual—, así que «qué toca» es aritmética sobre las marcas de última ejecución.
+
+`src/gsaversion.cpp` se conserva de momento, fuera del build, como REFERENCIA de la lógica
+de retención y poda que hay que portar. No se distribuye ni se compila.
 
 ## Orden de trabajo
 
@@ -139,8 +181,8 @@ primera programación en una máquina sin agente GSA.
 |---|---|---|
 | 1 | ~~`src/base/gsa.*` + la interfaz pasa a usarlo~~ **HECHO** | sin esto, dos copias de las reglas |
 | 2 | ~~`schedule` y `schedules`~~ **HECHO** | es el 90 % del uso |
-| 3 | `gsa-log` y la línea de `info` | barato, y es lo que se mira cuando algo no salió |
-| 4 | `install-gsa` | opcional, y con su propio riesgo |
+| 3 | ~~`log`, el registro del daemon~~ **HECHO** | es lo que se mira cuando algo no salió |
+| 4 | El daemon se queda con las programaciones | ver la sección de la fusión |
 
 La fase 1 no cambia nada visible y es la que evita el problema de fondo; si solo se hiciera
 una, sería esa.

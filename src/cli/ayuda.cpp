@@ -606,6 +606,13 @@ const std::vector<Orden> kOrdenes = {
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
 
     // --- Daemon
+    {"log", {"t_daemon_48e665", "Daemon"}, {"t_log_uso", "[--lines <n>]"},
+     {"t_log_res", "El registro del daemon de esta máquina."},
+     {{{"t_log_lines", "--lines <n>"}, {"t_log_lines_q", "Cuántas líneas del final. Por omisión, 200."}}},
+     {{"t_log_det", "Es donde queda lo que el daemon hizo por su cuenta: las órdenes que sirvió, los "
+       "trabajos que arrancó y por qué falló alguno. Con la aplicación gráfica se veía en su "
+       "pestaña; desde el intérprete no había forma de mirarlo."}},
+     Objetivo::Conexion, {}},
     {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_on_url_b3e711", "[--on <url>]"},
      {"t_instala_o__7022d3", "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema."},
      {},

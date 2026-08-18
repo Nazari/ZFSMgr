@@ -2082,6 +2082,48 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
     return t;
 }
 
+// El registro del daemon.
+//
+// Se pide por BYTES desde el final y no por líneas: el verbo del agente lee un rango del
+// fichero —para que la interfaz pueda ir siguiéndolo sin releerlo entero— y no sabe contar
+// renglones. Se pide de sobra y se recorta aquí, que es donde se sabe cuántas se querían.
+bool cmdLog(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    long lineas = 200;
+    if (!pet.valor("lines").empty()) {
+        const std::string v = pet.valor("lines");
+        if (v.find_first_not_of("0123456789") != std::string::npos) {
+            std::fprintf(stderr, TC("t_log_no_entero", "«%s» no es un número de líneas\n"), v.c_str());
+            return false;
+        }
+        lineas = std::atol(v.c_str());
+    }
+    // Un renglón del registro anda por los 120 bytes; se piden con holgura y sobra poco.
+    const long bytes = (lineas + 20) * 400;
+    std::string out;
+    if (!agente(e, pet.objetivo, {"--dump-daemon-log", "0", std::to_string(bytes)}, out, 30000)) {
+        return false;
+    }
+    std::vector<std::string> todas = B::split(out, "\n", false);
+    while (!todas.empty() && B::trim(todas.back()).empty()) {
+        todas.pop_back();
+    }
+    if (todas.empty()) {
+        std::fprintf(stderr, TC("t_log_vacio", "el registro del daemon de %s está vacío\n"),
+                     pet.objetivo.connection.c_str());
+        return true;
+    }
+    const std::size_t desde =
+        todas.size() > static_cast<std::size_t>(lineas) ? todas.size() - lineas : 0;
+    for (std::size_t i = desde; i < todas.size(); ++i) {
+        std::fprintf(stdout, "%s\n", todas[i].c_str());
+    }
+    return true;
+}
+
 bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -4179,6 +4221,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"change-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "change-key"); }},
         {"schedule", cmdSchedule},
         {"schedules", cmdSchedules},
+        {"log", cmdLog},
         {"breakdown", cmdBreakdown},
         {"assemble", cmdAssemble},
         {"todir", cmdToDir},

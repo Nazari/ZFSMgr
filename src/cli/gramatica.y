@@ -60,7 +60,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
 %token <texto> V_CREATE V_DESTROY V_RENAME V_MOUNT V_UNMOUNT V_PROMOTE
 %token <texto> V_GET V_SET V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
-%token <texto> V_SCHEDULE V_SCHEDULES
+%token <texto> V_SCHEDULE V_SCHEDULES V_LOG
 %token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_COPY
 %token <texto> V_ALLOW V_UNALLOW
 %token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
@@ -132,6 +132,7 @@ orden
     | V_CHANGE_KEY destino_opt               { astVerbo(res, $1); }
     | V_SCHEDULE destino_opt                 { astVerbo(res, $1); }
     | V_SCHEDULES destino_opt                { astVerbo(res, $1); }
+    | V_LOG destino_opt                      { astVerbo(res, $1); }
     | V_RENAME url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
     | V_GET url_opt                      { astVerbo(res, $1); }
     | V_GET url_opt palabra              { astVerbo(res, $1); astRanura(res, "propiedad", $3); }

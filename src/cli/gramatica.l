@@ -45,6 +45,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"get", V_GET}, {"set", V_SET}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
     {"change-key", V_CHANGE_KEY},
     {"schedule", V_SCHEDULE}, {"schedules", V_SCHEDULES},
+    {"log", V_LOG},
     {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},
     {"clone", V_CLONE}, {"diff", V_DIFF}, {"copy", V_COPY},
     {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
