@@ -1,6 +1,10 @@
 # Propuesta: las instantáneas programadas (GSA) en el intérprete
 
-Escrita el 2026-08-18. **Es una propuesta, no está implementado.**
+Escrita el 2026-08-18. **La fase 1 ya está hecha** (`src/base/gsa.{h,cpp}`); el resto sigue
+siendo propuesta.
+
+Decidido: el verbo será **`schedule`** —también es como conviene llamarlo en la interfaz—,
+y **`schedules` mira la máquina actual**, con `--all` para recorrerlas todas.
 
 ## Qué es GSA hoy
 
@@ -133,7 +137,7 @@ primera programación en una máquina sin agente GSA.
 
 | Fase | Qué | Por qué antes |
 |---|---|---|
-| 1 | `src/base/gsa.*` + la interfaz pasa a usarlo | sin esto, dos copias de las reglas |
+| 1 | ~~`src/base/gsa.*` + la interfaz pasa a usarlo~~ **HECHO** | sin esto, dos copias de las reglas |
 | 2 | `schedule` y `schedules` | es el 90 % del uso |
 | 3 | `gsa-log` y la línea de `info` | barato, y es lo que se mira cuando algo no salió |
 | 4 | `install-gsa` | opcional, y con su propio riesgo |
@@ -141,12 +145,25 @@ primera programación en una máquina sin agente GSA.
 La fase 1 no cambia nada visible y es la que evita el problema de fondo; si solo se hiciera
 una, sería esa.
 
-## Lo que hay que decidir antes de empezar
+## Lo decidido
 
-1. **El nombre del verbo**: `schedule` (inglés, como el resto del catálogo) o `gsa` (el
-   nombre propio del subsistema, que es como lo llama la interfaz y la ayuda).
-2. **Si `schedules` lista solo la máquina actual o todas las conexiones.** Todas es más
-   útil y cuesta una consulta por máquina; con máquinas apagadas, el plazo de espera se
-   nota. Se puede empezar por la actual y añadir `--all`.
-3. **Si la fase 1 entra sola primero**, dejando la interfaz igual pero ya sobre las reglas
-   compartidas, o se hace todo junto.
+1. **El verbo es `schedule`**, en inglés como el resto del catálogo, y ese mismo nombre es
+   el que conviene usar en la interfaz.
+2. **`schedules` mira la máquina actual**, y `--all` recorre todas las conexiones. Empezar
+   por la actual evita que la orden más rápida se cobre el plazo de espera de una máquina
+   apagada, que es justo lo que uno no quiere cuando está mirando por qué algo no salió.
+3. **La fase 1 entró sola.** No cambia nada visible: la interfaz redacta los mismos
+   mensajes, con las mismas claves, sobre las reglas ya compartidas.
+
+## Qué quedó de la fase 1
+
+`src/base/gsa.{h,cpp}`, sin Qt: `Programacion`, `desdePropiedades`/`aPropiedades`,
+`valida` y `validaConjunto`, con motivos TIPADOS (`enum class Fallo`) en vez de frases.
+`MainWindow::validatePendingGsaDrafts` se queda con lo que sí es suyo —reunir las
+propiedades de la caché, del borrador y de lo que hay en vivo— y con la redacción en tres
+idiomas, que ahora traduce el motivo tipado.
+
+Al traerlas se ganó algo que no estaba en el plan: **ahora se pueden probar**. Antes había
+que arrancar Qt y una ventana para llegar a ellas, así que nunca se habían probado. Son 26
+comprobaciones en `tests/base_test.cpp`, cada regla con su control negativo — incluida la
+que evita que `tank/datosviejos` cuente como hijo de `tank/datos` por empezar igual.

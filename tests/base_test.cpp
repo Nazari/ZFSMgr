@@ -19,6 +19,7 @@
 #include "transportsession.h"
 #include "transporttunnel.h"
 #include "zfsmurl.h"
+#include "gsa.h"
 #include "zfsprops.h"
 
 #include <chrono>
@@ -1333,6 +1334,99 @@ int main() {
         comprobar(!banderasDeSendValidas("-t testigo", mala),
                   "send: -t tampoco");
         comprobar(!banderasDeSendValidas("-R -X", mala), "send: -X sin dataset NO pasa");
+    }
+
+    // --- Las instantáneas programadas (GSA).
+    //
+    // Estas reglas vivían dentro de la interfaz gráfica y en ningún sitio más. Al traerlas
+    // aquí lo que se gana no es compartirlas: es que por fin se puedan comprobar, porque
+    // antes hacía falta arrancar Qt y una ventana para llegar a ellas.
+    {
+        namespace G = zfsmgr::base::gsa;
+        const auto siempreExiste = [](const std::string&) { return true; };
+        const auto nuncaExiste = [](const std::string&) { return false; };
+        G::Motivo m;
+
+        // Leer las propiedades.
+        G::Programacion p;
+        comprobar(G::desdePropiedades({{"org.fc16.gsa:activado", "on"},
+                                       {"org.fc16.gsa:diario", "7"},
+                                       {"org.fc16.gsa:horario", ""}},
+                                      p, m),
+                  "gsa: se leen las propiedades");
+        comprobar(p.activado && p.diario == 7 && p.horario == 0,
+                  "gsa: vacío es 0 y «on» es activado");
+        comprobar(G::desdePropiedades({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.activado,
+                  "gsa: el nombre de la propiedad no distingue mayúsculas");
+        comprobar(G::desdePropiedades({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.activado,
+                  "gsa: un booleano que no se entiende es «off», que es lo conservador");
+        comprobar(!G::desdePropiedades({{"org.fc16.gsa:diario", "7d"}}, p, m),
+                  "gsa: «7d» NO es una retención");
+        comprobar(m.fallo == G::Fallo::RetencionNoEntera && m.detalle == "org.fc16.gsa:diario",
+                  "gsa: y se dice cuál de las cinco");
+        comprobar(!G::desdePropiedades({{"org.fc16.gsa:anual", "-1"}}, p, m),
+                  "gsa: una retención negativa tampoco");
+
+        // Ida y vuelta: lo escrito se vuelve a leer igual.
+        G::Programacion q;
+        q.activado = true; q.recursivo = true; q.diario = 7; q.destino = "oldlau::tank/copias";
+        G::Programacion vuelta;
+        comprobar(G::desdePropiedades(G::aPropiedades(q), vuelta, m),
+                  "gsa: lo escrito se vuelve a leer");
+        comprobar(vuelta.activado && vuelta.recursivo && vuelta.diario == 7
+                      && vuelta.destino == "oldlau::tank/copias",
+                  "gsa: y llega igual");
+
+        // Las reglas, una a una, con su control.
+        G::Programacion base;
+        base.activado = true; base.diario = 7;
+        comprobar(G::valida("tank/datos", base, siempreExiste, m), "gsa: la mínima válida vale");
+
+        G::Programacion sinRet = base; sinRet.diario = 0;
+        comprobar(!G::valida("tank/datos", sinRet, siempreExiste, m),
+                  "gsa: activada y sin retenciones NO vale");
+        comprobar(m.fallo == G::Fallo::ActivadaSinRetencion && m.dataset == "tank/datos",
+                  "gsa: con su motivo y su dataset");
+
+        G::Programacion apagadaSinRet = sinRet; apagadaSinRet.activado = false;
+        comprobar(G::valida("tank/datos", apagadaSinRet, siempreExiste, m),
+                  "gsa: apagada y sin retenciones SÍ vale: no hace nada");
+
+        G::Programacion nivelar = base; nivelar.nivelar = true;
+        comprobar(!G::valida("tank/datos", nivelar, siempreExiste, m),
+                  "gsa: nivelar sin destino NO vale");
+        comprobar(m.fallo == G::Fallo::NivelarSinDestino, "gsa: y lo dice");
+
+        nivelar.destino = "tank/copias";
+        comprobar(!G::valida("tank/datos", nivelar, siempreExiste, m),
+                  "gsa: un destino sin «::» NO vale");
+        comprobar(m.fallo == G::Fallo::DestinoMalFormado, "gsa: y lo dice");
+
+        nivelar.destino = "oldlau::tank/copias";
+        comprobar(G::valida("tank/datos", nivelar, siempreExiste, m),
+                  "gsa: con conexión que existe, vale");
+        comprobar(!G::valida("tank/datos", nivelar, nuncaExiste, m),
+                  "gsa: si la conexión no existe, NO vale");
+        comprobar(m.fallo == G::Fallo::DestinoSinConexion && m.detalle == "oldlau",
+                  "gsa: y se nombra la conexión que falta");
+
+        // Y el conjunto.
+        G::Programacion rec = base; rec.recursivo = true;
+        std::vector<G::Entrada> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
+        comprobar(!G::validaConjunto(juego, m), "gsa: un hijo bajo una recursiva choca");
+        comprobar(m.fallo == G::Fallo::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
+                      && m.detalle == "tank/datos",
+                  "gsa: y se dice quién con quién");
+        comprobar(G::validaConjunto({{"tank/datos", base}, {"tank/datos/hijo", base}}, m),
+                  "gsa: sin recursiva no chocan");
+        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/otro", base}}, m),
+                  "gsa: y un hermano tampoco");
+        G::Programacion apagada = base; apagada.activado = false;
+        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/datos/hijo", apagada}}, m),
+                  "gsa: con el hijo apagado no hay choque: no hace instantáneas");
+        // Y que «datosviejos» no cuente como hijo de «datos» por empezar igual.
+        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
+                  "gsa: el prefijo no basta, hace falta la barra");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "base/gsa.h"
 #include "connectionmodel.h"
 #include "connectionregistry.h"
 #include "transportsession.h"
@@ -544,6 +545,8 @@ private:
     void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
     bool showAutomaticSnapshots() const;
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
+    // Redacta el motivo tipado que devuelve `zfsmgr::base::gsa`, en el idioma en curso.
+    QString gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m, const QString& dataset) const;
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,

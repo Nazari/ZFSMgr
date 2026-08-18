@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+
+#include "base/gsa.h"
 #include "mainwindow_helpers.h"
 
 #include <QApplication>
@@ -386,29 +388,6 @@ QString findMapValueCaseInsensitive(const QMap<QString, QString>& map, const QSt
     return QString();
 }
 
-bool gsaBoolOn(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("on")
-           || v == QStringLiteral("yes")
-           || v == QStringLiteral("true")
-           || v == QStringLiteral("1");
-}
-
-bool gsaParseNonNegativeInt(const QString& value, int& out) {
-    const QString trimmed = value.trimmed();
-    if (trimmed.isEmpty()) {
-        out = 0;
-        return true;
-    }
-    bool ok = false;
-    const int n = trimmed.toInt(&ok);
-    if (!ok || n < 0) {
-        return false;
-    }
-    out = n;
-    return true;
-}
-
 bool datasetIsSameOrDescendantOf(const QString& dataset, const QString& ancestor) {
     const QString d = dataset.trimmed();
     const QString a = ancestor.trimmed();
@@ -467,6 +446,78 @@ QString gsaComparableValue(const QString& propName, const QString& rawValue) {
 }
 
 } // namespace
+
+// El motivo TIPADO que devuelve la capa base, redactado como lo hacía esta función.
+//
+// Los textos y sus claves son los mismos de antes a propósito: lo que se ha movido son las
+// reglas, no los mensajes, y cambiarlos de paso habría mezclado dos cosas en un cambio.
+QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m,
+                                       const QString& dataset) const {
+    using F = zfsmgr::base::gsa::Fallo;
+    switch (m.fallo) {
+        case F::RetencionNoEntera: {
+            struct { const char* prop; const char* clave; const char* es; const char* en; const char* zh; } kCuales[] = {
+                {"org.fc16.gsa:horario", "t_gsa_invalid_hourly_001",
+                 "La retención horaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
+                 "The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
+                 "%1 的每小时保留值无效。它必须是大于或等于 0 的整数。"},
+                {"org.fc16.gsa:diario", "t_gsa_invalid_daily_001",
+                 "La retención diaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
+                 "The daily retention for %1 is invalid. It must be an integer greater than or equal to 0.",
+                 "%1 的每日保留值无效。它必须是大于或等于 0 的整数。"},
+                {"org.fc16.gsa:semanal", "t_gsa_invalid_weekly_001",
+                 "La retención semanal de %1 no es válida. Debe ser un entero mayor o igual que 0.",
+                 "The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
+                 "%1 的每周保留值无效。它必须是大于或等于 0 的整数。"},
+                {"org.fc16.gsa:mensual", "t_gsa_invalid_monthly_001",
+                 "La retención mensual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
+                 "The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
+                 "%1 的每月保留值无效。它必须是大于或等于 0 的整数。"},
+                {"org.fc16.gsa:anual", "t_gsa_invalid_yearly_001",
+                 "La retención anual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
+                 "The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
+                 "%1 的每年保留值无效。它必须是大于或等于 0 的整数。"},
+            };
+            for (const auto& c : kCuales) {
+                if (m.detalle == c.prop) {
+                    return trk(QString::fromLatin1(c.clave), QString::fromUtf8(c.es),
+                               QString::fromUtf8(c.en), QString::fromUtf8(c.zh)).arg(dataset);
+                }
+            }
+            return QString::fromStdString(zfsmgr::base::gsa::etiquetaDe(m.fallo));
+        }
+        case F::ActivadaSinRetencion:
+            return trk(QStringLiteral("t_gsa_requires_retention_001"),
+                       QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),
+                       QStringLiteral("GSA scheduling for %1 is enabled but it does not have any retention greater than 0."),
+                       QStringLiteral("%1 的 GSA 计划已启用，但没有任何大于 0 的保留值。")).arg(dataset);
+        case F::NivelarSinDestino:
+            return trk(QStringLiteral("t_gsa_level_dest_required_001"),
+                       QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
+                       QStringLiteral("GSA scheduling for %1 has Level=on but no Destination."),
+                       QStringLiteral("%1 的 GSA 计划启用了层级同步，但未指定目标。")).arg(dataset);
+        case F::DestinoMalFormado:
+            return trk(QStringLiteral("t_gsa_dest_format_001"),
+                       QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
+                       QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format."),
+                       QStringLiteral("%1 的 GSA 目标必须使用 Con::Pool/Dataset 格式。")).arg(dataset);
+        case F::DestinoSinConexion:
+            return trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
+                       QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
+                       QStringLiteral("The GSA destination for %1 references a missing connection: %2."),
+                       QStringLiteral("%1 的 GSA 目标引用了不存在的连接：%2。"))
+                .arg(dataset, QString::fromStdString(m.detalle));
+        case F::ChocaConRecursiva:
+            return trk(QStringLiteral("t_gsa_recursive_child_conflict_001"),
+                       QStringLiteral("No se puede programar %1 porque %2 ya tiene una programación GSA recursiva."),
+                       QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."),
+                       QStringLiteral("无法为 %1 设置计划，因为 %2 已经有递归 GSA 计划。"))
+                .arg(dataset, QString::fromStdString(m.detalle));
+        case F::Ninguno:
+            break;
+    }
+    return QString::fromStdString(zfsmgr::base::gsa::etiquetaDe(m.fallo));
+}
 
 bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
     struct GsaState {
@@ -563,91 +614,38 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                 state.poolName = poolName;
                 state.datasetName = datasetName;
                 state.hasExplicitConfig = hasExplicitRuntimeGsaConfig || hasExplicitDraftGsaEdit;
-                state.enabled = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:activado")));
-                state.recursive = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:recursivo")));
-                state.level = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:nivelar")));
-                state.destination = findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:destino")).trimmed();
-
                 if (!state.hasExplicitConfig) {
                     continue;
                 }
 
-                if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:horario")), state.hourly)) {
-                    return fail(trk(QStringLiteral("t_gsa_invalid_hourly_001"),
-                                    QStringLiteral("La retención horaria de %1 no es válida. Debe ser un entero mayor o igual que 0."),
-                                    QStringLiteral("The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
-                                    QStringLiteral("%1 的每小时保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
+                // Las REGLAS están en la capa base (`src/base/gsa.h`), no aquí. Vivían en
+                // esta función y en ningún sitio más, así que el intérprete no podía
+                // programar sin reescribirlas — y serían dos copias que se separan. Aquí
+                // queda lo que sí es de la interfaz: reunir las propiedades y redactar el
+                // motivo en los tres idiomas.
+                std::map<std::string, std::string> propsStd;
+                for (auto pit = propValues.cbegin(); pit != propValues.cend(); ++pit) {
+                    propsStd[pit.key().toStdString()] = pit.value().toStdString();
                 }
-                if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:diario")), state.daily)) {
-                    return fail(trk(QStringLiteral("t_gsa_invalid_daily_001"),
-                                    QStringLiteral("La retención diaria de %1 no es válida. Debe ser un entero mayor o igual que 0."),
-                                    QStringLiteral("The daily retention for %1 is invalid. It must be an integer greater than or equal to 0."),
-                                    QStringLiteral("%1 的每日保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
+                zfsmgr::base::gsa::Programacion prog;
+                zfsmgr::base::gsa::Motivo motivo;
+                const auto conexionExiste = [this](const std::string& nombre) {
+                    return connectionIndexByNameOrId(QString::fromStdString(nombre)) >= 0;
+                };
+                if (!zfsmgr::base::gsa::desdePropiedades(propsStd, prog, motivo)
+                    || !zfsmgr::base::gsa::valida(datasetName.toStdString(), prog, conexionExiste,
+                                                  motivo)) {
+                    return fail(gsaMensajeDeMotivo(motivo, datasetName));
                 }
-                if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:semanal")), state.weekly)) {
-                    return fail(trk(QStringLiteral("t_gsa_invalid_weekly_001"),
-                                    QStringLiteral("La retención semanal de %1 no es válida. Debe ser un entero mayor o igual que 0."),
-                                    QStringLiteral("The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
-                                    QStringLiteral("%1 的每周保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
-                }
-                if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:mensual")), state.monthly)) {
-                    return fail(trk(QStringLiteral("t_gsa_invalid_monthly_001"),
-                                    QStringLiteral("La retención mensual de %1 no es válida. Debe ser un entero mayor o igual que 0."),
-                                    QStringLiteral("The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
-                                    QStringLiteral("%1 的每月保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
-                }
-                if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:anual")), state.yearly)) {
-                    return fail(trk(QStringLiteral("t_gsa_invalid_yearly_001"),
-                                    QStringLiteral("La retención anual de %1 no es válida. Debe ser un entero mayor o igual que 0."),
-                                    QStringLiteral("The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
-                                    QStringLiteral("%1 的每年保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
-                }
-
-                if (state.level && state.destination.isEmpty()) {
-                    return fail(trk(QStringLiteral("t_gsa_level_dest_required_001"),
-                                    QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
-                                    QStringLiteral("GSA scheduling for %1 has Level=on but no Destination."),
-                                    QStringLiteral("%1 的 GSA 计划启用了层级同步，但未指定目标。")).arg(datasetName));
-                }
-                if (state.level && !state.destination.contains(QStringLiteral("::"))) {
-                    return fail(trk(QStringLiteral("t_gsa_dest_format_001"),
-                                    QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
-                                    QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format."),
-                                    QStringLiteral("%1 的 GSA 目标必须使用 Con::Pool/Dataset 格式。")).arg(datasetName));
-                }
-                if (state.level) {
-                    const QString destConnName = state.destination.section(QStringLiteral("::"), 0, 0).trimmed();
-                    if (connectionIndexByNameOrId(destConnName) < 0) {
-                        return fail(trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
-                                        QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
-                                        QStringLiteral("The GSA destination for %1 references a missing connection: %2."),
-                                        QStringLiteral("%1 的 GSA 目标引用了不存在的连接：%2。")).arg(datasetName, destConnName));
-                    }
-                }
-
-                if (state.enabled) {
-                    if (state.hourly <= 0 && state.daily <= 0 && state.weekly <= 0 && state.monthly <= 0 && state.yearly <= 0) {
-                        return fail(trk(QStringLiteral("t_gsa_requires_retention_001"),
-                                        QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),
-                                        QStringLiteral("GSA scheduling for %1 is enabled but it does not have any retention greater than 0."),
-                                        QStringLiteral("%1 的 GSA 计划已启用，但没有任何大于 0 的保留值。")).arg(datasetName));
-                    }
-                    if (!state.destination.isEmpty() && !state.destination.contains(QStringLiteral("::"))) {
-                        return fail(trk(QStringLiteral("t_gsa_dest_format_001"),
-                                        QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
-                                        QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format."),
-                                        QStringLiteral("%1 的 GSA 目标必须使用 Con::Pool/Dataset 格式。")).arg(datasetName));
-                    }
-                    if (!state.destination.isEmpty()) {
-                        const QString destConnName = state.destination.section(QStringLiteral("::"), 0, 0).trimmed();
-                        if (connectionIndexByNameOrId(destConnName) < 0) {
-                            return fail(trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
-                                            QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
-                                            QStringLiteral("The GSA destination for %1 references a missing connection: %2."),
-                                            QStringLiteral("%1 的 GSA 目标引用了不存在的连接：%2。")).arg(datasetName, destConnName));
-                        }
-                    }
-                }
+                state.enabled = prog.activado;
+                state.recursive = prog.recursivo;
+                state.level = prog.nivelar;
+                state.destination = QString::fromStdString(prog.destino);
+                state.hourly = prog.horario;
+                state.daily = prog.diario;
+                state.weekly = prog.semanal;
+                state.monthly = prog.mensual;
+                state.yearly = prog.anual;
 
                 statesByKey.insert(QStringLiteral("%1::%2::%3").arg(connToken(connIdx)).arg(poolName, datasetName), state);
             }
@@ -668,25 +666,25 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
         return QString::compare(a.datasetName, b.datasetName, Qt::CaseInsensitive) < 0;
     });
 
+    // El choque entre recursivas, agrupando por máquina y pool, que es donde tiene
+    // sentido: dos pools distintos no se solapan aunque los datasets se llamen igual.
+    QMap<QString, QVector<int>> porPool;
     for (int i = 0; i < enabledStates.size(); ++i) {
-        const GsaState& a = enabledStates.at(i);
-        for (int j = i + 1; j < enabledStates.size(); ++j) {
-            const GsaState& b = enabledStates.at(j);
-            if (a.connIdx != b.connIdx || a.poolName.compare(b.poolName, Qt::CaseInsensitive) != 0) {
-                continue;
-            }
-            if (a.recursive && datasetIsSameOrDescendantOf(b.datasetName, a.datasetName) && a.datasetName.compare(b.datasetName, Qt::CaseInsensitive) != 0) {
-                return fail(trk(QStringLiteral("t_gsa_recursive_child_conflict_001"),
-                                QStringLiteral("No se puede programar %1 porque %2 ya tiene una programación GSA recursiva."),
-                                QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."),
-                                QStringLiteral("无法为 %1 设置计划，因为 %2 已经有递归 GSA 计划。")).arg(b.datasetName, a.datasetName));
-            }
-            if (b.recursive && datasetIsSameOrDescendantOf(a.datasetName, b.datasetName) && a.datasetName.compare(b.datasetName, Qt::CaseInsensitive) != 0) {
-                return fail(trk(QStringLiteral("t_gsa_recursive_parent_conflict_001"),
-                                QStringLiteral("No se puede programar %1 porque %2 ya tiene una programación GSA recursiva."),
-                                QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."),
-                                QStringLiteral("无法为 %1 设置计划，因为 %2 已经有递归 GSA 计划。")).arg(a.datasetName, b.datasetName));
-            }
+        const GsaState& s = enabledStates.at(i);
+        porPool[QStringLiteral("%1|%2").arg(s.connIdx).arg(s.poolName.toLower())].push_back(i);
+    }
+    for (auto it = porPool.cbegin(); it != porPool.cend(); ++it) {
+        std::vector<zfsmgr::base::gsa::Entrada> juego;
+        for (int idx : it.value()) {
+            const GsaState& s = enabledStates.at(idx);
+            zfsmgr::base::gsa::Programacion prog;
+            prog.activado = s.enabled;
+            prog.recursivo = s.recursive;
+            juego.push_back({s.datasetName.toStdString(), prog});
+        }
+        zfsmgr::base::gsa::Motivo motivo;
+        if (!zfsmgr::base::gsa::validaConjunto(juego, motivo)) {
+            return fail(gsaMensajeDeMotivo(motivo, QString::fromStdString(motivo.dataset)));
         }
     }
 

@@ -126,6 +126,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/secretcipher.h
     ../src/base/json.cpp
     ../src/base/json.h
+    ../src/base/gsa.cpp
+    ../src/base/gsa.h
     ../src/base/i18n.cpp
     ../src/base/i18n.h
     ../src/base/helpers.cpp
