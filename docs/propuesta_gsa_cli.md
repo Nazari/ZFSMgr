@@ -1,8 +1,7 @@
 # Propuesta: las instantáneas programadas (GSA) en el intérprete
 
-Escrita el 2026-08-18. **Hechas las fases 1, 2 y 3**: las reglas en `src/base/gsa.{h,cpp}`,
-las órdenes `schedule` y `schedules`, y `log`. Queda la 4, que ha cambiado de forma —ver
-«GSA se fusiona con el daemon», abajo—.
+Escrita el 2026-08-18. **Hechas las fases 1, 2 y 3** y **la 4 a medias**: ver «Corrección:
+la fusión ya estaba hecha», al final. Queda la pata de NIVELAR.
 
 Decidido: el verbo será **`schedule`** —también es como conviene llamarlo en la interfaz—,
 y **`schedules` mira la máquina actual**, con `--all` para recorrerlas todas.
@@ -209,3 +208,59 @@ Al traerlas se ganó algo que no estaba en el plan: **ahora se pueden probar**. 
 que arrancar Qt y una ventana para llegar a ellas, así que nunca se habían probado. Son 26
 comprobaciones en `tests/base_test.cpp`, cada regla con su control negativo — incluida la
 que evita que `tank/datosviejos` cuente como hijo de `tank/datos` por empezar igual.
+
+
+## Corrección: la fusión ya estaba hecha (2026-08-18)
+
+**Lo que se afirmó en la sección anterior sobre «el guion hace la pata de nivelar con ssh y
+sshpass» describe `src/gsaversion.cpp`, que es código muerto.** El daemon YA tiene GSA
+dentro, nativo y en C++: `gsaRunOnce`, `gsaCreateSnapshot`, `gsaPruneSnapshots`,
+`gsaLevelSnapshot` y su propio hilo planificador. La fusión que se proponía decidir estaba
+hecha desde antes; lo que quedaba del guion era el cadáver del que se migró.
+
+Se descubrió al ir a implementarla: el compilador se quejó de que `gsaThread` ya existía.
+
+Lo que sí faltaba, y es lo que se ha arreglado:
+
+1. **Nunca se ejecutaba.** `gsaRunOnce` se salía en silencio si no existía
+   `/etc/zfsmgr/gsa.conf`, y ese fichero lo escribía el instalador de GSA, que quedó fuera
+   del build hace meses. O sea que llevaba desde entonces sin correr una sola vez sin que
+   nada lo dijera. Ya no se exige: hacer y podar instantáneas no necesita configuración
+   ninguna —la programación está en las propiedades—, y lo único que sí necesita
+   credenciales es nivelar, que se comprueba donde toca y lo dice en el registro.
+2. **Lo que tocaba se decidía por la hora del reloj**: la diaria «si son las 00», la
+   semanal «si son las 00 del domingo». Con la máquina apagada a medianoche, esa diaria no
+   se hacía nunca. Ahora se compara el PERIODO en curso con el de la última instantánea de
+   esa clase, así que una máquina que se enciende a las 09:00 recupera su diaria al
+   arrancar y una encendida no hace ninguna de más. El estado son las propias instantáneas:
+   no hay fichero que se corrompa.
+3. **El hilo solo despertaba en la hora en punto**, que era la otra mitad de lo mismo: un
+   daemon arrancado a las 00:05 no volvía a mirar hasta la 01:00. Ahora cada cinco minutos,
+   con la primera pasada a los treinta segundos de arrancar.
+4. **La poda solo corría al crear.** Bajar una retención de 10 a 3 no tenía efecto hasta el
+   siguiente periodo —en las clases largas, hasta el mes o el año siguiente—. Ahora se poda
+   en cada pasada.
+5. **La poda ordenaba por `creation` y no por el instante del NOMBRE.** Son dos relojes: en
+   una máquina que recibe por replicación, `creation` es la hora de recepción, así que
+   origen y destino podarían cosas distintas. Se vio con instantáneas fabricadas a mano, que
+   se podaron al revés.
+
+Y una orden local nueva, `zfsmgr-agent --gsa-run-once`, para forzar una pasada y ver por
+qué una programación no hizo nada. NO es un verbo RPC a propósito: no forma parte del
+contrato con el cliente, así que no toca el marcador de esquema ni obliga a reinstalar.
+
+### Lo que queda
+
+**Nivelar sigue inerte, y por lo mismo de siempre**: `gsaLevelSnapshot` resuelve el destino
+contra `/etc/zfsmgr/gsa-connections.conf`, que nadie escribe. Con el destino puesto, el
+registro dice `GSA level skip: connection not resolvable (unibody)`.
+
+Las dos salidas, por orden de preferencia:
+
+1. **Que nivelar use el transporte del propio daemon** —`--zfs-send-to-peer` con mTLS,
+   reanudación y seguimiento como trabajo— en vez de `ssh` con su propio `known_hosts`. Es
+   la crítica que se hizo al guion y sigue valiendo para este código, que hace lo mismo por
+   SSH. Requiere que el daemon sepa de sus pares: eso es el trust-store, que la interfaz ya
+   sabe exportar.
+2. Escribir `gsa-connections.conf` desde el cliente, que es lo que hacía el instalador
+   muerto. Más barato y deja el SSH donde está.

@@ -57,6 +57,7 @@ typedef int pid_t;
 #include "copytree.h"
 #include "json.h"
 #include "base/process.h"
+#include "base/gsa.h"
 #include "base/zfsprops.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
@@ -4008,6 +4009,74 @@ int runDumpGsaRawAllPools() {
     return 0;
 }
 
+// ── El planificador de instantáneas (GSA) ───────────────────────────────────────────
+//
+// Vive AQUÍ, en el daemon, y no en un guion con temporizador aparte. La razón de peso es
+// la pata de «nivelar»: el guion la hacía con ssh + sshpass + su propio known_hosts y la
+// contraseña por tubería, que es justo el patrón que este programa está borrando, mientras
+// el daemon ya sabe mandar un flujo con mTLS, reanudación y seguimiento como trabajo. Y de
+// paso: un instalador en vez de dos, un almacén de credenciales en vez de dos, y en
+// Windows —donde un guion de shell no va a existir nunca— funciona igual.
+//
+// Ver docs/propuesta_gsa_cli.md.
+
+// La CLAVE DEL PERIODO al que pertenece un instante, según la clase.
+//
+// Es la pieza que sustituye al «si son las 00:00, toca la diaria» del guion, y no es un
+// detalle de estilo: aquello dependía de que el temporizador disparase EXACTAMENTE a esa
+// hora. Con la máquina apagada a medianoche, la diaria de ese día no se hacía nunca y nada
+// lo decía. Aquí se compara el periodo actual con el de la última instantánea de esa
+// clase: si no coinciden, toca — se encendiera la máquina a la hora que se encendiera.
+std::string gsaClaveDePeriodo(const std::string& clase, std::time_t cuando) {
+    std::tm tmv{};
+#ifdef _WIN32
+    localtime_s(&tmv, &cuando);
+#else
+    localtime_r(&cuando, &tmv);
+#endif
+    char buf[32] = {0};
+    if (clase == "hourly") {
+        std::strftime(buf, sizeof(buf), "%Y%m%d%H", &tmv);
+    } else if (clase == "daily") {
+        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
+    } else if (clase == "weekly") {
+        // Semana ISO: «%G%V» y no «%Y%W», que en enero mezcla dos años.
+        std::strftime(buf, sizeof(buf), "%G%V", &tmv);
+    } else if (clase == "monthly") {
+        std::strftime(buf, sizeof(buf), "%Y%m", &tmv);
+    } else {
+        std::strftime(buf, sizeof(buf), "%Y", &tmv);
+    }
+    return std::string(buf);
+}
+
+// «GSA-daily-20260818-030000» → el instante. Devuelve false si el nombre no es de los
+// nuestros, que es como se distingue una instantánea manual de una programada.
+bool gsaInstanteDeNombre(const std::string& snap, const std::string& clase, std::time_t& out) {
+    const std::string prefijo = "GSA-" + clase + "-";
+    if (snap.rfind(prefijo, 0) != 0) {
+        return false;
+    }
+    const std::string sello = snap.substr(prefijo.size());
+    if (sello.size() != 15 || sello[8] != '-') {
+        return false;
+    }
+    std::tm tmv{};
+    try {
+        tmv.tm_year = std::stoi(sello.substr(0, 4)) - 1900;
+        tmv.tm_mon = std::stoi(sello.substr(4, 2)) - 1;
+        tmv.tm_mday = std::stoi(sello.substr(6, 2));
+        tmv.tm_hour = std::stoi(sello.substr(9, 2));
+        tmv.tm_min = std::stoi(sello.substr(11, 2));
+        tmv.tm_sec = std::stoi(sello.substr(13, 2));
+    } catch (...) {
+        return false;
+    }
+    tmv.tm_isdst = -1;
+    out = std::mktime(&tmv);
+    return out != static_cast<std::time_t>(-1);
+}
+
 ExecResult runDumpGsaRawAllPoolsCapture() {
     ExecResult r;
     ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
@@ -4227,15 +4296,51 @@ GsaTimeFields gsaLocalTimeFields() {
 }
 
 // Returns the snapshot classes that are due given the retention counts and time.
-std::vector<std::string> gsaDueClasses(int hourly, int daily, int weekly,
-                                       int monthly, int yearly,
-                                       const GsaTimeFields& tf) {
+// Qué clases TOCAN ahora para este dataset.
+//
+// Antes se decidía por la hora del reloj: la diaria «si son las 00», la semanal «si son
+// las 00 del domingo». Eso obliga a que el planificador dispare EXACTAMENTE en esa hora, y
+// si la máquina estaba apagada a medianoche —o el daemon se reinició a las 00:05— la
+// diaria de ese día no se hacía nunca y nada lo decía.
+//
+// Ahora se compara el PERIODO: si no hay ninguna instantánea de esa clase dentro del
+// periodo en curso, toca. Con eso, una máquina que se enciende a las 09:00 recupera su
+// diaria al arrancar, y una que lleva días encendida no hace ninguna de más. El estado son
+// las propias instantáneas, así que no hay fichero que se corrompa ni que se desincronice.
+std::vector<std::string> gsaDueClasses(const std::string& ds, int hourly, int daily, int weekly,
+                                       int monthly, int yearly, std::time_t ahora) {
+    const std::pair<const char*, int> clases[] = {
+        {"hourly", hourly}, {"daily", daily}, {"weekly", weekly},
+        {"monthly", monthly}, {"yearly", yearly},
+    };
     std::vector<std::string> due;
-    if (hourly  > 0)                                          due.push_back("hourly");
-    if (daily   > 0 && tf.hour == 0)                         due.push_back("daily");
-    if (weekly  > 0 && tf.hour == 0 && tf.dow == 7)          due.push_back("weekly");
-    if (monthly > 0 && tf.hour == 0 && tf.dom == 1)          due.push_back("monthly");
-    if (yearly  > 0 && tf.hour == 0 && tf.dom == 1 && tf.month == 1) due.push_back("yearly");
+    for (const auto& c : clases) {
+        if (c.second <= 0) {
+            continue;
+        }
+        const std::string periodo = gsaClaveDePeriodo(c.first, ahora);
+        const ExecResult r = runExecCapture(
+            "zfs", {"list", "-H", "-t", "snapshot", "-o", "name", "-d", "1", ds});
+        bool yaHay = false;
+        if (r.rc == 0) {
+            const std::string prefijo = ds + "@";
+            for (const std::string& l : splitLines(r.out)) {
+                const std::string s = trim(l);
+                if (s.rfind(prefijo, 0) != 0) {
+                    continue;
+                }
+                std::time_t cuando = 0;
+                if (gsaInstanteDeNombre(s.substr(prefijo.size()), c.first, cuando)
+                    && gsaClaveDePeriodo(c.first, cuando) == periodo) {
+                    yaHay = true;
+                    break;
+                }
+            }
+        }
+        if (!yaHay) {
+            due.push_back(c.first);
+        }
+    }
     return due;
 }
 
@@ -4293,6 +4398,27 @@ void gsaPruneSnapshots(const std::string& ds, const std::string& klass,
         if (line.size() >= prefix.size() && line.compare(0, prefix.size(), prefix) == 0)
             matching.push_back(line);
     }
+    // Se ordenan por el INSTANTE DEL NOMBRE, no por `creation`.
+    //
+    // Son dos relojes distintos y no siempre coinciden: `creation` es cuándo llegó la
+    // instantánea a ESTE pool, y en una máquina que las recibe por replicación eso es la
+    // hora de recepción, no la de la foto. Ordenando por creation, el destino podaría en
+    // un orden distinto que el origen y acabarían guardando cosas distintas. El nombre
+    // lleva el instante de verdad y es el mismo en las dos puntas.
+    //
+    // Se vio con instantáneas de prueba fabricadas a mano: la poda se llevó la más nueva
+    // por nombre porque era la más vieja por creación.
+    std::stable_sort(matching.begin(), matching.end(),
+                     [&](const std::string& a, const std::string& b) {
+                         std::time_t ta = 0;
+                         std::time_t tb = 0;
+                         const bool oka = gsaInstanteDeNombre(a.substr(ds.size() + 1), klass, ta);
+                         const bool okb = gsaInstanteDeNombre(b.substr(ds.size() + 1), klass, tb);
+                         if (!oka || !okb) {
+                             return false;   // sin fecha legible, se deja donde estaba
+                         }
+                         return ta < tb;
+                     });
     const int total = static_cast<int>(matching.size());
     if (total <= keep) return;
     const int removeCount = total - keep;
@@ -4447,11 +4573,16 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
 }
 
 void gsaRunOnce(const std::function<void(const std::string&)>& log) {
-    // Load GSA conf; skip silently if not configured.
-    std::ifstream confCheck(kGsaConfPath);
-    if (!confCheck.is_open()) return;
-    confCheck.close();
-
+    // NO se exige `/etc/zfsmgr/gsa.conf`.
+    //
+    // Antes se salía en silencio si ese fichero no estaba, y no está en ninguna máquina:
+    // lo escribía el instalador de GSA, que quedó fuera del build hace meses. O sea que
+    // todo esto llevaba desde entonces sin ejecutarse una sola vez, sin que nada lo dijera.
+    //
+    // Y no hace falta: hacer y podar instantáneas no necesita configuración ninguna —la
+    // programación está en las propiedades del dataset—. Lo único que sí necesita
+    // credenciales es NIVELAR contra otra máquina, y eso se comprueba abajo, donde toca,
+    // diciéndolo en el registro en vez de callar la pasada entera.
     const GsaConf conf  = gsaLoadConf();
     const KVMap connKv  = gsaReadKV(conf.connectionsFile);
     const std::string selfConn = [&]() -> std::string {
@@ -4510,7 +4641,8 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
         const bool levelOn   = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar",  false));
         const std::string dstSpec = gsaPropValue(ds, "org.fc16.gsa:destino",        false);
 
-        const std::vector<std::string> due = gsaDueClasses(hourly, daily, weekly, monthly, yearly, tf);
+        const std::vector<std::string> due =
+            gsaDueClasses(ds, hourly, daily, weekly, monthly, yearly, std::time(nullptr));
         {
             std::string dueStr;
             for (const std::string& c : due) { if (!dueStr.empty()) dueStr += ','; dueStr += c; }
@@ -4519,7 +4651,9 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
                 + " weekly=" + std::to_string(weekly) + " monthly=" + std::to_string(monthly)
                 + " yearly=" + std::to_string(yearly) + " due=" + dueStr);
         }
-        if (due.empty()) continue;
+        // OJO: aquí NO se sale aunque no toque crear ninguna. La poda de más abajo tiene
+        // que correr igual, porque su disparador no es que toque una instantánea nueva
+        // sino que sobren viejas — que es lo que pasa justo después de bajar una retención.
 
         // Resolve destination connection once per dataset.
         GsaTargetConn target;
@@ -4534,18 +4668,35 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
             }
         }
 
+        const auto retencionDe = [&](const std::string& klass) {
+            return (klass == "hourly")    ? hourly
+                   : (klass == "daily")   ? daily
+                   : (klass == "weekly")  ? weekly
+                   : (klass == "monthly") ? monthly
+                   : (klass == "yearly")  ? yearly
+                                          : 0;
+        };
         for (const std::string& klass : due) {
             if (g_stop.load()) break;
             const std::string snapName = gsaCreateSnapshot(ds, klass, recursive, log);
             if (snapName.empty()) continue;
-            const int keep = (klass == "hourly") ? hourly
-                           : (klass == "daily")   ? daily
-                           : (klass == "weekly")  ? weekly
-                           : (klass == "monthly") ? monthly
-                           : (klass == "yearly")  ? yearly : 0;
-            gsaPruneSnapshots(ds, klass, keep, recursive, log);
             if (levelOn && targetResolved)
                 gsaLevelSnapshot(ds, recursive, snapName, dstSpec, true, target, log);
+        }
+
+        // La poda va APARTE de la creación, y en cada pasada.
+        //
+        // Estaba dentro del bucle de las clases que tocaban, así que solo se podaba al
+        // crear. Bajar una retención de 10 a 3 no tenía efecto hasta el siguiente periodo
+        // —y en las clases largas, eso es hasta el mes o el año que viene—: el usuario
+        // veía diez instantáneas donde había pedido tres. Se vio probándolo: cuatro
+        // horarias con la retención en 3 y ninguna pasada las tocaba.
+        for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
+            if (g_stop.load()) break;
+            const int keep = retencionDe(klass);
+            if (keep > 0) {
+                gsaPruneSnapshots(ds, klass, keep, recursive, log);
+            }
         }
 
         if (recursive) processedRecursiveRoots.push_back(ds);
@@ -4553,20 +4704,22 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
 }
 
 void runGsaSchedulerThread() {
-    // Wait until just after the next hour boundary, then run each hour.
+    // Cada cinco minutos, y la primera pasada a los treinta segundos de arrancar.
+    //
+    // Antes esperaba al siguiente cambio de hora en punto, que era la otra mitad del mismo
+    // fallo: un daemon que arrancaba a las 00:05 no volvía a mirar hasta la 01:00, y la
+    // diaria de ese día ya no se hacía. Despertar a menudo es seguro desde que lo que toca
+    // se decide por PERIODO y no por la hora del reloj: repetir la pasada no repite nada.
+    //
+    // Y los treinta segundos de gracia son para que una máquina que estuvo apagada recupere
+    // lo que le tocaba nada más encenderse, no en el siguiente ciclo.
+    bool primera = true;
     while (!g_stop.load()) {
-        std::time_t now = std::time(nullptr);
-        std::tm tm{};
-#ifdef _WIN32
-        localtime_s(&tm, &now);
-#else
-        localtime_r(&now, &tm);
-#endif
-        // Seconds remaining until next :00:00
-        const int secsUntilHour = 3600 - (tm.tm_min * 60 + tm.tm_sec);
-        // Wait in 1-second increments so we can respond to g_stop.
-        for (int i = 0; i < secsUntilHour && !g_stop.load(); ++i)
+        const int espera = primera ? 30 : 300;
+        primera = false;
+        for (int i = 0; i < espera && !g_stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
         if (g_stop.load()) break;
 
         const GsaConf conf = gsaLoadConf();
@@ -7224,6 +7377,16 @@ int main(int argc, char* argv[]) {
         std::ifstream f(conf.logFile);
         if (!f.is_open()) return 0;
         std::cout << f.rdbuf();
+        return 0;
+    }
+    // Una pasada del planificador AHORA, por la línea de órdenes de la propia máquina.
+    //
+    // No es un verbo RPC a propósito: no forma parte del contrato con el cliente, así que
+    // no toca el marcador de esquema y no obliga a reinstalar agentes. Sirve para dos
+    // cosas: probar una programación sin esperar al ciclo, y ver POR QUÉ una no hizo nada,
+    // porque el registro sale aquí mismo.
+    if (cmd == "--gsa-run-once") {
+        gsaRunOnce([](const std::string& linea) { std::cout << linea << "\n"; });
         return 0;
     }
     if (cmd == "--dump-daemon-log") {
