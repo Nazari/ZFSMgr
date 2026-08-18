@@ -58,6 +58,15 @@ RUN /opt/provision/provision-cross-targets.sh --windows
 # FreeBSD: sysroot base.txz + paquetes Qt del repositorio oficial de FreeBSD.
 RUN /opt/provision/provision-cross-targets.sh --freebsd
 
+# macOS: SOLO el Qt. osxcross no va en la imagen porque el SDK de Xcode no es
+# redistribuible —se monta desde el anfitrión—, pero el Qt para macOS son binarios que
+# aqtinstall descarga y no necesita SDK ninguno. Sin este árbol el cruce de macOS compilaba
+# el agente y se saltaba la interfaz con un aviso, así que el .app no salía nunca de aquí.
+#
+# Las herramientas de Qt para macOS (moc, rcc, uic) son Mach-O y NO corren en Linux: las
+# pone el Qt host de Linux de la MISMA versión, que ya instaló el paso de Windows.
+RUN /opt/provision/provision-cross-targets.sh --macos-image
+
 # Wine para el instalador de Windows. El compilador de Inno Setup es un ejecutable
 # de Windows, así que sin esto build-windows-inno-linux.sh aborta con "wine no está
 # instalado" y buildall-cross.sh muere en la fase windows-installer-local ANTES de
@@ -77,9 +86,11 @@ RUN /opt/provision/provision-cross-targets.sh --freebsd
 #
 # Va al final a propósito: así no invalida las capas caras de Qt y del sysroot de
 # FreeBSD, que tardan mucho en reconstruirse.
+# `zip` va aquí porque el empaquetado del .app de macOS lo usa: sin él el cruce compila
+# los dos bundles enteros y muere en la última línea con «zip: command not found».
 RUN dpkg --add-architecture i386 \
     && apt-get update && apt-get install -y --no-install-recommends \
-        wine wine32:i386 winbind xvfb \
+        wine wine32:i386 winbind xvfb zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Legible y ejecutable por cualquier UID: el contenedor no corre como root.
@@ -91,8 +102,10 @@ RUN chmod -R a+rX /opt/toolchain
 # (Windows usa 6.8.3, y el Qt de FreeBSD del sysroot es 6.11.1, que el propio
 # aprovisionamiento instala aparte). build-cross.sh ya resuelve el adecuado por
 # objetivo buscando en ~/Qt, y docker/build.sh enlaza ~/Qt a esta toolchain.
-ENV QT_ROOT=/opt/toolchain/Qt \
+ENV PATH=/opt/toolchain/.local/bin:${PATH} \
+    QT_ROOT=/opt/toolchain/Qt \
     QT6_WINDOWS_PREFIX=/opt/toolchain/Qt/${QT_VERSION}/mingw_64 \
+    QT6_MACOS_PREFIX=/opt/toolchain/Qt/${QT_VERSION}/macos \
     OPENSSL_ROOT_DIR=/opt/toolchain/opt/openssl-mingw64 \
     FREEBSD_SYSROOT=/opt/toolchain/sysroots/freebsd14.3-amd64 \
     QT6_FREEBSD_PREFIX=/opt/toolchain/sysroots/freebsd14.3-amd64/usr/local

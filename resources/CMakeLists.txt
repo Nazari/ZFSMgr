@@ -183,6 +183,36 @@ endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
 
+# --- El «-framework AGL» que Qt añade aunque no exista.
+#
+# AGL es el OpenGL antiguo de Apple. Está retirado del SDK desde hace varias versiones —en
+# MacOSX26 ya no está—, y el `FindWrapOpenGL.cmake` de Qt (6.8.3) hace esto:
+#
+#     find_library(WrapOpenGL_AGL NAMES AGL)
+#     if(NOT __opengl_agl_fw_path)
+#         set(__opengl_agl_fw_path "-framework AGL")   # «por si acaso»
+#
+# Es decir: cuando NO lo encuentra, lo enlaza igual. El resultado es que el primer
+# ejecutable que toca Qt6::Widgets muere con «ld: framework not found AGL», y el mensaje no
+# menciona ni Qt ni el SDK. Este fallo costó una investigación en la integración continua
+# que se cerró sin causa, atribuyéndolo primero a la versión de Xcode: no es Xcode, es qué
+# SDK tiene AGL y cuál no.
+#
+# Se quita del objeto de Qt, y SOLO si el SDK de verdad no lo tiene: donde AGL existe,
+# esto no toca nada.
+if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
+    set(_zfsmgr_agl_sdk "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/AGL.framework")
+    if(NOT EXISTS "${_zfsmgr_agl_sdk}")
+        get_target_property(_zfsmgr_wrapgl WrapOpenGL::WrapOpenGL INTERFACE_LINK_LIBRARIES)
+        if(_zfsmgr_wrapgl)
+            list(REMOVE_ITEM _zfsmgr_wrapgl "-framework AGL")
+            set_target_properties(WrapOpenGL::WrapOpenGL PROPERTIES
+                                  INTERFACE_LINK_LIBRARIES "${_zfsmgr_wrapgl}")
+            message(STATUS "AGL no está en ${CMAKE_OSX_SYSROOT}: se quita de WrapOpenGL")
+        endif()
+    endif()
+endif()
+
 set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
     ../src/mainwindow_helpers.cpp

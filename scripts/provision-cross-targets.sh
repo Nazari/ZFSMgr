@@ -8,6 +8,7 @@ DO_WINDOWS=0
 SKIP_QT=0
 DO_FREEBSD=0
 DO_MACOS=0
+DO_MACOS_QT=0
 DRY_RUN=0
 FORCE=0
 
@@ -39,6 +40,8 @@ Opciones:
   --windows                  Instala prerequisitos target Windows (Qt target+host y OpenSSL MinGW)
   --freebsd                  Descarga/actualiza sysroot base de FreeBSD
   --macos                    Prepara osxcross (requiere --macos-sdk)
+  --macos-image              Lo de macOS que cabe en la imagen: Qt y el firmador
+                             (no necesita SDK ni osxcross)
   --all                      Equivale a --windows --freebsd --macos
   --qt-version <v>           Versión Qt para aqt (default: ${QT_VERSION})
   --qt-root <dir>            Prefijo instalación Qt (default: ${QT_ROOT})
@@ -67,7 +70,7 @@ Salida esperada:
 - macOS:
   PATH=<osxcross-root>/target/bin:\$PATH
   OSX_SYSROOT=<osxcross-root>/target/SDK/MacOSX*.sdk
-  QT6_MACOS_PREFIX=<qt-root>/<version>/clang_64
+  QT6_MACOS_PREFIX=<qt-root>/<version>/macos
   OPENSSL_ROOT_DIR=<openssl-macos-prefix>
 USAGE
 }
@@ -310,6 +313,66 @@ install_freebsd_sysroot() {
   echo "  export QT_HOST_PATH_CMAKE_DIR='\${QT_HOST_PATH}/lib/cmake/Qt6'"
 }
 
+# El Qt para macOS, y NADA MÁS.
+#
+# Está aparte de `setup_osxcross` porque no necesita el SDK de Xcode: son binarios que
+# aqtinstall descarga. Eso es lo que permite meterlo en la imagen de Docker, donde el SDK
+# no puede estar —no es redistribuible— y osxcross se monta desde el anfitrión. Sin este
+# árbol el cruce de macOS compila el agente y NO la interfaz, que es como estaba.
+#
+# El directorio se llama `macos` y no `clang_64`: aqt cambió el nombre en Qt 6, y
+# `build-cross.sh` busca los dos por ese motivo.
+install_macos_qt() {
+  local aqt
+  aqt="$(ensure_aqt)"
+  local qt_macos="${QT_ROOT}/${QT_VERSION}/macos"
+  if [[ ${FORCE} -eq 1 || ! -f "${qt_macos}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
+    run_cmd "mkdir -p '${QT_ROOT}'"
+    run_cmd "'${aqt}' install-qt -O '${QT_ROOT}' mac desktop '${QT_VERSION}' clang_64"
+  fi
+  # Las herramientas de Qt para macOS son Mach-O y NO corren en Linux, así que el cruce
+  # necesita además un Qt host de Linux de la MISMA versión, que es de donde salen moc,
+  # rcc y uic. Sin él, CMake coge cualquier otro que encuentre y falla con
+  # «Unknown CMake command "_qt_internal_should_include_targets"», que no dice nada de
+  # versiones.
+  if [[ ! -f "${QT_ROOT}/${QT_VERSION}/gcc_64/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
+    run_cmd "'${aqt}' install-qt -O '${QT_ROOT}' linux desktop '${QT_VERSION}' linux_gcc_64"
+  fi
+}
+
+# El firmador. Va con lo de macOS aunque no lo parezca.
+#
+# El despliegue del bundle reescribe los `install_name` de los frameworks de Qt y de
+# libcrypto, y eso INVALIDA la firma con la que venían. En Apple Silicon un bundle así no
+# arranca: el proceso muere nada más empezar con `EXC_BAD_ACCESS (SIGKILL (Code Signature
+# Invalid))`, con la pila entera dentro de dyld. No es Gatekeeper ni la cuarentena, y no se
+# arregla en la máquina del usuario. Así que firmar no es un extra: es parte de producir un
+# .app que arranque.
+#
+# `codesign` es de macOS y aquí no hay macOS. osxcross trae `codesign_allocate`, que
+# reserva el hueco de la firma pero no firma. rcodesign (apple-codesign) sí firma desde
+# Linux, y la firma AD-HOC no necesita certificado ni cuota de Apple.
+install_macos_signer() {
+  need_cmd curl
+  need_cmd tar
+  local destino="${HOME}/.local/bin/rcodesign"
+  if [[ ${FORCE} -eq 0 && -x "${destino}" ]]; then
+    return 0
+  fi
+  local ver="0.29.0"
+  local base="https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${ver}"
+  local tarro="apple-codesign-${ver}-x86_64-unknown-linux-musl.tar.gz"
+  local work="/tmp/rcodesign-dl"
+  run_cmd "rm -rf '${work}' && mkdir -p '${work}' '$(dirname "${destino}")'"
+  run_cmd "curl -fL --retry 5 --retry-delay 3 -o '${work}/${tarro}' '${base}/${tarro}'"
+  # Con su suma publicada: es un binario que va a firmar lo que se distribuye.
+  run_cmd "curl -fL --retry 5 --retry-delay 3 -o '${work}/${tarro}.sha256' '${base}/${tarro}.sha256'"
+  run_cmd "cd '${work}' && echo \"\$(cat '${tarro}.sha256')  ${tarro}\" | sha256sum -c -"
+  run_cmd "tar -xzf '${work}/${tarro}' -C '${work}'"
+  run_cmd "cp '${work}'/apple-codesign-*/rcodesign '${destino}'"
+  run_cmd "chmod 0755 '${destino}'"
+}
+
 setup_osxcross() {
   need_cmd git
   need_cmd clang
@@ -347,13 +410,8 @@ setup_osxcross() {
 
   run_cmd "cd '${OSXCROSS_ROOT}' && UNATTENDED=1 ./build.sh"
 
-  local aqt
-  aqt="$(ensure_aqt)"
-  local qt_macos="${QT_ROOT}/${QT_VERSION}/clang_64"
-  if [[ ${FORCE} -eq 1 || ! -f "${qt_macos}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
-    run_cmd "mkdir -p '${QT_ROOT}'"
-    run_cmd "'${aqt}' install-qt -O '${QT_ROOT}' mac desktop '${QT_VERSION}' clang_64"
-  fi
+  install_macos_qt
+  install_macos_signer
 
   local sdk_guess="\$(ls -d '${OSXCROSS_ROOT}'/target/SDK/MacOSX*.sdk | sort -V | tail -n1)"
   local osxcross_target="\$(ls -1 '${OSXCROSS_ROOT}'/target/bin/*-apple-darwin*-clang | sed -E 's|.*/([^/]+)-clang|\\1|' | rg '^x86_64-apple-darwin' | sort -V | tail -n1)"
@@ -409,6 +467,7 @@ while [[ $# -gt 0 ]]; do
     --skip-qt) SKIP_QT=1; shift ;;
     --freebsd) DO_FREEBSD=1; shift ;;
     --macos) DO_MACOS=1; shift ;;
+    --macos-image) DO_MACOS_QT=1; shift ;;
     --all) DO_WINDOWS=1; DO_FREEBSD=1; DO_MACOS=1; shift ;;
     --qt-version) shift; QT_VERSION="${1:-}"; shift ;;
     --qt-root) shift; QT_ROOT="${1:-}"; shift ;;
@@ -428,7 +487,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ${DO_WINDOWS} -eq 0 && ${DO_FREEBSD} -eq 0 && ${DO_MACOS} -eq 0 ]]; then
+if [[ ${DO_WINDOWS} -eq 0 && ${DO_FREEBSD} -eq 0 && ${DO_MACOS} -eq 0 && ${DO_MACOS_QT} -eq 0 ]]; then
   usage
   exit 1
 fi
@@ -438,6 +497,10 @@ if [[ ${DO_WINDOWS} -eq 1 ]]; then
 fi
 if [[ ${DO_FREEBSD} -eq 1 ]]; then
   install_freebsd_sysroot
+fi
+if [[ ${DO_MACOS_QT} -eq 1 && ${DO_MACOS} -eq 0 ]]; then
+  install_macos_qt
+  install_macos_signer
 fi
 if [[ ${DO_MACOS} -eq 1 ]]; then
   setup_osxcross

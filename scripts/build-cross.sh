@@ -231,6 +231,33 @@ find_cross_tool() {
   return 1
 }
 
+# La firma AD-HOC del bundle. NO es opcional.
+#
+# El despliegue de aquí al lado reescribe los `install_name` de los frameworks de Qt y de
+# libcrypto, y con eso INVALIDA la firma que traían. En Apple Silicon eso no es un aviso de
+# Gatekeeper: el proceso muere nada más arrancar con `EXC_BAD_ACCESS (SIGKILL (Code
+# Signature Invalid))` y la pila entera dentro de dyld. Un .app sin firmar aquí es un .app
+# que no arranca, así que si falta el firmador se ABORTA en vez de entregar eso.
+#
+# Los `.dSYM` se excluyen: dentro hay DWARF, que no es Mach-O firmable y hace fallar al
+# firmador entero. dyld no los carga, así que quedan fuera y es correcto.
+firma_adhoc_bundle() {
+  local bundle="$1"
+  local firmador="${RCODESIGN:-}"
+  if [[ -z "${firmador}" ]]; then
+    firmador="$(command -v rcodesign || true)"
+  fi
+  if [[ -z "${firmador}" ]]; then
+    echo "Error: no hay rcodesign para firmar ${bundle}." >&2
+    echo "Sin firma ad-hoc el bundle NO arranca en Apple Silicon: el despliegue reescribe" >&2
+    echo "los install_name y eso invalida la firma con la que venía Qt." >&2
+    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos-image" >&2
+    exit 1
+  fi
+  echo "Firmando (ad-hoc) ${bundle} con ${firmador}"
+  "${firmador}" sign --exclude '**/*.dSYM' --exclude '**/*.dSYM/**' "${bundle}" >/dev/null
+}
+
 ensure_macos_bundle_runtime_cross() {
   local app_bundle="$1"
   local qt_prefix="$2"
@@ -645,8 +672,17 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
     target_extra_args+=("-DCMAKE_BUILD_RPATH=@executable_path/../Frameworks")
     target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
   fi
+  # SIEMPRE explícito, en los dos sentidos.
+  #
+  # Poniéndolo solo cuando vale ON, el valor cacheado de una pasada anterior sobrevivía: un
+  # directorio compilado sin Qt para macOS —y por tanto con `--agent-only`— seguía dando
+  # SOLO el agente cuando ya había Qt, y el fallo salía al final, al montar el bundle, como
+  # «no se encontró bundle .app». Nada decía que se estuviera compilando otra cosa de la
+  # pedida.
   if [[ "${AGENT_ONLY}" -eq 1 ]]; then
     target_extra_args+=("-DZFSMGR_AGENT_ONLY=ON")
+  else
+    target_extra_args+=("-DZFSMGR_AGENT_ONLY=OFF")
   fi
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
     "${cmake_generator_args[@]}" \
@@ -671,6 +707,7 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
     fi
     if [[ -n "${app_bundle}" ]]; then
       ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
+      firma_adhoc_bundle "${app_bundle}"
     else
       # Antes era un aviso, y la compilación seguía en verde produciendo un .app sin Qt
       # dentro: no arranca en un Mac que no tenga Qt instalado. Un artefacto que no

@@ -328,8 +328,51 @@ ensure_macos_openssl() {
     return 0
   fi
 
-  local work="/tmp/openssl-macos-${arch}-build"
-  mkdir -p "${work}" "$(dirname "${openssl_prefix}")"
+  compila_openssl_macos "${openssl_prefix}" "${openssl_target}" "${osxcross_target}" "${sdk}" \
+                        "no-shared" "${arch}"
+  printf '%s\n' "${openssl_prefix}"
+}
+
+# El OpenSSL COMPARTIDO, que es otra cosa distinta del de arriba.
+#
+# El estático lo enlazan la interfaz y el agente. Estas .dylib no las enlaza nadie: las
+# carga en tiempo de ejecución el plugin `libqopensslbackend.dylib` de Qt, y sin ellas el
+# .app se queda con SecureTransport, que NO presenta el certificado de cliente. El síntoma
+# es que ningún daemon conecta —`SSLHandshake failed: -9831`— y la aplicación dice que el
+# agente no está en marcha aunque lo esté. Pasó con los .app publicados de 0.90.6 y 0.90.7.
+#
+# Estaba solo en `provision-cross-targets.sh --macos`, que necesita el SDK y por eso no
+# corre dentro de la imagen: el cruce compilaba la interfaz y moría al montar el bundle
+# pidiendo que se aprovisionara algo que allí no se puede aprovisionar.
+ensure_macos_openssl_shared() {
+  local arch="$1"
+  local osxcross_target="$2"
+  local sdk
+  sdk="$(ls -d /opt/osxcross/target/SDK/MacOSX*.sdk 2>/dev/null | sort -V | tail -n1 || true)"
+  [[ -n "${sdk}" ]] || { echo "No se encontró SDK de macOS en /opt/osxcross/target/SDK" >&2; return 1; }
+  local ossl_arch=""
+  local openssl_target=""
+  case "${arch}" in
+    amd64) ossl_arch="x86_64"; openssl_target="darwin64-x86_64-cc" ;;
+    arm64) ossl_arch="arm64";  openssl_target="darwin64-arm64-cc" ;;
+    *) return 1 ;;
+  esac
+  local prefix="${HOME}/opt/openssl-macos-${ossl_arch}-shared"
+  if [[ -f "${prefix}/lib/libssl.3.dylib" && -f "${prefix}/lib/libcrypto.3.dylib" ]]; then
+    printf '%s\n' "${prefix}"
+    return 0
+  fi
+  compila_openssl_macos "${prefix}" "${openssl_target}" "${osxcross_target}" "${sdk}" \
+                        "shared" "${arch}-shared"
+  printf '%s\n' "${prefix}"
+}
+
+# Lo común a los dos. Todo lo que imprime va a stderr: quien llama devuelve el prefijo por
+# stdout y una línea suelta de make lo convertiría en una ruta imposible.
+compila_openssl_macos() {
+  local prefix="$1" openssl_target="$2" osxcross_target="$3" sdk="$4" modo="$5" etiqueta="$6"
+  local work="/tmp/openssl-macos-${etiqueta}-build"
+  mkdir -p "${work}" "$(dirname "${prefix}")"
   rm -rf "${work:?}"/*
   curl -fL -o "${work}/openssl.tar.gz" "https://www.openssl.org/source/openssl-3.3.1.tar.gz" >&2
   tar -xf "${work}/openssl.tar.gz" -C "${work}" >&2
@@ -339,11 +382,10 @@ ensure_macos_openssl() {
     export SDKROOT="${sdk}"
     export CFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
     export LDFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
-    ./Configure "${openssl_target}" --cross-compile-prefix="${osxcross_target}-" --prefix="${openssl_prefix}" --libdir=lib no-tests no-shared >&2
+    ./Configure "${openssl_target}" --cross-compile-prefix="${osxcross_target}-" --prefix="${prefix}" --libdir=lib no-tests "${modo}" >&2
     make -j"${JOBS}" >&2
     make install_sw >&2
   ) >&2
-  printf '%s\n' "${openssl_prefix}"
 }
 
 AGENT_BUNDLE_DIR="${PROJECT_ROOT}/builds/agent-bundle"
@@ -557,6 +599,10 @@ if has_platform "macos"; then
     _target="$(find_osxcross_target "${_arch}" || true)"
     [[ -n "${_target}" ]] || { echo "No se encontró OSXCROSS_TARGET para macOS/${_arch}" >&2; exit 1; }
     _openssl_prefix="$(ensure_macos_openssl "${_arch}" "${_target}")"
+    # Solo hace falta para el bundle de la interfaz; con --agent-only no se monta ninguno.
+    if [[ -n "${QT6_MACOS_PREFIX:-}" ]] || [[ -n "$(ls -d "${HOME}"/Qt/*/macos 2>/dev/null | head -1)" ]]; then
+      ensure_macos_openssl_shared "${_arch}" "${_target}" >/dev/null
+    fi
     _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
     # Sin un Qt para macOS no se puede compilar la INTERFAZ, pero sí el AGENTE, que no usa
     # Qt. Se compila lo que se pueda y se dice cuál de las dos cosas ha salido: rendirse
