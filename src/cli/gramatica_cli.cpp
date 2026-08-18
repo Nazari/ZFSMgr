@@ -114,8 +114,48 @@ LineaAnalizada analizaLinea(const std::string& linea) {
     for (int i = 0; i < a.nOpciones; ++i) {
         out.opciones[a.opciones[i].nombre] = a.opciones[i].valor ? a.opciones[i].valor : "";
     }
+    // Las banderas cortas AGRUPADAS se reparten aquí: `-wLecR` son cinco.
+    //
+    // Es como se escriben de verdad —`zfs send -wLecR`—, y getopt las acepta desde
+    // siempre. Quien las teclea así no está usando una abreviatura del programa: está
+    // usando la sintaxis del mandato que hay debajo, y rechazarla obligaba a escribirlas
+    // de una forma distinta a la del manual de OpenZFS.
+    //
+    // Se reparte solo si TODAS las letras están declaradas para esa orden y NINGUNA lleva
+    // valor. Si alguna lo lleva, el grupo se deja tal cual: `-d /dev` dentro de un grupo
+    // significa cosas distintas según dónde esté el valor, y adivinarlo sería inventar. El
+    // grupo entero llega entonces a la validación y el usuario ve qué escribió.
+    const Orden* ordenNativas = ordenPorNombre(out.verbo);
+    const auto declaradaSinValor = [&](char letra) {
+        if (!ordenNativas) {
+            return false;
+        }
+        for (const Nativa& n : ordenNativas->nativas) {
+            const std::string f = n.forma;
+            if (f.size() == 2 && f[0] == '-' && f[1] == letra) {
+                return !n.valor;
+            }
+        }
+        return false;
+    };
     for (int i = 0; i < a.nBanderas; ++i) {
-        out.banderas.push_back(a.banderas[i]);
+        const std::string b = a.banderas[i];
+        bool agrupada = b.size() > 2 && b[0] == '-' && b[1] != '-';
+        if (agrupada) {
+            for (std::size_t k = 1; k < b.size(); ++k) {
+                if (!declaradaSinValor(b[k])) {
+                    agrupada = false;
+                    break;
+                }
+            }
+        }
+        if (agrupada) {
+            for (std::size_t k = 1; k < b.size(); ++k) {
+                out.banderas.push_back(std::string("-") + b[k]);
+            }
+        } else {
+            out.banderas.push_back(b);
+        }
     }
     for (int i = 0; i < a.nRepetidas; ++i) {
         out.repetidas.emplace_back(a.repetidas[i].nombre, a.repetidas[i].valor);

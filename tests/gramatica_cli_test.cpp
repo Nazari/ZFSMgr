@@ -174,6 +174,48 @@ int main() {
         }
     }
 
+    // --- Toda bandera nativa declarada tiene que DECIR qué hace.
+    //
+    // La ayuda de estas banderas se genera de la propia lista, así que una sin descripción
+    // sale como un renglón mudo: el usuario ve que se acepta «-P» y nada más, que es lo
+    // que había antes de describirlas y por lo que había que ir al manual de OpenZFS.
+    {
+        int mudas = 0;
+        for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+            for (const zfsmgr::cli::Nativa& n : o.nativas) {
+                if (!n.que.es || !*n.que.es) {
+                    std::fprintf(stderr, "  sin descripción: %s %s\n", o.nombre, n.forma);
+                    ++mudas;
+                }
+            }
+        }
+        comprueba(mudas == 0, "todas las banderas nativas describen qué hacen");
+    }
+
+    // --- Las banderas cortas AGRUPADAS: `-wLecR` son cinco.
+    //
+    // Es como se escriben en el manual de OpenZFS y como las acepta getopt. Se reparten
+    // solo si todas las letras están declaradas para esa orden y ninguna lleva valor: un
+    // grupo con una que sí lo lleva —`trim -rd`, donde `-r` quiere un ritmo— se deja
+    // entero, porque dónde va el valor no se puede adivinar sin inventar.
+    {
+        const auto a = analizaLinea("copy /otra/x -wLec");
+        int hay = 0;
+        for (const char* f : {"-w", "-L", "-e", "-c"}) {
+            hay += a.tiene(f) ? 1 : 0;
+        }
+        comprueba(hay == 4, "«copy -wLec»: se reparte en cuatro banderas");
+        comprueba(!a.tiene("-wLec"), "«copy -wLec»: y el grupo ya no está entero");
+        // Control: una letra que no existe deja el grupo SIN repartir, para que el error
+        // hable de lo que el usuario escribió y no de una letra suelta que él no puso.
+        const auto b = analizaLinea("copy /otra/x -wLZ");
+        comprueba(b.tiene("-wLZ"), "«copy -wLZ»: con una letra ajena el grupo se deja entero");
+        comprueba(!b.tiene("-w"), "«copy -wLZ»: y no se reparte a medias");
+        // Control: con una que lleva valor tampoco se reparte.
+        const auto c = analizaLinea("trim -rd");
+        comprueba(c.tiene("-rd"), "«trim -rd»: -r lleva valor, así que el grupo no se parte");
+    }
+
     // --- La POSICIÓN de una opción no significa nada.
     //
     // `allow --user u perms` y `allow perms --user u` son la misma orden. Cuando las

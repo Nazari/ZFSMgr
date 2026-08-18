@@ -87,12 +87,20 @@ std::string lineaDeNativas(const Orden& o) {
     if (o.nativas.empty()) {
         return {};
     }
-    std::string s = T("t_admite_nativas",
-                      "Admite además las banderas del mandato original:");
+    return T("t_admite_nativas", "Admite además las banderas del mandato original. Las cortas "
+             "sin valor se pueden agrupar, como en OpenZFS: «-wLec» es «-w -L -e -c».");
+}
+
+// Cada bandera nativa con lo que hace, una por renglón.
+//
+// Antes salían todas apelmazadas en una línea —«-D -L -P -b -c…»—, que dice cuáles se
+// aceptan y ninguna otra cosa: para saber qué hace cada una había que ir al manual de
+// OpenZFS, y entonces la ayuda no servía de nada donde más falta hace.
+void imprimeNativas(const Orden& o, int ancho) {
     for (const Nativa& n : o.nativas) {
-        s += std::string(" ") + n.forma + (n.valor ? " <v>" : "");
+        const std::string forma = std::string(n.forma) + (n.valor ? " <v>" : "");
+        fila(forma, T(n.que.clave, n.que.es), 6, ancho);
     }
-    return s + ".";
 }
 
 void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
@@ -114,6 +122,7 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
                  parte(nativas, static_cast<std::size_t>(ancho > 24 ? ancho - 4 : 60))) {
                 std::fprintf(stderr, "  %s\n", t.c_str());
             }
+            imprimeNativas(o, ancho);
         }
         for (const Texto& d : o.detalle) {
             std::fprintf(stderr, "\n");
@@ -133,7 +142,7 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
 std::vector<Nativa> nativasDeSend() {
     std::vector<Nativa> out;
     for (const auto& b : zfsmgr::base::zfsprops::banderasDeSend()) {
-        out.push_back({b.forma, b.valor});
+        out.push_back({b.forma, b.valor, {b.clave, b.que}});
     }
     return out;
 }
@@ -203,9 +212,9 @@ const std::vector<Orden> kOrdenes = {
      // arriba —`-f`, `-o`, `-O`, `--mountpoint`, `-r`—. Es la UNIÓN de los dos mandatos
      // porque `create` es uno solo: cuál se usa lo decide dónde se está, y si una bandera
      // no vale en ese nivel lo dice el propio zfs/zpool, que es quien lo sabe.
-     {{"-n", false}, {"-d", false}, {"-R", true}, {"-t", true},
-      {"-p", false}, {"-u", false}, {"-v", false}, {"-P", false},
-      {"-s", false}, {"-b", true}, {"-V", true}}},
+     {{"-n", false, {"t_nat_create_n", "Ensayo: enseña lo que haría y no lo hace."}}, {"-d", false, {"t_nat_create_d", "Pool: sin activar ninguna característica."}}, {"-R", true, {"t_nat_create_Rmay", "Pool: raíz alternativa donde montarlo."}}, {"-t", true, {"t_nat_create_t", "Pool: nombre temporal, solo hasta el próximo arranque."}},
+      {"-p", false, {"t_nat_create_p", "Dataset: crea también los padres que falten."}}, {"-u", false, {"t_nat_create_u", "Dataset: no lo monta al crearlo."}}, {"-v", false, {"t_nat_create_v", "Dataset: cuenta lo que va haciendo."}}, {"-P", false, {"t_nat_create_Pmay", "Dataset: ensayo, en formato analizable."}},
+      {"-s", false, {"t_nat_create_s", "Volumen: sin reservar el espacio por adelantado."}}, {"-b", true, {"t_nat_create_b", "Volumen: tamaño de bloque."}}, {"-V", true, {"t_nat_create_Vmay", "Crea un VOLUMEN de ese tamaño, no un sistema de ficheros."}}}},
     {"devices", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_devices_uso", "[--free]"},
      {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
      {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
@@ -247,7 +256,7 @@ const std::vector<Orden> kOrdenes = {
      // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
      Objetivo::Cualquiera,
      {},
-     {{"-f", false}, {"-n", false}, {"-p", false}, {"-R", false}, {"-r", false}, {"-v", false}, {"-d", false}}},
+     {{"-f", false, {"t_nat_destroy_f", "Fuerza el desmontaje de lo que esté en uso."}}, {"-n", false, {"t_nat_destroy_n", "Ensayo: no borra nada, dice qué borraría."}}, {"-p", false, {"t_nat_destroy_p", "Con las estadísticas en formato analizable."}}, {"-R", false, {"t_nat_destroy_Rmay", "También los clones que dependan de ello."}}, {"-r", false, {"t_nat_destroy_r", "También sus descendientes."}}, {"-v", false, {"t_nat_destroy_v", "Cuenta lo que va borrando."}}, {"-d", false, {"t_nat_destroy_d", "Lo marca para borrarlo cuando se suelte la última retención."}}}},
     {"connect", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
      Objetivo::Conexion,
      {}},
@@ -269,15 +278,15 @@ const std::vector<Orden> kOrdenes = {
     {"rename", {"t_dataset_105268", "Dataset"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
      Objetivo::DatasetOInstantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-f", false}, {"-p", false}, {"-u", false}, {"-r", false}}},
+     {{"-f", false, {"t_nat_rename_f", "Fuerza el desmontaje del destino si hace falta."}}, {"-p", false, {"t_nat_rename_p", "Crea los padres que falten en el nombre nuevo."}}, {"-u", false, {"t_nat_rename_u", "No vuelve a montarlo después."}}, {"-r", false, {"t_nat_rename_r", "Renombra la instantánea en todos los descendientes."}}}},
     {"mount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
      Objetivo::Dataset,
      {},
-     {{"-f", false}, {"-l", false}, {"-v", false}, {"-O", false}, {"-o", true}, {"-a", false}}},
+     {{"-f", false, {"t_nat_mount_f", "Fuerza el montaje."}}, {"-l", false, {"t_nat_mount_l", "Carga antes la clave de cifrado si hace falta."}}, {"-v", false, {"t_nat_mount_v", "Cuenta lo que va haciendo."}}, {"-O", false, {"t_nat_mount_Omay", "Monta encima aunque el punto de montaje no esté vacío."}}, {"-o", true, {"t_nat_mount_o", "Opciones de montaje, solo para esta vez."}}, {"-a", false, {"t_nat_mount_a", "Todos los datasets que deban montarse."}}}},
     {"unmount", {"t_dataset_105268", "Dataset"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_desmont_a9975c", "Lo desmonta."}, {}, {},
      Objetivo::Dataset,
      {},
-     {{"-f", false}, {"-u", false}, {"-a", false}}},
+     {{"-f", false, {"t_nat_unmount_f", "Fuerza aunque haya ficheros abiertos."}}, {"-u", false, {"t_nat_unmount_u", "Descarga además la clave de cifrado."}}, {"-a", false, {"t_nat_unmount_a", "Todos los que estén montados."}}}},
     {"promote", {"t_dataset_105268", "Dataset"}, {"", ""}, {"t_promueve_u_eb988f", "Promueve un clon a dataset independiente."}, {}, {},
      Objetivo::Dataset,
      {}},
@@ -303,7 +312,7 @@ const std::vector<Orden> kOrdenes = {
      {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {},
      Objetivo::Instantanea,
      {},
-     {{"-r", false}, {"-R", false}, {"-f", false}}},
+     {{"-r", false, {"t_nat_rollback_r", "Destruye las instantáneas posteriores a esa."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}}, {},
@@ -316,11 +325,11 @@ const std::vector<Orden> kOrdenes = {
      {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {},
      Objetivo::Instantanea,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-r", false}}},
+     {{"-r", false, {"t_nat_hold_r", "También en las instantáneas de los descendientes."}}}},
     {"release", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
      Objetivo::Instantanea,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-r", false}}},
+     {{"-r", false, {"t_nat_release_r", "También en las instantáneas de los descendientes."}}}},
     {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
@@ -338,28 +347,28 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
        {"start", "stop", "cancel", "pause", "suspend"}}},
-     {{"-e", false}, {"-s", false}, {"-p", false}, {"-C", false}, {"-E", false}, {"-S", false}, {"-w", false}, {"-a", false}}},
+     {{"-e", false, {"t_nat_scrub_e", "Solo los ficheros con errores ya conocidos."}}, {"-s", false, {"t_nat_scrub_s", "Para el que esté en marcha."}}, {"-p", false, {"t_nat_scrub_p", "Lo pausa; se reanuda volviendo a lanzarlo."}}, {"-C", false, {"t_nat_scrub_Cmay", "Continúa desde el último punto guardado."}}, {"-E", true, {"t_nat_scrub_Emay", "Hasta esa fecha («AAAA-MM-DD [HH:MM]»)."}}, {"-S", true, {"t_nat_scrub_Smay", "Desde esa fecha («AAAA-MM-DD [HH:MM]»)."}}, {"-w", false, {"t_nat_scrub_w", "Espera aquí a que termine."}}, {"-a", false, {"t_nat_scrub_a", "En todos los pools de la máquina."}}}},
     {"trim", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
      {}, {},
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
        {"start", "stop", "cancel", "pause", "suspend"}},
       {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
-     {{"-d", false}, {"-w", false}, {"-r", true}, {"-c", false}, {"-s", false}, {"-a", false}}},
+     {{"-d", false, {"t_nat_trim_d", "Borrado SEGURO: pide al disco que borre de verdad."}}, {"-w", false, {"t_nat_trim_w", "Espera aquí a que termine."}}, {"-r", true, {"t_nat_trim_r", "Ritmo máximo, en bytes por segundo."}}, {"-c", false, {"t_nat_trim_c", "Cancela el que esté en marcha."}}, {"-s", false, {"t_nat_trim_s", "Lo suspende."}}, {"-a", false, {"t_nat_trim_a", "En todos los pools de la máquina."}}}},
     {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {},
      Objetivo::Pool,
      {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
        {"start", "stop", "cancel", "pause", "suspend"}},
       {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
-     {{"-c", false}, {"-s", false}, {"-u", false}, {"-w", false}, {"-a", false}}},
+     {{"-c", false, {"t_nat_initialize_c", "Cancela la que esté en marcha."}}, {"-s", false, {"t_nat_initialize_s", "La suspende."}}, {"-u", false, {"t_nat_initialize_u", "Deshace la marca de inicializado."}}, {"-w", false, {"t_nat_initialize_w", "Espera aquí a que termine."}}, {"-a", false, {"t_nat_initialize_a", "En todos los pools de la máquina."}}}},
     {"clear", {"t_pools_2fd96d", "Pools"}, {"t_vdev_on", "[<vdev>] [--on <pool>]"}, {"t_pone_a_cer_41359a", "Pone a cero los errores contados."}, {},
      {{"t_clear_det", "PREGUNTA antes, aunque no destruya datos: se escribe `clear` queriendo limpiar el "
       "terminal, y entonces se pierde la cuenta de errores de un pool —que es justo lo que "
       "uno estaba mirando— sin haberlo pedido. Para limpiar la pantalla, «cls»."}},
      Objetivo::Pool,
      {{"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
-     {{"--power", false}, {"-n", false}, {"-F", false}}},
+     {{"--power", false, {"t_nat_clear_power", "Enciende el disco por su indicador de fallo, si el equipo lo permite."}}, {"-n", false, {"t_nat_clear_n", "Ensayo: dice si se podría recuperar, sin tocar nada."}}, {"-F", false, {"t_nat_clear_Fmay", "Modo recuperación: descarta las últimas transacciones."}}}},
     {"flush", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"},
      {"t_flush_res", "Fuerza la escritura de lo pendiente del pool (`zpool sync`)."},
      {}, {{"t_flush_det", "Se llamaba `sync`, que es como se llama en `zpool`. Se cambió porque en la "
@@ -375,22 +384,22 @@ const std::vector<Orden> kOrdenes = {
     {"upgrade", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_sube_la_ve_b9cca7", "Sube la versión del pool. NO se puede deshacer."}, {}, {},
      Objetivo::Pool,
      {},
-     {{"-v", false}, {"-a", false}}},
+     {{"-v", false, {"t_nat_upgrade_v", "Enseña qué características admite esta versión."}}, {"-a", false, {"t_nat_upgrade_a", "En todos los pools de la máquina."}}}},
     {"reguid", {"t_pools_2fd96d", "Pools"}, {"t_pool_destino", "[<pool>]"}, {"t_cambia_el__4a3340", "Cambia el identificador único del pool."}, {}, {},
      Objetivo::Pool,
      {},
-     {{"-g", true}}},
+     {{"-g", true, {"t_nat_reguid_g", "El identificador nuevo, en vez de uno al azar."}}}},
     {"export", {"t_pools_2fd96d", "Pools"}, {"t_pool_f", "[<pool>] [-f]"}, {"t_lo_desmont_64239f", "Lo desmonta y lo suelta, para llevarlo a otra máquina."}, {},
      {},
      Objetivo::Pool,
      {},
-     {{"-a", false}, {"-f", false}}},
+     {{"-a", false, {"t_nat_export_a", "Exporta todos los pools importados."}}, {"-f", false, {"t_nat_export_f", "Fuerza el desmontaje de sus datasets."}}}},
     {"import", {"t_pools_2fd96d", "Pools"}, {"t_pool_as_nu_2706a5", "[<pool>] [--as <nuevo>] [-f]"},
      {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
      {{{"t_as_nuevo_c017c7", "--as <nuevo>"}, {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {},
      Objetivo::Conexion,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-d", true}, {"-D", false}, {"-o", true}, {"-c", true}, {"-l", false}, {"-f", false}, {"-m", false}, {"-N", false}, {"-R", true}, {"-F", false}, {"-n", false}, {"-t", false}, {"--rewind-to-checkpoint", false}}},
+     {{"-d", true, {"t_nat_import_d", "Dónde buscar: un directorio o un dispositivo."}}, {"-D", false, {"t_nat_import_Dmay", "Solo los pools destruidos."}}, {"-o", true, {"t_nat_import_o", "Opciones de montaje, o «propiedad=valor» del pool."}}, {"-c", true, {"t_nat_import_c", "Buscar en ese fichero de caché en vez de en los discos."}}, {"-l", false, {"t_nat_import_l", "Pide las claves de cifrado que hagan falta."}}, {"-f", false, {"t_nat_import_f", "Fuerza aunque parezca en uso por otra máquina."}}, {"-m", false, {"t_nat_import_m", "Admite importarlo con el log ausente."}}, {"-N", false, {"t_nat_import_Nmay", "Lo importa SIN montar ningún sistema de ficheros."}}, {"-R", true, {"t_nat_import_Rmay", "Raíz alternativa donde montarlo."}}, {"-F", false, {"t_nat_import_Fmay", "Modo recuperación: descarta las últimas transacciones."}}, {"-n", false, {"t_nat_import_n", "Con -F, ensayo: dice si se podría, sin hacerlo."}}, {"-t", false, {"t_nat_import_t", "El nombre nuevo es temporal, solo hasta el próximo arranque."}}, {"--rewind-to-checkpoint", false, {"t_nat_import_rewind_mayto_maycheckpoint", "Vuelve al punto de control guardado en el pool."}}}},
 
     // --- Permisos
     {"allow", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_user_u_per_9cf888", "[--user <u>] <permisos...>"},

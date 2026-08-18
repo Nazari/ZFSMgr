@@ -307,9 +307,16 @@ add_executable(zfsmgr_cli
 )
 target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
 # Los catálogos de traducción, al lado del ejecutable: el CLI los busca ahí primero.
-add_custom_command(TARGET zfsmgr_cli POST_BUILD
+#
+# En un objetivo APARTE y no como POST_BUILD del ejecutable: aquello solo se ejecutaba al
+# reenlazar, así que tocar un `.json` y recompilar no copiaba nada y el programa seguía
+# leyendo el catálogo viejo. Cuesta un rato entenderlo, porque lo que se ve es una
+# traducción que no aparece por mucho que uno la escriba.
+add_custom_target(zfsmgr_cli_i18n ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr_cli>/i18n)
+            ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr_cli>/i18n
+    DEPENDS zfsmgr_cli
+    COMMENT "Copiando los catálogos de traducción junto a zfsmgr_cli")
 
 target_include_directories(zfsmgr_cli PRIVATE ../src/cli ../src/cli/generado)
 target_compile_definitions(zfsmgr_cli PRIVATE

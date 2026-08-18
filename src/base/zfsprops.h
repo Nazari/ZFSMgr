@@ -21,6 +21,8 @@ const std::vector<std::string>& valoresDe(const std::string& propiedad);
 struct BanderaSend {
     const char* forma;   // "-w"
     bool valor{false};   // ¿lleva un valor detrás? («-X <dataset>»)
+    const char* clave{""};  // la clave de traducción de `que`
+    const char* que{""};    // qué hace, en una línea, para la ayuda
 };
 
 // Las banderas de `zfs send` que se dejan llegar hasta el mandato.

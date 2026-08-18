@@ -81,6 +81,10 @@ struct Ranura {
 struct Nativa {
     const char* forma;   // "-d", "--power"
     bool valor{false};   // ¿lleva un valor detrás? («-d <dir>»)
+    // Qué hace, en una línea. Va aquí y no en un texto suelto porque la ayuda de estas
+    // banderas se GENERA de esta misma lista: una descripción escrita aparte se separaría
+    // de lo que el programa acepta, que es justo lo que estas listas vienen a evitar.
+    Texto que{"", ""};
 };
 
 struct Orden {
