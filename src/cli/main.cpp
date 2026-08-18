@@ -189,24 +189,52 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
     return 0;
 }
 
-// ¿Hay algún campo cifrado? Si no lo hay, no tiene sentido pedir la contraseña maestra, y
-// preguntarla sin necesidad es la clase de fricción que hace que la gente la ponga en un
-// alias de shell.
-bool hayAlgoCifrado(const std::string& dirConfig) {
+// El primer campo cifrado que haya en la configuración, o vacío si no hay ninguno. Vale
+// para las dos preguntas: si hace falta la contraseña maestra, y si la que han dado abre.
+std::string primerCifrado(const std::string& dirConfig) {
     ST::Aviso aviso;
     const auto root = ST::leerConfig(dirConfig, aviso);
     if (!aviso.vacio()) {
-        return false;
+        return {};
     }
     for (const auto& v : root["connections"].toArray()) {
         for (const char* campo : {"username", "password", "daemon_tls_server_cert_pem",
                                   "daemon_tls_client_cert_pem", "daemon_tls_client_key_pem"}) {
-            if (B::SecretCipher::isEncrypted(v[campo].toString())) {
-                return true;
+            const std::string valor = v[campo].toString();
+            if (B::SecretCipher::isEncrypted(valor)) {
+                return valor;
             }
         }
     }
-    return false;
+    return {};
+}
+
+// ¿Hay algún campo cifrado? Si no lo hay, no tiene sentido pedir la contraseña maestra, y
+// preguntarla sin necesidad es la clase de fricción que hace que la gente la ponga en un
+// alias de shell.
+bool hayAlgoCifrado(const std::string& dirConfig) {
+    return !primerCifrado(dirConfig).empty();
+}
+
+// ¿ABRE la contraseña lo que hay guardado?
+//
+// Se comprueba al entrar, y no cuando haga falta un secreto, porque una maestra equivocada
+// no fallaba: los campos quedaban VACÍOS y el fallo salía luego disfrazado de otra cosa
+// —«no se pudo leer el material TLS del daemon local», o volviendo a pedir la contraseña de
+// sudo que sí estaba guardada—. Uno se pasa un rato mirando la máquina remota antes de caer
+// en que lo que se tecleó mal fue la maestra.
+//
+// El formato es Fernet: el HMAC no cuadra con otra clave, así que abrir UN campo basta y no
+// hace falta guardar ningún verificador aparte. Es lo mismo que hace la interfaz gráfica en
+// `ConnectionStore::validateMasterPassword`.
+bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
+    const std::string cifrado = primerCifrado(dirConfig);
+    if (cifrado.empty()) {
+        return true;   // no hay nada que abrir: cualquier contraseña vale igual de bien
+    }
+    std::string claro;
+    std::string err;
+    return B::SecretCipher::decryptEncv1(cifrado, maestra, claro, err);
 }
 
 }  // namespace
@@ -407,9 +435,34 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
                 return 1;
             }
-        } else if (!zfsmgr::cli::preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "), maestra, err)) {
-            std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
-            return 1;
+            // Por descriptor no se puede volver a preguntar —ya se leyó—, así que se
+            // termina con error en vez de seguir con secretos que no abren. Un guion se
+            // entera por el código de salida, que es como se entera un guion de todo.
+            if (!maestraAbre(op.dirConfig, maestra)) {
+                std::fputs(TC("t_maestra_no_abre", "contraseña maestra incorrecta: no abre los "
+                             "secretos guardados\n"), stderr);
+                return 1;
+            }
+        } else {
+            // Con terminal se vuelve a preguntar, como hace la interfaz gráfica. Tres
+            // intentos: los suficientes para un dedazo, no tantos como para que esto sirva
+            // de banco de pruebas a nadie.
+            bool abierta = false;
+            for (int intento = 0; intento < 3 && !abierta; ++intento) {
+                if (!zfsmgr::cli::preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "),
+                                                              maestra, err)) {
+                    std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
+                    return 1;
+                }
+                abierta = maestraAbre(op.dirConfig, maestra);
+                if (!abierta) {
+                    std::fputs(TC("t_maestra_no_abre", "contraseña maestra incorrecta: no abre los "
+                                 "secretos guardados\n"), stderr);
+                }
+            }
+            if (!abierta) {
+                return 1;
+            }
         }
     }
 

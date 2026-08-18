@@ -348,6 +348,7 @@
     "t_los_trabaj_5039b6": "The jobs on the machine.",
     "t_ls_daemon": "--daemon",
     "t_ls_daemon_q": "At the root: each machine's agent version, with « * » if it is not the expected one.",
+    "t_maestra_no_abre": "wrong master password: it does not open the stored secrets\n",
     "t_manage_props_vis001": "Manage property display",
     "t_manda_una__2d0418": "Send a snapshot to another dataset, here or on another machine.",
     "t_marca_la_c_c52a74": "Mark the connection as usable.",
