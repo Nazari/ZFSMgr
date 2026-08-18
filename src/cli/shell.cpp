@@ -1098,16 +1098,19 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
     return true;
 }
 
-// El contenido: `#content[/ruta]`.
+// La ruta REAL que hay detrás de `#content`, que no es la del dataset.
 //
-// Este camino NO es RPC tipado: se lista con `ls -lA` por el transporte de siempre, igual
-// que hace el navegador de ficheros de la interfaz. El agente no tiene verbo para esto, y
-// añadirlo es trabajo aparte.
-bool listaContenido(Estado& e, const ZfsmUrl& destino) {
+// Vive aparte de quien la lista porque hay dos que la necesitan: la orden `ls` y el
+// TABULADOR, que completa nombres de fichero sin enseñar nada. `callado` es para el
+// segundo: una pulsación de tabulador no debe escribir errores por pantalla.
+bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool& esWindows,
+                     bool callado) {
     std::string error;
     const auto* p = perfilVivoDe(e, destino, error);
     if (!p) {
-        std::fprintf(stderr, "%s\n", error.c_str());
+        if (!callado) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+        }
         return false;
     }
     // Dónde empieza la ruta. Y aquí Windows NO se parece a nada de lo demás.
@@ -1118,8 +1121,8 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
     // Comprobado contra OldLau: `Test-Path /winpool/sa` da False y `Test-Path Z:\sa` da
     // True. Preguntar `driveletter` al dataset tampoco vale — hay que preguntárselo al
     // pool, que es de donde sale la letra.
-    std::string base;
-    const bool esWindows = T::isWindowsConnection(*p);
+    base.clear();
+    esWindows = T::isWindowsConnection(*p);
     if (esWindows) {
         std::string letra;
         if (!agente(e, destino, {"--dump-zfs-get-prop", "driveletter", destino.pool}, letra)) {
@@ -1127,7 +1130,9 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         }
         letra = B::trim(letra);
         if (letra.empty() || letra == "-" || letra == "none") {
-            std::fprintf(stderr, TC("t_el_pool_s__020fd2", "el pool %s no tiene letra de unidad asignada\n"), destino.pool.c_str());
+            if (!callado) {
+                std::fprintf(stderr, TC("t_el_pool_s__020fd2", "el pool %s no tiene letra de unidad asignada\n"), destino.pool.c_str());
+            }
             return false;
         }
         base = letra;
@@ -1155,7 +1160,9 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         }
         base = B::trim(mp);
         if (base.empty() || base == "none" || base == "-") {
-            std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
+            if (!callado) {
+                std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
+            }
             return false;
         }
         // En una instantánea el contenido vive bajo el directorio oculto `.zfs`.
@@ -1165,6 +1172,26 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
         for (const std::string& d : destino.detail) {
             base += "/" + d;
         }
+    }
+    return true;
+}
+
+// El contenido: `#content[/ruta]`.
+//
+// Este camino NO es RPC tipado: se lista con `ls -lA` por el transporte de siempre, igual
+// que hace el navegador de ficheros de la interfaz. El agente no tiene verbo para esto, y
+// añadirlo es trabajo aparte.
+bool listaContenido(Estado& e, const ZfsmUrl& destino) {
+    std::string error;
+    const auto* p = perfilVivoDe(e, destino, error);
+    if (!p) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    std::string base;
+    bool esWindows = false;
+    if (!rutaDeContenido(e, destino, base, esWindows, /*callado=*/false)) {
+        return false;
     }
 
     // La orden que lista. **SIN envolver en PowerShell aquí**: `runSsh` ya envuelve lo que
@@ -3491,6 +3518,54 @@ const std::vector<std::string>& propiedadesDe(Estado& e, const ZfsmUrl& donde) {
     return e.propsPorSitio.emplace(clave, std::move(nombres)).first->second;
 }
 
+// Los nombres que hay dentro de `#content[/ruta]`, para el tabulador.
+//
+// Solo NOMBRES: `ls -lA` trae permisos, dueño y fechas que aquí no pintan nada, y habría
+// que volver a partirlos. Los directorios salen con la barra puesta, que es lo que uno va
+// a escribir a continuación.
+std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
+    std::vector<std::string> out;
+    std::string error;
+    const auto* p = perfilVivoDe(e, destino, error);
+    if (!p) {
+        return out;
+    }
+    std::string base;
+    bool esWindows = false;
+    if (!rutaDeContenido(e, destino, base, esWindows, /*callado=*/true)) {
+        return out;
+    }
+    std::string orden;
+    if (esWindows) {
+        std::string entrecomillada = base;
+        B::replaceAll(entrecomillada, "'", "''");
+        orden = "$ErrorActionPreference='SilentlyContinue'; $p='" + entrecomillada + "'; "
+                "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
+                "  $_.Name + $(if($_.PSIsContainer){'/'}else{''}) }";
+    } else {
+        // `-p` pone la barra a los directorios, y es POSIX: no hace falta `find` ni `stat`.
+        const std::string guion = "p=" + B::shSingleQuote(base)
+                                  + "; [ -d \"$p\" ] && ls -A -p \"$p\" 2>/dev/null";
+        orden = "sh -lc " + B::shSingleQuote(guion);
+    }
+    const B::ConnectionProfile perfil = conSudo(e, *p);
+    std::string salida;
+    std::string err;
+    int rc = -1;
+    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, orden), 12000, salida,
+                   err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false, /*echoOutputToLog=*/false)
+        || rc != 0) {
+        return out;
+    }
+    for (const std::string& l : B::split(salida, "\n", true)) {
+        const std::string n = B::trim(l);
+        if (!n.empty()) {
+            out.push_back(n);
+        }
+    }
+    return out;
+}
+
 std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
                                     std::size_t& desde) {
     // El trozo que se está escribiendo: desde el último espacio antes del cursor.
@@ -3541,6 +3616,74 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         for (const std::string& p : propiedadesDe(e, e.actual)) {
             if (B::startsWith(p, parcial)) {
                 out.push_back(orden == "set" ? p + "=" : p);
+            }
+        }
+        return out;
+    }
+
+    // --- Las SECCIONES: `#content`, `#properties`, `#permissions`, y lo que cuelga.
+    //
+    // Van antes que la URL corriente porque el « # » no es un separador de URL: partiendo
+    // por «/» y «@», `ls #con<tab>` preguntaba por los HIJOS del dataset —que se llaman
+    // «datos», no «#content»— y no ofrecía nada. Lo mismo dentro: `#content/Doc<tab>` se
+    // resolvía como si «Doc» fuera un dataset.
+    const std::size_t alm = parcial.find('#');
+    if (alm != std::string::npos) {
+        const std::string prefijo = parcial.substr(0, alm);   // la URL de delante, si la hay
+        const std::string resto = parcial.substr(alm);        // desde el « # »
+        ZfsmUrl sitio;
+        std::string err;
+        if (!resuelve(e, prefijo.empty() ? std::string(".") : prefijo, sitio, err)) {
+            return {};
+        }
+        const std::size_t barra = resto.find('/');
+        if (barra == std::string::npos) {
+            // Todavía se está escribiendo el nombre de la sección. Solo se ofrecen donde
+            // significan algo: en una conexión o en la raíz no hay contenido ni propiedades.
+            std::vector<std::string> out;
+            const Nodo n = nodoDe(sitio);
+            if (n != Nodo::Dataset && n != Nodo::Snapshot) {
+                return out;
+            }
+            for (const std::string& s : {std::string("#") + B::zfsmSection::kContent,
+                                         std::string("#") + B::zfsmSection::kProperties,
+                                         std::string("#") + B::zfsmSection::kPermissions}) {
+                if (B::startsWith(s, resto)) {
+                    out.push_back(prefijo + s);
+                }
+            }
+            return out;
+        }
+        const std::string seccion = B::toLowerAscii(resto.substr(1, barra - 1));
+        const std::size_t ultima = resto.find_last_of('/');
+        const std::string yaEscrito = resto.substr(0, ultima + 1);  // «#content/» o «#content/a/»
+        const std::string cola = resto.substr(ultima + 1);
+        std::vector<std::string> candidatos;
+        if (seccion == B::zfsmSection::kProperties) {
+            // `#properties/<nombre>`: una sola propiedad, y no hay más niveles.
+            if (yaEscrito != std::string("#") + B::zfsmSection::kProperties + "/") {
+                return {};
+            }
+            candidatos = propiedadesDe(e, sitio);
+        } else if (seccion == B::zfsmSection::kContent) {
+            // Se resuelve el directorio ya escrito —sin la barra final, que `resuelve` no
+            // espera— y se preguntan sus nombres.
+            std::string dir = prefijo + yaEscrito;
+            if (dir.size() > 1 && dir.back() == '/') {
+                dir.erase(dir.size() - 1);
+            }
+            ZfsmUrl donde;
+            if (!resuelve(e, dir, donde, err)) {
+                return {};
+            }
+            candidatos = nombresDeContenido(e, donde);
+        } else {
+            return {};   // `#permissions` no tiene hijos
+        }
+        std::vector<std::string> out;
+        for (const std::string& c : candidatos) {
+            if (B::startsWith(c, cola)) {
+                out.push_back(prefijo + yaEscrito + c);
             }
         }
         return out;

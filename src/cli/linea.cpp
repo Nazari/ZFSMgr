@@ -213,7 +213,11 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
         // Una sola opción: se cierra con un espacio, que es lo que uno iba a teclear. Salvo
         // que acabe en `=`, donde lo siguiente es el VALOR y va pegado: `set atime= on` son
         // dos componentes y no una asignación, así que el espacio rompería la orden.
-        if (opciones.size() == 1 && comun.back() != '=') {
+        //
+        // Y salvo que acabe en `/`, que es un DIRECTORIO y lo siguiente va dentro:
+        // completar `#content/ZFSMgr/` y cerrar con espacio obligaba a borrarlo para seguir
+        // bajando, que es justo lo contrario de lo que hace el tabulador.
+        if (opciones.size() == 1 && comun.back() != '=' && comun.back() != '/') {
             linea.insert(cursor, " ");
             ++cursor;
         }
