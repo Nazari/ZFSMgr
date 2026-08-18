@@ -609,7 +609,9 @@ const std::vector<Orden> kOrdenes = {
     {"peers", {"t_daemon_48e665", "Daemon"}, {"t_peers_uso", "[--push]"},
      {"t_peers_res", "Qué otras máquinas sabe alcanzar el daemon de esta."},
      {{{"t_peers_push", "--push"},
-       {"t_peers_push_q", "Le entrega las credenciales de las demás conexiones."}}},
+       {"t_peers_push_q", "Le entrega las credenciales de las demás conexiones."}},
+      {{"t_peers_listen", "--listen <0.0.0.0|::|127.0.0.1>"},
+       {"t_peers_listen_q", "En qué dirección atiende su daemon. Reinicia el daemon."}}},
      {{"t_peers_det1", "Hace falta para NIVELAR una programación contra otra máquina: eso lo hace el "
        "daemon por su cuenta, de madrugada y sin nadie delante, así que las credenciales "
        "tienen que estar en la máquina y no en su portátil."},
@@ -619,7 +621,15 @@ const std::vector<Orden> kOrdenes = {
        "confianza del cliente."},
       {"t_peers_det3", "Va cifrado dentro de la petición y queda en un fichero de root con permisos "
        "600: lleva CLAVES PRIVADAS. Quien pueda leerlo puede hacerse pasar por esta máquina "
-       "ante las otras, así que se pregunta antes de mandarlo."}},
+       "ante las otras, así que se pregunta antes de mandarlo."},
+      {"t_peers_det4", "«--listen» hace falta en la máquina que RECIBE una nivelación: por omisión el "
+       "daemon solo atiende en 127.0.0.1, y ahí solo llega el cliente porque abre un túnel "
+       "SSH — de madrugada no hay quien lo abra. Solo se admite un comodín: atarlo a una "
+       "dirección suelta le cortaría el acceso al propio cliente, que entra por el túnel."},
+      {"t_peers_det5", "Con el comodín, el puerto del daemon queda alcanzable desde la red, protegido "
+       "por mTLS con el certificado de cliente FIJADO. No es una exposición nueva: el "
+       "puerto de transferencia ya escucha en todas las interfaces con un testigo de un "
+       "solo uso, y está peor protegido que éste."}},
      Objetivo::Conexion, {}},
     {"log", {"t_daemon_48e665", "Daemon"}, {"t_log_uso", "[--lines <n>]"},
      {"t_log_res", "El registro del daemon de esta máquina."},

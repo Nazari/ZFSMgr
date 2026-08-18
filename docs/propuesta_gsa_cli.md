@@ -272,12 +272,26 @@ unibody: `ss -ltn` enseña `127.0.0.1:47653`, y el registro lo dice entero —
     GSA level hint: el daemon de unib.local tiene que escuchar en una dirección alcanzable
                     (AGENT_BIND en su agent.conf); por omisión solo atiende en 127.0.0.1
 
-Así que nivelar entre máquinas exige **decidir exponer el puerto del daemon** en el
-destino. Es mTLS con certificado de cliente fijado, así que es defendible, pero cambia el
-modelo de amenaza y es una decisión, no un detalle: queda pendiente de tomarla. Las
-alternativas serían que el daemon abra su propio túnel SSH —volver a las credenciales SSH
-que acabamos de quitar— o que nivele el cliente cuando esté abierto, que deja de ser
-desatendido.
+**Decidido: se expone el puerto del daemon en el destino** (`peers --listen 0.0.0.0`).
+Conviene precisar por qué es menos de lo que parece, porque al plantearlo se dijo que
+«cambia el modelo de amenaza» y eso estaba sobredimensionado: la máquina YA escucha en
+todas las interfaces para las transferencias —`transferBindAddr` vale `0.0.0.0` por
+omisión— con un testigo de un solo uso. El puerto de control va con mTLS y el certificado
+de cliente FIJADO, que protege más. No se abre una categoría nueva: se hace alcanzable un
+puerto mejor protegido que otro que ya lo estaba.
+
+Solo se admite un COMODÍN, y no es capricho: el cliente llega al daemon por un túnel
+contra `127.0.0.1`, así que atarlo a una dirección suelta de la LAN le cortaría el acceso a
+la máquina entera. El servidor abre un socket, no una lista.
+
+Las alternativas descartadas: que el daemon abra su propio túnel SSH —volver a las
+credenciales que acabamos de quitar— o que nivele el cliente cuando esté abierto, que deja
+de ser desatendido, que era el sentido de programar.
+
+**Verificado de punta a punta** entre esta máquina y unibody: `peers --listen 0.0.0.0` en
+el destino, `peers --push` en el origen, y una programación con `nivelar=on`. Salió el
+envío completo y, en la pasada siguiente, el INCREMENTAL sobre la instantánea que ya estaba
+allí. Sin `ssh`, sin `sshpass` y sin ninguna tubería de shell.
 
 Nivelar contra la MISMA máquina (`local::pool/ds`) funciona sin nada de esto, y sigue
 pasando por una tubería local: es lo único que queda ahí del intérprete.

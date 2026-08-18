@@ -1334,6 +1334,12 @@ int main() {
         comprobar(!banderasDeSendValidas("-t testigo", mala),
                   "send: -t tampoco");
         comprobar(!banderasDeSendValidas("-R -X", mala), "send: -X sin dataset NO pasa");
+        // Agrupadas: es como las escribe OpenZFS y como las manda el planificador.
+        comprobar(banderasDeSendValidas("-wLec", mala), "send: un grupo de banderas buenas pasa");
+        comprobar(!banderasDeSendValidas("-wLZ", mala), "send: un grupo con una ajena NO pasa");
+        igual(mala, "-wLZ", "send: y se señala el grupo entero, no una letra suelta");
+        comprobar(!banderasDeSendValidas("-wX", mala),
+                  "send: un grupo con una que lleva valor tampoco: no se sabe dónde empieza");
     }
 
     // --- Las instantáneas programadas (GSA).

@@ -2094,6 +2094,25 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
+    if (!pet.valor("listen").empty()) {
+        const std::string dir = pet.valor("listen");
+        if (!confirma(e, B::format(T("t_conf_peers_listen",
+                                     "El daemon de %1 pasará a atender en %2 y se reiniciará.\n"
+                                     "Con un comodín, su puerto queda alcanzable desde la red "
+                                     "—protegido por mTLS con el certificado de cliente fijado—. "
+                                     "¿Continuar?"),
+                                   {destino.connection, dir}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
+        std::string out;
+        if (!agente(e, destino, {"--mutate-set-bind", dir}, out, 20000)) {
+            return false;
+        }
+        std::fprintf(stderr, TC("t_peers_bind", "%s atiende ahora en %s; su daemon se está "
+                     "reiniciando\n"), destino.connection.c_str(), dir.c_str());
+        return true;
+    }
     if (!pet.tiene("--push")) {
         std::string out;
         if (!agente(e, destino, {"--dump-peers"}, out, 20000)) {

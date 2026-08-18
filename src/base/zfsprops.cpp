@@ -78,16 +78,39 @@ const std::vector<BanderaSend>& banderasDeSend() {
     return kTabla;
 }
 
+// ¿Está declarada esta forma, tal cual?
+const BanderaSend* buscaBanderaSend(const std::string& forma) {
+    for (const BanderaSend& b : banderasDeSend()) {
+        if (forma == b.forma) {
+            return &b;
+        }
+    }
+    return nullptr;
+}
+
 bool banderasDeSendValidas(const std::string& cadena, std::string& mala) {
     mala.clear();
     std::istringstream iss(cadena);
     std::string tok;
     while (iss >> tok) {
-        const BanderaSend* encontrada = nullptr;
-        for (const BanderaSend& b : banderasDeSend()) {
-            if (tok == b.forma) {
-                encontrada = &b;
-                break;
+        const BanderaSend* encontrada = buscaBanderaSend(tok);
+        // AGRUPADAS: `-wLec` son cuatro. Es como las escribe el manual de OpenZFS y como
+        // las manda el planificador de instantáneas, así que rechazarlas aquí no protegía
+        // de nada y sí cortaba una nivelación entera.
+        //
+        // Se acepta el grupo solo si TODAS las letras están declaradas y NINGUNA lleva
+        // valor: con una que lo lleve no se sabe dónde empieza el valor sin inventárselo.
+        if (!encontrada && tok.size() > 2 && tok[0] == '-' && tok[1] != '-') {
+            bool todas = true;
+            for (std::size_t i = 1; i < tok.size(); ++i) {
+                const BanderaSend* una = buscaBanderaSend(std::string("-") + tok[i]);
+                if (!una || una->valor) {
+                    todas = false;
+                    break;
+                }
+            }
+            if (todas) {
+                continue;
             }
         }
         if (!encontrada) {

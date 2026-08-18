@@ -467,6 +467,7 @@ std::string agentCapabilityList() {
     caps.push_back("--zfs-send-to-peer");
     caps.push_back("--mutate-set-peers");
     caps.push_back("--dump-peers");
+    caps.push_back("--mutate-set-bind");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -4580,8 +4581,11 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
     GsaPeer peer;
     bool peerListo = false;
     std::string recvOpts = "-u";
-    std::string sendOpts = "-wLEc";
-    if (recursive) { recvOpts = "-u -s"; sendOpts = "-wLEcR"; }
+    // «-e» minúscula: bloques embebidos. Estaba escrito «-E», que NO es una bandera de
+    // `zfs send` —su propia ayuda dice [-DLPbcehnpsVvw]— y hacía fallar el envío entero.
+    // No se había notado porque esta rama llevaba desde siempre sin ejecutarse.
+    std::string sendOpts = "-wLec";
+    if (recursive) { recvOpts = "-u -s"; sendOpts = "-wLecR"; }
 
     // Check if destination dataset exists and get its latest snapshot.
     std::string baseSnap;
@@ -6015,6 +6019,86 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         r.rc = 0;
         r.out = std::string("PEERS=") + kPeersPath + "\n";
         daemonLog("INFO", "peers actualizados por el cliente");
+        return r;
+    }
+    // En qué dirección escucha el daemon. Hace falta para que otro daemon pueda pedirle que
+    // reciba una nivelación: por omisión solo atiende en 127.0.0.1, y ahí solo llega el
+    // cliente porque abre un túnel SSH — de madrugada no hay quien lo abra.
+    //
+    // Solo se admite un COMODÍN. La aplicación llega al daemon por un túnel contra
+    // 127.0.0.1, así que atarlo a una sola dirección de la LAN le cortaría el acceso a la
+    // máquina entera; y este servidor abre un socket, no una lista.
+    //
+    // El puerto queda entonces alcanzable desde la red, protegido por mTLS con el
+    // certificado de cliente FIJADO. No es una categoría nueva de exposición: el puerto de
+    // transferencia ya escucha en 0.0.0.0 con un testigo de un solo uso.
+    if (cmd == "--mutate-set-bind") {
+        if (params.size() < 1) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-set-bind <0.0.0.0|::|127.0.0.1>\n";
+            return r;
+        }
+        const std::string dir = trim(params[0]);
+        if (dir != "0.0.0.0" && dir != "::" && dir != "127.0.0.1") {
+            r.rc = 2;
+            r.err = "solo se admite 0.0.0.0, :: o 127.0.0.1: el cliente llega por un tunel "
+                    "contra 127.0.0.1 y una direccion suelta le cortaria el acceso\n";
+            return r;
+        }
+        std::ifstream in(kDefaultAgentConfigPath);
+        if (!in.is_open()) {
+            r.rc = 1;
+            r.err = std::string("no se pudo leer ") + kDefaultAgentConfigPath + "\n";
+            return r;
+        }
+        std::vector<std::string> lineas;
+        std::string l;
+        bool puesta = false;
+        while (std::getline(in, l)) {
+            if (l.rfind("AGENT_BIND=", 0) == 0) {
+                lineas.push_back("AGENT_BIND='" + dir + "'");
+                puesta = true;
+            } else {
+                lineas.push_back(l);
+            }
+        }
+        in.close();
+        if (!puesta) {
+            lineas.push_back("AGENT_BIND='" + dir + "'");
+        }
+        const std::string tmp = std::string(kDefaultAgentConfigPath) + ".tmp";
+        {
+            std::ofstream out(tmp, std::ios::trunc);
+            if (!out.is_open()) {
+                r.rc = 1; r.err = std::string("no se pudo escribir ") + tmp + "\n"; return r;
+            }
+            for (const std::string& x : lineas) {
+                out << x << "\n";
+            }
+        }
+#ifndef _WIN32
+        ::chmod(tmp.c_str(), 0600);
+#endif
+        std::error_code ec;
+        std::filesystem::rename(tmp, kDefaultAgentConfigPath, ec);
+        if (ec) {
+            std::filesystem::remove(tmp, ec);
+            r.rc = 1;
+            r.err = std::string("no se pudo colocar ") + kDefaultAgentConfigPath + "\n";
+            return r;
+        }
+        daemonLog("INFO", "AGENT_BIND cambiado a " + dir + "; reiniciando para aplicarlo");
+        r.rc = 0;
+        r.out = "BIND=" + dir + "\nRESTARTING=1\n";
+        // Se responde ANTES de salir, y se sale en otro hilo: el gestor de servicios lo
+        // levanta —`Restart=always`— con la dirección nueva. Salir aquí mismo dejaría al
+        // cliente sin respuesta y con cara de que ha fallado.
+        std::thread([]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(700));
+            g_stop.store(true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            std::_Exit(0);
+        }).detach();
         return r;
     }
     if (cmd == "--dump-peers") {
