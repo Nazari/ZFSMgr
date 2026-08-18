@@ -93,8 +93,17 @@ QString gsaDefaultValueForScheduling(const QString& prop) {
     if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
         return QString();
     }
+    // Una diaria de siete días como punto de partida.
+    //
+    // Antes se preparaban las CINCO retenciones a 0 y `activado=on`, y esa combinación la
+    // rechaza la propia validación al aplicar —«activada y no guarda ninguna instantánea»,
+    // regla que existe desde marzo—. O sea que la orden preparaba algo que el programa se
+    // negaba a aceptar, y quien la usaba veía o nada o un error sin haber tocado un valor.
+    // Siete diarias es lo que uno quiere el 90 % de las veces y se cambia en el sitio.
+    if (p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("7");
+    }
     if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
         || p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
         || p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
         || p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
@@ -3077,6 +3086,28 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->m_propsDirty = true;
             m_mainWindow->updateApplyPropsButtonState();
             refreshAllTreesForTokenAndDataset(token, actx.datasetName);
+            // Esta acción PREPARA, no aplica: deja las propiedades en el borrador para que
+            // uno ajuste las retenciones y pulse Aplicar. Sin decirlo, y si las columnas de
+            // esas propiedades no están a la vista, no se ve absolutamente nada y parece
+            // que la orden no ha hecho nada.
+            m_mainWindow->appLog(
+                QStringLiteral("NORMAL"),
+                QStringLiteral("Programación preparada para %1 (diaria=7): ajuste las retenciones "
+                               "en las propiedades y pulse Aplicar").arg(actx.datasetName));
+            QMessageBox::information(
+                m_mainWindow, QStringLiteral("ZFSMgr"),
+                m_mainWindow->trk(
+                    QStringLiteral("t_sched_prepared_001"),
+                    QStringLiteral("Programación preparada para «%1»: activada, con 7 instantáneas "
+                                   "diarias.\n\nNo se ha aplicado todavía. Ajuste las retenciones en "
+                                   "las propiedades del dataset (org.fc16.gsa:*) y pulse Aplicar.")
+                        .arg(actx.datasetName),
+                    QStringLiteral("Schedule prepared for «%1»: enabled, keeping 7 daily "
+                                   "snapshots.\n\nIt has not been applied yet. Adjust the retentions "
+                                   "in the dataset properties (org.fc16.gsa:*) and press Apply.")
+                        .arg(actx.datasetName),
+                    QStringLiteral("已为「%1」准备计划：已启用，保留 7 份每日快照。\n\n尚未应用。")
+                        .arg(actx.datasetName)));
             return;
         }
         if (picked == aNewHold) {
