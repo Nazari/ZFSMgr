@@ -12,6 +12,7 @@ Ver docs/gramatica_cli.md.
     python3 scripts/revisa_firmas_cli.py          # el resumen
     python3 scripts/revisa_firmas_cli.py --mudas   # solo las que pueden ignorar argumentos
     python3 scripts/revisa_firmas_cli.py --sordas  # solo las que piden un valor sin declararlo
+    python3 scripts/revisa_firmas_cli.py --opacas  # las que este guion no puede comprobar
 """
 import re
 import sys
@@ -27,6 +28,13 @@ def cuerpos_de_funciones(texto, patron=r"^bool (cmd[A-Za-z]+)\(Estado&"):
     out = {}
     for m in re.finditer(patron, texto, re.M):
         i = texto.index("{", m.start())
+        # Una DECLARACIÓN no es una definición: `bool cmdX(...);` no tiene cuerpo, y
+        # buscarle la siguiente llave da el cuerpo de OTRA función. Con el prototipo detrás
+        # de la definición —que es lo que pasa aquí— ese cuerpo falso ganaba, y el guion
+        # analizaba código que no era el de la orden. Así se le escapó `edit`.
+        punto = texto.find(";", m.start())
+        if punto != -1 and punto < i:
+            continue
         prof, j = 0, i
         while j < len(texto):
             if texto[j] == "{":
@@ -127,6 +135,15 @@ def main():
                 c += alcanzable(llamada, vistas)
         return c
 
+    # Las opciones que se piden con una CLAVE que no es literal —`pet.valor(clave)` dentro
+    # de un ayudante—, que este guion no puede seguir. Se listan en vez de callarlas: es el
+    # punto ciego por el que `edit --name X` pasó desapercibido, y era una orden entera
+    # inservible fuera del modo interactivo.
+    opacas = []
+    for verbo, fn in sorted(mapa.items()):
+        if re.search(r'\bvalor\((?!")', alcanzable(fn)):
+            opacas.append(verbo)
+
     sordas = []
     for verbo, fn in sorted(mapa.items()):
         c = alcanzable(fn)
@@ -142,6 +159,11 @@ def main():
                 tramo = f[i:].split(" / ")[0]
                 if "<" not in tramo:
                     sordas.append(f"{verbo} --{opcion}   (declarada como «{f}»)")
+
+    if "--opacas" in sys.argv:
+        for o in opacas:
+            print(o)
+        return 0
 
     if "--sordas" in sys.argv:
         for s in sordas:
@@ -169,6 +191,9 @@ def main():
         print()
         print(f"  sin destino ({len(sin_destino)}): {', '.join(sin_destino)}")
 
+    print()
+    print(f"  PIDEN EL VALOR CON UNA CLAVE NO LITERAL, no comprobables aquí ({len(opacas)}):")
+    print("     ", ", ".join(opacas) or "ninguna")
     print()
     print(f"  PIDEN UN VALOR QUE NO DECLARAN ({len(sordas)}):")
     for s in sordas:

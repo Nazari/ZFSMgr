@@ -196,17 +196,17 @@ int main() {
     // tenían los componentes corrientes, que a un punto de montaje con espacios le quitan
     // las comillas desde el principio.
     {
-        const auto a = analizaLinea("copy /otra/x --flags \"-w -L\"");
-        igual(a.opciones.count("flags") ? a.opciones.at("flags") : "", "-w -L",
-              "«--flags \"-w -L\"»: un solo valor, sin comillas");
-        igual(a.uno("destino"), "/otra/x", "«--flags \"-w -L\"»: y el destino sigue en su sitio");
+        const auto a = analizaLinea("edit prueba --name \"Casa Mia\"");
+        igual(a.opciones.count("name") ? a.opciones.at("name") : "", "Casa Mia",
+              "«--name \"Casa Mia\"»: un solo valor, sin comillas");
+        igual(a.objetivo, "prueba", "«--name \"Casa Mia\"»: y el destino sigue en su sitio");
         const auto b = analizaLinea("create datos --mountpoint \"/mnt/con espacio\"");
         igual(b.opciones.count("mountpoint") ? b.opciones.at("mountpoint") : "",
               "/mnt/con espacio", "«--mountpoint \"/mnt/con espacio\"»: el espacio no parte el valor");
-        // Control: sin comillas SÍ se parte, que es lo que hace falta cuando no las lleva.
-        const auto c = analizaLinea("copy /otra/x --flags -w");
-        igual(c.opciones.count("flags") ? c.opciones.at("flags") : "", "-w",
-              "«--flags -w»: sin comillas, el valor es el componente");
+        // Control: sin comillas el valor es el componente siguiente y nada más.
+        const auto c = analizaLinea("edit prueba --name Casa");
+        igual(c.opciones.count("name") ? c.opciones.at("name") : "", "Casa",
+              "«--name Casa»: sin comillas, el valor es el componente");
     }
     {
         // Una opción SIN valor no se traga el componente siguiente.

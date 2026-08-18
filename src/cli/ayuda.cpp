@@ -217,9 +217,20 @@ const std::vector<Orden> kOrdenes = {
       "en él decide."}},
      Objetivo::Conexion,
      {}},
-    {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name …] [--host …] …"},
+    {"edit", {"t_conexiones_3785cd", "Conexiones y pools"}, {"t_name_host_73f07e", "[--name <n>] [--host <h>] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
-     {{{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}}},
+     // Cada opción con su «<...>»: es lo que le dice al léxico que se lleva por delante el
+     // componente siguiente. Sin eso, `edit prueba --name Renombrada` no era «cambia el
+     // nombre»: «--name» quedaba como bandera suelta y «Renombrada» como una segunda
+     // palabra que la orden no admite, así que respondía con la línea de uso. La orden
+     // entera era inservible fuera del modo interactivo.
+     {{{"t_edit_name", "--name <n> / --type <LOCAL|SSH> / --os <s>"},
+       {"t_edit_name_q", "Nombre visible, tipo y sistema."}},
+      {{"t_edit_host", "--host <h> / --port <n> / --user <u> / --key <ruta>"},
+       {"t_edit_host_q", "Cómo se llega a la máquina."}},
+      {{"t_edit_sudo", "--sudo / --no-sudo"}, {"t_edit_sudo_q", "Si la máquina necesita elevar."}},
+      {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}},
+      {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}}},
      {},
      Objetivo::Conexion,
      {}},
@@ -447,7 +458,6 @@ const std::vector<Orden> kOrdenes = {
      {"t_manda_una__2d0418", "Manda una instantánea a otro dataset, aquí o en otra máquina."},
      {{{"t_from_insta_ce64b3", "--from <@instantánea>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
       {{"t_base_insta_074a40", "--base <@instantánea>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
-      {{"t_flags_b14893", "--flags <...>"}, {"t_banderas_q_714c60", "Banderas que se pasan a zfs send."}},
       {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
      {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "

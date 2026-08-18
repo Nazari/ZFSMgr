@@ -2253,31 +2253,24 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    // Las banderas de `zfs send` se pueden escribir sueltas —`copy /otra/x -w -L`— o en
-    // bloque con `--flags "-w -L"`, que es como se hacía. Las dos acaban en la misma cadena
-    // y las dos se comprueban contra la misma lista.
+    // Las banderas de `zfs send` se escriben SUELTAS: `copy /otra/x -w -L`.
     //
-    // `--flags` era texto libre hasta el argv de un `zfs send` con privilegios: lo que se
-    // escribiera ahí se troceaba por espacios y se metía tal cual, así que un
-    // `--flags "tank/otro@ayer"` sacaba por el socket un dataset que no era el pedido. El
-    // daemon lo rechaza igualmente; aquí se comprueba ANTES de preguntar, porque hacer
-    // confirmar una copia para luego decir que la bandera no vale es preguntar en balde.
+    // Hubo una opción `--flags "-w -L"` que envolvía lo mismo en una cadena, y sobraba: el
+    // léxico ya sabe cuáles son banderas de esta orden porque están declaradas, así que
+    // meterlas en un texto entrecomillado solo añadía una forma más de escribir lo mismo —y
+    // una que había que validar aparte, porque ese texto llegaba en crudo al argv de un
+    // `zfs send` con privilegios: `--flags "tank/otro@ayer"` sacaba por el socket un
+    // dataset que no era el pedido—.
+    //
+    // El daemon sigue comprobando la lista, que es donde tiene que comprobarse: el
+    // intérprete es un cliente más.
     std::string banderasSend;
     for (const std::string& n : pet.nativas()) {
         banderasSend += (banderasSend.empty() ? "" : " ") + n;
     }
-    if (!pet.valor("flags").empty()) {
-        std::string mala;
-        if (!B::zfsprops::banderasDeSendValidas(pet.valor("flags"), mala)) {
-            std::fprintf(stderr, TC("t_bandera_send_no_admitida",
-                         "«%s» no es una bandera de zfs send\n"), mala.c_str());
-            return false;
-        }
-        banderasSend += (banderasSend.empty() ? "" : " ") + pet.valor("flags");
-    }
     if (pet.lista("destino").empty() && pet.valor("to").empty()) {
         std::fputs(TC("t_uso_copy_d_f6efbc", "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
-                     "          [--flags <banderas de zfs send>] [--wait]\n"
+                     "          [banderas de zfs send] [--wait]\n"
                      "  El destino es una URL: puede estar en OTRA máquina.\n"
                      "  Sin --from se usa el sitio actual como origen.\n"
                      "  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n"
