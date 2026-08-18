@@ -341,6 +341,18 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Dataset, {}},
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
+    {"change-key", {"t_dataset_105268", "Datasets"}, {"t_ck_uso", "[--password-fd <n>]"},
+     {"t_ck_res", "Cambia la frase de paso de un dataset cifrado."},
+     {{{"t_edit_pfd", "--password-fd <n>"}, {"t_ck_fd_q", "La frase nueva, por descriptor. Sin ella se "
+       "teclea, y se pide dos veces."}}},
+     {{"t_ck_det1", "La frase NUNCA viaja por argumento: iría en el argv del proceso y se vería con "
+       "`ps` en las dos máquinas. Va cifrada dentro de la petición al daemon, que se la da "
+       "a `zfs change-key` por la entrada estándar."},
+      {"t_ck_det2", "El dataset tiene que tener la clave CARGADA: sobre uno bloqueado, `zfs` no puede "
+       "cambiar nada. Si hace falta, primero «load-key»."},
+      {"t_ck_det3", "Cambia la frase de ESTE dataset. Los que heredan su clave la siguen heredando; "
+       "para eso no hay que hacer nada más."}},
+     Objetivo::Dataset, {}},
 
     // --- Instantáneas
     {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},

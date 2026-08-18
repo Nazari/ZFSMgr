@@ -2592,6 +2592,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aToDir = nullptr;
     QAction* aMount = nullptr;
     QAction* aUnmount = nullptr;
+    QAction* aPromote = nullptr;
     QAction* aSelectOrigin = nullptr;
     QAction* aPermNewSet = nullptr;
     QAction* aPermNewDeleg = nullptr;
@@ -2650,6 +2651,14 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                               QStringLiteral("Desmontar"),
                               QStringLiteral("Unmount"),
                               QStringLiteral("卸载")));
+            // Promover un clon. Estaba en la lista de mutaciones permitidas y en la de
+            // permisos delegables, pero no había forma de invocarlo desde la interfaz: es
+            // justo lo que hace falta después de clonar, para soltar la atadura con la
+            // instantánea de origen y poder borrarla.
+            aPromote = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_promote001"),
+                              QStringLiteral("Promover clon"),
+                              QStringLiteral("Promote clone"),
+                              QStringLiteral("提升克隆")));
             datasetMenuRoot->addSeparator();
             mEncryption = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_enc_key001"),
                               QStringLiteral("Clave de encriptación"),
@@ -2957,6 +2966,13 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                      && !hasConnSnap && alreadyMounted);
             }
         }
+        if (aPromote) {
+            // No se comprueba que SEA un clon: saberlo pide la propiedad `origin`, que el
+            // árbol no trae, y consultarla costaría una ida y vuelta cada vez que se abre
+            // el menú. Sobre un dataset que no es clon, `zfs promote` lo dice y no toca
+            // nada; la confirmación lo advierte.
+            aPromote->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap);
+        }
         if (aSelectOrigin) {
             aSelectOrigin->setEnabled(hasConnSel);
         }
@@ -3199,6 +3215,68 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->appLog(QStringLiteral("NORMAL"),
                                  QStringLiteral("Cambio pendiente añadido: %1::%2  Rollback snapshot %3")
                                      .arg(connLabel, actx.poolName, snapObj));
+            m_mainWindow->updateApplyPropsButtonState();
+            return;
+        }
+        if (picked == aPromote) {
+            const SelectionSnapshot actx = selectionForMenuContext();
+            if (!actx.valid || actx.datasetName.trimmed().isEmpty()
+                || !actx.snapshotName.trimmed().isEmpty()) {
+                return;
+            }
+            const QString ds = actx.datasetName.trimmed();
+            if (QMessageBox::question(
+                    m_mainWindow, QStringLiteral("ZFSMgr"),
+                    m_mainWindow->trk(QStringLiteral("t_promote_confirm001"),
+                        QStringLiteral("Promover %1 lo convierte en dataset independiente: pasa a ser "
+                                       "dueño de los datos y su instantánea de origen queda colgando "
+                                       "del dataset del que era clon.\n\nSolo tiene efecto si %1 es un "
+                                       "clon.\n\n¿Continuar?").arg(ds),
+                        QStringLiteral("Promoting %1 makes it an independent dataset: it takes ownership "
+                                       "of the data and its origin snapshot moves under the dataset it "
+                                       "was cloned from.\n\nIt only has an effect if %1 is a clone."
+                                       "\n\nContinue?").arg(ds),
+                        QStringLiteral("提升 %1 会使其成为独立数据集。\n\n继续？").arg(ds)),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+                return;
+            }
+            ConnectionProfile cp = m_mainWindow->m_conns.profiles[actx.connIdx];
+            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
+                cp.useSudo = true;
+                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
+                    m_mainWindow->appLog(QStringLiteral("INFO"),
+                                         QStringLiteral("Promote cancelado: faltan credenciales sudo locales"));
+                    return;
+                }
+            }
+            // Va por el mismo carril que las demás mutaciones de dataset: la orden se
+            // encola y, si el daemon está al día, `daemonMutationPlanForCommand` la
+            // convierte en RPC tipado —«promote» ya está en su lista de permitidas—.
+            const QString cmd = QStringLiteral("zfs promote %1").arg(mwhelpers::shSingleQuote(ds));
+            const QString fullCmd = m_mainWindow->sshExecFromLocal(
+                cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(cmd)));
+            MainWindow::DatasetSelectionContext refreshTarget;
+            refreshTarget.valid = true;
+            refreshTarget.connIdx = actx.connIdx;
+            refreshTarget.poolName = actx.poolName;
+            refreshTarget.datasetName = ds;
+            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+            QString errorText;
+            if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
+                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
+                    QStringLiteral("Promover clon %1").arg(ds),
+                    fullCmd,
+                    90000,
+                    false,
+                    {},
+                    refreshTarget,
+                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            m_mainWindow->appLog(QStringLiteral("NORMAL"),
+                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Promover clon %3")
+                                     .arg(connLabel, actx.poolName, ds));
             m_mainWindow->updateApplyPropsButtonState();
             return;
         }

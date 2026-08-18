@@ -2035,6 +2035,52 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         std::fprintf(stderr, TC("t_clave_carg_09d2f4", "clave cargada en %s\n"), destino.dataset.c_str());
         return true;
     }
+    // Cambiar la frase. Va aparte de `zfsGenerico` por lo mismo que `load-key`: la frase no
+    // puede ir en el argv, así que la lleva el verbo dedicado del daemon —cifrada dentro de
+    // la petición— y allí se le entrega a `zfs` por la entrada estándar.
+    if (std::string(op) == "change-key") {
+        std::string frase;
+        std::string err;
+        const std::string fd = pet.valor("password-fd");
+        if (!fd.empty()) {
+            if (!leerSecretoDeDescriptor(std::atoi(fd.c_str()), frase, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+        } else {
+            // Se pide DOS veces: sin eco, un dedazo dejaría el dataset con una frase que
+            // nadie conoce, y eso no tiene vuelta atrás.
+            std::string otra;
+            if (!preguntarSecretoPorTerminal(T("t_p_frase_nueva", "Frase de paso nueva: "), frase, err)
+                || !preguntarSecretoPorTerminal(T("t_p_frase_rep", "Repítala: "), otra, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+            if (frase != otra) {
+                std::fputs(TC("t_frases_no_coinciden", "las dos frases no coinciden; no se ha cambiado nada\n"), stderr);
+                for (char& c : frase) { c = '\0'; }
+                for (char& c : otra) { c = '\0'; }
+                return false;
+            }
+            for (char& c : otra) { c = '\0'; }
+        }
+        if (frase.empty()) {
+            std::fputs(TC("t_frase_vacia", "la frase de paso no puede estar vacía\n"), stderr);
+            return false;
+        }
+        std::string out;
+        const bool ok = agente(e, destino,
+                               {"--mutate-zfs-change-key", B::base64Encode(destino.dataset),
+                                B::base64Encode(frase), B::base64Encode(std::string())},
+                               out);
+        for (char& c : frase) { c = '\0'; }
+        if (!ok) {
+            return false;
+        }
+        std::fprintf(stderr, TC("t_clave_cambiada", "cambiada la frase de paso de %s\n"),
+                     destino.dataset.c_str());
+        return true;
+    }
     if (!zfsGenerico(e, destino, {op, destino.dataset})) {
         return false;
     }
@@ -3866,6 +3912,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"set", cmdSet},
         {"load-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "load-key"); }},
         {"unload-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "unload-key"); }},
+        {"change-key", [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "change-key"); }},
         {"breakdown", cmdBreakdown},
         {"assemble", cmdAssemble},
         {"todir", cmdToDir},
