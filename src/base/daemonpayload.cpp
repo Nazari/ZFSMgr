@@ -342,9 +342,6 @@ case "$cmd" in
   --dump-zfs-get-gsa-raw-recursive)
     exec zfs get -H -o name,property,value,source -r org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$2"
     ;;
-  --dump-gsa-connections-conf)
-    [ -r /etc/zfsmgr/gsa-connections.conf ] && cat /etc/zfsmgr/gsa-connections.conf || true
-    ;;
   --wait-for-event)
     # Block until a ZED event arrives or timeout expires.
     # zpool events -f -H follows the event stream; we read one line and exit.

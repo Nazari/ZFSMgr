@@ -4121,35 +4121,9 @@ ExecResult runDumpGsaRawAllPoolsCapture() {
     return r;
 }
 
-int runDumpGsaConnectionsConf() {
-    std::ifstream f("/etc/zfsmgr/gsa-connections.conf");
-    if (!f.is_open()) {
-        return 0;
-    }
-    std::cout << f.rdbuf();
-    return 0;
-}
 
-ExecResult runDumpGsaConnectionsConfCapture() {
-    ExecResult r;
-    std::ifstream f("/etc/zfsmgr/gsa-connections.conf");
-    if (!f.is_open()) {
-        r.rc = 0;
-        return r;
-    }
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    r.rc = 0;
-    r.out = ss.str();
-    return r;
-}
 
 // ── GSA scheduler ────────────────────────────────────────────────────────────
-
-constexpr const char* kGsaConfPath         = "/etc/zfsmgr/gsa.conf";
-constexpr const char* kGsaDefaultLogFile   = "/var/lib/zfsmgr/gsa.log";
-constexpr const char* kGsaDefaultConnFile  = "/etc/zfsmgr/gsa-connections.conf";
-constexpr long long   kGsaLogMaxBytes      = 1048576; // 1 MiB
 
 using KVMap = std::unordered_map<std::string, std::string>;
 
@@ -4179,86 +4153,6 @@ KVMap gsaReadKV(const std::string& path) {
         out[trim(t.substr(0, eq))] = stripQuotes(t.substr(eq + 1));
     }
     return out;
-}
-
-struct GsaConf {
-    std::string configDir;
-    std::string logFile;
-    std::string connectionsFile;
-};
-
-GsaConf gsaLoadConf() {
-    GsaConf c;
-    const KVMap kv = gsaReadKV(kGsaConfPath);
-    auto get = [&](const char* k, const std::string& def) -> std::string {
-        const auto it = kv.find(k);
-        return (it != kv.end() && !it->second.empty()) ? it->second : def;
-    };
-    c.configDir       = get("CONFIG_DIR", "/var/lib/zfsmgr");
-    c.logFile         = get("LOG_FILE", kGsaDefaultLogFile);
-    c.connectionsFile = get("CONNECTIONS_FILE", kGsaDefaultConnFile);
-    return c;
-}
-
-struct GsaTargetConn {
-    std::string mode; // "local" or "ssh"
-    std::string host;
-    std::string user;
-    std::string port;
-    std::string key;
-    std::string pass;
-    bool useSudo{false};
-    std::string knownHostsFile;
-};
-
-bool gsaResolveTarget(const KVMap& connKv, const std::string& connId,
-                      const std::string& selfConn, GsaTargetConn& out) {
-    if (connId == selfConn) {
-        out.mode = "local";
-        return true;
-    }
-    const std::string prefix = "connection_" + connId + "_";
-    auto get = [&](const char* suffix) -> std::string {
-        const auto it = connKv.find(prefix + suffix);
-        return (it != connKv.end()) ? it->second : std::string();
-    };
-    const std::string mode = get("MODE");
-    if (mode.empty()) return false;
-    out.mode    = mode;
-    out.host    = get("HOST");
-    out.user    = get("USER");
-    out.port    = get("PORT");
-    out.key     = get("KEY");
-    out.pass    = get("PASS");
-    out.useSudo = gsaBoolOn(get("USE_SUDO"));
-    const auto kh = connKv.find("KNOWN_HOSTS_FILE");
-    if (kh != connKv.end()) out.knownHostsFile = kh->second;
-    return !out.host.empty() && !out.user.empty();
-}
-
-void gsaRotateLog(const std::string& logFile) {
-    std::ifstream f(logFile, std::ios::ate | std::ios::binary);
-    if (!f.is_open()) return;
-    const auto sz = static_cast<long long>(f.tellg());
-    f.close();
-    if (sz < kGsaLogMaxBytes) return;
-    for (int i = 3; i >= 1; --i) {
-        const std::string from = logFile + "." + std::to_string(i);
-        const std::string to   = logFile + "." + std::to_string(i + 1);
-        std::remove(to.c_str());
-        std::rename(from.c_str(), to.c_str());
-    }
-    std::rename(logFile.c_str(), (logFile + ".1").c_str());
-}
-
-// Returns a logger function that appends timestamped lines to the GSA log.
-std::function<void(const std::string&)> gsaMakeLogger(const std::string& logFile) {
-    return [logFile](const std::string& msg) {
-        const std::string ts = utcNowIsoString();
-        const std::string line = ts + " " + msg + "\n";
-        std::ofstream f(logFile, std::ios::app);
-        if (f.is_open()) f << line;
-    };
 }
 
 // Returns "YYYYMMDD-HHMMSS" in local time.
@@ -4441,22 +4335,6 @@ void gsaPruneSnapshots(const std::string& ds, const std::string& klass,
 }
 
 // Run a command on the SSH target, return combined exit code.
-int gsaRunViaSsh(const GsaTargetConn& tc, const std::string& remoteCmd) {
-    std::vector<std::string> sshArgs;
-    sshArgs.push_back("-o"); sshArgs.push_back("BatchMode=yes");
-    sshArgs.push_back("-o"); sshArgs.push_back("ConnectTimeout=10");
-    sshArgs.push_back("-o"); sshArgs.push_back("LogLevel=ERROR");
-    if (!tc.knownHostsFile.empty()) {
-        sshArgs.push_back("-o"); sshArgs.push_back("StrictHostKeyChecking=yes");
-        sshArgs.push_back("-o"); sshArgs.push_back("UserKnownHostsFile=" + tc.knownHostsFile);
-    }
-    if (!tc.port.empty()) { sshArgs.push_back("-p"); sshArgs.push_back(tc.port); }
-    if (!tc.key.empty())  { sshArgs.push_back("-i"); sshArgs.push_back(tc.key); }
-    sshArgs.push_back(tc.user + "@" + tc.host);
-    sshArgs.push_back(remoteCmd);
-    const ExecResult r = runExecCapture("ssh", sshArgs);
-    return r.rc;
-}
 
 // ── Los PARES del daemon ────────────────────────────────────────────────────────────
 //
@@ -4492,6 +4370,27 @@ struct GsaPeer {
     std::string clientCertPem;
     std::string clientKeyPem;
 };
+
+// El nombre de conexión con el que ESTA máquina se conoce a sí misma, según el cliente.
+//
+// Sustituye a `SELF_CONNECTION` de `gsa-connections.conf`. Sirve para lo único que hacía
+// falta: distinguir «nivela contra otra máquina» de «nivela contra un dataset de aquí».
+// Sin él, un nombre de conexión mal escrito se tomaría por local y la nivelación acabaría
+// en un dataset de esta máquina en vez de fallar, que es lo que tiene que hacer.
+std::string gsaYoMismo() {
+    std::ifstream f(kPeersPath);
+    if (!f.is_open()) {
+        return {};
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    zfsmgr::base::json::Value raiz;
+    std::string err;
+    if (!zfsmgr::base::json::parse(ss.str(), raiz, &err)) {
+        return {};
+    }
+    return trim(raiz["self"].toString());
+}
 
 bool gsaCargaPeer(const std::string& id, GsaPeer& out) {
     std::ifstream f(kPeersPath);
@@ -4559,6 +4458,14 @@ bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     }
     return true;
 }
+
+// Lo que queda del «destino» después de quitar el SSH: si es esta misma máquina, y si
+// allí hay que elevar. El usuario, el host, el puerto, la clave y el known_hosts eran
+// para abrir la sesión remota, y ya no se abre ninguna.
+struct GsaTargetConn {
+    std::string mode;      // «local» si el destino es esta máquina
+    bool useSudo{false};
+};
 
 void gsaLevelSnapshot(const std::string& ds, bool recursive,
                       const std::string& snapName, const std::string& dstSpec,
@@ -4727,12 +4634,9 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
     // programación está en las propiedades del dataset—. Lo único que sí necesita
     // credenciales es NIVELAR contra otra máquina, y eso se comprueba abajo, donde toca,
     // diciéndolo en el registro en vez de callar la pasada entera.
-    const GsaConf conf  = gsaLoadConf();
-    const KVMap connKv  = gsaReadKV(conf.connectionsFile);
-    const std::string selfConn = [&]() -> std::string {
-        const auto it = connKv.find("SELF_CONNECTION");
-        return (it != connKv.end()) ? it->second : "local";
-    }();
+    // Con quién se identifica esta máquina, para saber si un destino es ELLA. Sale de
+    // `peers.json`, que ya escribe el cliente; antes salía de `gsa-connections.conf`.
+    const std::string selfConn = gsaYoMismo();
 
     const ExecResult dsResult = runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "filesystem"});
     if (dsResult.rc != 0 || trim(dsResult.out).empty()) return;
@@ -4805,12 +4709,13 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
         if (levelOn && !dstSpec.empty()) {
             const std::size_t sep = dstSpec.find("::");
             if (sep != std::string::npos) {
-                const std::string connId = dstSpec.substr(0, sep);
-                // Se INTENTA por el fichero de conexiones antiguo, que es lo único que
-                // distingue el caso «el destino es esta misma máquina». Que no resuelva ya
-                // no cancela nada: el camino normal es el de los pares, y quien decide es
-                // `gsaLevelSnapshot`, que sabe de los dos y dice por cuál va.
-                targetResolved = gsaResolveTarget(connKv, connId, selfConn, target);
+                const std::string connId = trim(dstSpec.substr(0, sep));
+                // El destino soy YO si se llama como me llama el cliente. Lo demás lo
+                // decide `gsaLevelSnapshot`, que busca al par en `peers.json`.
+                if (!selfConn.empty() && toLower(connId) == toLower(selfConn)) {
+                    target.mode = "local";
+                    targetResolved = true;
+                }
             }
         }
 
@@ -4869,16 +4774,18 @@ void runGsaSchedulerThread() {
         }
         if (g_stop.load()) break;
 
-        const GsaConf conf = gsaLoadConf();
-        gsaRotateLog(conf.logFile);
-        const auto log = gsaMakeLogger(conf.logFile);
-        log("GSA scheduler wake version " ZFSMGR_AGENT_VERSION_STRING);
+        // Al registro del DAEMON, no a uno aparte.
+        //
+        // Había un `gsa.log` propio, escrito por este mismo proceso: dos ficheros y dos
+        // verbos para mirar lo que hace una sola cosa. Desde que el intérprete tiene `log`,
+        // tener que saber cuál de los dos mirar es justo lo que sobra — y lo que uno busca
+        // cuando una instantánea no salió es la secuencia completa, no la mitad.
+        const auto log = [](const std::string& linea) { daemonLog("INFO", linea); };
         try {
             gsaRunOnce(log);
         } catch (...) {
-            log("GSA scheduler: uncaught exception in gsaRunOnce");
+            daemonLog("ERROR", "gsa: excepción sin capturar en la pasada");
         }
-        log("GSA scheduler done");
     }
 }
 
@@ -5829,16 +5736,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
              "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino",
              params[0]});
     }
-    if (cmd == "--dump-gsa-connections-conf") return runDumpGsaConnectionsConfCapture();
-    if (cmd == "--dump-gsa-log") {
-        const GsaConf conf = gsaLoadConf();
-        ExecResult lr;
-        std::ifstream f(conf.logFile);
-        if (!f.is_open()) { lr.rc = 0; return lr; }
-        std::ostringstream ss; ss << f.rdbuf();
-        lr.rc = 0; lr.out = ss.str();
-        return lr;
-    }
 
     if (cmd == "--mutate-zfs-snapshot") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-snapshot <target> <recursive>\n"; return r; }
@@ -6593,9 +6490,7 @@ std::string makeRpcCacheKey(const std::string& cmd, const std::vector<std::strin
 
 std::string dumpClassForCommand(const std::string& cmd) {
     if (cmd == "--dump-zfs-get-gsa-raw-all-pools"
-        || cmd == "--dump-zfs-get-gsa-raw-recursive"
-        || cmd == "--dump-gsa-connections-conf"
-        || cmd == "--dump-gsa-log") {
+        || cmd == "--dump-zfs-get-gsa-raw-recursive") {
         return "gsa";
     }
     if (startsWith(cmd, "--dump-zfs-")) {
@@ -7659,16 +7554,6 @@ int main(int argc, char* argv[]) {
             {"get", "-H", "-o", "name,property,value,source", "-r",
              "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino",
              args[2]});
-    }
-    if (cmd == "--dump-gsa-connections-conf") {
-        return runDumpGsaConnectionsConf();
-    }
-    if (cmd == "--dump-gsa-log") {
-        const GsaConf conf = gsaLoadConf();
-        std::ifstream f(conf.logFile);
-        if (!f.is_open()) return 0;
-        std::cout << f.rdbuf();
-        return 0;
     }
     // Una pasada del planificador AHORA, por la línea de órdenes de la propia máquina.
     //

@@ -295,3 +295,35 @@ allí. Sin `ssh`, sin `sshpass` y sin ninguna tubería de shell.
 
 Nivelar contra la MISMA máquina (`local::pool/ds`) funciona sin nada de esto, y sigue
 pasando por una tubería local: es lo único que queda ahí del intérprete.
+
+
+## Los ficheros de GSA desaparecen (2026-08-18)
+
+Al inventariar dónde guarda cosas el programa, GSA salía con **cuatro ficheros propios** y
+ninguno se sostenía ya:
+
+| Fichero | Por qué sobra |
+|---|---|
+| `/etc/zfsmgr/gsa-connections.conf` | nivelar ya no usa SSH: usa `peers.json` |
+| `/etc/zfsmgr/gsa_known_hosts` | idem: no se abre ninguna sesión SSH |
+| `/etc/zfsmgr/gsa.conf` | solo decía dónde estaba el log; ya no hace de interruptor |
+| `/var/lib/zfsmgr/gsa.log` | era un registro PARALELO escrito por el mismo proceso |
+
+El último era el peor: con `log` en el intérprete, tener dos sitios donde mirar obliga a
+acertar cuál, y lo que uno busca cuando una instantánea no salió es la secuencia completa.
+Ahora el planificador escribe con `daemonLog()` y sale todo junto.
+
+Lo único que se rescató de `gsa-connections.conf` fue `SELF_CONNECTION` —el nombre con el
+que la máquina se conoce a sí misma, que hace falta para distinguir «nivela contra otra» de
+«nivela contra un dataset de aquí»—. Va ahora en `peers.json` como campo `self`, y lo
+escribe el cliente, que es quien lo sabe: le está entregando las credenciales a esa
+conexión.
+
+Se van con ellos dos verbos del contrato (`--dump-gsa-log` y
+`--dump-gsa-connections-conf`), su respaldo en el guion de shell, y `gsaRunViaSsh`,
+`gsaResolveTarget`, `gsaLoadConf`, `gsaRotateLog` y `gsaMakeLogger`. En total, 163 líneas
+menos en `daemon_main.cpp`.
+
+**En las máquinas ya instaladas quedan los ficheros huérfanos** —mmela tiene
+`/var/lib/zfsmgr/gsa.log`—. No se borran solos a propósito: borrar ficheros ajenos sin
+pedirlo no es cosa del programa.

@@ -2170,6 +2170,10 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     B::json::Value raiz;
+    // Con quién se identifica ESA máquina: lo sabe el cliente —le está entregando las
+    // credenciales a ella— y allí no hay forma de saberlo. Sirve para que el daemon
+    // distinga «nivela contra otra» de «nivela contra un dataset mío».
+    raiz.set("self", B::json::Value(destino.connection));
     raiz.set("peers", B::json::Value(std::move(pares)));
     const std::string carga = B::json::toCompact(raiz);
     std::string out;
