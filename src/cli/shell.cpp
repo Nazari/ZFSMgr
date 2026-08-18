@@ -1603,6 +1603,20 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     }
     p.port = puertoTexto.empty() ? 0 : std::atoi(puertoTexto.c_str());
 
+    // El sudo se pregunta ANTES que la contraseña, porque es lo que decide si hace falta.
+    //
+    // Estaba después, y con una clave SSH eso dejaba la conexión sin salida: `quiereClave`
+    // miraba `useSudo`, que todavía era falso porque la respuesta no había llegado, así que
+    // no se pedía contraseña; y acto seguido se contestaba que sí usa sudo. La conexión
+    // quedaba con sudo y sin contraseña que darle, sin que nada lo dijera. Es justo el caso
+    // de una máquina a la que se entra por clave y que necesita elevar.
+    if (!pet.tiene("--sudo") && interactivo) {
+        std::string resp;
+        if (!pide(TC("t_p_sudo_n", "¿Usa sudo? (s/N)"), "n", resp)) return false;
+        const std::string r = B::toLowerAscii(resp);
+        p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
+    }
+
     // La contraseña. Por descriptor si se dio, y si no por el terminal con el eco apagado.
     // Solo hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
     //
@@ -1643,13 +1657,6 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
         }
         p.password = clave;
     }
-    if (!pet.tiene("--sudo") && interactivo) {
-        std::string resp;
-        if (!pide(TC("t_p_sudo_n", "¿Usa sudo? (s/N)"), "n", resp)) return false;
-        const std::string r = B::toLowerAscii(resp);
-        p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
-    }
-
     std::string error;
     if (!guardarConexion(*e.ses, p, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
