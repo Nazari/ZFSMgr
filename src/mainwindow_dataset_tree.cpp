@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "base/gsa.h"
 #include "mainwindow_helpers.h"
 #include "i18nmanager.h"
 #include "agentversion.h"
@@ -940,7 +941,7 @@ QString normalizeConnContentChildPathForCompat(const QString& path) {
     return normalized;
 }
 
-QString normalizedConnContentStateToken(QTreeWidget* tree, const QString& token) {
+QString normalizedConnContentStateToken(QTreeWidget* tree, const QString& token, int connIdx) {
     if (!tree) {
         return token.trimmed();
     }
@@ -954,9 +955,7 @@ QString normalizedConnContentStateToken(QTreeWidget* tree, const QString& token)
     if (sep <= 0) {
         return trimmed;
     }
-    bool ok = false;
-    const int connIdx = trimmed.left(sep).toInt(&ok);
-    if (!ok || connIdx < 0) {
+    if (connIdx < 0) {
         return trimmed;
     }
     return QStringLiteral("conn:%1").arg(connIdx);
@@ -1697,12 +1696,10 @@ void MainWindow::updateConnContentDraftValue(const QString& token,
     }
     draft.valuesByProp[p] = normalizedValue;
 
-    const int sep = t.indexOf(QStringLiteral("::"));
-    if (sep > 0) {
-        bool okConn = false;
-        const int connIdx = t.left(sep).toInt(&okConn);
-        const QString poolName = t.mid(sep + 2);
-        if (okConn && connIdx >= 0 && !poolName.isEmpty()) {
+    {
+        int connIdx = -1;
+        QString poolName;
+        if (splitConnToken(t, connIdx, poolName)) {
             const QVector<DatasetPropCacheRow> rows =
                 datasetPropertyRowsFromModelOrCache(connIdx, poolName, o);
             for (const DatasetPropCacheRow& row : rows) {
@@ -1730,12 +1727,10 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
     DatasetPropsDraft draft = propertyDraftForObject(QStringLiteral("conncontent"), t, o);
     draft.inheritByProp[p] = inherit;
 
-    const int sep = t.indexOf(QStringLiteral("::"));
-    if (sep > 0) {
-        bool okConn = false;
-        const int connIdx = t.left(sep).toInt(&okConn);
-        const QString poolName = t.mid(sep + 2);
-        if (okConn && connIdx >= 0 && !poolName.isEmpty()) {
+    {
+        int connIdx = -1;
+        QString poolName;
+        if (splitConnToken(t, connIdx, poolName)) {
             const QVector<DatasetPropCacheRow> rows =
                 datasetPropertyRowsFromModelOrCache(connIdx, poolName, o);
             for (const DatasetPropCacheRow& row : rows) {
@@ -1752,6 +1747,70 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
     }
 
     storePropertyDraftForObject(QStringLiteral("conncontent"), t, o, draft);
+}
+
+// Los datasets de un pool que tienen programación ACTIVADA, contando lo que aún está en
+// el borrador sin aplicar. Es el contenido del nodo «Datasets programados» y, a la vez, lo
+// que comprueba la prueba: si el borrador se guarda con un testigo y se relee con otro,
+// esto devuelve la lista vacía y el nodo desaparece sin decir nada.
+QStringList MainWindow::scheduledDatasetsForPool(int connIdx,
+                                                 const QString& poolName,
+                                                 QMap<QString, QMap<QString, QString>>* propsOut) const {
+    QMap<QString, QMap<QString, QString>> porDataset;
+    const_cast<MainWindow*>(this)->ensurePoolAutoSnapshotInfoLoaded(connIdx, poolName);
+    porDataset = poolAutoSnapshotPropsByDataset(connIdx, poolName);
+    for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
+        if (item.connIdx != connIdx || item.poolName != poolName) {
+            continue;
+        }
+        const QString datasetName = item.objectName.trimmed();
+        if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        for (auto vit = item.draft.valuesByProp.cbegin(); vit != item.draft.valuesByProp.cend(); ++vit) {
+            if (vit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPrefijo),
+                                               Qt::CaseInsensitive)) {
+                porDataset[datasetName].insert(vit.key().trimmed(), vit.value());
+            }
+        }
+        for (auto iit = item.draft.inheritByProp.cbegin(); iit != item.draft.inheritByProp.cend(); ++iit) {
+            if (iit.value()
+                && iit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPrefijo),
+                                                  Qt::CaseInsensitive)) {
+                porDataset[datasetName].remove(iit.key().trimmed());
+            }
+        }
+    }
+    QStringList programados;
+    for (auto it = porDataset.cbegin(); it != porDataset.cend(); ++it) {
+        const QString enabledKey =
+            findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
+        if (!enabledKey.isEmpty() && gsaBoolOn(it.value().value(enabledKey))) {
+            programados.push_back(it.key());
+        }
+    }
+    std::sort(programados.begin(), programados.end(), [](const QString& a, const QString& b) {
+        return QString::compare(a, b, Qt::CaseInsensitive) < 0;
+    });
+    if (propsOut) {
+        *propsOut = porDataset;
+    }
+    return programados;
+}
+
+void MainWindow::stageGsaDraftForTest(int connIdx,
+                                      const QString& poolName,
+                                      const QString& datasetName,
+                                      const QMap<QString, QString>& valuesByProp) {
+    const QString token = QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
+    for (auto it = valuesByProp.cbegin(); it != valuesByProp.cend(); ++it) {
+        updateConnContentDraftInherit(token, datasetName, it.key(), false);
+        updateConnContentDraftValue(token, datasetName, it.key(), it.value());
+    }
+}
+
+QStringList MainWindow::scheduledDatasetsForTest(int connIdx, const QString& poolName) const {
+    return scheduledDatasetsForPool(connIdx, poolName, nullptr);
 }
 
 bool MainWindow::showAutomaticSnapshots() const {
@@ -1972,7 +2031,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     // Asegura que el objeto seleccionado (dataset o snapshot) tenga propiedades
     // disponibles para el render inline del nodo de propiedades.
     ensureDatasetAllPropertiesLoaded(itemConnIdx, itemPool, obj);
-    const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+    const QString draftToken = QStringLiteral("%1::%2").arg(connToken(itemConnIdx), itemPool);
     const QString key = QStringLiteral("%1|%2").arg(draftToken.trimmed(),
                                                     obj.trimmed());
     const auto it = m_connContentPropValuesByObject.constFind(key);
@@ -2158,7 +2217,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                 values[row.prop] = row.value;
             }
         }
-        const QString token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+        const QString token = QStringLiteral("%1::%2").arg(connToken(itemConnIdx), itemPool);
         const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
         const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
         if (liveIt != m_connContentPropValuesByObject.cend()) {
@@ -2777,7 +2836,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         if (token.isEmpty()) {
             return false;
         }
-        const QString normalizedToken = normalizedConnContentStateToken(tree, token);
+        const QString normalizedToken = normalizedConnContentStateToken(tree, token, connIdxFromToken(token.left(token.indexOf(QStringLiteral("::")))));
         const QString scopedToken = normalizedToken + QStringLiteral("|top");
         const auto stateIt = m_connContentTreeStateByToken.constFind(scopedToken);
         if (stateIt == m_connContentTreeStateByToken.cend()) {
@@ -2911,7 +2970,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     }
     const QString activeTreeToken = connContentTokenForTree(tree);
     if (!activeTreeToken.trimmed().isEmpty()) {
-        const QString normalizedToken = normalizedConnContentStateToken(tree, activeTreeToken);
+        const QString normalizedToken = normalizedConnContentStateToken(tree, activeTreeToken, connIdxFromToken(activeTreeToken.left(activeTreeToken.indexOf(QStringLiteral("::")))));
         const QString scopedToken =
             normalizedToken + QStringLiteral("|top");
         const auto stateIt = m_connContentTreeStateByToken.constFind(scopedToken);
@@ -3032,15 +3091,9 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
     QString wantedPoolName;
     const QString resolvedToken = token.trimmed().isEmpty() ? connContentTokenForTree(tree).trimmed()
                                                             : token.trimmed();
-    const int sep = resolvedToken.indexOf(QStringLiteral("::"));
-    if (sep > 0) {
-        bool ok = false;
-        wantedConnIdx = resolvedToken.left(sep).toInt(&ok);
-        wantedPoolName = resolvedToken.mid(sep + 2).trimmed();
-        if (!ok) {
-            wantedConnIdx = -1;
-            wantedPoolName.clear();
-        }
+    if (!splitConnToken(resolvedToken, wantedConnIdx, wantedPoolName)) {
+        wantedConnIdx = -1;
+        wantedPoolName.clear();
     }
     struct PoolRootRef {
         int connIdx{-1};
@@ -3335,37 +3388,8 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         // Pool details may still be loading, but GSA schedule data can already
         // be available (or become available asynchronously).
         QMap<QString, QMap<QString, QString>> preAutoSnapshotPropsByDatasetForPool;
-        ensurePoolAutoSnapshotInfoLoaded(connIdx, poolName);
-        preAutoSnapshotPropsByDatasetForPool = poolAutoSnapshotPropsByDataset(connIdx, poolName);
-        for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
-            if (item.connIdx != connIdx || item.poolName != poolName) {
-                continue;
-            }
-            const QString datasetName = item.objectName.trimmed();
-            if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
-                continue;
-            }
-            for (auto vit = item.draft.valuesByProp.cbegin(); vit != item.draft.valuesByProp.cend(); ++vit) {
-                if (vit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
-                    preAutoSnapshotPropsByDatasetForPool[datasetName].insert(vit.key().trimmed(), vit.value());
-                }
-            }
-            for (auto iit = item.draft.inheritByProp.cbegin(); iit != item.draft.inheritByProp.cend(); ++iit) {
-                if (iit.value() && iit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
-                    preAutoSnapshotPropsByDatasetForPool[datasetName].remove(iit.key().trimmed());
-                }
-            }
-        }
-        QStringList preAutoSnapshotDatasets;
-        for (auto it = preAutoSnapshotPropsByDatasetForPool.cbegin(); it != preAutoSnapshotPropsByDatasetForPool.cend(); ++it) {
-            const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
-            if (!enabledKey.isEmpty() && gsaBoolOn(it.value().value(enabledKey))) {
-                preAutoSnapshotDatasets.push_back(it.key());
-            }
-        }
-        std::sort(preAutoSnapshotDatasets.begin(), preAutoSnapshotDatasets.end(), [](const QString& a, const QString& b) {
-            return QString::compare(a, b, Qt::CaseInsensitive) < 0;
-        });
+        const QStringList preAutoSnapshotDatasets =
+            scheduledDatasetsForPool(connIdx, poolName, &preAutoSnapshotPropsByDatasetForPool);
         QTreeWidgetItem* preAutoSnapsNode = nullptr;
         for (int i = 0; i < root->childCount(); ++i) {
             QTreeWidgetItem* child = root->child(i);
@@ -3994,7 +4018,7 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
     if (m_connContentTreeStateWriteLocked || token.isEmpty() || !tree) {
         return;
     }
-    const QString normalizedToken = normalizedConnContentStateToken(tree, token);
+    const QString normalizedToken = normalizedConnContentStateToken(tree, token, connIdxFromToken(token.left(token.indexOf(QStringLiteral("::")))));
     int scopedConnIdx = -1;
     if (normalizedToken.startsWith(QStringLiteral("conn:"))) {
         bool okScoped = false;
@@ -4009,13 +4033,13 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
     const QString scopedToken =
         normalizedToken + QStringLiteral("|top");
     ConnContentTreeState st;
-    auto poolStateKey = [](QTreeWidgetItem* n) -> QString {
+    auto poolStateKey = [this](QTreeWidgetItem* n) -> QString {
         if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
             return QString();
         }
         return QStringLiteral("%1::%2")
-            .arg(n->data(0, kConnIdxRole).toInt())
-            .arg(n->data(0, kPoolNameRole).toString().trimmed());
+            .arg(connToken(n->data(0, kConnIdxRole).toInt()),
+                 n->data(0, kPoolNameRole).toString().trimmed());
     };
     std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) {
         if (!n) {
@@ -4322,7 +4346,7 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
     if (token.isEmpty() || !tree) {
         return;
     }
-    const QString normalizedToken = normalizedConnContentStateToken(tree, token);
+    const QString normalizedToken = normalizedConnContentStateToken(tree, token, connIdxFromToken(token.left(token.indexOf(QStringLiteral("::")))));
     int scopedConnIdx = -1;
     if (normalizedToken.startsWith(QStringLiteral("conn:"))) {
         bool okScoped = false;
@@ -4411,13 +4435,13 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
     };
     const QSet<QString> expandedSet(st.expandedDatasets.cbegin(), st.expandedDatasets.cend());
     const QStringList childPathDatasets = st.expandedChildPathsByDataset.keys();
-    auto poolStateKey = [](QTreeWidgetItem* n) -> QString {
+    auto poolStateKey = [this](QTreeWidgetItem* n) -> QString {
         if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
             return QString();
         }
         return QStringLiteral("%1::%2")
-            .arg(n->data(0, kConnIdxRole).toInt())
-            .arg(n->data(0, kPoolNameRole).toString().trimmed());
+            .arg(connToken(n->data(0, kConnIdxRole).toInt()),
+                 n->data(0, kPoolNameRole).toString().trimmed());
     };
     appLog(QStringLiteral("DEBUG"),
            QStringLiteral("restoreConnContentTreeState begin token=%1 poolExpanded=%2 infoExpanded=%3 pools=%4 selected=%5 snapshot=%6 selectedPath=%7 expandedDatasets=%8 childPathDatasets=%9 expandedNodePaths=%10 vscroll=%11 hscroll=%12")
@@ -6616,8 +6640,8 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         const QString ds = owner->data(0, Qt::UserRole).toString();
         const QString snap = owner->data(1, Qt::UserRole).toString();
         const QString token = QStringLiteral("%1::%2")
-                                  .arg(owner->data(0, kConnIdxRole).toInt())
-                                  .arg(owner->data(0, kPoolNameRole).toString());
+                                  .arg(connToken(owner->data(0, kConnIdxRole).toInt()),
+                                       owner->data(0, kPoolNameRole).toString());
         const QString objectName = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
         const QString value = item->text(col);
 
@@ -6677,7 +6701,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         const int itemConnIdx = item->data(0, kConnIdxRole).toInt();
         const QString itemPool = item->data(0, kPoolNameRole).toString();
         if (itemConnIdx >= 0 && !itemPool.isEmpty()) {
-            token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+            token = QStringLiteral("%1::%2").arg(connToken(itemConnIdx), itemPool);
         } else {
             token = connContentTokenForTree(tree);
         }
@@ -6693,7 +6717,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
     }
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = token.left(sep).toInt();
+    ctx.connIdx = connIdxFromToken(token.left(sep));
     ctx.poolName = token.mid(sep + 2);
     ctx.datasetName = ds;
     ctx.snapshotName = item->data(1, Qt::UserRole).toString();

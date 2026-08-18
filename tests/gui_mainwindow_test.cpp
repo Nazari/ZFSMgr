@@ -272,6 +272,42 @@ private Q_SLOTS:
         QVERIFY(std::any_of(restoredTopPools.cbegin(), restoredTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank2")); }));
     }
 
+    // El testigo «<conexión>::<pool>» se construye en un sitio y se descompone en otro.
+    // Mientras llevó la POSICIÓN de la conexión, descomponerlo era un toInt(); al pasar a
+    // llevar su identificador estable, esos toInt() empezaron a fallar en silencio y el
+    // borrador de propiedades entero dejó de guardarse: «Programar snapshots» preparaba
+    // algo que nadie sabía volver a leer, así que no aparecía por ninguna parte.
+    void gsaDraftSurvivesTheConnectionToken() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        // Un identificador que NO es un número: es lo que rompía el camino de vuelta.
+        profile.id = QStringLiteral("8f1c-not-a-number");
+        profile.name = QStringLiteral("Unibody");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("sback")}, {});
+        window.configurePoolDatasetsForTest(
+            0,
+            QStringLiteral("sback"),
+            {MainWindow::UiTestDatasetSeed{QStringLiteral("sback"),
+                                           QStringLiteral("/sback"),
+                                           QStringLiteral("on"),
+                                           QStringLiteral("yes"),
+                                           {}}});
+
+        QVERIFY(window.scheduledDatasetsForTest(0, QStringLiteral("sback")).isEmpty());
+
+        window.stageGsaDraftForTest(0,
+                                    QStringLiteral("sback"),
+                                    QStringLiteral("sback"),
+                                    {{QStringLiteral("org.fc16.gsa:activado"), QStringLiteral("on")},
+                                     {QStringLiteral("org.fc16.gsa:diario"), QStringLiteral("7")}});
+
+        const QStringList programados = window.scheduledDatasetsForTest(0, QStringLiteral("sback"));
+        QCOMPARE(programados, QStringList{QStringLiteral("sback")});
+    }
+
     void togglingInlineGsaNodeHidesAndShowsProgramarSnapshots() {
         QSKIP("Pendiente de rehacer contra el árbol unificado: el nodo inline "
               "'Programar snapshots' pasó a ser acción de menú contextual (cubierta por "

@@ -642,6 +642,53 @@ QString MainWindow::connectionPersistKey(int idx) const {
     return m_conns.profiles[idx].name.trimmed().toLower();
 }
 
+// El INVERSO de connToken(): del testigo «<conexión>::<pool>» a la posición actual.
+//
+// Hasta que el testigo llevó el identificador estable, el inverso era `toInt()` y estaba
+// escrito a mano en veinte sitios. Al cambiar el testigo, esos veinte `toInt()` pasaron a
+// fallar en silencio —un identificador no es un entero—, y con ellos el borrador de
+// propiedades entero: se guardaba en un sitio que nadie sabía volver a leer. Por eso el
+// inverso vive aquí, junto a su directo, y no repetido en cada llamante.
+int MainWindow::connIdxFromToken(const QString& token) const {
+    const QString t = token.trimmed();
+    if (t.isEmpty()) {
+        return -1;
+    }
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (connToken(i).compare(t, Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+    // Respaldo para los testigos que quedaron escritos con la posición —los guardados en
+    // disco por versiones anteriores— y para el «#<n>» de una conexión sin identificador.
+    if (t.startsWith(QLatin1Char('#'))) {
+        bool ok = false;
+        const int n = t.mid(1).toInt(&ok);
+        return (ok && n >= 0 && n < m_conns.profiles.size()) ? n : -1;
+    }
+    bool ok = false;
+    const int n = t.toInt(&ok);
+    return (ok && n >= 0 && n < m_conns.profiles.size()) ? n : -1;
+}
+
+// El testigo partido en sus dos mitades. Devuelve false si no lo es o si la conexión que
+// nombra ya no existe.
+bool MainWindow::splitConnToken(const QString& token, int& connIdx, QString& poolName) const {
+    const QString t = token.trimmed();
+    const int sep = t.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return false;
+    }
+    const int idx = connIdxFromToken(t.left(sep));
+    const QString pool = t.mid(sep + 2).trimmed();
+    if (idx < 0 || pool.isEmpty()) {
+        return false;
+    }
+    connIdx = idx;
+    poolName = pool;
+    return true;
+}
+
 bool MainWindow::isConnectionDisconnected(int idx) const {
     const QString key = connectionPersistKey(idx);
     return !key.isEmpty() && m_disconnectedConnectionKeys.contains(key);

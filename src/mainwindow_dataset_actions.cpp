@@ -1421,14 +1421,9 @@ void MainWindow::flushPendingReloads() {
     m_pendingConnectionRefreshIndices.clear();
 
     for (const QString& key : poolKeys) {
-        const int sep = key.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
-            continue;
-        }
-        bool ok = false;
-        const int connIdx = key.left(sep).toInt(&ok);
-        const QString poolName = key.mid(sep + 2).trimmed();
-        if (!ok || poolName.isEmpty()) {
+        int connIdx = -1;
+        QString poolName;
+        if (!splitConnToken(key, connIdx, poolName)) {
             continue;
         }
         reloadConnContentPoolNow(connIdx, poolName);
@@ -1461,14 +1456,12 @@ void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) 
         if (token.isEmpty()) {
             return false;
         }
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
+        int tokenConnIdx = -1;
+        QString tokenPool;
+        if (!splitConnToken(token, tokenConnIdx, tokenPool)) {
             return false;
         }
-        bool okConn = false;
-        const int tokenConnIdx = token.left(sep).toInt(&okConn);
-        const QString tokenPool = token.mid(sep + 2).trimmed();
-        return okConn && tokenConnIdx == connIdx
+        return tokenConnIdx == connIdx
                && tokenPool.compare(trimmedPool, Qt::CaseInsensitive) == 0;
     };
 
@@ -1608,14 +1601,9 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             if (token.isEmpty()) {
                 return false;
             }
-            const int sep = token.indexOf(QStringLiteral("::"));
-            if (sep <= 0) {
-                return false;
-            }
-            bool ok = false;
-            const int connIdx = token.left(sep).toInt(&ok);
-            const QString poolName = token.mid(sep + 2).trimmed();
-            if (!ok || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
+            int connIdx = -1;
+            QString poolName;
+            if (!splitConnToken(token, connIdx, poolName)) {
                 return false;
             }
             m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connToken(connIdx), poolName));

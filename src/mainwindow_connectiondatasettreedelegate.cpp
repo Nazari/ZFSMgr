@@ -244,9 +244,8 @@ QString MainWindowConnectionDatasetTreeDelegate::visualStateTokenForTree(QTreeWi
     if (sep <= 0) {
         return token.trimmed();
     }
-    bool ok = false;
-    const int connIdx = token.left(sep).toInt(&ok);
-    if (!ok || connIdx < 0) {
+    const int connIdx = m_mainWindow->connIdxFromToken(token.left(sep));
+    if (connIdx < 0) {
         return token.trimmed();
     }
     if (tree == m_mainWindow->m_connContentTree) {
@@ -334,9 +333,8 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
     if (sep <= 0) {
         return;
     }
-    bool ok = false;
-    const int connIdx = token.left(sep).toInt(&ok);
-    if (!ok || connIdx < 0) {
+    const int connIdx = m_mainWindow->connIdxFromToken(token.left(sep));
+    if (connIdx < 0) {
         return;
     }
     const QString scopedToken =
@@ -650,10 +648,9 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (sep <= 0) {
             return;
         }
-        bool ok = false;
-        const int connIdx = token.left(sep).toInt(&ok);
-        const QString poolName = token.mid(sep + 2).trimmed();
-        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
+        int connIdx = -1;
+        QString poolName;
+        if (!m_mainWindow->splitConnToken(token, connIdx, poolName)) {
             return;
         }
         m_mainWindow->rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);
@@ -664,16 +661,15 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         }
         const QString trimmed = token.trimmed();
         int connIdx = -1;
-        bool ok = false;
         const int sep = trimmed.indexOf(QStringLiteral("::"));
         if (sep > 0) {
-            connIdx = trimmed.left(sep).toInt(&ok);
+            connIdx = m_mainWindow->connIdxFromToken(trimmed.left(sep));
         } else if (trimmed.startsWith(QStringLiteral("conn:"))) {
             const QString rest = trimmed.mid(QStringLiteral("conn:").size());
             const int pipe = rest.indexOf(QLatin1Char('|'));
-            connIdx = (pipe >= 0 ? rest.left(pipe) : rest).toInt(&ok);
+            connIdx = m_mainWindow->connIdxFromToken(pipe >= 0 ? rest.left(pipe) : rest);
         }
-        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size()) {
+        if (connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size()) {
             return;
         }
         if (tree == m_mainWindow->m_connContentTree) {

@@ -879,14 +879,13 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
     } else if (side == QStringLiteral("conncontent")) {
         token = connContentTokenForTree(connContentTree);
     }
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(token, connIdx, poolName)) {
         m_propsToken.clear();
         endTransientUiBusy();
         return;
     }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
     const DSInfo* dsInfo = findDsInfo(connIdx, poolName, dataset);
     if (!dsInfo) {
         endTransientUiBusy();
@@ -2047,9 +2046,8 @@ void MainWindow::applyDatasetPropertyChanges() {
         for (auto it = renameRefreshSelectionByToken.cbegin(); it != renameRefreshSelectionByToken.cend(); ++it) {
             const int sep2 = it.key().indexOf(QStringLiteral("::"));
             if (sep2 > 0) {
-                bool okConn = false;
-                const int connIdx = it.key().left(sep2).toInt(&okConn);
-                if (okConn && connIdx >= 0) {
+                const int connIdx = connIdxFromToken(it.key().left(sep2));
+                if (connIdx >= 0) {
                     connectionsToRefresh.insert(connIdx);
                 }
             }
@@ -2154,12 +2152,10 @@ void MainWindow::applyDatasetPropertyChanges() {
     DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     if (m_propsSide == QStringLiteral("conncontent")) {
         const QString tokenCtx = m_propsToken.trimmed();
-        const int sepCtx = tokenCtx.indexOf(QStringLiteral("::"));
-        if (sepCtx > 0) {
-            bool okConn = false;
-            const int connIdx = tokenCtx.left(sepCtx).toInt(&okConn);
-            const QString poolName = tokenCtx.mid(sepCtx + 2);
-            if (okConn && connIdx >= 0 && !poolName.isEmpty()) {
+        {
+            int connIdx = -1;
+            QString poolName;
+            if (splitConnToken(tokenCtx, connIdx, poolName)) {
                 ctx.valid = true;
                 ctx.connIdx = connIdx;
                 ctx.poolName = poolName;
@@ -2206,14 +2202,9 @@ void MainWindow::applyDatasetPropertyChanges() {
     const QString currentDraftKey = currentToken.isEmpty() ? QString()
                                                            : propsDraftKey(m_propsSide, currentToken, m_propsDataset);
     auto refreshConncontentTarget = [this](const QString& token, const QString& datasetToSelect) {
-        const int sep2 = token.indexOf(QStringLiteral("::"));
-        if (sep2 <= 0) {
-            return;
-        }
-        bool okConn = false;
-        const int connIdx = token.left(sep2).toInt(&okConn);
-        const QString poolName = token.mid(sep2 + 2);
-        if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+        int connIdx = -1;
+        QString poolName;
+        if (!splitConnToken(token, connIdx, poolName)) {
             return;
         }
         auto reselectDatasetInTree = [&datasetToSelect](QTreeWidget* tree) {

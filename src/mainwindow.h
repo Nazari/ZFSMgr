@@ -58,6 +58,8 @@ public:
     // Público porque lo necesitan el delegado del árbol y el ayudante que calcula el
     // testigo de estado: el testigo tiene que salir IGUAL desde los tres sitios.
     QString connToken(int connIdx) const;
+    int connIdxFromToken(const QString& token) const;
+    bool splitConnToken(const QString& token, int& connIdx, QString& poolName) const;
 
     // Ganchos para ejercitar la pila ENTERA sin pantalla: configuración real, descifrado,
     // transporte, SSH y RPC del agente. Es lo único que permite comprobar contra máquinas
@@ -168,6 +170,14 @@ public:
     QStringList connectionContextMenuTopLevelLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
     QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
+    // El camino ENTERO de una programación preparada: se guarda con el testigo que
+    // construye la interfaz y se relee con el que reconstruye el árbol. Si las dos mitades
+    // dejan de entenderse —y dejaron de entenderse al llevar el testigo el identificador
+    // de la conexión en lugar de su posición—, el borrador se escribe en un sitio que
+    // nadie sabe leer y la orden «Programar snapshots» no hace nada visible.
+    void stageGsaDraftForTest(int connIdx, const QString& poolName, const QString& datasetName,
+                              const QMap<QString, QString>& valuesByProp);
+    QStringList scheduledDatasetsForTest(int connIdx, const QString& poolName) const;
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -1136,6 +1146,9 @@ private:
     DatasetPropsDraft propertyDraftForObject(const QString& side, const QString& token, const QString& objectName) const;
     void storePropertyDraftForObject(const QString& side, const QString& token, const QString& objectName, const DatasetPropsDraft& draft);
     QVector<PendingPropertyDraftEntry> pendingConnContentPropertyDraftsFromModel() const;
+    QStringList scheduledDatasetsForPool(int connIdx,
+                                         const QString& poolName,
+                                         QMap<QString, QMap<QString, QString>>* propsOut) const;
     const DatasetPermissionsCacheEntry* datasetPermissionsEntry(int connIdx, const QString& poolName, const QString& datasetName) const;
     const DatasetPermissionsCacheEntry* ensureDatasetPermissionsEntryLoaded(int connIdx,
                                                                             const QString& poolName,

@@ -3100,14 +3100,9 @@ void MainWindow::buildUi() {
             updateSecondaryConnectionDetail();
             return;
         }
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = token.left(sep).toInt(&ok);
-        const QString poolName = token.mid(sep + 2).trimmed();
-        if (!ok || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.isEmpty()) {
+        int connIdx = -1;
+        QString poolName;
+        if (!splitConnToken(token, connIdx, poolName)) {
             return;
         }
         rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);

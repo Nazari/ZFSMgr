@@ -82,17 +82,14 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
     } else {
         return ctx;
     }
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return ctx;
-    }
-    const int connIdx = token.left(sep).toInt();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || ds.isEmpty()) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(token, connIdx, poolName) || ds.isEmpty()) {
         return ctx;
     }
     ctx.valid = true;
     ctx.connIdx = connIdx;
-    ctx.poolName = token.mid(sep + 2);
+    ctx.poolName = poolName;
     ctx.datasetName = ds;
     ctx.snapshotName = snap;
     return ctx;
@@ -136,17 +133,14 @@ MainWindow::DatasetSelectionContext MainWindow::currentConnContentSelection(cons
     if (token.isEmpty()) {
         token = connContentTokenForTree(tree);
     }
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return ctx;
-    }
-    const int connIdx = token.left(sep).toInt();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || ds.isEmpty()) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(token, connIdx, poolName) || ds.isEmpty()) {
         return ctx;
     }
     ctx.valid = true;
     ctx.connIdx = connIdx;
-    ctx.poolName = token.mid(sep + 2);
+    ctx.poolName = poolName;
     ctx.datasetName = ds;
     ctx.snapshotName = snap;
     return ctx;

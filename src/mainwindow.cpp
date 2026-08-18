@@ -1198,14 +1198,9 @@ void MainWindow::removeDatasetPropertyEntriesForPool(int connIdx, const QString&
 MainWindow::DatasetPropsDraft MainWindow::propertyDraftForObject(const QString& side,
                                                                 const QString& token,
                                                                 const QString& objectName) const {
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return {};
-    }
-    bool okConn = false;
-    const int connIdx = token.left(sep).toInt(&okConn);
-    const QString poolName = token.mid(sep + 2).trimmed();
-    if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(token, connIdx, poolName)) {
         return {};
     }
     const DSInfo* dsInfo = findDsInfo(connIdx, poolName, objectName);
@@ -1243,14 +1238,9 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
     }
 
     DatasetPropsDraft draft = draftIn;
-    const int sep = normToken.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    bool okConn = false;
-    const int connIdx = normToken.left(sep).toInt(&okConn);
-    const QString poolName = normToken.mid(sep + 2).trimmed();
-    if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(normToken, connIdx, poolName)) {
         return;
     }
     DSInfo* dsInfo = findDsInfo(connIdx, poolName, normObject);
@@ -2569,14 +2559,9 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
         return;
     }
     const QString token = connContentTokenForTree(tree);
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    bool okConn = false;
-    const int connIdx = token.left(sep).toInt(&okConn);
-    const QString poolName = token.mid(sep + 2).trimmed();
-    if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+    int connIdx = -1;
+    QString poolName;
+    if (!splitConnToken(token, connIdx, poolName)) {
         return;
     }
     populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
