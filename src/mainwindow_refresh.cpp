@@ -794,13 +794,23 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             const QMap<QString, QString> hkv = parseKeyValueOutput(hout + QStringLiteral("\n") + herr);
             const bool statusOk =
                 hkv.value(QStringLiteral("STATUS")).trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-            const bool serverOk = hkv.value(QStringLiteral("SERVER")).trimmed() == QStringLiteral("1");
-            if (!statusOk || !serverOk) {
+            // SERVER=0 NO quiere decir que el daemon esté parado.
+            //
+            // Quiere decir que esta respuesta no la dio el proceso que sirve: cuando el
+            // túnel está ocupado, `--health` se ejecuta por SSH como una invocación suelta
+            // del binario, y ese camino contesta SERVER=0 SIEMPRE —lo dice su propio
+            // comentario: «not a live query to a running daemon»—.
+            //
+            // Tomarlo por «no está en marcha» declaraba parado un daemon sano y, peor,
+            // bloqueaba el listado de pools detrás: «no se puede listar los pools porque el
+            // agente no está en marcha», con el agente respondiendo STATUS=OK dos líneas
+            // más arriba. Quien sabe si el servicio corre es el gestor de servicios, y eso
+            // ya lo trae la sonda en ACTIVE.
+            if (!statusOk) {
                 daemonReadApiOk = false;
                 state.daemonActive = false;
-                state.daemonDetail = QStringLiteral("health check not OK (status=%1 server=%2)")
-                                         .arg(hkv.value(QStringLiteral("STATUS")).trimmed(),
-                                              hkv.value(QStringLiteral("SERVER")).trimmed());
+                state.daemonDetail = QStringLiteral("health check not OK (status=%1)")
+                                         .arg(hkv.value(QStringLiteral("STATUS")).trimmed());
             } else {
                 const QString cacheEntries = hkv.value(QStringLiteral("CACHE_ENTRIES")).trimmed();
                 const QString cacheMax = hkv.value(QStringLiteral("CACHE_MAX_ENTRIES")).trimmed();
