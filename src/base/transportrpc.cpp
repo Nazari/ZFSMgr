@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -528,6 +529,39 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
             intentoOk = tryRunRemoteAgentRpcViaTunnel(ses, p, agentArgs, timeoutMs, out, err, rc,
                                                       &motivoFallo, &ordenPudoLlegar);
         });
+
+        // «Ocupado» NO es un fallo: es que el túnel de esta conexión se está montando ahora
+        // mismo. Caer al camino de SSH por eso tiene dos precios, y el segundo es el caro:
+        //
+        //  - la respuesta la da una invocación suelta del binario, no el daemon, así que
+        //    llega sin el estado vivo —caché, ZED, soporte de trabajos— y con SERVER=0, que
+        //    la interfaz llegó a leer como «el daemon está parado» y con eso escondía los
+        //    pools de una máquina sana;
+        //  - y se paga una ida y vuelta por SSH que no hacía ninguna falta, porque un
+        //    instante después el túnel está montado y sirve.
+        //
+        // Así que se espera. Pero SOLO si este hilo no es el que monta los túneles: si lo
+        // fuera, la marca de «montando» la habría puesto un marco anterior de esta misma
+        // pila y esperar aquí no dejaría avanzar a nadie. En ese caso —la reentrancia que
+        // provoca el bombeo de eventos— lo correcto sigue siendo caer al otro camino.
+        constexpr int kEsperasMax = 20;      // 20 × 100 ms = 2 s, de sobra para montar uno
+        for (int intento = 0;
+             !intentoOk && motivoFallo.fallo == Fallo::TunelOcupado && !ses.puedeMontarTuneles()
+             && intento < kEsperasMax;
+             ++intento) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            motivoFallo = MotivoFallo{};
+            ordenPudoLlegar = false;
+            ses.enElHiloDeTuneles([&]() {
+                intentoOk = tryRunRemoteAgentRpcViaTunnel(ses, p, agentArgs, timeoutMs, out, err,
+                                                          rc, &motivoFallo, &ordenPudoLlegar);
+            });
+            if (intentoOk) {
+                ses.logConn(Nivel::Info, p.id,
+                            quien + " $ [daemon-rpc:esperó-túnel] " + queOrden + " ("
+                                + std::to_string((intento + 1) * 100) + " ms)");
+            }
+        }
     }
 
     if (intentoOk) {
