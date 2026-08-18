@@ -4,6 +4,7 @@
 #include "ayuda.h"
 #include "gramatica_cli.h"
 #include "gsa.h"
+#include "storefiles.h"
 #include "zfsprops.h"
 #include "helpers.h"
 #include "linea.h"
@@ -2080,6 +2081,217 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                            p.destino.empty() ? "-" : p.destino});
     }
     return t;
+}
+
+// La OTRA máquina que nombra una de estas órdenes de dos extremos.
+const B::ConnectionProfile* laOtra(Estado& e, const Peticion& pet, std::string& error) {
+    const std::string nombre = pet.uno("texto");
+    const auto* p = buscarConexion(e.conns, nombre);
+    if (!p) {
+        error = B::format(T("t_no_conn_nombre", "no hay ninguna conexión llamada «%1»"), {nombre});
+        return nullptr;
+    }
+    return p;
+}
+
+// Autorizar la clave SSH de esta máquina en otra.
+//
+// NO pasa por el daemon, y no puede: esto es lo que hay que hacer ANTES de que haya
+// daemon, porque `install-daemon` entra por SSH. Es de las pocas cosas que siguen
+// mandando shell, y por un motivo que no va a desaparecer.
+bool cmdAuthorizeKey(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    std::string error;
+    const auto* origen = perfilVivoDe(e, pet.objetivo, error);
+    if (!origen) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    const auto* destino = laOtra(e, pet, error);
+    if (!destino) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (B::toLowerAscii(origen->id) == B::toLowerAscii(destino->id)) {
+        std::fputs(TC("t_ak_misma", "el origen y el destino son la misma conexión\n"), stderr);
+        return false;
+    }
+
+    // 1) La clave pública del ORIGEN. Se prueban las de siempre, en el orden en que las
+    //    genera la gente.
+    std::string clave;
+    std::string err;
+    int rc = -1;
+    const std::string leerClave =
+        "cat ~/.ssh/id_ed25519.pub 2>/dev/null "
+        "|| cat ~/.ssh/id_rsa.pub 2>/dev/null "
+        "|| cat ~/.ssh/id_ecdsa.pub 2>/dev/null "
+        "|| cat ~/.ssh/id_*.pub 2>/dev/null | head -1";
+    if (!T::runSsh(e.ses->transporte, *origen, H::withUnixSearchPathCommand(leerClave), 15000,
+                   clave, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
+                   /*echoOutputToLog=*/e.ses->verboso)
+        || rc != 0 || B::trim(clave).empty()) {
+        std::fprintf(stderr, TC("t_ak_sin_clave", "%s no tiene clave pública SSH.\n"
+                     "  Genérela allí con: ssh-keygen -t ed25519\n"), origen->id.c_str());
+        return false;
+    }
+    clave = B::trim(B::split(B::trim(clave), "\n", true).front());
+
+    if (!confirma(e, B::format(T("t_conf_authorize_key",
+                                 "Se va a autorizar la clave SSH de %1 en %2: después, %1 podrá "
+                                 "entrar en %2 sin contraseña. ¿Continuar?"),
+                               {origen->id, destino->id}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+
+    // 2) Y se añade allí. Idempotente: si ya está, no se duplica.
+    const std::string instalar =
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+        "(grep -qF " + B::shSingleQuote(clave) + " ~/.ssh/authorized_keys 2>/dev/null "
+        " || printf '\\n%s\\n' " + B::shSingleQuote(clave) + " >> ~/.ssh/authorized_keys) && "
+        "chmod 600 ~/.ssh/authorized_keys";
+    std::string out;
+    if (!T::runSsh(e.ses->transporte, *destino, H::withUnixSearchPathCommand(instalar), 15000, out,
+                   err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
+                   /*echoOutputToLog=*/e.ses->verboso)
+        || rc != 0) {
+        const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
+        std::fprintf(stderr, TC("t_ak_fallo", "no se pudo autorizar la clave en %s: %s\n"),
+                     destino->id.c_str(), detalle.c_str());
+        return false;
+    }
+    std::fprintf(stderr, TC("t_ak_hecho", "clave de %s autorizada en %s\n"), origen->id.c_str(),
+                 destino->id.c_str());
+    return true;
+}
+
+// El almacén de confianza, a otra máquina.
+//
+// Es para el CLIENTE que alguien abra allí, no para su daemon: eso es «peers --push». Van
+// a sitios distintos —el perfil del usuario frente a /etc— y sirven para cosas distintas.
+bool cmdExportTrust(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    std::string error;
+    const auto* destino = laOtra(e, pet, error);
+    if (!destino) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (T::isLocalConnection(*destino)) {
+        std::fputs(TC("t_et_local", "la conexión Local ya usa el almacén de esta máquina\n"), stderr);
+        return false;
+    }
+    B::store::Aviso aviso;
+    const B::json::Value almacen = B::store::leerTrustStore(e.ses->dirConfig, aviso);
+    if (!aviso.vacio()) {
+        std::fprintf(stderr, TC("t_et_sin_almacen", "no se pudo leer el almacén de confianza\n"));
+        return false;
+    }
+    const std::string carga = B::json::toIndented(almacen);
+    if (B::trim(carga).empty() || carga == "{}") {
+        std::fputs(TC("t_et_vacio", "el almacén de confianza está vacío\n"), stderr);
+        return false;
+    }
+    if (!confirma(e, B::format(T("t_conf_export_trust",
+                                 "Se va a copiar el almacén de confianza a %1. Lleva CLAVES "
+                                 "PRIVADAS: quien las tenga podrá hablar con esos daemons como "
+                                 "usted. ¿Continuar?"),
+                               {destino->id}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    // Por la ENTRADA ESTÁNDAR, no por argumento: el contenido lleva claves y un argumento
+    // se ve en `ps` en la máquina de destino.
+    const std::string guion =
+        "cfg=\"${XDG_CONFIG_HOME:-$HOME/.config}/ZFSMgr\"; mkdir -p \"$cfg\" && "
+        "umask 077 && cat > \"$cfg/trust-store.json\" && chmod 600 \"$cfg/trust-store.json\" && "
+        "printf 'TRUST=%s\\n' \"$cfg/trust-store.json\"";
+    std::string out;
+    std::string err;
+    int rc = -1;
+    // El sexto parámetro opcional es la ENTRADA ESTÁNDAR; los tres anteriores son
+    // devoluciones de llamada que aquí no se usan.
+    if (!T::runSsh(e.ses->transporte, *destino, H::withUnixSearchPathCommand(guion), 20000, out,
+                   err, rc, {}, {}, {}, carga, /*allowAgentRpc=*/false,
+                   /*echoOutputToLog=*/false)
+        || rc != 0) {
+        const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
+        std::fprintf(stderr, TC("t_et_fallo", "no se pudo copiar el almacén a %s: %s\n"),
+                     destino->id.c_str(), detalle.c_str());
+        return false;
+    }
+    std::fprintf(stderr, TC("t_et_hecho", "almacén de confianza copiado a %s\n"),
+                 destino->id.c_str());
+    return true;
+}
+
+// Los datasets que se quedaron en un punto de montaje temporal.
+//
+// Sin `--apply` no toca nada, y eso no es una comodidad: es que la orden útil de verdad es
+// la que se ejecuta ANTES de decidir. El verbo del daemon ya está partido así.
+bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const bool aplicar = pet.tiene("--apply");
+    if (aplicar
+        && !confirma(e, B::format(T("t_conf_repair_mounts",
+                                    "Se van a devolver a su punto de montaje los datasets que se "
+                                    "quedaron en uno temporal en %1. ¿Continuar?"),
+                                  {pet.objetivo.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    std::string out;
+    std::vector<std::string> argv{"--repair-alt-mountpoints"};
+    if (aplicar) {
+        argv.push_back("apply");
+    }
+    if (!agente(e, pet.objetivo, argv, out, 60000)) {
+        return false;
+    }
+    // «STRANDED=<dataset> saved=<punto> current=<punto>», una línea por dataset.
+    Tabla t;
+    t.nombreJson = "stranded";
+    t.cabecerasTexto = {T("t_cab_dataset", "DATASET"), T("t_cab_deberia", "DEBERÍA ESTAR EN"),
+                        T("t_cab_esta_en", "ESTÁ EN")};
+    t.campos = {"dataset", "saved", "current"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    for (const std::string& l : B::split(out, "\n", true)) {
+        if (!B::startsWith(l, "STRANDED=")) {
+            continue;
+        }
+        const std::string resto = l.substr(9);
+        const std::size_t s = resto.find(" saved=");
+        const std::size_t c = resto.find(" current=");
+        if (s == std::string::npos || c == std::string::npos || c < s) {
+            continue;
+        }
+        t.filas.push_back({B::trim(resto.substr(0, s)),
+                           B::trim(resto.substr(s + 7, c - s - 7)),
+                           B::trim(resto.substr(c + 9))});
+    }
+    if (t.filas.empty()) {
+        std::fprintf(stderr, TC("t_rm_ninguno", "no hay ningún dataset en un punto de montaje "
+                     "temporal en %s\n"), pet.objetivo.connection.c_str());
+        return true;
+    }
+    t.imprime(e.formato);
+    if (aplicar) {
+        std::fprintf(stderr, TC("t_rm_hecho", "devueltos a su sitio: %zu\n"), t.filas.size());
+    } else {
+        std::fputs(TC("t_rm_ensayo", "no se ha tocado nada: para devolverlos, «repair-mounts "
+                     "--apply»\n"), stderr);
+    }
+    return true;
 }
 
 // Las credenciales de los pares: qué otras máquinas sabe alcanzar este daemon.
@@ -4326,6 +4538,9 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"schedules", cmdSchedules},
         {"log", cmdLog},
         {"peers", cmdPeers},
+        {"repair-mounts", cmdRepairMounts},
+        {"authorize-key", cmdAuthorizeKey},
+        {"export-trust", cmdExportTrust},
         {"breakdown", cmdBreakdown},
         {"assemble", cmdAssemble},
         {"todir", cmdToDir},

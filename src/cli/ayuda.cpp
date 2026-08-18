@@ -606,6 +606,43 @@ const std::vector<Orden> kOrdenes = {
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
 
     // --- Daemon
+    {"repair-mounts", {"t_conexiones_3785cd", "Conexiones"}, {"t_rm_uso", "[--apply]"},
+     {"t_rm_res", "Datasets que se quedaron en un punto de montaje temporal."},
+     {{{"t_rm_apply", "--apply"}, {"t_rm_apply_q", "Los devuelve a su sitio. Sin ella solo los enseña."}}},
+     {{"t_rm_det1", "Algunas acciones —Hacia Dir, Desglosar— mueven un dataset a un punto de montaje "
+       "temporal mientras trabajan y lo devuelven al terminar. Si eso se corta a medias "
+       "—la máquina se apaga, el proceso muere—, el dataset se queda montado donde no "
+       "debe y con su punto real guardado en una propiedad nuestra."},
+      {"t_rm_det2", "Sin --apply no toca nada: enseña cuáles están así, con dónde están y dónde "
+       "deberían estar. Es la orden que uno quiere ejecutar ANTES de decidir."},
+      {"t_rm_det3", "Solo actúa sobre datasets que lleven esa propiedad nuestra, así que no puede "
+       "mover uno que esté donde su dueño quiso ponerlo."}},
+     Objetivo::Conexion, {}},
+    {"authorize-key", {"t_conexiones_3785cd", "Conexiones"}, {"t_ak_uso", "<otra-conexión>"},
+     {"t_ak_res", "Autoriza la clave SSH de esta máquina en otra."},
+     {},
+     {{"t_ak_det1", "Va en el sentido «desde donde estoy, hacia allá»: toma la clave pública de la "
+       "máquina en la que se está —o la de «--on»— y la añade al `authorized_keys` de la "
+       "que se nombra. Después, la primera puede entrar en la segunda sin contraseña."},
+      {"t_ak_det2", "Es idempotente: si la clave ya está, no se duplica."},
+      {"t_ak_det3", "Esto NO pasa por el daemon, y no puede: es lo que hay que hacer ANTES de que "
+       "haya daemon, porque «install-daemon» necesita entrar por SSH. Por eso es de las "
+       "pocas órdenes que siguen mandando shell."}},
+     Objetivo::Conexion,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+    {"export-trust", {"t_conexiones_3785cd", "Conexiones"}, {"t_et_uso", "<otra-conexión>"},
+     {"t_et_res", "Copia el almacén de confianza a otra máquina."},
+     {},
+     {{"t_et_det1", "El almacén guarda el material TLS de cada máquina que uno conoce. Llevándolo a "
+       "otra, el cliente que se ejecute ALLÍ puede hablar con los mismos daemons sin "
+       "volver a aprovisionar nada."},
+      {"t_et_det2", "No es lo mismo que «peers --push», y conviene no confundirlas: aquello es para "
+       "el DAEMON de esa máquina —para que nivele solo, de madrugada— y esto es para el "
+       "CLIENTE que alguien abra allí. Uno va a /etc, el otro al perfil del usuario."},
+      {"t_et_det3", "Lleva CLAVES PRIVADAS, así que se pregunta antes: quien las tenga puede hablar "
+       "con esos daemons como usted."}},
+     Objetivo::Conexion,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
     {"peers", {"t_daemon_48e665", "Daemon"}, {"t_peers_uso", "[--push]"},
      {"t_peers_res", "Qué otras máquinas sabe alcanzar el daemon de esta."},
      {{{"t_peers_push", "--push"},

@@ -60,7 +60,8 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
 %token <texto> V_CREATE V_DESTROY V_RENAME V_MOUNT V_UNMOUNT V_PROMOTE
 %token <texto> V_GET V_SET V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
-%token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS
+%token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS V_REPAIR_MOUNTS
+%token <texto> V_AUTHORIZE_KEY V_EXPORT_TRUST
 %token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_COPY
 %token <texto> V_ALLOW V_UNALLOW
 %token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
@@ -89,6 +90,10 @@ orden
     | V_HELP palabra                     { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_EXIT                             { astVerbo(res, $1); }
     | V_YES                              { astVerbo(res, $1); }
+/* Con argumento TAMBIÉN: el catálogo dice «yes [on|off]» y el intérprete lee esa palabra
+ * —`args.front() != "off"`—, pero la producción no la admitía, así que `yes off` moría con
+ * la línea de uso y no había forma de volver a activar las confirmaciones sin salir. */
+    | V_YES palabra                      { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_FORMAT                           { astVerbo(res, $1); }
     | V_FORMAT palabra                   { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_CLS                              { astVerbo(res, $1); }
@@ -134,6 +139,12 @@ orden
     | V_SCHEDULES destino_opt                { astVerbo(res, $1); }
     | V_LOG destino_opt                      { astVerbo(res, $1); }
     | V_PEERS destino_opt                    { astVerbo(res, $1); }
+    | V_REPAIR_MOUNTS destino_opt            { astVerbo(res, $1); }
+/* Las dos llevan la OTRA máquina como palabra: «authorize-key oldlau» estando en unibody.
+ * Por eso su destino propio va por `--on`, como en `copy`: si no, no habría forma de saber
+ * cuál de los dos nombres es cuál. */
+    | V_AUTHORIZE_KEY palabra                { astVerbo(res, $1); astRanura(res, "texto", $2); }
+    | V_EXPORT_TRUST palabra                 { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_RENAME url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
     | V_GET url_opt                      { astVerbo(res, $1); }
     | V_GET url_opt palabra              { astVerbo(res, $1); astRanura(res, "propiedad", $3); }
