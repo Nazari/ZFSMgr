@@ -796,7 +796,13 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     }
     B::json::Value raiz;
     std::string err;
-    if (!B::json::parse(out, raiz, &err)) {
+    // Sin pools, `zpool list -j` NO devuelve lo mismo en todas partes: en Linux imprime un
+    // objeto con «pools» vacío, y el OpenZFS de macOS —2.4.1— no imprime nada y sale con 0.
+    // Tratar eso como JSON ilegible decía «respuesta ilegible de zpool list: texto JSON
+    // vacío» en una máquina donde lo único que pasa es que todavía no hay ningún pool.
+    if (B::trim(out).empty()) {
+        raiz = B::json::Value(B::json::Object{});
+    } else if (!B::json::parse(out, raiz, &err)) {
         std::fprintf(stderr, TC("t_respuesta__74ad0d", "respuesta ilegible de zpool list: %s\n"), err.c_str());
         return false;
     }
