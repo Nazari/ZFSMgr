@@ -177,6 +177,23 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         return B::parseZfsmUrl(B::formatZfsmUrl(limpia) + texto, out, error);
     }
 
+    // La SECCIÓN se aparta antes de trocear por «/».
+    //
+    // `ls zfsm://local/fc16/user#content` funcionaba y `ls user#content` no: la ruta
+    // relativa se troceaba entera y «user#content» acababa siendo el nombre del dataset,
+    // que viajaba tal cual hasta zfs y volvía con «bookmark delimiter '#' is not expected
+    // here» — un error de ZFS sobre una sintaxis que es NUESTRA, en una orden idéntica a
+    // otra que sí valía. La sección se pega al final, cuando la ruta ya está resuelta.
+    std::string colaSeccion;
+    const std::size_t almohadilla = texto.find('#');
+    if (almohadilla != std::string::npos) {
+        colaSeccion = texto.substr(almohadilla);
+        texto = texto.substr(0, almohadilla);
+        if (texto.empty()) {
+            texto = ".";
+        }
+    }
+
     const bool absoluta = texto.front() == '/';
     if (absoluta) {
         texto = texto.substr(1);
@@ -257,6 +274,28 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
             if (!snap.empty()) {
                 base.snapshot = snap;
                 base.kind = ZfsmKind::Snapshot;
+            }
+        }
+        // Y aquí se vuelve a pegar la sección, con la ruta ya resuelta. Se hace DENTRO
+        // porque de esta función se sale por cuatro sitios distintos —absoluta, por nombre
+        // de pool, por nombre de conexión y relativa— y ponerlo en cada uno era pedir que
+        // se olvidara en el quinto.
+        if (!colaSeccion.empty()) {
+            const std::string sinAlmohadilla = colaSeccion.substr(1);
+            const std::vector<std::string> trozos = B::split(sinAlmohadilla, "/", false);
+            base.section.clear();
+            base.detail.clear();
+            for (std::size_t i = 0; i < trozos.size(); ++i) {
+                std::string trozo;
+                if (!B::percentDecode(trozos[i], trozo)) {
+                    err = B::format(T("t_tramo_malo", "tramo mal codificado: %1"), {trozos[i]});
+                    return false;
+                }
+                if (i == 0) {
+                    base.section = B::toLowerAscii(trozo);
+                } else if (!trozo.empty()) {
+                    base.detail.push_back(trozo);
+                }
             }
         }
         res = base;
@@ -836,6 +875,20 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // responde, se enseña lo importado y se sigue, en vez de no enseñar nada.
     std::string sonda;
     if (agente(e, destino, {"--dump-zpool-import-probe"}, sonda, 25000)) {
+        // El agente avisa cuando el sistema no le deja leer los discos. Es macOS y su
+        // «Acceso total al disco»: sin él `zpool import` responde «no pools available to
+        // import» igual que si de verdad no hubiera ninguno, así que una lista vacía aquí
+        // no significa lo que parece. Se dice, porque el usuario no tiene otra forma de
+        // distinguir «no hay» de «no puedo mirar».
+        const std::string marca = "__ZFSMGR_DISCOS_ILEGIBLES__";
+        const std::size_t donde = sonda.find(marca);
+        if (donde != std::string::npos) {
+            sonda.erase(donde, marca.size() + 1);
+            std::fputs(TC("t_discos_ilegibles", "aviso: el agente no puede leer los discos de esta "
+                         "máquina, así que un pool sin importar NO aparece aquí.\n"
+                         "  En macOS: Configuración del Sistema → Privacidad y Seguridad →\n"
+                         "  Acceso total al disco → añadir /usr/local/libexec/zfsmgr-agent\n"), stderr);
+        }
         for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(sonda)) {
             // El mismo conjunto sirve para dos cosas: no repetir uno ya importado, y no
             // repetirlo consigo mismo. La sonda ejecuta `zpool import` Y `zpool import -s`
@@ -1121,6 +1174,28 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     // Comprobado contra OldLau: `Test-Path /winpool/sa` da False y `Test-Path Z:\sa` da
     // True. Preguntar `driveletter` al dataset tampoco vale — hay que preguntárselo al
     // pool, que es de donde sale la letra.
+    // ¿Está MONTADO? Un dataset sin montar conserva su `mountpoint`, y ese directorio
+    // puede existir y tener cosas dentro que no son suyas: `fc16/user` dice
+    // `/Users/linarese` estando desmontado, así que `ls #content` enseñaba el /Users de la
+    // máquina como si fuera el contenido del dataset. Es peor que un error: es una lista
+    // creíble y ajena.
+    //
+    // Se pregunta por el DATASET aunque se venga de una instantánea: el contenido de una
+    // instantánea se lee bajo el `.zfs` del dataset, que también hace falta montado.
+    {
+        std::string montado;
+        if (!agente(e, destino, {"--dump-zfs-get-prop", "mounted", destino.dataset}, montado)) {
+            return false;
+        }
+        if (B::trim(montado) == "no") {
+            if (!callado) {
+                std::fprintf(stderr, TC("t_no_montado_content", "%s no está montado: no hay contenido que "
+                             "listar\n"), destino.dataset.c_str());
+            }
+            return false;
+        }
+    }
+
     base.clear();
     esWindows = T::isWindowsConnection(*p);
     if (esWindows) {

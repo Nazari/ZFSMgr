@@ -167,6 +167,46 @@ constexpr const char* kDefaultCommandPath =
     "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin";
 #endif
 
+// ¿Nos deja el sistema leer los discos?
+//
+// En macOS, «root» no basta: leer un dispositivo en crudo exige que el binario tenga
+// concedido «Acceso total al disco». Sin él, `zpool import` no falla — dice «no pools
+// available to import», exactamente igual que cuando de verdad no hay ninguno—. El
+// usuario ve una lista vacía y no tiene forma de distinguir «no hay» de «no puedo mirar»:
+// pasó con un pool en un disco externo que la propia máquina enseñaba en `diskutil list`.
+//
+// Se comprueba abriendo para lectura la primera rodaja de disco que haya: si eso da
+// EPERM/EACCES, lo que falta es el permiso. En el resto de plataformas no aplica y la
+// función dice que no hay problema.
+const char* const kMarcaDiscosIlegibles = "__ZFSMGR_DISCOS_ILEGIBLES__\n";
+
+bool discosIlegibles() {
+#ifdef __APPLE__
+    bool huboAlguno = false;
+    for (int disco = 0; disco < 8; ++disco) {
+        for (int rodaja = 1; rodaja <= 8; ++rodaja) {
+            const std::string ruta =
+                "/dev/disk" + std::to_string(disco) + "s" + std::to_string(rodaja);
+            if (::access(ruta.c_str(), F_OK) != 0) {
+                continue;
+            }
+            huboAlguno = true;
+            const int fd = ::open(ruta.c_str(), O_RDONLY);
+            if (fd >= 0) {
+                ::close(fd);
+                return false;   // uno legible basta: el permiso está concedido
+            }
+            if (errno != EPERM && errno != EACCES) {
+                return false;   // ocupado u otra cosa: no es un problema de permisos
+            }
+        }
+    }
+    return huboAlguno;
+#else
+    return false;
+#endif
+}
+
 constexpr const char* kApiVersion = "3";
 #ifndef ZFSMGR_AGENT_VERSION_STRING
 #define ZFSMGR_AGENT_VERSION_STRING ZFSMGR_APP_VERSION
@@ -5401,6 +5441,9 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         ExecResult b = runExecCapture("zpool", {"import", "-s"});
         r.rc = b.rc;
         r.out = a.out + b.out;
+        if (discosIlegibles()) {
+            r.out += kMarcaDiscosIlegibles;
+        }
         r.err = a.err + b.err;
         return r;
     }
@@ -7051,6 +7094,9 @@ int main(int argc, char* argv[]) {
         }
         if (!b.out.empty()) {
             std::cout << b.out;
+        }
+        if (discosIlegibles()) {
+            std::cout << kMarcaDiscosIlegibles;
         }
         if (!a.err.empty()) {
             std::cerr << a.err;
