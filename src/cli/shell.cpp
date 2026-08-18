@@ -2082,6 +2082,86 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
     return t;
 }
 
+// Las credenciales de los pares: qué otras máquinas sabe alcanzar este daemon.
+//
+// Hace falta para NIVELAR una programación contra otra máquina, porque eso lo hace el
+// daemon solo, de madrugada, sin nadie delante: las credenciales tienen que estar en la
+// máquina. Y son las de la OTRA punta —cada daemon verifica a sus clientes contra su
+// propio certificado—, que es justo lo que el cliente ya guarda por conexión.
+bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const ZfsmUrl& destino = pet.objetivo;
+    if (!pet.tiene("--push")) {
+        std::string out;
+        if (!agente(e, destino, {"--dump-peers"}, out, 20000)) {
+            return false;
+        }
+        Tabla t;
+        t.nombreJson = "peers";
+        t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_host", "HOST"),
+                            T("t_cab_puerto", "PUERTO")};
+        t.campos = {"id", "host", "port"};
+        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero};
+        for (const std::string& l : B::split(out, "\n", true)) {
+            const std::vector<std::string> c = B::split(l, "\t", false);
+            if (c.size() >= 3) {
+                t.filas.push_back({B::trim(c[0]), B::trim(c[1]), B::trim(c[2])});
+            }
+        }
+        t.imprime(e.formato);
+        return true;
+    }
+
+    // Lo que se manda: cada OTRA conexión con material TLS. La propia no, que sería
+    // decirle a la máquina cómo hablar consigo misma.
+    B::json::Array pares;
+    std::vector<std::string> nombres;
+    for (const auto& p : e.conns.perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        if (B::toLowerAscii(id) == B::toLowerAscii(destino.connection)) {
+            continue;
+        }
+        if (p.daemonTlsServerCertPem.empty() || p.daemonTlsClientCertPem.empty()
+            || p.daemonTlsClientKeyPem.empty()) {
+            continue;   // sin material TLS no hay nada que entregar
+        }
+        B::json::Value uno;
+        uno.set("id", B::json::Value(id));
+        uno.set("host", B::json::Value(T::isLocalConnection(p) ? std::string("127.0.0.1") : p.host));
+        uno.set("port", B::json::Value(static_cast<double>(p.daemonTlsPort)));
+        uno.set("server_cert_pem", B::json::Value(p.daemonTlsServerCertPem));
+        uno.set("client_cert_pem", B::json::Value(p.daemonTlsClientCertPem));
+        uno.set("client_key_pem", B::json::Value(p.daemonTlsClientKeyPem));
+        pares.push_back(uno);
+        nombres.push_back(id);
+    }
+    if (pares.empty()) {
+        std::fputs(TC("t_peers_ninguno", "no hay ninguna otra conexión con material TLS que "
+                     "entregar\n"), stderr);
+        return false;
+    }
+    if (!confirma(e, B::format(T("t_conf_peers", "Se van a entregar a %1 las credenciales de: %2.\n"
+                                 "Con ellas, esa máquina puede hablar con las otras como si fuera "
+                                 "usted. ¿Continuar?"),
+                               {destino.connection, B::join(nombres, ", ")}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    B::json::Value raiz;
+    raiz.set("peers", B::json::Value(std::move(pares)));
+    const std::string carga = B::json::toCompact(raiz);
+    std::string out;
+    if (!agente(e, destino, {"--mutate-set-peers", B::base64Encode(carga)}, out, 30000)) {
+        return false;
+    }
+    std::fprintf(stderr, TC("t_peers_puestos", "entregadas %zu credenciales a %s\n"),
+                 nombres.size(), destino.connection.c_str());
+    return true;
+}
+
 // El registro del daemon.
 //
 // Se pide por BYTES desde el final y no por líneas: el verbo del agente lee un rango del
@@ -4222,6 +4302,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"schedule", cmdSchedule},
         {"schedules", cmdSchedules},
         {"log", cmdLog},
+        {"peers", cmdPeers},
         {"breakdown", cmdBreakdown},
         {"assemble", cmdAssemble},
         {"todir", cmdToDir},

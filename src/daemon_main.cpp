@@ -58,6 +58,7 @@ typedef int pid_t;
 #include "json.h"
 #include "base/process.h"
 #include "base/gsa.h"
+#include "base/tlsclient.h"
 #include "base/zfsprops.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
@@ -464,6 +465,8 @@ std::string agentCapabilityList() {
     // Copiar y Nivelar apagadas en Windows por mucho que la tabla dijera lo contrario.
     caps.push_back("--job-submit");
     caps.push_back("--zfs-send-to-peer");
+    caps.push_back("--mutate-set-peers");
+    caps.push_back("--dump-peers");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -4454,6 +4457,108 @@ int gsaRunViaSsh(const GsaTargetConn& tc, const std::string& remoteCmd) {
     return r.rc;
 }
 
+// ── Los PARES del daemon ────────────────────────────────────────────────────────────
+//
+// Para nivelar contra otra máquina hay que llegar hasta su daemon, y eso pide credenciales
+// que el daemon no tiene por sí mismo: cada uno verifica a sus clientes contra SU propio
+// `client.crt`, así que para hablar con la máquina B hay que presentar el certificado de
+// cliente de B. Es lo mismo que hace la aplicación, que guarda esa terna por conexión en
+// su almacén de confianza.
+//
+// Esto sustituye a `gsa-connections.conf`, que guardaba usuario, host, clave SSH y
+// contraseña en claro, y con lo que se abría un `ssh` por cada operación.
+//
+// El fichero lo escribe el cliente con `--mutate-set-peers`. Va con permisos 600 y de root
+// porque lleva claves privadas dentro; el mismo trato que el material TLS de al lado.
+#ifdef _WIN32
+const char* const kPeersPath = "C:\\ProgramData\\ZFSMgr\\agent\\peers.json";
+#else
+const char* const kPeersPath = "/etc/zfsmgr/peers.json";
+#endif
+
+// Definido más abajo, junto al resto del transporte: aquí solo se anuncia para poder
+// usarlo desde el nivelado sin mover cuatrocientas líneas de sitio.
+using TransferProgressFn =
+    std::function<bool(std::uint64_t totalBytes, long elapsedSecs, double rateMiBs)>;
+static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
+                                          const TransferProgressFn& onProgress);
+
+struct GsaPeer {
+    std::string id;
+    std::string host;
+    int port{0};
+    std::string serverCertPem;
+    std::string clientCertPem;
+    std::string clientKeyPem;
+};
+
+bool gsaCargaPeer(const std::string& id, GsaPeer& out) {
+    std::ifstream f(kPeersPath);
+    if (!f.is_open()) {
+        return false;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    zfsmgr::base::json::Value raiz;
+    std::string err;
+    if (!zfsmgr::base::json::parse(ss.str(), raiz, &err)) {
+        return false;
+    }
+    for (const auto& v : raiz["peers"].toArray()) {
+        if (toLower(trim(v["id"].toString())) != toLower(trim(id))) {
+            continue;
+        }
+        out.id = trim(v["id"].toString());
+        out.host = trim(v["host"].toString());
+        out.port = static_cast<int>(v["port"].toInt(0));
+        out.serverCertPem = v["server_cert_pem"].toString();
+        out.clientCertPem = v["client_cert_pem"].toString();
+        out.clientKeyPem = v["client_key_pem"].toString();
+        return !out.host.empty() && out.port > 0 && !out.serverCertPem.empty()
+               && !out.clientCertPem.empty() && !out.clientKeyPem.empty();
+    }
+    return false;
+}
+
+// Una petición al daemon de un par, por el mismo protocolo que usa la aplicación:
+// `{"cmd":…,"args":[…]}` y respuesta con `rc`, `stdout` y `stderr`.
+bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
+                const std::vector<std::string>& args, std::string& salida, std::string& error) {
+    zfsmgr::base::TlsClientConfig cfg;
+    cfg.host = peer.host;
+    cfg.port = peer.port;
+    cfg.serverCertPem = peer.serverCertPem;
+    cfg.clientCertPem = peer.clientCertPem;
+    cfg.clientKeyPem = peer.clientKeyPem;
+    zfsmgr::base::json::Value req;
+    req.set("cmd", zfsmgr::base::json::Value(cmd));
+    zfsmgr::base::json::Array ja;
+    for (const std::string& a : args) {
+        ja.push_back(zfsmgr::base::json::Value(a));
+    }
+    req.set("args", zfsmgr::base::json::Value(std::move(ja)));
+    std::string respuesta;
+    if (!zfsmgr::base::tlsRequestLine(cfg, zfsmgr::base::json::toCompact(req), respuesta, error)) {
+        return false;
+    }
+    zfsmgr::base::json::Value resp;
+    std::string errJson;
+    if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
+        error = "respuesta ilegible del par: " + errJson;
+        return false;
+    }
+    const int rc = static_cast<int>(resp["rc"].toInt(1));
+    salida = resp["stdout"].toString();
+    if (rc != 0) {
+        error = trim(resp["stderr"].toString());
+        if (error.empty()) {
+            error = "el par respondió " + std::to_string(rc);
+        }
+        return false;
+    }
+    return true;
+}
+
 void gsaLevelSnapshot(const std::string& ds, bool recursive,
                       const std::string& snapName, const std::string& dstSpec,
                       bool levelOn, const GsaTargetConn& target,
@@ -4471,6 +4576,9 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
     }
 
     const bool isLocal = (target.mode == "local");
+    const std::string conexionDestino = dstSpec.substr(0, sep);
+    GsaPeer peer;
+    bool peerListo = false;
     std::string recvOpts = "-u";
     std::string sendOpts = "-wLEc";
     if (recursive) { recvOpts = "-u -s"; sendOpts = "-wLEcR"; }
@@ -4494,33 +4602,37 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
             }
         }
     } else {
-        if (gsaRunViaSsh(target, "true") != 0) {
-            log("GSA level skip for " + ds + ": SSH not available to " + target.host);
+        // El destino se consulta por el TRANSPORTE DEL DAEMON, no abriendo un `ssh`.
+        //
+        // Lo de antes exigía credenciales SSH propias —usuario, clave y `known_hosts` en
+        // `gsa-connections.conf`, con la contraseña en claro— y acababa en un
+        // `std::system()` con una tubería de shell dentro del daemon, que es justo lo que
+        // este programa está quitando de todas partes. El daemon ya sabe hablar con otro
+        // daemon: mTLS, verbos tipados y un flujo por socket con reanudación.
+        if (!gsaCargaPeer(conexionDestino, peer)) {
+            log("GSA level skip for " + ds + ": no hay credenciales del par «" + conexionDestino
+                + "» en " + kPeersPath);
             return;
         }
-        const int chkRc = gsaRunViaSsh(target,
-            "zfs list -H -o name " + dstDataset + " >/dev/null 2>&1");
-        targetExists = (chkRc == 0);
-        if (targetExists) {
-            std::vector<std::string> sshArgs;
-            sshArgs.push_back("-o"); sshArgs.push_back("BatchMode=yes");
-            sshArgs.push_back("-o"); sshArgs.push_back("ConnectTimeout=10");
-            sshArgs.push_back("-o"); sshArgs.push_back("LogLevel=ERROR");
-            if (!target.knownHostsFile.empty()) {
-                sshArgs.push_back("-o"); sshArgs.push_back("StrictHostKeyChecking=yes");
-                sshArgs.push_back("-o"); sshArgs.push_back("UserKnownHostsFile=" + target.knownHostsFile);
-            }
-            if (!target.port.empty()) { sshArgs.push_back("-p"); sshArgs.push_back(target.port); }
-            if (!target.key.empty())  { sshArgs.push_back("-i"); sshArgs.push_back(target.key); }
-            sshArgs.push_back(target.user + "@" + target.host);
-            sshArgs.push_back("zfs list -H -t snapshot -o name -s creation -d 1 " + dstDataset + " 2>/dev/null");
-            const ExecResult snaps = runExecCapture("ssh", sshArgs);
-            if (snaps.rc == 0 && !trim(snaps.out).empty()) {
-                const std::vector<std::string> lines = splitLines(snaps.out);
-                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
-                    const std::string l = trim(lines[static_cast<std::size_t>(i)]);
-                    if (!l.empty()) { baseSnap = l.substr(dstDataset.size() + 1); break; }
+        peerListo = true;
+        std::string salida;
+        std::string errPeer;
+        if (!gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)) {
+            // Que el dataset no exista NO es un fallo: es la primera nivelación, y el
+            // receptor lo crea. Se distingue por si el par contestó algo.
+            targetExists = false;
+        } else {
+            targetExists = true;
+            const std::string prefijo = dstDataset + "@";
+            std::vector<std::string> instantaneas;
+            for (const std::string& l : splitLines(salida)) {
+                const std::string nombre = trim(l.substr(0, l.find('\t')));
+                if (nombre.rfind(prefijo, 0) == 0) {
+                    instantaneas.push_back(nombre);
                 }
+            }
+            if (!instantaneas.empty()) {
+                baseSnap = instantaneas.back().substr(dstDataset.size() + 1);
             }
         }
     }
@@ -4540,36 +4652,64 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
         if (recursive) recvOpts = "-u -s -F";
     }
 
-    std::string recvCmd;
-    if (target.useSudo) {
-        recvCmd = "sudo -n sh -lc 'zfs recv " + recvOpts + " " + dstDataset + "'";
-    } else {
-        recvCmd = "zfs recv " + recvOpts + " " + dstDataset;
-    }
-
-    std::string sendCmd = "zfs send " + sendOpts;
-    if (!baseSnap.empty()) sendCmd += " -i @" + baseSnap;
-    sendCmd += " " + ds + "@" + snapName;
-
-    std::string fullCmd;
-    if (isLocal) {
-        fullCmd = sendCmd + " | sh -lc '" + recvCmd + "'";
-    } else {
-        std::string sshPrefix = "ssh -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR";
-        if (!target.knownHostsFile.empty())
-            sshPrefix += " -o StrictHostKeyChecking=yes -o UserKnownHostsFile=" + target.knownHostsFile;
-        if (!target.port.empty()) sshPrefix += " -p " + target.port;
-        if (!target.key.empty())  sshPrefix += " -i " + target.key;
-        sshPrefix += " " + target.user + "@" + target.host;
-        fullCmd = sendCmd + " | " + sshPrefix + " " + recvCmd;
-    }
-
     log("GSA level start for " + ds + " -> " + dstDataset);
-    const int rc = std::system(fullCmd.c_str()); // NOLINT
-    if (rc != 0)
-        log("GSA level error for " + ds + ": exit " + std::to_string(rc));
-    else
+
+    if (isLocal) {
+        // Misma máquina: una tubería local basta y no hay nada que cifrar. Sigue pasando
+        // por el intérprete, que es lo que queda por quitar aquí.
+        std::string recvCmd = target.useSudo
+                                  ? ("sudo -n sh -lc 'zfs recv " + recvOpts + " " + dstDataset + "'")
+                                  : ("zfs recv " + recvOpts + " " + dstDataset);
+        std::string sendCmd = "zfs send " + sendOpts;
+        if (!baseSnap.empty()) sendCmd += " -i @" + baseSnap;
+        sendCmd += " " + ds + "@" + snapName;
+        const int rc = std::system((sendCmd + " | sh -lc '" + recvCmd + "'").c_str()); // NOLINT
+        if (rc != 0) {
+            log("GSA level error for " + ds + ": exit " + std::to_string(rc));
+        } else {
+            log("GSA level done for " + ds + " -> " + dstDataset);
+        }
+        return;
+    }
+
+    // Y a otra máquina: se le pide al par que ESCUCHE, y se le manda el flujo al socket que
+    // abre. Es el mismo camino que usa «copy» desde la aplicación, con su testigo de un
+    // solo uso, así que la transferencia se puede reanudar y no pasa por ningún intérprete.
+    if (!peerListo) {
+        log("GSA level skip for " + ds + ": el par no está resuelto");
+        return;
+    }
+    std::string respuesta;
+    std::string errPeer;
+    if (!gsaPeerRpc(peer, "--zfs-recv-listen", {dstDataset, baseSnap.empty() ? "0" : "1"},
+                    respuesta, errPeer)) {
+        // El motivo casi seguro, y conviene decirlo entero: el daemon del par escucha en
+        // 127.0.0.1 salvo que se le diga otra cosa (AGENT_BIND en su agent.conf). Con la
+        // aplicación delante eso no se nota porque abre un túnel SSH, pero aquí no hay
+        // nadie que lo abra: nivelar exige que el par sea alcanzable.
+        log("GSA level error for " + ds + ": el par no pudo escuchar: " + errPeer);
+        log("GSA level hint: el daemon de " + peer.host + " tiene que escuchar en una dirección "
+            "alcanzable (AGENT_BIND en su agent.conf); por omisión solo atiende en 127.0.0.1");
+        return;
+    }
+    std::string puerto;
+    std::string testigo;
+    for (const std::string& l : splitLines(respuesta)) {
+        const std::string s = trim(l);
+        if (s.rfind("PORT=", 0) == 0) puerto = s.substr(5);
+        if (s.rfind("TOKEN=", 0) == 0) testigo = s.substr(6);
+    }
+    if (puerto.empty() || testigo.empty()) {
+        log("GSA level error for " + ds + ": el par no devolvió puerto y testigo");
+        return;
+    }
+    const ExecResult env = runZfsSendToPeerCapture(
+        {ds + "@" + snapName, peer.host, puerto, testigo, baseSnap, sendOpts}, nullptr);
+    if (env.rc != 0) {
+        log("GSA level error for " + ds + ": " + trim(env.err));
+    } else {
         log("GSA level done for " + ds + " -> " + dstDataset);
+    }
 }
 
 void gsaRunOnce(const std::function<void(const std::string&)>& log) {
@@ -4662,9 +4802,11 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
             const std::size_t sep = dstSpec.find("::");
             if (sep != std::string::npos) {
                 const std::string connId = dstSpec.substr(0, sep);
+                // Se INTENTA por el fichero de conexiones antiguo, que es lo único que
+                // distingue el caso «el destino es esta misma máquina». Que no resuelva ya
+                // no cancela nada: el camino normal es el de los pares, y quien decide es
+                // `gsaLevelSnapshot`, que sabe de los dos y dice por cuál va.
                 targetResolved = gsaResolveTarget(connKv, connId, selfConn, target);
-                if (!targetResolved)
-                    log("GSA level skip for " + ds + ": connection not resolvable (" + connId + ")");
             }
         }
 
@@ -4680,8 +4822,9 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
             if (g_stop.load()) break;
             const std::string snapName = gsaCreateSnapshot(ds, klass, recursive, log);
             if (snapName.empty()) continue;
-            if (levelOn && targetResolved)
+            if (levelOn) {
                 gsaLevelSnapshot(ds, recursive, snapName, dstSpec, true, target, log);
+            }
         }
 
         // La poda va APARTE de la creación, y en cada pasada.
@@ -5209,9 +5352,6 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 // vive ahora en spawnReadingStdout.
 // Devuelve false para pedir que la transferencia se interrumpa. Se llama en cada vuelta
 // del relé, igual que la comprobación de cancelación que hacía el camino asíncrono.
-using TransferProgressFn =
-    std::function<bool(std::uint64_t totalBytes, long elapsedSecs, double rateMiBs)>;
-
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
                                           const TransferProgressFn& onProgress = nullptr) {
     ExecResult r;
@@ -5833,6 +5973,73 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         dataset = trim(dataset);
         if (dataset.empty()) { r.rc = 2; r.err = "empty dataset\n"; return r; }
         return runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
+    }
+    // Las credenciales de los pares, que las escribe el cliente.
+    //
+    // Llega en base64 por lo mismo que la frase de paso: dentro van CLAVES PRIVADAS, y un
+    // argumento se ve en `ps`. El fichero queda 600 y de root, igual que el material TLS
+    // de al lado; con permisos más abiertos, cualquier usuario de la máquina podría
+    // hacerse pasar por ella ante las demás.
+    if (cmd == "--mutate-set-peers") {
+        if (params.size() < 1) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-set-peers <json-b64>\n";
+            return r;
+        }
+        std::string contenido;
+        if (!decodeBase64(params[0], contenido)) {
+            r.rc = 2; r.err = "invalid base64 argument\n"; return r;
+        }
+        zfsmgr::base::json::Value comprobacion;
+        std::string errJson;
+        if (!zfsmgr::base::json::parse(contenido, comprobacion, &errJson)) {
+            r.rc = 2; r.err = "peers.json no es JSON valido: " + errJson + "\n"; return r;
+        }
+        const std::string tmp = std::string(kPeersPath) + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            if (!f.is_open()) {
+                r.rc = 1; r.err = std::string("no se pudo escribir ") + tmp + "\n"; return r;
+            }
+            f << contenido;
+        }
+#ifndef _WIN32
+        ::chmod(tmp.c_str(), 0600);
+#endif
+        std::error_code ec;
+        std::filesystem::rename(tmp, kPeersPath, ec);
+        if (ec) {
+            std::filesystem::remove(tmp, ec);
+            r.rc = 1; r.err = std::string("no se pudo colocar ") + kPeersPath + "\n"; return r;
+        }
+        r.rc = 0;
+        r.out = std::string("PEERS=") + kPeersPath + "\n";
+        daemonLog("INFO", "peers actualizados por el cliente");
+        return r;
+    }
+    if (cmd == "--dump-peers") {
+        // SOLO los nombres y a donde apuntan: los certificados y la clave privada no salen
+        // de la maquina ni para mirarlos.
+        std::ifstream f(kPeersPath);
+        if (!f.is_open()) {
+            r.rc = 0;
+            return r;
+        }
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        zfsmgr::base::json::Value raiz;
+        std::string errJson;
+        if (!zfsmgr::base::json::parse(ss.str(), raiz, &errJson)) {
+            r.rc = 1; r.err = "peers.json ilegible: " + errJson + "\n"; return r;
+        }
+        std::ostringstream out;
+        for (const auto& v : raiz["peers"].toArray()) {
+            out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
+                << v["port"].toInt(0) << "\n";
+        }
+        r.rc = 0;
+        r.out = out.str();
+        return r;
     }
     if (cmd == "--mutate-zfs-change-key") {
         if (params.size() < 3) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-change-key <dataset-b64> <passphrase-b64> <flags-b64>\n"; return r; }

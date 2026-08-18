@@ -249,18 +249,35 @@ Y una orden local nueva, `zfsmgr-agent --gsa-run-once`, para forzar una pasada y
 qué una programación no hizo nada. NO es un verbo RPC a propósito: no forma parte del
 contrato con el cliente, así que no toca el marcador de esquema ni obliga a reinstalar.
 
-### Lo que queda
+### Nivelar por el transporte del daemon (hecho, y con un tope)
 
-**Nivelar sigue inerte, y por lo mismo de siempre**: `gsaLevelSnapshot` resuelve el destino
-contra `/etc/zfsmgr/gsa-connections.conf`, que nadie escribe. Con el destino puesto, el
-registro dice `GSA level skip: connection not resolvable (unibody)`.
+Elegida la opción 1. `gsaLevelSnapshot` ya no abre `ssh` ni pasa por `std::system` con una
+tubería de shell: le pide al par que ESCUCHE —`--zfs-recv-listen` por mTLS— y le manda el
+flujo al socket que abre, con el mismo `--zfs-send-to-peer` que usa «copy». Desaparecen el
+`known_hosts` propio, la contraseña en claro de `gsa-connections.conf` y `sshpass`.
 
-Las dos salidas, por orden de preferencia:
+Para eso el daemon necesita saber de sus pares, y eso es nuevo: `/etc/zfsmgr/peers.json`,
+de root y con permisos 600 porque lleva CLAVES PRIVADAS. Lo escribe el cliente con
+`peers --push`, que entrega, por cada conexión, a dónde llegar y el material TLS de ESA
+máquina —cada daemon verifica a sus clientes contra su propio certificado, así que para
+hablar con una hay que presentar el suyo—. Se pregunta antes: con eso, la máquina puede
+hablar con las otras como si fuera usted.
 
-1. **Que nivelar use el transporte del propio daemon** —`--zfs-send-to-peer` con mTLS,
-   reanudación y seguimiento como trabajo— en vez de `ssh` con su propio `known_hosts`. Es
-   la crítica que se hizo al guion y sigue valiendo para este código, que hace lo mismo por
-   SSH. Requiere que el daemon sepa de sus pares: eso es el trust-store, que la interfaz ya
-   sabe exportar.
-2. Escribir `gsa-connections.conf` desde el cliente, que es lo que hacía el instalador
-   muerto. Más barato y deja el SSH donde está.
+**El tope, que es de despliegue y no de código:** el daemon escucha en `127.0.0.1` salvo
+que se le diga otra cosa (`AGENT_BIND` en su `agent.conf`). Con la aplicación delante eso
+no se nota porque abre un túnel SSH; aquí no hay nadie que lo abra. Comprobado contra
+unibody: `ss -ltn` enseña `127.0.0.1:47653`, y el registro lo dice entero —
+
+    GSA level error: el par no pudo escuchar: no se pudo conectar a unib.local:47653
+    GSA level hint: el daemon de unib.local tiene que escuchar en una dirección alcanzable
+                    (AGENT_BIND en su agent.conf); por omisión solo atiende en 127.0.0.1
+
+Así que nivelar entre máquinas exige **decidir exponer el puerto del daemon** en el
+destino. Es mTLS con certificado de cliente fijado, así que es defendible, pero cambia el
+modelo de amenaza y es una decisión, no un detalle: queda pendiente de tomarla. Las
+alternativas serían que el daemon abra su propio túnel SSH —volver a las credenciales SSH
+que acabamos de quitar— o que nivele el cliente cuando esté abierto, que deja de ser
+desatendido.
+
+Nivelar contra la MISMA máquina (`local::pool/ds`) funciona sin nada de esto, y sigue
+pasando por una tubería local: es lo único que queda ahí del intérprete.

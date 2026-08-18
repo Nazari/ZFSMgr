@@ -119,21 +119,22 @@ extern int zfsmclidebug;
     V_SCHEDULE = 306,              /* V_SCHEDULE  */
     V_SCHEDULES = 307,             /* V_SCHEDULES  */
     V_LOG = 308,                   /* V_LOG  */
-    V_ROLLBACK = 309,              /* V_ROLLBACK  */
-    V_HOLDS = 310,                 /* V_HOLDS  */
-    V_HOLD = 311,                  /* V_HOLD  */
-    V_RELEASE = 312,               /* V_RELEASE  */
-    V_CLONE = 313,                 /* V_CLONE  */
-    V_DIFF = 314,                  /* V_DIFF  */
-    V_COPY = 315,                  /* V_COPY  */
-    V_ALLOW = 316,                 /* V_ALLOW  */
-    V_UNALLOW = 317,               /* V_UNALLOW  */
-    V_BREAKDOWN = 318,             /* V_BREAKDOWN  */
-    V_ASSEMBLE = 319,              /* V_ASSEMBLE  */
-    V_TODIR = 320,                 /* V_TODIR  */
-    V_FROMDIR = 321,               /* V_FROMDIR  */
-    V_RSYNC = 322,                 /* V_RSYNC  */
-    V_DESCONOCIDO = 323            /* V_DESCONOCIDO  */
+    V_PEERS = 309,                 /* V_PEERS  */
+    V_ROLLBACK = 310,              /* V_ROLLBACK  */
+    V_HOLDS = 311,                 /* V_HOLDS  */
+    V_HOLD = 312,                  /* V_HOLD  */
+    V_RELEASE = 313,               /* V_RELEASE  */
+    V_CLONE = 314,                 /* V_CLONE  */
+    V_DIFF = 315,                  /* V_DIFF  */
+    V_COPY = 316,                  /* V_COPY  */
+    V_ALLOW = 317,                 /* V_ALLOW  */
+    V_UNALLOW = 318,               /* V_UNALLOW  */
+    V_BREAKDOWN = 319,             /* V_BREAKDOWN  */
+    V_ASSEMBLE = 320,              /* V_ASSEMBLE  */
+    V_TODIR = 321,                 /* V_TODIR  */
+    V_FROMDIR = 322,               /* V_FROMDIR  */
+    V_RSYNC = 323,                 /* V_RSYNC  */
+    V_DESCONOCIDO = 324            /* V_DESCONOCIDO  */
   };
   typedef enum zfsmclitokentype zfsmclitoken_kind_t;
 #endif
@@ -146,7 +147,7 @@ union ZFSMCLISTYPE
 
     char* texto;
 
-#line 150 "generado/gramatica.tab.h"
+#line 151 "generado/gramatica.tab.h"
 
 };
 typedef union ZFSMCLISTYPE ZFSMCLISTYPE;
@@ -165,6 +166,6 @@ int zfsmcliparse (void* scanner, AnalisisCli* res);
 int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
-#line 169 "generado/gramatica.tab.h"
+#line 170 "generado/gramatica.tab.h"
 
 #endif /* !YY_ZFSMCLI_GENERADO_GRAMATICA_TAB_H_INCLUDED  */

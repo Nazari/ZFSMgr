@@ -72,6 +72,8 @@ cmd:--mutate-zfs-create
 create:reports-mountpoint
 cmd:--mutate-copy-tree
 cmd:--dump-copy-tree-pending
+cmd:--mutate-set-peers
+cmd:--dump-peers
 copytree:skip-unchanged-delete-dryrun
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")

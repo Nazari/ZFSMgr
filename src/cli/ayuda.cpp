@@ -606,6 +606,21 @@ const std::vector<Orden> kOrdenes = {
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
 
     // --- Daemon
+    {"peers", {"t_daemon_48e665", "Daemon"}, {"t_peers_uso", "[--push]"},
+     {"t_peers_res", "Qué otras máquinas sabe alcanzar el daemon de esta."},
+     {{{"t_peers_push", "--push"},
+       {"t_peers_push_q", "Le entrega las credenciales de las demás conexiones."}}},
+     {{"t_peers_det1", "Hace falta para NIVELAR una programación contra otra máquina: eso lo hace el "
+       "daemon por su cuenta, de madrugada y sin nadie delante, así que las credenciales "
+       "tienen que estar en la máquina y no en su portátil."},
+      {"t_peers_det2", "Se le entrega, por cada conexión, a dónde llegar y el material TLS de ESA "
+       "máquina: cada daemon verifica a sus clientes contra su propio certificado, así que "
+       "para hablar con una hay que presentar el suyo. Es lo mismo que guarda el almacén de "
+       "confianza del cliente."},
+      {"t_peers_det3", "Va cifrado dentro de la petición y queda en un fichero de root con permisos "
+       "600: lleva CLAVES PRIVADAS. Quien pueda leerlo puede hacerse pasar por esta máquina "
+       "ante las otras, así que se pregunta antes de mandarlo."}},
+     Objetivo::Conexion, {}},
     {"log", {"t_daemon_48e665", "Daemon"}, {"t_log_uso", "[--lines <n>]"},
      {"t_log_res", "El registro del daemon de esta máquina."},
      {{{"t_log_lines", "--lines <n>"}, {"t_log_lines_q", "Cuántas líneas del final. Por omisión, 200."}}},
