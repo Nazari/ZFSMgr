@@ -197,6 +197,13 @@ Comprobación:
    spctl -a -vv "/ruta/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr.app"
 
+El intérprete (zfsmgr_cli) viaja DENTRO del .app, porque en macOS no hay instalador.
+Para tenerlo en el PATH, un enlace:
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+Comprobación:  zfsmgr_cli --help
+Al desinstalar (borrar el .app) el enlace queda colgando; se quita con:
+   sudo rm /usr/local/bin/zfsmgr_cli
+
 [EN]
 These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
 On macOS you can still open the app by applying a local security exception.
@@ -219,6 +226,13 @@ Verification:
    spctl -a -vv "/path/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr.app"
 
+The shell tool (zfsmgr_cli) ships INSIDE the .app, since macOS has no installer.
+To get it on your PATH, symlink it:
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+Check with:  zfsmgr_cli --help
+Deleting the .app leaves the symlink dangling; remove it with:
+   sudo rm /usr/local/bin/zfsmgr_cli
+
 [ZH]
 这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
 在 macOS 上，你仍可通过本地安全例外来打开应用。
@@ -239,6 +253,13 @@ Verification:
 校验：
    spctl -a -vv "/路径/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr.app"
+
+命令行工具 (zfsmgr_cli) 打包在 .app 内部，因为 macOS 没有安装程序。
+若要加入 PATH，请创建符号链接：
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+验证：  zfsmgr_cli --help
+删除 .app 后链接会失效，可用以下命令移除：
+   sudo rm /usr/local/bin/zfsmgr_cli
 EOF
 }
 

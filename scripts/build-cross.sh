@@ -241,6 +241,39 @@ find_cross_tool() {
 #
 # Los `.dSYM` se excluyen: dentro hay DWARF, que no es Mach-O firmable y hace fallar al
 # firmador entero. dyld no los carga, así que quedan fuera y es correcto.
+# El intérprete, dentro del .app.
+#
+# macOS no tiene instalador: se arrastra el .app y ya está. Así que el intérprete viaja
+# donde viaja la aplicación, y quien lo quiera en el PATH pone un enlace:
+#
+#   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+#
+# `Contents/MacOS` no es un sitio cualquiera: es el que hace que la ruta
+# `<ejecutable>/../Resources/i18n` —una de las cuatro que `src/cli/main.cpp` ya busca—
+# apunte a los catálogos que se copian aquí al lado. El intérprete no enlaza Qt, así que
+# sin ellos solo hablaría castellano.
+#
+# En el cruce OpenSSL va estático, de modo que este binario solo depende de libc++ y
+# libSystem: no hay rutas que reapuntar, a diferencia del ejecutable principal.
+#
+# ANTES de firmar, como los agentes: añadir ficheros a un bundle ya firmado rompe el
+# sello de recursos.
+mete_cli_en_bundle_macos() {
+  local app_bundle="$1"
+  local build_dir="$2"
+  local cli="${build_dir}/zfsmgr_cli"
+  if [[ ! -f "${cli}" ]]; then
+    echo "Error: no se encontró ${cli} para meter en el bundle." >&2
+    echo "       Sin él, el .app de macOS sale sin intérprete." >&2
+    return 1
+  fi
+  cp -f "${cli}" "${app_bundle}/Contents/MacOS/zfsmgr_cli"
+  chmod 0755 "${app_bundle}/Contents/MacOS/zfsmgr_cli"
+  mkdir -p "${app_bundle}/Contents/Resources/i18n"
+  cp -f "${PROJECT_ROOT}"/i18n/*.json "${app_bundle}/Contents/Resources/i18n/"
+  echo "  intérprete empaquetado: Contents/MacOS/zfsmgr_cli"
+}
+
 firma_adhoc_bundle() {
   local bundle="$1"
   local firmador="${RCODESIGN:-}"
@@ -271,8 +304,18 @@ ensure_macos_bundle_runtime_cross() {
   local resources_dst="${app_bundle}/Contents/Resources"
   mkdir -p "${frameworks_dst}" "${plugins_dst}" "${resources_dst}"
 
-  local main_bin
-  main_bin="$(find "${app_bundle}/Contents/MacOS" -maxdepth 1 -type f -perm -111 | head -n1 || true)"
+  # El binario principal POR NOMBRE, no «el primero que salga».
+  #
+  # Era un `find | head -n1`, y Contents/MacOS tenía un solo ejecutable. Desde que
+  # también lleva `zfsmgr_cli`, ese head podía devolver el intérprete y entonces las
+  # dependencias que se resuelven abajo serían las suyas —ninguna: es autónomo— en vez
+  # de las de la aplicación, que es la que necesita los frameworks de Qt. El .app
+  # saldría sin Qt dentro y sin que nada fallara.
+  local main_bin="${app_bundle}/Contents/MacOS/ZFSMgr"
+  if [[ ! -f "${main_bin}" ]]; then
+    main_bin="$(find "${app_bundle}/Contents/MacOS" -maxdepth 1 -type f -perm -111 \
+                     ! -name 'zfsmgr_cli' | head -n1 || true)"
+  fi
   [[ -n "${main_bin}" ]] || { echo "No se encontró binario principal en ${app_bundle}/Contents/MacOS" >&2; return 1; }
 
   copy_framework_by_name() {
@@ -707,6 +750,7 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
     fi
     if [[ -n "${app_bundle}" ]]; then
       ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
+      mete_cli_en_bundle_macos "${app_bundle}" "${BUILD_DIR}"
       firma_adhoc_bundle "${app_bundle}"
     else
       # Antes era un aviso, y la compilación seguía en verde produciendo un .app sin Qt

@@ -820,6 +820,30 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     fi
   fi
 
+  # El intérprete, dentro del .app, y sus catálogos al lado.
+  #
+  # macOS no tiene instalador: se arrastra el .app. Así que el intérprete viaja donde
+  # viaja la aplicación, y quien lo quiera en el PATH pone un enlace:
+  #
+  #   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+  #
+  # En Contents/MacOS y no en otro sitio: es lo que hace que
+  # `<ejecutable>/../Resources/i18n` —una de las cuatro rutas que src/cli/main.cpp ya
+  # busca— dé con los catálogos. El intérprete no enlaza Qt y los lee del disco.
+  #
+  # Antes de firmar, como los agentes.
+  if [[ -f "${BUILD_DIR}/zfsmgr_cli" ]]; then
+    cp -f "${BUILD_DIR}/zfsmgr_cli" "${APP_BUNDLE}/Contents/MacOS/zfsmgr_cli"
+    chmod 0755 "${APP_BUNDLE}/Contents/MacOS/zfsmgr_cli"
+    mkdir -p "${APP_BUNDLE}/Contents/Resources/i18n"
+    cp -f "${PROJECT_ROOT}"/i18n/*.json "${APP_BUNDLE}/Contents/Resources/i18n/"
+    echo "  intérprete empaquetado: Contents/MacOS/zfsmgr_cli"
+  else
+    echo "Error: no se encontró ${BUILD_DIR}/zfsmgr_cli para meter en el bundle." >&2
+    echo "       Sin él, el .app de macOS sale sin intérprete." >&2
+    exit 1
+  fi
+
   AGENT_BUNDLE_SRC="${ZFSMGR_AGENT_BUNDLE_DIR:-${PROJECT_ROOT}/builds/agent-bundle}"
   agents_dst="${APP_BUNDLE}/Contents/Resources/agents"
   rm -rf "${agents_dst}"
