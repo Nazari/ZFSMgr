@@ -483,6 +483,17 @@ int main() {
     if (!looksLikeSudoAuthFailure(QString::fromUtf8("sudo: se requiere una contraseña"))) {
         return fail("looksLikeSudoAuthFailure should detect the Spanish -n refusal");
     }
+    // Un «Timeout» PELADO no dice nada, y así llegaba el fallo de instalar el daemon:
+    // sudo rechazaba la contraseña a los cuatro segundos, la orden se colgaba hasta los
+    // 180 s y arriba solo subía esa palabra. Ahora el motivo llega con la salida pegada,
+    // que es lo que este detector sabe leer.
+    if (looksLikeSudoAuthFailure(QStringLiteral("Timeout"))) {
+        return fail("looksLikeSudoAuthFailure should not invent a cause from a bare timeout");
+    }
+    if (!looksLikeSudoAuthFailure(
+            QStringLiteral("Timeout: sudo: 3 incorrect password attempts\ncat: stdout: Broken pipe"))) {
+        return fail("looksLikeSudoAuthFailure should read the cause kept next to the timeout");
+    }
     if (looksLikeSudoAuthFailure("user is not in the sudoers file")) {
         return fail("looksLikeSudoAuthFailure must not fire on a sudoers problem");
     }

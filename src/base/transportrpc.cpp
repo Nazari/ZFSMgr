@@ -36,6 +36,26 @@ namespace H = zfsmgr::base::helpers;
 
 int acota(int v, int minimo, int maximo) { return std::max(minimo, std::min(v, maximo)); }
 
+// El motivo, con lo que el proceso alcanzó a decir antes de que se le acabara el tiempo.
+//
+// Un «Timeout» a secas no dice nada, y lo que sí lo dice suele estar en la salida que ya
+// se había capturado. Se recorta para que un volcado largo no se coma el aviso.
+std::string juntaMotivoConSalida(const std::string& motivo, const std::string& err,
+                                 const std::string& out) {
+    std::string cola = zfsmgr::base::trim(err);
+    if (cola.empty()) {
+        cola = zfsmgr::base::trim(out);
+    }
+    if (cola.empty()) {
+        return motivo;
+    }
+    constexpr std::size_t kTope = 600;
+    if (cola.size() > kTope) {
+        cola = cola.substr(cola.size() - kTope);
+    }
+    return motivo + ": " + cola;
+}
+
 using Nivel = TransportSession::Nivel;
 using Reloj = std::chrono::steady_clock;
 
@@ -793,7 +813,16 @@ bool runSsh(TransportSession& ses,
         }
         if (vig.porInactividad) {
             rc = -1;
-            err = "Timeout";
+            // «Timeout» SE AÑADE a lo que el proceso ya había dicho; no lo sustituye.
+            //
+            // Sustituirlo tiraba justo la explicación. Caso real, mmela 2026-08-19:
+            // instalar el daemon con una contraseña de sudo vacía. sudo contestaba a los
+            // cuatro segundos «3 incorrect password attempts», la orden se quedaba colgada
+            // hasta los 180 s, y lo único que llegaba arriba era «Timeout» — con lo que
+            // `looksLikeSudoAuthFailure()`, que ya se consulta al fallar, no reconocía nada
+            // y no se ofrecía corregir la credencial. Tres minutos de ventana congelada
+            // para acabar en el mensaje que menos ayuda.
+            err = juntaMotivoConSalida("Timeout", err, out);
             ses.logConn(Nivel::Normal, p.id, err);
             return false;
         }
@@ -920,7 +949,7 @@ bool runSsh(TransportSession& ses,
         }
         if (vig.porInactividad) {
             aRc = -1;
-            aErr = "Timeout";
+            aErr = juntaMotivoConSalida("Timeout", aErr, aOut);
             ses.logConn(Nivel::Normal, p.id, aErr);
             return false;
         }

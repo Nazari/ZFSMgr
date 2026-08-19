@@ -3805,7 +3805,25 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                              &detail,
                                              remoteStdinPayload);
     if (!ok) {
-        if (interactive) {
+        // Si sudo rechazó la contraseña, DECIRLO, en vez de enseñar el fallo en crudo.
+        //
+        // Instalar el daemon es la operación que más depende de sudo, y su fallo llegaba
+        // aquí como un «Timeout» sin más: el usuario veía tres minutos de ventana quieta y
+        // una palabra que no señala a ninguna parte. La comprobación es la misma que ya se
+        // usa en el diálogo de conexión y al ejecutar cualquier orden.
+        const bool porCredencial = mwhelpers::looksLikeSudoAuthFailure(detail);
+        if (interactive && porCredencial) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_daemon_install_sudo_001"),
+                    QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\": sudo rechazó "
+                                   "la contraseña.\n\nRevísela en Editar conexión.\n\n%2"),
+                    QStringLiteral("Could not install/update the daemon on \"%1\": sudo rejected the "
+                                   "password.\n\nCheck it in Edit connection.\n\n%2"),
+                    QStringLiteral("无法在 \"%1\" 上安装/更新守护进程：sudo 拒绝了该密码。\n\n请在“编辑连接”中检查。\n\n%2"))
+                    .arg(p.name, detail.simplified().left(500)));
+        } else if (interactive) {
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
