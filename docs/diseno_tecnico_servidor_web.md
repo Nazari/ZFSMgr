@@ -110,7 +110,7 @@ base lo lee— y el tema oscuro.
 
 | Fase | Qué | Por qué antes |
 |---|---|---|
-| 0 | HTTP/1.1 sobre OpenSSL + sesión + CSRF, sirviendo *una* página con la lista de conexiones | Es donde vive el riesgo. Si esto no queda bien, lo demás no importa. |
+| 0 | **HECHA (9533fae)** — HTTP/1.1 sobre OpenSSL + sesión + CSRF, sirviendo *una* página con la lista de conexiones | Es donde vive el riesgo. Si esto no queda bien, lo demás no importa. |
 | 1 | Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
 | 3 | WebDAV sobre la misma escucha | Cae casi solo una vez hay servidor |
@@ -118,6 +118,10 @@ base lo lee— y el tema oscuro.
 | 5 | Retirar Qt | Solo cuando 4 esté medido contra la lista, no antes |
 
 ## Lo que hay que resolver y todavía no sé
+
+**El tamaño real, ya medido en la fase 0:** el binario son 329 KB frente a los 9,3 MB de
+`zfsmgr_qt`. No dice cuánto ocupará con la interfaz entera, pero sí que el punto de partida
+no arrastra peso.
 
 **El túnel se monta en UN hilo.** `TransportSession` tiene `tunnelsAllowedHere` y
 `runWhereTunnelsAllowed` porque en la GUI el montaje se ordena al hilo de interfaz. Un
