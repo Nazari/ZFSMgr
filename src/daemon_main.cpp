@@ -58,6 +58,7 @@ typedef int pid_t;
 #include "json.h"
 #include "base/process.h"
 #include "base/gsa.h"
+#include "base/tlsserver.h"
 #include "base/tlsclient.h"
 #include "base/zfsprops.h"
 #include <openssl/x509v3.h>
@@ -3611,74 +3612,16 @@ bool writeSelfSignedPair(const std::string& certPath,
                          const std::string& commonName,
                          bool serverAuth,
                          std::string& errMsg) {
-    EVP_PKEY* pkey = EVP_RSA_gen(2048);
-    if (!pkey) {
-        errMsg = "no se pudo generar la clave RSA\n";
-        return false;
-    }
-    X509* x = X509_new();
-    if (!x) {
-        EVP_PKEY_free(pkey);
-        errMsg = "no se pudo crear el certificado\n";
-        return false;
-    }
-    X509_set_version(x, 2);  // v3
-    ASN1_INTEGER_set(X509_get_serialNumber(x), 1);
-    X509_gmtime_adj(X509_get_notBefore(x), 0);
-    X509_gmtime_adj(X509_get_notAfter(x), 60L * 60 * 24 * 3650);
-    X509_set_pubkey(x, pkey);
-
-    X509_NAME* name = X509_get_subject_name(x);
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                               reinterpret_cast<const unsigned char*>(commonName.c_str()), -1, -1, 0);
-    X509_set_issuer_name(x, name);  // autofirmado: emisor = sujeto
-
-    auto addExt = [&](int nid, const char* value) {
-        X509V3_CTX ctx;
-        X509V3_set_ctx_nodb(&ctx);
-        X509V3_set_ctx(&ctx, x, x, nullptr, nullptr, 0);
-        X509_EXTENSION* ex = X509V3_EXT_conf_nid(nullptr, &ctx, nid, value);
-        if (ex) {
-            X509_add_ext(x, ex, -1);
-            X509_EXTENSION_free(ex);
-        }
-    };
-    addExt(NID_basic_constraints, "critical,CA:TRUE");
-    addExt(NID_subject_alt_name,
-           "DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1");
-    addExt(NID_key_usage, "critical,digitalSignature,keyEncipherment,keyCertSign");
-    addExt(NID_ext_key_usage, serverAuth ? "serverAuth" : "clientAuth");
-
-    if (!X509_sign(x, pkey, EVP_sha256())) {
-        X509_free(x);
-        EVP_PKEY_free(pkey);
-        errMsg = "no se pudo firmar el certificado\n";
-        return false;
-    }
-
-    bool ok = false;
-    if (FILE* cf = std::fopen(certPath.c_str(), "wb")) {
-        ok = PEM_write_X509(cf, x) == 1;
-        std::fclose(cf);
-    }
-    if (ok) {
-        ok = false;
-        if (FILE* kf = std::fopen(keyPath.c_str(), "wb")) {
-            ok = PEM_write_PrivateKey(kf, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1;
-            std::fclose(kf);
-        }
-    }
-    X509_free(x);
-    EVP_PKEY_free(pkey);
+    // La emisión vive en `base/tlsserver.cpp` desde que hay un segundo artefacto que la
+    // necesita —el servidor web—. Aquí queda el nombre y los alt-names del agente.
+    std::string err;
+    const bool ok = zfsmgr::base::tlsserver::escribeParAutofirmado(
+        certPath, keyPath, commonName, serverAuth,
+        "DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1", err);
     if (!ok) {
-        errMsg = "no se pudieron escribir los ficheros PEM\n";
-        return false;
+        errMsg = err + "\n";
     }
-#ifndef _WIN32
-    ::chmod(certPath.c_str(), 0600);
-    ::chmod(keyPath.c_str(), 0600);
-#endif
-    return true;
+    return ok;
 }
 
 // Genera el material que falte. No toca lo existente salvo que carezca de SAN, misma

@@ -122,6 +122,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp
+    ../src/base/tlsserver.cpp
+    ../src/base/tlsserver.h
     ../src/base/storefiles.h
     ../src/base/storewarnings.h
     ../src/base/connectionjson.cpp
@@ -336,6 +338,36 @@ target_compile_definitions(zfsmgr_cli PRIVATE
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
+
+# El servidor web: un CLIENTE más, hermano del intérprete. Enlaza SOLO la capa base — el
+# mismo contrato que zfsmgr_cli: si algún día deja de compilar por un símbolo de Qt, es que
+# se ha metido interfaz donde no toca. Ver docs/diseno_tecnico_servidor_web.md.
+add_executable(zfsmgr_web
+    ../src/web/main.cpp
+    ../src/web/http.cpp
+    ../src/web/http.h
+    ../src/web/sesion.cpp
+    ../src/web/sesion.h
+    # La entrada de secretos por terminal o descriptor se comparte con el intérprete: es la
+    # misma regla —nunca por argumento ni por entorno— y no tiene sentido escribirla dos
+    # veces. Si aparece un tercer consumidor, baja a la capa base.
+    ../src/cli/secretinput.cpp
+)
+target_include_directories(zfsmgr_web PRIVATE ../src/web ../src/cli)
+target_link_libraries(zfsmgr_web PRIVATE zfsmgr_base)
+target_compile_definitions(zfsmgr_web PRIVATE
+    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
+)
+
+add_executable(zfsmgr_web_test
+    ../tests/web_test.cpp
+    ../src/web/http.cpp
+    ../src/web/sesion.cpp
+)
+target_include_directories(zfsmgr_web_test PRIVATE ../src/web)
+target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_base)
+add_test(NAME zfsmgr_web_test COMMAND zfsmgr_web_test)
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
