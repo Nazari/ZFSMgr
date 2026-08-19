@@ -1,5 +1,7 @@
 #include "shell.h"
 
+#include "agentversion.h"
+
 #include "daemonpayload.h"
 #include "ayuda.h"
 #include "gramatica_cli.h"
@@ -797,7 +799,7 @@ void listaConexiones(Estado& e, const Peticion& pet) {
     t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
     t.campos.push_back("daemon");
     t.tipos.push_back(Tipo::Cadena);
-    const std::string esperada = ZFSMGR_AGENT_VERSION_STRING;
+    const std::string esperada = B::agentversion::laEsperada();
     for (std::size_t i = 0; i < t.filas.size() && i < e.conns.perfiles.size(); ++i) {
         const auto& p = e.conns.perfiles[i];
         const std::string id = p.id.empty() ? p.name : p.id;
@@ -821,10 +823,21 @@ void listaConexiones(Estado& e, const Peticion& pet) {
                 e.versionDaemon[id] = version;
             }
         }
+        // El « * » distingue VIEJA de NUEVA, que no es lo mismo aunque las dos difieran.
+        //
+        // Se comparaba con `!=`, así que un agente más nuevo que este cliente salía
+        // marcado igual que uno anticuado, y el usuario no podía saber cuál de las dos
+        // mitades hay que actualizar. La comparación ordenada es la que ya usaba la
+        // interfaz; ahora es la misma para las dos.
         if (version.empty()) {
             version = "-";
-        } else if (version != esperada) {
-            version += " *";
+        } else {
+            const int cmp = B::agentversion::compara(version, esperada);
+            if (cmp < 0) {
+                version += " *";       // el agente se ha quedado atrás
+            } else if (cmp > 0) {
+                version += " +";       // el agente va por delante: el viejo es el cliente
+            }
         }
         t.filas[i].push_back(version);
     }
@@ -3164,11 +3177,24 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s (%zu bytes) en %s...\n"), binario.c_str(), contenido.size(), quien.c_str());
 
     namespace DP = B::daemonpayload;
-    // La versión del agente y la del protocolo, que van en agent.conf. Vienen del
-    // compilador, igual que en la interfaz: la del agente NO es la de la aplicación, lleva
-    // el sufijo del marcador de esquema.
-    const std::string version = ZFSMGR_AGENT_VERSION_STRING;
-    const std::string api = "3";
+    // La versión que va a `agent.conf` se lee DEL BINARIO que se está copiando, no de la
+    // que trae este intérprete.
+    //
+    // Casi siempre son la misma —se compilan juntos—, pero no siempre: el agente
+    // empaquetado de una plataforma puede ser más viejo si solo se recompiló el de otra.
+    // Escribir entonces la versión de este binario deja el `agent.conf` mintiendo, y la
+    // máquina se declara al día con un daemon que no lo está. La interfaz ya lo leía así.
+    std::string version = B::agentversion::versionEnBinario(binario);
+    if (version.empty()) {
+        version = B::agentversion::laEsperada();
+    } else if (version != B::agentversion::laEsperada()) {
+        std::fprintf(stderr,
+                     TC("t_agente_empaquetado_viejo",
+                        "aviso: el agente empaquetado para %s es %s y este cliente espera %s; "
+                        "se instala igual, pero la conexión seguirá saliendo desactualizada\n"),
+                     plataforma.c_str(), version.c_str(), B::agentversion::laEsperada().c_str());
+    }
+    const std::string api = B::agentversion::apiEsperada();
 
     if (esWindows) {
         // Por scp y no por la entrada estándar: PowerShell no vuelve de ReadToEnd() con

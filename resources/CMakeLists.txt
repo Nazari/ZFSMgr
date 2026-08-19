@@ -121,6 +121,7 @@ add_library(zfsmgr_base STATIC
     ../src/base/refreshparse.h
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
+    ../src/base/agentversion.cpp
     ../src/base/storefiles.h
     ../src/base/storewarnings.h
     ../src/base/connectionjson.cpp
@@ -149,6 +150,11 @@ add_library(zfsmgr_base STATIC
     ../src/base/daemonpayload.h
 )
 target_include_directories(zfsmgr_base PUBLIC ../src/base)
+# La versión del agente la necesita la propia capa base desde que `agentversion` vive aquí:
+# es un dato de la compilación, como en los otros dos objetivos que ya la reciben.
+target_compile_definitions(zfsmgr_base PRIVATE
+    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
+)
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)

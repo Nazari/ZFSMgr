@@ -11,6 +11,7 @@
 #include "json.h"
 #include "process.h"
 #include "refreshparse.h"
+#include "agentversion.h"
 #include "secretcipher.h"
 #include "strutil.h"
 #include "transportcmd.h"
@@ -647,6 +648,27 @@ int main() {
         comprobar(!CJ::upsertConnectionJson(arr, sinId, ""), "sin id no inserta");
     }
 
+
+    // --- versiones del agente
+    //
+    // Estaban solo en la interfaz, y el interprete comparaba con `!=`: un agente MAS NUEVO
+    // que el cliente salia marcado igual que uno anticuado. Aqui se fija el orden.
+    {
+        namespace AV = zfsmgr::base::agentversion;
+        comprobar(AV::compara("0.93.1.598479612", "0.93.1.598479612") == 0, "av: iguales");
+        comprobar(AV::compara("0.92.0.598479612", "0.93.1.598479612") < 0, "av: 0.92 va antes que 0.93");
+        comprobar(AV::compara("0.93.2.100000000", "0.93.1.999999999") > 0,
+                  "av: manda el parche, no el sufijo de esquema");
+        comprobar(AV::compara("0.93.0.111111111", "0.93.0.222222222") < 0,
+                  "av: a igual version, ordena el sufijo");
+        // Un candidato va ANTES que su final, que es lo que uno espera y lo contrario de
+        // lo que sale al comparar como texto («0.93.0rc1» > «0.93.0» alfabeticamente).
+        comprobar(AV::compara("0.93.0rc1", "0.93.0") < 0, "av: un rc va antes que su final");
+        comprobar(AV::compara("0.93.0rc1", "0.93.0rc2") < 0, "av: y entre rc, por numero");
+        // Lo que no tiene forma de version se compara como texto: no es correcto, pero es
+        // predecible, y no debe hacer creer que dos cosas raras son iguales.
+        comprobar(AV::compara("no-es-version", "tampoco") != 0, "av: lo informe no se declara igual");
+    }
 
     // --- ficheros del almacen y motivos tipificados
     {
