@@ -153,6 +153,43 @@ std::string tabla(const std::vector<std::string>& cabeceras,
     return h;
 }
 
+// El argv de `zfs`, en JSON y base64, que es lo que espera `--mutate-zfs-generic`. El
+// daemon solo admite una lista cerrada de operaciones; esto no envía shell.
+std::string argvEnBase64(const std::vector<std::string>& argv) {
+    B::json::Value arr{B::json::Array{}};
+    for (const std::string& a : argv) {
+        arr.push(B::json::Value(a));
+    }
+    return B::base64Encode(B::json::toCompact(arr));
+}
+
+// Un campo oculto con el testigo. Va en TODOS los formularios: sin él, el servidor
+// rechaza la petición con 403 aunque la cookie sea la buena.
+std::string campoTestigo(const std::string& testigo) {
+    return "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
+}
+
+// Las acciones que caben en un dataset. Todas por POST: un GET que cambia algo lo repite
+// el navegador al recargar, y lo precarga solo si le apetece.
+std::string formularioAcciones(const std::string& conn, const std::string& ds,
+                               const std::string& testigo) {
+    const std::string comunes = campoTestigo(testigo)
+                                + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
+                                + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(ds) + "\">";
+    std::string h = "<h2>Acciones</h2>";
+    h += "<form method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"crear-instantanea\">"
+         + "<label>Instantánea nueva: <input name=\"nombre\" required></label>"
+         + "<button type=\"submit\">Crear</button></form>";
+    h += "<form method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"montar\">"
+         + "<button type=\"submit\">Montar</button></form>";
+    h += "<form method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"desmontar\">"
+         + "<button type=\"submit\">Desmontar</button></form>";
+    return h;
+}
+
 std::string paginaConexiones(const std::vector<B::ConnectionProfile>& perfiles,
                              const std::string& testigo) {
     std::vector<std::vector<std::string>> filas;
@@ -190,9 +227,13 @@ std::string paginaDatasets(const std::string& conn, const std::string& raiz,
     std::vector<std::vector<std::string>> instantaneas;
     for (const L::Entrada& e : entradas) {
         if (e.esInstantanea()) {
-            instantaneas.push_back({H::escapaHtml(e.nombre.substr(e.nombre.find('@') + 1)),
+            const std::string corto = e.nombre.substr(e.nombre.find('@') + 1);
+            instantaneas.push_back({H::escapaHtml(corto),
                                     H::escapaHtml(bytesLegibles(e.usado)),
-                                    H::escapaHtml(e.creacion)});
+                                    H::escapaHtml(e.creacion),
+                                    enlace("/confirmar?c=" + conn + "&o=" + e.nombre
+                                               + "&que=borrar-instantanea",
+                                           "Borrar…")});
             continue;
         }
         datasets.push_back({enlace("/c/" + conn + "/" + e.nombre, e.nombre),
@@ -204,8 +245,9 @@ std::string paginaDatasets(const std::string& conn, const std::string& raiz,
     std::string cuerpo = "<h2>Datasets</h2>";
     cuerpo += tabla({"Nombre", "Usado", "Compr.", "Montado", "Punto de montaje"}, datasets);
     cuerpo += "<h2>Instantáneas</h2>";
-    cuerpo += tabla({"Nombre", "Usado", "Creación"}, instantaneas);
+    cuerpo += tabla({"Nombre", "Usado", "Creación", ""}, instantaneas);
     cuerpo += "<p>" + enlace("/c/" + conn + "/" + raiz + "?props=1", "Ver propiedades") + "</p>";
+    cuerpo += formularioAcciones(conn, raiz, testigo);
     const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn);
     return envuelve(raiz, migas, cuerpo, testigo);
 }
@@ -216,10 +258,47 @@ std::string paginaPropiedades(const std::string& conn, const std::string& objeto
     for (const L::Propiedad& p : props) {
         filas.push_back({H::escapaHtml(p.nombre), H::escapaHtml(p.valor), H::escapaHtml(p.origen)});
     }
+    // Cambiar una propiedad: el nombre se teclea a mano de momento. La edición en línea
+    // sobre la tabla es de la fase 4; esto ya ejercita el camino entero.
+    std::string form = "<h2>Cambiar una propiedad</h2>";
+    form += "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+            + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
+            + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(objeto) + "\">"
+            + "<input type=\"hidden\" name=\"que\" value=\"set\">"
+            + "<label>Propiedad <input name=\"prop\" required></label> "
+            + "<label>Valor <input name=\"valor\" required></label> "
+            + "<button type=\"submit\">Aplicar</button></form>";
     const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn)
                               + " / " + enlace("/c/" + conn + "/" + objeto, objeto);
     return envuelve("Propiedades de " + objeto, migas,
-                    tabla({"Propiedad", "Valor", "Origen"}, filas), testigo);
+                    tabla({"Propiedad", "Valor", "Origen"}, filas) + form, testigo);
+}
+
+// La página de confirmación de algo que destruye.
+//
+// Existe porque un botón que borra sin preguntar, en una página que se puede recargar, es
+// una forma de perder datos por un clic de más. Dice EXACTAMENTE qué se va a hacer y sobre
+// qué, igual que el intérprete antes de una orden destructiva.
+std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
+                            const std::string& que, const std::string& testigo) {
+    std::string texto;
+    if (que == "borrar-instantanea") {
+        texto = "Se va a DESTRUIR la instantánea «" + objeto + "» en «" + conn
+                + "». Lo que hubiera en ella se pierde y no hay vuelta atrás.";
+    } else {
+        texto = "Acción desconocida.";
+    }
+    std::string cuerpo = "<p>" + H::escapaHtml(texto) + "</p>";
+    if (que == "borrar-instantanea") {
+        cuerpo += "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+                  + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
+                  + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(objeto) + "\">"
+                  + "<input type=\"hidden\" name=\"que\" value=\"" + H::escapaHtml(que) + "\">"
+                  + "<button type=\"submit\">Sí, destruirla</button></form>";
+    }
+    const std::string padre = objeto.substr(0, objeto.find('@'));
+    cuerpo += "<p>" + enlace("/c/" + conn + "/" + padre, "No, volver") + "</p>";
+    return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 std::string paginaError(const std::string& que, const std::string& testigo) {
@@ -356,6 +435,99 @@ int main(int argc, char** argv) {
             respuesta = H::componer(r);
             return true;
         }
+        // --- Mutaciones. Todas por POST y todas con testigo: ese es el contrato.
+        if (p.metodo == "POST" && p.ruta == "/accion") {
+            if (!sesion.testigoVale(p.campo("testigo"))) {
+                r.codigo = 403;
+                r.tipo = "text/plain; charset=utf-8";
+                r.cuerpo = "testigo no valido\n";
+                respuesta = H::componer(r);
+                return true;
+            }
+            const std::string conn = p.campo("c");
+            const std::string objeto = p.campo("o");
+            const std::string que = p.campo("que");
+            const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
+            const B::ConnectionProfile* perfil = zfsmgr::cli::buscarConexion(conns, conn);
+            if (!perfil || objeto.empty()) {
+                r.codigo = 400;
+                r.cuerpo = paginaError("falta la conexión o el objeto", sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+
+            std::vector<std::string> verbo;
+            if (que == "crear-instantanea") {
+                const std::string nombre = B::trim(p.campo("nombre"));
+                // El nombre lo escribe una persona y viaja hasta un argv de `zfs`. Se
+                // valida AQUÍ además de en el daemon: una barra o una arroba dentro
+                // convertirían «instantánea de este dataset» en otra cosa.
+                if (nombre.empty() || nombre.find('@') != std::string::npos
+                    || nombre.find('/') != std::string::npos
+                    || nombre.find(' ') != std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("nombre de instantánea no válido: «" + nombre + "»",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                verbo = {"--mutate-zfs-snapshot", objeto + "@" + nombre, "0"};
+            } else if (que == "borrar-instantanea") {
+                if (objeto.find('@') == std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("eso no es una instantánea: «" + objeto + "»",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                verbo = {"--mutate-zfs-destroy", objeto, "0", ""};
+            } else if (que == "montar" || que == "desmontar") {
+                verbo = {"--mutate-zfs-generic",
+                         argvEnBase64({que == "montar" ? "mount" : "unmount", objeto})};
+            } else if (que == "set") {
+                const std::string prop = B::trim(p.campo("prop"));
+                const std::string valor = p.campo("valor");
+                if (prop.empty() || prop.find('=') != std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("propiedad no válida: «" + prop + "»", sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                verbo = {"--mutate-zfs-generic", argvEnBase64({"set", prop + "=" + valor, objeto})};
+            } else {
+                r.codigo = 400;
+                r.cuerpo = paginaError("acción desconocida: «" + que + "»", sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+
+            std::string salidaM;
+            std::string errM;
+            int rcM = -1;
+            std::string motivoM;
+            const bool hablo = zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfil, verbo, salidaM,
+                                                           errM, rcM, &motivoM, 120000);
+            if (!hablo || rcM != 0) {
+                r.codigo = 502;
+                const std::string detalle = !errM.empty() ? errM
+                                            : (!salidaM.empty() ? salidaM : motivoM);
+                r.cuerpo = paginaError("no se pudo: " + B::trim(detalle), sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+
+            // Redirección después de un POST: si no, recargar la página REPITE la acción, y
+            // «crear instantánea» dos veces es ruido pero «destruir» dos veces es otra cosa.
+            const std::string volverA = objeto.find('@') != std::string::npos
+                                            ? objeto.substr(0, objeto.find('@'))
+                                            : objeto;
+            r.codigo = 302;
+            r.cabecerasExtra.push_back("Location: /c/" + conn + "/" + volverA);
+            r.cuerpo = "";
+            respuesta = H::componer(r);
+            return true;
+        }
+
         if (p.metodo != "GET") {
             r.codigo = 405;
             r.tipo = "text/plain; charset=utf-8";
@@ -375,6 +547,27 @@ int main(int argc, char** argv) {
 
         // `/c/<conexión>[/<pool>[/<dataset>]]`. Se trocea a mano y no con una tabla de
         // rutas porque son tres formas y una tabla aquí sería más código que el reparto.
+        // La confirmación de algo destructivo: es un GET porque NO hace nada todavía;
+        // solo cuenta lo que pasaría. Quien ejecuta es el POST de después.
+        if (p.ruta == "/confirmar") {
+            const auto campoConsulta = [&p](const std::string& nombre) {
+                for (const std::string& par : B::split(p.consulta, "&", true)) {
+                    const std::size_t i = par.find('=');
+                    if (i == std::string::npos) {
+                        continue;
+                    }
+                    if (H::desdeUrl(par.substr(0, i)) == nombre) {
+                        return H::desdeUrl(par.substr(i + 1));
+                    }
+                }
+                return std::string();
+            };
+            r.cuerpo = paginaConfirmar(campoConsulta("c"), campoConsulta("o"),
+                                       campoConsulta("que"), sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+
         if (p.ruta.rfind("/c/", 0) != 0) {
             r.codigo = 404;
             r.tipo = "text/plain; charset=utf-8";
