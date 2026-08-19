@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <csignal>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -236,20 +237,40 @@ std::string formularioAcciones(const std::string& conn, const std::string& ds,
     return h;
 }
 
+// La versión del agente de cada máquina, marcada como en el intérprete: « * » si se ha
+// quedado atrás y « + » si va por delante de este cliente. Distinguirlas importa: si no,
+// uno no sabe cuál de las dos mitades hay que actualizar.
+std::string marcaDeVersion(const std::string& version) {
+    if (version.empty()) {
+        return "-";
+    }
+    const int cmp = B::agentversion::compara(version, B::agentversion::laEsperada());
+    if (cmp < 0) {
+        return version + " *";
+    }
+    if (cmp > 0) {
+        return version + " +";
+    }
+    return version;
+}
+
 std::string paginaConexiones(const std::vector<B::ConnectionProfile>& perfiles,
+                             const std::vector<std::string>& versiones,
                              const std::string& testigo) {
     std::vector<std::vector<std::string>> filas;
-    for (const B::ConnectionProfile& p : perfiles) {
+    for (std::size_t i = 0; i < perfiles.size(); ++i) {
+        const B::ConnectionProfile& p = perfiles[i];
         const std::string id = p.id.empty() ? p.name : p.id;
         filas.push_back({enlace("/c/" + id, id),
                          H::escapaHtml(p.name),
                          H::escapaHtml(p.connType),
                          H::escapaHtml(p.osType),
                          H::escapaHtml(p.host),
-                         H::escapaHtml(p.username)});
+                         H::escapaHtml(p.username),
+                         H::escapaHtml(i < versiones.size() ? versiones[i] : std::string("-"))});
     }
     return envuelve("Conexiones", "ZFSMgr",
-                    tabla({"ID", "Nombre", "Tipo", "Sistema", "Host", "Usuario"}, filas),
+                    tabla({"ID", "Nombre", "Tipo", "Sistema", "Host", "Usuario", "Daemon"}, filas),
                     testigo);
 }
 
@@ -429,6 +450,10 @@ int main(int argc, char** argv) {
         }
         std::fprintf(stderr, "certificado emitido en %s\n", rutaCert.c_str());
     }
+
+    // Lo que ya se preguntó a cada máquina, para no volver a esperar por ella en cada
+    // recarga. Vive lo que vive el proceso.
+    std::map<std::string, std::string> versionPorConexion;
 
     zfsmgr::web::Sesion sesion;
     sesion.abre();
@@ -829,7 +854,43 @@ int main(int argc, char** argv) {
         const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
 
         if (p.ruta == "/") {
-            r.cuerpo = paginaConexiones(conns.perfiles, sesion.testigo());
+            // La versión del agente de cada máquina. Se pregunta y se RECUERDA durante la
+            // vida del proceso, incluido el fallo: sin eso, cada recarga de la portada
+            // volvería a esperar el plazo entero por una máquina apagada.
+            //
+            // Una conexión apartada no se sondea: está apartada a propósito.
+            std::vector<std::string> versiones;
+            for (const B::ConnectionProfile& perfilC : conns.perfiles) {
+                const std::string id = perfilC.id.empty() ? perfilC.name : perfilC.id;
+                if (conns.desconectada(id)) {
+                    versiones.push_back("-");
+                    continue;
+                }
+                const auto ya = versionPorConexion.find(id);
+                if (ya != versionPorConexion.end()) {
+                    versiones.push_back(ya->second);
+                    continue;
+                }
+                std::string salidaH;
+                std::string errH;
+                int rcH = -1;
+                std::string motivoH;
+                std::string version;
+                if (zfsmgr::cli::ejecutarAgente(*sesionZfs, perfilC, {"--health"}, salidaH, errH,
+                                                rcH, &motivoH, 8000)
+                    && rcH == 0) {
+                    for (const std::string& linea : B::split(salidaH, "\n", true)) {
+                        if (B::startsWith(B::trim(linea), "VERSION=")) {
+                            version = B::trim(B::trim(linea).substr(8));
+                            break;
+                        }
+                    }
+                }
+                const std::string marcada = marcaDeVersion(version);
+                versionPorConexion[id] = marcada;
+                versiones.push_back(marcada);
+            }
+            r.cuerpo = paginaConexiones(conns.perfiles, versiones, sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
