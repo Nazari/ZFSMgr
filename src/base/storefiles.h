@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "connectionjson.h"
 #include "json.h"
 #include "storewarnings.h"
 
@@ -45,6 +46,25 @@ bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, A
 // la última cosa que solo se podía hacer con una ventana delante.
 bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
                       const std::string& nueva, std::string& copiaSufijo, Aviso& aviso);
+
+// Guarda un perfil en `config.json`: sustituye el que tenga su identificador o lo añade.
+//
+// Hace tres cosas que no se pueden separar de escribir, y que estaban solo en la interfaz:
+//
+//  - **Cifra** lo que vaya en claro. Sin clave maestra NO se escribe: dejar una contraseña
+//    de acceso legible en disco para ahorrarse un paso es un mal cambio.
+//  - **Conserva el material TLS** del perfil que ya estuviera guardado si el EXTREMO no ha
+//    cambiado —mismo host, puerto, usuario y clave—, para no obligar a renegociarlo.
+//  - **Y lo suelta si el extremo SÍ cambió.** Esto es lo importante: un certificado fijado
+//    para una máquina no vale para otra, y arrastrarlo al cambiar el host deja al cliente
+//    fiándose de un certificado que no le corresponde. El intérprete no hacía ni lo uno ni
+//    lo otro: escribía el perfil tal cual, así que un `edit` que cambiara el host se
+//    quedaba con el TLS del host viejo.
+//
+// La validación de los campos y de dónde sale el identificador NO está aquí: cada mitad
+// tiene la suya y son políticas distintas.
+bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
+                  const std::string& maestra, Aviso& aviso);
 
 // ¿Hay ALGO cifrado en los dos ficheros? Si no lo hay, pedir la contraseña maestra es
 // fricción sin motivo, y esa es la clase de fricción que acaba con la contraseña escrita

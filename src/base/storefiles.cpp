@@ -1,6 +1,7 @@
 #include "storefiles.h"
 
 #include "secretcipher.h"
+#include "strutil.h"
 
 #include <filesystem>
 #include <functional>
@@ -221,6 +222,171 @@ bool recorreSecretos(const std::string& dirConfig,
 }
 
 }  // namespace
+
+namespace {
+
+// Cifra un campo si va en claro. Sin maestra no se escribe: se dice y se para.
+bool cifraSiHace(std::string& valor, const char* campo, const std::string& maestra, Aviso& aviso) {
+    if (valor.empty() || SecretCipher::isEncrypted(valor)) {
+        return true;
+    }
+    if (maestra.empty()) {
+        aviso = Aviso{Motivo::ClaveMaestraRequeridaParaCifrar, {}, campo, {}};
+        return false;
+    }
+    std::string cifrado;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
+        aviso = Aviso{Motivo::NoSeCifra, {}, campo, err};
+        return false;
+    }
+    valor = cifrado;
+    return true;
+}
+
+// ¿Apunta el perfil AL MISMO SITIO que el que ya estaba guardado?
+//
+// El usuario se compara descifrado: guardado va cifrado, y compararlo tal cual daría
+// «cambió» siempre, con lo que se tiraría el TLS en cada guardado.
+bool mismoExtremo(const ConnectionProfile& nuevo, const ConnectionProfile& viejo,
+                  const std::string& maestra) {
+    std::string usuarioViejo = viejo.username;
+    if (SecretCipher::isEncrypted(usuarioViejo) && !maestra.empty()) {
+        std::string claro;
+        std::string err;
+        if (SecretCipher::decryptEncv1(usuarioViejo, maestra, claro, err)) {
+            usuarioViejo = claro;
+        }
+    }
+    return toLowerAscii(trim(viejo.host)) == toLowerAscii(trim(nuevo.host))
+           && connjson::ensurePort(viejo.connType, viejo.port)
+                  == connjson::ensurePort(nuevo.connType, nuevo.port)
+           && toLowerAscii(trim(usuarioViejo)) == toLowerAscii(trim(nuevo.username))
+           && trim(viejo.keyPath) == trim(nuevo.keyPath);
+}
+
+}  // namespace
+
+bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
+                  const std::string& maestra, Aviso& aviso) {
+    aviso = Aviso{};
+    if (trim(p.id).empty()) {
+        aviso = Aviso{Motivo::IdVacio, {}, {}, {}};
+        return false;
+    }
+    json::Value root = leerConfig(dirConfig, aviso);
+    if (!aviso.vacio()) {
+        return false;
+    }
+    ConnectionProfile guardado = p;
+    guardado.port = connjson::ensurePort(guardado.connType, guardado.port);
+
+    // El extremo se compara contra lo que hay en `config.json` —host, puerto, usuario y
+    // clave viven ahí—, pero el MATERIAL TLS vive en el almacén de confianza, que es un
+    // fichero aparte precisamente para separarlo del secreto de acceso. Mirar el material
+    // en config.json no encuentra nada: `connectionToJson` ni siquiera lo escribe.
+    const json::Array actuales = root["connections"].toArray();
+    bool habia = false;
+    bool mismoSitio = true;
+    for (const json::Value& v : actuales) {
+        const ConnectionProfile existente = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(existente.id)) != toLowerAscii(trim(guardado.id))) {
+            continue;
+        }
+        habia = true;
+        mismoSitio = mismoExtremo(guardado, existente, maestra);
+        break;
+    }
+
+    Aviso avisoTrust;
+    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.vacio()) {
+        aviso = avisoTrust;
+        return false;
+    }
+    ConnectionProfile enElAlmacen;
+    bool estabaEnElAlmacen = false;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        const ConnectionProfile t = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(t.id)) == toLowerAscii(trim(guardado.id))) {
+            enElAlmacen = t;
+            estabaEnElAlmacen = true;
+            break;
+        }
+    }
+    if (habia && !mismoSitio) {
+        // El extremo cambió: el certificado fijado para el sitio ANTERIOR no vale para el
+        // nuevo, y arrastrarlo dejaría al cliente fiándose de una máquina que no es.
+        guardado.daemonTlsServerCertPem.clear();
+        guardado.daemonTlsClientCertPem.clear();
+        guardado.daemonTlsClientKeyPem.clear();
+        estabaEnElAlmacen = false;
+    } else if (estabaEnElAlmacen) {
+        if (trim(guardado.daemonTlsServerCertPem).empty()) {
+            guardado.daemonTlsServerCertPem = enElAlmacen.daemonTlsServerCertPem;
+        }
+        if (trim(guardado.daemonTlsClientCertPem).empty()) {
+            guardado.daemonTlsClientCertPem = enElAlmacen.daemonTlsClientCertPem;
+        }
+        if (trim(guardado.daemonTlsClientKeyPem).empty()) {
+            guardado.daemonTlsClientKeyPem = enElAlmacen.daemonTlsClientKeyPem;
+        }
+        if (guardado.daemonTlsPort <= 0 || guardado.daemonTlsPort > 65535) {
+            guardado.daemonTlsPort = (enElAlmacen.daemonTlsPort > 0 && enElAlmacen.daemonTlsPort <= 65535)
+                                         ? enElAlmacen.daemonTlsPort
+                                         : 47653;
+        }
+    }
+    if (guardado.daemonTlsPort <= 0 || guardado.daemonTlsPort > 65535) {
+        guardado.daemonTlsPort = 47653;
+    }
+
+    if (!cifraSiHace(guardado.password, "password", maestra, aviso)
+        || !cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
+        || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
+        || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
+        aviso.conexion = !p.name.empty() ? p.name : p.id;
+        return false;
+    }
+
+    json::Array salida;
+    bool sustituida = false;
+    for (const json::Value& v : actuales) {
+        const ConnectionProfile existente = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(existente.id)) == toLowerAscii(trim(guardado.id))) {
+            salida.push_back(connjson::connectionToJson(guardado, std::string()));
+            sustituida = true;
+        } else {
+            salida.push_back(v);
+        }
+    }
+    if (!sustituida) {
+        salida.push_back(connjson::connectionToJson(guardado, std::string()));
+    }
+    root.set("connections", json::Value(salida));
+    if (!escribirConfig(dirConfig, root, aviso)) {
+        return false;
+    }
+
+    // Y el almacén de confianza: se reescribe la entrada, o se quita si el extremo cambió.
+    json::Array salidaTrust;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        const ConnectionProfile t = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(t.id)) != toLowerAscii(trim(guardado.id))) {
+            salidaTrust.push_back(v);
+        }
+    }
+    if (connjson::profileHasDaemonTls(guardado)) {
+        salidaTrust.push_back(connjson::connectionTrustToJson(guardado, std::string()));
+    }
+    if (salidaTrust.empty() && !trust["connections"].isArray()) {
+        return true;   // no había almacén y no hay nada que poner en él
+    }
+    trust.set("schema", json::Value(1));
+    trust.set("created_by", json::Value(std::string("ZFSMgr")));
+    trust.set("connections", json::Value(salidaTrust));
+    return escribirTrustStore(dirConfig, trust, aviso);
+}
 
 bool hayAlgoCifrado(const std::string& dirConfig) {
     bool alguno = false;

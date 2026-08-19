@@ -665,106 +665,20 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         }
     }
 
+    // Cifrar, conservar o soltar el material TLS según haya cambiado el extremo, y
+    // sustituir o añadir por identificador: lo hace la capa base, que es donde lo usa
+    // también el intérprete. Aquí se queda la política de esta mitad —validar los campos,
+    // derivar el identificador del nombre y rechazar nombres duplicados—, que el
+    // intérprete no tiene y que no le voy a imponer de rebote.
     ConnectionProfile toSave = profile;
-    bool existingEndpointStable = true;
-    bool hadExistingConnection = false;
-    {
-        const int existingIdx = indexOfConnectionById(connections, id);
-        if (existingIdx >= 0) {
-            hadExistingConnection = true;
-            const ConnectionProfile existing = connectionFromJson(connections.at(existingIdx).toObject());
-            QString existingUsername = existing.username;
-            if (SecretCipher::isEncrypted(existingUsername) && !m_masterPassword.isEmpty()) {
-                QString dec;
-                QString decErr;
-                if (SecretCipher::decryptEncv1(existingUsername, m_masterPassword, dec, decErr)) {
-                    existingUsername = dec;
-                }
-            }
-            const bool endpointStable =
-                existing.host.trimmed().compare(profile.host.trimmed(), Qt::CaseInsensitive) == 0
-                && ensurePort(existing.connType, existing.port) == ensurePort(profile.connType, profile.port)
-                && existingUsername.trimmed().compare(profile.username.trimmed(), Qt::CaseInsensitive) == 0
-                && existing.keyPath.trimmed() == profile.keyPath.trimmed();
-            if (endpointStable) {
-                if (toSave.daemonTlsServerCertPem.trimmed().isEmpty()) {
-                    toSave.daemonTlsServerCertPem = existing.daemonTlsServerCertPem;
-                }
-                if (toSave.daemonTlsClientCertPem.trimmed().isEmpty()) {
-                    toSave.daemonTlsClientCertPem = existing.daemonTlsClientCertPem;
-                }
-                if (toSave.daemonTlsClientKeyPem.trimmed().isEmpty()) {
-                    toSave.daemonTlsClientKeyPem = existing.daemonTlsClientKeyPem;
-                }
-            }
-            if (endpointStable && (toSave.daemonTlsPort <= 0 || toSave.daemonTlsPort > 65535)) {
-                toSave.daemonTlsPort = (existing.daemonTlsPort > 0 && existing.daemonTlsPort <= 65535)
-                                           ? existing.daemonTlsPort
-                                           : 47653;
-            }
-            existingEndpointStable = endpointStable;
-        }
-    }
     toSave.id = id;
-    toSave.port = ensurePort(profile.connType, profile.port);
-    if (toSave.daemonTlsPort <= 0 || toSave.daemonTlsPort > 65535) {
-        toSave.daemonTlsPort = 47653;
-    }
-    QString storedPassword = profile.password;
-    if (!storedPassword.isEmpty() && !SecretCipher::isEncrypted(storedPassword)) {
-        if (m_masterPassword.isEmpty()) {
-            error = aviso(BS::Motivo::ClaveMaestraRequeridaParaCifrar, QString(), QStringLiteral("password"));
-            return false;
-        }
-        QString encErr;
-        QString encrypted;
-        if (!SecretCipher::encryptEncv1(storedPassword, m_masterPassword, encrypted, encErr)) {
-            error = aviso(BS::Motivo::NoSeCifra, QString(), QStringLiteral("password"), encErr);
-            return false;
-        }
-        storedPassword = encrypted;
-    }
-    toSave.password = storedPassword;
-
-    auto encryptIfNeeded = [&](QString& value, const QString& fieldLabel) -> bool {
-        if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
-            return true;
-        }
-        if (m_masterPassword.isEmpty()) {
-            error = aviso(BS::Motivo::ClaveMaestraRequeridaParaCifrar, QString(), fieldLabel);
-            return false;
-        }
-        QString encErr;
-        QString encrypted;
-        if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
-            error = aviso(BS::Motivo::NoSeCifra, QString(), fieldLabel, encErr);
-            return false;
-        }
-        value = encrypted;
-        return true;
-    };
-    if (!encryptIfNeeded(toSave.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
+    BS::Aviso avisoGuardar;
+    if (!zfsmgr::base::store::guardaPerfil(configDir().toStdString(), aBase(toSave),
+                                           m_masterPassword.toStdString(), avisoGuardar)) {
+        error = traduce(avisoGuardar);
         return false;
     }
-    if (!encryptIfNeeded(toSave.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
-        return false;
-    }
-    if (!encryptIfNeeded(toSave.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
-        return false;
-    }
-
-    if (!upsertConnectionJson(connections, toSave)) {
-        error = aviso(BS::Motivo::NoSeGuardaConexion);
-        return false;
-    }
-    if (hadExistingConnection && !existingEndpointStable && !deleteTrustStoreConnectionById(id, error)) {
-        return false;
-    }
-    if (!upsertTrustStoreConnection(toSave, error)) {
-        return false;
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    return saveConfigJson(root, &error);
+    return true;
 }
 
 bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {

@@ -519,48 +519,12 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
                   "han podido leer y guardarlos los borraría");
         return false;
     }
-    B::ConnectionProfile guardado = p;
-    guardado.port = CJ::ensurePort(guardado.connType, guardado.port);
-    if (guardado.daemonTlsPort <= 0 || guardado.daemonTlsPort > 65535) {
-        guardado.daemonTlsPort = 47653;
-    }
-    // La contraseña, cifrada. Sin contraseña maestra NO se guarda en claro: dejar una
-    // contraseña de acceso legible en disco para ahorrarse un paso es un mal cambio, y es
-    // la misma regla que aplica la interfaz.
-    if (!guardado.password.empty() && !B::SecretCipher::isEncrypted(guardado.password)) {
-        if (s.maestra.empty()) {
-            error = T("t_falta_maestra_cifrar", "hace falta la contraseña maestra para cifrar la de la conexión");
-            return false;
-        }
-        std::string cifrada;
-        std::string err;
-        if (!B::SecretCipher::encryptEncv1(guardado.password, s.maestra, cifrada, err)) {
-            error = B::format(T("t_no_cifra_pass", "no se pudo cifrar la contraseña: %1"), {err});
-            return false;
-        }
-        guardado.password = cifrada;
-    }
-
+    // Cifrar, conservar o soltar el material TLS según haya cambiado el extremo, y
+    // sustituir o añadir: todo eso lo hace la capa base, que es donde lo usa también la
+    // interfaz. Aquí se queda lo que es de este lado: la guardia de --no-secrets.
     ST::Aviso aviso;
-    auto root = ST::leerConfig(s.dirConfig, aviso);
-    B::json::Array salida;
-    bool sustituida = false;
-    for (const auto& v : root["connections"].toArray()) {
-        const auto existente = CJ::connectionFromJson(v, std::string());
-        if (B::toLowerAscii(existente.id) == B::toLowerAscii(guardado.id)) {
-            salida.push_back(CJ::connectionToJson(guardado, std::string()));
-            sustituida = true;
-        } else {
-            salida.push_back(v);
-        }
-    }
-    if (!sustituida) {
-        salida.push_back(CJ::connectionToJson(guardado, std::string()));
-    }
-    root.set("connections", B::json::Value(std::move(salida)));
-    ST::Aviso avisoEscritura;
-    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
-        error = T("t_no_escribe_config", "no se pudo escribir config.json");
+    if (!ST::guardaPerfil(s.dirConfig, p, s.maestra, aviso)) {
+        error = ST::etiquetaDe(aviso);
         return false;
     }
     return true;

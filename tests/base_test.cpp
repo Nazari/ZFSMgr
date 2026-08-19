@@ -771,6 +771,80 @@ int main() {
                   "local: y el sistema corregido al de esta maquina");
     }
 
+    // --- guardar un perfil: cifrado, y el TLS segun cambie o no el EXTREMO
+    //
+    // Esta ultima parte es la que el interprete no tenia: escribia el perfil tal cual, asi
+    // que un `edit` que cambiara el host se quedaba con el certificado fijado del host
+    // VIEJO. Fiarse de un certificado que no corresponde a la maquina con la que se habla
+    // es justo lo que el fijado existe para impedir.
+    {
+        namespace ST = zfsmgr::base::store;
+        const std::string dirG = "/tmp/zfsmgr-base-test-guardar";
+        std::filesystem::remove_all(dirG);
+        const std::string maestra = "m";
+
+        zfsmgr::base::ConnectionProfile p;
+        p.id = "unibody"; p.name = "Unibody"; p.connType = "SSH";
+        p.host = "unib.local"; p.port = 22; p.username = "linarese";
+        p.password = "secreta";
+        p.daemonTlsServerCertPem = "CERT-DE-UNIB";
+        ST::Aviso av;
+        comprobar(ST::guardaPerfil(dirG, p, maestra, av) && av.vacio(), "guardar: escribe el perfil");
+
+        // La contrasena queda CIFRADA en disco, nunca en claro.
+        auto leido = ST::leerConfig(dirG, av);
+        const zfsmgr::base::json::Value& c0 = leido["connections"].toArray().at(0);
+        comprobar(zfsmgr::base::SecretCipher::isEncrypted(c0["password"].toString()),
+                  "guardar: la contrasena va cifrada");
+        // El material TLS NO va en config.json: vive en el almacen de confianza, que es un
+        // fichero aparte para separarlo del secreto de acceso. Y ahi va cifrado tambien.
+        comprobar(!c0.contains("daemon_tls_server_cert_pem")
+                      || c0["daemon_tls_server_cert_pem"].toString().empty(),
+                  "guardar: el TLS no se escribe en config.json");
+        auto leidoTrust = ST::leerTrustStore(dirG, av);
+        comprobar(leidoTrust["connections"].toArray().size() == 1,
+                  "guardar: la entrada va al almacen de confianza");
+        comprobar(zfsmgr::base::SecretCipher::isEncrypted(
+                      leidoTrust["connections"].toArray().at(0)["daemon_tls_server_cert_pem"].toString()),
+                  "guardar: y alli el material TLS va cifrado");
+
+        // Guardar OTRA VEZ sin material TLS, con el mismo extremo: se conserva el que habia.
+        zfsmgr::base::ConnectionProfile igualExtremo = p;
+        igualExtremo.daemonTlsServerCertPem.clear();
+        comprobar(ST::guardaPerfil(dirG, igualExtremo, maestra, av), "guardar: segunda vez");
+        leidoTrust = ST::leerTrustStore(dirG, av);
+        zfsmgr::base::ConnectionProfile tras = zfsmgr::base::connjson::connectionFromJson(
+            leidoTrust["connections"].toArray().at(0), std::string());
+        ST::Avisos avisos;
+        zfsmgr::base::connjson::abreSecretos(tras, maestra, avisos);
+        igual(tras.daemonTlsServerCertPem, "CERT-DE-UNIB",
+              "guardar: mismo extremo, se conserva el TLS que ya habia");
+
+        // Y cambiando el HOST: el certificado del sitio anterior NO viaja.
+        zfsmgr::base::ConnectionProfile otroHost = p;
+        otroHost.host = "otra.local";
+        otroHost.daemonTlsServerCertPem.clear();
+        comprobar(ST::guardaPerfil(dirG, otroHost, maestra, av), "guardar: con otro host");
+        leidoTrust = ST::leerTrustStore(dirG, av);
+        comprobar(leidoTrust["connections"].toArray().empty(),
+                  "guardar: cambiar de host SUELTA el certificado fijado del anterior");
+
+        // Sin maestra no se escribe en claro: se dice y se para.
+        zfsmgr::base::ConnectionProfile sinM;
+        sinM.id = "otra"; sinM.name = "Otra"; sinM.connType = "SSH";
+        sinM.host = "h"; sinM.username = "u"; sinM.password = "en-claro";
+        comprobar(!ST::guardaPerfil(dirG, sinM, "", av), "guardar: sin maestra no se guarda");
+        comprobar(av.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar, "guardar: y lo dice");
+        igual(av.conexion, "Otra", "guardar: diciendo de que conexion");
+
+        // Un perfil sin identificador no se guarda: sustituirlo o anadirlo seria adivinar.
+        zfsmgr::base::ConnectionProfile sinId;
+        sinId.name = "X";
+        comprobar(!ST::guardaPerfil(dirG, sinId, maestra, av), "guardar: sin id no se guarda");
+        comprobar(av.motivo == ST::Motivo::IdVacio, "guardar: con su motivo");
+        std::filesystem::remove_all(dirG);
+    }
+
     // --- versiones del agente
     //
     // Estaban solo en la interfaz, y el interprete comparaba con `!=`: un agente MAS NUEVO
