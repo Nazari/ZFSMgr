@@ -1,7 +1,9 @@
 #include "connectionjson.h"
 
+#include "secretcipher.h"
 #include "strutil.h"
 
+#include <map>
 #include <regex>
 
 namespace zfsmgr::base::connjson {
@@ -215,6 +217,79 @@ bool upsertConnectionJson(json::Array& connections,
         connections.push_back(std::move(obj));
     }
     return true;
+}
+
+namespace {
+
+std::string nombreDe(const ConnectionProfile& p) {
+    return !p.name.empty() ? p.name : p.id;
+}
+
+// Un campo. Si no está cifrado se deja como está —hay configuraciones sin maestra— y si
+// lo está y no se abre, se CONSERVA cifrado y se avisa.
+bool abreCampo(std::string& valor, const char* campo, const ConnectionProfile& p,
+               const std::string& maestra, store::Avisos& avisos) {
+    if (!SecretCipher::isEncrypted(valor)) {
+        return true;
+    }
+    std::string claro;
+    std::string err;
+    if (maestra.empty()) {
+        avisos.push_back(store::Aviso{store::Motivo::ClaveMaestraRequerida, nombreDe(p), campo, {}});
+        return false;
+    }
+    if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
+        avisos.push_back(store::Aviso{store::Motivo::NoSeDescifra, nombreDe(p), campo, err});
+        return false;
+    }
+    valor = claro;
+    return true;
+}
+
+}  // namespace
+
+bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Avisos& avisos) {
+    bool todos = true;
+    todos = abreCampo(p.username, "username", p, maestra, avisos) && todos;
+    todos = abreCampo(p.password, "password", p, maestra, avisos) && todos;
+    todos = abreCampo(p.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", p, maestra, avisos) && todos;
+    todos = abreCampo(p.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", p, maestra, avisos) && todos;
+    todos = abreCampo(p.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", p, maestra, avisos) && todos;
+    return todos;
+}
+
+void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
+                     const std::string& maestra, store::Avisos& avisos) {
+    std::map<std::string, ConnectionProfile> porId;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        ConnectionProfile t = connectionFromJson(v, std::string());
+        if (trim(t.id).empty()) {
+            continue;
+        }
+        abreSecretos(t, maestra, avisos);
+        porId[toLowerAscii(t.id)] = t;
+    }
+    for (ConnectionProfile& p : perfiles) {
+        const auto it = porId.find(toLowerAscii(trim(p.id)));
+        if (it == porId.end()) {
+            continue;
+        }
+        // Campo a campo y solo si el almacén trae algo: una entrada a medias no debe
+        // borrar lo que el perfil sí tenga.
+        const ConnectionProfile& t = it->second;
+        if (!trim(t.daemonTlsServerCertPem).empty()) {
+            p.daemonTlsServerCertPem = t.daemonTlsServerCertPem;
+        }
+        if (!trim(t.daemonTlsClientCertPem).empty()) {
+            p.daemonTlsClientCertPem = t.daemonTlsClientCertPem;
+        }
+        if (!trim(t.daemonTlsClientKeyPem).empty()) {
+            p.daemonTlsClientKeyPem = t.daemonTlsClientKeyPem;
+        }
+        if (t.daemonTlsPort > 0 && t.daemonTlsPort <= 65535) {
+            p.daemonTlsPort = t.daemonTlsPort;
+        }
+    }
 }
 
 }  // namespace zfsmgr::base::connjson

@@ -4,6 +4,7 @@
 
 #include "connectionprofile.h"
 #include "json.h"
+#include "storewarnings.h"
 
 // Traducción entre `ConnectionProfile` y el JSON que se guarda en disco, sin Qt.
 //
@@ -23,6 +24,33 @@ bool isLocalProfile(const ConnectionProfile& p);
 bool shouldForceLocalSudo(const ConnectionProfile& p);
 
 bool profileHasDaemonTls(const ConnectionProfile& p);
+
+// Abre con la maestra los cinco campos que van cifrados: usuario, contraseña y el trío
+// TLS del daemon. Devuelve false si alguno se quedó cerrado.
+//
+// **Un campo que no se pudo abrir CONSERVA su texto cifrado**, y por eso se avisa: quien
+// lo reciba no debe usarlo como si fuera el valor en claro. Cada fallo va en `avisos` con
+// su motivo, su conexión y su campo, sin texto: lo redacta quien tenga catálogo.
+//
+// Estaba escrito dos veces —la interfaz recogía avisos tipificados y el intérprete se los
+// tragaba en silencio— y por eso la misma configuración se describía distinto según por
+// dónde se mirara.
+bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Avisos& avisos);
+
+// Funde en cada perfil el material TLS que viva en el almacén de confianza, indexando por
+// identificador.
+//
+// **Manda el ALMACÉN, no el perfil**, y esto es una decisión, no un detalle: el almacén es
+// donde se persiste el material que se negocia con cada daemon, y lo que quede en
+// `config.json` es de antes de que existiera —hay una migración que lo saca de ahí—. Las
+// dos mitades del programa hacían esto al revés la una de la otra: la interfaz dejaba
+// ganar al almacén y el intérprete al perfil, así que con material viejo todavía en
+// `config.json` una usaba el fresco y la otra el rancio.
+//
+// NO añade perfiles: una entrada del almacén sin conexión que le corresponda se ignora
+// aquí. La interfaz sí la añade, y esa decisión se queda donde estaba.
+void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
+                     const std::string& maestra, store::Avisos& avisos);
 
 // PSRP se retiró como transporte: no admite el daemon, porque el RPC viaja por un túnel
 // `ssh -L` y sin SSH no hay túnel. Un perfil guardado con PSRP no puede quedarse como

@@ -465,55 +465,53 @@ void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>&
         warnings.push_back(loadErr);
         return;
     }
+    // La fusión —abrir los secretos del almacén y volcar su material TLS en cada perfil—
+    // la hace la capa base, que es donde la usa también el intérprete.
+    std::vector<BP::ConnectionProfile> base;
+    base.reserve(static_cast<std::size_t>(profiles.size()));
+    for (const ConnectionProfile& p : profiles) {
+        base.push_back(aBase(p));
+    }
+    BS::Avisos avisos;
+    zfsmgr::base::json::Value trustBase;
+    std::string parseErr;
+    if (zfsmgr::base::json::parse(QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)).toStdString(),
+                                  trustBase, &parseErr)) {
+        zfsmgr::base::connjson::fundeTrustStore(base, trustBase, m_masterPassword.toStdString(), avisos);
+    }
+    for (int i = 0; i < profiles.size(); ++i) {
+        profiles[i] = deBase(base[static_cast<std::size_t>(i)]);
+    }
+    for (const BS::Aviso& a : avisos) {
+        warnings.push_back(traduce(a));
+    }
+
+    // Lo que NO baja a la capa base: una entrada del almacén sin conexión que le
+    // corresponda se AÑADE como conexión. Es una política de esta mitad —el intérprete no
+    // la tiene— y cambiarla de paso, en un refactor, habría sido colar una decisión.
     const QJsonArray trustConnections = root.value(QStringLiteral("connections")).toArray();
     for (const QJsonValue& v : trustConnections) {
         ConnectionProfile trust = connectionFromJson(v.toObject());
         if (trust.id.trimmed().isEmpty() || isLocalProfile(trust)) {
             continue;
         }
-        auto decryptField = [&](QString& value, const QString& suffix) {
-            if (!SecretCipher::isEncrypted(value)) {
-                return;
-            }
-            QString dec;
-            QString err;
-            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
-                value = dec;
-            } else {
-                warnings.push_back(aviso(BS::Motivo::NoSeDescifra,
-                                         trust.name.isEmpty() ? trust.id : trust.name,
-                                         suffix, err));
-            }
-        };
-        decryptField(trust.username, QStringLiteral("username"));
-        decryptField(trust.password, QStringLiteral("password"));
-        decryptField(trust.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"));
-        decryptField(trust.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"));
-        decryptField(trust.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"));
-
-        int idx = -1;
-        for (int i = 0; i < profiles.size(); ++i) {
-            if (profiles[i].id.trimmed().compare(trust.id.trimmed(), Qt::CaseInsensitive) == 0) {
-                idx = i;
+        bool yaEsta = false;
+        for (const ConnectionProfile& p : profiles) {
+            if (p.id.trimmed().compare(trust.id.trimmed(), Qt::CaseInsensitive) == 0) {
+                yaEsta = true;
                 break;
             }
         }
-        if (idx >= 0) {
-            if (!trust.daemonTlsServerCertPem.trimmed().isEmpty()) {
-                profiles[idx].daemonTlsServerCertPem = trust.daemonTlsServerCertPem;
-            }
-            if (!trust.daemonTlsClientCertPem.trimmed().isEmpty()) {
-                profiles[idx].daemonTlsClientCertPem = trust.daemonTlsClientCertPem;
-            }
-            if (!trust.daemonTlsClientKeyPem.trimmed().isEmpty()) {
-                profiles[idx].daemonTlsClientKeyPem = trust.daemonTlsClientKeyPem;
-            }
-            if (trust.daemonTlsPort > 0 && trust.daemonTlsPort <= 65535) {
-                profiles[idx].daemonTlsPort = trust.daemonTlsPort;
-            }
+        if (yaEsta) {
             continue;
         }
-        profiles.push_back(trust);
+        BP::ConnectionProfile bt = aBase(trust);
+        BS::Avisos avisosT;
+        zfsmgr::base::connjson::abreSecretos(bt, m_masterPassword.toStdString(), avisosT);
+        for (const BS::Aviso& a : avisosT) {
+            warnings.push_back(traduce(a));
+        }
+        profiles.push_back(deBase(bt));
     }
 }
 
@@ -661,56 +659,18 @@ LoadResult ConnectionStore::loadConnections() const {
         }
         p.port = ensurePort(p.connType, p.port);
 
-        if (SecretCipher::isEncrypted(p.username)) {
-            QString dec;
-            QString err;
-            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(p.username, m_masterPassword, dec, err)) {
-                p.username = dec;
-            } else {
-                result.warnings.push_back(aviso(BS::Motivo::NoSeDescifra, p.name.isEmpty() ? p.id : p.name, QStringLiteral("username"), err));
+        // Abrir los secretos lo hace la CAPA BASE, que es donde lo usa también el
+        // intérprete. Aquí solo se redactan sus motivos, que es lo único que cambia entre
+        // las dos mitades.
+        {
+            BP::ConnectionProfile bp = aBase(p);
+            BS::Avisos avisos;
+            zfsmgr::base::connjson::abreSecretos(bp, m_masterPassword.toStdString(), avisos);
+            p = deBase(bp);
+            for (const BS::Aviso& a : avisos) {
+                result.warnings.push_back(traduce(a));
             }
         }
-
-        if (SecretCipher::isEncrypted(p.password)) {
-            QString dec;
-            QString err;
-            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(p.password, m_masterPassword, dec, err)) {
-                p.password = dec;
-            } else {
-                result.warnings.push_back(aviso(BS::Motivo::NoSeDescifra, p.name.isEmpty() ? p.id : p.name, QStringLiteral("password"), err));
-            }
-        }
-
-        const auto decryptField = [&](QString& value, const QString& suffix, const QString& fallbackTrKey) {
-            if (!SecretCipher::isEncrypted(value)) {
-                return;
-            }
-            QString dec;
-            QString err;
-            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
-                value = dec;
-            } else {
-                result.warnings.push_back(
-                    QStringLiteral("%1.%2: %3").arg(p.name.isEmpty() ? p.id : p.name,
-                                                    suffix,
-                                                    err.isEmpty()
-                                                        ? trk(fallbackTrKey,
-                                                              QStringLiteral("no se pudo descifrar"),
-                                                              QStringLiteral("could not decrypt"),
-                                                              QStringLiteral("无法解密"))
-                                                        : err));
-            }
-        };
-        decryptField(p.daemonTlsServerCertPem,
-                     QStringLiteral("daemon_tls_server_cert_pem"),
-                     QStringLiteral("t_cstore_auto_tls_dec_001"));
-        decryptField(p.daemonTlsClientCertPem,
-                     QStringLiteral("daemon_tls_client_cert_pem"),
-                     QStringLiteral("t_cstore_auto_tls_dec_002"));
-        decryptField(p.daemonTlsClientKeyPem,
-                     QStringLiteral("daemon_tls_client_key_pem"),
-                     QStringLiteral("t_cstore_auto_tls_dec_003"));
-
         if (!p.name.isEmpty()) {
             result.profiles.push_back(p);
         }

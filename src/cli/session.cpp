@@ -29,46 +29,8 @@ namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
 using Nivel = B::TransportSession::Nivel;
 
-// Descifra si hace falta. Si no se puede abrir devuelve VACÍO, nunca el texto cifrado: la
-// interfaz lo dejaba tal cual y podía acabar enviándose como si fuera una contraseña.
-std::string abrir(const std::string& valor, const std::string& maestra) {
-    if (!B::SecretCipher::isEncrypted(valor)) {
-        return valor;
-    }
-    if (maestra.empty()) {
-        return {};
-    }
-    std::string claro;
-    std::string err;
-    return B::SecretCipher::decryptEncv1(valor, maestra, claro, err) ? claro : std::string();
-}
 
-// ¿Se quedó algún secreto sin abrir? Es distinto de «no hay secreto»: con --no-secrets o
-// con la maestra equivocada los campos quedan vacíos, y sin esta marca el listado diría
-// que la conexión no tiene usuario cuando lo que pasa es que no se puede leer.
-bool algunSecretoSinAbrir(const B::ConnectionProfile& crudo, const std::string& maestra) {
-    for (const std::string* campo : {&crudo.username, &crudo.password,
-                                     &crudo.daemonTlsServerCertPem, &crudo.daemonTlsClientCertPem,
-                                     &crudo.daemonTlsClientKeyPem}) {
-        if (!B::SecretCipher::isEncrypted(*campo)) {
-            continue;
-        }
-        std::string claro;
-        std::string err;
-        if (maestra.empty() || !B::SecretCipher::decryptEncv1(*campo, maestra, claro, err)) {
-            return true;
-        }
-    }
-    return false;
-}
 
-void descifraPerfil(B::ConnectionProfile& p, const std::string& maestra) {
-    p.username = abrir(p.username, maestra);
-    p.password = abrir(p.password, maestra);
-    p.daemonTlsServerCertPem = abrir(p.daemonTlsServerCertPem, maestra);
-    p.daemonTlsClientCertPem = abrir(p.daemonTlsClientCertPem, maestra);
-    p.daemonTlsClientKeyPem = abrir(p.daemonTlsClientKeyPem, maestra);
-}
 
 // Devuelve `std::string` y no `const char*`: el texto traducido vive en el catálogo, pero
 // el castellano de reserva es el temporal que se le pasa a `tr`, y un puntero a eso queda
@@ -140,53 +102,49 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
         c.aviso = T("t_no_lee_config", "no se pudo leer config.json");
         return c;
     }
-    // El material TLS del almacén de confianza, indexado por identificador para fundirlo
-    // con el perfil. Sin esto el transporte lo pediría otra vez por SSH en cada arranque,
-    // y en una máquina donde /etc/zfsmgr es solo de root eso significa pedir sudo.
+    // El material TLS del almacén de confianza y la apertura de los secretos las hace la
+    // CAPA BASE, que es donde las usa también la interfaz.
+    //
+    // Aquí estaban escritas otra vez, y con una diferencia que importaba: un campo que no
+    // se podía abrir se dejaba pasar en silencio y solo se anotaba «este perfil tiene algo
+    // sin abrir», mientras la interfaz decía QUÉ campo de QUÉ conexión y por qué. La misma
+    // configuración se describía distinto según por dónde se mirara.
     ST::Aviso avisoTrust;
     const auto trust = ST::leerTrustStore(dirConfig, avisoTrust);
-    std::map<std::string, B::ConnectionProfile> tlsPorId;
-    for (const auto& v : trust["connections"].toArray()) {
-        auto t = CJ::connectionFromJson(v, std::string());
-        if (t.id.empty()) {
-            continue;
-        }
-        // Si TIENE material, se anota AHORA, mirando el valor crudo: descifrarlo puede
-        // fallar y dejarlo vacío, y entonces parecería que no lo tiene.
-        if (CJ::profileHasDaemonTls(t)) {
-            c.conTls.insert(B::toLowerAscii(t.id));
-        }
-        if (algunSecretoSinAbrir(t, maestra)) {
-            c.secretosSinAbrir.insert(B::toLowerAscii(t.id));
-        }
-        descifraPerfil(t, maestra);
-        tlsPorId[B::toLowerAscii(t.id)] = t;
-    }
 
     // Las apartadas, de la misma lectura del fichero.
     for (const auto& v : root["app"]["disconnected_connections"].toArray()) {
         c.desconectadas.insert(B::toLowerAscii(B::trim(v.toString())));
     }
 
+    ST::Avisos avisos;
     for (const auto& v : root["connections"].toArray()) {
         auto p = CJ::connectionFromJson(v, std::string());
         const std::string idBajo = B::toLowerAscii(p.id.empty() ? p.name : p.id);
+        // Se mira el valor CRUDO: descifrar puede fallar y dejarlo vacío, y entonces
+        // parecería que la conexión no tiene material TLS cuando sí lo tiene.
         if (CJ::profileHasDaemonTls(p)) {
             c.conTls.insert(idBajo);
         }
-        if (algunSecretoSinAbrir(p, maestra)) {
+        if (!CJ::abreSecretos(p, maestra, avisos)) {
             c.secretosSinAbrir.insert(idBajo);
-        }
-        descifraPerfil(p, maestra);
-        const auto it = tlsPorId.find(B::toLowerAscii(p.id));
-        if (it != tlsPorId.end() && !CJ::profileHasDaemonTls(p)) {
-            p.daemonTlsServerCertPem = it->second.daemonTlsServerCertPem;
-            p.daemonTlsClientCertPem = it->second.daemonTlsClientCertPem;
-            p.daemonTlsClientKeyPem = it->second.daemonTlsClientKeyPem;
-            p.daemonTlsPort = it->second.daemonTlsPort;
         }
         p.port = CJ::ensurePort(p.connType, p.port);
         c.perfiles.push_back(std::move(p));
+    }
+    // El almacén de confianza, DESPUÉS de tener todos los perfiles: solo rellena lo que el
+    // fichero de conexiones no traiga. Sin esto el transporte pediría el material TLS otra
+    // vez por SSH en cada arranque, y donde /etc/zfsmgr es solo de root eso es pedir sudo.
+    CJ::fundeTrustStore(c.perfiles, trust, maestra, avisos);
+    for (const auto& p : c.perfiles) {
+        if (CJ::profileHasDaemonTls(p)) {
+            c.conTls.insert(B::toLowerAscii(p.id.empty() ? p.name : p.id));
+        }
+    }
+    // Los avisos tipificados, redactados aquí: el primero basta para la línea de arranque,
+    // que es donde se enseñan.
+    if (c.aviso.empty() && !avisos.empty()) {
+        c.aviso = ST::etiquetaDe(avisos.front());
     }
     return c;
 }

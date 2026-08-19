@@ -12,6 +12,7 @@
 #include "process.h"
 #include "refreshparse.h"
 #include "agentversion.h"
+#include "connectionjson.h"
 #include "secretcipher.h"
 #include "strutil.h"
 #include "transportcmd.h"
@@ -648,6 +649,91 @@ int main() {
         comprobar(!CJ::upsertConnectionJson(arr, sinId, ""), "sin id no inserta");
     }
 
+
+    // --- abrir secretos y fundir el almacen de confianza
+    //
+    // Estaban escritas dos veces, y NO hacian lo mismo: la interfaz dejaba ganar al
+    // almacen y el interprete al perfil. Con material viejo todavia en config.json, una
+    // usaba el fresco y la otra el rancio. Aqui se fija cual manda.
+    {
+        namespace CJ = zfsmgr::base::connjson;
+        namespace ST = zfsmgr::base::store;
+        namespace J = zfsmgr::base::json;
+        using zfsmgr::base::SecretCipher;
+
+        const std::string maestra = "la-maestra";
+        std::string cifrado;
+        std::string err;
+        comprobar(SecretCipher::encryptEncv1("secreto", maestra, cifrado, err), "cj: se prepara un cifrado");
+
+        zfsmgr::base::ConnectionProfile p;
+        p.id = "unibody";
+        p.name = "Unibody";
+        p.password = cifrado;
+        ST::Avisos avisos;
+        comprobar(CJ::abreSecretos(p, maestra, avisos) && avisos.empty(), "cj: abre con la maestra buena");
+        igual(p.password, "secreto", "cj: y deja el valor en claro");
+
+        // Con la maestra equivocada el campo CONSERVA su cifrado, que es lo que impide que
+        // alguien lo use creyendo que es el valor.
+        zfsmgr::base::ConnectionProfile q;
+        q.id = "unibody";
+        q.name = "Unibody";
+        q.password = cifrado;
+        avisos.clear();
+        comprobar(!CJ::abreSecretos(q, "otra", avisos), "cj: con la maestra mala dice que no");
+        igual(q.password, cifrado, "cj: y NO deja el campo a medias");
+        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Motivo::NoSeDescifra,
+                  "cj: con su motivo tipificado");
+        igual(avisos.front().campo, "password", "cj: diciendo que campo");
+        igual(avisos.front().conexion, "Unibody", "cj: y de que conexion");
+
+        // Sin maestra ninguna, el motivo es otro: falta la clave, no es que no descifre.
+        zfsmgr::base::ConnectionProfile r;
+        r.id = "x"; r.password = cifrado;
+        avisos.clear();
+        comprobar(!CJ::abreSecretos(r, "", avisos), "cj: sin maestra tampoco abre");
+        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Motivo::ClaveMaestraRequerida,
+                  "cj: y el motivo lo distingue");
+
+        // La fusion: MANDA EL ALMACEN sobre lo que traiga el perfil.
+        zfsmgr::base::ConnectionProfile viejo;
+        viejo.id = "unibody";
+        viejo.name = "Unibody";
+        viejo.daemonTlsClientKeyPem = "clave-vieja-de-config";
+        std::vector<zfsmgr::base::ConnectionProfile> perfiles{viejo};
+        J::Value entrada;
+        entrada.set("id", J::Value(std::string("unibody")));
+        entrada.set("daemon_tls_client_key_pem", J::Value(std::string("clave-fresca-del-almacen")));
+        entrada.set("daemon_tls_port", J::Value(12345));
+        J::Value trust;
+        trust.set("connections", J::Value(J::Array{entrada}));
+        avisos.clear();
+        CJ::fundeTrustStore(perfiles, trust, maestra, avisos);
+        igual(perfiles.at(0).daemonTlsClientKeyPem, "clave-fresca-del-almacen",
+              "cj: manda el almacen, que es donde se persiste lo negociado");
+        comprobar(perfiles.at(0).daemonTlsPort == 12345, "cj: y su puerto");
+
+        // Pero una entrada A MEDIAS no borra lo que el perfil si tenga.
+        std::vector<zfsmgr::base::ConnectionProfile> perfiles2{viejo};
+        J::Value vacia;
+        vacia.set("id", J::Value(std::string("unibody")));
+        J::Value trust2;
+        trust2.set("connections", J::Value(J::Array{vacia}));
+        CJ::fundeTrustStore(perfiles2, trust2, maestra, avisos);
+        igual(perfiles2.at(0).daemonTlsClientKeyPem, "clave-vieja-de-config",
+              "cj: una entrada vacia no borra lo que habia");
+
+        // Y una entrada sin perfil que le corresponda NO crea conexiones aqui.
+        std::vector<zfsmgr::base::ConnectionProfile> ninguno;
+        J::Value huerfana;
+        huerfana.set("id", J::Value(std::string("fantasma")));
+        huerfana.set("daemon_tls_client_key_pem", J::Value(std::string("k")));
+        J::Value trust3;
+        trust3.set("connections", J::Value(J::Array{huerfana}));
+        CJ::fundeTrustStore(ninguno, trust3, maestra, avisos);
+        comprobar(ninguno.empty(), "cj: la capa base no inventa conexiones");
+    }
 
     // --- versiones del agente
     //
