@@ -891,6 +891,39 @@ int main() {
                       "rotar: y el del almacen de confianza, que es el que se olvida");
             igual(claro, "-----BEGIN KEY-----", "rotar: intacto");
 
+            // La maestra se comprueba contra TODO lo cifrado, no contra el primer campo.
+            //
+            // El caso que lo obliga: una configuracion A MEDIO ROTAR, con unos campos en la
+            // clave nueva y otros en la vieja. Mirando solo el primero, la clave nueva
+            // parece buena y el programa arranca con la mitad de los secretos cerrados.
+            comprobar(ST::hayAlgoCifrado(dirRot), "maestra: detecta que hay campos cifrados");
+            ST::Aviso avAbre;
+            comprobar(ST::maestraAbreTodo(dirRot, nueva, avAbre) && avAbre.vacio(),
+                      "maestra: la nueva abre todo lo que hay");
+            comprobar(!ST::maestraAbreTodo(dirRot, vieja, avAbre),
+                      "maestra: la vieja ya no");
+            comprobar(avAbre.motivo == ST::Motivo::NoSeDescifra, "maestra: con su motivo");
+            {
+                // Se ensucia UN campo del trust-store con la clave vieja: el primero de
+                // config sigue abriendo con la nueva, asi que solo recorriendolo todo se ve.
+                std::string aMedias;
+                std::string errM;
+                comprobar(SecretCipher::encryptEncv1("x", vieja, aMedias, errM), "maestra: se prepara el medio rotado");
+                J::Value tr = ST::leerTrustStore(dirRot, av);
+                J::Array conns;
+                for (const J::Value& c : tr["connections"].toArray()) {
+                    J::Value copia = c;
+                    copia.set("daemon_tls_server_cert_pem", J::Value(aMedias));
+                    conns.push_back(copia);
+                }
+                tr.set("connections", J::Value(conns));
+                comprobar(ST::escribirTrustStore(dirRot, tr, av), "maestra: se escribe a medias");
+                ST::Aviso avMedio;
+                comprobar(!ST::maestraAbreTodo(dirRot, nueva, avMedio),
+                          "maestra: una configuracion a medio rotar NO se da por buena");
+                igual(avMedio.campo, "daemon_tls_server_cert_pem", "maestra: y dice que campo");
+            }
+
             // Una maestra nueva vacia se rechaza ANTES de tocar nada.
             std::string copia2;
             comprobar(!ST::rotaClaveMaestra(dirRot, nueva, "", copia2, av),

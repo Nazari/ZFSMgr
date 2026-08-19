@@ -506,68 +506,16 @@ bool ConnectionStore::migrateLegacyTlsToTrustStore(const QJsonArray& connections
 }
 
 bool ConnectionStore::validateMasterPassword(QString& error) const {
+    // La comprobación la hace la capa base, que es donde la usa también el intérprete.
+    // Aquí solo se redacta el motivo.
     error.clear();
-    const QJsonObject root = loadConfigJson(&error);
-    if (!error.isEmpty()) {
-        return false;
-    }
-    const QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    bool hasEncrypted = false;
-    auto validateConnections = [&](const QJsonArray& items) -> bool {
-        for (const QJsonValue& v : items) {
-            const ConnectionProfile p = connectionFromJson(v.toObject());
-            const QString connName = p.name.trimmed().isEmpty() ? p.id : p.name;
-
-            auto checkOne = [&](const QString& value, const QString& fieldName) -> bool {
-                if (!SecretCipher::isEncrypted(value)) {
-                    return true;
-                }
-                hasEncrypted = true;
-                QString dec;
-                QString err;
-                if (m_masterPassword.isEmpty() || !SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
-                    error = aviso(BS::Motivo::CampoIncorrecto, connName, fieldName);
-                    return false;
-                }
-                return true;
-            };
-
-            if (!checkOne(p.username, QStringLiteral("usuario"))) {
-                return false;
-            }
-            if (!checkOne(p.password, QStringLiteral("password"))) {
-                return false;
-            }
-            if (!checkOne(p.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
-                return false;
-            }
-            if (!checkOne(p.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
-                return false;
-            }
-            if (!checkOne(p.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
-                return false;
-            }
-        }
+    BS::Aviso aviso;
+    if (zfsmgr::base::store::maestraAbreTodo(configDir().toStdString(),
+                                             m_masterPassword.toStdString(), aviso)) {
         return true;
-    };
-    if (!validateConnections(connections)) {
-        return false;
     }
-    QString trustErr;
-    const QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
-    if (!trustErr.isEmpty()) {
-        error = trustErr;
-        return false;
-    }
-    if (!validateConnections(trustRoot.value(QStringLiteral("connections")).toArray())) {
-        return false;
-    }
-
-    if (hasEncrypted && m_masterPassword.isEmpty()) {
-        error = aviso(BS::Motivo::ClaveMaestraRequerida);
-        return false;
-    }
-    return true;
+    error = traduce(aviso);
+    return false;
 }
 
 void ConnectionStore::ensureAppDefaults() const {

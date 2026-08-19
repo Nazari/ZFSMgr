@@ -46,4 +46,22 @@ bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, A
 bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
                       const std::string& nueva, std::string& copiaSufijo, Aviso& aviso);
 
+// ¿Hay ALGO cifrado en los dos ficheros? Si no lo hay, pedir la contraseña maestra es
+// fricción sin motivo, y esa es la clase de fricción que acaba con la contraseña escrita
+// en un alias del intérprete de órdenes.
+bool hayAlgoCifrado(const std::string& dirConfig);
+
+// ¿Abre esta maestra TODO lo que hay cifrado? Devuelve el primer campo que no abrió.
+//
+// Se comprueba al entrar y no cuando haga falta un secreto: una maestra equivocada no
+// falla sola —los campos quedan cerrados y el fallo sale luego disfrazado de otra cosa, un
+// «no se pudo leer el material TLS» o un sudo que vuelve a pedirse—, y uno se pasa un rato
+// mirando la máquina remota antes de caer en que lo que tecleó mal fue la maestra.
+//
+// Se recorre TODO y no solo el primer campo. Con el formato Fernet, abrir uno bastaría
+// para saber que la clave es la buena; pero también detecta una configuración a MEDIO
+// ROTAR, con unos campos en la clave nueva y otros en la vieja, que es justo lo que puede
+// dejar una rotación interrumpida.
+bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, Aviso& aviso);
+
 }  // namespace zfsmgr::base::store

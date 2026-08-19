@@ -3,6 +3,7 @@
 #include "secretcipher.h"
 
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -186,6 +187,81 @@ bool rotaConexiones(json::Value& raiz, const std::string& vieja, const std::stri
 }
 
 }  // namespace
+
+namespace {
+
+// Recorre los campos secretos de los dos ficheros. `porCada` decide si se sigue.
+bool recorreSecretos(const std::string& dirConfig,
+                     const std::function<bool(const json::Value&, const char*, const std::string&)>& porCada,
+                     Aviso& aviso) {
+    for (int cual = 0; cual < 2; ++cual) {
+        Aviso propio;
+        const json::Value raiz = (cual == 0) ? leerConfig(dirConfig, propio)
+                                             : leerTrustStore(dirConfig, propio);
+        if (!propio.vacio()) {
+            aviso = propio;
+            return false;
+        }
+        for (const json::Value& conexion : raiz["connections"].toArray()) {
+            for (const char* campo : kCamposSecretos) {
+                if (!conexion[campo].isString()) {
+                    continue;
+                }
+                const std::string valor = conexion[campo].toString();
+                if (valor.empty() || !SecretCipher::isEncrypted(valor)) {
+                    continue;
+                }
+                if (!porCada(conexion, campo, valor)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+bool hayAlgoCifrado(const std::string& dirConfig) {
+    bool alguno = false;
+    Aviso aviso;
+    recorreSecretos(dirConfig,
+                    [&alguno](const json::Value&, const char*, const std::string&) {
+                        alguno = true;
+                        return false;   // con uno basta
+                    },
+                    aviso);
+    return alguno;
+}
+
+bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, Aviso& aviso) {
+    aviso = Aviso{};
+    bool ok = true;
+    Aviso avisoLectura;
+    const bool leido = recorreSecretos(
+        dirConfig,
+        [&](const json::Value& conexion, const char* campo, const std::string& valor) {
+            if (maestra.empty()) {
+                aviso = Aviso{Motivo::ClaveMaestraRequerida, nombreDe(conexion), campo, {}};
+                ok = false;
+                return false;
+            }
+            std::string claro;
+            std::string err;
+            if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
+                aviso = Aviso{Motivo::NoSeDescifra, nombreDe(conexion), campo, err};
+                ok = false;
+                return false;
+            }
+            return true;
+        },
+        avisoLectura);
+    if (!leido && ok) {
+        aviso = avisoLectura;
+        return false;
+    }
+    return ok;
+}
 
 bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
                       const std::string& nueva, std::string& copiaSufijo, Aviso& aviso) {

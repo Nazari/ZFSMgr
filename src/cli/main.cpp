@@ -154,52 +154,21 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
     return 0;
 }
 
-// El primer campo cifrado que haya en la configuración, o vacío si no hay ninguno. Vale
-// para las dos preguntas: si hace falta la contraseña maestra, y si la que han dado abre.
-std::string primerCifrado(const std::string& dirConfig) {
-    ST::Aviso aviso;
-    const auto root = ST::leerConfig(dirConfig, aviso);
-    if (!aviso.vacio()) {
-        return {};
-    }
-    for (const auto& v : root["connections"].toArray()) {
-        for (const char* campo : {"username", "password", "daemon_tls_server_cert_pem",
-                                  "daemon_tls_client_cert_pem", "daemon_tls_client_key_pem"}) {
-            const std::string valor = v[campo].toString();
-            if (B::SecretCipher::isEncrypted(valor)) {
-                return valor;
-            }
-        }
-    }
-    return {};
-}
 
-// ¿Hay algún campo cifrado? Si no lo hay, no tiene sentido pedir la contraseña maestra, y
-// preguntarla sin necesidad es la clase de fricción que hace que la gente la ponga en un
-// alias de shell.
+// Las dos preguntas sobre la maestra —si hace falta y si abre— las contesta la capa base,
+// que es donde las usa también la interfaz. Aquí solo se traduce el motivo.
+//
+// Antes esto miraba UN campo cifrado, el primero, con el argumento de que con Fernet basta
+// para saber si la clave es la buena. Es cierto, pero deja pasar una configuración a MEDIO
+// ROTAR —unos campos con la clave nueva y otros con la vieja—, que es exactamente lo que
+// puede dejar una rotación interrumpida. Ahora se recorren todos.
 bool hayAlgoCifrado(const std::string& dirConfig) {
-    return !primerCifrado(dirConfig).empty();
+    return ST::hayAlgoCifrado(dirConfig);
 }
 
-// ¿ABRE la contraseña lo que hay guardado?
-//
-// Se comprueba al entrar, y no cuando haga falta un secreto, porque una maestra equivocada
-// no fallaba: los campos quedaban VACÍOS y el fallo salía luego disfrazado de otra cosa
-// —«no se pudo leer el material TLS del daemon local», o volviendo a pedir la contraseña de
-// sudo que sí estaba guardada—. Uno se pasa un rato mirando la máquina remota antes de caer
-// en que lo que se tecleó mal fue la maestra.
-//
-// El formato es Fernet: el HMAC no cuadra con otra clave, así que abrir UN campo basta y no
-// hace falta guardar ningún verificador aparte. Es lo mismo que hace la interfaz gráfica en
-// `ConnectionStore::validateMasterPassword`.
 bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
-    const std::string cifrado = primerCifrado(dirConfig);
-    if (cifrado.empty()) {
-        return true;   // no hay nada que abrir: cualquier contraseña vale igual de bien
-    }
-    std::string claro;
-    std::string err;
-    return B::SecretCipher::decryptEncv1(cifrado, maestra, claro, err);
+    ST::Aviso aviso;
+    return ST::maestraAbreTodo(dirConfig, maestra, aviso);
 }
 
 }  // namespace
