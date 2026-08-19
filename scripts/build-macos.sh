@@ -409,28 +409,6 @@ framework_bundle_root_from_path() {
   return 1
 }
 
-prepare_macdeployqt_staging() {
-  local staging_dir="$1"
-  mkdir -p "${staging_dir}"
-  local framework_name framework_path libdir
-  for framework_name in QtPdf.framework QtSvg.framework QtVirtualKeyboard.framework QtVirtualKeyboardQml.framework; do
-    framework_path=""
-    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/lib/${framework_name}" ]]; then
-      framework_path="${QT_PREFIX}/lib/${framework_name}"
-    else
-      for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
-        if [[ -d "${libdir}/${framework_name}" ]]; then
-          framework_path="${libdir}/${framework_name}"
-          break
-        fi
-      done
-    fi
-    if [[ -n "${framework_path}" ]]; then
-      ln -sfn "${framework_path}" "${staging_dir}/${framework_name}"
-    fi
-  done
-}
-
 copy_framework_bundle() {
   local framework_src="$1"
   local frameworks_dst="$2"

@@ -238,29 +238,6 @@ download_if_missing() {
   chmod +x "${out}"
 }
 
-extract_appimage_tool() {
-  local appimage_path="$1"
-  local extract_dir="$2"
-  local marker="${extract_dir}/AppRun"
-  if [[ -x "${marker}" ]]; then
-    printf '%s\n' "${marker}"
-    return 0
-  fi
-  rm -rf "${extract_dir}"
-  mkdir -p "${extract_dir}"
-  (
-    cd "${extract_dir}"
-    APPIMAGE_EXTRACT_AND_RUN=1 "${appimage_path}" --appimage-extract >/dev/null
-  )
-  if [[ ! -x "${extract_dir}/squashfs-root/AppRun" ]]; then
-    echo "Error: no se pudo extraer ${appimage_path}" >&2
-    return 1
-  fi
-  mv "${extract_dir}/squashfs-root/"* "${extract_dir}/"
-  rm -rf "${extract_dir}/squashfs-root"
-  printf '%s\n' "${extract_dir}/AppRun"
-}
-
 echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
 ensure_build_dir_qt_match

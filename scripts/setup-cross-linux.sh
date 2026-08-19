@@ -45,14 +45,6 @@ if [[ ${DO_WINDOWS} -eq 0 && ${DO_FREEBSD} -eq 0 && ${DO_MACOS} -eq 0 ]]; then
   exit 1
 fi
 
-run_cmd() {
-  if [[ ${DRY_RUN} -eq 1 ]]; then
-    echo "[dry-run] $*"
-  else
-    eval "$*"
-  fi
-}
-
 run_root_cmd() {
   local cmd="$*"
   if [[ ${DRY_RUN} -eq 1 ]]; then
