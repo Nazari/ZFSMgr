@@ -724,7 +724,9 @@ int main() {
         igual(perfiles2.at(0).daemonTlsClientKeyPem, "clave-vieja-de-config",
               "cj: una entrada vacia no borra lo que habia");
 
-        // Y una entrada sin perfil que le corresponda NO crea conexiones aqui.
+        // Una entrada del almacen SIN conexion que le corresponda se añade como conexion:
+        // es material negociado con una maquina que sigue ahi, y tirarlo obliga a
+        // renegociarlo por SSH. Lo hacia la interfaz y ahora lo hacen las dos.
         std::vector<zfsmgr::base::ConnectionProfile> ninguno;
         J::Value huerfana;
         huerfana.set("id", J::Value(std::string("fantasma")));
@@ -732,7 +734,41 @@ int main() {
         J::Value trust3;
         trust3.set("connections", J::Value(J::Array{huerfana}));
         CJ::fundeTrustStore(ninguno, trust3, maestra, avisos);
-        comprobar(ninguno.empty(), "cj: la capa base no inventa conexiones");
+        comprobar(ninguno.size() == 1, "cj: una entrada huerfana se convierte en conexion");
+        igual(ninguno.at(0).id, "fantasma", "cj: con su identificador");
+
+        // --- El perfil «Local»: se sintetiza si no esta y se corrige si esta.
+        std::vector<zfsmgr::base::ConnectionProfile> sinLocal;
+        CJ::aseguraPerfilLocal(sinLocal, "uid-de-esta-maquina");
+        comprobar(sinLocal.size() == 1, "local: se sintetiza cuando no hay ninguno");
+        igual(sinLocal.at(0).id, "local", "local: con el identificador reservado");
+        igual(sinLocal.at(0).connType, "LOCAL", "local: y su tipo");
+        igual(sinLocal.at(0).machineUid, "uid-de-esta-maquina", "local: con el uid que le dan");
+        comprobar(!sinLocal.at(0).osType.empty(), "local: y el sistema de ESTA maquina");
+        comprobar(!sinLocal.at(0).username.empty(), "local: nunca sin usuario");
+
+        // Va DELANTE: es la maquina de uno, y aparecer la tercera en la lista no ayuda.
+        std::vector<zfsmgr::base::ConnectionProfile> conOtra;
+        zfsmgr::base::ConnectionProfile remota;
+        remota.id = "unibody"; remota.name = "Unibody"; remota.connType = "SSH";
+        conOtra.push_back(remota);
+        CJ::aseguraPerfilLocal(conOtra, "uid");
+        igual(conOtra.at(0).id, "local", "local: se pone la primera");
+        comprobar(conOtra.size() == 2, "local: sin tocar las demas");
+
+        // Y si YA esta, se le corrigen los datos de la maquina en vez de duplicarlo: un
+        // perfil copiado de otro equipo trae el uid y el sistema del sitio equivocado.
+        std::vector<zfsmgr::base::ConnectionProfile> conLocalRancio;
+        zfsmgr::base::ConnectionProfile viejoLocal;
+        viejoLocal.id = "local"; viejoLocal.name = "Local"; viejoLocal.connType = "LOCAL";
+        viejoLocal.machineUid = "uid-de-otro-equipo";
+        viejoLocal.osType = "Windows";
+        conLocalRancio.push_back(viejoLocal);
+        CJ::aseguraPerfilLocal(conLocalRancio, "uid-de-esta");
+        comprobar(conLocalRancio.size() == 1, "local: no se duplica el que ya hay");
+        igual(conLocalRancio.at(0).machineUid, "uid-de-esta", "local: con el uid corregido");
+        comprobar(conLocalRancio.at(0).osType != "Windows" || sinLocal.at(0).osType == "Windows",
+                  "local: y el sistema corregido al de esta maquina");
     }
 
     // --- versiones del agente

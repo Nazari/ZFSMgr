@@ -136,6 +136,13 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     // fichero de conexiones no traiga. Sin esto el transporte pediría el material TLS otra
     // vez por SSH en cada arranque, y donde /etc/zfsmgr es solo de root eso es pedir sudo.
     CJ::fundeTrustStore(c.perfiles, trust, maestra, avisos);
+    // Y el perfil «Local», que hasta ahora el intérprete no sintetizaba: sin conexión
+    // local configurada arrancaba en la raíz, mientras la interfaz siempre enseñaba una.
+    // La misma máquina, dos programas, dos respuestas a «¿qué hay aquí?».
+    //
+    // El identificador de máquina se deja vacío: averiguarlo es leer el registro en Windows
+    // o `ioreg` en macOS, y el intérprete no lo necesita para nada de lo que hace.
+    CJ::aseguraPerfilLocal(c.perfiles, std::string());
     for (const auto& p : c.perfiles) {
         if (CJ::profileHasDaemonTls(p)) {
             c.conTls.insert(B::toLowerAscii(p.id.empty() ? p.name : p.id));

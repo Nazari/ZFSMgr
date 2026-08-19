@@ -479,39 +479,15 @@ void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>&
                                   trustBase, &parseErr)) {
         zfsmgr::base::connjson::fundeTrustStore(base, trustBase, m_masterPassword.toStdString(), avisos);
     }
-    for (int i = 0; i < profiles.size(); ++i) {
-        profiles[i] = deBase(base[static_cast<std::size_t>(i)]);
+    // Se vuelca el vector ENTERO y no posición a posición: la fusión puede AÑADIR perfiles
+    // —una entrada del almacén sin conexión que le corresponda— y copiando solo los que
+    // había esos se quedarían fuera sin que nada lo dijera.
+    profiles.clear();
+    for (const BP::ConnectionProfile& b : base) {
+        profiles.push_back(deBase(b));
     }
     for (const BS::Aviso& a : avisos) {
         warnings.push_back(traduce(a));
-    }
-
-    // Lo que NO baja a la capa base: una entrada del almacén sin conexión que le
-    // corresponda se AÑADE como conexión. Es una política de esta mitad —el intérprete no
-    // la tiene— y cambiarla de paso, en un refactor, habría sido colar una decisión.
-    const QJsonArray trustConnections = root.value(QStringLiteral("connections")).toArray();
-    for (const QJsonValue& v : trustConnections) {
-        ConnectionProfile trust = connectionFromJson(v.toObject());
-        if (trust.id.trimmed().isEmpty() || isLocalProfile(trust)) {
-            continue;
-        }
-        bool yaEsta = false;
-        for (const ConnectionProfile& p : profiles) {
-            if (p.id.trimmed().compare(trust.id.trimmed(), Qt::CaseInsensitive) == 0) {
-                yaEsta = true;
-                break;
-            }
-        }
-        if (yaEsta) {
-            continue;
-        }
-        BP::ConnectionProfile bt = aBase(trust);
-        BS::Avisos avisosT;
-        zfsmgr::base::connjson::abreSecretos(bt, m_masterPassword.toStdString(), avisosT);
-        for (const BS::Aviso& a : avisosT) {
-            warnings.push_back(traduce(a));
-        }
-        profiles.push_back(deBase(bt));
     }
 }
 
@@ -677,52 +653,20 @@ LoadResult ConnectionStore::loadConnections() const {
     }
     mergeTrustStoreIntoConnections(result.profiles, result.warnings);
 
-    // Determine the platform-correct values for the local profile.
-    const QString localPlatformOsType =
-#ifdef Q_OS_WIN
-        QStringLiteral("Windows");
-#elif defined(Q_OS_MACOS)
-        QStringLiteral("macOS");
-#elif defined(Q_OS_FREEBSD)
-        QStringLiteral("FreeBSD");
-#else
-        QStringLiteral("Linux");
-#endif
-    const QString localFreshMachineUid = currentLocalMachineUid();
-
-    bool hasLocal = false;
-    for (ConnectionProfile& p : result.profiles) {
-        if (p.id.compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
-            hasLocal = true;
-            // Always overwrite osType and machineUid with current platform values
-            // so a profile saved from a different build or with a wrong default is corrected.
-            p.osType = localPlatformOsType;
-            if (!localFreshMachineUid.isEmpty()) {
-                p.machineUid = localFreshMachineUid;
-            }
-            p.useSudo = shouldForceLocalSudo(p);
-            break;
+    // El perfil «Local» —corregirlo si está, sintetizarlo si no— lo hace la capa base, que
+    // es donde lo usa también el intérprete. Aquí solo se le da el identificador de
+    // máquina, que averiguarlo es leer el registro en Windows o `ioreg` en macOS.
+    {
+        std::vector<BP::ConnectionProfile> base;
+        base.reserve(static_cast<std::size_t>(result.profiles.size()));
+        for (const ConnectionProfile& p : result.profiles) {
+            base.push_back(aBase(p));
         }
-    }
-    if (!hasLocal) {
-        ConnectionProfile local;
-        local.id = QStringLiteral("local");
-        local.name = QStringLiteral("Local");
-        local.machineUid = localFreshMachineUid;
-        local.connType = QStringLiteral("LOCAL");
-        local.port = 0;
-        local.host = QStringLiteral("localhost");
-        local.sshAddressFamily = QStringLiteral("auto");
-        const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
-        const QString userEnvWin = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USERNAME"));
-        local.username = !userEnv.trimmed().isEmpty() ? userEnv.trimmed() : userEnvWin.trimmed();
-        local.osType = localPlatformOsType;
-        local.useSudo = shouldForceLocalSudo(local);
-        if (local.username.isEmpty()) {
-            local.username = QStringLiteral("local");
+        zfsmgr::base::connjson::aseguraPerfilLocal(base, currentLocalMachineUid().toStdString());
+        result.profiles.clear();
+        for (const BP::ConnectionProfile& b : base) {
+            result.profiles.push_back(deBase(b));
         }
-        result.profiles.push_front(local);
     }
 
     return result;

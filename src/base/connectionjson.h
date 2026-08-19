@@ -37,6 +37,16 @@ bool profileHasDaemonTls(const ConnectionProfile& p);
 // dónde se mirara.
 bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Avisos& avisos);
 
+// El perfil «Local» de ESTA máquina: se corrige si está y se sintetiza si no.
+//
+// Se corrigen siempre el sistema operativo, el identificador de máquina y si eleva, porque
+// un perfil guardado desde otra compilación —o copiado de otro equipo— trae los del sitio
+// equivocado y entonces el programa cree que está hablando con otra cosa.
+//
+// `maquinaUid` lo da quien llama: averiguarlo es leer el registro en Windows o `ioreg` en
+// macOS, y eso no baja aquí. Vacío = se conserva el que hubiera.
+void aseguraPerfilLocal(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid);
+
 // Funde en cada perfil el material TLS que viva en el almacén de confianza, indexando por
 // identificador.
 //
@@ -47,8 +57,10 @@ bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Aviso
 // ganar al almacén y el intérprete al perfil, así que con material viejo todavía en
 // `config.json` una usaba el fresco y la otra el rancio.
 //
-// NO añade perfiles: una entrada del almacén sin conexión que le corresponda se ignora
-// aquí. La interfaz sí la añade, y esa decisión se queda donde estaba.
+// Una entrada del almacén SIN conexión que le corresponda se añade como conexión. Es
+// material TLS negociado con una máquina que sigue ahí: descartarlo obligaría a
+// renegociarlo por SSH, y en un host donde /etc/zfsmgr es solo de root eso es pedir sudo.
+// Las locales no, que se sintetizan aparte.
 void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
                      const std::string& maestra, store::Avisos& avisos);
 

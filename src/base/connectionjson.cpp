@@ -3,6 +3,7 @@
 #include "secretcipher.h"
 #include "strutil.h"
 
+#include <cstdlib>
 #include <map>
 #include <regex>
 
@@ -269,6 +270,22 @@ void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value
         abreSecretos(t, maestra, avisos);
         porId[toLowerAscii(t.id)] = t;
     }
+    // Las entradas del almacén que no tienen conexión: se añaden.
+    for (const auto& kv : porId) {
+        if (isLocalProfile(kv.second)) {
+            continue;
+        }
+        bool yaEsta = false;
+        for (const ConnectionProfile& p : perfiles) {
+            if (toLowerAscii(trim(p.id)) == kv.first) {
+                yaEsta = true;
+                break;
+            }
+        }
+        if (!yaEsta) {
+            perfiles.push_back(kv.second);
+        }
+    }
     for (ConnectionProfile& p : perfiles) {
         const auto it = porId.find(toLowerAscii(trim(p.id)));
         if (it == porId.end()) {
@@ -290,6 +307,46 @@ void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value
             p.daemonTlsPort = t.daemonTlsPort;
         }
     }
+}
+
+void aseguraPerfilLocal(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid) {
+    const std::string soDeAqui =
+#if defined(_WIN32)
+        "Windows";
+#elif defined(__APPLE__)
+        "macOS";
+#elif defined(__FreeBSD__)
+        "FreeBSD";
+#else
+        "Linux";
+#endif
+    for (ConnectionProfile& p : perfiles) {
+        if (!isLocalProfile(p)) {
+            continue;
+        }
+        p.osType = soDeAqui;
+        if (!maquinaUid.empty()) {
+            p.machineUid = maquinaUid;
+        }
+        p.useSudo = shouldForceLocalSudo(p);
+        return;
+    }
+    ConnectionProfile local;
+    local.id = "local";
+    local.name = "Local";
+    local.machineUid = maquinaUid;
+    local.connType = "LOCAL";
+    local.port = 0;
+    local.host = "localhost";
+    local.sshAddressFamily = "auto";
+    local.osType = soDeAqui;
+    const char* usuario = std::getenv("USER");
+    if (!usuario || !*usuario) {
+        usuario = std::getenv("USERNAME");   // Windows
+    }
+    local.username = (usuario && *usuario) ? trim(usuario) : std::string("local");
+    local.useSudo = shouldForceLocalSudo(local);
+    perfiles.insert(perfiles.begin(), local);
 }
 
 }  // namespace zfsmgr::base::connjson
