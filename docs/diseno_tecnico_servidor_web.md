@@ -111,7 +111,7 @@ base lo lee— y el tema oscuro.
 | Fase | Qué | Por qué antes |
 |---|---|---|
 | 0 | **HECHA (9533fae)** — HTTP/1.1 sobre OpenSSL + sesión + CSRF, sirviendo *una* página con la lista de conexiones | Es donde vive el riesgo. Si esto no queda bien, lo demás no importa. |
-| 1 | Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
+| 1 | **HECHA** — Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
 | 3 | WebDAV sobre la misma escucha | Cae casi solo una vez hay servidor |
 | 4 | Paridad del resto de la lista | |
@@ -128,6 +128,10 @@ no arrastra peso.
 servidor atiende varias peticiones a la vez; hay que decidir si se serializa el montaje en
 un hilo propio —lo más parecido a lo que hay— o si se hace reentrante, que es más trabajo y
 más riesgo.
+
+*Estado tras la fase 1:* todavía no ha aparecido, porque el servidor atiende de una en una
+y el túnel se monta en su mismo hilo, igual que en el intérprete. Aparecerá el día que se
+atienda en paralelo — y ese día, no antes, hay que decidirlo.
 
 **Cuánto se parece de verdad.** De las 50.945 líneas de Qt, una parte grande es el árbol y
 la edición en línea, que en un navegador salen mucho más baratas. No me atrevo a dar un
