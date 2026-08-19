@@ -779,20 +779,21 @@ bool confirma(const Estado& e, const std::string& que) {
 // El listado de conexiones es EL MISMO que el de la orden suelta `connections list`. La
 // tabla se construye en un solo sitio (session.cpp): tenerla duplicada hacía que la misma
 // pregunta se contestara con columnas distintas según por dónde se preguntara.
-// El listado de conexiones. Con `--daemon` se pregunta además a cada máquina qué versión
-// de agente tiene, y se marca con `*` la que no sea la esperada por este cliente.
+// El listado de conexiones, SIEMPRE con la versión del agente de cada máquina, marcada
+// con `*` cuando no es la que espera este cliente.
 //
-// **No va por omisión, y es a propósito.** `ls` en la raíz es hoy la única orden que
-// responde al instante y SIN hablar con nadie: lee la configuración y ya. Es lo primero
-// que uno teclea cuando algo no va, y justo entonces es cuando hay máquinas apagadas —cada
-// una costaría su plazo de espera antes de rendirse—. Preguntando solo cuando se pide, la
-// orden rápida sigue siendo rápida y la lenta se elige a sabiendas.
+// Estuvo detrás de una opción `--daemon` con el argumento de que `ls` en la raíz era la
+// única orden que responde al instante y sin hablar con nadie, y que con una máquina
+// apagada cada una cuesta su plazo de espera. Se retiró porque el argumento se cae por su
+// propio peso: la versión del agente es la razón por la que uno mira ese listado, y una
+// columna que hay que pedir aparte es una columna que no se mira. Quien no quiera esperar
+// tiene la conexión desconectada, que sigue sin sondearse.
+//
+// El plazo por máquina es de 8 s y el resultado se recuerda durante la sesión —el fallo
+// también—, así que la espera se paga una vez.
 void listaConexiones(Estado& e, const Peticion& pet) {
+    (void)pet;
     Tabla t = tablaDeConexiones(e.conns);
-    if (!pet.tiene("--daemon")) {
-        t.imprime(e.formato);
-        return;
-    }
     t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
     t.campos.push_back("daemon");
     t.tipos.push_back(Tipo::Cadena);
@@ -1347,16 +1348,6 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     }
     if (!sec.empty()) {
         std::fprintf(stderr, TC("t_no_s_lista_57ee7d", "no sé listar la sección «%s»\n"), sec.c_str());
-        return false;
-    }
-    // `--daemon` solo significa algo en la RAÍZ, que es donde se listan las máquinas. En
-    // cualquier otro sitio se decía que sí y se listaban los pools como si nada: la opción
-    // está declarada, así que la comprobación general la daba por buena. Aceptar algo y no
-    // hacerlo es peor que rechazarlo.
-    if (pet.tiene("daemon") && nodoDe(destino) != Nodo::Raiz) {
-        std::fputs(TC("t_daemon_solo_raiz",
-                      "«--daemon» solo vale en la raíz, que es donde se listan las máquinas\n"),
-                   stderr);
         return false;
     }
     switch (nodoDe(destino)) {

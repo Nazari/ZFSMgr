@@ -600,7 +600,7 @@
     "t_on_url_generado": "--on <url>",
     "t_on_url_generado_q": "WHAT it acts on. Without it, the current place. «--from» is the same.",
     "t_opcion_desconocida": "%s: unknown option: %s\n",
-    "t_opcion_no_admitida": "«--%s» is not an option of %s\n",
+    "t_opcion_no_admitida": "«%s» is not an option of %s\n",
     "t_orden_desc_b05fd4": "unknown command: %s (try «help»)\n",
     "t_orden_f088c5": "[command]",
     "t_origen_y_d_79e6b3": "Source and target must be mounted to synchronize,\nor canmount=off with mounted subdatasets.\nSource mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4",

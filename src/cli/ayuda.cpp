@@ -203,9 +203,7 @@ const std::vector<Orden> kOrdenes = {
      "sus hijos e instantáneas."},
      {{{"t_content_ru_7a5f3d", "#content[/ruta]"}, {"t_los_ficher_2b8359", "Los ficheros de dentro."}},
       {{"t_properties_5ce56d", "#properties[/prop]"}, {"t_las_propie_137429", "Las propiedades."}},
-      {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}},
-      {{"t_ls_daemon", "--daemon"},
-       {"t_ls_daemon_q", "En la raíz: la versión del agente de cada máquina, con « * » si no es la esperada."}}},
+      {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}}},
      {{"t_en_windows_42a2d3", "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una "
       "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}},
      Objetivo::Cualquiera,
