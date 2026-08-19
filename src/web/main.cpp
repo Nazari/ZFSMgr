@@ -121,6 +121,20 @@ input { font: inherit; padding: .28rem .45rem; border: 1px solid var(--borde);
 pre { background: var(--suave); padding: .8rem; overflow-x: auto; font-size: .85rem;
       border-radius: 4px; }
 p.vacio { color: var(--tenue); font-style: italic; }
+span.tenue { color: var(--tenue); font-size: .85em; }
+details > summary { cursor: pointer; padding: .16rem 0; list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "\25B8"; color: var(--tenue); display: inline-block;
+                            width: 1em; transition: transform .12s; }
+details[open] > summary::before { transform: rotate(90deg); }
+div.rama { margin-left: 1.1rem; padding-left: .6rem; border-left: 1px solid var(--borde); }
+ul.instantaneas { list-style: none; margin: .1rem 0 .3rem; padding: 0; font-size: .88rem; }
+ul.instantaneas li { padding: .1rem 0; color: var(--tenue); }
+details.menu { display: inline-block; margin: .1rem 0 .35rem; }
+details.menu > summary { font-size: .82rem; color: var(--tenue); text-transform: uppercase;
+                         letter-spacing: .03em; }
+div.opciones { border: 1px solid var(--borde); border-radius: 5px; padding: .5rem .7rem;
+               background: var(--suave); margin: .2rem 0 .5rem; }
 footer { margin-top: 2.5rem; padding-top: .8rem; border-top: 1px solid var(--borde);
          color: var(--tenue); font-size: .85rem; }
 )CSS";
@@ -293,12 +307,136 @@ std::string paginaPools(const std::string& conn, const std::vector<L::Pool>& poo
     return envuelve(conn, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
+// El ÁRBOL, como en la interfaz de Qt: cada dataset se despliega en su sitio y sus
+// instantáneas cuelgan de él.
+//
+// Sale de UNA sola llamada por pool. `--dump-zfs-list-all` ya es recursivo —era lo que
+// mezclaba las instantáneas de todo el árbol en una tabla— y ahí está lo bueno: con esa
+// misma respuesta se construye el árbol entero sin una llamada por nivel.
+//
+// Se pliega con `<details>`, que es HTML y no JavaScript. La política de contenido de este
+// servidor no permite guiones, y tampoco hacen falta: el navegador sabe plegar solo.
+// El menú de un nodo del árbol.
+//
+// **No es un menú del botón derecho, y no puede serlo sin JavaScript**: el «contextmenu» es
+// un evento del navegador y hay que atenderlo con un guion. Este servidor no sirve guiones
+// —su política de contenido dice `default-src 'none'`— así que se pliega con `<details>`,
+// que es HTML puro: un clic en «acciones» y se abre donde está el nodo.
+std::string menuDelNodo(const std::string& conn, const std::string& ds, const std::string& testigo) {
+    const std::string comunes = campoTestigo(testigo)
+                                + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
+                                + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(ds) + "\">";
+    std::string h = "<details class=\"menu\"><summary>acciones</summary><div class=\"opciones\">";
+    h += enlace("/c/" + conn + "/" + ds, "Abrir") + " · ";
+    h += enlace("/c/" + conn + "/" + ds + "?props=1", "Propiedades") + " · ";
+    h += enlace("/c/" + conn + "/" + ds + "?permisos=1", "Permisos") + " · ";
+    h += enlace("/dav/" + conn + "/" + ds + "/", "Contenido");
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"crear-instantanea\">"
+         + "<input name=\"nombre\" placeholder=\"instantánea\" required>"
+         + "<button type=\"submit\">Crear</button></form>";
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"montar\">"
+         + "<button type=\"submit\">Montar</button></form>";
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
+         + "<input type=\"hidden\" name=\"que\" value=\"desmontar\">"
+         + "<button type=\"submit\">Desmontar</button></form>";
+    h += "</div></details>";
+    return h;
+}
+
+std::string ramaDelArbol(const std::string& conn, const std::string& nodo,
+                         const std::map<std::string, std::vector<L::Entrada>>& hijos,
+                         const std::map<std::string, std::vector<L::Entrada>>& instantaneas,
+                         const std::map<std::string, L::Entrada>& porNombre, int profundidad,
+                         const std::string& testigoDelArbol) {
+    std::string h;
+    const auto itE = porNombre.find(nodo);
+    const std::string corto = nodo.find('/') == std::string::npos
+                                  ? nodo
+                                  : nodo.substr(nodo.find_last_of('/') + 1);
+    // Abierto en los dos primeros niveles: el pool y sus hijos. Más adentro, plegado — un
+    // árbol que se abre entero de golpe no es un árbol, es la lista de antes.
+    h += std::string("<details") + (profundidad < 2 ? " open" : "") + "><summary>";
+    h += "<strong>" + H::escapaHtml(corto) + "</strong>";
+    if (itE != porNombre.end()) {
+        h += " <span class=\"tenue\">" + H::escapaHtml(bytesLegibles(itE->second.usado));
+        if (itE->second.montado == "no") {
+            h += " · sin montar";
+        }
+        h += "</span>";
+    }
+    h += "</summary><div class=\"rama\">";
+    h += menuDelNodo(conn, nodo, testigoDelArbol);
+
+    const auto itS = instantaneas.find(nodo);
+    if (itS != instantaneas.end() && !itS->second.empty()) {
+        h += "<ul class=\"instantaneas\">";
+        for (const L::Entrada& s : itS->second) {
+            const std::string sufijo = s.nombre.substr(s.nombre.find('@') + 1);
+            h += "<li>@" + H::escapaHtml(sufijo) + " <span class=\"tenue\">"
+                 + H::escapaHtml(bytesLegibles(s.usado)) + "</span> "
+                 + enlace("/confirmar?c=" + conn + "&o=" + s.nombre + "&que=borrar-instantanea",
+                          "borrar")
+                 + "</li>";
+        }
+        h += "</ul>";
+    }
+    const auto itH = hijos.find(nodo);
+    if (itH != hijos.end()) {
+        for (const L::Entrada& hijo : itH->second) {
+            h += ramaDelArbol(conn, hijo.nombre, hijos, instantaneas, porNombre, profundidad + 1,
+                              testigoDelArbol);
+        }
+    }
+    h += "</div></details>";
+    return h;
+}
+
+std::string paginaArbol(const std::string& conn, const std::string& raiz,
+                        const std::vector<L::Entrada>& entradas, const std::string& testigo) {
+    std::map<std::string, std::vector<L::Entrada>> hijos;
+    std::map<std::string, std::vector<L::Entrada>> instantaneas;
+    std::map<std::string, L::Entrada> porNombre;
+    for (const L::Entrada& e : entradas) {
+        if (e.esInstantanea()) {
+            instantaneas[e.nombre.substr(0, e.nombre.find('@'))].push_back(e);
+            continue;
+        }
+        porNombre[e.nombre] = e;
+        if (e.nombre == raiz) {
+            continue;
+        }
+        hijos[e.nombre.substr(0, e.nombre.find_last_of('/'))].push_back(e);
+    }
+    std::string cuerpo = ramaDelArbol(conn, raiz, hijos, instantaneas, porNombre, 0, testigo);
+    cuerpo += "<h2>De este dataset</h2><p>";
+    cuerpo += enlace("/c/" + conn + "/" + raiz + "?props=1", "Propiedades") + " · ";
+    cuerpo += enlace("/c/" + conn + "/" + raiz + "?permisos=1", "Permisos delegados") + " · ";
+    cuerpo += enlace("/dav/" + conn + "/" + raiz + "/", "Contenido (WebDAV)");
+    cuerpo += "</p>";
+    cuerpo += formularioAcciones(conn, raiz, testigo);
+    const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn);
+    return envuelve(raiz, migas, cuerpo, testigo);
+}
+
 std::string paginaDatasets(const std::string& conn, const std::string& raiz,
                            const std::vector<L::Entrada>& entradas, const std::string& testigo) {
     std::vector<std::vector<std::string>> datasets;
     std::vector<std::vector<std::string>> instantaneas;
     for (const L::Entrada& e : entradas) {
         if (e.esInstantanea()) {
+            // Solo las de ESTE dataset, no las de sus descendientes.
+            //
+            // `--dump-zfs-list-all` es recursivo, y los datasets ya se filtran a los hijos
+            // directos; dejar pasar las instantáneas de todo el árbol mezclaba en una sola
+            // tabla las de una docena de datasets, y enseñando solo lo que va tras la «@»
+            // no había forma de saber de cuál era cada una. Las de un hijo se ven entrando
+            // en el hijo, que es donde uno las busca.
+            const std::string duenno = e.nombre.substr(0, e.nombre.find('@'));
+            if (duenno != raiz) {
+                continue;
+            }
             const std::string corto = e.nombre.substr(e.nombre.find('@') + 1);
             instantaneas.push_back({H::escapaHtml(corto),
                                     H::escapaHtml(bytesLegibles(e.usado)),
@@ -1057,7 +1195,7 @@ int main(int argc, char** argv) {
             respuesta = H::componer(r);
             return true;
         }
-        r.cuerpo = paginaDatasets(conn, objeto, L::entradas(salida), sesion.testigo());
+        r.cuerpo = paginaArbol(conn, objeto, L::entradas(salida), sesion.testigo());
         respuesta = H::componer(r);
         return true;
     };
