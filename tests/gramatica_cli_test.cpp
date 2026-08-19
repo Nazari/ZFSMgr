@@ -12,6 +12,7 @@
 #include "ayuda.h"
 #include "gramatica_cli.h"
 
+#include <cctype>
 #include <cstdio>
 #include <string>
 
@@ -317,6 +318,46 @@ int main() {
                 const auto it = a.opciones.find(pelada);
                 comprueba(it != a.opciones.end() && it->second == "v",
                           std::string("«") + linea + "»: no capturó el valor de la bandera");
+            }
+        }
+    }
+
+    // Las opciones DOCUMENTADAS de cada orden, no solo las nativas.
+    //
+    // Una opción sin «<...>» es una bandera, y pasada sola tiene que reconocerse. El caso
+    // que obligó a escribir esto: `edit local --password` no preguntaba la contraseña y
+    // daba la conexión por actualizada. El léxico decidía si una opción lleva valor
+    // BUSCANDO SU NOMBRE dentro de las formas del catálogo, y «--password» casaba dentro
+    // de «--password-fd <n>»: heredaba su «<n>», se quedaba esperando un valor que no
+    // venía, y se perdía entera. La orden existía precisamente para cambiar la contraseña.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        for (const zfsmgr::cli::Parametro& par : o.params) {
+            const std::string forma = par.forma.es;
+            // Cada nombre de la forma, que puede traer varios: «--user <u> / --group <g>».
+            for (std::size_t i = forma.find("--"); i != std::string::npos; i = forma.find("--", i + 2)) {
+                std::size_t fin = i + 2;
+                while (fin < forma.size()
+                       && (std::isalnum(static_cast<unsigned char>(forma[fin])) || forma[fin] == '-'
+                           || forma[fin] == '_')) {
+                    ++fin;
+                }
+                const std::string nombre = forma.substr(i, fin - i);
+                if (nombre.size() <= 2) {
+                    continue;
+                }
+                // ¿Lleva valor? Lo que va detrás del nombre hasta la siguiente alternativa.
+                const std::size_t sig = forma.find(" / ", fin);
+                const std::string tramo =
+                    forma.substr(fin, sig == std::string::npos ? std::string::npos : sig - fin);
+                const bool llevaValor = tramo.find('<') != std::string::npos;
+                const std::string linea =
+                    std::string(o.nombre) + rellenoDe(o) + " " + nombre + (llevaValor ? " v" : "");
+                const auto a = analizaLinea(linea);
+                if (!a.error.empty()) {
+                    continue;   // la ranura obligatoria no la sabemos rellenar: no es esto
+                }
+                comprueba(a.tiene(nombre),
+                          std::string("«") + linea + "»: la opción documentada no se reconoce");
             }
         }
     }

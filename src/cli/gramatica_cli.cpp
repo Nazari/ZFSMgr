@@ -44,6 +44,26 @@ extern "C" int llevaValorLaOpcion(const char* verbo, const char* opcion, void* /
         if (i == std::string::npos) {
             continue;
         }
+        // La coincidencia tiene que ser la OPCIÓN ENTERA, no un prefijo suyo.
+        //
+        // Buscar la subcadena hacía que `--password` casara dentro de
+        // «--password-fd <n>»: el tramo que se mira era «-fd <n>», con su «<», así que el
+        // léxico daba `--password` por opción CON valor. Y como en `edit local --password`
+        // no hay nada detrás, la opción se perdía entera: la orden se ejecutaba sin
+        // preguntar la contraseña y decía «connection local updated», que es justo lo que
+        // uno no quiere de una orden que existe para cambiar la contraseña.
+        //
+        // El nombre acaba donde deja de ser nombre: fin de cadena, espacio o barra.
+        const std::size_t finNombre = i + op.size() + 2;
+        if (finNombre < forma.size()) {
+            const char sig = forma[finNombre];
+            const bool sigueElNombre =
+                (sig >= 'a' && sig <= 'z') || (sig >= 'A' && sig <= 'Z')
+                || (sig >= '0' && sig <= '9') || sig == '-' || sig == '_';
+            if (sigueElNombre) {
+                continue;
+            }
+        }
         // Lo que sigue al nombre HASTA la siguiente opción: si ahí aparece un «<», lleva
         // valor. Se mira el tramo entero y no solo el carácter siguiente porque la forma
         // puede escribirse de varias maneras —«--name <n>», «--set @<nombre>»,
