@@ -3,6 +3,7 @@
 // Lo que se comprueba aquí no es que «funcione»: es lo que RECHAZA. Un analizador que
 // adivina lo que no entiende, mirando lo que manda un navegador, es por donde se cuelan
 // las cosas.
+#include "dav.h"
 #include "http.h"
 #include "sesion.h"
 
@@ -108,6 +109,40 @@ int main() {
 
         s.cierra();
         comprobar(!s.abierta() && !s.cookieVale(s.id()), "cerrada no vale nada");
+    }
+
+    // --- WebDAV: el XML del 207.
+    {
+        namespace D = zfsmgr::web::dav;
+        const std::vector<D::Recurso> rs = {
+            {"/dav/", "ZFSMgr", true, 0},
+            {"/dav/local/", "local", true, 0},
+            {"/dav/local/fichero.txt", "fichero.txt", false, 1234},
+        };
+        const std::string x = D::multiestado(rs, "1");
+        comprobar(x.find("<?xml version=\"1.0\" encoding=\"utf-8\"?>") == 0, "dav: la declaracion XML");
+        comprobar(x.find("xmlns:D=\"DAV:\"") != std::string::npos, "dav: el espacio de nombres");
+        comprobar(x.find("<D:href>/dav/local/</D:href>") != std::string::npos, "dav: los href");
+        comprobar(x.find("<D:collection/>") != std::string::npos, "dav: las colecciones se marcan");
+        comprobar(x.find("<D:getcontentlength>1234</D:getcontentlength>") != std::string::npos,
+                  "dav: y un fichero lleva su tamano");
+        // Depth: 0 significa «solo este recurso», no «este y sus hijos». Un explorador que
+        // pida 0 y reciba la lista entera se lia.
+        const std::string x0 = D::multiestado(rs, "0");
+        std::size_t cuantos = 0;
+        for (std::size_t i = x0.find("<D:response>"); i != std::string::npos;
+             i = x0.find("<D:response>", i + 1)) {
+            ++cuantos;
+        }
+        comprobar(cuantos == 1, "dav: Depth 0 devuelve UN recurso");
+
+        // El escapado: un dataset puede llamarse casi cualquier cosa, y un «&» sin escapar
+        // rompe el XML entero — el explorador no ensena nada, no ensena ese nombre mal.
+        const std::vector<D::Recurso> raro = {{"/dav/a&b/", "a&b<c>", true, 0}};
+        const std::string xr = D::multiestado(raro, "1");
+        comprobar(xr.find("a&amp;b") != std::string::npos, "dav: el ampersand del href se escapa");
+        comprobar(xr.find("a&amp;b&lt;c&gt;") != std::string::npos, "dav: y el del nombre");
+        comprobar(xr.find("<c>") == std::string::npos, "dav: sin dejar etiquetas sueltas");
     }
 
     std::printf(fallos ? "FALLOS: %d\n" : "web_test OK\n", fallos);

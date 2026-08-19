@@ -350,6 +350,8 @@ add_executable(zfsmgr_web
     ../src/web/http.h
     ../src/web/sesion.cpp
     ../src/web/sesion.h
+    ../src/web/dav.cpp
+    ../src/web/dav.h
     # La entrada de secretos por terminal o descriptor se comparte con el intérprete: es la
     # misma regla —nunca por argumento ni por entorno— y no tiene sentido escribirla dos
     # veces. Si aparece un tercer consumidor, baja a la capa base.
@@ -369,6 +371,7 @@ add_executable(zfsmgr_web_test
     ../tests/web_test.cpp
     ../src/web/http.cpp
     ../src/web/sesion.cpp
+    ../src/web/dav.cpp
 )
 target_include_directories(zfsmgr_web_test PRIVATE ../src/web)
 target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_base)

@@ -162,6 +162,8 @@ std::string componer(const Respuesta& r) {
     const char* texto = "OK";
     switch (r.codigo) {
         case 200: texto = "OK"; break;
+        case 207: texto = "Multi-Status"; break;
+        case 502: texto = "Bad Gateway"; break;
         case 302: texto = "Found"; break;
         case 400: texto = "Bad Request"; break;
         case 403: texto = "Forbidden"; break;

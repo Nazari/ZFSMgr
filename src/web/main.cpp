@@ -5,6 +5,7 @@
 // existe para dejar bien la superficie, que es donde está el riesgo.
 //
 // Corre como el USUARIO, no como root, y escucha en 127.0.0.1. El daemon no se toca.
+#include "dav.h"
 #include "http.h"
 #include "sesion.h"
 
@@ -31,6 +32,7 @@ namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
 namespace H = zfsmgr::web::http;
 namespace L = zfsmgr::base::listados;
+namespace D = zfsmgr::web::dav;
 
 namespace {
 
@@ -435,6 +437,117 @@ int main(int argc, char** argv) {
             respuesta = H::componer(r);
             return true;
         }
+        // --- WebDAV. La misma escucha y la misma sesión: lo que monta el explorador de
+        // archivos es este mismo servidor, no otro.
+        //
+        // Solo LECTURA: OPTIONS, PROPFIND, GET y HEAD. Sin LOCK ni PUT — montar esto en
+        // escritura es otra conversación.
+        if (p.ruta == "/dav" || p.ruta.rfind("/dav/", 0) == 0) {
+            if (p.metodo == "OPTIONS") {
+                r.codigo = 200;
+                r.tipo = "text/plain; charset=utf-8";
+                r.cuerpo.clear();
+                r.cabecerasExtra.push_back("DAV: 1");
+                r.cabecerasExtra.push_back("Allow: OPTIONS, GET, HEAD, PROPFIND");
+                // Explorer no monta sin esto: se lo toma como «aquí no hay WebDAV».
+                r.cabecerasExtra.push_back("MS-Author-Via: DAV");
+                respuesta = H::componer(r);
+                return true;
+            }
+            if (p.metodo != "PROPFIND" && p.metodo != "GET" && p.metodo != "HEAD") {
+                r.codigo = 405;
+                r.tipo = "text/plain; charset=utf-8";
+                r.cuerpo = "solo lectura\n";
+                respuesta = H::componer(r);
+                return true;
+            }
+
+            std::string ruta = p.ruta.substr(4);   // lo que va tras «/dav»
+            while (!ruta.empty() && ruta.front() == '/') {
+                ruta.erase(ruta.begin());
+            }
+            while (!ruta.empty() && ruta.back() == '/') {
+                ruta.pop_back();
+            }
+            const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
+            std::vector<D::Recurso> recursos;
+
+            if (ruta.empty()) {
+                recursos.push_back({"/dav/", "ZFSMgr", true, 0});
+                for (const B::ConnectionProfile& perfilC : conns.perfiles) {
+                    const std::string id = perfilC.id.empty() ? perfilC.name : perfilC.id;
+                    recursos.push_back({"/dav/" + id + "/", id, true, 0});
+                }
+            } else {
+                const std::size_t barra = ruta.find('/');
+                const std::string conn = barra == std::string::npos ? ruta : ruta.substr(0, barra);
+                const std::string objeto = barra == std::string::npos ? std::string()
+                                                                     : ruta.substr(barra + 1);
+                const B::ConnectionProfile* perfilD = zfsmgr::cli::buscarConexion(conns, conn);
+                if (!perfilD) {
+                    r.codigo = 404;
+                    r.tipo = "text/plain; charset=utf-8";
+                    r.cuerpo = "no existe\n";
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                std::string salidaD;
+                std::string errD;
+                int rcD = -1;
+                std::string motivoD;
+                const std::vector<std::string> verboD =
+                    objeto.empty() ? std::vector<std::string>{"--dump-zpool-list"}
+                                   : std::vector<std::string>{"--dump-zfs-list-all", objeto};
+                if (!zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD, verboD, salidaD, errD, rcD,
+                                                 &motivoD, 30000)
+                    || rcD != 0) {
+                    r.codigo = 502;
+                    r.tipo = "text/plain; charset=utf-8";
+                    r.cuerpo = "no se pudo hablar con la maquina\n";
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                recursos.push_back({"/dav/" + ruta + "/", objeto.empty() ? conn : objeto, true, 0});
+                if (objeto.empty()) {
+                    std::vector<L::Pool> pools;
+                    std::string errA;
+                    L::pools(salidaD, pools, errA);
+                    for (const L::Pool& po : pools) {
+                        recursos.push_back({"/dav/" + conn + "/" + po.nombre + "/", po.nombre, true, 0});
+                    }
+                } else {
+                    // Los hijos DIRECTOS: `--dump-zfs-list-all` es recursivo, y meter los
+                    // nietos aquí haría que el explorador enseñara el árbol entero aplanado.
+                    for (const L::Entrada& e : L::entradas(salidaD)) {
+                        if (e.esInstantanea() || e.nombre == objeto) {
+                            continue;
+                        }
+                        const std::string resto = e.nombre.substr(objeto.size() + 1);
+                        if (resto.find('/') != std::string::npos) {
+                            continue;
+                        }
+                        recursos.push_back({"/dav/" + conn + "/" + e.nombre + "/", resto, true, 0});
+                    }
+                }
+            }
+
+            if (p.metodo == "PROPFIND") {
+                r.codigo = 207;
+                r.tipo = "application/xml; charset=utf-8";
+                r.cuerpo = D::multiestado(recursos, p.cabecera("depth").empty()
+                                                        ? std::string("1")
+                                                        : p.cabecera("depth"));
+                respuesta = H::componer(r);
+                return true;
+            }
+            // GET o HEAD sobre una colección: los exploradores lo hacen para tantear. Se
+            // contesta con algo legible en vez de un error.
+            r.tipo = "text/plain; charset=utf-8";
+            r.cuerpo = p.metodo == "HEAD" ? std::string() : "coleccion\n";
+            respuesta = H::componer(r);
+            return true;
+        }
+
         // --- Mutaciones. Todas por POST y todas con testigo: ese es el contrato.
         if (p.metodo == "POST" && p.ruta == "/accion") {
             if (!sesion.testigoVale(p.campo("testigo"))) {
