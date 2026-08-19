@@ -113,7 +113,7 @@ base lo lee— y el tema oscuro.
 | 0 | **HECHA (9533fae)** — HTTP/1.1 sobre OpenSSL + sesión + CSRF, sirviendo *una* página con la lista de conexiones | Es donde vive el riesgo. Si esto no queda bien, lo demás no importa. |
 | 1 | **HECHA** — Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | **HECHA** — Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
-| 3 | WebDAV sobre la misma escucha | Cae casi solo una vez hay servidor |
+| 3 | **HECHA a medias** — WebDAV sobre la misma escucha: el árbol de ZFS sí, los ficheros de dentro no (hacen falta dos verbos nuevos en el daemon) | Cae casi solo una vez hay servidor |
 | 4 | Paridad del resto de la lista | |
 | 5 | Retirar Qt | Solo cuando 4 esté medido contra la lista, no antes |
 
