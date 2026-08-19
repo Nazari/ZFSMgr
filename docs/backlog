@@ -10,3 +10,19 @@ Listado de cambios.
 8. Cuando estoy editando un valor de propiedad inline, si presiono 'Tab', el foco debería moverse a la siguiente propiedad editable leyendo de izquierda a derecha y de arriba a abajo.
 9. En el nodo pool, solo si los dos checks 'Mostrar información del pool' y 'Mostrar datasets programados', se muestra el nodo 'Datasets programados'. Tiene que ser suficiente que esté marcado el check 'Mostrar datasets programados' para que 'Dataset programaods' se muestre.
 
+--- Estado a 2026-08-19 ---
+
+4. HECHO. Los nodos de permisos salen traducidos: Conjuntos/Sets/集合,
+   Delegación/Delegation. Comprobado en mainwindow_permissions.cpp.
+6. HECHO. La casilla se ha retirado —no la leía nadie—, las instantáneas programadas se ven
+   siempre, y el agrupado por clase (Horarios, Diarios, ...) con las manuales delante está
+   en zfsmgr::base::gsa::agrupaInstantaneas, con pruebas y control negativo.
+7. PENDIENTE, y con una advertencia: la lógica estaba escrita —recorrer los ancestros
+   buscando una programación recursiva que ya cubra al dataset— pero desconectada con
+   Q_UNUSED, gastando lecturas remotas para tirar la respuesta. Se ha retirado. Hay que
+   rehacerla donde vive hoy la acción: el menú contextual del delegado.
+8. PENDIENTE. No hay ni un Qt::Key_Tab en el árbol: nadie lo ha empezado.
+9. HECHO. Ya no hace falta ninguna casilla; el nodo «Datasets programados» sale siempre que
+   haya algo programado.
+
+1, 2, 3 y 5: sin revisar. El refactor del árbol unificado de abril pudo cambiarles el sujeto.
