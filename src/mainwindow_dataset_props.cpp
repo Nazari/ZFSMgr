@@ -379,20 +379,7 @@ QString propsDraftKey(const QString& side, const QString& token, const QString& 
              objectName.trimmed());
 }
 
-QString findMapValueCaseInsensitive(const QMap<QString, QString>& map, const QString& wantedKey) {
-    for (auto it = map.cbegin(); it != map.cend(); ++it) {
-        if (it.key().compare(wantedKey, Qt::CaseInsensitive) == 0) {
-            return it.value();
-        }
-    }
-    return QString();
-}
 
-bool datasetIsSameOrDescendantOf(const QString& dataset, const QString& ancestor) {
-    const QString d = dataset.trimmed();
-    const QString a = ancestor.trimmed();
-    return d == a || d.startsWith(a + QLatin1Char('/'));
-}
 
 bool mountedStateFromText(const QString& value, bool* mountedOut) {
     const QString s = value.trimmed().toLower();

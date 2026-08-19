@@ -162,21 +162,6 @@ QString debugConnTreeNodePath(QTreeWidgetItem* item) {
     return parts.join(QStringLiteral(" / "));
 }
 
-int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
-    if (!table || connIdx < 0) {
-        return -1;
-    }
-    for (int row = 0; row < table->rowCount(); ++row) {
-        QTableWidgetItem* item = table->item(row, 0);
-        if (!item) {
-            continue;
-        }
-        if (item->data(Qt::UserRole).toInt() == connIdx) {
-            return row;
-        }
-    }
-    return -1;
-}
 
 void logContextMenuPerf(MainWindow* mw,
                         const QString& phase,

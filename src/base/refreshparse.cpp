@@ -7,19 +7,6 @@
 namespace zfsmgr::base::refresh {
 namespace {
 
-int aEntero(const std::string& s) {
-    int v = 0;
-    for (const char c : s) {
-        if (c < '0' || c > '9') {
-            return v;
-        }
-        v = v * 10 + (c - '0');
-        if (v > 100000000) {
-            return v;  // no hay versiones así; se corta antes de desbordar
-        }
-    }
-    return v;
-}
 
 }  // namespace
 

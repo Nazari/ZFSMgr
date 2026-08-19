@@ -235,12 +235,6 @@ QString gsaUserPropertyDefaultValue(const QString& prop) {
     return QStringLiteral("off");
 }
 
-bool isGsaOnOffProperty(const QString& prop) {
-    const QString p = prop.trimmed();
-    return p.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0
-           || p.compare(QStringLiteral("org.fc16.gsa:recursivo"), Qt::CaseInsensitive) == 0
-           || p.compare(QStringLiteral("org.fc16.gsa:nivelar"), Qt::CaseInsensitive) == 0;
-}
 
 bool isAutomaticGsaSnapshotName(const QString& snap) {
     return snap.trimmed().startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive);
@@ -267,35 +261,6 @@ bool poolDeviceStateToken(const QString& raw) {
     return kStates.contains(s);
 }
 
-QString poolDeviceDisplayName(const QString& rawName) {
-    const QString lower = rawName.trimmed().toLower();
-    if (lower.startsWith(QStringLiteral("mirror"))) {
-        return QStringLiteral("mirror");
-    }
-    if (lower == QStringLiteral("raidz")) {
-        return QStringLiteral("raidz");
-    }
-    if (lower.startsWith(QStringLiteral("raidz1"))) {
-        return QStringLiteral("raidz1");
-    }
-    if (lower.startsWith(QStringLiteral("raidz2"))) {
-        return QStringLiteral("raidz2");
-    }
-    if (lower.startsWith(QStringLiteral("raidz3"))) {
-        return QStringLiteral("raidz3");
-    }
-    if (lower.startsWith(QStringLiteral("draid"))) {
-        return lower;
-    }
-    if (lower == QStringLiteral("logs")
-        || lower == QStringLiteral("spares")
-        || lower == QStringLiteral("cache")
-        || lower == QStringLiteral("special")
-        || lower == QStringLiteral("dedup")) {
-        return lower;
-    }
-    return rawName.trimmed();
-}
 
 QVector<PoolDeviceStatusNode> parsePoolDeviceHierarchyFromStatus(const QString& poolName,
                                                                  const QString& statusPText,
@@ -488,18 +453,6 @@ QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString&
     return QString();
 }
 
-bool isMainPropertiesNodeLabel(const QString& text) {
-    QString trimmed = text.trimmed();
-    // En modo debug el texto visible se decora como "Label (unique-id)".
-    // Para comparaciones semánticas del nodo hay que ignorar ese sufijo.
-    const int openPos = trimmed.lastIndexOf(QStringLiteral(" ("));
-    if (openPos > 0 && trimmed.endsWith(QLatin1Char(')'))) {
-        trimmed = trimmed.left(openPos).trimmed();
-    }
-    return trimmed == QStringLiteral("Properties")
-           || trimmed == QStringLiteral("Dataset properties")
-           || trimmed == QStringLiteral("Snapshot properties");
-}
 
 QString stripDebugNodeIdSuffix(QString text) {
     text = text.trimmed();
@@ -532,58 +485,6 @@ QString treePathSegmentForNode(QTreeWidgetItem* node) {
     return stripDebugNodeIdSuffix(node->text(0));
 }
 
-QString selectedTreePathHeader(QTreeWidget* tree, const QVector<ConnectionProfile>& profiles) {
-    if (!tree) {
-        return QString();
-    }
-    QTreeWidgetItem* cur = tree->currentItem();
-    if (!cur) {
-        const auto selected = tree->selectedItems();
-        if (!selected.isEmpty()) {
-            cur = selected.first();
-        }
-    }
-    if (!cur) {
-        return QString();
-    }
-    int connIdx = cur->data(0, kConnIdxRole).toInt();
-    QString poolName = cur->data(0, kPoolNameRole).toString().trimmed();
-    for (QTreeWidgetItem* p = cur->parent(); p; p = p->parent()) {
-        if (connIdx < 0) {
-            connIdx = p->data(0, kConnIdxRole).toInt();
-        }
-        if (poolName.isEmpty()) {
-            poolName = p->data(0, kPoolNameRole).toString().trimmed();
-        }
-    }
-    QString connName;
-    if (connIdx >= 0 && connIdx < profiles.size()) {
-        connName = profiles[connIdx].name.trimmed().isEmpty()
-                       ? profiles[connIdx].id.trimmed()
-                       : profiles[connIdx].name.trimmed();
-    }
-    if (connName.isEmpty() || poolName.isEmpty()) {
-        return QString();
-    }
-    QStringList segments;
-    for (QTreeWidgetItem* n = cur; n; n = n->parent()) {
-        if (n->data(0, kIsPoolRootRole).toBool()) {
-            break;
-        }
-        if (n->data(0, kIsConnectionRootRole).toBool()) {
-            continue;
-        }
-        const QString seg = treePathSegmentForNode(n);
-        if (!seg.isEmpty()) {
-            segments.prepend(seg);
-        }
-    }
-    QString path = QStringLiteral("%1::%2").arg(connName, poolName);
-    if (!segments.isEmpty()) {
-        path += QStringLiteral("/") + segments.join(QStringLiteral("/"));
-    }
-    return path;
-}
 
 QString escapeConnStatePart(QString value) {
     value.replace(QStringLiteral("\\"), QStringLiteral("\\\\"));
@@ -965,20 +866,6 @@ bool treeGroupsPoolsByConnectionRoots(const QTreeWidget* tree) {
     return tree && tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
 }
 
-bool zfsVersionTooOldForConnectionTree(const QString& rawVersion) {
-    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
-    const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
-    if (!m.hasMatch()) {
-        return false;
-    }
-    const int major = m.captured(1).toInt();
-    const int minor = m.captured(2).toInt();
-    const int patch = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
-    if (major != 2) return false;
-    if (minor < 3) return true;
-    if (minor > 3) return false;
-    return patch < 3;
-}
 
 template <typename Fn>
 void forEachPoolRootItem(QTreeWidget* tree, Fn&& fn) {

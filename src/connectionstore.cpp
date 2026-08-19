@@ -33,19 +33,7 @@ namespace BS = zfsmgr::base::store;
 Q_LOGGING_CATEGORY(lcStartup, "zfsmgr.startup", QtWarningMsg)
 
 namespace {
-bool isConnectionGroupName(const QString& group) {
-    return group.startsWith(QStringLiteral("connection:")) || group.startsWith(QStringLiteral("connection%3A"));
-}
 
-QString defaultIdFromGroup(const QString& group) {
-    if (group.startsWith(QStringLiteral("connection:"))) {
-        return group.mid(QStringLiteral("connection:").size());
-    }
-    if (group.startsWith(QStringLiteral("connection%3A"))) {
-        return group.mid(QStringLiteral("connection%3A").size());
-    }
-    return group;
-}
 
 QString currentLocalMachineUid() {
     // Cache: ioreg/registry can take 400-600ms; no need to repeat within the same process.
@@ -93,7 +81,6 @@ QString currentLocalMachineUid() {
 // consultarlo cuesta 400-600 ms porque lanza `ioreg` o lee el registro.
 namespace {
 
-QString qs(const std::string& s) { return QString::fromStdString(s); }
 std::string bs(const QString& s) { return s.toStdString(); }
 
 BP::ConnectionProfile aBase(const ConnectionProfile& p) { return toBaseProfile(p); }
@@ -181,36 +168,7 @@ bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
 
 }  // namespace
 
-QJsonValue jsonValueFromVariant(const QVariant& v) {
-    if (!v.isValid()) {
-        return QJsonValue();
-    }
-    if (v.metaType().id() == QMetaType::QByteArray) {
-        return QString::fromLatin1(v.toByteArray().toBase64());
-    }
-    if (v.metaType().id() == QMetaType::QStringList) {
-        QJsonArray arr;
-        const QStringList sl = v.toStringList();
-        for (const QString& s : sl) {
-            arr.push_back(s);
-        }
-        return arr;
-    }
-    return QJsonValue::fromVariant(v);
-}
 
-QJsonObject readJsonRootNoMigration(const QString& path) {
-    QFile file(path);
-    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-        return QJsonObject();
-    }
-    QJsonParseError parseErr;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseErr);
-    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
-        return QJsonObject();
-    }
-    return doc.object();
-}
 } // namespace
 
 ConnectionStore::ConnectionStore(const QString& appName)

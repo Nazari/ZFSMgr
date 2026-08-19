@@ -12,13 +12,6 @@
 
 namespace {
 
-QString sanitizeFileComponent(const QString& value) {
-    QString out = value.trimmed();
-    out.replace(' ', '-');
-    out.replace('/', '-');
-    out.replace(':', '-');
-    return out;
-}
 
 bool ensureDir(const QString& path, QString* errorOut = nullptr) {
     QDir dir;

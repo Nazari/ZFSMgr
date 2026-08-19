@@ -126,21 +126,6 @@ QString connContentStateTokenForTree(const MainWindow* w, QTreeWidget* tree) {
     return QString();
 }
 
-QString mergedConnectionCommandErrorText(const QString& out, const QString& err, int rc) {
-    QStringList parts;
-    const QString trimmedErr = err.trimmed();
-    const QString trimmedOut = out.trimmed();
-    if (!trimmedErr.isEmpty()) {
-        parts << trimmedErr;
-    }
-    if (!trimmedOut.isEmpty()) {
-        parts << trimmedOut;
-    }
-    if (parts.isEmpty()) {
-        return QStringLiteral("exit %1").arg(rc);
-    }
-    return parts.join(QStringLiteral("\n\n"));
-}
 
 QString stripLeadingSudoForExecution(QString cmd) {
     cmd = cmd.trimmed();
@@ -273,26 +258,7 @@ QVector<int> versionOrderingKey(const QString& version) {
     return out;
 }
 
-int compareAppVersions(const QString& a, const QString& b) {
-    const QVector<int> ka = versionOrderingKey(a);
-    const QVector<int> kb = versionOrderingKey(b);
-    if (ka.isEmpty() || kb.isEmpty()) {
-        return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive);
-    }
-    for (int i = 0; i < qMin(ka.size(), kb.size()); ++i) {
-        if (ka[i] < kb[i]) {
-            return -1;
-        }
-        if (ka[i] > kb[i]) {
-            return 1;
-        }
-    }
-    return 0;
-}
 
-QString escapePsSingleQuoted(QString s) {
-    return s.replace('\'', QStringLiteral("''"));
-}
 
 
 QString normalizeHostToken(QString host) {
@@ -758,32 +724,7 @@ int connectionIndexForRow(const QTableWidget* table, int row) {
     return -1;
 }
 
-int selectedConnectionRow(const QTableWidget* table) {
-    if (!table) {
-        return -1;
-    }
-    int row = table->currentRow();
-    if (row >= 0) {
-        return connectionIndexForRow(table, row);
-    }
-    const auto ranges = table->selectedRanges();
-    if (!ranges.isEmpty()) {
-        return connectionIndexForRow(table, ranges.first().topRow());
-    }
-    return -1;
-}
 
-int rowForConnectionIndex(const QTableWidget* table, int connIdx) {
-    if (!table || connIdx < 0) {
-        return -1;
-    }
-    for (int row = 0; row < table->rowCount(); ++row) {
-        if (connectionIndexForRow(table, row) == connIdx) {
-            return row;
-        }
-    }
-    return -1;
-}
 
 QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, int connIdx) {
     if (connIdx < 0 || connIdx >= profiles.size()) {

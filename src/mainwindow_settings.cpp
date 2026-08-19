@@ -12,43 +12,7 @@
 #include <QTextEdit>
 
 namespace {
-int connectionIndexFromTable(const QTableWidget* table) {
-    if (!table) {
-        return -1;
-    }
-    const int row = table->currentRow();
-    if (row < 0 || row >= table->rowCount()) {
-        return -1;
-    }
-    const QTableWidgetItem* it = table->item(row, 0);
-    if (!it) {
-        return -1;
-    }
-    bool ok = false;
-    const int idx = it->data(Qt::UserRole).toInt(&ok);
-    return ok ? idx : -1;
-}
 
-int rowForConnectionId(const QTableWidget* table, const QVector<ConnectionProfile>& profiles, const QString& id) {
-    if (!table || id.isEmpty()) {
-        return -1;
-    }
-    for (int row = 0; row < table->rowCount(); ++row) {
-        const QTableWidgetItem* it = table->item(row, 0);
-        if (!it) {
-            continue;
-        }
-        bool ok = false;
-        const int connIdx = it->data(Qt::UserRole).toInt(&ok);
-        if (!ok || connIdx < 0 || connIdx >= profiles.size()) {
-            continue;
-        }
-        if (profiles[connIdx].id == id) {
-            return row;
-        }
-    }
-    return -1;
-}
 
 QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, int connIdx) {
     if (connIdx < 0 || connIdx >= profiles.size()) {

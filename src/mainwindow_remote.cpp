@@ -55,20 +55,7 @@ struct LocalAgentConfig {
 
 QMutex s_remoteDaemonTlsPersistMutex;
 
-QString remoteDaemonTlsCacheKey(const ConnectionProfile& p) {
-    return QString::fromStdString(BT::remoteDaemonTlsCacheKey(toBaseProfile(p)));
-}
 
-LocalAgentConfig loadLocalAgentConfig() {
-    const auto c = BT::loadLocalAgentConfig();
-    LocalAgentConfig cfg;
-    cfg.bindAddress = QString::fromStdString(c.bindAddress);
-    cfg.port = c.port;
-    cfg.tlsCertPath = QString::fromStdString(c.tlsCertPath);
-    cfg.tlsClientCertPath = QString::fromStdString(c.tlsClientCertPath);
-    cfg.tlsClientKeyPath = QString::fromStdString(c.tlsClientKeyPath);
-    return cfg;
-}
 
 
 // Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
@@ -188,31 +175,8 @@ bool runSshRawNoLog(const ConnectionProfile& p,
 
 namespace {
 
-bool parseRemoteDaemonTlsBundle(const QString& text,
-                                QByteArray& serverCertPem,
-                                QByteArray& clientCertPem,
-                                QByteArray& clientKeyPem,
-                                quint16& portOut,
-                                bool* clientKeyIncludedOut = nullptr) {
-    BT::RemoteTlsBundle b;
-    const bool ok = BT::parseRemoteDaemonTlsBundle(text.toStdString(), b);
-    serverCertPem = QByteArray::fromStdString(b.serverCertPem);
-    clientCertPem = QByteArray::fromStdString(b.clientCertPem);
-    clientKeyPem = QByteArray::fromStdString(b.clientKeyPem);
-    portOut = b.port;
-    if (clientKeyIncludedOut) {
-        *clientKeyIncludedOut = b.clientKeyIncluded;
-    }
-    return ok;
-}
 
-QString sanitizeWindowsCliXml(const QString& raw) {
-    return QString::fromStdString(BT::sanitizeWindowsCliXml(raw.toStdString()));
-}
 
-bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
-    return BT::shouldRetrySshWithoutMultiplexing(stderrText.toStdString());
-}
 
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::findLocalExecutable;

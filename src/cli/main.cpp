@@ -91,24 +91,6 @@ void uso() {
                  kNombre, kNombre);
 }
 
-// El texto de un motivo. La capa base devuelve motivos tipificados a propósito para no
-// llevarse consigo el sistema de traducción; aquí se les pone texto, como hace la
-// interfaz con el suyo.
-std::string textoDe(const ST::Aviso& a) {
-    switch (a.motivo) {
-        case ST::Motivo::Ninguno: return {};
-        case ST::Motivo::ConfigNoSeAbre: return T("t_no_abre_config", "no se pudo abrir config.json");
-        case ST::Motivo::ConfigNoValido:
-            return T("t_config_no_valido", "config.json no es válido")
-                   + (a.detalle.empty() ? std::string() : ": " + a.detalle);
-        case ST::Motivo::TrustNoSeAbre:
-            return T("t_no_abre_trust", "no se pudo abrir trust-store.json");
-        case ST::Motivo::TrustNoValido:
-            return T("t_trust_no_valido", "trust-store.json no es válido")
-                   + (a.detalle.empty() ? std::string() : ": " + a.detalle);
-        default: return T("t_error_leer_config", "error al leer la configuración");
-    }
-}
 
 // El directorio de configuración, que tiene que ser EL MISMO que usa la interfaz.
 //
@@ -151,23 +133,6 @@ struct Opciones {
     std::vector<std::string> orden;
 };
 
-// Descifra si hace falta. Devuelve el valor tal cual si no está cifrado, y una marca
-// visible si no se puede abrir: **nunca** el texto cifrado, que es lo que la interfaz
-// dejaba y podía acabar enviándose como si fuera una contraseña.
-std::string abrir(const std::string& valor, const std::string& maestra, bool sinSecretos) {
-    if (!B::SecretCipher::isEncrypted(valor)) {
-        return valor;
-    }
-    if (sinSecretos || maestra.empty()) {
-        return "<cifrado>";
-    }
-    std::string claro;
-    std::string err;
-    if (!B::SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
-        return "<no se pudo descifrar>";
-    }
-    return claro;
-}
 
 // La lista de conexiones. La tabla se construye en `session.cpp`, en el mismo sitio que la
 // del `ls` de la raíz del intérprete: eran dos, con columnas distintas, y la misma pregunta

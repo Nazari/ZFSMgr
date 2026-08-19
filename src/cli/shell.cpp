@@ -3521,42 +3521,7 @@ bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::str
     return true;
 }
 
-// ¿Estamos en un pool? Un pool ES un dataset —el de la raíz—, así que se distingue por
-// `isPoolRoot()` y no por un tipo de nodo aparte.
-bool exigePool(const ZfsmUrl& u) {
-    if (nodoDe(u) != Nodo::Dataset || !u.isPoolRoot()) {
-        std::fprintf(stderr, TC("t_hace_falta_c7ec3b", "hace falta estar en un pool (ahora: %s)\n"), textoDe(u).c_str());
-        return false;
-    }
-    return true;
-}
 
-// Las operaciones de mantenimiento que se piden igual: un verbo y el nombre del pool, con
-// un subcomando opcional para parar o pausar.
-// Los nombres de pool de una conexión, recordados durante la sesión.
-//
-// Hace falta para decidir si el primer argumento suelto de una orden de pool es el POOL
-// sobre el que actuar o un argumento de la propia orden. Se pregunta una vez por conexión:
-// sin la caché, cada `scrub`, `trim` o `clear` costaría una ida y vuelta de más.
-const std::set<std::string>& poolsDe(Estado& e, const ZfsmUrl& donde) {
-    const std::string clave = B::toLowerAscii(donde.connection);
-    const auto ya = e.poolsPorConexion.find(clave);
-    if (ya != e.poolsPorConexion.end()) {
-        return ya->second;
-    }
-    std::set<std::string> nombres;
-    std::string out;
-    if (agente(e, donde, {"--dump-zpool-list"}, out, 20000)) {
-        B::json::Value raiz;
-        std::string err;
-        if (B::json::parse(out, raiz, &err)) {
-            for (const auto& kv : raiz["pools"].toObject()) {
-                nombres.insert(kv.second["name"].toString(kv.first));
-            }
-        }
-    }
-    return e.poolsPorConexion.emplace(clave, std::move(nombres)).first->second;
-}
 
 
 

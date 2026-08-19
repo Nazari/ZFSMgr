@@ -3512,22 +3512,6 @@ int runMutateShellGeneric(const std::string& payloadB64) {
     return runExecStreaming("sh", {"-lc", decoded});
 }
 
-ExecResult runMutateShellGenericCapture(const std::string& payloadB64) {
-    ExecResult r;
-    std::string decoded;
-    if (!decodeBase64(payloadB64, decoded)) {
-        r.rc = 2;
-        r.err = "invalid shell payload\n";
-        return r;
-    }
-    decoded = trim(decoded);
-    if (decoded.empty()) {
-        r.rc = 2;
-        r.err = "empty shell payload\n";
-        return r;
-    }
-    return runExecCapture("sh", {"-lc", decoded});
-}
 
 #ifdef HAVE_LIBZFS_CORE
 // ── libzfs_core native helpers (subprocess fallback used on any lzc error) ──
@@ -4139,21 +4123,6 @@ int gsaIntVal(const std::string& s) {
     try { return std::stoi(s); } catch (...) { return 0; }
 }
 
-// Reads KEY=VALUE pairs from a shell-sourceable conf file.
-KVMap gsaReadKV(const std::string& path) {
-    KVMap out;
-    std::ifstream f(path);
-    if (!f.is_open()) return out;
-    std::string line;
-    while (std::getline(f, line)) {
-        const std::string t = trim(line);
-        if (t.empty() || t[0] == '#') continue;
-        const std::size_t eq = t.find('=');
-        if (eq == std::string::npos) continue;
-        out[trim(t.substr(0, eq))] = stripQuotes(t.substr(eq + 1));
-    }
-    return out;
-}
 
 // Returns "YYYYMMDD-HHMMSS" in local time.
 std::string gsaLocalTimestamp() {

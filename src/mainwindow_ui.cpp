@@ -99,35 +99,8 @@ constexpr int kConnStatePartRole = Qt::UserRole + 44;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
-QString pendingChangeLastQuotedArg(const QString& text) {
-    const int lastQuote = text.lastIndexOf(QLatin1Char('\''));
-    if (lastQuote <= 0) {
-        return QString();
-    }
-    const int prevQuote = text.lastIndexOf(QLatin1Char('\''), lastQuote - 1);
-    if (prevQuote < 0 || prevQuote >= lastQuote) {
-        return QString();
-    }
-    return text.mid(prevQuote + 1, lastQuote - prevQuote - 1).trimmed();
-}
 
-QString pendingChangeFirstQuotedArg(const QString& text) {
-    const int firstQuote = text.indexOf(QLatin1Char('\''));
-    if (firstQuote < 0) {
-        return QString();
-    }
-    const int nextQuote = text.indexOf(QLatin1Char('\''), firstQuote + 1);
-    if (nextQuote <= firstQuote) {
-        return QString();
-    }
-    return text.mid(firstQuote + 1, nextQuote - firstQuote - 1).trimmed();
-}
 
-QString datasetLeafNameUi(const QString& datasetName) {
-    const QString trimmed = datasetName.trimmed();
-    const int slash = trimmed.lastIndexOf(QLatin1Char('/'));
-    return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
-}
 
 class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
 public:

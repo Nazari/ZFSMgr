@@ -316,15 +316,6 @@ QTreeWidgetItem* ensurePermissionsSectionNode(QTreeWidgetItem* parent,
     return node;
 }
 
-QString targetLabel(const QString& targetType, const QString& targetName) {
-    if (targetType == QStringLiteral("user")) {
-        return QStringLiteral("Usuario %1").arg(targetName);
-    }
-    if (targetType == QStringLiteral("group")) {
-        return QStringLiteral("Grupo %1").arg(targetName);
-    }
-    return QStringLiteral("everyone");
-}
 
 QString grantScopeLabel(const QString& scope) {
     const QString s = scope.trimmed().toLower();
@@ -407,11 +398,6 @@ void normalizePermissionTokens(QStringList& tokens) {
     tokens = normalized;
 }
 
-bool permissionTokenListsEqual(QStringList a, QStringList b) {
-    normalizePermissionTokens(a);
-    normalizePermissionTokens(b);
-    return a == b;
-}
 
 QSet<QString> collectExpandedPermissionPaths(QTreeWidgetItem* root) {
     QSet<QString> expanded;

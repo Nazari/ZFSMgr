@@ -54,22 +54,6 @@ QStringList csvArgs(const QString& raw) {
     return out;
 }
 
-int selectedConnectionIndexFromTable(const QTableWidget* table) {
-    if (!table) {
-        return -1;
-    }
-    const int row = table->currentRow();
-    if (row < 0 || row >= table->rowCount()) {
-        return -1;
-    }
-    const QTableWidgetItem* it = table->item(row, 0);
-    if (!it) {
-        return -1;
-    }
-    bool ok = false;
-    const int idx = it->data(Qt::UserRole).toInt(&ok);
-    return ok ? idx : -1;
-}
 
 } // namespace
 
