@@ -4297,7 +4297,10 @@ std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
 }
 
 std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
-                                    std::size_t& desde) {
+                                    std::size_t& desde, bool& puedeSeguir) {
+    // Por omisión, lo completado se cierra: una orden, una opción, un valor de propiedad.
+    // Solo lo que admite «/» detrás dice lo contrario, y lo dice donde se sabe.
+    puedeSeguir = false;
     // El trozo que se está escribiendo: desde el último espacio antes del cursor.
     desde = linea.rfind(' ', cursor == 0 ? 0 : cursor - 1);
     desde = (desde == std::string::npos || cursor == 0) ? 0 : desde + 1;
@@ -4382,6 +4385,9 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
                     out.push_back(prefijo + s);
                 }
             }
+            // `#content` y `#properties` llevan «/…» detrás; `#permissions` no lleva nada.
+            puedeSeguir = out.size() == 1
+                          && !B::endsWith(out.front(), std::string("#") + B::zfsmSection::kPermissions);
             return out;
         }
         const std::string seccion = B::toLowerAscii(resto.substr(1, barra - 1));
@@ -4416,6 +4422,11 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
                 out.push_back(prefijo + yaEscrito + c);
             }
         }
+        // Dentro de `#content`, un DIRECTORIO admite seguir bajando y un fichero no. La
+        // diferencia viene ya marcada con la barra final desde la máquina —`ls -p` en Unix,
+        // `PSIsContainer` en Windows—, así que no hay que preguntarlo otra vez. En
+        // `#properties` no hay más niveles: una propiedad se cierra.
+        puedeSeguir = out.size() == 1 && !out.front().empty() && out.front().back() == '/';
         return out;
     }
 
@@ -4442,6 +4453,9 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
             out.push_back(base + h);
         }
     }
+    // Un pool, un dataset o una conexión admiten «/» y otro nombre detrás, así que no se
+    // cierran: es lo que permite bajar con el tabulador sin borrar el espacio a cada paso.
+    puedeSeguir = out.size() == 1;
     return out;
 }
 
@@ -4543,8 +4557,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     };
 
     LectorDeLinea lector;
-    lector.setCompletador([&e](const std::string& l, std::size_t c, std::size_t& d) {
-        return completaEn(e, l, c, d);
+    lector.setCompletador([&e](const std::string& l, std::size_t c, std::size_t& d, bool& sigue) {
+        return completaEn(e, l, c, d, sigue);
     });
 
     std::string linea;

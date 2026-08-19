@@ -20,9 +20,16 @@ namespace zfsmgr::cli {
 
 // Qué se puede poner donde el cursor. Recibe la línea entera y la posición del cursor, y
 // devuelve las opciones y desde qué byte de la línea sustituyen.
+//
+// `puedeSeguir` lo pone QUIEN COMPLETA, no quien pinta: dice si a lo completado se le
+// puede seguir pegando texto —un dataset admite «/hijo», una sección admite «/ruta»— y por
+// tanto NO hay que cerrarlo con un espacio. El editor de línea no puede saberlo: lo estuvo
+// adivinando por el último carácter, y con eso acertaba en «/» y en «=» y fallaba en todo
+// lo demás; `ls #cont<TAB>` daba «ls #content » y había que borrar el espacio para poder
+// escribir la ruta.
 using Completador =
     std::function<std::vector<std::string>(const std::string& linea, std::size_t cursor,
-                                           std::size_t& desdeByte)>;
+                                           std::size_t& desdeByte, bool& puedeSeguir)>;
 
 class LectorDeLinea {
 public:

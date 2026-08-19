@@ -201,7 +201,8 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
         return false;
     }
     std::size_t desde = cursor;
-    const std::vector<std::string> opciones = m_completa(linea, cursor, desde);
+    bool puedeSeguir = false;
+    const std::vector<std::string> opciones = m_completa(linea, cursor, desde, puedeSeguir);
     if (opciones.empty() || desde > cursor) {
         return false;
     }
@@ -214,10 +215,11 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
         // que acabe en `=`, donde lo siguiente es el VALOR y va pegado: `set atime= on` son
         // dos componentes y no una asignación, así que el espacio rompería la orden.
         //
-        // Y salvo que acabe en `/`, que es un DIRECTORIO y lo siguiente va dentro:
-        // completar `#content/ZFSMgr/` y cerrar con espacio obligaba a borrarlo para seguir
-        // bajando, que es justo lo contrario de lo que hace el tabulador.
-        if (opciones.size() == 1 && comun.back() != '=' && comun.back() != '/') {
+        // Y salvo que a lo completado se le pueda seguir pegando texto, que lo dice quien
+        // completa: un directorio acabado en `/`, un dataset al que sigue «/hijo», una
+        // sección a la que sigue «/ruta». Cerrar ahí con un espacio obliga a borrarlo para
+        // seguir bajando, que es justo lo contrario de lo que hace el tabulador.
+        if (opciones.size() == 1 && comun.back() != '=' && !puedeSeguir) {
             linea.insert(cursor, " ");
             ++cursor;
         }
