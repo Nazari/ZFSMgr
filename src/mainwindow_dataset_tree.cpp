@@ -1671,10 +1671,6 @@ QStringList MainWindow::scheduledDatasetsForTest(int connIdx, const QString& poo
     return scheduledDatasetsForPool(connIdx, poolName, nullptr);
 }
 
-bool MainWindow::showAutomaticSnapshots() const {
-    return true;
-}
-
 namespace {
 
 // Suelta los widgets de celda de las columnas que van a desaparecer.
@@ -1849,10 +1845,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             n->setData(col, kConnPropEditableRole, false);
         }
     };
-    const bool showInlineDatasetProps = true;
-    const bool showInlinePropertyNodes = true;
-    const bool showInlinePermissionsNodes = true;
-    const bool showInlineGsaNode = true;
 
     QTreeWidgetItem* sel = tree->currentItem();
     if (!sel) {
@@ -2055,68 +2047,17 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         objectInfo && !objectInfo->runtime.datasetType.trimmed().isEmpty()) {
         objectDatasetType = objectInfo->runtime.datasetType.trimmed();
     }
-    auto gsaBoolOn = [](const QString& raw) {
-        const QString v = raw.trimmed().toLower();
-        return v == QStringLiteral("on")
-               || v == QStringLiteral("yes")
-               || v == QStringLiteral("true")
-               || v == QStringLiteral("1");
-    };
-    auto effectiveGsaValuesForDataset = [this, itemConnIdx, itemPool](const QString& datasetName) {
-        QMap<QString, QString> values;
-        if (itemConnIdx < 0 || itemPool.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
-            return values;
-        }
-        ensureDatasetPropertySubsetLoaded(itemConnIdx, itemPool, datasetName, gsaUserProps());
-        const QVector<DatasetPropCacheRow> rows =
-            datasetPropertyRowsForNames(itemConnIdx, itemPool, datasetName, gsaUserProps());
-        for (const DatasetPropCacheRow& row : rows) {
-            if (isGsaUserProperty(row.prop)) {
-                values[row.prop] = row.value;
-            }
-        }
-        const QString token = QStringLiteral("%1::%2").arg(connToken(itemConnIdx), itemPool);
-        const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
-        const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
-        if (liveIt != m_connContentPropValuesByObject.cend()) {
-            for (auto it = liveIt->cbegin(); it != liveIt->cend(); ++it) {
-                if (isGsaUserProperty(it.key())) {
-                    const QString key = findCaseInsensitiveMapKey(values, it.key());
-                    values[key.isEmpty() ? it.key() : key] = it.value();
-                }
-            }
-        }
-        const DatasetPropsDraft draft =
-            propertyDraftForObject(QStringLiteral("conncontent"), token, datasetName);
-        if (draft.dirty) {
-            for (auto it = draft.valuesByProp.cbegin(); it != draft.valuesByProp.cend(); ++it) {
-                if (isGsaUserProperty(it.key())) {
-                    const QString key = findCaseInsensitiveMapKey(values, it.key());
-                    values[key.isEmpty() ? it.key() : key] = it.value();
-                }
-            }
-            for (auto it = draft.inheritByProp.cbegin(); it != draft.inheritByProp.cend(); ++it) {
-                if (it.value() && isGsaUserProperty(it.key())) {
-                    const QString key = findCaseInsensitiveMapKey(values, it.key());
-                    values.remove(key.isEmpty() ? it.key() : key);
-                }
-            }
-        }
-        return values;
-    };
-    auto recursiveGsaAncestorForDataset = [&](const QString& datasetName) {
-        QString parent = parentDatasetName(datasetName);
-        while (!parent.trimmed().isEmpty()) {
-            const QMap<QString, QString> values = effectiveGsaValuesForDataset(parent);
-            if (gsaBoolOn(values.value(findCaseInsensitiveMapKey(values, QStringLiteral("org.fc16.gsa:activado"))))
-                && gsaBoolOn(values.value(findCaseInsensitiveMapKey(values, QStringLiteral("org.fc16.gsa:recursivo"))))) {
-                return parent;
-            }
-            parent = parentDatasetName(parent);
-        }
-        return QString();
-    };
-    const QString recursiveGsaAncestor = objectIsSnapshot ? QString() : recursiveGsaAncestorForDataset(obj);
+    // Aquí se calculaba el ANCESTRO RECURSIVO del dataset —quién de sus padres tiene una
+    // programación recursiva que ya lo cubre— y el resultado iba a `Q_UNUSED`.
+    //
+    // No era solo código muerto: era TRABAJO muerto. Recorría toda la cadena de ancestros
+    // llamando a ensureDatasetPropertySubsetLoaded(), que cuando la propiedad no está en
+    // caché sale por RPC al daemon. O sea, lecturas remotas en cada repintado del panel de
+    // propiedades para tirar la respuesta.
+    //
+    // Lo que calculaba es justo lo que pide el punto 7 del backlog: no ofrecer «Programar
+    // snapshot» sobre un dataset que ya cubre un ancestro. Esa comprobación habrá que
+    // rehacerla donde vive hoy la acción —el menú contextual del delegado—, no aquí.
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(
             (itemConnIdx >= 0 && itemConnIdx < m_conns.profiles.size()) ? m_conns.profiles[itemConnIdx].osType : QString(),
@@ -2633,7 +2574,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
     };
     int insertAt = 0;
-    Q_UNUSED(showInlineDatasetProps);
     QTreeWidgetItem* propsNode = nullptr;
     bool propsNodeWasExpanded = false;
     bool shouldExpandPropsNode = false;
@@ -2810,7 +2750,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                         QString::number(propsNode->childCount())));
     }
     Q_UNUSED(objectDraft);
-    Q_UNUSED(recursiveGsaAncestor);
     insertAt = appendSnapshotHoldsNode(sel, insertAt);
     if (propsNode) {
         propsNode->setExpanded(shouldExpandPropsNode);
@@ -3246,7 +3185,13 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                 break;
             }
         }
-        if (!showAutomaticSnapshots() || preAutoSnapshotDatasets.isEmpty()) {
+        // Sin condición de visibilidad: el nodo sale SIEMPRE que haya algo programado.
+        //
+        // Punto 9 del backlog. Hacían falta dos casillas marcadas —«Mostrar información del
+        // pool» y «Mostrar datasets programados»— para verlo, y el punto 6 pedía además
+        // retirar la segunda. Las dos se han retirado enteras, así que lo único que decide
+        // ahora es si hay datasets programados.
+        if (preAutoSnapshotDatasets.isEmpty()) {
             if (preAutoSnapsNode) {
                 delete root->takeChild(root->indexOfChild(preAutoSnapsNode));
             }
@@ -3716,7 +3661,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                 break;
             }
         }
-        if (!showAutomaticSnapshots() || autoSnapshotDatasets.isEmpty()) {
+        if (autoSnapshotDatasets.isEmpty()) {
             if (autoSnapsNode) {
                 delete root->takeChild(root->indexOfChild(autoSnapsNode));
             }
@@ -4640,10 +4585,6 @@ MainWindow::DatasetTreeRenderOptions MainWindow::datasetTreeRenderOptionsForTree
     DatasetTreeRenderOptions options;
     options.includePoolRoot = isConnContentContext(side);
     options.interactiveConnContent = isInteractiveConnContentContext(side);
-    options.showInlinePropertyNodes = showInlinePropertyNodesForTree(tree);
-    options.showInlinePermissionsNodes = showInlinePermissionsNodesForTree(tree);
-    options.showInlineGsaNode = showInlineGsaNodeForTree(tree);
-    options.showAutomaticSnapshots = showAutomaticSnapshots();
     return options;
 }
 
@@ -5724,16 +5665,12 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             f.setBold(true);
             item->setFont(0, f);
         }
-        QStringList snaps = dsInfo.runtime.directSnapshots;
-        if (!options.showAutomaticSnapshots) {
-            QStringList filtered;
-            for (const QString& snapName : snaps) {
-                if (!isAutomaticGsaSnapshotName(snapName)) {
-                    filtered.push_back(snapName);
-                }
-            }
-            snaps = filtered;
-        }
+        // Las instantáneas automáticas se ven SIEMPRE (punto 6 del backlog).
+        //
+        // Aquí se filtraban cuando la casilla estaba desmarcada. La casilla se ha retirado,
+        // y ocultarlas nunca fue buena idea: la lista decía «(ninguno)» sobre un dataset
+        // que tenía copias, solo que programadas.
+        const QStringList snaps = dsInfo.runtime.directSnapshots;
         item->setText(1, snaps.isEmpty() ? QString()
                                          : trk(QStringLiteral("t_none_001"),
                                                QStringLiteral("(ninguno)"),

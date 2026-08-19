@@ -1028,9 +1028,6 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
         ? m_topDatasetTreeWidget->config().primaryColumnTitle
         : QStringLiteral("Dataset");
     config.role = ConnectionDatasetTreePane::Role::Top;
-    config.visualOptions = m_topDatasetTreeWidget
-        ? m_topDatasetTreeWidget->visualOptions()
-        : ConnectionDatasetTreePane::VisualOptions{};
     config.groupPoolsByConnectionRoots = isConnectionLevel;
     auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, nullptr);
     auto* splitTree = splitWidget->tree();
@@ -1415,9 +1412,6 @@ void MainWindow::restoreSplitTreeLayoutFromState(const QString& state) {
                 ? m_topDatasetTreeWidget->config().primaryColumnTitle
                 : QStringLiteral("Dataset");
             config.role = ConnectionDatasetTreePane::Role::Top;
-            config.visualOptions = m_topDatasetTreeWidget
-                ? m_topDatasetTreeWidget->visualOptions()
-                : ConnectionDatasetTreePane::VisualOptions{};
             config.groupPoolsByConnectionRoots = isConnectionLevel;
             auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, nullptr);
             if (QTreeWidget* splitTree = splitWidget->tree()) {
@@ -1662,26 +1656,6 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     }
 
     targetTree->setFocus();
-    return true;
-}
-
-bool MainWindow::showInlinePropertyNodesForTree(const QTreeWidget* tree) const {
-    Q_UNUSED(tree);
-    return true;
-}
-
-bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) const {
-    Q_UNUSED(tree);
-    return true;
-}
-
-bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
-    Q_UNUSED(tree);
-    return true;
-}
-
-bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
-    Q_UNUSED(tree);
     return true;
 }
 
@@ -2395,10 +2369,6 @@ void MainWindow::buildUi() {
                                            QStringLiteral("Connection/Pool/Dataset"),
                                            QStringLiteral("连接/存储池/数据集"));
     topTreeConfig.role = ConnectionDatasetTreePane::Role::Unified;
-    topTreeConfig.visualOptions = {m_showInlinePropertyNodesTop,
-                                   m_showInlinePermissionsNodesTop,
-                                   m_showInlineGsaNodeTop,
-                                   m_showPoolInfoNodeTop};
     topTreeConfig.groupPoolsByConnectionRoots = true;
     m_topDatasetTreeWidget = new ConnectionDatasetTreeWidget(topTreeConfig, m_topConnContentDelegate, m_connContentPage);
     m_topDatasetPane = m_topDatasetTreeWidget->pane();

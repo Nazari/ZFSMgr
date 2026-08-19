@@ -53,18 +53,10 @@ private:
 
     struct InlineVisibilityMenuActions {
         QAction* manage{nullptr};
-        QAction* showInlineProps{nullptr};
-        QAction* showInlinePerms{nullptr};
-        QAction* showInlineGsa{nullptr};
-        QAction* showAutoGsa{nullptr};
     };
 
     PoolRootMenuActions buildPoolRootMenu(QMenu& menu, QTreeWidget* tree);
-    InlineVisibilityMenuActions buildInlineVisibilityMenu(QMenu& menu,
-                                                          QTreeWidget* tree,
-                                                          bool includeManage,
-                                                          bool includePoolInfo,
-                                                          bool includeAutoGsa);
+    InlineVisibilityMenuActions buildInlineVisibilityMenu(QMenu& menu, bool includeManage);
     void applyInlineSectionVisibility(QTreeWidget* preferredTree = nullptr, const QString& preferredToken = QString());
     void manageInlinePropsVisualization(QTreeWidget* tree, QTreeWidgetItem* rawItem, bool poolContext);
     void focusContextItemForInlineVisibility(QTreeWidget* tree, QTreeWidgetItem* rawItem);

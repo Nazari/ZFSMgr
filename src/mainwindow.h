@@ -463,10 +463,6 @@ private:
     struct DatasetTreeRenderOptions {
         bool includePoolRoot{false};
         bool interactiveConnContent{false};
-        bool showInlinePropertyNodes{true};
-        bool showInlinePermissionsNodes{true};
-        bool showInlineGsaNode{true};
-        bool showAutomaticSnapshots{true};
     };
     DatasetTreeRenderOptions datasetTreeRenderOptionsForTree(const QTreeWidget* tree,
                                                              DatasetTreeContext side) const;
@@ -534,7 +530,6 @@ private:
                                        const QString& prop,
                                        bool inherit);
     void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
-    bool showAutomaticSnapshots() const;
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
     // Redacta el motivo tipado que devuelve `zfsmgr::base::gsa`, en el idioma en curso.
     QString gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m, const QString& dataset) const;
@@ -876,10 +871,6 @@ private:
     void actionAdvancedCreateFromDir(const DatasetSelectionContext& explicitCtx);
     void actionAdvancedToDir();
     void actionAdvancedToDir(const DatasetSelectionContext& explicitCtx);
-    bool showInlinePropertyNodesForTree(const QTreeWidget* tree) const;
-    bool showInlinePermissionsNodesForTree(const QTreeWidget* tree) const;
-    bool showPoolInfoNodeForTree(const QTreeWidget* tree) const;
-    bool showInlineGsaNodeForTree(const QTreeWidget* tree) const;
     void setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible);
     void setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible);
     void setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible);
@@ -1269,13 +1260,6 @@ private:
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
-    bool m_showInlinePropertyNodesTop{true};
-    bool m_showInlinePropertyNodesBottom{true};
-    bool m_showInlinePermissionsNodesTop{true};
-    bool m_showInlinePermissionsNodesBottom{true};
-    bool m_showInlineGsaNodeTop{true};
-    bool m_showInlineGsaNodeBottom{true};
-    bool m_showPoolInfoNodeTop{true};
     int m_connPropColumnsSetting{7};
     bool m_pendingChangeActivationInProgress{false};
     QStringList m_datasetInlinePropsOrder;

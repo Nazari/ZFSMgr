@@ -143,22 +143,6 @@ void MainWindow::loadUiSettings() {
     }
     m_logMaxLinesSetting = appObj.value(QStringLiteral("log_max_lines")).toInt(500);
     m_showInlineDatasetProps = appObj.value(QStringLiteral("show_inline_dataset_props")).toBool(true);
-    const bool legacyShowInlinePropertyNodes = appObj.value(QStringLiteral("show_inline_property_nodes")).toBool(true);
-    const bool legacyShowInlinePermissionsNodes = appObj.value(QStringLiteral("show_inline_permissions_nodes")).toBool(true);
-    const bool legacyShowInlineGsaNode = appObj.value(QStringLiteral("show_inline_gsa_node")).toBool(true);
-    m_showInlinePropertyNodesTop =
-        appObj.value(QStringLiteral("show_inline_property_nodes_top")).toBool(legacyShowInlinePropertyNodes);
-    m_showInlinePropertyNodesBottom =
-        appObj.value(QStringLiteral("show_inline_property_nodes_bottom")).toBool(legacyShowInlinePropertyNodes);
-    m_showInlinePermissionsNodesTop =
-        appObj.value(QStringLiteral("show_inline_permissions_nodes_top")).toBool(legacyShowInlinePermissionsNodes);
-    m_showInlinePermissionsNodesBottom =
-        appObj.value(QStringLiteral("show_inline_permissions_nodes_bottom")).toBool(legacyShowInlinePermissionsNodes);
-    m_showInlineGsaNodeTop =
-        appObj.value(QStringLiteral("show_inline_gsa_node_top")).toBool(legacyShowInlineGsaNode);
-    m_showInlineGsaNodeBottom =
-        appObj.value(QStringLiteral("show_inline_gsa_node_bottom")).toBool(legacyShowInlineGsaNode);
-    m_showPoolInfoNodeTop = true;
     m_connPropColumnsSetting = appObj.value(QStringLiteral("conn_prop_columns")).toInt(4);
     m_persistedTopDetailConnectionKey =
         appObj.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
@@ -229,18 +213,6 @@ void MainWindow::saveUiSettings() const {
     }
     appObj.insert(QStringLiteral("log_max_lines"), lines);
     appObj.insert(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
-    const bool showInlinePropertyNodesTop =
-        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineProperties
-                         : m_showInlinePropertyNodesTop;
-    const bool showInlinePermissionsNodesTop =
-        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlinePermissions
-                         : m_showInlinePermissionsNodesTop;
-    const bool showInlineGsaNodeTop =
-        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineGsa
-                         : m_showInlineGsaNodeTop;
-    appObj.insert(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
-    appObj.insert(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
-    appObj.insert(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
     appObj.insert(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
     appObj.insert(QStringLiteral("top_detail_connection"),
                   connPersistKeyFromProfiles(m_conns.profiles, m_topDetailConnIdx));

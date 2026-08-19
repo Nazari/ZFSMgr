@@ -24,7 +24,6 @@ ConnectionDatasetTreeWidget::ConnectionDatasetTreeWidget(const Config& config,
     if (!m_config.primaryColumnTitle.trimmed().isEmpty()) {
         m_pane->setPrimaryColumnTitle(m_config.primaryColumnTitle.trimmed());
     }
-    m_pane->setVisualOptions(m_config.visualOptions);
     if (QTreeWidget* tree = m_pane->tree()) {
         tree->setProperty(kGroupPoolsByConnectionRootsProperty, m_config.groupPoolsByConnectionRoots);
     }
@@ -53,15 +52,4 @@ void ConnectionDatasetTreeWidget::setPrimaryColumnTitle(const QString& title) {
     if (m_pane) {
         m_pane->setPrimaryColumnTitle(title);
     }
-}
-
-void ConnectionDatasetTreeWidget::setVisualOptions(const ConnectionDatasetTreePane::VisualOptions& options) {
-    m_config.visualOptions = options;
-    if (m_pane) {
-        m_pane->setVisualOptions(options);
-    }
-}
-
-ConnectionDatasetTreePane::VisualOptions ConnectionDatasetTreeWidget::visualOptions() const {
-    return m_pane ? m_pane->visualOptions() : m_config.visualOptions;
 }

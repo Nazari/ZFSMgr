@@ -4138,29 +4138,11 @@ std::string gsaLocalTimestamp() {
     return buf;
 }
 
-struct GsaTimeFields {
-    int hour{0};  // 0-23
-    int dow{0};   // 1=Mon … 7=Sun
-    int dom{0};   // 1-31
-    int month{0}; // 1-12
-};
-
-GsaTimeFields gsaLocalTimeFields() {
-    std::time_t now = std::time(nullptr);
-    std::tm tm{};
-#ifdef _WIN32
-    localtime_s(&tm, &now);
-#else
-    localtime_r(&now, &tm);
-#endif
-    GsaTimeFields f;
-    f.hour  = tm.tm_hour;
-    f.dom   = tm.tm_mday;
-    f.month = tm.tm_mon + 1;
-    // tm_wday: 0=Sun … 6=Sat → convert to ISO 8601: 1=Mon … 7=Sun
-    f.dow   = (tm.tm_wday == 0) ? 7 : tm.tm_wday;
-    return f;
-}
+// GsaTimeFields/gsaLocalTimeFields vivían aquí: la hora, el día de la semana, el del mes y
+// el mes, para decidir qué clase de instantánea tocaba. Ya no se usan — desde que la
+// decisión no la toma el reloj sino los NOMBRES de las instantáneas que ya hay
+// (gsaDueClasses), que es lo que hace que una máquina apagada a medianoche no pierda su
+// diaria.
 
 // Returns the snapshot classes that are due given the retention counts and time.
 // Qué clases TOCAN ahora para este dataset.

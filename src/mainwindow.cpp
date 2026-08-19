@@ -421,26 +421,6 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
     rebuildConnInfoFor(connIdx);
 }
 
-void MainWindow::setShowPoolInfoNodeForTest(bool visible) {
-    m_showPoolInfoNodeTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showPoolInfo = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
-    rebuildConnectionDetailsForTest();
-}
-
-void MainWindow::setShowInlineGsaNodeForTest(bool visible) {
-    m_showInlineGsaNodeTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showInlineGsa = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
-    rebuildConnectionDetailsForTest();
-}
-
 // Este gancho ya no conmuta nada, y hay que decirlo aquí: el interruptor que escribía
 // —m_showAutomaticGsaSnapshots— no lo leía nadie, porque showAutomaticSnapshots() devuelve
 // `true` fijo desde el refactor del árbol unificado. O sea que llamarlo con `false` nunca

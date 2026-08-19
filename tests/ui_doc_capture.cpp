@@ -236,9 +236,6 @@ int main(int argc, char** argv) {
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:anual"), QStringLiteral("-")},
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:nivelar"), QStringLiteral("off")},
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:destino"), QStringLiteral("-")}});
-    window.setShowPoolInfoNodeForTest(true);
-    window.setShowInlineGsaNodeForTest(true);
-    window.setShowAutomaticSnapshotsForTest(true);
     window.rebuildConnectionDetailsForTest();
 
     window.show();

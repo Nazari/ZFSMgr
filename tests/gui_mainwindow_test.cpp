@@ -233,7 +233,11 @@ private Q_SLOTS:
 
     }
 
-    void togglingPoolInfoDoesNotDropPoolRoots() {
+    // Antes se llamaba togglingPoolInfoDoesNotDropPoolRoots y conmutaba la casilla
+    // «Mostrar información del pool». Esa casilla ya no existe —no la leía nadie—, pero lo
+    // que la prueba garantizaba de verdad sí importa y se conserva: reconstruir el detalle
+    // de la conexión no se lleva por delante los pools del árbol.
+    void poolRootsSurviveConnectionRebuild() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
@@ -244,32 +248,19 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile,
                                                     {QStringLiteral("tank1")},
                                                     {QStringLiteral("tank2")});
-        window.setShowPoolInfoNodeForTest(true);
         window.rebuildConnectionDetailsForTest();
 
-        const QStringList initialTopPools = window.topLevelPoolNamesForTest(false);
-        QCOMPARE(initialTopPools.size(), 2);
-        QVERIFY(std::any_of(initialTopPools.cbegin(), initialTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank1")); }));
-        QVERIFY(std::any_of(initialTopPools.cbegin(), initialTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank2")); }));
+        auto tienenLosDosPools = [](const QStringList& pools) {
+            return pools.size() == 2
+                   && std::any_of(pools.cbegin(), pools.cend(), [](const QString& n) { return n.contains(QStringLiteral("tank1")); })
+                   && std::any_of(pools.cbegin(), pools.cend(), [](const QString& n) { return n.contains(QStringLiteral("tank2")); });
+        };
+        QVERIFY(tienenLosDosPools(window.topLevelPoolNamesForTest(false)));
+        QVERIFY(tienenLosDosPools(window.topLevelPoolNamesForTest(true)));
 
-        const QStringList initialBottomPools = window.topLevelPoolNamesForTest(true);
-        QCOMPARE(initialBottomPools.size(), 2);
-        // Se elimina el recuento del nodo "Pool information": esa opción
-        // (showPoolInfo) se sigue asignando pero ya no la lee nadie, así que el nodo
-        // no se construye. Lo que este test debe garantizar —y su nombre dice— es
-        // que alternarla no tire los pools del árbol.
-
-        window.setShowPoolInfoNodeForTest(false);
-        const QStringList hiddenInfoTopPools = window.topLevelPoolNamesForTest(false);
-        QCOMPARE(hiddenInfoTopPools.size(), 2);
-        QVERIFY(std::any_of(hiddenInfoTopPools.cbegin(), hiddenInfoTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank1")); }));
-        QVERIFY(std::any_of(hiddenInfoTopPools.cbegin(), hiddenInfoTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank2")); }));
-
-        window.setShowPoolInfoNodeForTest(true);
-        const QStringList restoredTopPools = window.topLevelPoolNamesForTest(false);
-        QCOMPARE(restoredTopPools.size(), 2);
-        QVERIFY(std::any_of(restoredTopPools.cbegin(), restoredTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank1")); }));
-        QVERIFY(std::any_of(restoredTopPools.cbegin(), restoredTopPools.cend(), [](const QString& n){ return n.contains(QStringLiteral("tank2")); }));
+        window.rebuildConnectionDetailsForTest();
+        QVERIFY(tienenLosDosPools(window.topLevelPoolNamesForTest(false)));
+        QVERIFY(tienenLosDosPools(window.topLevelPoolNamesForTest(true)));
     }
 
     // El testigo «<conexión>::<pool>» se construye en un sitio y se descompone en otro.
@@ -308,139 +299,12 @@ private Q_SLOTS:
         QCOMPARE(programados, QStringList{QStringLiteral("sback")});
     }
 
-    void togglingInlineGsaNodeHidesAndShowsProgramarSnapshots() {
-        QSKIP("Pendiente de rehacer contra el árbol unificado: el nodo inline "
-              "'Programar snapshots' pasó a ser acción de menú contextual (cubierta por "
-              "connectionContextMenuGroupsRefreshAndGsa) y configurePoolDatasetsForTest ya "
-              "no inyecta datasets en el árbol, así que la siembra no llega a pintarse.");
-
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.setShowInlineGsaNodeForTest(true);
-        window.configurePoolDatasetsForTest(
-            0,
-            QStringLiteral("tank1"),
-            {MainWindow::UiTestDatasetSeed{QStringLiteral("tank1"),
-                                           QStringLiteral("/tank1"),
-                                           QStringLiteral("on"),
-                                           QStringLiteral("yes"),
-                                           {QStringLiteral("manual-001")}}});
-        window.rebuildConnectionDetailsForTest();
-
-        QStringList topChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), false);
-        QVERIFY(topChildren.contains(QStringLiteral("Programar snapshots")));
-        QStringList bottomChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), true);
-        QVERIFY(bottomChildren.contains(QStringLiteral("Programar snapshots")));
-
-        window.setShowInlineGsaNodeForTest(false);
-        topChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), false);
-        QVERIFY(!topChildren.contains(QStringLiteral("Programar snapshots")));
-        bottomChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), true);
-        QVERIFY(!bottomChildren.contains(QStringLiteral("Programar snapshots")));
-
-        window.setShowInlineGsaNodeForTest(true);
-        topChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), false);
-        QVERIFY(topChildren.contains(QStringLiteral("Programar snapshots")));
-        bottomChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), true);
-        QVERIFY(bottomChildren.contains(QStringLiteral("Programar snapshots")));
-    }
-
-    void gsaNodeKeepsExpandedStateAfterConnContentRebuild() {
-        QSKIP("Pendiente de rehacer contra el árbol unificado: el nodo inline "
-              "'Programar snapshots' pasó a ser acción de menú contextual (cubierta por "
-              "connectionContextMenuGroupsRefreshAndGsa) y configurePoolDatasetsForTest ya "
-              "no inyecta datasets en el árbol, así que la siembra no llega a pintarse.");
-
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.setShowInlineGsaNodeForTest(true);
-        window.configurePoolDatasetsForTest(
-            0,
-            QStringLiteral("tank1"),
-            {MainWindow::UiTestDatasetSeed{QStringLiteral("tank1"),
-                                           QStringLiteral("/tank1"),
-                                           QStringLiteral("on"),
-                                           QStringLiteral("yes"),
-                                           {QStringLiteral("manual-001")}}});
-        window.rebuildConnectionDetailsForTest();
-
-        QVERIFY(window.selectDatasetForTest(QStringLiteral("tank1"), false));
-        QVERIFY(window.setDatasetChildExpandedForTest(QStringLiteral("tank1"),
-                                                     QStringLiteral("Programar snapshots"),
-                                                     true,
-                                                     false));
-        QVERIFY(window.isDatasetChildExpandedForTest(QStringLiteral("tank1"),
-                                                    QStringLiteral("Programar snapshots"),
-                                                    false));
-
-        window.rebuildConnContentTreeForTest(QStringLiteral("tank1"), false);
-
-        QVERIFY(window.isDatasetChildExpandedForTest(QStringLiteral("tank1"),
-                                                    QStringLiteral("Programar snapshots"),
-                                                    false));
-    }
-
-    void automaticSnapshotsAreFilteredFromDatasetWhenHidden() {
-        QSKIP("Pendiente de rehacer contra el árbol unificado: el nodo inline "
-              "'Programar snapshots' pasó a ser acción de menú contextual (cubierta por "
-              "connectionContextMenuGroupsRefreshAndGsa) y configurePoolDatasetsForTest ya "
-              "no inyecta datasets en el árbol, así que la siembra no llega a pintarse.");
-
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.configurePoolDatasetsForTest(
-            0,
-            QStringLiteral("tank1"),
-            {MainWindow::UiTestDatasetSeed{QStringLiteral("tank1"),
-                                           QStringLiteral("/tank1"),
-                                           QStringLiteral("on"),
-                                           QStringLiteral("yes"),
-                                           {QStringLiteral("manual-001"),
-                                            QStringLiteral("GSA-20260322-120000-hourly"),
-                                            QStringLiteral("manual-002")}}});
-        window.rebuildConnectionDetailsForTest();
-
-        QStringList topSnapshots = window.snapshotNamesForDatasetForTest(QStringLiteral("tank1"), false);
-        QCOMPARE(topSnapshots.size(), 3);
-        QVERIFY(topSnapshots.contains(QStringLiteral("GSA-20260322-120000-hourly")));
-
-        QStringList bottomSnapshots = window.snapshotNamesForDatasetForTest(QStringLiteral("tank1"), true);
-        QCOMPARE(bottomSnapshots.size(), 3);
-
-        window.setShowAutomaticSnapshotsForTest(false);
-        topSnapshots = window.snapshotNamesForDatasetForTest(QStringLiteral("tank1"), false);
-        QCOMPARE(topSnapshots.size(), 2);
-        QVERIFY(!topSnapshots.contains(QStringLiteral("GSA-20260322-120000-hourly")));
-        QVERIFY(topSnapshots.contains(QStringLiteral("manual-001")));
-        QVERIFY(topSnapshots.contains(QStringLiteral("manual-002")));
-
-        bottomSnapshots = window.snapshotNamesForDatasetForTest(QStringLiteral("tank1"), true);
-        QCOMPARE(bottomSnapshots.size(), 2);
-        QVERIFY(!bottomSnapshots.contains(QStringLiteral("GSA-20260322-120000-hourly")));
-
-        window.setShowAutomaticSnapshotsForTest(true);
-        topSnapshots = window.snapshotNamesForDatasetForTest(QStringLiteral("tank1"), false);
-        QCOMPARE(topSnapshots.size(), 3);
-        QVERIFY(topSnapshots.contains(QStringLiteral("GSA-20260322-120000-hourly")));
-    }
+    // Las tres pruebas que había aquí —togglingInlineGsaNodeHidesAndShowsProgramarSnapshots,
+    // gsaNodeKeepsExpandedStateAfterConnContentRebuild y
+    // automaticSnapshotsAreFilteredFromDatasetWhenHidden— se retiran con la función que
+    // ejercitaban. Estaban en QSKIP desde el refactor del árbol unificado de abril, o sea
+    // que llevaban meses sin comprobar nada, y su sujeto —las casillas de «mostrar el
+    // nodo X en línea»— ya no existe.
 
     void connectionContextMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));

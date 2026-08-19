@@ -121,14 +121,6 @@ void ConnectionDatasetTreePane::setPrimaryColumnTitle(const QString& title) {
     m_tree->setHeaderLabels(headers);
 }
 
-ConnectionDatasetTreePane::VisualOptions ConnectionDatasetTreePane::visualOptions() const {
-    return m_visualOptions;
-}
-
-void ConnectionDatasetTreePane::setVisualOptions(const VisualOptions& options) {
-    m_visualOptions = options;
-}
-
 ConnectionDatasetTreePane::VisualState ConnectionDatasetTreePane::captureVisualState() const {
     VisualState state;
     if (!m_tree) {

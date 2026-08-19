@@ -449,11 +449,7 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
 }
 
 MainWindowConnectionDatasetTreeDelegate::InlineVisibilityMenuActions
-MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
-                                                                   QTreeWidget* tree,
-                                                                   bool includeManage,
-                                                                   bool includePoolInfo,
-                                                                   bool includeAutoGsa) {
+MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu, bool includeManage) {
     InlineVisibilityMenuActions actions;
     if (!m_mainWindow) {
         return actions;
@@ -463,9 +459,6 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
             m_mainWindow->trk(QStringLiteral("t_manage_props_vis001"),
                               QStringLiteral("Gestionar visualización de propiedades")));
     }
-    Q_UNUSED(includePoolInfo);
-    Q_UNUSED(tree);
-    Q_UNUSED(includeAutoGsa);
     return actions;
 }
 
@@ -2398,7 +2391,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
         && !item->data(0, kConnSnapshotHoldsNodeRole).toBool()) {
         const InlineVisibilityMenuActions inlineActions =
-            buildInlineVisibilityMenu(menu, tree, true, false, false);
+            buildInlineVisibilityMenu(menu, true);
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.properties.exec"),
                            QStringLiteral("dataset/snapshot properties context"),
@@ -2436,7 +2429,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
     if (isPoolInfoContext) {
         const InlineVisibilityMenuActions inlineActions =
-            buildInlineVisibilityMenu(menu, tree, true, true, true);
+            buildInlineVisibilityMenu(menu, true);
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.poolInfo.exec"),
                            QStringLiteral("conn=%1 pool=%2").arg(connIdx).arg(poolName),
@@ -2494,7 +2487,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                       m_mainWindow->trk(QStringLiteral("t_release_hold_title001"), QStringLiteral("Release")),
                       holdContextName));
     } else {
-        inlineActions = buildInlineVisibilityMenu(menu, tree, true, false, false);
+        inlineActions = buildInlineVisibilityMenu(menu, true);
         aManageProps = inlineActions.manage;
 
         if (hasConnSnap) {

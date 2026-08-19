@@ -13,13 +13,6 @@ public:
         Unified
     };
 
-    struct VisualOptions {
-        bool showInlineProperties{true};
-        bool showInlinePermissions{true};
-        bool showInlineGsa{true};
-        bool showPoolInfo{true};
-    };
-
     struct VisualState {
         QByteArray headerState;
         int verticalScroll{0};
@@ -32,8 +25,6 @@ public:
     QTreeWidget* tree() const;
 
     void setPrimaryColumnTitle(const QString& title);
-    VisualOptions visualOptions() const;
-    void setVisualOptions(const VisualOptions& options);
     VisualState captureVisualState() const;
     void restoreVisualState(const VisualState& state);
 
@@ -54,6 +45,5 @@ private:
 
     Role m_role;
     QTreeWidget* m_tree{nullptr};
-    VisualOptions m_visualOptions;
     bool m_contextMenuGestureActive{false};
 };
