@@ -10,3 +10,14 @@ Listado de cambios.
 8. Cuando estoy editando un valor de propiedad inline, si presiono 'Tab', el foco debería moverse a la siguiente propiedad editable leyendo de izquierda a derecha y de arriba a abajo.
 9. En el nodo pool, solo si los dos checks 'Mostrar información del pool' y 'Mostrar datasets programados', se muestra el nodo 'Datasets programados'. Tiene que ser suficiente que esté marcado el check 'Mostrar datasets programados' para que 'Dataset programaods' se muestre.
 
+------ Nuevo Backlog, olvidar lo de arriba -----
+1. [DESCARTADO 2026-08-19] Evaluar que cada artefacto con su versión. Ahora mismo se usa el mismo codigo de version para cli, daemons y gui. Cada uno debe llevar la suya e ir evolucionando por separado, manteniendo los contratos ( la 0.93.1 de cli puede hablar con las versiones 0.1.0 a 0.1.9 de los daemons y lo mismo para la gui)
+
+2. crear nuevos artefactos:
+	- Integración con Finder, Explorer y Dolphin
+	- La idea sería que apareciese un nuevo punto de montaje que fuese la raíz: zfsm://
+	- Que Finder, Explorer y Dolphin admitiesen URL del tipo zfsm://
+   Necesito una propuesta de viabilidad para ello
+
+3. Crear nuevo artefacto servidor https de HTML5 que sea lo más parecido posible a la GUI Qt actual.
+4. Eliminar por completo Qt del proyecto, solo quedarían el resto de artefactos (daemon, cli, https server e integraciones con los exploradores de archivo mencionados)
