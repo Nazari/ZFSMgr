@@ -58,6 +58,7 @@ typedef int pid_t;
 #include "json.h"
 #include "base/process.h"
 #include "base/gsa.h"
+#include "base/strutil.h"
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
 #include "base/zfsprops.h"
@@ -4087,6 +4088,113 @@ std::string gsaLocalTimestamp() {
 // (gsaDueClasses), que es lo que hace que una máquina apagada a medianoche no pierda su
 // diaria.
 
+// ¿Cae esta ruta dentro de algún punto de montaje de ZFS?
+//
+// Se comparan rutas CANONIZADAS: sin eso, «/mnt/datos/../../etc/shadow» pasaría el filtro
+// por empezar con un punto de montaje. `weakly_canonical` resuelve «..» aunque el último
+// tramo no exista.
+bool rutaDentroDeUnMountpoint(const std::string& ruta) {
+    std::error_code ec;
+    const std::filesystem::path pedida = std::filesystem::weakly_canonical(ruta, ec);
+    if (ec) {
+        return false;
+    }
+    const ExecResult r = runExecCapture("zfs", {"list", "-H", "-o", "mountpoint"});
+    if (r.rc != 0) {
+        return false;
+    }
+    for (const std::string& linea : splitLines(r.out)) {
+        const std::string mp = trim(linea);
+        if (mp.empty() || mp == "-" || mp == "legacy" || mp == "none") {
+            continue;
+        }
+        std::error_code ec2;
+        const std::filesystem::path base = std::filesystem::weakly_canonical(mp, ec2);
+        if (ec2) {
+            continue;
+        }
+        // Prefijo POR COMPONENTES, no por texto: «/mnt/datos2» empieza por «/mnt/datos» y
+        // no está dentro de él.
+        auto itB = base.begin();
+        auto itP = pedida.begin();
+        bool dentro = true;
+        for (; itB != base.end(); ++itB, ++itP) {
+            if (itP == pedida.end() || *itB != *itP) {
+                dentro = false;
+                break;
+            }
+        }
+        if (dentro) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Un directorio, en JSON: nombre, tipo y tamaño.
+//
+// JSON y no TSV a propósito: un nombre de fichero puede llevar un tabulador o un salto de
+// línea dentro, y con TSV eso corre las columnas o parte la entrada en dos.
+ExecResult listaDirectorio(const std::string& ruta) {
+    ExecResult r;
+    std::error_code ec;
+    zfsmgr::base::json::Array entradas;
+    for (const auto& e : std::filesystem::directory_iterator(
+             ruta, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        std::error_code ec2;
+        const bool dir = e.is_directory(ec2);
+        zfsmgr::base::json::Value v;
+        v.set("name", zfsmgr::base::json::Value(e.path().filename().string()));
+        v.set("type", zfsmgr::base::json::Value(std::string(dir ? "d" : "f")));
+        const std::uintmax_t tam = dir ? 0 : e.file_size(ec2);
+        v.set("size", zfsmgr::base::json::Value(static_cast<long long>(ec2 ? 0 : tam)));
+        entradas.push_back(v);
+    }
+    if (ec) {
+        r.rc = 1;
+        r.err = "no se pudo leer el directorio: " + ec.message() + "\n";
+        return r;
+    }
+    zfsmgr::base::json::Value raiz;
+    raiz.set("entries", zfsmgr::base::json::Value(entradas));
+    r.rc = 0;
+    r.out = zfsmgr::base::json::toCompact(raiz) + "\n";
+    return r;
+}
+
+// Un fichero, en base64 y con tope.
+//
+// En base64 porque la respuesta del RPC viaja como LÍNEAS recortadas: unos bytes crudos
+// llegarían mutilados. Y con tope porque esto se lee entero en memoria: lo que no quepa
+// tiene el camino de transferencia, que para eso existe.
+ExecResult leeFichero(const std::string& ruta) {
+    ExecResult r;
+    constexpr std::uintmax_t kTope = 8ull * 1024 * 1024;
+    std::error_code ec;
+    const std::uintmax_t tam = std::filesystem::file_size(ruta, ec);
+    if (ec) {
+        r.rc = 1;
+        r.err = "no se pudo mirar el fichero: " + ec.message() + "\n";
+        return r;
+    }
+    if (tam > kTope) {
+        r.rc = 27;
+        r.err = "el fichero pasa de 8 MiB; use la transferencia\n";
+        return r;
+    }
+    std::ifstream f(ruta, std::ios::binary);
+    if (!f) {
+        r.rc = 1;
+        r.err = "no se pudo abrir el fichero\n";
+        return r;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    r.rc = 0;
+    r.out = zfsmgr::base::base64Encode(ss.str()) + "\n";
+    return r;
+}
+
 // Returns the snapshot classes that are due given the retention counts and time.
 // Qué clases TOCAN ahora para este dataset.
 //
@@ -5568,6 +5676,30 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return runExecCapture("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
                                       "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount",
                                       "-r", params[0]});
+    }
+    // --- El contenido de un dataset, TIPADO.
+    //
+    // Hasta ahora esto se hacía mandando `sh -lc '<guion>'` por SSH, con la ruta metida
+    // dentro de una cadena de shell. Era el último camino de shell que quedaba, y en cuanto
+    // la ruta viene de un navegador —el servidor web— deja de ser aceptable: quien elige la
+    // ruta no debe poder elegir además lo que se ejecuta.
+    //
+    // La ruta se valida contra los PUNTOS DE MONTAJE reales. El daemon corre como root, así
+    // que sin eso «léeme un fichero» sería «léeme /etc/shadow». Estar bajo un punto de
+    // montaje de ZFS es lo que separa «el contenido que la aplicación enseña» de «cualquier
+    // cosa de la máquina».
+    if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
+        if (params.empty()) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " " + cmd + " <ruta>\n";
+            return r;
+        }
+        if (!rutaDentroDeUnMountpoint(params[0])) {
+            r.rc = 13;
+            r.err = "la ruta no está dentro de ningún punto de montaje de ZFS\n";
+            return r;
+        }
+        return cmd == "--dump-dir-list" ? listaDirectorio(params[0]) : leeFichero(params[0]);
     }
     if (cmd == "--dump-zfs-guid-map") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-guid-map <dataset>\n"; return r; }
@@ -7382,6 +7514,23 @@ int main(int argc, char* argv[]) {
         return runExecStreaming("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
                                          "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount",
                                          "-r", args[2]});
+    }
+    // Los mismos dos verbos, también por línea de órdenes: es como se llega al agente
+    // cuando todavía no hay daemon escuchando, y como se prueban a mano.
+    if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        if (!rutaDentroDeUnMountpoint(args[2])) {
+            std::cerr << "la ruta no está dentro de ningún punto de montaje de ZFS\n";
+            return 13;
+        }
+        const ExecResult r = (cmd == "--dump-dir-list") ? listaDirectorio(args[2])
+                                                        : leeFichero(args[2]);
+        std::cout << r.out;
+        std::cerr << r.err;
+        return r.rc;
     }
     if (cmd == "--dump-zfs-guid-map") {
         if (args.size() < 3) {

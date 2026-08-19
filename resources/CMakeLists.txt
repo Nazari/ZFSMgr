@@ -56,6 +56,8 @@ cmd:--mutate-rsync-local
 cmd:--wait-for-event
 cmd:--dump-tool-availability
 cmd:--dump-block-devices
+cmd:--dump-dir-list
+cmd:--dump-file
 health:caps-declared
 win:native-only
 zed:event-watcher-class-filter

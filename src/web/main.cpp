@@ -471,6 +471,14 @@ int main(int argc, char** argv) {
             }
             const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
             std::vector<D::Recurso> recursos;
+            // El directorio del sistema de ficheros que corresponde a esta URL, si lo hay.
+            // Se guarda para poder servir un fichero de dentro sin volver a resolverlo.
+            std::string rutaBaseFs;
+            const B::ConnectionProfile* perfilPedido = nullptr;
+            // ¿Se pudo LISTAR la ruta como directorio? Distingue «un directorio vacío» de
+            // «esto no existe», que sin esto se contestaban igual — con un 200 y la palabra
+            // «coleccion», también para un fichero que ya no está.
+            bool esDirectorioDeVerdad = false;
 
             if (ruta.empty()) {
                 recursos.push_back({"/dav/", "ZFSMgr", true, 0});
@@ -484,6 +492,7 @@ int main(int argc, char** argv) {
                 const std::string objeto = barra == std::string::npos ? std::string()
                                                                      : ruta.substr(barra + 1);
                 const B::ConnectionProfile* perfilD = zfsmgr::cli::buscarConexion(conns, conn);
+                perfilPedido = perfilD;
                 if (!perfilD) {
                     r.codigo = 404;
                     r.tipo = "text/plain; charset=utf-8";
@@ -495,12 +504,38 @@ int main(int argc, char** argv) {
                 std::string errD;
                 int rcD = -1;
                 std::string motivoD;
+                // ¿Hasta dónde es DATASET y desde dónde es ruta dentro de él?
+                //
+                // No se puede saber mirando la URL: «sback/dockvols/axigen» puede ser un
+                // dataset o un directorio dentro de «sback/dockvols». Se prueba el camino
+                // entero y se va recortando por la derecha hasta que uno responde. Es una
+                // llamada por nivel, y los niveles de un dataset son pocos.
+                std::string dataset = objeto;
+                std::string dentro;
+                bool encontrado = objeto.empty();
+                while (!encontrado) {
+                    if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD,
+                                                    {"--dump-zfs-list-all", dataset}, salidaD,
+                                                    errD, rcD, &motivoD, 30000)
+                        && rcD == 0) {
+                        encontrado = true;
+                        break;
+                    }
+                    const std::size_t ultima = dataset.find_last_of('/');
+                    if (ultima == std::string::npos) {
+                        break;
+                    }
+                    dentro = dataset.substr(ultima) + dentro;
+                    dataset = dataset.substr(0, ultima);
+                }
                 const std::vector<std::string> verboD =
                     objeto.empty() ? std::vector<std::string>{"--dump-zpool-list"}
-                                   : std::vector<std::string>{"--dump-zfs-list-all", objeto};
-                if (!zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD, verboD, salidaD, errD, rcD,
-                                                 &motivoD, 30000)
-                    || rcD != 0) {
+                                   : std::vector<std::string>{"--dump-zfs-list-all", dataset};
+                if (!encontrado
+                    || (objeto.empty()
+                        && (!zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD, verboD, salidaD,
+                                                         errD, rcD, &motivoD, 30000)
+                            || rcD != 0))) {
                     r.codigo = 502;
                     r.tipo = "text/plain; charset=utf-8";
                     r.cuerpo = "no se pudo hablar con la maquina\n";
@@ -518,15 +553,52 @@ int main(int argc, char** argv) {
                 } else {
                     // Los hijos DIRECTOS: `--dump-zfs-list-all` es recursivo, y meter los
                     // nietos aquí haría que el explorador enseñara el árbol entero aplanado.
+                    std::string puntoMontaje;
                     for (const L::Entrada& e : L::entradas(salidaD)) {
-                        if (e.esInstantanea() || e.nombre == objeto) {
+                        if (e.nombre == dataset) {
+                            if (e.montado == "yes") {
+                                puntoMontaje = e.puntoMontaje;
+                            }
                             continue;
                         }
-                        const std::string resto = e.nombre.substr(objeto.size() + 1);
+                        // Los sub-datasets solo cuelgan del propio dataset, no de un
+                        // directorio de dentro.
+                        if (e.esInstantanea() || !dentro.empty()) {
+                            continue;
+                        }
+                        const std::string resto = e.nombre.substr(dataset.size() + 1);
                         if (resto.find('/') != std::string::npos) {
                             continue;
                         }
                         recursos.push_back({"/dav/" + conn + "/" + e.nombre + "/", resto, true, 0});
+                    }
+                    // Y los FICHEROS, si el dataset está montado. Por verbo tipado: la ruta
+                    // viene de un navegador y no puede acabar dentro de una cadena de shell.
+                    if (!puntoMontaje.empty() && puntoMontaje != "-") {
+                        const std::string rutaFs = puntoMontaje + dentro;
+                        rutaBaseFs = rutaFs;
+                        std::string salidaF;
+                        std::string errF;
+                        int rcF = -1;
+                        std::string motivoF;
+                        if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD,
+                                                        {"--dump-dir-list", rutaFs}, salidaF, errF,
+                                                        rcF, &motivoF, 30000)
+                            && rcF == 0) {
+                            B::json::Value raizF;
+                            std::string errJ;
+                            if (B::json::parse(salidaF, raizF, &errJ)) {
+                                esDirectorioDeVerdad = true;
+                                for (const B::json::Value& en : raizF["entries"].toArray()) {
+                                    const std::string nombre = en["name"].toString();
+                                    const bool esDir = en["type"].toString() == "d";
+                                    recursos.push_back({"/dav/" + ruta + "/" + nombre
+                                                            + (esDir ? "/" : ""),
+                                                        nombre, esDir,
+                                                        en["size"].toInt()});
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -540,8 +612,40 @@ int main(int argc, char** argv) {
                 respuesta = H::componer(r);
                 return true;
             }
-            // GET o HEAD sobre una colección: los exploradores lo hacen para tantear. Se
-            // contesta con algo legible en vez de un error.
+            // GET o HEAD. Si lo pedido es un FICHERO —está entre los recursos y no es
+            // colección—, se sirve su contenido; si es una colección, algo legible, que es
+            // lo que los exploradores esperan cuando tantean.
+            // GET o HEAD sobre lo pedido.
+            //
+            // Se intenta LEERLO como fichero antes que darlo por colección, y no al revés:
+            // cuando la URL nombra un fichero, `--dump-dir-list` sobre él ya ha fallado
+            // —listar un fichero no tiene sentido—, así que la lista de recursos solo trae
+            // el propio recurso y buscar ahí dentro nunca encontraría nada.
+            if (!rutaBaseFs.empty() && perfilPedido) {
+                std::string b64;
+                std::string errG;
+                int rcG = -1;
+                std::string motivoG;
+                std::string contenido;
+                if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilPedido,
+                                                {"--dump-file", rutaBaseFs}, b64, errG, rcG,
+                                                &motivoG, 60000)
+                    && rcG == 0 && B::base64Decode(B::trim(b64), contenido)) {
+                    r.tipo = "application/octet-stream";
+                    r.cuerpo = p.metodo == "HEAD" ? std::string() : contenido;
+                    respuesta = H::componer(r);
+                    return true;
+                }
+            }
+            // Ni fichero ni directorio: no existe. Contestar 200 aquí hacía que un fichero
+            // borrado siguiera pareciendo que estaba.
+            if (!rutaBaseFs.empty() && !esDirectorioDeVerdad) {
+                r.codigo = 404;
+                r.tipo = "text/plain; charset=utf-8";
+                r.cuerpo = "no existe\n";
+                respuesta = H::componer(r);
+                return true;
+            }
             r.tipo = "text/plain; charset=utf-8";
             r.cuerpo = p.metodo == "HEAD" ? std::string() : "coleccion\n";
             respuesta = H::componer(r);
