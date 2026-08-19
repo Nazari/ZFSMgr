@@ -8,10 +8,6 @@ class I18nManager final {
 public:
     static I18nManager& instance();
 
-    QString translate(const QString& language,
-                      const QString& sourceEs,
-                      const QString& fallbackEn = QString(),
-                      const QString& fallbackZh = QString());
     QString translateKey(const QString& language,
                          const QString& key,
                          const QString& fallbackEs = QString(),

@@ -4115,13 +4115,7 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
                     QString::number(st.horizontalScrollValue)));
 }
 
-void MainWindow::setConnContentTreeStateWriteLocked(bool locked) {
-    m_connContentTreeStateWriteLocked = locked;
-}
 
-bool MainWindow::connContentTreeStateWriteLocked() const {
-    return m_connContentTreeStateWriteLocked;
-}
 
 void MainWindow::applyDebugNodeIdsToTree(QTreeWidget* tree) {
     if (!tree) {
@@ -6325,40 +6319,6 @@ void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem
     }
 }
 
-void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, DatasetTreeContext side, const QString& chosen) {
-    if (!tree || !item || m_loadingDatasetTrees) {
-        return;
-    }
-    const QString ds = item->data(0, Qt::UserRole).toString();
-    const QString snap = (chosen == QStringLiteral("(ninguno)")) ? QString() : chosen.trimmed();
-    if (!snap.isEmpty()) {
-        clearOtherSnapshotSelections(tree, item);
-    }
-    item->setData(1, Qt::UserRole, snap);
-    applySnapshotVisualState(item);
-    refreshDatasetExpansionIndicators(tree);
-    if (side == DatasetTreeContext::ConnectionContent) {
-        const bool changedSelection = (tree->currentItem() != item);
-        if (changedSelection) {
-            tree->setCurrentItem(item);
-        } else {
-            refreshConnContentPropertiesFor(tree);
-        }
-        // Garantiza que, tras recrear filas de propiedades, la selección final
-        // siga en el dataset/snapshot y no en una fila auxiliar "Prop.".
-        if (tree->currentItem() != item && !ds.isEmpty()) {
-            if (QTreeWidgetItem* keep = findDatasetItem(tree, ds)) {
-                keep->setData(1, Qt::UserRole, snap);
-                applySnapshotVisualState(keep);
-                tree->setCurrentItem(keep);
-            }
-        }
-        updateConnectionActionsState();
-        return;
-    }
-    tree->setCurrentItem(item);
-    setSelectedDataset(selectionSideString(side), ds, snap);
-}
 
 void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side) {
     if (!tree || !item || m_loadingDatasetTrees || actionsLocked()) {
@@ -6806,9 +6766,6 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
     refreshDatasetProperties(QStringLiteral("dest"));
 }
 
-QString MainWindow::nodeStablePath(QTreeWidgetItem* item) const {
-    return connContentNodeStablePath(item);
-}
 
 static QString userExpandedTreePrefix(QTreeWidget* tree) {
     if (!tree || !tree->property("zfsmgr.isSplitTree").toBool()) {

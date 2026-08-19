@@ -61,14 +61,6 @@ public:
     int connIdxFromToken(const QString& token) const;
     bool splitConnToken(const QString& token, int& connIdx, QString& poolName) const;
 
-    // Ganchos para ejercitar la pila ENTERA sin pantalla: configuración real, descifrado,
-    // transporte, SSH y RPC del agente. Es lo único que permite comprobar contra máquinas
-    // de verdad sin que haya alguien pulsando botones, y por eso viven aquí y no en un
-    // fichero de pruebas: la alternativa era no comprobarlo.
-    int connectionCountForTest() const;
-    QString connectionNameForTest(int connIdx) const;
-    // Refresca y devuelve una línea con lo esencial de lo que se averiguó.
-    QString refreshConnectionSummaryForTest(int connIdx);
 
     enum class DatasetTreeContext {
         Origin,
@@ -135,7 +127,6 @@ public:
     // ejecuta dos veces solapadas, así que conviene fijarla con tests.
     static bool isMutatingAgentCommandForTest(const QStringList& agentArgs);
     QVector<AgentCallForTest> agentCallsForTest() const;
-    void clearAgentCallsForTest();
     // Cuántas veces se ha ejecutado DE VERDAD cada reconstrucción de la interfaz.
     // Existe para poder afirmar que un lote de operaciones sobre varias conexiones
     // repinta el árbol una sola vez, que es lo que se rompió: la actualización
@@ -451,7 +442,6 @@ private:
     bool connectionsReferToSameMachine(int a, int b) const;
     int equivalentSshForLocal(int localIdx) const;
     void removeDuplicateMachineConnections(int keepIdx);
-    bool canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut = nullptr, int* effectiveDstIdxOut = nullptr);
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
@@ -468,7 +458,6 @@ private:
     QString connectionStateTooltipHtml(int connIdx) const;
     void openConnectivityMatrixDialog();
     void showConnectionContextMenu(int connIdx, const QPoint& globalPos, QTreeWidget* sourceTree = nullptr);
-    void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
     struct DatasetTreeRenderOptions {
@@ -497,7 +486,6 @@ private:
     void populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                          int connIdx,
                                          const ConnectionRuntimeState& st);
-    void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, DatasetTreeContext side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
@@ -509,14 +497,10 @@ private:
                                       const std::function<void(int)>& saveTreeState,
                                       const std::function<void()>& clearPendingState = {});
     void saveTopTreeStateForConnection(int connIdx);
-    void saveBottomTreeStateForConnection(int connIdx);
     void restoreTopTreeStateForConnection(int connIdx);
-    void restoreBottomTreeStateForConnection(int connIdx);
     void saveConnContentTreeState(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeState(const QString& token);
-    void setConnContentTreeStateWriteLocked(bool locked);
-    bool connContentTreeStateWriteLocked() const;
     void applyDebugNodeIdsToTree(QTreeWidget* tree);
     void restoreConnContentTreeState(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
@@ -530,9 +514,6 @@ private:
                                                    int connIdx,
                                                    const QString& poolName,
                                                    const QString& datasetName) const;
-    QString connectionDisplayModeForIndex(int connIdx) const;
-    void syncConnectionDisplaySelectors();
-    void applyConnectionDisplayMode(int connIdx, const QString& mode);
     void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
     int propColumnCountForTree(const QTreeWidget* tree) const;
     void syncConnContentPropertyColumns(QTreeWidget* tree);
@@ -656,7 +637,6 @@ private:
                                                quint16 daemonPort,
                                                QString* errorOut = nullptr);
     bool cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut = nullptr);
-    bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
     void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
     void clearDaemonRpcBackoffForConnection(const ConnectionProfile& p);
@@ -882,9 +862,6 @@ private:
     bool connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     bool connDirectoryDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     QString connContentTokenForTree(const QTreeWidget* tree) const;
-    void withConnContentContext(QTreeWidget* tree,
-                                const QString& token,
-                                const std::function<void()>& fn);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionCloneSnapshot();
@@ -968,7 +945,6 @@ private:
     void updateJobsListWidget();
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
-    QString nodeStablePath(QTreeWidgetItem* item) const;
     QString userExpandedKey(QTreeWidget* tree, QTreeWidgetItem* item) const;
     void applyUserExpandedState(QTreeWidget* tree);
     void loadUserExpandedState();
@@ -1108,7 +1084,6 @@ private:
     void cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state);
     QString connStableIdForIndex(int connIdx) const;
     QString poolStableId(const PoolKey& key) const;
-    QString dsStableId(const DSKey& key) const;
     void rebuildConnInfoModel();
     void rebuildConnInfoFor(int connIdx);
     void rebuildPoolInfoFromCache(PoolInfo& poolInfo, int connIdx, const QString& poolName, const PoolInfo* previousPoolInfo = nullptr);
@@ -1132,9 +1107,6 @@ private:
                                                          const QString& poolName,
                                                          const QString& objectName,
                                                          const QStringList& propNames) const;
-    QMap<QString, QString> datasetGsaPropertyValues(int connIdx,
-                                                    const QString& poolName,
-                                                    const QString& objectName) const;
     bool ensureDatasetAllPropertiesLoaded(int connIdx, const QString& poolName, const QString& objectName);
     bool ensureDatasetPropertySubsetLoaded(int connIdx,
                                            const QString& poolName,

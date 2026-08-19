@@ -114,34 +114,6 @@ QHash<QString, QString> I18nManager::loadLegacyAliases() {
     return {};
 }
 
-QString I18nManager::translate(const QString& language,
-                               const QString& sourceEs,
-                               const QString& fallbackEn,
-                               const QString& fallbackZh) {
-    Q_UNUSED(fallbackEn);
-    Q_UNUSED(fallbackZh);
-    const QString lang = normalizeLanguage(language);
-    if (!m_catalogs.contains(lang)) {
-        m_catalogs.insert(lang, loadCatalog(lang));
-    }
-    if (!m_legacyLoaded) {
-        m_legacyAliases = loadLegacyAliases();
-        m_legacyLoaded = true;
-    }
-    const auto& cat = m_catalogs[lang];
-    QString lookupKey = sourceEs;
-    if (!lookupKey.isEmpty() && !cat.contains(lookupKey)) {
-        const auto legacyIt = m_legacyAliases.constFind(lookupKey);
-        if (legacyIt != m_legacyAliases.cend()) {
-            lookupKey = legacyIt.value();
-        }
-    }
-    const auto it = cat.constFind(lookupKey);
-    if (it != cat.cend() && !it.value().isEmpty()) {
-        return it.value();
-    }
-    return sourceEs;
-}
 
 QString I18nManager::translateKey(const QString& language,
                                   const QString& key,

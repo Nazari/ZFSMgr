@@ -255,31 +255,6 @@ MainWindowConnectionDatasetTreeDelegate::currentSelection(QTreeWidget* tree, con
     return snapshot;
 }
 
-void MainWindowConnectionDatasetTreeDelegate::applySelectionToSide(bool isBottom,
-                                                                   const SelectionSnapshot& ctx) {
-    if (!m_mainWindow) {
-        return;
-    }
-    MainWindow::DatasetSelectionContext mwCtx;
-    mwCtx.valid = ctx.valid;
-    mwCtx.connIdx = ctx.connIdx;
-    mwCtx.poolName = ctx.poolName;
-    mwCtx.datasetName = ctx.datasetName;
-    mwCtx.snapshotName = ctx.snapshotName;
-    if (isBottom) {
-        if (mwCtx.valid && !mwCtx.datasetName.isEmpty()) {
-            m_mainWindow->setConnectionDestinationSelection(mwCtx);
-        } else {
-            m_mainWindow->setConnectionDestinationSelection(MainWindow::DatasetSelectionContext{});
-        }
-    } else {
-        if (mwCtx.valid && !mwCtx.datasetName.isEmpty()) {
-            m_mainWindow->setConnectionOriginSelection(mwCtx);
-        } else {
-            m_mainWindow->setConnectionOriginSelection(MainWindow::DatasetSelectionContext{});
-        }
-    }
-}
 
 void MainWindowConnectionDatasetTreeDelegate::refreshTreeForTokenAndDataset(QTreeWidget* tree,
                                                                             const QString& token,
@@ -427,85 +402,7 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
     }
 }
 
-void MainWindowConnectionDatasetTreeDelegate::rebuildAndRestoreDatasetNode(QTreeWidget* tree,
-                                                                           int connIdx,
-                                                                           const QString& poolName,
-                                                                           const QString& datasetName,
-                                                                           const QString& snapshotName,
-                                                                           bool refreshProperties) {
-    if (!m_mainWindow || !tree || datasetName.isEmpty() || poolName.isEmpty() || connIdx < 0
-        || connIdx >= m_mainWindow->m_conns.profiles.size()) {
-        return;
-    }
-    const QString token = QStringLiteral("%1::%2").arg(m_mainWindow->connToken(connIdx), poolName);
-    m_mainWindow->rebuildConnContentTreeFor(tree, token, connIdx, poolName, false);
-    if (QTreeWidgetItem* restored = m_mainWindow->findConnContentDatasetItemFor(tree, connIdx, poolName, datasetName)) {
-        if (!snapshotName.isEmpty()) {
-            restored->setData(1, Qt::UserRole, snapshotName);
-        }
-        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(restored, 1))) {
-            const int idx = cb->findText(snapshotName);
-            if (idx > 0) {
-                const QSignalBlocker blocker(cb);
-                cb->setCurrentIndex(idx);
-            }
-        }
-        tree->setCurrentItem(restored);
-        if (refreshProperties) {
-            m_mainWindow->refreshConnContentPropertiesFor(tree);
-            m_mainWindow->syncConnContentPropertyColumnsFor(tree, token);
-        }
-    }
-}
 
-QString MainWindowConnectionDatasetTreeDelegate::deleteLabelForItem(int itemConnIdx,
-                                                                    const QString& itemPoolName,
-                                                                    QTreeWidgetItem* targetItem) const {
-    if (!m_mainWindow) {
-        return QStringLiteral("Borrar Dataset");
-    }
-    QTreeWidgetItem* owner = targetItem;
-    while (owner) {
-        const QString ownerDatasetName = owner->data(0, Qt::UserRole).toString().trimmed();
-        const QString ownerSnapshotName = owner->data(1, Qt::UserRole).toString().trimmed();
-        if (!ownerDatasetName.isEmpty() || !ownerSnapshotName.isEmpty()
-            || owner->data(0, kIsPoolRootRole).toBool()) {
-            break;
-        }
-        owner = owner->parent();
-    }
-    const QString snapshotName = owner ? owner->data(1, Qt::UserRole).toString().trimmed() : QString();
-    const QString datasetName = owner ? owner->data(0, Qt::UserRole).toString().trimmed() : QString();
-    if (!snapshotName.isEmpty() && !datasetName.isEmpty()) {
-        return QStringLiteral("%1 %2@%3").arg(
-            m_mainWindow->trk(QStringLiteral("t_ctx_delete_snapshot001"),
-                              QStringLiteral("Borrar Snapshot")),
-            datasetName,
-            snapshotName);
-    }
-    if (!datasetName.isEmpty()) {
-        const auto it = m_mainWindow->m_conns.poolDatasetCache.constFind(m_mainWindow->datasetCacheKey(itemConnIdx, itemPoolName));
-        if (it != m_mainWindow->m_conns.poolDatasetCache.cend()) {
-            const auto recIt = it->recordByName.constFind(datasetName);
-            if (recIt != it->recordByName.cend()) {
-                const DatasetRecord& rec = recIt.value();
-                if (rec.mounted.trimmed() == QStringLiteral("-")
-                    && rec.mountpoint.trimmed() == QStringLiteral("-")) {
-                    return QStringLiteral("%1 %2").arg(
-                        m_mainWindow->trk(QStringLiteral("t_ctx_delete_zvol001"),
-                                          QStringLiteral("Borrar ZVol")),
-                        datasetName);
-                }
-            }
-        }
-        return QStringLiteral("%1 %2").arg(
-            m_mainWindow->trk(QStringLiteral("t_ctx_delete_dataset001"),
-                              QStringLiteral("Borrar Dataset")),
-            datasetName);
-    }
-    return m_mainWindow->trk(QStringLiteral("t_ctx_delete_dataset001"),
-                             QStringLiteral("Borrar Dataset"));
-}
 
 MainWindowConnectionDatasetTreeDelegate::PoolRootMenuActions
 MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWidget* tree) {

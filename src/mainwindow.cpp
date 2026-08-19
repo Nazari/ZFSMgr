@@ -508,9 +508,6 @@ QString MainWindow::poolStableId(const PoolKey& key) const {
     return key.poolName.trimmed();
 }
 
-QString MainWindow::dsStableId(const DSKey& key) const {
-    return key.fullName.trimmed();
-}
 
 DSKind MainWindow::dsKindFromNames(const QString& fullName, const QString& datasetType) {
     const QString trimmedType = datasetType.trimmed().toLower();
@@ -894,11 +891,6 @@ QMap<QString, QString> MainWindow::datasetPropertyValuesForNames(int connIdx,
     return values;
 }
 
-QMap<QString, QString> MainWindow::datasetGsaPropertyValues(int connIdx,
-                                                            const QString& poolName,
-                                                            const QString& objectName) const {
-    return datasetPropertyValuesForNames(connIdx, poolName, objectName, gsaPropertyKeysForModel());
-}
 
 bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
                                                   const QString& poolName,

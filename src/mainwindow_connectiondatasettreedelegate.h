@@ -59,7 +59,6 @@ private:
         QAction* showAutoGsa{nullptr};
     };
 
-    QString deleteLabelForItem(int itemConnIdx, const QString& itemPoolName, QTreeWidgetItem* targetItem) const;
     PoolRootMenuActions buildPoolRootMenu(QMenu& menu, QTreeWidget* tree);
     InlineVisibilityMenuActions buildInlineVisibilityMenu(QMenu& menu,
                                                           QTreeWidget* tree,
@@ -75,17 +74,10 @@ private:
     QString tokenForNode(QTreeWidgetItem* item) const;
     QString visualStateTokenForTree(QTreeWidget* tree, const QString& token) const;
     SelectionSnapshot currentSelection(QTreeWidget* tree, const QString& token) const;
-    void applySelectionToSide(bool isBottom, const SelectionSnapshot& ctx);
     void refreshTreeForTokenAndDataset(QTreeWidget* tree, const QString& token, const QString& datasetName);
     void refreshAllTreesForTokenAndDataset(const QString& token, const QString& datasetName);
     void refreshPermissionsOwnerNode(QTreeWidget* tree, QTreeWidgetItem* owner, bool forceReload);
     void rehydrateExpandedDatasetNodes(QTreeWidget* tree, const QString& token);
-    void rebuildAndRestoreDatasetNode(QTreeWidget* tree,
-                                      int connIdx,
-                                      const QString& poolName,
-                                      const QString& datasetName,
-                                      const QString& snapshotName,
-                                      bool refreshProperties);
     bool executeDatasetActionWithStdin(const QString& side,
                                        const QString& actionName,
                                        int connIdx,

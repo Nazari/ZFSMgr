@@ -799,12 +799,6 @@ QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
 }
 }
 
-QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
-    if (connIdx < 0) {
-        return QString();
-    }
-    return (connIdx == m_topDetailConnIdx) ? QStringLiteral("source") : QString();
-}
 
 int MainWindow::connectionIndexByNameOrId(const QString& value) const {
     const QString wanted = value.trimmed();
@@ -836,24 +830,6 @@ bool MainWindow::connectionsReferToSameMachine(int a, int b) const {
     return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
 }
 
-void MainWindow::withConnContentContext(QTreeWidget* tree,
-                                        const QString& token,
-                                        const std::function<void()>& fn) {
-    if (!fn) {
-        return;
-    }
-    QTreeWidget* prevTree = m_connContentTree;
-    const QString prevToken = m_connContentToken;
-    if (tree) {
-        m_connContentTree = tree;
-    }
-    if (!token.isNull()) {
-        m_connContentToken = token;
-    }
-    fn();
-    m_connContentTree = prevTree;
-    m_connContentToken = prevToken;
-}
 
 int MainWindow::equivalentSshForLocal(int localIdx) const {
     if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
@@ -932,76 +908,6 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
     loadConnections();
 }
 
-bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut, int* effectiveDstIdxOut) {
-    if (effectiveDstIdxOut) {
-        *effectiveDstIdxOut = -1;
-    }
-    auto fail = [errorOut](const QString& msg) {
-        if (errorOut) {
-            *errorOut = msg;
-        }
-        return false;
-    };
-    if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
-        return fail(QStringLiteral("indices inválidos"));
-    }
-    const bool srcOk = rowIdx < m_conns.states.size() && m_conns.states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-    const bool dstOk = colIdx < m_conns.states.size() && m_conns.states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-    if (!srcOk || !dstOk) {
-        return fail(trk(QStringLiteral("t_connectivity_notready_001"),
-                        QStringLiteral("La conexión origen o destino no está en estado OK."),
-                        QStringLiteral("The source or target connection is not in OK state."),
-                        QStringLiteral("源连接或目标连接不是 OK 状态。")));
-    }
-    int effectiveIdx = colIdx;
-    if (isLocalConnection(colIdx)) {
-        const int sshIdx = equivalentSshForLocal(colIdx);
-        if (sshIdx < 0) {
-            return fail(trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
-                            QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
-                            QStringLiteral("Local has no equivalent SSH connection for remote probing."),
-                            QStringLiteral("本地连接没有可用于远程探测的等效 SSH 连接。")));
-        }
-        effectiveIdx = sshIdx;
-    }
-    if (effectiveDstIdxOut) {
-        *effectiveDstIdxOut = effectiveIdx;
-    }
-    if (rowIdx == colIdx || rowIdx == effectiveIdx || connectionsReferToSameMachine(rowIdx, colIdx) || connectionsReferToSameMachine(rowIdx, effectiveIdx)) {
-        if (errorOut) {
-            errorOut->clear();
-        }
-        return true;
-    }
-    const ConnectionProfile src = m_conns.profiles[rowIdx];
-    const ConnectionProfile effectiveDst = m_conns.profiles[effectiveIdx];
-    if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-        return fail(trk(QStringLiteral("t_connectivity_unsupported_target_001"),
-                        QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
-                        QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
-                        QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。")));
-    }
-    const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
-    if (sshCmd.trimmed().isEmpty()) {
-        return fail(QStringLiteral("probe SSH vacío"));
-    }
-    QString sshMerged;
-    QString sshDetail;
-    const bool sshOk = fetchConnectionProbeOutput(rowIdx,
-                                                  QStringLiteral("Probe SSH"),
-                                                  sshCmd,
-                                                  &sshMerged,
-                                                  &sshDetail,
-                                                  12000);
-    const bool sshProbeOk = sshOk && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
-    if (!sshProbeOk) {
-        return fail((sshDetail.isEmpty() ? sshMerged : sshDetail).left(300));
-    }
-    if (errorOut) {
-        errorOut->clear();
-    }
-    return true;
-}
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     Q_UNUSED(watched);
@@ -1612,36 +1518,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     }
 }
 
-void MainWindow::syncConnectionDisplaySelectors() {
-    // Árbol unificado: ya no hay selectores O/D en la tabla.
-}
 
-void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw) {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
-        return;
-    }
-    const QString mode = modeRaw.trimmed().toLower();
-    if (isConnectionDisconnected(connIdx)) {
-        return;
-    }
-
-    if (mode != QStringLiteral("source") && mode != QStringLiteral("both")) {
-        return;
-    }
-    const int prevTop = m_topDetailConnIdx;
-    if (prevTop >= 0 && prevTop != connIdx) {
-        saveTopTreeStateForConnection(prevTop);
-    }
-    m_topDetailConnIdx = connIdx;
-    m_forceRestoreTopStateConnIdx = connIdx;
-    m_userSelectedConnectionKey = m_conns.profiles[connIdx].id.trimmed().toLower();
-    if (m_userSelectedConnectionKey.isEmpty()) {
-        m_userSelectedConnectionKey = m_conns.profiles[connIdx].name.trimmed().toLower();
-    }
-    rebuildConnectionEntityTabs();
-    refreshConnectionNodeDetails();
-    updateConnectionActionsState();
-}
 
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
@@ -2108,67 +1985,6 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     }
 }
 
-void MainWindow::onConnectionSelectionChanged() {
-    if (m_connContentTree
-        && m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
-        updatePoolManagementBoxTitle();
-        return;
-    }
-    QWidget* paintRoot = m_poolDetailTabs ? m_poolDetailTabs : static_cast<QWidget*>(m_rightTabs);
-    if (paintRoot) {
-        paintRoot->setUpdatesEnabled(false);
-    }
-
-    QString selectionKey;
-    int idx = m_topDetailConnIdx;
-    if (idx < 0) {
-        idx = currentConnectionIndexFromUi();
-    }
-    if (idx >= 0 && isConnectionDisconnected(idx)) {
-        idx = -1;
-    }
-    selectionKey = QStringLiteral("%1").arg(idx);
-    if (!selectionKey.isEmpty() && selectionKey == m_lastConnectionSelectionKey) {
-        // Evita reconstrucciones redundantes (y consultas SSH) cuando el usuario
-        // vuelve a pinchar la misma conexión/tab ya cargada.
-        auto detailLoadedFor = [this](int connIdx, QTreeWidget* tree) -> bool {
-            if (connIdx < 0) {
-                return true;
-            }
-            if (!tree) {
-                return false;
-            }
-            return tree->topLevelItemCount() > 0;
-        };
-        const bool topLoaded = detailLoadedFor(m_topDetailConnIdx, m_connContentTree);
-        if (topLoaded) {
-            updatePoolManagementBoxTitle();
-            if (paintRoot) {
-                paintRoot->setUpdatesEnabled(true);
-                paintRoot->update();
-            }
-            return;
-        }
-        // Si falta contenido (p.ej. tras refresh), repoblar una sola vez.
-        rebuildConnectionEntityTabs();
-        refreshConnectionNodeDetails();
-        updatePoolManagementBoxTitle();
-        if (paintRoot) {
-            paintRoot->setUpdatesEnabled(true);
-            paintRoot->update();
-        }
-        return;
-    }
-    m_lastConnectionSelectionKey = selectionKey;
-    rebuildConnectionEntityTabs();
-    populateAllPoolsTables();
-    refreshConnectionNodeDetails();
-    updatePoolManagementBoxTitle();
-    if (paintRoot) {
-        paintRoot->setUpdatesEnabled(true);
-        paintRoot->update();
-    }
-}
 
 void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
                                               int connIdx,
@@ -2266,9 +2082,6 @@ void MainWindow::saveTopTreeStateForConnection(int connIdx) {
     Q_UNUSED(connIdx);
 }
 
-void MainWindow::saveBottomTreeStateForConnection(int connIdx) {
-    Q_UNUSED(connIdx);
-}
 
 void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
     Q_UNUSED(connIdx);
@@ -2281,9 +2094,6 @@ void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
     }
 }
 
-void MainWindow::restoreBottomTreeStateForConnection(int connIdx) {
-    Q_UNUSED(connIdx);
-}
 
 void MainWindow::rebuildConnectionEntityTabs() {
     rebuildConnContentDetailTree(m_connContentTree,

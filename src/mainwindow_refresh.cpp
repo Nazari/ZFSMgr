@@ -63,33 +63,8 @@ QMap<QString, PoolGuidStatusEntry> parsePoolGuidStatusBatch(const QString& text)
 
 } // namespace
 
-int MainWindow::connectionCountForTest() const {
-    return m_conns.size();
-}
 
-QString MainWindow::connectionNameForTest(int connIdx) const {
-    return m_conns.indexOk(connIdx) ? m_conns.profiles[connIdx].name : QString();
-}
 
-QString MainWindow::refreshConnectionSummaryForTest(int connIdx) {
-    if (!m_conns.indexOk(connIdx)) {
-        return QStringLiteral("índice fuera de rango");
-    }
-    const ConnectionRuntimeState st = refreshConnection(m_conns.profiles[connIdx]);
-    QStringList pools;
-    for (const PoolImported& pi : st.importedPools) {
-        pools << pi.pool;
-    }
-    return QStringLiteral("estado=%1 zfs=%2 so=%3 daemon=%4/%5 api=%6 pools=[%7] detalle=%8")
-        .arg(st.status.isEmpty() ? QStringLiteral("-") : st.status,
-             st.zfsVersion.isEmpty() ? QStringLiteral("-") : st.zfsVersion,
-             st.osLine.isEmpty() ? QStringLiteral("-") : mwhelpers::oneLine(st.osLine, 40),
-             st.daemonInstalled ? QStringLiteral("inst") : QStringLiteral("no"),
-             st.daemonActive ? QStringLiteral("activo") : QStringLiteral("parado"),
-             st.daemonApiVersion.isEmpty() ? QStringLiteral("-") : st.daemonApiVersion,
-             pools.join(QLatin1Char(',')),
-             mwhelpers::oneLine(st.detail, 60));
-}
 
 int MainWindow::findConnectionIndexByName(const QString& name) const {
     const QString key = name.trimmed();

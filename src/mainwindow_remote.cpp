@@ -456,32 +456,6 @@ bool MainWindow::cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p,
     return true;
 }
 
-bool MainWindow::cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut) {
-    if (errorOut) {
-        errorOut->clear();
-    }
-    QString out;
-    QString err;
-    int rc = -1;
-    const QString cmd = withSudo(
-        p,
-        QStringLiteral(
-            "sh -lc %1")
-            .arg(shSingleQuote(
-                QStringLiteral("set -eu; "
-                               "rm -f /etc/zfsmgr/tls/client.key; "
-                               "if [ -r /etc/zfsmgr/agent.conf ]; then "
-                               "  tmp='/tmp/zfsmgr-agent-conf.$$'; "
-                               "  awk '!/^[[:space:]]*TLS_CLIENT_KEY[[:space:]]*=/' /etc/zfsmgr/agent.conf > \"$tmp\"; "
-                               "  install -m 600 \"$tmp\" /etc/zfsmgr/agent.conf; "
-                               "  rm -f \"$tmp\"; "
-                               "fi"))));
-    const bool ok = runSshRawNoLog(p, cmd, 12000, out, err, rc) && rc == 0;
-    if (!ok && errorOut) {
-        *errorOut = mwhelpers::oneLine(err).trimmed();
-    }
-    return ok;
-}
 
 // Intenta servir una invocación del agente por el túnel RPC y decide qué hacer si no
 // puede. Devuelve true si la ha atendido (con éxito, o abortando a propósito para no
@@ -596,9 +570,6 @@ QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
     return v;
 }
 
-void MainWindow::clearAgentCallsForTest() {
-    m_transport.callsForTest.clear();
-}
 
 bool MainWindow::runAgentCommand(const ConnectionProfile& p,
                                  const QStringList& agentArgs,
