@@ -454,36 +454,7 @@ QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString&
 }
 
 
-QString stripDebugNodeIdSuffix(QString text) {
-    text = text.trimmed();
-    const int openPos = text.lastIndexOf(QStringLiteral(" ("));
-    if (openPos > 0 && text.endsWith(QLatin1Char(')'))) {
-        text = text.left(openPos).trimmed();
-    }
-    return text;
-}
 
-QString treePathSegmentForNode(QTreeWidgetItem* node) {
-    if (!node) {
-        return QString();
-    }
-    if (node->data(0, kConnSnapshotItemRole).toBool()) {
-        const QString snap = node->data(1, Qt::UserRole).toString().trimmed();
-        return snap.isEmpty() ? QString() : QStringLiteral("@%1").arg(snap);
-    }
-    if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
-        return QStringLiteral("@");
-    }
-    const QString ds = node->data(0, Qt::UserRole).toString().trimmed();
-    if (!ds.isEmpty()) {
-        return ds.contains(QLatin1Char('/')) ? ds.section('/', -1) : ds;
-    }
-    const QString syn = node->data(0, kConnStatePartRole).toString().trimmed();
-    if (!syn.isEmpty()) {
-        return syn;
-    }
-    return stripDebugNodeIdSuffix(node->text(0));
-}
 
 
 QString escapeConnStatePart(QString value) {

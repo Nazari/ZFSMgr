@@ -706,23 +706,6 @@ bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
 }
 
 namespace {
-int connectionIndexForRow(const QTableWidget* table, int row) {
-    if (!table || row < 0 || row >= table->rowCount()) {
-        return -1;
-    }
-    for (int col = table->columnCount() - 1; col >= 0; --col) {
-        const QTableWidgetItem* it = table->item(row, col);
-        if (!it) {
-            continue;
-        }
-        bool ok = false;
-        const int idx = it->data(Qt::UserRole).toInt(&ok);
-        if (ok) {
-            return idx;
-        }
-    }
-    return -1;
-}
 
 
 
