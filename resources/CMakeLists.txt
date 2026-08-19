@@ -122,6 +122,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp
+    ../src/base/listados.cpp
+    ../src/base/listados.h
     ../src/base/tlsserver.cpp
     ../src/base/tlsserver.h
     ../src/base/storefiles.h
@@ -352,6 +354,9 @@ add_executable(zfsmgr_web
     # misma regla —nunca por argumento ni por entorno— y no tiene sentido escribirla dos
     # veces. Si aparece un tercer consumidor, baja a la capa base.
     ../src/cli/secretinput.cpp
+    # Y la sesión de transporte del intérprete: credenciales, túnel y persistencia del TLS.
+    # Es el mismo cableado; duplicarlo sería tener dos formas de hablar con un daemon.
+    ../src/cli/session.cpp
 )
 target_include_directories(zfsmgr_web PRIVATE ../src/web ../src/cli)
 target_link_libraries(zfsmgr_web PRIVATE zfsmgr_base)

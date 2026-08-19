@@ -10,6 +10,8 @@
 
 #include "agentversion.h"
 #include "connectionjson.h"
+#include "listados.h"
+#include "session.h"
 #include "secretinput.h"
 #include "storefiles.h"
 #include "storewarnings.h"
@@ -28,6 +30,7 @@ namespace B = zfsmgr::base;
 namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
 namespace H = zfsmgr::web::http;
+namespace L = zfsmgr::base::listados;
 
 namespace {
 
@@ -76,35 +79,152 @@ void uso() {
                  "las dos salen en «ps» para cualquier usuario de la máquina.\n");
 }
 
-std::string paginaConexiones(const std::vector<B::ConnectionProfile>& perfiles,
-                             const std::string& testigo) {
-    std::string h;
-    h += "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">";
-    h += "<title>ZFSMgr</title></head><body>";
-    h += "<h1>Conexiones</h1>";
-    h += "<table><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th><th>Sistema</th>"
-         "<th>Host</th><th>Usuario</th></tr></thead><tbody>";
-    for (const B::ConnectionProfile& p : perfiles) {
-        h += "<tr>";
-        // TODO lo que viene de la configuración se escapa: el nombre de una conexión lo
-        // escribe una persona, y un «<script>» ahí no puede acabar ejecutándose.
-        h += "<td>" + H::escapaHtml(p.id) + "</td>";
-        h += "<td>" + H::escapaHtml(p.name) + "</td>";
-        h += "<td>" + H::escapaHtml(p.connType) + "</td>";
-        h += "<td>" + H::escapaHtml(p.osType) + "</td>";
-        h += "<td>" + H::escapaHtml(p.host) + "</td>";
-        h += "<td>" + H::escapaHtml(p.username) + "</td>";
-        h += "</tr>";
-    }
-    h += "</tbody></table>";
-    // El testigo ya viaja en la página aunque todavía no haya nada que mutar: así la fase 2
-    // no tiene que inventarse el mecanismo, solo usarlo.
-    h += "<form method=\"post\" action=\"/salir\">";
+// La cabecera y el pie, iguales en todas las páginas. Sin CSS externo: la CSP no lo
+// permite y una hoja de estilo propia va en la fase 4, cuando haya algo que estilar.
+std::string envuelve(const std::string& titulo, const std::string& migas,
+                     const std::string& cuerpo, const std::string& testigo) {
+    std::string h = "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">";
+    h += "<title>" + H::escapaHtml(titulo) + " — ZFSMgr</title></head><body>";
+    h += "<p>" + migas + "</p>";
+    h += "<h1>" + H::escapaHtml(titulo) + "</h1>";
+    h += cuerpo;
+    h += "<hr><form method=\"post\" action=\"/salir\">";
     h += "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
     h += "<button type=\"submit\">Cerrar el servidor</button></form>";
     h += "<p>zfsmgr-web " + H::escapaHtml(B::agentversion::laEsperada()) + "</p>";
     h += "</body></html>";
     return h;
+}
+
+// Bytes legibles. `--dump-zfs-list-all` los da en crudo —«1647018242320»— porque el TSV
+// sale de `zfs list -p`, y esa cifra no la lee nadie.
+//
+// Vive aquí y no en la capa base a propósito: las unidades son PRESENTACIÓN, y el
+// intérprete tiene la suya en su tabla. Si aparece un tercer consumidor, baja.
+std::string bytesLegibles(const std::string& crudo) {
+    const std::string t = B::trim(crudo);
+    if (t.empty() || t == "-") {
+        return t;
+    }
+    for (const char c : t) {
+        if (c < '0' || c > '9') {
+            return t;   // ya viene con unidad, o no es un número: se deja como está
+        }
+    }
+    double v = std::strtod(t.c_str(), nullptr);
+    static const char* const unidades[] = {"B", "K", "M", "G", "T", "P"};
+    std::size_t i = 0;
+    while (v >= 1024.0 && i + 1 < sizeof(unidades) / sizeof(unidades[0])) {
+        v /= 1024.0;
+        ++i;
+    }
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), i == 0 ? "%.0f%s" : "%.1f%s", v, unidades[i]);
+    return buf;
+}
+
+// Un enlace. El destino se escapa igual que el texto: un identificador de conexión con
+// comillas dentro rompería el atributo si no.
+std::string enlace(const std::string& destino, const std::string& texto) {
+    return "<a href=\"" + H::escapaHtml(destino) + "\">" + H::escapaHtml(texto) + "</a>";
+}
+
+std::string tabla(const std::vector<std::string>& cabeceras,
+                  const std::vector<std::vector<std::string>>& filas) {
+    if (filas.empty()) {
+        return "<p>(no hay nada que enseñar)</p>";
+    }
+    std::string h = "<table><thead><tr>";
+    for (const std::string& c : cabeceras) {
+        h += "<th>" + H::escapaHtml(c) + "</th>";
+    }
+    h += "</tr></thead><tbody>";
+    for (const auto& f : filas) {
+        h += "<tr>";
+        for (const std::string& c : f) {
+            // OJO: las celdas llegan YA compuestas —algunas traen un enlace—, así que aquí
+            // no se escapa. Quien las compone es responsable de escapar lo que venga de
+            // fuera, y por eso `enlace()` escapa sus dos partes.
+            h += "<td>" + c + "</td>";
+        }
+        h += "</tr>";
+    }
+    h += "</tbody></table>";
+    return h;
+}
+
+std::string paginaConexiones(const std::vector<B::ConnectionProfile>& perfiles,
+                             const std::string& testigo) {
+    std::vector<std::vector<std::string>> filas;
+    for (const B::ConnectionProfile& p : perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        filas.push_back({enlace("/c/" + id, id),
+                         H::escapaHtml(p.name),
+                         H::escapaHtml(p.connType),
+                         H::escapaHtml(p.osType),
+                         H::escapaHtml(p.host),
+                         H::escapaHtml(p.username)});
+    }
+    return envuelve("Conexiones", "ZFSMgr",
+                    tabla({"ID", "Nombre", "Tipo", "Sistema", "Host", "Usuario"}, filas),
+                    testigo);
+}
+
+std::string paginaPools(const std::string& conn, const std::vector<L::Pool>& pools,
+                        const std::string& testigo) {
+    std::vector<std::vector<std::string>> filas;
+    for (const L::Pool& p : pools) {
+        filas.push_back({enlace("/c/" + conn + "/" + p.nombre, p.nombre),
+                         H::escapaHtml(p.salud.empty() ? p.estado : p.salud),
+                         H::escapaHtml(p.tamano),
+                         H::escapaHtml(p.libre),
+                         H::escapaHtml(p.uso)});
+    }
+    return envuelve(conn, enlace("/", "ZFSMgr"),
+                    tabla({"Pool", "Salud", "Tamaño", "Libre", "Uso"}, filas), testigo);
+}
+
+std::string paginaDatasets(const std::string& conn, const std::string& raiz,
+                           const std::vector<L::Entrada>& entradas, const std::string& testigo) {
+    std::vector<std::vector<std::string>> datasets;
+    std::vector<std::vector<std::string>> instantaneas;
+    for (const L::Entrada& e : entradas) {
+        if (e.esInstantanea()) {
+            instantaneas.push_back({H::escapaHtml(e.nombre.substr(e.nombre.find('@') + 1)),
+                                    H::escapaHtml(bytesLegibles(e.usado)),
+                                    H::escapaHtml(e.creacion)});
+            continue;
+        }
+        datasets.push_back({enlace("/c/" + conn + "/" + e.nombre, e.nombre),
+                            H::escapaHtml(bytesLegibles(e.usado)),
+                            H::escapaHtml(e.compresion),
+                            H::escapaHtml(e.montado),
+                            H::escapaHtml(e.puntoMontaje)});
+    }
+    std::string cuerpo = "<h2>Datasets</h2>";
+    cuerpo += tabla({"Nombre", "Usado", "Compr.", "Montado", "Punto de montaje"}, datasets);
+    cuerpo += "<h2>Instantáneas</h2>";
+    cuerpo += tabla({"Nombre", "Usado", "Creación"}, instantaneas);
+    cuerpo += "<p>" + enlace("/c/" + conn + "/" + raiz + "?props=1", "Ver propiedades") + "</p>";
+    const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn);
+    return envuelve(raiz, migas, cuerpo, testigo);
+}
+
+std::string paginaPropiedades(const std::string& conn, const std::string& objeto,
+                              const std::vector<L::Propiedad>& props, const std::string& testigo) {
+    std::vector<std::vector<std::string>> filas;
+    for (const L::Propiedad& p : props) {
+        filas.push_back({H::escapaHtml(p.nombre), H::escapaHtml(p.valor), H::escapaHtml(p.origen)});
+    }
+    const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn)
+                              + " / " + enlace("/c/" + conn + "/" + objeto, objeto);
+    return envuelve("Propiedades de " + objeto, migas,
+                    tabla({"Propiedad", "Valor", "Origen"}, filas), testigo);
+}
+
+std::string paginaError(const std::string& que, const std::string& testigo) {
+    return envuelve("No se pudo", enlace("/", "ZFSMgr"),
+                    "<p>" + H::escapaHtml(que) + "</p>", testigo);
 }
 
 }  // namespace
@@ -173,6 +293,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // La sesión de transporte: la misma que monta el intérprete, con su proveedor de
+    // credenciales y su persistencia de TLS. No se duplica el cableado.
+    auto sesionZfs = zfsmgr::cli::crearSesion(op.dirConfig, maestra, /*verboso=*/false);
+    if (!sesionZfs) {
+        std::fprintf(stderr, "no se pudo montar la sesión de transporte\n");
+        return 1;
+    }
+
     std::signal(SIGINT, alSenal);
     std::signal(SIGTERM, alSenal);
 
@@ -235,27 +363,107 @@ int main(int argc, char** argv) {
             respuesta = H::componer(r);
             return true;
         }
-        if (p.ruta != "/") {
+        // La configuración se relee en cada petición: es barato y evita servir una lista
+        // rancia si se edita por el intérprete mientras esto corre.
+        const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
+
+        if (p.ruta == "/") {
+            r.cuerpo = paginaConexiones(conns.perfiles, sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+
+        // `/c/<conexión>[/<pool>[/<dataset>]]`. Se trocea a mano y no con una tabla de
+        // rutas porque son tres formas y una tabla aquí sería más código que el reparto.
+        if (p.ruta.rfind("/c/", 0) != 0) {
             r.codigo = 404;
             r.tipo = "text/plain; charset=utf-8";
             r.cuerpo = "no hay nada aqui\n";
             respuesta = H::componer(r);
             return true;
         }
+        const std::string resto = p.ruta.substr(3);
+        const std::size_t barra = resto.find('/');
+        const std::string conn = barra == std::string::npos ? resto : resto.substr(0, barra);
+        const std::string objeto = barra == std::string::npos ? std::string() : resto.substr(barra + 1);
 
-        // La configuración se relee en cada petición: es barato y evita servir una lista
-        // rancia si se edita por el intérprete mientras esto corre.
-        ST::Aviso aviso;
-        const B::json::Value raiz = ST::leerConfig(op.dirConfig, aviso);
-        std::vector<B::ConnectionProfile> perfiles;
-        ST::Avisos avisos;
-        for (const B::json::Value& v : raiz["connections"].toArray()) {
-            B::ConnectionProfile perfil = CJ::connectionFromJson(v, std::string());
-            CJ::abreSecretos(perfil, maestra, avisos);
-            perfiles.push_back(perfil);
+        const B::ConnectionProfile* perfil = zfsmgr::cli::buscarConexion(conns, conn);
+        if (!perfil) {
+            r.codigo = 404;
+            r.cuerpo = paginaError("no hay ninguna conexión «" + conn + "»", sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
         }
-        CJ::aseguraPerfilLocal(perfiles, std::string());
-        r.cuerpo = paginaConexiones(perfiles, sesion.testigo());
+
+        // A partir de aquí SE HABLA CON LA MÁQUINA. El servidor atiende de una en una, así
+        // que el túnel se monta en este mismo hilo y no hace falta desviarlo — es la misma
+        // situación que el intérprete. Cuando esto pase a atender en paralelo habrá que
+        // resolverlo; está anotado en el diseño.
+        std::string salida;
+        std::string err;
+        int rc = -1;
+        const auto pide = [&](const std::vector<std::string>& args, int timeoutMs) {
+            salida.clear();
+            err.clear();
+            rc = -1;
+            std::string motivo;
+            return zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfil, args, salida, err, rc,
+                                               &motivo, timeoutMs)
+                   && rc == 0;
+        };
+
+        if (objeto.empty()) {
+            if (!pide({"--dump-zpool-list"}, 20000)) {
+                r.codigo = 502;
+                r.cuerpo = paginaError("no se pudo hablar con «" + conn + "»: "
+                                           + (err.empty() ? std::string("sin respuesta") : err),
+                                       sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+            std::vector<L::Pool> pools;
+            std::string errAnalisis;
+            if (!L::pools(salida, pools, errAnalisis)) {
+                r.codigo = 502;
+                r.cuerpo = paginaError("respuesta ilegible de zpool list: " + errAnalisis,
+                                       sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+            r.cuerpo = paginaPools(conn, pools, sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+
+        if (p.consulta == "props=1") {
+            if (!pide({"--dump-zfs-get-all", objeto}, 30000)) {
+                r.codigo = 502;
+                r.cuerpo = paginaError("no se pudieron leer las propiedades de «" + objeto + "»",
+                                       sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+            std::vector<L::Propiedad> props;
+            std::string errAnalisis;
+            if (!L::propiedades(salida, props, errAnalisis)) {
+                r.codigo = 502;
+                r.cuerpo = paginaError("respuesta ilegible de zfs get: " + errAnalisis,
+                                       sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+            r.cuerpo = paginaPropiedades(conn, objeto, props, sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+
+        if (!pide({"--dump-zfs-list-all", objeto}, 30000)) {
+            r.codigo = 502;
+            r.cuerpo = paginaError("no se pudo listar «" + objeto + "»", sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+        r.cuerpo = paginaDatasets(conn, objeto, L::entradas(salida), sesion.testigo());
         respuesta = H::componer(r);
         return true;
     };

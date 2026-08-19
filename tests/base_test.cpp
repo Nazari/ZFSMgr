@@ -4,6 +4,7 @@
 
 #include "daemonpayload.h"
 #include "connectionjson.h"
+#include "listados.h"
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "connectionprofile.h"
@@ -13,6 +14,7 @@
 #include "refreshparse.h"
 #include "agentversion.h"
 #include "connectionjson.h"
+#include "listados.h"
 #include "secretcipher.h"
 #include "strutil.h"
 #include "transportcmd.h"
@@ -769,6 +771,72 @@ int main() {
         igual(conLocalRancio.at(0).machineUid, "uid-de-esta", "local: con el uid corregido");
         comprobar(conLocalRancio.at(0).osType != "Windows" || sinLocal.at(0).osType == "Windows",
                   "local: y el sistema corregido al de esta maquina");
+    }
+
+    // --- los analizadores de listados
+    //
+    // Las muestras son SALIDA REAL de esta máquina, no ejemplos inventados: es lo que
+    // distingue una prueba que sujeta algo de una que repite lo que el código ya hace.
+    {
+        namespace L = zfsmgr::base::listados;
+        std::string err;
+
+        // `zpool list -j`, recortado a un pool con sus campos.
+        const std::string zpoolJson =
+            R"({"output_version":{"command":"zpool list","vers_major":0,"vers_minor":1},)"
+            R"("pools":{"fc16":{"name":"fc16","type":"POOL","state":"ONLINE",)"
+            R"("pool_guid":"6150128433348792083","properties":{)"
+            R"("size":{"value":"2.46T","source":{"type":"NONE","data":"-"}},)"
+            R"("free":{"value":"763G","source":{"type":"NONE","data":"-"}},)"
+            R"("capacity":{"value":"69%","source":{"type":"NONE","data":"-"}},)"
+            R"("health":{"value":"ONLINE","source":{"type":"NONE","data":"-"}}}}}})";
+        std::vector<L::Pool> ps;
+        comprobar(L::pools(zpoolJson, ps, err) && err.empty(), "listados: se analiza zpool list -j");
+        comprobar(ps.size() == 1, "listados: un pool");
+        igual(ps.at(0).nombre, "fc16", "listados: su nombre");
+        igual(ps.at(0).salud, "ONLINE", "listados: su salud, de properties");
+        igual(ps.at(0).tamano, "2.46T", "listados: su tamaño");
+        igual(ps.at(0).uso, "69%", "listados: y el uso tal cual, sin tocar");
+        igual(ps.at(0).guid, "6150128433348792083", "listados: y el guid");
+
+        // Sin pools NO es un error: macOS no imprime nada y sale con 0.
+        comprobar(L::pools("", ps, err) && ps.empty() && err.empty(),
+                  "listados: una salida vacia son cero pools, no un fallo");
+        comprobar(L::pools("   \n", ps, err), "listados: ni con espacios");
+        // Pero un JSON roto SI lo es.
+        comprobar(!L::pools("{esto no es json", ps, err), "listados: un JSON roto si falla");
+        comprobar(!err.empty(), "listados: y dice por que");
+
+        // El TSV de --dump-zfs-list-all: diez columnas, salida real.
+        const std::string tsv =
+            "fc16/dockvols\t9566138329724705167\t464G\t1.16x\taes-256-gcm\tmar mar  3 19:06 2026\t33.3G\tyes\t/var/lib/docker/volumes\ton\n"
+            "fc16/dockvols/axigen\t5564728462171259101\t127G\t1.21x\taes-256-gcm\tmar mar  3 19:07 2026\t127G\tyes\t/var/lib/docker/volumes/axigen\ton\n"
+            "fc16/dockvols@ayer\t123\t0B\t1.00x\taes-256-gcm\tmar mar  3 19:07 2026\t33.3G\t-\t-\t-\n";
+        const auto es = L::entradas(tsv);
+        comprobar(es.size() == 3, "listados: tres entradas");
+        igual(es.at(0).nombre, "fc16/dockvols", "listados: el nombre");
+        igual(es.at(0).puntoMontaje, "/var/lib/docker/volumes", "listados: el punto de montaje");
+        igual(es.at(0).cifrado, "aes-256-gcm", "listados: el cifrado");
+        comprobar(!es.at(0).esInstantanea(), "listados: un dataset no es instantanea");
+        comprobar(es.at(2).esInstantanea(), "listados: y una con @ si");
+
+        // Una linea con columnas de menos se SALTA: rellenar corrido enseñaria el punto de
+        // montaje donde va el guid.
+        const auto pocas = L::entradas("solo\tdos\nfc16\t1\t2\t3\t4\t5\t6\t7\t8\t9\n");
+        comprobar(pocas.size() == 1, "listados: la linea corta se salta");
+        igual(pocas.at(0).nombre, "fc16", "listados: y la buena entra");
+
+        // `zfs get -j all`.
+        const std::string getJson =
+            R"({"datasets":{"fc16/x":{"properties":{)"
+            R"("compression":{"value":"lz4","source":{"type":"LOCAL","data":"-"}},)"
+            R"("atime":{"value":"on","source":{"type":"INHERITED","data":"fc16"}}}}}})";
+        std::vector<L::Propiedad> props;
+        comprobar(L::propiedades(getJson, props, err), "listados: se analiza zfs get -j");
+        comprobar(props.size() == 2, "listados: dos propiedades");
+        igual(props.at(0).nombre, "atime", "listados: ordenadas por nombre");
+        igual(props.at(0).origen, "fc16", "listados: el origen heredado dice de donde");
+        igual(props.at(1).valor, "lz4", "listados: y el valor");
     }
 
     // --- guardar un perfil: cifrado, y el TLS segun cambie o no el EXTREMO
