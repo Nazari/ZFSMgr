@@ -81,19 +81,63 @@ void uso() {
                  "las dos salen en «ps» para cualquier usuario de la máquina.\n");
 }
 
-// La cabecera y el pie, iguales en todas las páginas. Sin CSS externo: la CSP no lo
-// permite y una hoja de estilo propia va en la fase 4, cuando haya algo que estilar.
+// La hoja de estilo, servida por el propio servidor en `/estilo.css`.
+//
+// No es un fichero en disco: va compilada dentro. Un binario que no depende de que nadie
+// haya copiado sus recursos al sitio correcto es un binario que arranca en cualquier parte,
+// y ese es medio motivo de que el agente sea un solo fichero.
+//
+// La CSP dice `style-src 'self'`, así que esto se puede enlazar pero un `style=` suelto
+// dentro del HTML no: si algún día se cuela texto sin escapar, el navegador tampoco lo
+// pintaría.
+const char* const kEstiloCss = R"CSS(
+:root { color-scheme: light dark; --borde:#c9ced6; --suave:#f4f6f8; --tinta:#1c2530; --tenue:#5b6673; --acento:#2f5f8c; }
+@media (prefers-color-scheme: dark) {
+  :root { --borde:#39424e; --suave:#232a33; --tinta:#e7ecf2; --tenue:#9aa5b3; --acento:#7fb0e0; }
+}
+body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--tinta);
+       margin: 0; padding: 0 1.5rem 3rem; max-width: 1100px; }
+a { color: var(--acento); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: 1.5rem; margin: .4rem 0 1rem; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; color: var(--tenue);
+     text-transform: uppercase; letter-spacing: .04em; }
+nav.migas { padding: .8rem 0; color: var(--tenue); font-size: .9rem; }
+nav.migas a { color: var(--tenue); }
+table { border-collapse: collapse; width: 100%; margin: .3rem 0 1rem; font-size: .93rem; }
+th { text-align: left; font-weight: 600; color: var(--tenue); font-size: .8rem;
+     text-transform: uppercase; letter-spacing: .03em; padding: .4rem .6rem;
+     border-bottom: 1px solid var(--borde); }
+td { padding: .38rem .6rem; border-bottom: 1px solid var(--suave); }
+tr:hover td { background: var(--suave); }
+form.enlinea { display: inline-block; margin: 0 .4rem .4rem 0; }
+button { font: inherit; padding: .3rem .8rem; border: 1px solid var(--borde);
+         background: var(--suave); color: var(--tinta); border-radius: 4px; cursor: pointer; }
+button:hover { border-color: var(--acento); }
+button.peligro { border-color: #a33; color: #a33; }
+input { font: inherit; padding: .28rem .45rem; border: 1px solid var(--borde);
+        border-radius: 4px; background: transparent; color: var(--tinta); }
+pre { background: var(--suave); padding: .8rem; overflow-x: auto; font-size: .85rem;
+      border-radius: 4px; }
+p.vacio { color: var(--tenue); font-style: italic; }
+footer { margin-top: 2.5rem; padding-top: .8rem; border-top: 1px solid var(--borde);
+         color: var(--tenue); font-size: .85rem; }
+)CSS";
+
+// La cabecera y el pie, iguales en todas las páginas.
 std::string envuelve(const std::string& titulo, const std::string& migas,
                      const std::string& cuerpo, const std::string& testigo) {
     std::string h = "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">";
+    h += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+    h += "<link rel=\"stylesheet\" href=\"/estilo.css\">";
     h += "<title>" + H::escapaHtml(titulo) + " — ZFSMgr</title></head><body>";
-    h += "<p>" + migas + "</p>";
+    h += "<nav class=\"migas\">" + migas + "</nav>";
     h += "<h1>" + H::escapaHtml(titulo) + "</h1>";
     h += cuerpo;
-    h += "<hr><form method=\"post\" action=\"/salir\">";
+    h += "<footer><form class=\"enlinea\" method=\"post\" action=\"/salir\">";
     h += "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
     h += "<button type=\"submit\">Cerrar el servidor</button></form>";
-    h += "<p>zfsmgr-web " + H::escapaHtml(B::agentversion::laEsperada()) + "</p>";
+    h += " zfsmgr-web " + H::escapaHtml(B::agentversion::laEsperada()) + "</footer>";
     h += "</body></html>";
     return h;
 }
@@ -134,7 +178,7 @@ std::string enlace(const std::string& destino, const std::string& texto) {
 std::string tabla(const std::vector<std::string>& cabeceras,
                   const std::vector<std::vector<std::string>>& filas) {
     if (filas.empty()) {
-        return "<p>(no hay nada que enseñar)</p>";
+        return "<p class=\"vacio\">(no hay nada aquí)</p>";
     }
     std::string h = "<table><thead><tr>";
     for (const std::string& c : cabeceras) {
@@ -179,14 +223,14 @@ std::string formularioAcciones(const std::string& conn, const std::string& ds,
                                 + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
                                 + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(ds) + "\">";
     std::string h = "<h2>Acciones</h2>";
-    h += "<form method=\"post\" action=\"/accion\">" + comunes
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
          + "<input type=\"hidden\" name=\"que\" value=\"crear-instantanea\">"
          + "<label>Instantánea nueva: <input name=\"nombre\" required></label>"
          + "<button type=\"submit\">Crear</button></form>";
-    h += "<form method=\"post\" action=\"/accion\">" + comunes
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
          + "<input type=\"hidden\" name=\"que\" value=\"montar\">"
          + "<button type=\"submit\">Montar</button></form>";
-    h += "<form method=\"post\" action=\"/accion\">" + comunes
+    h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + comunes
          + "<input type=\"hidden\" name=\"que\" value=\"desmontar\">"
          + "<button type=\"submit\">Desmontar</button></form>";
     return h;
@@ -219,8 +263,13 @@ std::string paginaPools(const std::string& conn, const std::vector<L::Pool>& poo
                          H::escapaHtml(p.libre),
                          H::escapaHtml(p.uso)});
     }
-    return envuelve(conn, enlace("/", "ZFSMgr"),
-                    tabla({"Pool", "Salud", "Tamaño", "Libre", "Uso"}, filas), testigo);
+    std::string cuerpo = tabla({"Pool", "Salud", "Tamaño", "Libre", "Uso"}, filas);
+    cuerpo += "<h2>De esta máquina</h2><p>";
+    cuerpo += enlace("/c/" + conn + "?registro=1", "Registro del daemon") + " · ";
+    cuerpo += enlace("/c/" + conn + "?trabajos=1", "Trabajos en curso") + " · ";
+    cuerpo += enlace("/c/" + conn + "?programacion=1", "Instantáneas programadas");
+    cuerpo += "</p>";
+    return envuelve(conn, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 std::string paginaDatasets(const std::string& conn, const std::string& raiz,
@@ -248,7 +297,11 @@ std::string paginaDatasets(const std::string& conn, const std::string& raiz,
     cuerpo += tabla({"Nombre", "Usado", "Compr.", "Montado", "Punto de montaje"}, datasets);
     cuerpo += "<h2>Instantáneas</h2>";
     cuerpo += tabla({"Nombre", "Usado", "Creación", ""}, instantaneas);
-    cuerpo += "<p>" + enlace("/c/" + conn + "/" + raiz + "?props=1", "Ver propiedades") + "</p>";
+    cuerpo += "<h2>De este dataset</h2><p>";
+    cuerpo += enlace("/c/" + conn + "/" + raiz + "?props=1", "Propiedades") + " · ";
+    cuerpo += enlace("/c/" + conn + "/" + raiz + "?permisos=1", "Permisos delegados") + " · ";
+    cuerpo += enlace("/dav/" + conn + "/" + raiz + "/", "Contenido (WebDAV)");
+    cuerpo += "</p>";
     cuerpo += formularioAcciones(conn, raiz, testigo);
     const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn);
     return envuelve(raiz, migas, cuerpo, testigo);
@@ -263,7 +316,7 @@ std::string paginaPropiedades(const std::string& conn, const std::string& objeto
     // Cambiar una propiedad: el nombre se teclea a mano de momento. La edición en línea
     // sobre la tabla es de la fase 4; esto ya ejercita el camino entero.
     std::string form = "<h2>Cambiar una propiedad</h2>";
-    form += "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+    form += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
             + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
             + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(objeto) + "\">"
             + "<input type=\"hidden\" name=\"que\" value=\"set\">"
@@ -292,7 +345,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
     }
     std::string cuerpo = "<p>" + H::escapaHtml(texto) + "</p>";
     if (que == "borrar-instantanea") {
-        cuerpo += "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+        cuerpo += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
                   + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
                   + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(objeto) + "\">"
                   + "<input type=\"hidden\" name=\"que\" value=\"" + H::escapaHtml(que) + "\">"
@@ -301,6 +354,16 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
     const std::string padre = objeto.substr(0, objeto.find('@'));
     cuerpo += "<p>" + enlace("/c/" + conn + "/" + padre, "No, volver") + "</p>";
     return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
+}
+
+// Una página que solo enseña texto tal cual: el registro del daemon, los permisos
+// delegados. Se escapa y se mete en un <pre>, que es lo que respeta los espacios.
+std::string paginaTexto(const std::string& titulo, const std::string& migas,
+                        const std::string& texto, const std::string& testigo) {
+    const std::string t = B::trim(texto);
+    const std::string cuerpo = t.empty() ? std::string("<p class=\"vacio\">(no hay nada)</p>")
+                                         : "<pre>" + H::escapaHtml(t) + "</pre>";
+    return envuelve(titulo, migas, cuerpo, testigo);
 }
 
 std::string paginaError(const std::string& que, const std::string& testigo) {
@@ -402,6 +465,15 @@ int main(int argc, char** argv) {
             r.codigo = 400;
             r.tipo = "text/plain; charset=utf-8";
             r.cuerpo = "peticion no valida: " + p.porQueNoVale + "\n";
+            respuesta = H::componer(r);
+            return true;
+        }
+
+        // La hoja de estilo. Va antes de exigir sesión: es lo único público, y sin ella la
+        // página de «sin sesión» se vería igual de cruda que lo demás.
+        if (p.ruta == "/estilo.css") {
+            r.tipo = "text/css; charset=utf-8";
+            r.cuerpo = kEstiloCss;
             respuesta = H::componer(r);
             return true;
         }
@@ -822,6 +894,43 @@ int main(int argc, char** argv) {
                    && rc == 0;
         };
 
+        // Las páginas de MÁQUINA: registro, trabajos y programación. Van antes que el
+        // listado de pools porque comparten la misma URL con otra consulta.
+        if (objeto.empty() && !p.consulta.empty()) {
+            const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn);
+            if (p.consulta == "registro=1") {
+                if (!pide({"--dump-daemon-log", "0"}, 30000)) {
+                    r.codigo = 502;
+                    r.cuerpo = paginaError("no se pudo leer el registro", sesion.testigo());
+                } else {
+                    r.cuerpo = paginaTexto("Registro del daemon", migas, salida, sesion.testigo());
+                }
+                respuesta = H::componer(r);
+                return true;
+            }
+            if (p.consulta == "trabajos=1") {
+                if (!pide({"--job-list"}, 20000)) {
+                    r.codigo = 502;
+                    r.cuerpo = paginaError("no se pudieron leer los trabajos", sesion.testigo());
+                } else {
+                    r.cuerpo = paginaTexto("Trabajos", migas, salida, sesion.testigo());
+                }
+                respuesta = H::componer(r);
+                return true;
+            }
+            if (p.consulta == "programacion=1") {
+                if (!pide({"--dump-zfs-get-gsa-raw-all-pools"}, 30000)) {
+                    r.codigo = 502;
+                    r.cuerpo = paginaError("no se pudo leer la programación", sesion.testigo());
+                } else {
+                    r.cuerpo = paginaTexto("Instantáneas programadas", migas, salida,
+                                           sesion.testigo());
+                }
+                respuesta = H::componer(r);
+                return true;
+            }
+        }
+
         if (objeto.empty()) {
             if (!pide({"--dump-zpool-list"}, 20000)) {
                 r.codigo = 502;
@@ -841,6 +950,20 @@ int main(int argc, char** argv) {
                 return true;
             }
             r.cuerpo = paginaPools(conn, pools, sesion.testigo());
+            respuesta = H::componer(r);
+            return true;
+        }
+
+        if (p.consulta == "permisos=1") {
+            const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + conn, conn)
+                                      + " / " + enlace("/c/" + conn + "/" + objeto, objeto);
+            if (!pide({"--dump-zfs-allow", objeto}, 30000)) {
+                r.codigo = 502;
+                r.cuerpo = paginaError("no se pudieron leer los permisos de «" + objeto + "»",
+                                       sesion.testigo());
+            } else {
+                r.cuerpo = paginaTexto("Permisos de " + objeto, migas, salida, sesion.testigo());
+            }
             respuesta = H::componer(r);
             return true;
         }
