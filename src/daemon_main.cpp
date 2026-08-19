@@ -4610,7 +4610,6 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
     const ExecResult dsResult = runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "filesystem"});
     if (dsResult.rc != 0 || trim(dsResult.out).empty()) return;
 
-    const GsaTimeFields tf = gsaLocalTimeFields();
     std::vector<std::string> processedRecursiveRoots;
 
     auto isDescendant = [](const std::string& ds, const std::string& root) {
@@ -4674,7 +4673,6 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
 
         // Resolve destination connection once per dataset.
         GsaTargetConn target;
-        bool targetResolved = false;
         if (levelOn && !dstSpec.empty()) {
             const std::size_t sep = dstSpec.find("::");
             if (sep != std::string::npos) {
@@ -4683,7 +4681,6 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
                 // decide `gsaLevelSnapshot`, que busca al par en `peers.json`.
                 if (!selfConn.empty() && toLower(connId) == toLower(selfConn)) {
                     target.mode = "local";
-                    targetResolved = true;
                 }
             }
         }

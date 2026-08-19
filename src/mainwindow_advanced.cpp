@@ -695,7 +695,20 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     int listRc = -1;
     QString listCmd;
     if (!isWindowsConnection(p)) {
-        listCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-children"), ds});
+        // La MISMA elección que hace Desglosar unas líneas más arriba.
+        //
+        // Aquí se calculaba `daemonReadApiOk` y no se miraba: Ensamblar pedía el verbo del
+        // agente pasara lo que pasara, mientras Desglosar caía a `zfs list` cuando el
+        // daemon no está, no responde o habla otra versión del API. La misma operación,
+        // sobre la misma conexión, se comportaba distinto según por qué botón se entrara.
+        if (daemonReadApiOk) {
+            listCmd = mwhelpers::agentShellCommand(p, {QStringLiteral("--dump-zfs-list-children"), ds});
+        } else {
+            listCmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("zfs list -H -o name -r %1")
+                           .arg(shSingleQuote(ds))));
+        }
     } else {
         listCmd = withSudo(
             p,

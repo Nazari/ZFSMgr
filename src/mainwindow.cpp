@@ -1054,7 +1054,6 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    const bool subWin = isWindowsConnection(connIdx);
     QStringList quotedProps;
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
@@ -2790,9 +2789,6 @@ bool MainWindow::requireFeature(int connIdx, zfsmgr::caps::Feature f) {
 }
 
 QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
-    const int connIdx = m_topDetailConnIdx;
-    const bool hasConn = (connIdx >= 0 && connIdx < m_conns.profiles.size());
-    const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
     return {
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),

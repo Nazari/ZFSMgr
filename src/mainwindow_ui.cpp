@@ -1969,19 +1969,6 @@ void MainWindow::buildUi() {
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
-    // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
-    const QFontMetrics fm(font());
-    const int btnTextWidth = qMax(
-        fm.horizontalAdvance(trk(QStringLiteral("t_refrescar__7f8af2"),
-                                 QStringLiteral("Refrescar todo"),
-                                 QStringLiteral("Refresh all"),
-                                 QStringLiteral("全部刷新"))),
-        fm.horizontalAdvance(trk(QStringLiteral("t_new_btn_001"),
-                                 QStringLiteral("Nueva"),
-                                 QStringLiteral("New"),
-                                 QStringLiteral("新建"))));
-    const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69 * 1.08));
     leftPane->setMinimumWidth(0);
 
     auto* connectionsTab = new QWidget(leftPane);
@@ -2281,9 +2268,6 @@ void MainWindow::buildUi() {
     // La caja de gestión de pools se fijaba a la altura de la de acciones. Sin aquella,
     // se dimensiona por su propio contenido: forzarla a una altura ajena era lo que la
     // descuadraba al cambiar lo de al lado.
-    const int actionsBoxHeight = m_btnApplyConnContentProps
-        ? (m_btnApplyConnContentProps->sizeHint().height() * 2) + 28
-        : 96;
 
 
     leftLayout->addWidget(connectionsTab, 1);

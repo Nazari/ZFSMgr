@@ -3359,7 +3359,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("Cancel"),
             QStringLiteral("取消")),
         QDialogButtonBox::RejectRole);
-    QPushButton* installBtn = buttons->addButton(
+    buttons->addButton(
         trk(QStringLiteral("t_helper_install_btn_01"),
             QStringLiteral("Instalar"),
             QStringLiteral("Install"),

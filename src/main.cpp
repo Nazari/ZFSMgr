@@ -123,9 +123,16 @@ private:
 
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, false);
-        painter->setPen(Qt::NoPen);
+        // El borde se dibuja, que para eso se calcula su color.
+        //
+        // Estaba `setPen(Qt::NoPen)`, así que `border` —con sus dos tonos, activo e
+        // inactivo— se computaba y se tiraba: una casilla DESMARCADA quedaba en un
+        // cuadrado blanco sin contorno, invisible sobre un fondo claro. Es código de
+        // macOS y aquí no hay pantalla para verlo; el arreglo es lo que el propio código
+        // decía querer.
+        painter->setPen(QPen(border, 1.0));
         painter->setBrush(fill);
-        painter->drawRect(rect);
+        painter->drawRect(rect.adjusted(0, 0, -1, -1));
 
         if (checked || mixed) {
             QPen tickPen(tick, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);

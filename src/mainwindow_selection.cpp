@@ -62,8 +62,6 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
             return m_transferSelectionOverrideDest;
         }
     }
-    constexpr int connIdxRole = Qt::UserRole + 10;
-    constexpr int poolNameRole = Qt::UserRole + 11;
     QString token;
     QString ds;
     QString snap;
