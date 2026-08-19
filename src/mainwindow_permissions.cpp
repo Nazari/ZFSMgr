@@ -1513,30 +1513,6 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                         rec(datasetNode, {});
                         return paths;
                     };
-                    auto restoreExpandedPaths = [&](QTreeWidgetItem* datasetNode, const QStringList& paths) {
-                        if (!datasetNode || paths.isEmpty()) {
-                            return;
-                        }
-                        const QSet<QString> wanted(paths.cbegin(), paths.cend());
-                        std::function<void(QTreeWidgetItem*, QStringList)> rec = [&](QTreeWidgetItem* node, QStringList parts) {
-                            if (!node) {
-                                return;
-                            }
-                            if (node != datasetNode) {
-                                const QString id = stableId(node);
-                                if (!id.isEmpty()) {
-                                    parts.push_back(id);
-                                    if (wanted.contains(parts.join(QStringLiteral("/")))) {
-                                        node->setExpanded(true);
-                                    }
-                                }
-                            }
-                            for (int i = 0; i < node->childCount(); ++i) {
-                                rec(node->child(i), parts);
-                            }
-                        };
-                        rec(datasetNode, {});
-                    };
                     auto collectCheckedTokens = [tree](QTreeWidgetItem* setTreeNode) {
                         QStringList checkedTokens;
                         if (!tree || !setTreeNode) {

@@ -2636,29 +2636,6 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
     auto setKey = [](const DatasetPermissionSet& set) {
         return set.name.trimmed().toLower();
     };
-    auto permissionTargetText = [](const DatasetPermissionGrant& grant) {
-        const QString tt = grant.targetType.trimmed().toLower();
-        if (tt == QStringLiteral("user")) {
-            return QStringLiteral("usuario %1").arg(grant.targetName.trimmed());
-        }
-        if (tt == QStringLiteral("group")) {
-            return QStringLiteral("grupo %1").arg(grant.targetName.trimmed());
-        }
-        return QStringLiteral("everyone");
-    };
-    auto permissionScopeText = [](const QString& scope) {
-        const QString s = scope.trimmed().toLower();
-        if (s == QStringLiteral("local")) {
-            return QStringLiteral("locales");
-        }
-        if (s == QStringLiteral("descendant")) {
-            return QStringLiteral("descendientes");
-        }
-        if (s == QStringLiteral("local+descendant")) {
-            return QStringLiteral("locales+descendientes");
-        }
-        return s;
-    };
     auto scopeFlagsForPermission = [](const QString& scope) {
         const QString s = scope.trimmed().toLower();
         if (s == QStringLiteral("local")) {

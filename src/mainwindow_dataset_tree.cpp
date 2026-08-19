@@ -3240,16 +3240,6 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             }
         }
     };
-    auto isLocallyConfiguredGsaSource = [](const QString& source) {
-        const QString src = source.trimmed().toLower();
-        if (src.isEmpty() || src == QStringLiteral("-")) {
-            return false;
-        }
-        if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
-            return false;
-        }
-        return true;
-    };
     auto gsaBoolOn = [](const QString& raw) {
         const QString v = raw.trimmed().toLower();
         return v == QStringLiteral("on")
@@ -4312,23 +4302,6 @@ void MainWindow::rebuildConnContentTreeFor(QTreeWidget* tree,
     if (!tree || connIdx < 0 || poolName.isEmpty()) {
         return;
     }
-    auto treeMatchesToken = [tree, connIdx, &poolName]() -> bool {
-        bool found = false;
-        forEachPoolRootItem(tree, [&](QTreeWidgetItem* root) {
-            if (found) {
-                return;
-            }
-            const int rootConnIdx = root->data(0, kConnIdxRole).toInt();
-            const QString rootPoolName = root->data(0, kPoolNameRole).toString().trimmed();
-            if (rootConnIdx == connIdx && rootPoolName == poolName) {
-                found = true;
-            }
-        });
-        if (found) {
-            return true;
-        }
-        return tree->topLevelItemCount() == 0;
-    };
     populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
     if (restoreState) {
         restoreConnContentTreeStateFor(tree, token);

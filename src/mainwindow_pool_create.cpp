@@ -724,48 +724,6 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
 
-    auto collectPoolTokens = [](const QString& text) -> QSet<QString> {
-        QSet<QString> usedTokens;
-        static const QSet<QString> skip = {
-            QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"), QStringLiteral("RAIDZ1"),
-            QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"), QStringLiteral("SPARE"),
-            QStringLiteral("LOGS"), QStringLiteral("CACHE"), QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"),
-            QStringLiteral("ONLINE"), QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"),
-            QStringLiteral("UNAVAILABLE"), QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"),
-            QStringLiteral("REMOVED"), QStringLiteral("AVAIL")
-        };
-        const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QString trimmed = line.trimmed();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            if (trimmed.startsWith(QStringLiteral("pool:")) || trimmed.startsWith(QStringLiteral("state:"))
-                || trimmed.startsWith(QStringLiteral("scan:")) || trimmed.startsWith(QStringLiteral("config:"))
-                || trimmed.startsWith(QStringLiteral("errors:")) || trimmed.startsWith(QStringLiteral("status:"))
-                || trimmed.startsWith(QStringLiteral("action:")) || trimmed.startsWith(QStringLiteral("see:"))
-                || trimmed == QStringLiteral("NAME")) {
-                continue;
-            }
-            const QString token = trimmed.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts).value(0).trimmed();
-            if (token.isEmpty()) {
-                continue;
-            }
-            if (skip.contains(token.toUpper()) || token.endsWith(':') || token.endsWith('-')) {
-                continue;
-            }
-            usedTokens.insert(token);
-            if (token.startsWith('/')) {
-                usedTokens.insert(QFileInfo(token).fileName());
-            }
-            const QRegularExpression pdRx(QStringLiteral("PhysicalDrive\\d+"), QRegularExpression::CaseInsensitiveOption);
-            const QRegularExpressionMatch m = pdRx.match(token);
-            if (m.hasMatch()) {
-                usedTokens.insert(m.captured(0));
-            }
-        }
-        return usedTokens;
-    };
     auto normalizeWinPhysPart = [](const QString& raw) -> QString {
         const QString s = raw.trimmed();
         if (s.isEmpty()) {
