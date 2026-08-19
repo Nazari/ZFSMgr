@@ -2617,6 +2617,51 @@ QStringList MainWindow::childLabelsForDatasetForTest(const QString& datasetName,
     return labels;
 }
 
+QStringList MainWindow::snapshotTreeLabelsForDatasetForTest(const QString& datasetName) const {
+    // El mismo rol que pone el árbol al construir el nodo de una instantánea; se repite
+    // aquí porque las constantes viven en el espacio anónimo de mainwindow_dataset_tree.cpp.
+    constexpr int kConnSnapshotItemRoleMw = Qt::UserRole + 43;
+    QStringList labels;
+    QTreeWidget* tree = m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty()) {
+        return labels;
+    }
+    const QString wanted = datasetName.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wanted
+            && !node->data(0, kConnSnapshotItemRoleMw).toBool()) {
+            for (int i = 0; i < node->childCount(); ++i) {
+                QTreeWidgetItem* child = node->child(i);
+                if (child && child->text(0).trimmed() == QStringLiteral("@")) {
+                    return child;
+                }
+            }
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* snapshotsNode = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !snapshotsNode; ++i) {
+        snapshotsNode = rec(tree->topLevelItem(i));
+    }
+    if (!snapshotsNode) {
+        return labels;
+    }
+    for (int i = 0; i < snapshotsNode->childCount(); ++i) {
+        if (QTreeWidgetItem* child = snapshotsNode->child(i)) {
+            labels.push_back(child->text(0).trimmed());
+        }
+    }
+    return labels;
+}
+
 QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom) const {
     QStringList names;
     Q_UNUSED(bottom);

@@ -236,9 +236,6 @@ QString gsaUserPropertyDefaultValue(const QString& prop) {
 }
 
 
-bool isAutomaticGsaSnapshotName(const QString& snap) {
-    return snap.trimmed().startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive);
-}
 
 struct PoolDeviceStatusNode {
     QString name;
@@ -356,18 +353,6 @@ QVector<PoolDeviceStatusNode> parsePoolDeviceHierarchyFromStatus(const QString& 
     return top;
 }
 
-QString gsaSnapshotClassTree(const QString& snapshotName) {
-    const QString trimmed = snapshotName.trimmed();
-    if (!trimmed.startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive)) {
-        return QString();
-    }
-    const int firstDash = trimmed.indexOf(QLatin1Char('-'));
-    const int secondDash = trimmed.indexOf(QLatin1Char('-'), firstDash + 1);
-    if (firstDash < 0 || secondDash <= firstDash + 1) {
-        return QString();
-    }
-    return trimmed.mid(firstDash + 1, secondDash - firstDash - 1).trimmed().toLower();
-}
 
 QIcon snapshotsNodeIcon() {
     const QIcon themed = QIcon::fromTheme(QStringLiteral("camera-photo"));
@@ -5873,92 +5858,63 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 }
             };
 
-            QStringList manualSnapshots;
-            QMap<QString, QStringList> gsaSnapshotsByClass;
+            // El reparto lo decide la capa base, no el árbol.
+            //
+            // Aquí había una copia: clasificar por el nombre, separar manuales, ordenar las
+            // cinco clases conocidas a mano y recorrer un mapa para las demás. Es una REGLA
+            // —qué es una instantánea programada y en qué orden se enseñan—, y el intérprete
+            // va a querer la misma. Lo que queda en el árbol es el dibujo.
+            std::vector<std::string> nombres;
+            nombres.reserve(static_cast<std::size_t>(snaps.size()));
             for (const QString& s : snaps) {
-                const QString snapName = s.trimmed();
-                if (snapName.isEmpty()) {
+                nombres.push_back(s.trimmed().toStdString());
+            }
+            const auto etiquetaDeClase = [this](const QString& klass) {
+                if (klass == QStringLiteral("hourly")) {
+                    return trk(QStringLiteral("t_ctx_snap_group_hourly"),
+                               QStringLiteral("Horarios"), QStringLiteral("Hourly"), QStringLiteral("每小时"));
+                }
+                if (klass == QStringLiteral("daily")) {
+                    return trk(QStringLiteral("t_ctx_snap_group_daily"),
+                               QStringLiteral("Diarios"), QStringLiteral("Daily"), QStringLiteral("每日"));
+                }
+                if (klass == QStringLiteral("weekly")) {
+                    return trk(QStringLiteral("t_ctx_snap_group_weekly"),
+                               QStringLiteral("Semanales"), QStringLiteral("Weekly"), QStringLiteral("每周"));
+                }
+                if (klass == QStringLiteral("monthly")) {
+                    return trk(QStringLiteral("t_ctx_snap_group_monthly"),
+                               QStringLiteral("Mensuales"), QStringLiteral("Monthly"), QStringLiteral("每月"));
+                }
+                if (klass == QStringLiteral("yearly")) {
+                    return trk(QStringLiteral("t_ctx_snap_group_yearly"),
+                               QStringLiteral("Anuales"), QStringLiteral("Yearly"), QStringLiteral("每年"));
+                }
+                return klass;   // una clase que no conocemos se enseña tal cual
+            };
+            for (const auto& grupo : zfsmgr::base::gsa::agrupaInstantaneas(nombres)) {
+                const QString klass = QString::fromStdString(grupo.first);
+                if (klass.isEmpty()) {
+                    for (const std::string& snapName : grupo.second) {
+                        addSnapshotItem(snapshotsNode, QString::fromStdString(snapName));
+                    }
                     continue;
                 }
-                const QString klass = gsaSnapshotClassTree(snapName);
-                if (klass.isEmpty()) {
-                    manualSnapshots.push_back(snapName);
-                } else {
-                    gsaSnapshotsByClass[klass].push_back(snapName);
-                }
-            }
-            for (const QString& snapName : manualSnapshots) {
-                addSnapshotItem(snapshotsNode, snapName);
-            }
-            auto addGsaGroup = [&](const QString& klass, const QString& label) {
-                const QStringList grouped = gsaSnapshotsByClass.value(klass);
-                if (grouped.isEmpty()) {
-                    return;
-                }
                 auto* groupNode = new QTreeWidgetItem(snapshotsNode);
-                groupNode->setText(0, label);
+                groupNode->setText(0, etiquetaDeClase(klass));
                 groupNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
                 groupNode->setData(0, kConnContentNodeRole, true);
                 groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
                 groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
                 groupNode->setData(0, kConnStatePartRole,
-                                   QStringLiteral("syn:snapshot_group:%1").arg(klass.trimmed().toLower()));
+                                   QStringLiteral("syn:snapshot_group:%1").arg(klass));
                 groupNode->setData(0, kConnIdxRole, connIdx);
                 groupNode->setData(0, kPoolNameRole, poolName);
                 groupNode->setData(0, kConnConnectionStableIdRole, connStableIdForIndex(connIdx));
                 groupNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
                 groupNode->setFlags(groupNode->flags() & ~Qt::ItemIsUserCheckable);
-                for (const QString& snapName : grouped) {
-                    addSnapshotItem(groupNode, snapName);
-                }
-            };
-            addGsaGroup(QStringLiteral("hourly"),
-                        trk(QStringLiteral("t_ctx_snap_group_hourly"),
-                            QStringLiteral("Horarios"),
-                            QStringLiteral("Hourly"),
-                            QStringLiteral("每小时")));
-            addGsaGroup(QStringLiteral("daily"),
-                        trk(QStringLiteral("t_ctx_snap_group_daily"),
-                            QStringLiteral("Diarios"),
-                            QStringLiteral("Daily"),
-                            QStringLiteral("每日")));
-            addGsaGroup(QStringLiteral("weekly"),
-                        trk(QStringLiteral("t_ctx_snap_group_weekly"),
-                            QStringLiteral("Semanales"),
-                            QStringLiteral("Weekly"),
-                            QStringLiteral("每周")));
-            addGsaGroup(QStringLiteral("monthly"),
-                        trk(QStringLiteral("t_ctx_snap_group_monthly"),
-                            QStringLiteral("Mensuales"),
-                            QStringLiteral("Monthly"),
-                            QStringLiteral("每月")));
-            addGsaGroup(QStringLiteral("yearly"),
-                        trk(QStringLiteral("t_ctx_snap_group_yearly"),
-                            QStringLiteral("Anuales"),
-                            QStringLiteral("Yearly"),
-                            QStringLiteral("每年")));
-            for (auto it = gsaSnapshotsByClass.cbegin(); it != gsaSnapshotsByClass.cend(); ++it) {
-                const QString klass = it.key();
-                if (klass == QStringLiteral("hourly")
-                    || klass == QStringLiteral("daily")
-                    || klass == QStringLiteral("weekly")
-                    || klass == QStringLiteral("monthly")
-                    || klass == QStringLiteral("yearly")) {
-                    continue;
-                }
-                auto* groupNode = new QTreeWidgetItem(snapshotsNode);
-                groupNode->setText(0, klass);
-                groupNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
-                groupNode->setData(0, kConnContentNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
-                groupNode->setData(0, kConnIdxRole, connIdx);
-                groupNode->setData(0, kPoolNameRole, poolName);
-                groupNode->setData(0, kConnConnectionStableIdRole, connStableIdForIndex(connIdx));
-                groupNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
-                groupNode->setFlags(groupNode->flags() & ~Qt::ItemIsUserCheckable);
-                for (const QString& snapName : it.value()) {
-                    addSnapshotItem(groupNode, snapName);
+                for (const std::string& snapName : grupo.second) {
+                    addSnapshotItem(groupNode, QString::fromStdString(snapName));
                 }
             }
         }

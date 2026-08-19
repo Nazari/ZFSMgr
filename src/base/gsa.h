@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Las instantáneas PROGRAMADAS (GSA): qué son y qué es válido.
@@ -91,5 +92,23 @@ bool esMismoODescendiente(const std::string& dataset, const std::string& ancestr
 
 // El castellano de reserva del motivo, para quien no tenga catálogo propio.
 std::string etiquetaDe(Fallo f);
+
+// A qué CLASE pertenece una instantánea por su nombre: «hourly», «daily», «weekly»,
+// «monthly», «yearly» —o lo que ponga, que las clases no son un conjunto cerrado—. Vacío
+// si no la hizo el planificador.
+//
+// El nombre lo escribe `gsaCreateSnapshot` como «GSA-<clase>-<fecha>-<hora>», así que la
+// clase es lo que va entre el primer y el segundo guion.
+std::string claseDeInstantanea(const std::string& nombre);
+
+// Las instantáneas de un dataset, ORDENADAS para enseñarlas: primero las manuales, en el
+// orden en que llegaron, y después las programadas agrupadas por clase, con las clases
+// conocidas en orden de periodo —de la hora al año— y las desconocidas al final.
+//
+// Devuelve pares (clase, instantáneas); la clase vacía es el grupo de las manuales, que
+// va siempre primero y solo si hay alguna. Vive aquí y no dentro del árbol porque es una
+// REGLA, no dibujo: el intérprete querrá la misma cuando liste instantáneas.
+std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas(
+    const std::vector<std::string>& nombres);
 
 }  // namespace zfsmgr::base::gsa

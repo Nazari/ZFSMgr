@@ -1433,6 +1433,43 @@ int main() {
         // Y que «datosviejos» no cuente como hijo de «datos» por empezar igual.
         comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
                   "gsa: el prefijo no basta, hace falta la barra");
+
+        // --- Cómo se enseñan: manuales primero, programadas agrupadas por clase.
+        //
+        // Punto 6 del backlog. La regla estaba escrita dentro del bucle que pinta el árbol,
+        // así que comprobarla exigía una ventana; aquí se comprueba el orden, que es lo
+        // pedido, y de paso el intérprete la tiene para cuando liste instantáneas.
+        igual(G::claseDeInstantanea("GSA-daily-20260322-000000"), "daily",
+              "gsa: la clase va entre el primer y el segundo guion");
+        igual(G::claseDeInstantanea("GSA-HOURLY-20260322-120000"), "hourly",
+              "gsa: la clase no distingue mayúsculas");
+        igual(G::claseDeInstantanea("manual-001"), "",
+              "gsa: una manual no tiene clase");
+        igual(G::claseDeInstantanea("GSA-20260322-120000"), "20260322",
+              "gsa: sin clase en el nombre no se inventa una: se toma lo que hay");
+
+        {
+            const auto g = G::agrupaInstantaneas({"manual-001",
+                                                  "GSA-daily-20260322-000000",
+                                                  "GSA-hourly-20260322-120000",
+                                                  "manual-002",
+                                                  "GSA-hourly-20260322-130000",
+                                                  "GSA-loquesea-20260322-140000"});
+            comprobar(g.size() == 4, "gsa: manuales + horarias + diarias + la desconocida");
+            igual(g[0].first, "", "gsa: el grupo de las manuales va primero");
+            comprobar(g[0].second == std::vector<std::string>{"manual-001", "manual-002"},
+                      "gsa: y conserva el orden en que llegaron");
+            igual(g[1].first, "hourly", "gsa: de la hora al año, así que horarias antes que diarias");
+            comprobar(g[1].second.size() == 2, "gsa: las dos horarias en su grupo");
+            igual(g[2].first, "daily", "gsa: y después las diarias");
+            igual(g[3].first, "loquesea", "gsa: una clase que no conocemos va al final, no se pierde");
+        }
+        {
+            const auto g = G::agrupaInstantaneas({"GSA-yearly-20260101-000000", "GSA-weekly-20260322-000000"});
+            comprobar(g.size() == 2, "gsa: sin manuales no hay grupo vacío por delante");
+            igual(g[0].first, "weekly", "gsa: semanal antes que anual aunque llegara después");
+        }
+        comprobar(G::agrupaInstantaneas({}).empty(), "gsa: sin instantáneas, ningún grupo");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

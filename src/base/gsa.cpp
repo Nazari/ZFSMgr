@@ -203,4 +203,64 @@ std::string etiquetaDe(Fallo f) {
     return "sin fallo";
 }
 
+std::string claseDeInstantanea(const std::string& nombre) {
+    const std::string s = trim(nombre);
+    if (s.size() < 4 || bajo(s.substr(0, 4)) != "gsa-") {
+        return {};
+    }
+    const std::size_t primero = s.find('-');
+    const std::size_t segundo = s.find('-', primero + 1);
+    if (primero == std::string::npos || segundo == std::string::npos || segundo <= primero + 1) {
+        return {};
+    }
+    return bajo(s.substr(primero + 1, segundo - primero - 1));
+}
+
+std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas(
+    const std::vector<std::string>& nombres) {
+    std::vector<std::string> manuales;
+    // Un vector de pares y no un mapa: el orden de las clases DESCONOCIDAS tiene que ser
+    // el de aparición, y un mapa lo perdería o lo ordenaría alfabéticamente.
+    std::vector<std::pair<std::string, std::vector<std::string>>> porClase;
+    for (const std::string& raw : nombres) {
+        const std::string n = trim(raw);
+        if (n.empty()) {
+            continue;
+        }
+        const std::string klass = claseDeInstantanea(n);
+        if (klass.empty()) {
+            manuales.push_back(n);
+            continue;
+        }
+        auto it = std::find_if(porClase.begin(), porClase.end(),
+                               [&klass](const auto& p) { return p.first == klass; });
+        if (it == porClase.end()) {
+            porClase.push_back({klass, {n}});
+        } else {
+            it->second.push_back(n);
+        }
+    }
+    // De la hora al año. Lo que no esté en la lista va detrás, en el orden en que apareció.
+    static const char* const kOrden[] = {"hourly", "daily", "weekly", "monthly", "yearly"};
+    const auto peso = [](const std::string& klass) {
+        for (std::size_t i = 0; i < sizeof(kOrden) / sizeof(kOrden[0]); ++i) {
+            if (klass == kOrden[i]) {
+                return static_cast<int>(i);
+            }
+        }
+        return 1000;
+    };
+    std::stable_sort(porClase.begin(), porClase.end(),
+                     [&peso](const auto& a, const auto& b) { return peso(a.first) < peso(b.first); });
+
+    std::vector<std::pair<std::string, std::vector<std::string>>> out;
+    if (!manuales.empty()) {
+        out.push_back({std::string(), manuales});
+    }
+    for (auto& p : porClase) {
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
 }  // namespace zfsmgr::base::gsa

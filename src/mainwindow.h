@@ -154,6 +154,10 @@ public:
     QStringList topLevelPoolNamesForTest(bool bottom = false) const;
     QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
     QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;
+    // Los hijos del nodo «@» EN ORDEN: primero las instantáneas manuales, después los
+    // grupos por clase. El orden es el punto que se comprueba, así que la lista no se
+    // ordena aquí.
+    QStringList snapshotTreeLabelsForDatasetForTest(const QString& datasetName) const;
     bool selectDatasetForTest(const QString& datasetName, bool bottom = false);
     bool setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom = false);
     bool isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom = false) const;
