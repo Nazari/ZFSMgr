@@ -238,25 +238,6 @@ QString findDeployableAgentBinaryPath(const QString& platformId, const QString& 
     return QString();
 }
 
-QVector<int> versionOrderingKey(const QString& version) {
-    QVector<int> out;
-    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)\\.(\\d+)(?:rc(\\d+))?(?:[.-](\\d+))?$"),
-                                QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch m = rx.match(version.trimmed());
-    if (!m.hasMatch()) {
-        return out;
-    }
-    out << m.captured(1).toInt()
-        << m.captured(2).toInt()
-        << m.captured(3).toInt();
-    if (m.captured(4).isEmpty()) {
-        out << 999999;
-    } else {
-        out << m.captured(4).toInt();
-    }
-    out << (m.captured(5).isEmpty() ? 0 : m.captured(5).toInt());
-    return out;
-}
 
 
 
