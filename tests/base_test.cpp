@@ -685,6 +685,84 @@ int main() {
         comprobar(!a.detalle.empty(), "y explica por que");
         comprobar(malo.toObject().empty(), "sin devolver nada a medias");
 
+        // --- Rotar la clave maestra.
+        //
+        // Lo que importa no es que la orden diga que si, sino que DESPUES abra todo con la
+        // nueva y nada con la vieja. Un fallo a medias aqui deja la configuracion medio
+        // cifrada, y eso no se nota hasta el arranque siguiente.
+        {
+            const std::string dirRot = "/tmp/zfsmgr-base-test-rotar";
+            std::filesystem::remove_all(dirRot);
+            namespace J = zfsmgr::base::json;
+            using zfsmgr::base::SecretCipher;
+
+            const std::string vieja = "clave-vieja";
+            const std::string nueva = "clave-nueva";
+            std::string pwCifrada;
+            std::string keyCifrada;
+            std::string err;
+            comprobar(SecretCipher::encryptEncv1("secreto-de-la-conexion", vieja, pwCifrada, err),
+                      "rotar: se prepara una contrasena cifrada con la vieja");
+            comprobar(SecretCipher::encryptEncv1("-----BEGIN KEY-----", vieja, keyCifrada, err),
+                      "rotar: y una clave TLS cifrada con la vieja");
+
+            J::Value conexion;
+            conexion.set("id", J::Value(std::string("unibody")));
+            conexion.set("name", J::Value(std::string("Unibody")));
+            conexion.set("password", J::Value(pwCifrada));
+            conexion.set("daemon_tls_client_key_pem", J::Value(keyCifrada));
+            J::Value cfg;
+            cfg.set("connections", J::Value(J::Array{conexion}));
+            ST::Aviso av;
+            comprobar(ST::escribirConfig(dirRot, cfg, av), "rotar: config de partida");
+            J::Value trustConn;
+            trustConn.set("id", J::Value(std::string("unibody")));
+            trustConn.set("daemon_tls_client_key_pem", J::Value(keyCifrada));
+            J::Value trust;
+            trust.set("connections", J::Value(J::Array{trustConn}));
+            comprobar(ST::escribirTrustStore(dirRot, trust, av), "rotar: trust-store de partida");
+
+            std::string copia;
+            comprobar(ST::rotaClaveMaestra(dirRot, vieja, nueva, copia, av) && av.vacio(),
+                      "rotar: la rotacion va bien");
+            igual(copia, ".antes-de-rotar", "rotar: dice con que sufijo dejo la copia");
+            comprobar(std::filesystem::exists(ST::rutaConfig(dirRot) + copia),
+                      "rotar: la copia de config.json esta ahi");
+            comprobar(std::filesystem::exists(ST::rutaTrustStore(dirRot) + copia),
+                      "rotar: y la del trust-store");
+
+            const auto cfgTras = ST::leerConfig(dirRot, av);
+            const J::Value& c0 = cfgTras["connections"].toArray().at(0);
+            std::string claro;
+            comprobar(SecretCipher::decryptEncv1(c0["password"].toString(), nueva, claro, err),
+                      "rotar: la contrasena abre con la NUEVA");
+            igual(claro, "secreto-de-la-conexion", "rotar: y es la de antes, no otra");
+            comprobar(!SecretCipher::decryptEncv1(c0["password"].toString(), vieja, claro, err),
+                      "rotar: y ya NO abre con la vieja");
+            comprobar(SecretCipher::decryptEncv1(c0["daemon_tls_client_key_pem"].toString(), nueva, claro, err),
+                      "rotar: el material TLS de config tambien se rotó");
+            const auto trustTras = ST::leerTrustStore(dirRot, av);
+            const J::Value& t0 = trustTras["connections"].toArray().at(0);
+            comprobar(SecretCipher::decryptEncv1(t0["daemon_tls_client_key_pem"].toString(), nueva, claro, err),
+                      "rotar: y el del almacen de confianza, que es el que se olvida");
+            igual(claro, "-----BEGIN KEY-----", "rotar: intacto");
+
+            // Una maestra nueva vacia se rechaza ANTES de tocar nada.
+            std::string copia2;
+            comprobar(!ST::rotaClaveMaestra(dirRot, nueva, "", copia2, av),
+                      "rotar: una clave nueva vacia se rechaza");
+            comprobar(av.motivo == ST::Motivo::NuevaClaveMaestraVacia, "rotar: y con su motivo");
+            comprobar(copia2.empty(), "rotar: sin dejar copia de nada");
+
+            // Con la clave vieja EQUIVOCADA no se puede descifrar, y hay que decirlo.
+            std::string copia3;
+            comprobar(!ST::rotaClaveMaestra(dirRot, "la-que-no-es", "otra", copia3, av),
+                      "rotar: con la clave actual equivocada NO se rota");
+            comprobar(av.motivo == ST::Motivo::NoSeDescifra, "rotar: y el motivo es que no descifra");
+            igual(av.conexion, "Unibody", "rotar: diciendo en qué conexión");
+            std::filesystem::remove_all(dirRot);
+        }
+
         // El almacen de confianza usa sus propios motivos, no los de config.
         {
             std::ofstream f(ST::rutaTrustStore(dir), std::ios::trunc);

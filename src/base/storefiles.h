@@ -29,4 +29,21 @@ json::Value leerTrustStore(const std::string& dirConfig, Aviso& aviso);
 bool escribirConfig(const std::string& dirConfig, const json::Value& root, Aviso& aviso);
 bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, Aviso& aviso);
 
+// Cambia la CLAVE MAESTRA: descifra con la vieja y vuelve a cifrar con la nueva TODO lo
+// que cuelga de ella, en los dos ficheros.
+//
+// No es «cambiar un valor»: de la maestra cuelgan la contraseña de cada conexión y el
+// material TLS del daemon —certificado del servidor, certificado y clave del cliente—, y
+// esto último está además en el almacén de confianza. Hacerlo a medias deja campos
+// cifrados con la clave vieja, y la sesión siguiente no abre ni las conexiones ni el TLS.
+//
+// Por eso se escribe primero una COPIA de los dos ficheros —con el sufijo que se devuelve
+// en `copiaSufijo`— y solo después se tocan. Si algo falla a mitad, el aviso dice qué
+// campo fue y las copias siguen ahí.
+//
+// Vive en la capa base, y no en la interfaz, porque el intérprete la necesita igual: era
+// la última cosa que solo se podía hacer con una ventana delante.
+bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
+                      const std::string& nueva, std::string& copiaSufijo, Aviso& aviso);
+
 }  // namespace zfsmgr::base::store

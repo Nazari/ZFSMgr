@@ -1,5 +1,7 @@
 #include "storefiles.h"
 
+#include "secretcipher.h"
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -112,6 +114,131 @@ bool escribirConfig(const std::string& dirConfig, const json::Value& root, Aviso
 
 bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, Aviso& aviso) {
     return escribirFichero(dirConfig, rutaTrustStore(dirConfig), root, Motivo::TrustNoSeEscribe, aviso);
+}
+
+namespace {
+
+// Los campos que van cifrados con la maestra, tal y como se llaman en el JSON. Están aquí
+// y no repartidos porque la rotación tiene que tocarlos TODOS: olvidar uno deja la
+// configuración medio cifrada con la clave vieja, que es la forma de romperlo sin que se
+// note hasta el arranque siguiente.
+const char* const kCamposSecretos[] = {
+    "password",
+    "daemon_tls_server_cert_pem",
+    "daemon_tls_client_cert_pem",
+    "daemon_tls_client_key_pem",
+};
+
+std::string nombreDe(const json::Value& conexion) {
+    const std::string n = conexion["name"].isString() ? conexion["name"].toString() : std::string();
+    if (!n.empty()) {
+        return n;
+    }
+    return conexion["id"].isString() ? conexion["id"].toString() : std::string("(sin nombre)");
+}
+
+// Un campo: se abre con la vieja —si estaba cifrado— y se cierra con la nueva. Un campo en
+// claro se CIFRA, que es lo que hace que una configuración a medias quede entera después.
+bool rotaCampo(json::Value& conexion, const char* campo, const std::string& vieja,
+               const std::string& nueva, Aviso& aviso) {
+    if (!conexion[campo].isString()) {
+        return true;
+    }
+    const std::string valor = conexion[campo].toString();
+    if (valor.empty()) {
+        return true;
+    }
+    std::string claro = valor;
+    if (SecretCipher::isEncrypted(valor)) {
+        std::string err;
+        if (!SecretCipher::decryptEncv1(valor, vieja, claro, err)) {
+            aviso = Aviso{Motivo::NoSeDescifra, nombreDe(conexion), campo, err};
+            return false;
+        }
+    }
+    std::string cifrado;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(claro, nueva, cifrado, err)) {
+        aviso = Aviso{Motivo::NoSeCifra, nombreDe(conexion), campo, err};
+        return false;
+    }
+    conexion.set(campo, json::Value(cifrado));
+    return true;
+}
+
+bool rotaConexiones(json::Value& raiz, const std::string& vieja, const std::string& nueva,
+                    Aviso& aviso) {
+    if (!raiz["connections"].isArray()) {
+        return true;
+    }
+    json::Array salida;
+    for (const json::Value& original : raiz["connections"].toArray()) {
+        json::Value conexion = original;
+        for (const char* campo : kCamposSecretos) {
+            if (!rotaCampo(conexion, campo, vieja, nueva, aviso)) {
+                return false;
+            }
+        }
+        salida.push_back(conexion);
+    }
+    raiz.set("connections", json::Value(salida));
+    return true;
+}
+
+}  // namespace
+
+bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
+                      const std::string& nueva, std::string& copiaSufijo, Aviso& aviso) {
+    aviso = Aviso{};
+    copiaSufijo.clear();
+    if (nueva.empty()) {
+        aviso = Aviso{Motivo::NuevaClaveMaestraVacia, {}, {}, {}};
+        return false;
+    }
+    json::Value config = leerConfig(dirConfig, aviso);
+    if (!aviso.vacio()) {
+        return false;
+    }
+    Aviso avisoTrust;
+    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.vacio()) {
+        aviso = avisoTrust;
+        return false;
+    }
+
+    // La copia va ANTES de tocar nada, y de los dos ficheros: si la rotación se parte por
+    // la mitad, lo que queda en disco no sirve ni con la clave vieja ni con la nueva.
+    copiaSufijo = ".antes-de-rotar";
+    std::error_code ec;
+    for (const std::string& ruta : {rutaConfig(dirConfig), rutaTrustStore(dirConfig)}) {
+        if (!fs::exists(ruta, ec)) {
+            continue;
+        }
+        fs::copy_file(ruta, ruta + copiaSufijo, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            aviso = Aviso{Motivo::ConfigNoSeEscribe, {}, ruta + copiaSufijo, ec.message()};
+            copiaSufijo.clear();
+            return false;
+        }
+    }
+
+    if (!rotaConexiones(config, vieja, nueva, aviso)) {
+        return false;
+    }
+    if (!rotaConexiones(trust, vieja, nueva, aviso)) {
+        return false;
+    }
+    if (!escribirConfig(dirConfig, config, aviso)) {
+        return false;
+    }
+    if (trust["connections"].isArray() && !trust["connections"].toArray().empty()) {
+        trust.set("schema", json::Value(1));
+        trust.set("created_by", json::Value(std::string("ZFSMgr")));
+        if (!escribirTrustStore(dirConfig, trust, aviso)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace zfsmgr::base::store

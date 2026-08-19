@@ -4612,6 +4612,76 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             }
             continue;
         }
+        // Cambiar la clave maestra. La rotación la hace la capa base; aquí se piden las dos
+        // claves sin que asomen por el argv y se recarga lo que la sesión tenía en memoria.
+        if (orden == "master-password") {
+            std::string vieja;
+            std::string nueva;
+            std::string err;
+            const auto opcionDe = [&an](const char* clave) {
+                const auto it = an.opciones.find(clave);
+                return it == an.opciones.end() ? std::string() : it->second;
+            };
+            const std::string fdVieja = opcionDe("old-fd");
+            const std::string fdNueva = opcionDe("new-fd");
+            if (!fdVieja.empty()) {
+                if (!leerSecretoDeDescriptor(std::atoi(fdVieja.c_str()), vieja, err)) {
+                    std::fprintf(stderr, "%s\n", err.c_str());
+                    e.ultimoRc = 2;
+                    continue;
+                }
+            } else {
+                vieja = e.ses->maestra;   // la de esta sesión: ya se comprobó al entrar
+            }
+            if (!fdNueva.empty()) {
+                if (!leerSecretoDeDescriptor(std::atoi(fdNueva.c_str()), nueva, err)) {
+                    std::fprintf(stderr, "%s\n", err.c_str());
+                    e.ultimoRc = 2;
+                    continue;
+                }
+            } else {
+                if (!hayTerminal()) {
+                    std::fputs(TC("t_mp_sin_terminal",
+                                  "sin terminal: use --new-fd para dar la contraseña nueva\n"),
+                               stderr);
+                    e.ultimoRc = 2;
+                    continue;
+                }
+                std::string otra;
+                if (!preguntarSecretoPorTerminal(T("t_mp_p1", "Contraseña maestra nueva: "), nueva, err)
+                    || !preguntarSecretoPorTerminal(T("t_mp_p2", "Repítala: "), otra, err)) {
+                    std::fprintf(stderr, "%s\n", err.c_str());
+                    e.ultimoRc = 2;
+                    continue;
+                }
+                if (nueva != otra) {
+                    std::fputs(TC("t_mp_no_coincide", "las dos no coinciden: no se ha cambiado nada\n"),
+                               stderr);
+                    e.ultimoRc = 2;
+                    continue;
+                }
+            }
+            if (nueva.empty()) {
+                std::fputs(TC("t_mp_vacia", "la contraseña maestra no puede quedar vacía\n"), stderr);
+                e.ultimoRc = 2;
+                continue;
+            }
+            std::string copia;
+            B::store::Aviso aviso;
+            if (!B::store::rotaClaveMaestra(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
+                std::fprintf(stderr, "%s\n", B::store::etiquetaDe(aviso).c_str());
+                e.ultimoRc = 1;
+                continue;
+            }
+            // La sesión sigue abierta, así que su copia de la maestra tiene que moverse con
+            // el fichero: si no, la siguiente escritura cifraría con la vieja.
+            e.ses->maestra = nueva;
+            recarga(e);
+            std::fprintf(stdout,
+                         TC("t_mp_ok", "contraseña maestra cambiada; copia de seguridad en «*%s»\n"),
+                         copia.c_str());
+            continue;
+        }
         if (orden == "pwd") {
             std::fprintf(stdout, "%s\n", textoDe(e.actual).c_str());
             continue;

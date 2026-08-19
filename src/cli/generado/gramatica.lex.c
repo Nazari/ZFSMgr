@@ -911,6 +911,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"cd", V_CD}, {"ls", V_LS}, {"pwd", V_PWD}, {"info", V_INFO},
     {"help", V_HELP}, {"exit", V_EXIT}, {"quit", V_EXIT}, {"format", V_FORMAT}, {"yes", V_YES},
     {"cls", V_CLS},
+    {"master-password", V_MASTER_PASSWORD},
     {"connect", V_CONNECT}, {"disconnect", V_DISCONNECT}, {"refresh", V_REFRESH},
     {"edit", V_EDIT}, {"devices", V_DEVICES}, {"install-daemon", V_INSTALL_DAEMON},
     {"jobs", V_JOBS}, {"job", V_JOB}, {"import", V_IMPORT},
@@ -972,7 +973,7 @@ static char* sinComillas(const char* s, int n) {
     p[j] = 0;
     return p;
 }
-#line 976 "generado/gramatica.lex.c"
+#line 977 "generado/gramatica.lex.c"
 /* `nounistd`: sin él, el analizador generado incluye <unistd.h>, y en MinGW ese arrastra
  * un <process.h> del sistema que choca con el `process.h` de la capa base —el cruce a
  * Windows fallaba con «cstdint: No such file or directory» dentro de unistd.h—. */
@@ -983,7 +984,7 @@ static char* sinComillas(const char* s, int n) {
 
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
  * `@` o `#`, o ser uno de los tres atajos de navegación. */
-#line 987 "generado/gramatica.lex.c"
+#line 988 "generado/gramatica.lex.c"
 
 #define INITIAL 0
 #define VERBO 1
@@ -1273,11 +1274,11 @@ YY_DECL
 		}
 
 	{
-#line 120 "gramatica.l"
+#line 121 "gramatica.l"
 
 
 
-#line 124 "gramatica.l"
+#line 125 "gramatica.l"
     /* Se empieza esperando el VERBO, y una sola vez.
      *
      * Con una marca explícita y no mirando `yy_start`: `INITIAL` vale 1, así que la
@@ -1292,7 +1293,7 @@ YY_DECL
     }
 
 
-#line 1296 "generado/gramatica.lex.c"
+#line 1297 "generado/gramatica.lex.c"
 
 	while ( /*CONSTCOND*/1 )		/* loops until end-of-file is reached */
 		{
@@ -1374,13 +1375,13 @@ do_action:	/* This label is used only to access EOF actions. */
 	{ /* beginning of action switch */
 case 1:
 YY_RULE_SETUP
-#line 138 "gramatica.l"
+#line 139 "gramatica.l"
 { /* separador delante del verbo */ }
 	YY_BREAK
 case 2:
 /* rule 2 can match eol */
 YY_RULE_SETUP
-#line 139 "gramatica.l"
+#line 140 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1400,13 +1401,13 @@ YY_RULE_SETUP
    * corrientes antes de que se les quitaran las comillas. */
 case 3:
 YY_RULE_SETUP
-#line 156 "gramatica.l"
+#line 157 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 4:
 /* rule 4 can match eol */
 YY_RULE_SETUP
-#line 157 "gramatica.l"
+#line 158 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1417,7 +1418,7 @@ YY_RULE_SETUP
 case 5:
 /* rule 5 can match eol */
 YY_RULE_SETUP
-#line 163 "gramatica.l"
+#line 164 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1427,13 +1428,13 @@ YY_RULE_SETUP
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 169 "gramatica.l"
+#line 170 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 7:
 /* rule 7 can match eol */
 YY_RULE_SETUP
-#line 170 "gramatica.l"
+#line 171 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1445,7 +1446,7 @@ YY_RULE_SETUP
 case 8:
 /* rule 8 can match eol */
 YY_RULE_SETUP
-#line 177 "gramatica.l"
+#line 178 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1456,32 +1457,32 @@ YY_RULE_SETUP
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 185 "gramatica.l"
+#line 186 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 187 "gramatica.l"
+#line 188 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_START; }
 	YY_BREAK
 case 11:
 YY_RULE_SETUP
-#line 188 "gramatica.l"
+#line 189 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_STOP; }
 	YY_BREAK
 case 12:
 YY_RULE_SETUP
-#line 189 "gramatica.l"
+#line 190 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_CANCEL; }
 	YY_BREAK
 case 13:
 YY_RULE_SETUP
-#line 190 "gramatica.l"
+#line 191 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_PAUSE; }
 	YY_BREAK
 case 14:
 YY_RULE_SETUP
-#line 191 "gramatica.l"
+#line 192 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_SUSPEND; }
 	YY_BREAK
 /* Las OPCIONES no pasan por la gramática: se anotan aquí. Su posición no significa nada
@@ -1490,7 +1491,7 @@ YY_RULE_SETUP
    * snapshot` no se analizaba. */
 case 15:
 YY_RULE_SETUP
-#line 197 "gramatica.l"
+#line 198 "gramatica.l"
 {
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext + 2, yyleng - 2);
@@ -1506,7 +1507,7 @@ YY_RULE_SETUP
 case 16:
 /* rule 16 can match eol */
 YY_RULE_SETUP
-#line 208 "gramatica.l"
+#line 209 "gramatica.l"
 {
                     /* `-o ashift=12`: opción corta CON valor, repetible. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
@@ -1516,7 +1517,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 214 "gramatica.l"
+#line 215 "gramatica.l"
 {
                     /* Una bandera corta también puede llevar valor —`import -d /dev`,
                      * `trim -r 100M`—: lo dicen las banderas nativas declaradas para ese
@@ -1539,44 +1540,44 @@ YY_RULE_SETUP
 case 18:
 /* rule 18 can match eol */
 YY_RULE_SETUP
-#line 232 "gramatica.l"
+#line 233 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 19:
 /* rule 19 can match eol */
 YY_RULE_SETUP
-#line 233 "gramatica.l"
+#line 234 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 20:
 /* rule 20 can match eol */
 YY_RULE_SETUP
-#line 235 "gramatica.l"
+#line 236 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 21:
 /* rule 21 can match eol */
 YY_RULE_SETUP
-#line 236 "gramatica.l"
+#line 237 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 22:
 /* rule 22 can match eol */
 YY_RULE_SETUP
-#line 238 "gramatica.l"
+#line 239 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 23:
 YY_RULE_SETUP
-#line 240 "gramatica.l"
+#line 241 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 24:
 YY_RULE_SETUP
-#line 242 "gramatica.l"
+#line 243 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 1580 "generado/gramatica.lex.c"
+#line 1581 "generado/gramatica.lex.c"
 			case YY_STATE_EOF(INITIAL):
 			case YY_STATE_EOF(VERBO):
 			case YY_STATE_EOF(VALOR):
@@ -2695,6 +2696,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 242 "gramatica.l"
+#line 243 "gramatica.l"
 
 

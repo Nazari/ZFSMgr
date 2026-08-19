@@ -702,6 +702,20 @@ const std::vector<Orden> kOrdenes = {
      {}, {{"t_cls_det", "Se llama «cls» y no «clear» porque `clear` ya existe y es la del pool: pone a "
       "cero sus contadores de error. Escribir `clear` esperando limpiar el terminal es "
       "fácil y no era inocuo, así que aquélla pregunta antes."}}},
+    {"master-password", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_mp_uso", "[--old-fd <n>] [--new-fd <n>]"},
+     {"t_mp_res", "Cambia la contraseña maestra que cifra la configuración."},
+     {{{"t_mp_old", "--old-fd <n>"}, {"t_mp_old_q", "La actual, por descriptor."}},
+      {{"t_mp_new", "--new-fd <n>"}, {"t_mp_new_q", "La nueva, por descriptor. Sin ellas se teclean, y la nueva se pide dos veces."}}},
+     {{"t_mp_det", "No cambia UN valor: de la maestra cuelgan la contraseña de cada conexión y el "
+       "material TLS del daemon —certificado del servidor, certificado y clave del cliente—, "
+       "que además está repetido en el almacén de confianza. Se descifra todo con la vieja y "
+       "se vuelve a cifrar con la nueva, y antes de tocar nada se deja una copia de los dos "
+       "ficheros con el sufijo «.antes-de-rotar»: si algo falla a mitad, lo que queda en "
+       "disco no serviría ni con una clave ni con la otra."},
+      {"t_mp_det2", "Ninguna de las dos viaja por argumento: se teclean sin eco o se pasan por "
+       "descriptor. Al terminar, la sesión sigue abierta con la nueva."}},
+     Objetivo::Ninguno,
+     {}},
     {"yes", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_on_off_14009f", "[on|off]"},
      {"t_deja_de_pr_b69a39", "Deja de preguntar antes de lo destructivo, o vuelve a hacerlo."}, {}, {}},
     {"help", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_orden_f088c5", "[orden]"},

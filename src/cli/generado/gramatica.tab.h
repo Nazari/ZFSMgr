@@ -86,58 +86,59 @@ extern int zfsmclidebug;
     V_FORMAT = 273,                /* V_FORMAT  */
     V_YES = 274,                   /* V_YES  */
     V_CLS = 275,                   /* V_CLS  */
-    V_CONNECT = 276,               /* V_CONNECT  */
-    V_DISCONNECT = 277,            /* V_DISCONNECT  */
-    V_REFRESH = 278,               /* V_REFRESH  */
-    V_EDIT = 279,                  /* V_EDIT  */
-    V_DEVICES = 280,               /* V_DEVICES  */
-    V_INSTALL_DAEMON = 281,        /* V_INSTALL_DAEMON  */
-    V_JOBS = 282,                  /* V_JOBS  */
-    V_JOB = 283,                   /* V_JOB  */
-    V_IMPORT = 284,                /* V_IMPORT  */
-    V_FLUSH = 285,                 /* V_FLUSH  */
-    V_UPGRADE = 286,               /* V_UPGRADE  */
-    V_REGUID = 287,                /* V_REGUID  */
-    V_EXPORT = 288,                /* V_EXPORT  */
-    V_STATUS = 289,                /* V_STATUS  */
-    V_HISTORY = 290,               /* V_HISTORY  */
-    V_SCRUB = 291,                 /* V_SCRUB  */
-    V_TRIM = 292,                  /* V_TRIM  */
-    V_INITIALIZE = 293,            /* V_INITIALIZE  */
-    V_CLEAR = 294,                 /* V_CLEAR  */
-    V_CREATE = 295,                /* V_CREATE  */
-    V_DESTROY = 296,               /* V_DESTROY  */
-    V_RENAME = 297,                /* V_RENAME  */
-    V_MOUNT = 298,                 /* V_MOUNT  */
-    V_UNMOUNT = 299,               /* V_UNMOUNT  */
-    V_PROMOTE = 300,               /* V_PROMOTE  */
-    V_GET = 301,                   /* V_GET  */
-    V_SET = 302,                   /* V_SET  */
-    V_LOAD_KEY = 303,              /* V_LOAD_KEY  */
-    V_UNLOAD_KEY = 304,            /* V_UNLOAD_KEY  */
-    V_CHANGE_KEY = 305,            /* V_CHANGE_KEY  */
-    V_SCHEDULE = 306,              /* V_SCHEDULE  */
-    V_SCHEDULES = 307,             /* V_SCHEDULES  */
-    V_LOG = 308,                   /* V_LOG  */
-    V_PEERS = 309,                 /* V_PEERS  */
-    V_REPAIR_MOUNTS = 310,         /* V_REPAIR_MOUNTS  */
-    V_AUTHORIZE_KEY = 311,         /* V_AUTHORIZE_KEY  */
-    V_EXPORT_TRUST = 312,          /* V_EXPORT_TRUST  */
-    V_ROLLBACK = 313,              /* V_ROLLBACK  */
-    V_HOLDS = 314,                 /* V_HOLDS  */
-    V_HOLD = 315,                  /* V_HOLD  */
-    V_RELEASE = 316,               /* V_RELEASE  */
-    V_CLONE = 317,                 /* V_CLONE  */
-    V_DIFF = 318,                  /* V_DIFF  */
-    V_COPY = 319,                  /* V_COPY  */
-    V_ALLOW = 320,                 /* V_ALLOW  */
-    V_UNALLOW = 321,               /* V_UNALLOW  */
-    V_BREAKDOWN = 322,             /* V_BREAKDOWN  */
-    V_ASSEMBLE = 323,              /* V_ASSEMBLE  */
-    V_TODIR = 324,                 /* V_TODIR  */
-    V_FROMDIR = 325,               /* V_FROMDIR  */
-    V_RSYNC = 326,                 /* V_RSYNC  */
-    V_DESCONOCIDO = 327            /* V_DESCONOCIDO  */
+    V_MASTER_PASSWORD = 276,       /* V_MASTER_PASSWORD  */
+    V_CONNECT = 277,               /* V_CONNECT  */
+    V_DISCONNECT = 278,            /* V_DISCONNECT  */
+    V_REFRESH = 279,               /* V_REFRESH  */
+    V_EDIT = 280,                  /* V_EDIT  */
+    V_DEVICES = 281,               /* V_DEVICES  */
+    V_INSTALL_DAEMON = 282,        /* V_INSTALL_DAEMON  */
+    V_JOBS = 283,                  /* V_JOBS  */
+    V_JOB = 284,                   /* V_JOB  */
+    V_IMPORT = 285,                /* V_IMPORT  */
+    V_FLUSH = 286,                 /* V_FLUSH  */
+    V_UPGRADE = 287,               /* V_UPGRADE  */
+    V_REGUID = 288,                /* V_REGUID  */
+    V_EXPORT = 289,                /* V_EXPORT  */
+    V_STATUS = 290,                /* V_STATUS  */
+    V_HISTORY = 291,               /* V_HISTORY  */
+    V_SCRUB = 292,                 /* V_SCRUB  */
+    V_TRIM = 293,                  /* V_TRIM  */
+    V_INITIALIZE = 294,            /* V_INITIALIZE  */
+    V_CLEAR = 295,                 /* V_CLEAR  */
+    V_CREATE = 296,                /* V_CREATE  */
+    V_DESTROY = 297,               /* V_DESTROY  */
+    V_RENAME = 298,                /* V_RENAME  */
+    V_MOUNT = 299,                 /* V_MOUNT  */
+    V_UNMOUNT = 300,               /* V_UNMOUNT  */
+    V_PROMOTE = 301,               /* V_PROMOTE  */
+    V_GET = 302,                   /* V_GET  */
+    V_SET = 303,                   /* V_SET  */
+    V_LOAD_KEY = 304,              /* V_LOAD_KEY  */
+    V_UNLOAD_KEY = 305,            /* V_UNLOAD_KEY  */
+    V_CHANGE_KEY = 306,            /* V_CHANGE_KEY  */
+    V_SCHEDULE = 307,              /* V_SCHEDULE  */
+    V_SCHEDULES = 308,             /* V_SCHEDULES  */
+    V_LOG = 309,                   /* V_LOG  */
+    V_PEERS = 310,                 /* V_PEERS  */
+    V_REPAIR_MOUNTS = 311,         /* V_REPAIR_MOUNTS  */
+    V_AUTHORIZE_KEY = 312,         /* V_AUTHORIZE_KEY  */
+    V_EXPORT_TRUST = 313,          /* V_EXPORT_TRUST  */
+    V_ROLLBACK = 314,              /* V_ROLLBACK  */
+    V_HOLDS = 315,                 /* V_HOLDS  */
+    V_HOLD = 316,                  /* V_HOLD  */
+    V_RELEASE = 317,               /* V_RELEASE  */
+    V_CLONE = 318,                 /* V_CLONE  */
+    V_DIFF = 319,                  /* V_DIFF  */
+    V_COPY = 320,                  /* V_COPY  */
+    V_ALLOW = 321,                 /* V_ALLOW  */
+    V_UNALLOW = 322,               /* V_UNALLOW  */
+    V_BREAKDOWN = 323,             /* V_BREAKDOWN  */
+    V_ASSEMBLE = 324,              /* V_ASSEMBLE  */
+    V_TODIR = 325,                 /* V_TODIR  */
+    V_FROMDIR = 326,               /* V_FROMDIR  */
+    V_RSYNC = 327,                 /* V_RSYNC  */
+    V_DESCONOCIDO = 328            /* V_DESCONOCIDO  */
   };
   typedef enum zfsmclitokentype zfsmclitoken_kind_t;
 #endif
@@ -150,7 +151,7 @@ union ZFSMCLISTYPE
 
     char* texto;
 
-#line 154 "generado/gramatica.tab.h"
+#line 155 "generado/gramatica.tab.h"
 
 };
 typedef union ZFSMCLISTYPE ZFSMCLISTYPE;
@@ -169,6 +170,6 @@ int zfsmcliparse (void* scanner, AnalisisCli* res);
 int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
-#line 173 "generado/gramatica.tab.h"
+#line 174 "generado/gramatica.tab.h"
 
 #endif /* !YY_ZFSMCLI_GENERADO_GRAMATICA_TAB_H_INCLUDED  */

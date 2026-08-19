@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # Sin declararlo, CMake compilaba esos ficheros como C++ y sus símbolos no casaban con las
 # declaraciones `extern "C"` del lado C++ —el enlazado fallaba con «referencia sin definir»
 # sobre funciones que estaban ahí mismo—.
-project(ZFSMgrQt VERSION 0.93.0 LANGUAGES C CXX)
+project(ZFSMgrQt VERSION 0.93.1 LANGUAGES C CXX)
 include(CTest)
 
 # Un `switch` sobre un enum al que le falte un caso es un ERROR, no un aviso.
@@ -23,7 +23,7 @@ else()
     add_compile_options(-Werror=switch)
 endif()
 
-set(ZFSMGR_APP_VERSION_STRING "0.93.0")
+set(ZFSMGR_APP_VERSION_STRING "0.93.1")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
 string(SUBSTRING "${ZFSMGR_GSA_SOURCE_SHA}" 0 9 ZFSMGR_GSA_VERSION_SUFFIX)
@@ -120,6 +120,7 @@ add_library(zfsmgr_base STATIC
     ../src/base/refreshparse.cpp
     ../src/base/refreshparse.h
     ../src/base/storefiles.cpp
+    ../src/base/storewarnings.cpp
     ../src/base/storefiles.h
     ../src/base/storewarnings.h
     ../src/base/connectionjson.cpp

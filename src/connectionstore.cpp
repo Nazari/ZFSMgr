@@ -1058,141 +1058,22 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
 }
 
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
+    // La rotación la hace la CAPA BASE. Aquí solo se traduce el aviso.
+    //
+    // Estaban las dos: 138 líneas en este fichero, con Qt, y el intérprete sin poder
+    // cambiar la clave maestra porque no enlaza Qt. Dos implementaciones de esto habrían
+    // sido dos formas distintas de dejar la configuración a medio cifrar. Y allí, además,
+    // se puede comprobar sin arrancar una ventana.
     error.clear();
-    if (newMasterPassword.isEmpty()) {
-        error = aviso(BS::Motivo::NuevaClaveMaestraVacia);
-        return false;
+    std::string copiaSufijo;
+    zfsmgr::base::store::Aviso aviso;
+    if (zfsmgr::base::store::rotaClaveMaestra(configDir().toStdString(),
+                                              oldMasterPassword.toStdString(),
+                                              newMasterPassword.toStdString(),
+                                              copiaSufijo, aviso)) {
+        m_masterPassword = newMasterPassword;
+        return true;
     }
-    QString loadErr;
-    QJsonObject root = loadConfigJson(&loadErr);
-    if (!loadErr.isEmpty()) {
-        error = loadErr;
-        return false;
-    }
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    for (int i = 0; i < connections.size(); ++i) {
-        ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
-        const QString current = p.password;
-        QString plain = current;
-        if (!current.isEmpty() && SecretCipher::isEncrypted(current)) {
-            QString decErr;
-            if (!SecretCipher::decryptEncv1(current, oldMasterPassword, plain, decErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
-                return false;
-            }
-        }
-        if (!plain.isEmpty()) {
-            QString encErr;
-            QString encrypted;
-            if (!SecretCipher::encryptEncv1(plain, newMasterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            p.password = encrypted;
-            connections[i] = connectionToJson(p);
-        }
-
-        auto rotateField = [&](QString& value) -> bool {
-            if (value.isEmpty()) {
-                return true;
-            }
-            QString plainField = value;
-            if (SecretCipher::isEncrypted(value)) {
-                QString decErr;
-                if (!SecretCipher::decryptEncv1(value, oldMasterPassword, plainField, decErr)) {
-                    error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
-                    return false;
-                }
-            }
-            QString encErr;
-            QString encryptedField;
-            if (!SecretCipher::encryptEncv1(plainField, newMasterPassword, encryptedField, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            value = encryptedField;
-            return true;
-        };
-        bool tlsTouched = false;
-        QString server = p.daemonTlsServerCertPem;
-        QString clientCert = p.daemonTlsClientCertPem;
-        QString clientKey = p.daemonTlsClientKeyPem;
-        if (!server.isEmpty()) {
-            if (!rotateField(server)) {
-                return false;
-            }
-            tlsTouched = true;
-        }
-        if (!clientCert.isEmpty()) {
-            if (!rotateField(clientCert)) {
-                return false;
-            }
-            tlsTouched = true;
-        }
-        if (!clientKey.isEmpty()) {
-            if (!rotateField(clientKey)) {
-                return false;
-            }
-            tlsTouched = true;
-        }
-        if (tlsTouched) {
-            p.daemonTlsServerCertPem = server;
-            p.daemonTlsClientCertPem = clientCert;
-            p.daemonTlsClientKeyPem = clientKey;
-            connections[i] = connectionToJson(p);
-        }
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    if (!saveConfigJson(root, &error)) {
-        return false;
-    }
-    QString trustErr;
-    QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
-    if (!trustErr.isEmpty()) {
-        error = trustErr;
-        return false;
-    }
-    QJsonArray trustConnections = trustRoot.value(QStringLiteral("connections")).toArray();
-    bool trustTouched = false;
-    for (int i = 0; i < trustConnections.size(); ++i) {
-        ConnectionProfile p = connectionFromJson(trustConnections.at(i).toObject());
-        auto rotateField = [&](QString& value) -> bool {
-            if (value.isEmpty()) {
-                return true;
-            }
-            QString plainField = value;
-            if (SecretCipher::isEncrypted(value)) {
-                QString decErr;
-                if (!SecretCipher::decryptEncv1(value, oldMasterPassword, plainField, decErr)) {
-                    error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
-                    return false;
-                }
-            }
-            QString encErr;
-            QString encryptedField;
-            if (!SecretCipher::encryptEncv1(plainField, newMasterPassword, encryptedField, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            value = encryptedField;
-            return true;
-        };
-        if (!rotateField(p.daemonTlsServerCertPem)
-            || !rotateField(p.daemonTlsClientCertPem)
-            || !rotateField(p.daemonTlsClientKeyPem)) {
-            return false;
-        }
-        trustConnections[i] = connectionTrustToJson(p);
-        trustTouched = true;
-    }
-    if (trustTouched) {
-        trustRoot.insert(QStringLiteral("schema"), 1);
-        trustRoot.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
-        trustRoot.insert(QStringLiteral("connections"), trustConnections);
-        if (!saveTrustStoreJson(trustRoot, &error)) {
-            return false;
-        }
-    }
-    m_masterPassword = newMasterPassword;
-    return true;
+    error = traduce(aviso);
+    return false;
 }
