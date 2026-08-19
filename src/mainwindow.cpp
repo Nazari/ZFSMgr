@@ -441,8 +441,13 @@ void MainWindow::setShowInlineGsaNodeForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
-void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
-    m_showAutomaticGsaSnapshots = visible;
+// Este gancho ya no conmuta nada, y hay que decirlo aquí: el interruptor que escribía
+// —m_showAutomaticGsaSnapshots— no lo leía nadie, porque showAutomaticSnapshots() devuelve
+// `true` fijo desde el refactor del árbol unificado. O sea que llamarlo con `false` nunca
+// ocultó una instantánea. La única prueba que dependía de ello está en QSKIP desde
+// entonces. Se conserva la firma para no tocar las llamadas mientras se decide si la
+// función vuelve o se retira entera.
+void MainWindow::setShowAutomaticSnapshotsForTest(bool /*visible*/) {
     rebuildConnectionDetailsForTest();
 }
 

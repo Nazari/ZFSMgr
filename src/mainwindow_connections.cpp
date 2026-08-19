@@ -2629,7 +2629,6 @@ void MainWindow::rebuildConnectionsTable() {
             || isConnectionDisconnected(m_topDetailConnIdx)) {
             m_topDetailConnIdx = firstConnectedIndex();
         }
-        m_bottomDetailConnIdx = -1;
         m_connSelectorDefaultsInitialized = true;
     } else {
         if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_conns.profiles.size()

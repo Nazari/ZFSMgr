@@ -1991,7 +1991,6 @@ void MainWindow::buildUi() {
     const int stdLeftBtnH = 34;
     m_poolMgmtBox = nullptr;
 
-    m_connectionsTable = nullptr;
     updateConnectivityMatrixButtonState();
 
     // La caja «Acciones» ya no existe. Contenía la rejilla de seis botones de
@@ -2286,10 +2285,6 @@ void MainWindow::buildUi() {
         ? (m_btnApplyConnContentProps->sizeHint().height() * 2) + 28
         : 96;
 
-    m_btnAdvancedBreakdown = nullptr;
-    m_btnAdvancedAssemble = nullptr;
-    m_btnAdvancedFromDir = nullptr;
-    m_btnAdvancedToDir = nullptr;
 
     leftLayout->addWidget(connectionsTab, 1);
 
@@ -2423,7 +2418,6 @@ void MainWindow::buildUi() {
     topTreeConfig.groupPoolsByConnectionRoots = true;
     m_topDatasetTreeWidget = new ConnectionDatasetTreeWidget(topTreeConfig, m_topConnContentDelegate, m_connContentPage);
     m_topDatasetPane = m_topDatasetTreeWidget->pane();
-    m_topConnContentCoordinator = m_topDatasetTreeWidget->coordinator();
     m_connContentTree = m_topDatasetTreeWidget->tree();
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
     // Las acciones se exponen por menú contextual del árbol.
@@ -2440,11 +2434,7 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->addWidget(entityFrame, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
-    delete m_bottomConnContentDelegate;
-    m_bottomConnContentDelegate = nullptr;
     m_bottomDatasetTreeWidget = nullptr;
-    m_bottomDatasetPane = nullptr;
-    m_bottomConnContentCoordinator = nullptr;
     m_bottomConnContentTree = nullptr;
     // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
     // incluso cuando uno de ellos esté vacío.

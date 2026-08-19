@@ -1136,7 +1136,6 @@ private:
     // el invariante vive en el propio registro. Ver connectionregistry.h.
     ConnectionRegistry m_conns;
 
-    QTableWidget* m_connectionsTable{nullptr};
     QAction* m_connectivityMatrixAction{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
@@ -1152,7 +1151,6 @@ private:
     DatasetSelectionContext m_transferSelectionOverrideDest;
 
     QWidget* m_poolDetailTabs{nullptr};
-    bool m_updatingConnectionEntityTabs{false};
     QString m_lastConnectionSelectionKey;
     QWidget* m_connPropsGroup{nullptr};
     QSplitter* m_topMainSplit{nullptr};
@@ -1165,7 +1163,6 @@ private:
     ConnectionDatasetTreeWidget* m_topDatasetTreeWidget{nullptr};
     ConnectionDatasetTreePane* m_topDatasetPane{nullptr};
     MainWindowConnectionDatasetTreeDelegate* m_topConnContentDelegate{nullptr};
-    ConnectionDatasetTreeCoordinator* m_topConnContentCoordinator{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QString m_connContentToken;
@@ -1178,25 +1175,14 @@ private:
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
     QString m_splitTreeLayoutState;
-    QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
-    QMap<int, QString> m_savedBottomSelectedKeyByConn;
     int m_forceRestoreTopStateConnIdx{-1};
-    int m_forceRestoreBottomStateConnIdx{-1};
-    QMap<int, QSet<QString>> m_pendingBottomExpandedKeysByConn;
-    QMap<int, QString> m_pendingBottomSelectedKeyByConn;
     QString m_userSelectedConnectionKey;
     QString m_persistedTopDetailConnectionKey;
     QString m_persistedBottomDetailConnectionKey;
     int m_topDetailConnIdx{-1};
-    int m_bottomDetailConnIdx{-1};
     bool m_connSelectorDefaultsInitialized{false};
-    bool m_syncConnSelectorChecks{false};
     bool m_rebuildingTopConnContentTree{false};
-    bool m_rebuildingBottomConnContentTree{false};
     ConnectionDatasetTreeWidget* m_bottomDatasetTreeWidget{nullptr};
-    ConnectionDatasetTreePane* m_bottomDatasetPane{nullptr};
-    MainWindowConnectionDatasetTreeDelegate* m_bottomConnContentDelegate{nullptr};
-    ConnectionDatasetTreeCoordinator* m_bottomConnContentCoordinator{nullptr};
     QTreeWidget* m_bottomConnContentTree{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
@@ -1207,10 +1193,6 @@ private:
     QStackedWidget* m_rightStack{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
     QPushButton* m_btnDiscardPendingChanges{nullptr};
-    QPushButton* m_btnAdvancedBreakdown{nullptr};
-    QPushButton* m_btnAdvancedAssemble{nullptr};
-    QPushButton* m_btnAdvancedFromDir{nullptr};
-    QPushButton* m_btnAdvancedToDir{nullptr};
 
     QTextEdit* m_statusText{nullptr};
     QTextEdit* m_lastDetailText{nullptr};
@@ -1294,8 +1276,6 @@ private:
     bool m_showInlineGsaNodeTop{true};
     bool m_showInlineGsaNodeBottom{true};
     bool m_showPoolInfoNodeTop{true};
-    bool m_showPoolInfoNodeBottom{true};
-    bool m_showAutomaticGsaSnapshots{true};
     int m_connPropColumnsSetting{7};
     bool m_pendingChangeActivationInProgress{false};
     QStringList m_datasetInlinePropsOrder;
@@ -1362,9 +1342,7 @@ private:
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
     bool m_busyOnImportRefresh{false};
-    QPushButton* m_activeConnActionBtn{nullptr};
     QAction* m_confirmActionsMenuAction{nullptr};
-    QString m_activeConnActionName;
     bool m_syncingConnContentColumns{false};
     QSet<QString> m_poolDetailsLoadsInFlight;
     QSet<QString> m_poolAutoSnapshotLoadsInFlight;

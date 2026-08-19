@@ -298,7 +298,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
     if (!locked) {
-        m_activeConnActionName.clear();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails(false, false);
         updatePoolManagementBoxTitle();

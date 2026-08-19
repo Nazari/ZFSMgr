@@ -159,7 +159,6 @@ void MainWindow::loadUiSettings() {
     m_showInlineGsaNodeBottom =
         appObj.value(QStringLiteral("show_inline_gsa_node_bottom")).toBool(legacyShowInlineGsaNode);
     m_showPoolInfoNodeTop = true;
-    m_showPoolInfoNodeBottom = true;
     m_connPropColumnsSetting = appObj.value(QStringLiteral("conn_prop_columns")).toInt(4);
     m_persistedTopDetailConnectionKey =
         appObj.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
