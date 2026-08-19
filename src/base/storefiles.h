@@ -66,6 +66,36 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
 bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
                   const std::string& maestra, Aviso& aviso);
 
+// Guarda en el almacén de confianza el material TLS negociado con una máquina.
+//
+// Lo escriben los dos: la interfaz al crear o editar una conexión, y el intérprete cada
+// vez que el transporte negocia con un daemon. Sin clave maestra NO se guarda: dejar la
+// clave privada del cliente legible en disco para ahorrarse una lectura por SSH es un mal
+// cambio, y las dos mitades ya aplicaban esa regla por su cuenta.
+//
+// Las conexiones LOCALES no van al almacén, y las que no traigan material tampoco: no hay
+// nada que fijar.
+bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p,
+                        const std::string& maestra, Aviso& aviso);
+
+// Cifra lo que haya quedado EN CLARO en los dos ficheros. Lo ya cifrado no se toca —no se
+// sabe con qué clave está, y volver a cifrarlo exigiría abrirlo primero—.
+//
+// Es la migración de una configuración que se escribió sin clave maestra, o de un campo
+// que se coló en claro. No lleva copia de seguridad como la rotación: aquí no hay nada que
+// perder, porque lo único que cambia es de legible a ilegible.
+bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, Aviso& aviso);
+
+// Quita una conexión de los DOS ficheros.
+//
+// De los dos, y esta es la razón: desde que una entrada del almacén de confianza sin
+// conexión que le corresponda se convierte en conexión, dejar la suya atrás no es
+// suciedad — es que la conexión RESUCITA en el siguiente arranque. Comprobado: borrando
+// «oldlau» en el intérprete desaparecía de config.json y volvía a la lista al reabrir.
+//
+// Devuelve false solo si no había ninguna con ese identificador o si no se pudo escribir.
+bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& aviso);
+
 // ¿Hay ALGO cifrado en los dos ficheros? Si no lo hay, pedir la contraseña maestra es
 // fricción sin motivo, y esa es la clase de fricción que acaba con la contraseña escrita
 // en un alias del intérprete de órdenes.

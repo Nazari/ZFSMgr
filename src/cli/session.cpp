@@ -272,54 +272,22 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
             }
             return false;
         }
-        ST::Aviso aviso;
-        auto root = ST::leerTrustStore(raw->dirConfig, aviso);
         B::ConnectionProfile guardado = p;
         guardado.daemonTlsServerCertPem = srv;
         guardado.daemonTlsClientCertPem = cli;
         guardado.daemonTlsClientKeyPem = key;
         guardado.daemonTlsPort = puerto;
-        // Cifrado con la misma contraseña maestra que usa la interfaz. Sin ella NO se
-        // guarda en claro: dejar certificados y clave privada legibles en disco para
-        // ahorrarse una lectura por SSH es un mal cambio.
-        if (raw->maestra.empty()) {
+        // Cifrar y escribir lo hace la capa base, que es donde lo hace también la
+        // interfaz. Sin contraseña maestra NO se guarda en claro: dejar certificados y
+        // clave privada legibles en disco para ahorrarse una lectura por SSH es un mal
+        // cambio, y esa regla ya estaba en las dos por separado.
+        ST::Aviso aviso;
+        if (!ST::guardaTlsEnAlmacen(raw->dirConfig, guardado, raw->maestra, aviso)) {
             if (errorOut) {
-                *errorOut = T("t_tls_sin_maestra", "sin contraseña maestra no se guarda el material TLS en claro");
-            }
-            return false;
-        }
-        std::string err;
-        for (std::string* campo : {&guardado.daemonTlsServerCertPem, &guardado.daemonTlsClientCertPem,
-                                   &guardado.daemonTlsClientKeyPem}) {
-            std::string cifrado;
-            if (!B::SecretCipher::encryptEncv1(*campo, raw->maestra, cifrado, err)) {
-                if (errorOut) {
-                    *errorOut = "no se pudo cifrar el material TLS: " + err;
-                }
-                return false;
-            }
-            *campo = cifrado;
-        }
-        auto arr = root["connections"].toArray();
-        B::json::Array salida;
-        bool sustituido = false;
-        for (const auto& v : arr) {
-            const auto existente = CJ::connectionFromJson(v, std::string());
-            if (B::toLowerAscii(existente.id) == B::toLowerAscii(p.id)) {
-                salida.push_back(CJ::connectionTrustToJson(guardado, std::string()));
-                sustituido = true;
-            } else {
-                salida.push_back(v);
-            }
-        }
-        if (!sustituido) {
-            salida.push_back(CJ::connectionTrustToJson(guardado, std::string()));
-        }
-        root.set("connections", B::json::Value(std::move(salida)));
-        ST::Aviso avisoEscritura;
-        if (!ST::escribirTrustStore(raw->dirConfig, root, avisoEscritura)) {
-            if (errorOut) {
-                *errorOut = T("t_no_escribe_trust", "no se pudo escribir trust-store.json");
+                *errorOut = aviso.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar
+                                ? T("t_tls_sin_maestra",
+                                    "sin contraseña maestra no se guarda el material TLS en claro")
+                                : ST::etiquetaDe(aviso);
             }
             return false;
         }
@@ -532,26 +500,15 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
 
 bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
     error.clear();
+    // Quitarla de los DOS ficheros lo hace la capa base. Aquí se quitaba solo de
+    // `config.json`, y su entrada del almacén de confianza se quedaba: desde que una
+    // entrada huérfana se convierte en conexión, eso significaba que la conexión borrada
+    // VOLVÍA a la lista en el siguiente arranque.
     ST::Aviso aviso;
-    auto root = ST::leerConfig(s.dirConfig, aviso);
-    B::json::Array salida;
-    bool encontrada = false;
-    for (const auto& v : root["connections"].toArray()) {
-        const auto existente = CJ::connectionFromJson(v, std::string());
-        if (B::toLowerAscii(existente.id) == B::toLowerAscii(B::trim(id))) {
-            encontrada = true;
-            continue;
-        }
-        salida.push_back(v);
-    }
-    if (!encontrada) {
-        error = B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id});
-        return false;
-    }
-    root.set("connections", B::json::Value(std::move(salida)));
-    ST::Aviso avisoEscritura;
-    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
-        error = T("t_no_escribe_config", "no se pudo escribir config.json");
+    if (!ST::borraPerfil(s.dirConfig, id, aviso)) {
+        error = aviso.motivo == ST::Motivo::NoSeGuardaConexion
+                    ? B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id})
+                    : ST::etiquetaDe(aviso);
         return false;
     }
     return true;

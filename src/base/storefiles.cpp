@@ -388,6 +388,144 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
     return escribirTrustStore(dirConfig, trust, aviso);
 }
 
+bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p,
+                        const std::string& maestra, Aviso& aviso) {
+    aviso = Aviso{};
+    if (trim(p.id).empty() || connjson::isLocalProfile(p) || !connjson::profileHasDaemonTls(p)) {
+        return true;   // nada que fijar
+    }
+    ConnectionProfile guardado = p;
+    if (!cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
+        || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
+        || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
+        aviso.conexion = !p.name.empty() ? p.name : p.id;
+        return false;
+    }
+    json::Value trust = leerTrustStore(dirConfig, aviso);
+    if (!aviso.vacio()) {
+        return false;
+    }
+    json::Array salida;
+    bool sustituida = false;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        const ConnectionProfile t = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(t.id)) == toLowerAscii(trim(guardado.id))) {
+            salida.push_back(connjson::connectionTrustToJson(guardado, std::string()));
+            sustituida = true;
+        } else {
+            salida.push_back(v);
+        }
+    }
+    if (!sustituida) {
+        salida.push_back(connjson::connectionTrustToJson(guardado, std::string()));
+    }
+    trust.set("schema", json::Value(1));
+    trust.set("created_by", json::Value(std::string("ZFSMgr")));
+    trust.set("connections", json::Value(salida));
+    return escribirTrustStore(dirConfig, trust, aviso);
+}
+
+bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, Aviso& aviso) {
+    aviso = Aviso{};
+    if (maestra.empty()) {
+        aviso = Aviso{Motivo::ClaveMaestraRequerida, {}, {}, {}};
+        return false;
+    }
+    for (int cual = 0; cual < 2; ++cual) {
+        json::Value raiz = (cual == 0) ? leerConfig(dirConfig, aviso) : leerTrustStore(dirConfig, aviso);
+        if (!aviso.vacio()) {
+            return false;
+        }
+        json::Array salida;
+        bool tocado = false;
+        for (const json::Value& v : raiz["connections"].toArray()) {
+            json::Value conexion = v;
+            for (const char* campo : kCamposSecretos) {
+                if (!conexion[campo].isString()) {
+                    continue;
+                }
+                const std::string valor = conexion[campo].toString();
+                if (valor.empty() || SecretCipher::isEncrypted(valor)) {
+                    continue;
+                }
+                std::string cifrado;
+                std::string err;
+                if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
+                    aviso = Aviso{Motivo::NoSeCifra, nombreDe(conexion), campo, err};
+                    return false;
+                }
+                conexion.set(campo, json::Value(cifrado));
+                tocado = true;
+            }
+            salida.push_back(conexion);
+        }
+        if (!tocado) {
+            continue;   // nada en claro: no se reescribe el fichero por gusto
+        }
+        raiz.set("connections", json::Value(salida));
+        const bool ok = (cual == 0) ? escribirConfig(dirConfig, raiz, aviso)
+                                    : escribirTrustStore(dirConfig, raiz, aviso);
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& aviso) {
+    aviso = Aviso{};
+    const std::string buscado = toLowerAscii(trim(id));
+    if (buscado.empty()) {
+        aviso = Aviso{Motivo::IdVacio, {}, {}, {}};
+        return false;
+    }
+    json::Value root = leerConfig(dirConfig, aviso);
+    if (!aviso.vacio()) {
+        return false;
+    }
+    json::Array salida;
+    bool encontrada = false;
+    for (const json::Value& v : root["connections"].toArray()) {
+        const ConnectionProfile p = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(p.id)) == buscado) {
+            encontrada = true;
+            continue;
+        }
+        salida.push_back(v);
+    }
+    if (!encontrada) {
+        aviso = Aviso{Motivo::NoSeGuardaConexion, id, {}, {}};
+        return false;
+    }
+    root.set("connections", json::Value(salida));
+    if (!escribirConfig(dirConfig, root, aviso)) {
+        return false;
+    }
+
+    // Y del almacén de confianza, o la conexión vuelve sola.
+    Aviso avisoTrust;
+    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.vacio()) {
+        aviso = avisoTrust;
+        return false;
+    }
+    json::Array salidaTrust;
+    bool habiaEnElAlmacen = false;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        const ConnectionProfile t = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(t.id)) == buscado) {
+            habiaEnElAlmacen = true;
+            continue;
+        }
+        salidaTrust.push_back(v);
+    }
+    if (!habiaEnElAlmacen) {
+        return true;
+    }
+    trust.set("connections", json::Value(salidaTrust));
+    return escribirTrustStore(dirConfig, trust, aviso);
+}
+
 bool hayAlgoCifrado(const std::string& dirConfig) {
     bool alguno = false;
     Aviso aviso;

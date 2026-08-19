@@ -119,9 +119,6 @@ bool migratePsrpProfileToSsh(ConnectionProfile& p) {
     return cambio;
 }
 
-bool shouldForceLocalSudo(const ConnectionProfile& p) {
-    return CJ::shouldForceLocalSudo(aBase(p));
-}
 
 bool profileHasDaemonTls(const ConnectionProfile& p) {
     return CJ::profileHasDaemonTls(aBase(p));
@@ -135,9 +132,6 @@ QJsonObject connectionToJson(const ConnectionProfile& p) {
     return aQtJson(CJ::connectionToJson(aBase(p), bs(currentLocalMachineUid())));
 }
 
-QJsonObject connectionTrustToJson(const ConnectionProfile& p) {
-    return aQtJson(CJ::connectionTrustToJson(aBase(p), bs(currentLocalMachineUid())));
-}
 
 ConnectionProfile connectionFromJson(const QJsonObject& obj) {
     return deBase(CJ::connectionFromJson(deQtJson(obj), bs(currentLocalMachineUid())));
@@ -152,19 +146,6 @@ int indexOfConnectionById(const QJsonArray& connections, const QString& id) {
     return static_cast<int>(CJ::indexOfConnectionById(arr, bs(id)));
 }
 
-bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
-    if (p.id.trimmed().isEmpty()) {
-        return false;
-    }
-    const int idx = indexOfConnectionById(connections, p.id);
-    const QJsonObject obj = connectionToJson(p);
-    if (idx >= 0) {
-        connections[idx] = obj;
-    } else {
-        connections.push_back(obj);
-    }
-    return true;
-}
 
 }  // namespace
 
@@ -386,52 +367,13 @@ bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error
 
 bool ConnectionStore::upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const {
     error.clear();
-    if (profile.id.trimmed().isEmpty() || isLocalProfile(profile) || !profileHasDaemonTls(profile)) {
+    BS::Aviso aviso;
+    if (zfsmgr::base::store::guardaTlsEnAlmacen(configDir().toStdString(), aBase(profile),
+                                                m_masterPassword.toStdString(), aviso)) {
         return true;
     }
-    ConnectionProfile toSave = profile;
-
-    auto encryptIfNeeded = [&](QString& value, const QString& fieldLabel) -> bool {
-        if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
-            return true;
-        }
-        if (m_masterPassword.isEmpty()) {
-            error = aviso(BS::Motivo::ClaveMaestraRequeridaParaCifrar, QString(), fieldLabel);
-            return false;
-        }
-        QString encErr;
-        QString encrypted;
-        if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
-            error = aviso(BS::Motivo::NoSeCifra, QString(), fieldLabel, encErr);
-            return false;
-        }
-        value = encrypted;
-        return true;
-    };
-    if (!encryptIfNeeded(toSave.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))
-        || !encryptIfNeeded(toSave.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))
-        || !encryptIfNeeded(toSave.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
-        return false;
-    }
-
-    QString loadErr;
-    QJsonObject root = loadTrustStoreJson(&loadErr);
-    if (!loadErr.isEmpty()) {
-        error = loadErr;
-        return false;
-    }
-    root.insert(QStringLiteral("schema"), 1);
-    root.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    const QJsonObject obj = connectionTrustToJson(toSave);
-    const int idx = indexOfConnectionById(connections, toSave.id);
-    if (idx >= 0) {
-        connections[idx] = obj;
-    } else {
-        connections.push_back(obj);
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    return saveTrustStoreJson(root, &error);
+    error = traduce(aviso);
+    return false;
 }
 
 bool ConnectionStore::deleteTrustStoreConnectionById(const QString& id, QString& error) const {
@@ -683,144 +625,29 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
 
 bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     error.clear();
-    const QString clean = id.trimmed();
-    if (clean.isEmpty()) {
-        error = aviso(BS::Motivo::IdVacio);
-        return false;
+    BS::Aviso aviso;
+    if (zfsmgr::base::store::borraPerfil(configDir().toStdString(), id.toStdString(), aviso)) {
+        return true;
     }
-    QString loadErr;
-    QJsonObject root = loadConfigJson(&loadErr);
-    if (!loadErr.isEmpty()) {
-        error = loadErr;
-        return false;
+    // Que no hubiera ninguna con ese identificador no era un fallo por este lado: se
+    // guardaba igual y se devolvía true. Se conserva ese trato para no cambiar de paso lo
+    // que hace la interfaz al borrar algo que ya no está.
+    if (aviso.motivo == BS::Motivo::NoSeGuardaConexion) {
+        return true;
     }
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    for (int i = connections.size() - 1; i >= 0; --i) {
-        const ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
-        if (p.id.trimmed().compare(clean, Qt::CaseInsensitive) == 0) {
-            connections.removeAt(i);
-        }
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    if (!deleteTrustStoreConnectionById(clean, error)) {
-        return false;
-    }
-    return saveConfigJson(root, &error);
+    error = traduce(aviso);
+    return false;
 }
 
 bool ConnectionStore::encryptStoredPasswords(QString& error) {
     error.clear();
-    if (m_masterPassword.isEmpty()) {
-        error = aviso(BS::Motivo::ClaveMaestraRequerida);
-        return false;
+    BS::Aviso aviso;
+    if (zfsmgr::base::store::cifraLoQueFalte(configDir().toStdString(),
+                                             m_masterPassword.toStdString(), aviso)) {
+        return true;
     }
-    QString loadErr;
-    QJsonObject root = loadConfigJson(&loadErr);
-    if (!loadErr.isEmpty()) {
-        error = loadErr;
-        return false;
-    }
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    for (int i = 0; i < connections.size(); ++i) {
-        ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
-        const QString current = p.password;
-        if (!current.isEmpty() && !SecretCipher::isEncrypted(current)) {
-            QString encErr;
-            QString encrypted;
-            if (!SecretCipher::encryptEncv1(current, m_masterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            p.password = encrypted;
-            connections[i] = connectionToJson(p);
-        }
-        auto encryptField = [&](QString& value) -> bool {
-            if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
-                return true;
-            }
-            QString encErr;
-            QString encrypted;
-            if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            value = encrypted;
-            return true;
-        };
-        bool touched = false;
-        QString server = p.daemonTlsServerCertPem;
-        QString clientCert = p.daemonTlsClientCertPem;
-        QString clientKey = p.daemonTlsClientKeyPem;
-        if (!server.isEmpty() && !SecretCipher::isEncrypted(server)) {
-            if (!encryptField(server)) {
-                return false;
-            }
-            touched = true;
-        }
-        if (!clientCert.isEmpty() && !SecretCipher::isEncrypted(clientCert)) {
-            if (!encryptField(clientCert)) {
-                return false;
-            }
-            touched = true;
-        }
-        if (!clientKey.isEmpty() && !SecretCipher::isEncrypted(clientKey)) {
-            if (!encryptField(clientKey)) {
-                return false;
-            }
-            touched = true;
-        }
-        if (touched) {
-            p.daemonTlsServerCertPem = server;
-            p.daemonTlsClientCertPem = clientCert;
-            p.daemonTlsClientKeyPem = clientKey;
-            connections[i] = connectionToJson(p);
-        }
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    if (!saveConfigJson(root, &error)) {
-        return false;
-    }
-
-    QString trustErr;
-    QJsonObject trustRoot = loadTrustStoreJson(&trustErr);
-    if (!trustErr.isEmpty()) {
-        error = trustErr;
-        return false;
-    }
-    QJsonArray trustConnections = trustRoot.value(QStringLiteral("connections")).toArray();
-    bool trustTouched = false;
-    for (int i = 0; i < trustConnections.size(); ++i) {
-        ConnectionProfile p = connectionFromJson(trustConnections.at(i).toObject());
-        auto encryptField = [&](QString& value) -> bool {
-            if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
-                return true;
-            }
-            QString encErr;
-            QString encrypted;
-            if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
-                return false;
-            }
-            value = encrypted;
-            return true;
-        };
-        if (!encryptField(p.daemonTlsServerCertPem)
-            || !encryptField(p.daemonTlsClientCertPem)
-            || !encryptField(p.daemonTlsClientKeyPem)) {
-            return false;
-        }
-        trustConnections[i] = connectionTrustToJson(p);
-        trustTouched = true;
-    }
-    if (trustTouched) {
-        trustRoot.insert(QStringLiteral("schema"), 1);
-        trustRoot.insert(QStringLiteral("created_by"), QStringLiteral("ZFSMgr"));
-        trustRoot.insert(QStringLiteral("connections"), trustConnections);
-        if (!saveTrustStoreJson(trustRoot, &error)) {
-            return false;
-        }
-    }
-    return true;
+    error = traduce(aviso);
+    return false;
 }
 
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {

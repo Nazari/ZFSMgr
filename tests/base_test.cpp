@@ -837,6 +837,73 @@ int main() {
         comprobar(av.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar, "guardar: y lo dice");
         igual(av.conexion, "Otra", "guardar: diciendo de que conexion");
 
+        // --- Cifrar lo que quedo en claro.
+        {
+            const std::string dirC = "/tmp/zfsmgr-base-test-cifrar";
+            std::filesystem::remove_all(dirC);
+            namespace J2 = zfsmgr::base::json;
+            J2::Value conexion;
+            conexion.set("id", J2::Value(std::string("x")));
+            conexion.set("name", J2::Value(std::string("X")));
+            conexion.set("password", J2::Value(std::string("EN-CLARO")));
+            J2::Value cfg2;
+            cfg2.set("connections", J2::Value(J2::Array{conexion}));
+            ST::Aviso av2;
+            comprobar(ST::escribirConfig(dirC, cfg2, av2), "cifrar: config con un secreto en claro");
+            comprobar(ST::cifraLoQueFalte(dirC, "m", av2) && av2.vacio(), "cifrar: se cifra");
+            auto tras2 = ST::leerConfig(dirC, av2);
+            const std::string guardado2 = tras2["connections"].toArray().at(0)["password"].toString();
+            comprobar(zfsmgr::base::SecretCipher::isEncrypted(guardado2), "cifrar: ya no esta en claro");
+            std::string claro2;
+            std::string err2;
+            comprobar(zfsmgr::base::SecretCipher::decryptEncv1(guardado2, "m", claro2, err2)
+                          && claro2 == "EN-CLARO",
+                      "cifrar: y sigue siendo el mismo valor");
+            // Lo ya cifrado NO se toca: no se sabe con que clave esta.
+            comprobar(ST::cifraLoQueFalte(dirC, "otra", av2), "cifrar: segunda pasada con otra clave");
+            auto tras3 = ST::leerConfig(dirC, av2);
+            igual(tras3["connections"].toArray().at(0)["password"].toString(), guardado2,
+                  "cifrar: lo ya cifrado se deja como esta");
+            comprobar(!ST::cifraLoQueFalte(dirC, "", av2), "cifrar: sin maestra no se hace nada");
+            comprobar(av2.motivo == ST::Motivo::ClaveMaestraRequerida, "cifrar: y se dice por que");
+            std::filesystem::remove_all(dirC);
+        }
+
+        // --- Borrar: de los DOS ficheros, o la conexion RESUCITA.
+        //
+        // Desde que una entrada huerfana del almacen se convierte en conexion, dejar la
+        // suya atras no es suciedad: es que vuelve a la lista en el siguiente arranque.
+        // Medido en el interprete antes de arreglarlo, con «oldlau».
+        {
+            zfsmgr::base::ConnectionProfile conTls;
+            conTls.id = "paraborrar"; conTls.name = "ParaBorrar"; conTls.connType = "SSH";
+            conTls.host = "h"; conTls.username = "u";
+            conTls.daemonTlsServerCertPem = "CERT";
+            comprobar(ST::guardaPerfil(dirG, conTls, maestra, av), "borrar: se prepara con TLS");
+            auto t = ST::leerTrustStore(dirG, av);
+            bool estaEnElAlmacen = false;
+            for (const auto& v : t["connections"].toArray()) {
+                if (v["id"].toString() == "paraborrar") estaEnElAlmacen = true;
+            }
+            comprobar(estaEnElAlmacen, "borrar: y esta en el almacen");
+
+            comprobar(ST::borraPerfil(dirG, "paraborrar", av), "borrar: se borra");
+            auto cfgTrasBorrar = ST::leerConfig(dirG, av);
+            for (const auto& v : cfgTrasBorrar["connections"].toArray()) {
+                comprobar(v["id"].toString() != "paraborrar", "borrar: fuera de config.json");
+            }
+            t = ST::leerTrustStore(dirG, av);
+            for (const auto& v : t["connections"].toArray()) {
+                comprobar(v["id"].toString() != "paraborrar",
+                          "borrar: y FUERA del almacen, o resucitaria");
+            }
+            // Y borrar una que no esta se dice, no se calla.
+            comprobar(!ST::borraPerfil(dirG, "no-existe", av), "borrar: una que no esta falla");
+            comprobar(av.motivo == ST::Motivo::NoSeGuardaConexion, "borrar: con su motivo");
+            comprobar(!ST::borraPerfil(dirG, "  ", av), "borrar: sin identificador tampoco");
+            comprobar(av.motivo == ST::Motivo::IdVacio, "borrar: y ese motivo es otro");
+        }
+
         // Un perfil sin identificador no se guarda: sustituirlo o anadirlo seria adivinar.
         zfsmgr::base::ConnectionProfile sinId;
         sinId.name = "X";
