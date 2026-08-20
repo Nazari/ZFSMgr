@@ -11,6 +11,7 @@
 
 #include "agentversion.h"
 #include "connectionjson.h"
+#include "daemoninstall.h"
 #include "gsa.h"
 #include "listados.h"
 #include "session.h"
@@ -330,7 +331,15 @@ std::string paginaConexiones(const std::vector<B::ConnectionProfile>& perfiles,
                          H::escapaHtml(p.osType),
                          H::escapaHtml(p.host),
                          H::escapaHtml(p.username),
-                         H::escapaHtml(i < versiones.size() ? versiones[i] : std::string("-"))});
+                         // La versión, enlazada a la instalación cuando se ha quedado
+                         // atrás. Es el sitio donde uno se entera de que lo está, y
+                         // obligar a entrar en la máquina para encontrar el enlace era
+                         // esconderlo justo del que acaba de verlo.
+                         (i < versiones.size() && B::endsWith(versiones[i], " *")
+                              ? enlace("/confirmar?c=" + H::haciaUrl(id) + "&que=instalar-daemon",
+                                       versiones[i])
+                              : H::escapaHtml(i < versiones.size() ? versiones[i]
+                                                                  : std::string("-")))});
     }
     return envuelve("Conexiones", "ZFSMgr",
                     tabla({"ID", "Nombre", "Tipo", "Sistema", "Host", "Usuario", "Daemon"}, filas),
@@ -351,7 +360,9 @@ std::string paginaPools(const std::string& conn, const std::vector<L::Pool>& poo
     cuerpo += "<h2>De esta máquina</h2><p>";
     cuerpo += enlace("/c/" + conn + "?registro=1", "Registro del daemon") + " · ";
     cuerpo += enlace("/c/" + conn + "?trabajos=1", "Trabajos en curso") + " · ";
-    cuerpo += enlace("/c/" + conn + "?programacion=1", "Instantáneas programadas");
+    cuerpo += enlace("/c/" + conn + "?programacion=1", "Instantáneas programadas") + " · ";
+    cuerpo += enlace("/confirmar?c=" + H::haciaUrl(conn) + "&que=instalar-daemon",
+                     "Instalar o actualizar el daemon…");
     cuerpo += "</p>";
     return envuelve(conn, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
@@ -929,10 +940,28 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
     } else if (que == "rollback") {
         texto = "Se va a volver el dataset al estado de «" + objeto + "» en «" + conn
                 + "». Todo lo escrito DESPUÉS de esa instantánea se pierde.";
+    } else if (que == "instalar-daemon") {
+        texto = "Se va a REEMPLAZAR el binario del daemon en «" + conn
+                + "» y reiniciar su servicio. Mientras dure, esa máquina deja de contestar; "
+                  "lo que estuviera en marcha allí —un scrub, una transferencia— se corta.";
     } else {
         texto = "Acción desconocida.";
     }
     std::string cuerpo = "<p>" + H::escapaHtml(texto) + "</p>";
+    if (que == "instalar-daemon") {
+        // La contraseña de sudo, si hace falta, se pide AQUÍ y viaja en el cuerpo del POST
+        // —cifrado por TLS—, nunca en la URL: una URL se queda en el historial del
+        // navegador y en el registro de cualquier intermediario. Es la misma regla que
+        // impide pasarla por argumento al agente, donde la vería cualquier «ps».
+        cuerpo += "<p class=\"tenue\">Si la conexión necesita sudo y no tiene la contraseña "
+                  "guardada, póngala aquí. Si la tiene guardada, deje el campo vacío.</p>";
+        cuerpo += boton(conn, conn, raiz, que, "Sí, instalar", testigo,
+                        "<label>Contraseña de sudo "
+                        "<input type=\"password\" name=\"sudo\" autocomplete=\"off\"></label> ",
+                        true);
+        cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), "No, volver") + "</p>";
+        return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
+    }
     if (que == "borrar-instantanea" || que == "borrar-dataset" || que == "rollback") {
         // El alcance se elige AQUÍ y no en el botón del panel, porque es parte de lo que
         // hay que entender antes de decir que sí: un dataset con hijos o instantáneas no se
@@ -957,6 +986,54 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                              "No, volver")
               + "</p>";
     return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
+}
+
+// El resultado de instalar el daemon, con la traza de lo que dijo la otra máquina.
+//
+// Esta NO redirige después del POST, a diferencia de todas las demás acciones, y es a
+// propósito: lo que hay que leer aquí es justo lo que una redirección tiraría —qué se
+// desplegó, qué contestó systemd o launchd, y en macOS el paso que queda a mano—. El
+// motivo por el que se puede: instalar es idempotente. Recargar reinstala lo mismo, que
+// no es lo que pasa con «destruir».
+std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::Resultado& res,
+                              const std::string& traza, const std::string& testigo) {
+    std::string cuerpo;
+    if (res.ok()) {
+        cuerpo += "<p>Daemon instalado en «" + H::escapaHtml(conn) + "», versión "
+                  + H::escapaHtml(res.version) + ".</p>";
+    } else {
+        cuerpo += "<p>No se pudo: " + H::escapaHtml(B::daemoninstall::etiquetaDe(res.fallo));
+        if (res.rc != 0) {
+            cuerpo += " (código " + std::to_string(res.rc) + ")";
+        }
+        cuerpo += "</p>";
+        if (!res.detalle.empty()) {
+            cuerpo += "<pre>" + H::escapaHtml(res.detalle) + "</pre>";
+        }
+    }
+    if (res.versionAtrasada) {
+        cuerpo += "<div class=\"pendiente\">El agente empaquetado para esa plataforma es "
+                  + H::escapaHtml(res.version) + " y este cliente espera "
+                  + H::escapaHtml(B::agentversion::laEsperada())
+                  + ": se ha instalado igual, pero la conexión seguirá saliendo "
+                    "desactualizada. Hay que recompilar el agente de esa plataforma.</div>";
+    }
+    // En macOS hace falta UN PASO MÁS, y a mano: sin «Acceso total al disco» el agente
+    // arranca, contesta STATUS=OK y no ve los discos, así que no encuentra ningún pool que
+    // importar. Todo parece bien salvo el resultado, que es la peor forma de fallar; por
+    // eso se dice al instalar y no cuando la lista salga vacía.
+    if (res.esMac && res.ok()) {
+        cuerpo += "<div class=\"pendiente\">En macOS queda un paso a mano: concederle "
+                  "«Acceso total al disco» al agente en Configuración del Sistema → "
+                  "Privacidad y Seguridad, añadiendo <code>/usr/local/libexec/zfsmgr-agent</code>. "
+                  "Sin eso arranca y contesta, pero no ve los discos.</div>";
+    }
+    if (!B::trim(traza).empty()) {
+        cuerpo += "<h2>Lo que dijo la máquina</h2><pre>" + H::escapaHtml(B::trim(traza)) + "</pre>";
+    }
+    cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), "Volver a " + conn) + " · "
+              + enlace("/", "Conexiones") + "</p>";
+    return envuelve("Instalar el daemon en " + conn, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 // Una página que solo enseña texto tal cual: el registro del daemon, los permisos
@@ -1348,6 +1425,50 @@ int main(int argc, char** argv) {
             if (!perfil || objeto.empty()) {
                 r.codigo = 400;
                 r.cuerpo = paginaError("falta la conexión o el objeto", sesion.testigo());
+                respuesta = H::componer(r);
+                return true;
+            }
+
+            // Instalar el daemon NO es un verbo del agente, y no puede serlo: es lo que
+            // se hace cuando el agente todavía no está o está viejo. Entra por SSH y scp,
+            // que es el problema del huevo y la gallina de siempre. Por eso se atiende
+            // aquí, antes del reparto de verbos, y no dentro de él.
+            if (que == "instalar-daemon") {
+                namespace DI = B::daemoninstall;
+                B::ConnectionProfile conSudo = *perfil;
+                // La contraseña del formulario solo se usa si el perfil no trae una: un
+                // campo vacío no debe BORRAR la que estaba guardada.
+                const std::string sudoDelFormulario = p.campo("sudo");
+                if (conSudo.password.empty() && !sudoDelFormulario.empty()) {
+                    conSudo.password = sudoDelFormulario;
+                    conSudo.useSudo = true;
+                }
+                const std::string plataforma = DI::plataformaDe(conSudo);
+                const std::string arq =
+                    DI::arquitecturaRemota(sesionZfs->transporte, conSudo, false);
+                const std::string binario = zfsmgr::cli::rutaDelAgente(plataforma, arq);
+                if (binario.empty()) {
+                    r.codigo = 502;
+                    r.cuerpo = paginaError(
+                        "no hay agente empaquetado para " + plataforma + "/"
+                            + (arq.empty() ? std::string("?") : arq)
+                            + " en este equipo. No se instala nada: un respaldo por guion no "
+                              "habla TLS, y dejarlo puesto daría una máquina que parece "
+                              "atendida y no lo está.",
+                        sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                std::string traza;
+                const DI::Resultado res = DI::instala(
+                    sesionZfs->transporte, conSudo, binario,
+                    [&traza](const std::string& l) { traza += l + "\n"; }, false);
+                // Se olvida la versión recordada de esa máquina: acaba de cambiar, y
+                // seguir enseñando la vieja es justo lo contrario de lo que uno espera
+                // después de pulsar «instalar».
+                versionPorConexion.erase(perfil->id.empty() ? perfil->name : perfil->id);
+                r.cuerpo = paginaInstalacion(conn, res, traza, sesion.testigo());
+                r.codigo = res.ok() ? 200 : 502;
                 respuesta = H::componer(r);
                 return true;
             }

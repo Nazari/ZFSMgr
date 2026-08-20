@@ -2,6 +2,7 @@
 // esa es justamente la comprobación que aporta. Por eso no usa QTest y trae su propio
 // arnés de cuatro líneas.
 
+#include "daemoninstall.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
 #include "listados.h"
@@ -869,6 +870,100 @@ int main() {
                   "listados: salida vacia de zpool get no es un fallo");
         comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
+    }
+
+    // --- el guion que instala el daemon
+    //
+    // Estas 200 lineas vivian dentro de `src/cli/shell.cpp`, sueltas entre los fprintf del
+    // interprete y sin una sola prueba: para verlas habia que instalar de verdad en una
+    // maquina de cada sistema. Al bajarlas a la capa base —para que el servidor web use el
+    // MISMO guion y no una copia— se pueden mirar aqui.
+    //
+    // Lo que se fija es lo que distingue a un sistema de otro y lo que, de romperse, deja
+    // una maquina que PARECE atendida: el gestor de servicios y la comprobacion posterior.
+    {
+        namespace DI = zfsmgr::base::daemoninstall;
+        const std::string lin = DI::guionDeInstalacion("linux", "9.9.9.1", "7");
+        const std::string mac = DI::guionDeInstalacion("macos", "9.9.9.1", "7");
+        const std::string bsd = DI::guionDeInstalacion("freebsd", "9.9.9.1", "7");
+
+        // Los tres despliegan el binario POR LA ENTRADA ESTANDAR y lo colocan con
+        // `install -m 700`. Un `cp` dejaria los permisos del origen.
+        for (const auto& par : {std::make_pair("linux", lin), std::make_pair("macos", mac),
+                                std::make_pair("freebsd", bsd)}) {
+            comprobar(par.second.find("cat > \"$tmp_bin\"") != std::string::npos,
+                      std::string("daemoninstall: ") + par.first + " recibe el binario por stdin");
+            comprobar(par.second.find("install -m 700") != std::string::npos,
+                      std::string("daemoninstall: ") + par.first + " lo instala con 700");
+            comprobar(par.second.find("9.9.9.1") != std::string::npos,
+                      std::string("daemoninstall: ") + par.first + " escribe la version dada");
+            comprobar(par.second.find("rm -f \"$tmp_bin\"") != std::string::npos,
+                      std::string("daemoninstall: ") + par.first + " no deja el temporal");
+        }
+
+        // Cada uno con SU gestor de servicios, y ninguno con el de otro. Lo segundo es lo
+        // que de verdad hay que comprobar: un `systemctl` colado en el guion de macOS
+        // fallaria en silencio y dejaria el daemon instalado y parado.
+        comprobar(lin.find("systemctl restart zfsmgr-agent.service") != std::string::npos,
+                  "daemoninstall: linux arranca por systemd");
+        comprobar(lin.find("launchctl") == std::string::npos
+                      && lin.find("service zfsmgr_agent") == std::string::npos,
+                  "daemoninstall: y NO usa launchctl ni rc.d");
+        comprobar(mac.find("launchctl bootstrap system") != std::string::npos,
+                  "daemoninstall: macos arranca por launchd");
+        comprobar(mac.find("systemctl") == std::string::npos,
+                  "daemoninstall: y NO usa systemctl");
+        comprobar(bsd.find("service zfsmgr_agent start") != std::string::npos,
+                  "daemoninstall: freebsd arranca por rc.d");
+        comprobar(bsd.find("systemctl") == std::string::npos
+                      && bsd.find("launchctl") == std::string::npos,
+                  "daemoninstall: y NO usa systemctl ni launchctl");
+
+        // Los tres COMPRUEBAN que sigue vivo despues de arrancarlo. Sin esto se instala,
+        // el servicio muere y el cliente cree que la maquina esta atendida.
+        comprobar(lin.find("systemctl enable") != std::string::npos,
+                  "daemoninstall: linux lo deja habilitado para el proximo arranque");
+        comprobar(mac.find("launchd agent not active after install") != std::string::npos,
+                  "daemoninstall: macos falla si launchd no lo deja activo");
+        comprobar(bsd.find("no permanece activo tras el arranque") != std::string::npos,
+                  "daemoninstall: freebsd falla si no permanece activo");
+        // Y FreeBSD mira las dependencias ANTES: sin OpenSSL el daemon no arranca y el
+        // motivo real queda en un error del cargador que no dice que falta.
+        comprobar(bsd.find("pkg install openssl") != std::string::npos,
+                  "daemoninstall: freebsd dice que falta OpenSSL cuando falta");
+
+        // Una plataforma desconocida cae a Linux y NO a un guion vacio: un guion vacio se
+        // ejecutaria con exito sin instalar nada, que es la forma silenciosa de fallar.
+        igual(DI::guionDeInstalacion("loquesea", "9.9.9.1", "7"), lin,
+              "daemoninstall: lo desconocido cae al guion de Linux");
+
+        // La plataforma sale del perfil, sin preguntarle a la maquina.
+        zfsmgr::base::ConnectionProfile perfilMac;
+        perfilMac.osType = "macOS 15";
+        igual(DI::plataformaDe(perfilMac), "macos", "daemoninstall: macOS por el osType");
+        perfilMac.osType = "Darwin";
+        igual(DI::plataformaDe(perfilMac), "macos", "daemoninstall: y Darwin tambien");
+        perfilMac.osType = "FreeBSD 15";
+        igual(DI::plataformaDe(perfilMac), "freebsd", "daemoninstall: FreeBSD");
+        perfilMac.osType = "Ubuntu 24.04";
+        igual(DI::plataformaDe(perfilMac), "linux", "daemoninstall: y lo demas es linux");
+        perfilMac.osType.clear();
+        igual(DI::plataformaDe(perfilMac), "linux", "daemoninstall: sin osType, linux");
+
+        // El fallo es un TIPO y cada valor tiene su texto: un `bool` obligaba a adivinar
+        // entre «no hay binario» —que se arregla compilando— y «la maquina lo rechazo».
+        comprobar(DI::etiquetaDe(DI::Fallo::BinarioIlegible)
+                      != DI::etiquetaDe(DI::Fallo::LaInstalacionFallo),
+                  "daemoninstall: los motivos de fallo no se confunden");
+
+        // Y un binario que no existe se para ANTES de tocar la maquina.
+        zfsmgr::base::TransportSession sesionVacia;
+        zfsmgr::base::ConnectionProfile local;
+        local.name = "Local";
+        const DI::Resultado sinBin =
+            DI::instala(sesionVacia, local, "/no/existe/este/agente", {}, false);
+        comprobar(sinBin.fallo == DI::Fallo::BinarioIlegible,
+                  "daemoninstall: sin binario no se toca la maquina");
     }
 
     // --- guardar un perfil: cifrado, y el TLS segun cambie o no el EXTREMO

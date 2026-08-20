@@ -110,6 +110,13 @@ ayuda. Y las acciones de DOS extremos —copiar, mover, clonar entre máquinas, 
 nivelar y diff—, que son las que en Qt piden marcar un origen: eso es estado entre páginas
 y hay que decidir dónde vive antes de escribirlo.
 
+**Instalar o actualizar el daemon: HECHO**, y es el caso raro. Es la única operación que
+**no puede pasar por el daemon** —entra por SSH y `scp`, porque si hubiera daemon no haría
+falta instalarlo—, así que no bastaba con un verbo RPC. El guion vivía dentro de
+`src/cli/shell.cpp`, mezclado con los `fprintf` del intérprete; bajó a
+`src/base/daemoninstall` y ahora lo usan los dos clientes. La versión del listado de
+conexiones, cuando sale marcada con `*`, ES el enlace para actualizarla.
+
 **No se puede con los verbos de hoy:** los *holds* de una instantánea. La interfaz los lee
 con `zfs holds` por shell y el daemon no tiene verbo para ellos; añadir aquí un camino de
 shell iría justo contra lo que se está quitando. Hace falta un `--dump-zfs-holds`.

@@ -2,6 +2,7 @@
 
 #include "agentversion.h"
 
+#include "daemoninstall.h"
 #include "daemonpayload.h"
 #include "ayuda.h"
 #include "gramatica_cli.h"
@@ -3122,20 +3123,13 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    const ZfsmUrl& destino = pet.objetivo;
     std::string error;
-    const auto* p = perfilVivoDe(e, destino, error);
+    const auto* p = perfilVivoDe(e, pet.objetivo, error);
     if (!p) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
     const std::string quien = p->name.empty() ? p->id : p->name;
-    const bool esWindows = T::isWindowsConnection(*p);
-    const std::string soBajo = B::toLowerAscii(p->osType);
-    const bool esMac = B::contains(soBajo, "mac") || B::contains(soBajo, "darwin")
-                       || B::contains(soBajo, "os x");
-    const bool esFreeBsd = B::contains(soBajo, "freebsd");
-    const std::string plataforma = esWindows ? "windows" : (esMac ? "macos" : (esFreeBsd ? "freebsd" : "linux"));
 
     if (!confirma(e, B::format(T("t_conf_install_daemon",
                                  "Se va a instalar o actualizar el daemon en %1 y arrancarlo "
@@ -3145,20 +3139,15 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
 
+    // El guion de instalación vive ahora en la capa base —`base/daemoninstall`— porque no
+    // tenía nada de intérprete: son 200 líneas de decidir qué toca según el sistema de la
+    // otra punta, y el servidor web necesita las mismas. Aquí queda lo que sí es del
+    // intérprete: preguntar antes y contar después.
+    namespace DI = B::daemoninstall;
     const B::ConnectionProfile perfil = conSudo(e, *p);
-
+    const std::string plataforma = DI::plataformaDe(perfil);
     // La arquitectura del OTRO lado, no la de aquí: se despliega a máquinas distintas.
-    std::string arq = esWindows ? "x86_64" : "";
-    if (!esWindows) {
-        std::string out;
-        std::string err;
-        int rc = -1;
-        if (T::runSsh(e.ses->transporte, perfil, "uname -m", 15000, out, err, rc, {}, {}, {}, {},
-                      false, e.ses->verboso)
-            && rc == 0) {
-            arq = B::trim(out);
-        }
-    }
+    const std::string arq = DI::arquitecturaRemota(e.ses->transporte, perfil, e.ses->verboso);
     const std::string binario = rutaDelAgente(plataforma, arq);
     if (binario.empty()) {
         std::fprintf(stderr, TC("t_no_se_enco_393030", "no se encontró el binario del daemon para %s/%s en este equipo.\n"
@@ -3166,160 +3155,37 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                      "daría una máquina que parece atendida y no lo está.\n"), plataforma.c_str(), arq.empty() ? "?" : arq.c_str());
         return false;
     }
-    std::ifstream f(binario, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    const std::string contenido = ss.str();
-    if (contenido.empty()) {
-        std::fprintf(stderr, TC("t_el_binario_ce2086", "el binario del daemon está vacío: %s\n"), binario.c_str());
-        return false;
-    }
-    std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s (%zu bytes) en %s...\n"), binario.c_str(), contenido.size(), quien.c_str());
+    std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s en %s...\n"), binario.c_str(), quien.c_str());
 
-    namespace DP = B::daemonpayload;
-    // La versión que va a `agent.conf` se lee DEL BINARIO que se está copiando, no de la
-    // que trae este intérprete.
-    //
-    // Casi siempre son la misma —se compilan juntos—, pero no siempre: el agente
-    // empaquetado de una plataforma puede ser más viejo si solo se recompiló el de otra.
-    // Escribir entonces la versión de este binario deja el `agent.conf` mintiendo, y la
-    // máquina se declara al día con un daemon que no lo está. La interfaz ya lo leía así.
-    std::string version = B::agentversion::versionEnBinario(binario);
-    if (version.empty()) {
-        version = B::agentversion::laEsperada();
-    } else if (version != B::agentversion::laEsperada()) {
+    const DI::Resultado r = DI::instala(
+        e.ses->transporte, perfil, binario,
+        [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, e.ses->verboso);
+
+    if (r.versionAtrasada) {
         std::fprintf(stderr,
                      TC("t_agente_empaquetado_viejo",
                         "aviso: el agente empaquetado para %s es %s y este cliente espera %s; "
                         "se instala igual, pero la conexión seguirá saliendo desactualizada\n"),
-                     plataforma.c_str(), version.c_str(), B::agentversion::laEsperada().c_str());
+                     plataforma.c_str(), r.version.c_str(), B::agentversion::laEsperada().c_str());
     }
-    const std::string api = B::agentversion::apiEsperada();
-
-    if (esWindows) {
-        // Por scp y no por la entrada estándar: PowerShell no vuelve de ReadToEnd() con
-        // megabytes, y la instalación se colgaba hasta agotar el plazo.
-        const std::string subida = DP::windowsUploadPath();
-        if (T::isLocalConnection(*p)) {
-            std::error_code ec;
-            std::filesystem::remove(subida, ec);
-            std::filesystem::copy_file(binario, subida, ec);
-            if (ec) {
-                std::fprintf(stderr, TC("t_no_se_pudo_56946b", "no se pudo copiar el daemon a %s\n"), subida.c_str());
-                return false;
-            }
-        } else {
-            const H::ScpInvocacion inv = H::scpUpload(perfil, binario, subida, false);
-            const B::ExecResult r =
-                B::runExecStream(inv.program, inv.args, std::string(), 300000, B::StreamCallbacks{});
-            if (r.rc != 0) {
-                std::fprintf(stderr, TC("t_scp_fall_c_1d482f", "scp falló (código %d): %s\n"), r.rc, B::trim(r.err).c_str());
-                return false;
-            }
-        }
-        std::string out;
-        std::string err;
-        int rc = -1;
-        if (!T::runSsh(e.ses->transporte, perfil,
-                       H::withSudoCommand(perfil, DP::windowsNativeInstallCommand()), 300000, out,
-                       err, rc, {}, {}, {}, {}, false, e.ses->verboso)
-            || rc != 0) {
-            std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc, B::trim(err.empty() ? out : err).c_str());
+    if (!r.ok()) {
+        if (r.fallo == DI::Fallo::BinarioIlegible) {
+            std::fprintf(stderr, TC("t_el_binario_ce2086", "el binario del daemon está vacío: %s\n"),
+                         r.detalle.c_str());
             return false;
         }
-        std::fprintf(stderr, TC("t_daemon_ins_3282b0", "daemon instalado en %s\n"), quien.c_str());
-        return true;
-    }
-
-    // Unix. El binario entra por la entrada estándar y el guion lo coloca con `install`.
-    const std::string despliegue =
-        "tmp_bin='/tmp/zfsmgr-agent.bin.$$'; cat > \"$tmp_bin\"; install -m 700 \"$tmp_bin\" "
-        + B::shSingleQuote(DP::unixBinPath()) + "; rm -f \"$tmp_bin\"; ";
-    const std::string conf = DP::simpleConfigPayload(version, api);
-    const std::string tls = DP::tlsBootstrapShellCommand();
-    const std::string bin = DP::unixBinPath();
-    const std::string confPath = DP::unixConfigPath();
-    const std::string tlsFiles = DP::tlsDirPath() + " " + DP::tlsServerCertPath() + " "
-                                 + DP::tlsServerKeyPath() + " " + DP::tlsClientCertPath() + " "
-                                 + DP::tlsClientKeyPath();
-    std::string guion;
-    if (esMac) {
-        guion = "mkdir -p /usr/local/libexec /etc/zfsmgr; " + despliegue
-                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
-                + "cat > " + DP::macPlistPath() + " <<'EOF_AGENT_PLIST'\n" + DP::macLaunchdPlist()
-                + "\nEOF_AGENT_PLIST\n" + tls + "; "
-                + "chmod 600 " + confPath + "; chmod 644 " + DP::macPlistPath() + "; "
-                + "chown root:wheel " + bin + " " + confPath + " " + DP::macPlistPath() + "; "
-                + "chown root:wheel " + tlsFiles + "; "
-                  "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                  "launchctl bootstrap system "
-                + DP::macPlistPath() + " >/dev/null 2>&1 || true; "
-                  "launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                  "ok=0; i=0; "
-                  "while [ \"$i\" -lt 30 ]; do "
-                  "  if launchctl print system/org.zfsmgr.agent >/dev/null 2>&1; then ok=1; break; fi; "
-                  "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                  "  i=$((i+1)); sleep 1; "
-                  "done; "
-                  "if [ \"$ok\" -ne 1 ]; then echo 'launchd agent not active after install' >&2; exit 1; fi";
-    } else if (esFreeBsd) {
-        guion = "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; " + despliegue
-                // Sin OpenSSL el daemon se instala y no arranca, y el motivo real queda en
-                // un error del cargador que no dice qué falta.
-                + "ldd_missing=$(ldd " + bin + " 2>&1 | grep 'not found' || true); "
-                  "if [ -n \"$ldd_missing\" ]; then "
-                  "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
-                  "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; exit 1; fi; "
-                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
-                + "cat > " + DP::freeBsdRcPath() + " <<'EOF_AGENT_RC'\n" + DP::freeBsdRcScript()
-                + "\nEOF_AGENT_RC\n" + tls + "; "
-                + "chmod 700 " + DP::freeBsdRcPath() + "; chmod 600 " + confPath + "; "
-                + "chown root:wheel " + bin + " " + confPath + " " + DP::freeBsdRcPath() + "; "
-                + "chown root:wheel " + tlsFiles + "; "
-                  "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                  "service zfsmgr_agent start; sleep 2; "
-                  "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
-                  "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; exit 1; fi";
-    } else {
-        guion = "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; "
-                "exit 1; fi; mkdir -p /usr/local/libexec /etc/zfsmgr; "
-                + despliegue
-                + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
-                + "cat > " + DP::linuxServicePath() + " <<'EOF_AGENT_SERVICE'\n"
-                + DP::linuxSystemdService() + "\nEOF_AGENT_SERVICE\n" + tls + "; "
-                + "chmod 600 " + confPath + "; chmod 644 " + DP::linuxServicePath() + "; "
-                + "chown root:root " + bin + " " + confPath + " " + DP::linuxServicePath() + "; "
-                + "chown root:root " + tlsFiles + "; "
-                  "systemctl daemon-reload; systemctl enable zfsmgr-agent.service; "
-                  "systemctl restart zfsmgr-agent.service";
-    }
-
-    std::string out;
-    std::string err;
-    int rc = -1;
-    // allowAgentRpc=false: se está INSTALANDO el agente; desviar esto al RPC del agente que
-    // se quiere sustituir no tendría ningún sentido.
-    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoStreamInputCommand(perfil, guion), 300000,
-                   out, err, rc,
-                   [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); },
-                   [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, {},
-                   contenido, false, e.ses->verboso)
-        || rc != 0) {
-        std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"), rc, B::trim(err.empty() ? out : err).c_str());
-        e.ultimoRc = rc == 0 ? 1 : rc;
+        std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"),
+                     r.rc, r.detalle.c_str());
+        e.ultimoRc = r.rc == 0 ? 1 : r.rc;
         return false;
     }
-    // Lo que había cacheado del daemon anterior ya no vale.
-    T::closeTunnelForConnection(e.ses->transporte, *p);
-    T::clearRemoteDaemonTlsCacheForConnection(*p);
-    T::clearLocalDaemonTlsCache();
     std::fprintf(stderr, TC("t_daemon_ins_3282b0", "daemon instalado en %s\n"), quien.c_str());
     // En macOS hace falta UN PASO MÁS, y a mano: sin «Acceso total al disco» el agente
     // arranca, contesta y responde STATUS=OK, pero no ve los discos, así que no encuentra
     // ningún pool para importar. Todo parece bien salvo el resultado, que es la peor forma
     // de fallar; por eso se dice aquí, al instalar, y no cuando la lista salga vacía. La
     // interfaz gráfica ya lo avisa —`mainwindow_connections.cpp`—, y el intérprete callaba.
-    if (esMac) {
+    if (r.esMac) {
         std::fputs(TC("t_mac_acceso_disco", "\nEn macOS hace falta concederle «Acceso total al disco» al agente, o no verá\n"
                      "los discos y no encontrará pools que importar:\n"
                      "  Configuración del Sistema → Privacidad y Seguridad → Acceso total al\n"
