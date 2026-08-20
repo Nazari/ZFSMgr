@@ -4171,7 +4171,18 @@ ExecResult listaDirectorio(const std::string& ruta) {
 // En base64 porque la respuesta del RPC viaja como LÍNEAS recortadas: unos bytes crudos
 // llegarían mutilados. Y con tope porque esto se lee entero en memoria: lo que no quepa
 // tiene el camino de transferencia, que para eso existe.
-ExecResult leeFichero(const std::string& ruta) {
+// Un TROZO del fichero, o el fichero entero si no se pide trozo.
+//
+// El tope de 8 MiB seguía en pie y era el motivo de que WebDAV no sirviera para nada: una
+// imagen de 726 MB —o de 50 GB, que también las hay— no cabía, así que el explorador y el
+// navegador no podían abrir un solo fichero de verdad. Un protocolo de ficheros que no
+// sirve ficheros no es un protocolo de ficheros.
+//
+// Con `desde` y `cuanto` se lee solo esa parte, así que ni el daemon ni quien lo llama
+// tienen que sostener el fichero entero en memoria. La respuesta empieza por `SIZE=<total>`
+// para que quien pide el primer trozo sepa ya cuántos le faltan: sin eso haría falta una
+// llamada aparte solo para preguntar el tamaño.
+ExecResult leeFichero(const std::string& ruta, std::uintmax_t desde, std::uintmax_t cuanto) {
     ExecResult r;
     constexpr std::uintmax_t kTope = 8ull * 1024 * 1024;
     std::error_code ec;
@@ -4181,9 +4192,30 @@ ExecResult leeFichero(const std::string& ruta) {
         r.err = "no se pudo mirar el fichero: " + ec.message() + "\n";
         return r;
     }
+    if (cuanto > 0) {
+        if (cuanto > kTope) {
+            r.rc = 2;
+            r.err = "un trozo no puede pasar de 8 MiB\n";
+            return r;
+        }
+        std::ifstream f(ruta, std::ios::binary);
+        if (!f) {
+            r.rc = 1;
+            r.err = "no se pudo abrir el fichero\n";
+            return r;
+        }
+        f.seekg(static_cast<std::streamoff>(desde));
+        std::string buf;
+        buf.resize(static_cast<std::size_t>(cuanto));
+        f.read(&buf[0], static_cast<std::streamsize>(cuanto));
+        buf.resize(static_cast<std::size_t>(f.gcount()));
+        r.rc = 0;
+        r.out = "SIZE=" + std::to_string(tam) + "\n" + zfsmgr::base::base64Encode(buf) + "\n";
+        return r;
+    }
     if (tam > kTope) {
         r.rc = 27;
-        r.err = "el fichero pasa de 8 MiB; use la transferencia\n";
+        r.err = "el fichero pasa de 8 MiB: pídalo por trozos con «<desde> <cuanto>»\n";
         return r;
     }
     std::ifstream f(ruta, std::ios::binary);
@@ -5703,7 +5735,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             r.err = "la ruta no está dentro de ningún punto de montaje de ZFS\n";
             return r;
         }
-        return cmd == "--dump-dir-list" ? listaDirectorio(params[0]) : leeFichero(params[0]);
+        if (cmd == "--dump-dir-list") {
+            return listaDirectorio(params[0]);
+        }
+        const std::uintmax_t desde =
+            params.size() > 1 ? std::strtoull(params[1].c_str(), nullptr, 10) : 0;
+        const std::uintmax_t cuanto =
+            params.size() > 2 ? std::strtoull(params[2].c_str(), nullptr, 10) : 0;
+        return leeFichero(params[0], desde, cuanto);
     }
     if (cmd == "--dump-zfs-guid-map") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-guid-map <dataset>\n"; return r; }
@@ -7579,8 +7618,12 @@ int main(int argc, char* argv[]) {
             std::cerr << "la ruta no está dentro de ningún punto de montaje de ZFS\n";
             return 13;
         }
-        const ExecResult r = (cmd == "--dump-dir-list") ? listaDirectorio(args[2])
-                                                        : leeFichero(args[2]);
+        const ExecResult r =
+            (cmd == "--dump-dir-list")
+                ? listaDirectorio(args[2])
+                : leeFichero(args[2],
+                             args.size() > 3 ? std::strtoull(args[3].c_str(), nullptr, 10) : 0,
+                             args.size() > 4 ? std::strtoull(args[4].c_str(), nullptr, 10) : 0);
         std::cout << r.out;
         std::cerr << r.err;
         return r.rc;

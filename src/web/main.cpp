@@ -2036,7 +2036,28 @@ int main(int argc, char** argv) {
                      op.bind.c_str(), op.puerto, sesion.id().c_str());
     };
 
+    // El fichero que la petición que se está atendiendo quiere que se sirva por trozos. Lo
+    // rellena el camino de WebDAV y lo consume `atiendeChorro`, que corre justo después.
+    struct FicheroPedido {
+        // El perfil POR VALOR, no un puntero.
+        //
+        // Con puntero esto era una referencia colgante y se llevó una tarde: apuntaba
+        // dentro de `conns`, que es LOCAL a `atiende` y se destruye al volver de ella. El
+        // bucle de trozos corre después, así que leía un perfil ya muerto; el primer
+        // `std::string` que copiaba de ahí traía un tamaño de basura y el servidor moría
+        // con `std::bad_alloc` a mitad de la descarga.
+        //
+        // Copiar un perfil por fichero servido no cuesta nada, y quita de en medio la
+        // pregunta de quién vive más que quién.
+        B::ConnectionProfile perfil;
+        bool hay{false};
+        std::string ruta;
+        long long tamano{0};
+    };
+    FicheroPedido ficheroPedido;
+
     const auto atiende = [&](const std::string& crudo, std::string& respuesta) {
+        ficheroPedido = FicheroPedido{};
         const H::Peticion p = H::analiza(crudo);
         // El idioma de ESTA petición. Se pone en cada una porque el catálogo es global al
         // proceso y el servidor atiende de una en una: dejarlo puesto de la anterior
@@ -2344,21 +2365,36 @@ int main(int argc, char** argv) {
             // cuando la URL nombra un fichero, `--dump-dir-list` sobre él ya ha fallado
             // —listar un fichero no tiene sentido—, así que la lista de recursos solo trae
             // el propio recurso y buscar ahí dentro nunca encontraría nada.
-            if (!rutaBaseFs.empty() && perfilPedido) {
-                std::string b64;
+            // Un FICHERO no se sirve por aquí: se apunta cuál es y lo manda el camino por
+            // trozos, que es el único que puede con una imagen de 726 MB sin cargarla en
+            // memoria. Aquí solo se comprueba que existe y de qué tamaño es.
+            if (!rutaBaseFs.empty() && perfilPedido && !esDirectorioDeVerdad) {
+                std::string sal;
                 std::string errG;
                 int rcG = -1;
-                std::string motivoG;
-                std::string contenido;
                 if (llamaAgente(*sesionZfs, *perfilPedido,
-                                                {"--dump-file", rutaBaseFs}, b64, errG, rcG,
-                                                &motivoG, 60000)
-                    && rcG == 0 && B::base64Decode(B::trim(b64), contenido)) {
-                    r.tipo = "application/octet-stream";
-                    r.cuerpo = p.metodo == "HEAD" ? std::string() : contenido;
-                    respuesta = H::componer(r);
+                                {"--dump-file", rutaBaseFs, "0", "1"}, sal, errG, rcG, nullptr,
+                                60000)
+                    && rcG == 0) {
+                    long long total = 0;
+                    for (const std::string& l : B::split(sal, "\n", true)) {
+                        if (B::startsWith(l, "SIZE=")) {
+                            total = std::strtoll(l.substr(5).c_str(), nullptr, 10);
+                        }
+                    }
+                    ficheroPedido = {*perfilPedido, true, rutaBaseFs, total};
+                    // Lo contesta el camino por trozos, en cuanto esta función devuelva.
+                    respuesta.clear();
                     return true;
                 }
+                // No se pudo leer: se dice POR QUÉ. Antes caía al 404 de abajo y decía «no
+                // existe» de un fichero que existía y solo era grande.
+                r.codigo = 502;
+                r.tipo = "text/plain; charset=utf-8";
+                r.cuerpo = "no se pudo leer el fichero: " + B::trim(errG.empty() ? sal : errG)
+                           + "\n";
+                respuesta = H::componer(r);
+                return true;
             }
             // Ni fichero ni directorio: no existe. Contestar 200 aquí hacía que un fichero
             // borrado siguiera pareciendo que estaba.
@@ -3316,9 +3352,107 @@ int main(int argc, char** argv) {
     // arrancaba.
     const auto cierraTuneles = [&] { B::transport::closeAllTunnels(sesionZfs->transporte); };
 
+    // El camino por TROZOS: se prueba antes que `atiende` y solo hace algo cuando aquel ha
+    // dejado apuntado un fichero. Se hacen las dos cosas en este orden —resolver primero,
+    // servir después— porque resolver qué fichero es cuesta varias llamadas al agente y no
+    // se puede hacer con la respuesta ya empezada.
+    const auto atiendeChorro = [&](const std::string& crudo,
+                                   const B::tlsserver::Escritor& escribe) {
+        std::string respuestaCorta;
+        if (!atiende(crudo, respuestaCorta)) {
+            return false;
+        }
+        if (!ficheroPedido.hay) {
+            // No era un fichero: lo contesta el camino normal, que ya tiene la respuesta
+            // compuesta. Se escribe aquí para no atenderla dos veces.
+            return respuestaCorta.empty() ? false : escribe(respuestaCorta.data(),
+                                                            respuestaCorta.size());
+        }
+        const H::Peticion p = H::analiza(crudo);
+        const long long total = ficheroPedido.tamano;
+
+        // `Range: bytes=a-b`. Se atiende porque es lo que usan los gestores de descarga y
+        // los reproductores para saltar por un fichero grande, y porque un explorador que
+        // reanuda una copia cortada lo manda. Sin esto habría que volver a mandarlo entero.
+        long long desde = 0;
+        long long hasta = total > 0 ? total - 1 : 0;
+        bool esRango = false;
+        const std::string rango = p.cabecera("range");
+        if (B::startsWith(B::toLowerAscii(rango), "bytes=")) {
+            const std::string v = B::trim(rango.substr(6));
+            const std::size_t guion = v.find('-');
+            if (guion != std::string::npos) {
+                const std::string a = B::trim(v.substr(0, guion));
+                const std::string b = B::trim(v.substr(guion + 1));
+                if (!a.empty()) {
+                    desde = std::strtoll(a.c_str(), nullptr, 10);
+                }
+                if (!b.empty()) {
+                    hasta = std::strtoll(b.c_str(), nullptr, 10);
+                }
+                if (desde >= 0 && hasta >= desde && desde < total) {
+                    hasta = std::min(hasta, total - 1);
+                    esRango = true;
+                }
+            }
+        }
+        const long long cuantos = (total == 0) ? 0 : (hasta - desde + 1);
+
+        std::string cab = esRango ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n";
+        cab += "Content-Type: application/octet-stream\r\n";
+        cab += "Content-Length: " + std::to_string(cuantos) + "\r\n";
+        cab += "Accept-Ranges: bytes\r\n";
+        if (esRango) {
+            cab += "Content-Range: bytes " + std::to_string(desde) + "-" + std::to_string(hasta)
+                   + "/" + std::to_string(total) + "\r\n";
+        }
+        cab += "X-Content-Type-Options: nosniff\r\n";
+        cab += "Content-Security-Policy: default-src \'none\'\r\n";
+        cab += "Connection: close\r\n\r\n";
+        if (!escribe(cab.data(), cab.size())) {
+            return true;
+        }
+        if (p.metodo == "HEAD") {
+            return true;
+        }
+
+        // De 4 MiB en 4 MiB. Es el tope que admite el daemon por trozo, y el que hace que
+        // ni él ni este servidor tengan que sostener el fichero entero: una imagen de 50 GB
+        // pasa por aquí con 4 MiB de memoria.
+        constexpr long long kTrozo = 4ll * 1024 * 1024;
+        long long puesto = 0;
+        while (puesto < cuantos) {
+            const long long pido = std::min(kTrozo, cuantos - puesto);
+            std::string sal;
+            std::string errT;
+            int rcT = -1;
+            if (!llamaAgente(*sesionZfs, ficheroPedido.perfil,
+                             {"--dump-file", ficheroPedido.ruta, std::to_string(desde + puesto),
+                              std::to_string(pido)},
+                             sal, errT, rcT, nullptr, 120000)
+                || rcT != 0) {
+                return true;   // ya se mandó la cabecera: cortar es todo lo que queda
+            }
+            const std::size_t nl = sal.find('\n');
+            std::string datos;
+            if (nl == std::string::npos
+                || !B::base64Decode(B::trim(sal.substr(nl + 1)), datos)) {
+                return true;
+            }
+            if (datos.empty()) {
+                break;   // el fichero encogió mientras se servía
+            }
+            if (!escribe(datos.data(), datos.size())) {
+                return true;
+            }
+            puesto += static_cast<long long>(datos.size());
+        }
+        return true;
+    };
+
     std::string err;
     if (!B::tlsserver::sirve(op.bind, op.puerto, rutaCert, rutaClave, atiende,
-                             [] { return g_vivo.load(); }, err, yaEscucha)) {
+                             [] { return g_vivo.load(); }, err, yaEscucha, atiendeChorro)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         cierraTuneles();
         return 1;

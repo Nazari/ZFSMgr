@@ -116,7 +116,8 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string&, std::string&)>& atiende,
            const std::function<bool()>& sigueVivo, std::string& error,
-           const std::function<void()>& alEscuchar) {
+           const std::function<void()>& alEscuchar,
+           const std::function<bool(const std::string&, const Escritor&)>& atiendeChorro) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -216,8 +217,25 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
                     break;
                 }
             }
+            bool yaContestado = false;
+            if (!peticion.empty() && atiendeChorro) {
+                const Escritor escribe = [ssl](const char* datos, std::size_t cuantos) {
+                    std::size_t puesto = 0;
+                    while (puesto < cuantos) {
+                        const int n = SSL_write(ssl, datos + puesto,
+                                                static_cast<int>(cuantos - puesto));
+                        if (n <= 0) {
+                            return false;   // el otro colgó: no tiene sentido seguir leyendo
+                        }
+                        puesto += static_cast<std::size_t>(n);
+                    }
+                    return true;
+                };
+                yaContestado = atiendeChorro(peticion, escribe);
+            }
             std::string respuesta;
-            if (!peticion.empty() && atiende(peticion, respuesta) && !respuesta.empty()) {
+            if (!yaContestado && !peticion.empty() && atiende(peticion, respuesta)
+                && !respuesta.empty()) {
                 SSL_write(ssl, respuesta.data(), static_cast<int>(respuesta.size()));
             }
         }

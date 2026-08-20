@@ -29,6 +29,9 @@ bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaC
 //
 // De una en una y no con hilos: en la fase 0 lo que importa es la superficie, no el
 // rendimiento, y un servidor secuencial no tiene carreras que revisar.
+// Escribe un trozo de respuesta directamente en la conexión. Devuelve false si se cortó.
+using Escritor = std::function<bool(const char* datos, std::size_t cuantos)>;
+
 // `alEscuchar`, si se pasa, se llama UNA vez y solo cuando el socket ya está escuchando.
 // Es donde va el cartel de «servidor en marcha»: escribirlo antes de llamar aquí deja al
 // usuario con una URL que nunca funcionó cuando el puerto estaba cogido.
@@ -36,6 +39,13 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string& peticion, std::string& respuesta)>& atiende,
            const std::function<bool()>& sigueVivo, std::string& error,
-           const std::function<void()>& alEscuchar = {});
+           const std::function<void()>& alEscuchar = {},
+           // Para respuestas que NO caben en memoria. Se prueba antes que `atiende`; si
+           // devuelve true, ya escribió lo suyo y no se llama al otro.
+           //
+           // Existe por los ficheros: servir una imagen de 50 GB componiendo la respuesta
+           // en un `std::string` es pedir 50 GB de memoria para mandarlos por un socket.
+           const std::function<bool(const std::string& peticion, const Escritor& escribe)>&
+               atiendeChorro = {});
 
 }  // namespace zfsmgr::base::tlsserver
