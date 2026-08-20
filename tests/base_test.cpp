@@ -1049,6 +1049,54 @@ int main() {
         igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
+        // --- lo que contestan los dos extremos al lanzar un trabajo
+        //
+        // Se leen aparte de ir a buscarlos, para poder fijar QUE se descarta. Y lo que se
+        // descarta es lo importante: un testigo que no mide 64 no viene recortado, es que no
+        // es la respuesta que se esperaba, y seguir con el dejaria al emisor hablando con
+        // quien no debe.
+        {
+            const std::string bueno =
+                "PORT=41235\n"
+                "TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+            const auto e = TR::leeEscucha(bueno);
+            comprobar(e.vale() && e.puerto == 41235, "escucha: puerto y testigo");
+            igual(std::to_string(e.testigo.size()), "64", "escucha: el testigo mide 64");
+
+            comprobar(!TR::leeEscucha("PORT=41235\nTOKEN=corto\n").vale(),
+                      "escucha: un testigo corto NO vale");
+            comprobar(!TR::leeEscucha("TOKEN=0123456789abcdef0123456789abcdef"
+                                      "0123456789abcdef0123456789abcdef\n").vale(),
+                      "escucha: sin puerto tampoco");
+            comprobar(!TR::leeEscucha("PORT=0\nTOKEN=0123456789abcdef0123456789abcdef"
+                                      "0123456789abcdef0123456789abcdef\n").vale(),
+                      "escucha: el puerto cero no es un puerto");
+            comprobar(!TR::leeEscucha("").vale(), "escucha: sin respuesta, nada");
+            // Lineas de mas no estorban: el daemon puede escribir avisos por delante.
+            comprobar(TR::leeEscucha("INFO algo\n" + bueno).vale(),
+                      "escucha: lo que no reconoce se salta");
+
+            igual(TR::leeIdentificadorDeTrabajo("JOB_ID=2a538be8659bd62d\n"), "2a538be8659bd62d",
+                  "trabajo: el identificador");
+            igual(TR::leeIdentificadorDeTrabajo("algo\nJOB_ID=abc\nmas\n"), "abc",
+                  "trabajo: aunque venga rodeado");
+            igual(TR::leeIdentificadorDeTrabajo("sin identificador"), "",
+                  "trabajo: y sin el, vacio");
+
+            // Los cinco puntos donde puede romperse, con su texto y ninguno repetido: cada
+            // uno lleva a un sitio distinto —uno es del receptor, otro de la red, otro del
+            // emisor— y confundirlos manda a mirar donde no es.
+            std::set<std::string> ft;
+            for (const TR::FalloTrabajo f :
+                 {TR::FalloTrabajo::ReceptorNoEscucha, TR::FalloTrabajo::RespuestaDeEscuchaNoVale,
+                  TR::FalloTrabajo::SinDireccionDeVuelta, TR::FalloTrabajo::EmisorNoArranco,
+                  TR::FalloTrabajo::SinIdentificador}) {
+                comprobar(!TR::etiquetaDe(f).empty(), "trabajo: el fallo tiene texto");
+                ft.insert(TR::etiquetaDe(f));
+            }
+            comprobar(ft.size() == 5, "trabajo: y los cinco son distintos");
+        }
+
         // --- donde se recibe DE VERDAD
         //
         // No es el dataset sobre el que se pulso: se le anade el nombre del origen. Este

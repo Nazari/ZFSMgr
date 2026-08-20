@@ -2239,85 +2239,42 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     const ConnectionProfile dp = m_conns.profiles[dstConnIdx];
     const bool sameConn = (srcConnIdx == dstConnIdx);
 
-    // Step 1: --zfs-recv-listen on dest daemon
-    QStringList recvArgs;
-    recvArgs << QStringLiteral("--zfs-recv-listen") << recvTarget << QStringLiteral("1");
-    QString recvOut, recvErr;
-    int recvRc = -1;
-    // Igual que en el camino síncrono: el destino puede ser la conexión Local, y el RPC
-    // por túnel rechaza de entrada todo lo que no sea SSH.
-    const bool recvOk =
-        isLocalConnection(dp) ? runAgentCommand(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
-                              : tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut,
-                                                              recvErr, recvRc);
-    if (!recvOk || recvRc != 0) {
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Job async: recv-listen falló en %1 (%2) — fallback síncrono")
-                   .arg(dp.name, recvErr.trimmed()));
-        return false;
-    }
-    int dstPort = 0;
-    QString dstToken;
-    for (const QString& line : recvOut.split('\n')) {
-        if (line.startsWith(QStringLiteral("PORT=")))  dstPort  = line.mid(5).trimmed().toInt();
-        if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
-    }
-    if (dstPort <= 0 || dstToken.size() != 64) {
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Job async: recv-listen respuesta inválida — fallback síncrono"));
-        return false;
-    }
-
-    // Step 2: --zfs-send-to-peer-async on src daemon
-    // Con qué dirección tiene que conectar el ORIGEN.
-    //
-    // dp.host no sirve cuando el destino es la conexión Local: vale "localhost", que
-    // desde el origen apunta al propio origen. La copia se quedaba intentando conectar
-    // consigo misma. Se le pregunta al origen con qué dirección nos ve, que es la única
-    // que con seguridad le sirve para volver.
-    QString peerHost = sameConn ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
-    if (!sameConn && isLocalConnection(dp)) {
-        const QString seen = sourceViewOfThisHost(srcConnIdx);
-        if (seen.isEmpty()) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Job async: no se pudo averiguar con qué dirección ve %1 a "
-                                  "este equipo — fallback síncrono").arg(sp.name));
-            return false;
+    // Los tres pasos —que el destino escuche, averiguar la dirección de vuelta, y que el
+    // origen arranque— viven en `base/transferencia`. Es lo que el servidor web necesita
+    // para poder copiar, porque es el único camino que sostiene el daemon en vez de quien
+    // lo lanzó.
+    // Cómo se le habla al agente de cada máquina: es la ventana quien lo sabe, porque una
+    // conexión Local no se alcanza igual que una remota.
+    const auto llama = [this](const zfsmgr::base::ConnectionProfile& maquina,
+                              const std::vector<std::string>& args, int timeoutMs,
+                              std::string& salida, std::string& err, int& rc) {
+        QStringList qargs;
+        for (const std::string& a : args) {
+            qargs << QString::fromStdString(a);
         }
-        peerHost = seen;
-    }
-    QStringList sendArgs;
-    sendArgs << QStringLiteral("--zfs-send-to-peer-async")
-             << (resumeToken.isEmpty() ? srcSnap : QString())
-             << peerHost
-             << QString::number(dstPort)
-             << dstToken
-             << (resumeToken.isEmpty() ? fromSnap.trimmed() : QString())
-             << (resumeToken.isEmpty() ? sendFlags.trimmed() : QString())
-             // Séptimo: el testigo. Con él, snapshot, base y banderas van vacíos a
-             // propósito: `zfs send -t` lleva dentro qué continuar y no admite que se
-             // le contradiga.
-             << resumeToken;
-    QString sendOut, sendErr;
-    int sendRc = -1;
-    const ConnectionProfile& sendProfile = sameConn ? dp : sp;
-    if (!tryRunRemoteAgentRpcViaTunnel(sendProfile, sendArgs, 10000, sendOut, sendErr, sendRc)
-        || sendRc != 0) {
+        const ConnectionProfile p = fromBaseProfile(maquina);
+        QString qout;
+        QString qerr;
+        const bool ok = isLocalConnection(p)
+                            ? runAgentCommand(p, qargs, timeoutMs, qout, qerr, rc)
+                            : tryRunRemoteAgentRpcViaTunnel(p, qargs, timeoutMs, qout, qerr, rc);
+        salida = qout.toStdString();
+        err = qerr.toStdString();
+        return ok;
+    };
+    const auto lanzado = zfsmgr::base::transferencia::lanzaTrabajo(
+        m_transport, llama, toBaseProfile(sp), toBaseProfile(dp), srcSnap.toStdString(),
+        recvTarget.toStdString(), fromSnap.toStdString(), sendFlags.toStdString(),
+        resumeToken.toStdString(), sameConn, false);
+    if (!lanzado.ok()) {
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Job async: send-to-peer-async falló en %1 (%2) — fallback síncrono")
-                   .arg(sp.name, sendErr.trimmed()));
+               QStringLiteral("Job async: %1 (%2) — fallback síncrono")
+                   .arg(QString::fromStdString(
+                            zfsmgr::base::transferencia::etiquetaDe(lanzado.fallo)),
+                        QString::fromStdString(lanzado.detalle)));
         return false;
     }
-
-    QString jobId;
-    for (const QString& line : sendOut.split('\n')) {
-        if (line.startsWith(QStringLiteral("JOB_ID="))) { jobId = line.mid(7).trimmed(); break; }
-    }
-    if (jobId.isEmpty()) {
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Job async: respuesta sin JOB_ID — fallback síncrono"));
-        return false;
-    }
+    const QString jobId = QString::fromStdString(lanzado.id);
 
     // Step 3: Track job in GUI
     ActiveDaemonJob job;

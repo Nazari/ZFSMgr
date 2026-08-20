@@ -149,6 +149,7 @@ que volver a comprobarlo antes de fiarse.
 | 1 | **HECHA** — bajadas `transferResumeTokenFor` y `sourceViewOfThisHost`; la interfaz las llama. Cambio de comportamiento: **ninguno**, a propósito | Da el módulo real con poco riesgo |
 | 2a | **HECHA** — las REGLAS que Copiar necesita: la versión mínima de OpenZFS y las banderas de `zfs send`. Sin comportamiento nuevo | Al empezar la 2 apareció que arrastra ~110 líneas de ayudantes que este documento no había contado; partirla deja los dos trozos comprobables |
 | 2b | **HECHA a medias** — bajada la COMPOSICIÓN de la orden: dónde se recibe de verdad, el `zfs send`, el `zfs recv -Fus` y cuál de los tres montajes toca. Falta el intercambio en vivo del camino daemon-a-daemon, que es E/S y no composición | Es la más corta de las tres y la que más se usa |
+| 2c | **HECHA** — bajado el camino ASÍNCRONO (`lanzaTrabajo`): los tres pasos que la web necesita. 86 líneas de la ventana pasan a 24 | Es lo que desbloquea la fase 4, y no dependía de la 3 |
 | 3 | **Nivelar**, que comparte casi todo con Copiar | Sale barata detrás de la 2 |
 | 4 | La web ofrece las dos, **solo por trabajos**, con el motivo cuando no se pueda | Primer valor visible |
 | 5 | **Mover** = Copiar + destruir el origen, con la confirmación en cada cliente | Es la 2 con un paso más, y el paso más peligroso |
@@ -187,6 +188,12 @@ hasta tener hecha la fase 2.
 ocurre cuando ya no hay nadie mirando. En la interfaz uno ve el resultado antes de que se
 borre nada; en la web el trabajo termina solo. Puede que lo correcto sea que la web copie y
 deje el destruir como un segundo paso explícito.
+
+**Cómo se le habla al agente NO lo decide la capa base.** Una conexión Local no se alcanza
+igual que una remota —el RPC por túnel rechaza de entrada todo lo que no sea SSH— y meter esa
+distinción abajo obligaría a subir el descubrimiento del TLS local, que es de otro sitio. Así
+que `lanzaTrabajo` recibe la llamada como parámetro. Se perdió al extraer y lo cazó la
+primera prueba de verdad: el trabajo no arrancaba porque el destino era «Local».
 
 **Qué pasa si el cliente muere a media transferencia por trabajos.** El daemon sigue: para
 eso es asíncrona. Pero nadie recoge el resultado. `scanOrphanedJobsForConnection` existe en

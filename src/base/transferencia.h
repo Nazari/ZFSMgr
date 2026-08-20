@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -170,6 +171,72 @@ enum class Montaje {
 // un rodeo por esta máquina.
 Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& destino,
                   bool mismaConexion);
+
+// ── El camino asíncrono: un trabajo en el daemon ─────────────────────────────
+//
+// Es el único que le sirve al servidor web, porque lo sostiene el daemon y no quien lo
+// lanzó. Son tres pasos: el receptor abre un puerto, se averigua con qué dirección tiene
+// que volver el emisor, y el emisor arranca el envío y devuelve un identificador.
+
+// Lo que contesta `--zfs-recv-listen`: en qué puerto espera y con qué testigo.
+struct EscuchaDelReceptor {
+    int puerto{0};
+    std::string testigo;
+
+    // El testigo son 64 caracteres. Una respuesta con otra longitud no es que venga
+    // recortada: es que no es la respuesta que se esperaba, y seguir con ella dejaría al
+    // emisor hablando con quien no debe.
+    bool vale() const { return puerto > 0 && testigo.size() == 64; }
+};
+
+EscuchaDelReceptor leeEscucha(const std::string& salida);
+std::string leeIdentificadorDeTrabajo(const std::string& salida);
+
+// Por qué no arrancó el trabajo. Los cinco puntos donde puede romperse, separados, porque
+// cada uno lleva a un sitio distinto: uno es del receptor, otro de la red, otro del emisor.
+enum class FalloTrabajo {
+    Ninguno,
+    ReceptorNoEscucha,
+    RespuestaDeEscuchaNoVale,
+    SinDireccionDeVuelta,
+    EmisorNoArranco,
+    SinIdentificador,
+};
+
+std::string etiquetaDe(FalloTrabajo f);
+
+struct Trabajo {
+    std::string id;
+    FalloTrabajo fallo{FalloTrabajo::Ninguno};
+    std::string detalle;
+
+    bool ok() const { return fallo == FalloTrabajo::Ninguno && !id.empty(); }
+};
+
+// Cómo se le habla al agente de una máquina. **Lo pone quien llama, y no es un capricho.**
+//
+// Una conexión LOCAL no se alcanza igual que una remota: el RPC por túnel rechaza de
+// entrada todo lo que no sea SSH, así que para la local hay que ir por el socket del daemon
+// con su material TLS. Cada cliente ya sabe hacerlo —la interfaz con `runAgentCommand`, el
+// servidor web con `llamaAgente`— y meter aquí esa distinción obligaría a subir a la capa
+// base el descubrimiento del TLS local, que es de otro sitio.
+//
+// Se perdió al extraer esto de la ventana y lo cazó la primera prueba de verdad: el trabajo
+// no arrancaba porque el destino era «Local» y se le estaba hablando como si fuera remoto.
+using LlamadaAlAgente = std::function<bool(const ConnectionProfile& maquina,
+                                           const std::vector<std::string>& args, int timeoutMs,
+                                           std::string& salida, std::string& err, int& rc)>;
+
+// Arranca el trabajo. Devuelve en cuanto lo tiene lanzado: NO espera a que termine, que es
+// justo el motivo de que exista.
+//
+// Con `testigoReanudacion` puesto, la instantánea, la base y las banderas van vacías a
+// propósito: `zfs send -t` lleva dentro qué continuar y no admite que se le contradiga.
+Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
+                     const ConnectionProfile& origen, const ConnectionProfile& destino,
+                     const std::string& instantanea, const std::string& destinoDelRecv,
+                     const std::string& desdeInstantanea, const std::string& banderas,
+                     const std::string& testigoReanudacion, bool mismaConexion, bool verboso);
 
 // ── Lo que sí va a preguntar a las máquinas ──────────────────────────────────
 

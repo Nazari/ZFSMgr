@@ -346,3 +346,119 @@ Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& dest
 }
 
 }  // namespace zfsmgr::base::transferencia
+
+namespace zfsmgr::base::transferencia {
+
+EscuchaDelReceptor leeEscucha(const std::string& salida) {
+    EscuchaDelReceptor e;
+    for (const std::string& linea : split(salida, "\n", true)) {
+        const std::string l = trim(linea);
+        if (startsWith(l, "PORT=")) {
+            e.puerto = std::atoi(trim(l.substr(5)).c_str());
+        } else if (startsWith(l, "TOKEN=")) {
+            e.testigo = trim(l.substr(6));
+        }
+    }
+    return e;
+}
+
+std::string leeIdentificadorDeTrabajo(const std::string& salida) {
+    for (const std::string& linea : split(salida, "\n", true)) {
+        const std::string l = trim(linea);
+        if (startsWith(l, "JOB_ID=")) {
+            return trim(l.substr(7));
+        }
+    }
+    return {};
+}
+
+std::string etiquetaDe(FalloTrabajo f) {
+    switch (f) {
+        case FalloTrabajo::Ninguno:
+            return {};
+        case FalloTrabajo::ReceptorNoEscucha:
+            return "el daemon del destino no pudo ponerse a escuchar";
+        case FalloTrabajo::RespuestaDeEscuchaNoVale:
+            return "el destino contestó algo que no es un puerto y un testigo";
+        case FalloTrabajo::SinDireccionDeVuelta:
+            return "no se pudo averiguar con qué dirección ve el origen a este equipo";
+        case FalloTrabajo::EmisorNoArranco:
+            return "el daemon del origen no arrancó el envío";
+        case FalloTrabajo::SinIdentificador:
+            return "el origen arrancó el envío pero no dijo con qué identificador seguirlo";
+    }
+    return {};
+}
+
+Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
+                     const ConnectionProfile& origen, const ConnectionProfile& destino,
+                     const std::string& instantanea, const std::string& destinoDelRecv,
+                     const std::string& desdeInstantanea, const std::string& banderas,
+                     const std::string& testigoReanudacion, bool mismaConexion, bool verboso) {
+    Trabajo t;
+
+    // 1. Que el destino se ponga a escuchar.
+    std::string salida;
+    std::string err;
+    int rc = -1;
+    if (!llama(destino, {"--zfs-recv-listen", destinoDelRecv, "1"}, 12000, salida, err, rc)
+        || rc != 0) {
+        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.detalle = trim(err.empty() ? salida : err);
+        return t;
+    }
+    const EscuchaDelReceptor escucha = leeEscucha(salida);
+    if (!escucha.vale()) {
+        t.fallo = FalloTrabajo::RespuestaDeEscuchaNoVale;
+        t.detalle = trim(salida);
+        return t;
+    }
+
+    // 2. Con qué dirección tiene que conectar el ORIGEN.
+    //
+    // El `host` del perfil del destino NO sirve cuando el destino es la conexión Local:
+    // vale «localhost», que desde el origen apunta al propio origen. La copia se quedaba
+    // intentando conectar consigo misma. Se le pregunta al origen con qué dirección nos ve,
+    // que es la única que con seguridad le sirve para volver.
+    std::string haciaDonde = mismaConexion ? std::string("127.0.0.1") : trim(destino.host);
+    if (!mismaConexion && transport::isLocalConnection(destino)) {
+        haciaDonde = comoMeVeElOrigen(ses, origen, verboso);
+        if (haciaDonde.empty()) {
+            t.fallo = FalloTrabajo::SinDireccionDeVuelta;
+            return t;
+        }
+    }
+
+    // 3. Que el origen arranque el envío. Con el testigo puesto, los tres campos de en
+    // medio van vacíos: `zfs send -t` lleva dentro qué continuar.
+    const bool reanudando = !trim(testigoReanudacion).empty();
+    const std::vector<std::string> args = {
+        "--zfs-send-to-peer-async",
+        reanudando ? std::string() : instantanea,
+        haciaDonde,
+        std::to_string(escucha.puerto),
+        escucha.testigo,
+        reanudando ? std::string() : trim(desdeInstantanea),
+        reanudando ? std::string() : trim(banderas),
+        trim(testigoReanudacion),
+    };
+    // Lo lanza el emisor, salvo en la misma conexión: allí las dos puntas son la misma
+    // máquina y el que manda es el mismo daemon.
+    const ConnectionProfile& quienEnvia = mismaConexion ? destino : origen;
+    salida.clear();
+    err.clear();
+    rc = -1;
+    if (!llama(quienEnvia, args, 10000, salida, err, rc) || rc != 0) {
+        t.fallo = FalloTrabajo::EmisorNoArranco;
+        t.detalle = trim(err.empty() ? salida : err);
+        return t;
+    }
+    t.id = leeIdentificadorDeTrabajo(salida);
+    if (t.id.empty()) {
+        t.fallo = FalloTrabajo::SinIdentificador;
+        t.detalle = trim(salida);
+    }
+    return t;
+}
+
+}  // namespace zfsmgr::base::transferencia
