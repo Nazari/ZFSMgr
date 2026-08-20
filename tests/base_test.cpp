@@ -19,6 +19,8 @@
 #include "listados.h"
 #include "secretcipher.h"
 #include "strutil.h"
+#include "tlsclient.h"
+#include "tlsserver.h"
 #include "transportcmd.h"
 #include "transportsession.h"
 #include "transportrpc.h"
@@ -27,6 +29,8 @@
 #include "zfsmurl.h"
 #include "gsa.h"
 #include "zfsprops.h"
+#include <sstream>
+#include <atomic>
 
 #include <chrono>
 #include <thread>
@@ -910,6 +914,100 @@ int main() {
                   "listados: salida vacia de zpool get no es un fallo");
         comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
+    }
+
+    // --- una respuesta LENTA no se da por perdida
+    //
+    // El plazo de CONEXION no puede seguir siendo el plazo de LECTURA. `conecta()` lo pone
+    // en el socket con SO_RCVTIMEO para acotar el connect, y ese valor se quedaba puesto:
+    // para el daemon local vale como mucho 700 ms, asi que cualquier respuesta mas lenta se
+    // daba por perdida con «el daemon no respondio», por muy alto que fuera el plazo
+    // pedido —120 segundos en una mutacion—.
+    //
+    // No era teorico: `zpool sync` sobre un pool de 2,46 TB tarda 2,4 s y arrancar un scrub
+    // otro tanto. La orden LLEGABA y el daemon la ejecutaba; lo que fallaba era recoger la
+    // respuesta, asi que la accion se hacia y se contaba como error.
+    //
+    // Aqui se monta un servidor TLS de verdad que tarda A PROPOSITO mas que el plazo de
+    // conexion. Solo lo pasa un cliente que distinga los dos plazos.
+    {
+        namespace TS = zfsmgr::base::tlsserver;
+        namespace TC = zfsmgr::base;
+        const std::string dir = "/tmp/zfsmgr-tls-lento";
+        std::filesystem::remove_all(dir);
+        std::filesystem::create_directories(dir);
+        const std::string cert = dir + "/s.crt";
+        const std::string clave = dir + "/s.key";
+        const std::string certCli = dir + "/c.crt";
+        const std::string claveCli = dir + "/c.key";
+        std::string errC;
+        comprobar(TS::escribeParAutofirmado(cert, clave, "localhost", true, "IP:127.0.0.1", errC),
+                  "tls-lento: se emite el par del servidor");
+        comprobar(TS::escribeParAutofirmado(certCli, claveCli, "cliente", false, std::string(),
+                                            errC),
+                  "tls-lento: y el del cliente, que el cliente exige tener");
+
+        const int puerto = 47791;
+        std::atomic<bool> vivo{true};
+        std::atomic<bool> atendio{false};
+        // El servidor tarda 1200 ms en contestar: cuatro veces el plazo de conexion que se
+        // le pone abajo al cliente.
+        std::thread hilo([&] {
+            std::string errS;
+            TS::sirve("127.0.0.1", puerto, cert, clave,
+                      [&](const std::string&, std::string& resp) {
+                          std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+                          atendio = true;
+                          resp = "{\"rc\":0}\n";
+                          return true;
+                      },
+                      [&] { return vivo.load(); }, errS);
+        });
+        // A que el socket este escuchando de verdad.
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+        const auto leePem = [](const std::string& r) {
+            std::ifstream f(r);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            return ss.str();
+        };
+        const std::string pemCert = leePem(cert);
+        TC::TlsClientConfig cfg;
+        cfg.host = "127.0.0.1";
+        cfg.port = static_cast<unsigned short>(puerto);
+        cfg.serverCertPem = pemCert;
+        cfg.clientCertPem = leePem(certCli);
+        cfg.clientKeyPem = leePem(claveCli);
+        cfg.connectTimeoutMs = 300;    // el que mataba la lectura
+        cfg.ioTimeoutMs = 20000;       // el que de verdad manda
+        std::string resp;
+        std::string errT;
+        const auto t0 = std::chrono::steady_clock::now();
+        // `sirve()` espera una peticion con forma de HTTP —hasta la linea en blanco—, asi
+        // que la de la prueba la lleva. Lo que se mide es el PLAZO, no el protocolo.
+        const bool ok = TC::tlsRequestLine(cfg, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", resp, errT);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        comprobar(ok, std::string("tls-lento: se espera la respuesta lenta (") + errT + ")");
+        igual(resp, "{\"rc\":0}", "tls-lento: y llega entera");
+        comprobar(ms > 1000, "tls-lento: se esperaron de verdad los 1200 ms, no se corto a los 300");
+        comprobar(atendio.load(), "tls-lento: el servidor llego a atender");
+
+        // El apagado: `sirve()` mira `sigueVivo` ENTRE conexiones, asi que hay que darle
+        // una mas para que salga del accept(). Si aun asi no saliera, se le suelta el hilo
+        // en vez de colgar la suite entera: lo que se estaba probando ya esta medido.
+        vivo = false;
+        {
+            TC::TlsClientConfig fin = cfg;
+            fin.ioTimeoutMs = 5000;
+            std::string r2;
+            std::string e2;
+            TC::tlsRequestLine(fin, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", r2, e2);
+        }
+        hilo.join();
+        std::filesystem::remove_all(dir);
     }
 
     // --- el puerto local de un tunel nunca es uno de los NUESTROS

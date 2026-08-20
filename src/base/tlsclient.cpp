@@ -284,9 +284,19 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         // túnel sigue vivo.
         constexpr std::size_t kTope = 64u * 1024u * 1024u;
         constexpr int kTrozoMs = 300;
-        if (hooks.keepWaiting) {
-            ponTiempoLimite(sock, kTrozoMs);
-        }
+        // **La espera se trocea SIEMPRE, haya o no `keepWaiting`.**
+        //
+        // Antes solo se rearmaba el plazo cuando había a quién preguntar, y sin eso el
+        // socket se quedaba con el que le puso `conecta()`: el de CONEXIÓN, que para el
+        // daemon local vale como mucho 700 ms. O sea que cualquier respuesta que tardara
+        // más de esos 700 ms se daba por perdida —«el daemon no respondió»— por muy alto
+        // que fuera el plazo pedido, que para una mutación son 120 segundos.
+        //
+        // No es un caso raro: `zpool sync` sobre un pool de 2,46 TB tarda 2,4 s, y
+        // arrancar un scrub otro tanto. La orden LLEGABA y el daemon la ejecutaba —queda
+        // en su registro—; lo que fallaba era el cliente al recoger la respuesta, así que
+        // la acción se hacía y se contaba como error. Es la peor mezcla de las dos.
+        ponTiempoLimite(sock, kTrozoMs);
         const auto inicioLectura = std::chrono::steady_clock::now();
         const auto agotado = [&]() {
             if (cfg.ioTimeoutMs <= 0) {
@@ -321,11 +331,13 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             const bool soloEsperando =
                 (motivo == SSL_ERROR_WANT_READ || motivo == SSL_ERROR_WANT_WRITE
                  || esperaDelSistema);
-            if (!soloEsperando || !hooks.keepWaiting) {
-                break;  // el otro cerró, o no hay a quién preguntar: se acabó
+            if (!soloEsperando) {
+                break;  // el otro cerró de verdad: se acabó
             }
-            // Se agotó el trozo. Aquí es donde se pregunta si tiene sentido seguir.
-            if (!hooks.keepWaiting()) {
+            // Se agotó el trozo, no la espera. Aquí se decide si tiene sentido seguir: lo
+            // manda `ioTimeoutMs`, que es el plazo que pidió quien llamó, y no el del
+            // socket, que ahora solo sirve para volver a pasar por aquí.
+            if (hooks.keepWaiting && !hooks.keepWaiting()) {
                 abandonado = true;
                 break;
             }

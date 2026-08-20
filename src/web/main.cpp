@@ -70,6 +70,7 @@ struct Opciones {
     std::string bind{"127.0.0.1"};
     int puerto{47654};
     int passwordFd{-1};
+    bool verboso{false};
 };
 
 void uso() {
@@ -85,6 +86,9 @@ void uso() {
                  "                        cambiarlo expone tus máquinas: hazlo a sabiendas.\n"
                  "  --port <n>            Puerto. Por omisión 47654.\n"
                  "  --password-fd <n>     Lee la contraseña maestra de ese descriptor.\n"
+                 "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
+                 "                        transporte con cada máquina. Sin esto, un fallo\n"
+                 "                        de transporte solo se ve como «no se pudo».\n"
                  "\n"
                  "La contraseña maestra NO se pasa por argumento ni por variable de entorno:\n"
                  "las dos salen en «ps» para cualquier usuario de la máquina.\n");
@@ -1576,6 +1580,7 @@ int main(int argc, char** argv) {
         if (a == "--bind" && i + 1 < argc) { op.bind = argv[++i]; continue; }
         if (a == "--port" && i + 1 < argc) { op.puerto = std::atoi(argv[++i]); continue; }
         if (a == "--password-fd" && i + 1 < argc) { op.passwordFd = std::atoi(argv[++i]); continue; }
+        if (a == "-v" || a == "--verbose") { op.verboso = true; continue; }
         std::fprintf(stderr, "zfsmgr-web: opción desconocida: %s\n", a.c_str());
         uso();
         return 2;
@@ -1633,7 +1638,7 @@ int main(int argc, char** argv) {
 
     // La sesión de transporte: la misma que monta el intérprete, con su proveedor de
     // credenciales y su persistencia de TLS. No se duplica el cableado.
-    auto sesionZfs = zfsmgr::cli::crearSesion(op.dirConfig, maestra, /*verboso=*/false);
+    auto sesionZfs = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso);
     if (!sesionZfs) {
         std::fprintf(stderr, "no se pudo montar la sesión de transporte\n");
         return 1;
