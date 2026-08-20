@@ -837,6 +837,38 @@ int main() {
         igual(props.at(0).nombre, "atime", "listados: ordenadas por nombre");
         igual(props.at(0).origen, "fc16", "listados: el origen heredado dice de donde");
         igual(props.at(1).valor, "lz4", "listados: y el valor");
+
+        // `zpool get -j all` es el MISMO formato con la seccion cambiada: los objetos
+        // cuelgan de «pools» y no de «datasets». Fixture recortado de una salida real de
+        // OpenZFS 2.4 —incluido el `feature@`, que es de donde salen las «capacidades»
+        // del pool: no son otra consulta, son un filtro sobre estas mismas propiedades.
+        const std::string getPool =
+            R"({"output_version":{"command":"zpool get"},"pools":{"fc16":{"name":"fc16",)"
+            R"("properties":{)"
+            R"("size":{"value":"2.46T","source":{"type":"NONE","data":"-"}},)"
+            R"("capacity":{"value":"69%","source":{"type":"NONE","data":"-"}},)"
+            R"("feature@lz4_compress":{"value":"active","source":{"type":"LOCAL","data":"-"}}}}}})";
+        std::vector<L::Propiedad> pp;
+        comprobar(L::propiedadesDePool(getPool, pp, err), "listados: se analiza zpool get -j");
+        comprobar(pp.size() == 3, "listados: las tres propiedades del pool");
+        igual(pp.at(0).nombre, "capacity", "listados: ordenadas por nombre tambien aqui");
+        igual(pp.at(1).nombre, "feature@lz4_compress", "listados: la capacidad es una propiedad");
+        igual(pp.at(1).valor, "active", "listados: con su valor");
+        igual(pp.at(2).nombre, "size", "listados: y la ultima por orden alfabetico");
+
+        // Los controles negativos de la seccion: cada lector mira la SUYA. Si
+        // `propiedadesDePool` mirase «datasets» —o al reves— no fallaria: devolveria una
+        // lista VACIA, que es peor, porque parece un pool sin propiedades.
+        std::vector<L::Propiedad> cruzado;
+        comprobar(L::propiedades(getPool, cruzado, err) && cruzado.empty(),
+                  "listados: zfs get NO lee la seccion de pools");
+        comprobar(L::propiedadesDePool(getJson, cruzado, err) && cruzado.empty(),
+                  "listados: y zpool get NO lee la de datasets");
+        // Una salida vacia no es un error: es una maquina sin nada que contar.
+        comprobar(L::propiedadesDePool("", cruzado, err) && cruzado.empty(),
+                  "listados: salida vacia de zpool get no es un fallo");
+        comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
+                  "listados: pero la basura si lo es");
     }
 
     // --- guardar un perfil: cifrado, y el TLS segun cambie o no el EXTREMO

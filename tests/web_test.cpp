@@ -145,6 +145,34 @@ int main() {
         comprobar(xr.find("<c>") == std::string::npos, "dav: sin dejar etiquetas sueltas");
     }
 
+    // ── 10. Meter un nombre en una URL ──────────────────────────────────────
+    //
+    // Hace falta desde que la selección del árbol viaja en la consulta: `?sel=<dataset>`.
+    // Un nombre de dataset admite casi cualquier cosa, y un «&» ahí dentro no rompe la
+    // página — hace algo peor, que es cortar el parámetro y dejar seleccionado OTRO nodo.
+    {
+        igual(H::haciaUrl("fc16/user"), "fc16/user", "url: lo normal no se toca");
+        igual(H::haciaUrl("pool/a-b_c.d:e"), "pool/a-b_c.d:e",
+              "url: los signos que ZFS admite tampoco");
+        igual(H::haciaUrl("a b"), "a%20b", "url: el espacio");
+        igual(H::haciaUrl("a&b"), "a%26b", "url: el ampersand, que es el peligroso");
+        igual(H::haciaUrl("a+b"), "a%2Bb", "url: el mas, que al volver seria un espacio");
+        igual(H::haciaUrl("d@snap"), "d%40snap", "url: la arroba de las instantaneas");
+        igual(H::haciaUrl("a#b"), "a%23b", "url: la almohadilla, que cortaria la URL");
+        igual(H::haciaUrl("a%b"), "a%25b", "url: el propio porciento");
+        // La vuelta completa: lo que se codifica se tiene que poder descodificar igual.
+        const char* const raros[] = {"a b", "a&b", "a+b", "d@s", "a#b", "a%b", "ñ", "a=b"};
+        for (const char* r : raros) {
+            igual(H::desdeUrl(H::haciaUrl(r)), r, std::string("url: ida y vuelta de «") + r + "»");
+        }
+        // El control negativo: SIN codificar, «a&b» se parte en dos parametros. Esto es lo
+        // que pasaba antes y por lo que la funcion existe.
+        const auto p = H::analiza(
+            "GET /c/local/pool?sel=a&b&v=props HTTP/1.1\r\nHost: x\r\n\r\n");
+        comprobar(p.consulta.find("sel=a&b") != std::string::npos,
+                  "url: sin codificar, el nombre se parte (por eso hay que codificar)");
+    }
+
     std::printf(fallos ? "FALLOS: %d\n" : "web_test OK\n", fallos);
     return fallos ? 1 : 0;
 }

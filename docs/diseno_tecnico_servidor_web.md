@@ -99,9 +99,20 @@ scrub, trim, initialize; montar y desmontar; cifrado —cargar, descargar y camb
 copiar y nivelar entre máquinas; desglosar y ensamblar; instalar el daemon; programación
 GSA; registro del daemon; trabajos en segundo plano.
 
-**Hay que escribirlo:** el árbol navegable con estado (expandido, selección), la edición en
-línea de propiedades, la lista de pendientes como plan de trabajo, el diálogo de creación
-de pool con sus dispositivos, y las capturas de ayuda.
+**Hecho en la fase 4:** el árbol navegable con estado. No hace falta guardarlo: el estado
+—qué ramas están abiertas y cuál es el nodo elegido— se DEDUCE de la selección, que viaja
+en la URL. Sale abierto lo que lleva hasta el nodo elegido y nada más, así que una recarga
+o un enlace guardado reconstruyen la misma vista sin que el servidor recuerde nada.
+
+**Hay que escribirlo:** la edición en línea de propiedades, la lista de pendientes como
+plan de trabajo, el diálogo de creación de pool con sus dispositivos, y las capturas de
+ayuda. Y las acciones de DOS extremos —copiar, mover, clonar entre máquinas, sincronizar,
+nivelar y diff—, que son las que en Qt piden marcar un origen: eso es estado entre páginas
+y hay que decidir dónde vive antes de escribirlo.
+
+**No se puede con los verbos de hoy:** los *holds* de una instantánea. La interfaz los lee
+con `zfs holds` por shell y el daemon no tiene verbo para ellos; añadir aquí un camino de
+shell iría justo contra lo que se está quitando. Hace falta un `--dump-zfs-holds`.
 
 **Se decide si entra:** los tres idiomas —el catálogo ya está en `i18n/*.json` y la capa
 base lo lee— y el tema oscuro.
@@ -114,7 +125,7 @@ base lo lee— y el tema oscuro.
 | 1 | **HECHA** — Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | **HECHA** — Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
 | 3 | **HECHA a medias** — WebDAV sobre la misma escucha: el árbol de ZFS sí, los ficheros de dentro no (hacen falta dos verbos nuevos en el daemon) | Cae casi solo una vez hay servidor |
-| 4 | Paridad del resto de la lista | |
+| 4 | **EN CURSO** — dos paneles: árbol a la izquierda con los mismos nodos que Qt (Propiedades, Permisos, Contenido, Programación, instantáneas agrupadas por clase) y a la derecha la ficha del nodo más sus acciones | |
 | 5 | Retirar Qt | Solo cuando 4 esté medido contra la lista, no antes |
 
 ## Lo que hay que resolver y todavía no sé

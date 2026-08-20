@@ -69,4 +69,10 @@ struct Propiedad {
 // De `zfs get -j all`. Ordenadas por nombre, que es como se leen.
 bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::string& error);
 
+// De `zpool get -j all`. Es el MISMO formato con otra sección: `zfs` cuelga sus objetos de
+// «datasets» y `zpool` de «pools». Se separan en dos funciones y no en un parámetro porque
+// quien llama sabe cuál pidió, y un booleano en la llamada no se lee.
+bool propiedadesDePool(const std::string& salida, std::vector<Propiedad>& out,
+                       std::string& error);
+
 }  // namespace zfsmgr::base::listados

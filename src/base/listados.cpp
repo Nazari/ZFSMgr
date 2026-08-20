@@ -70,7 +70,12 @@ std::vector<Entrada> entradas(const std::string& salidaTsv) {
     return out;
 }
 
-bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::string& error) {
+namespace {
+
+// El cuerpo común de `zfs get -j` y `zpool get -j`: cambia la sección de la que cuelgan
+// los objetos y nada más.
+bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<Propiedad>& out,
+                   std::string& error) {
     out.clear();
     error.clear();
     if (trim(salida).empty()) {
@@ -80,10 +85,9 @@ bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::st
     if (!json::parse(salida, raiz, &error)) {
         return false;
     }
-    // `zfs get -j` mete las propiedades bajo datasets/<nombre>/properties, y hay una
-    // entrada por dataset aunque se haya preguntado por uno solo.
-    for (const auto& ds : raiz["datasets"].toObject()) {
-        for (const auto& kv : ds.second["properties"].toObject()) {
+    // Hay una entrada por objeto aunque se haya preguntado por uno solo.
+    for (const auto& obj : raiz[seccion].toObject()) {
+        for (const auto& kv : obj.second["properties"].toObject()) {
             Propiedad p;
             p.nombre = kv.first;
             p.valor = kv.second["value"].toString();
@@ -97,6 +101,17 @@ bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::st
     std::sort(out.begin(), out.end(),
               [](const Propiedad& a, const Propiedad& b) { return a.nombre < b.nombre; });
     return true;
+}
+
+}  // namespace
+
+bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::string& error) {
+    return propiedadesDe(salida, "datasets", out, error);
+}
+
+bool propiedadesDePool(const std::string& salida, std::vector<Propiedad>& out,
+                       std::string& error) {
+    return propiedadesDe(salida, "pools", out, error);
 }
 
 }  // namespace zfsmgr::base::listados

@@ -40,6 +40,11 @@ Peticion analiza(const std::string& crudo);
 // enseñarlo raro.
 std::string desdeUrl(const std::string& s);
 
+// Al revés: un texto metido en una URL. Hace falta porque los nombres de dataset viajan
+// ahora en la consulta —`?sel=fc16/mi dataset`— y un espacio, un «&» o un «+» ahí dentro
+// cortarían el parámetro por la mitad o lo cambiarían en silencio.
+std::string haciaUrl(const std::string& s);
+
 // Escapa `& < > " '` para meter texto dentro de HTML.
 //
 // Todo lo que venga de la configuración o de una máquina pasa por aquí: el nombre de una

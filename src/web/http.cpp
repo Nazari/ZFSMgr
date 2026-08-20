@@ -142,6 +142,28 @@ std::string desdeUrl(const std::string& s) {
     return out;
 }
 
+// La lista de lo que NO se codifica es corta A PROPOSITO: alfanuméricos y los cuatro
+// signos que ZFS admite en un nombre —«-», «_», «.» y «:»—, más la barra, que separa el
+// dataset de su padre y se lee mejor sin codificar. Todo lo demás va en %XX, incluida la
+// «@» de las instantáneas: en la consulta es legal, pero codificarla no cuesta nada y
+// evita tener que acordarse de en qué parte de la URL cada carácter es especial.
+std::string haciaUrl(const std::string& s) {
+    static const char* const kHex = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(s.size());
+    for (const char c : s) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (std::isalnum(u) || c == '-' || c == '_' || c == '.' || c == ':' || c == '/') {
+            out.push_back(c);
+            continue;
+        }
+        out.push_back('%');
+        out.push_back(kHex[u >> 4]);
+        out.push_back(kHex[u & 0x0F]);
+    }
+    return out;
+}
+
 std::string escapaHtml(const std::string& s) {
     std::string out;
     out.reserve(s.size());
