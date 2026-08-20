@@ -106,28 +106,40 @@ Software you compile locally is never quarantined, so it just runs:
 Requires Xcode command line tools and Qt 6. See `docs/cross-compiling-linux.md` for
 the toolchain details.
 
-## Installing the command-line tool
+## Installing the command-line tool and the web server
 
-`zfsmgr_cli` is the shell: the same operations as the window, driven from a terminal,
-with a `zfsm://` URL as the current location. Where it lands depends on how the platform
-installs software:
+Two clients ship next to the window, and both are installed the same way because they
+are the same kind of thing: a client that links no Qt at all and talks to the daemon
+over the same tunnel.
 
-| Platform | Installer | Where the tool ends up |
+- **`zfsmgr_cli`** — the shell: the same operations as the window, driven from a
+  terminal, with a `zfsm://` URL as the current location.
+- **`zfsmgr_web`** — a local HTTPS server that serves the same tree to a browser. It
+  runs **as you**, not as root, and listens on `127.0.0.1` unless told otherwise.
+  Nothing starts it for you: no service, no unit file. Listening on a port with the
+  master password in memory is something you do on purpose. See
+  `docs/diseno_tecnico_servidor_web.md`.
+
+Where they land depends on how the platform installs software:
+
+| Platform | Installer | Where the tools end up |
 |---|---|---|
-| Windows | `ZFSMgr-setup.exe` | `%ProgramFiles%\ZFSMgr\bin\zfsmgr_cli.exe`, and the installer offers to add that directory to the system `Path` |
-| Linux | `.deb` | `/usr/bin/zfsmgr_cli` — on the `PATH` already |
-| FreeBSD | `.pkg` | `/usr/local/bin/zfsmgr_cli` — on the `PATH` already |
-| macOS | *(none — the `.app` is drag-and-drop)* | inside the bundle, at `ZFSMgr.app/Contents/MacOS/zfsmgr_cli` |
+| Windows | `ZFSMgr-setup.exe` | `%ProgramFiles%\ZFSMgr\bin\`, and the installer offers to add that directory to the system `Path` |
+| Linux | `.deb` / AppImage | `/usr/bin/` — on the `PATH` already |
+| FreeBSD | `.pkg` | `/usr/local/bin/` — on the `PATH` already |
+| macOS | *(none — the `.app` is drag-and-drop)* | inside the bundle, at `ZFSMgr.app/Contents/MacOS/` |
 
-macOS has no installer, so the link is yours to make:
+macOS has no installer, so the links are yours to make:
 
 ```bash
 sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_web /usr/local/bin/zfsmgr_web
 zfsmgr_cli --help
+zfsmgr_web --help
 ```
 
-Deleting the `.app` leaves that symlink dangling; remove it with
-`sudo rm /usr/local/bin/zfsmgr_cli`.
+Deleting the `.app` leaves those symlinks dangling; remove them with
+`sudo rm /usr/local/bin/zfsmgr_cli /usr/local/bin/zfsmgr_web`.
 
 The AppImage is the graphical application only. It is a single self-contained file, so
 nothing inside it is on your `PATH`; use the `.deb` if you want the shell.

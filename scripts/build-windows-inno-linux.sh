@@ -24,6 +24,7 @@ INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
 APP_EXE="zfsmgr_qt.exe"
 CLI_EXE="zfsmgr_cli.exe"
+WEB_EXE="zfsmgr_web.exe"
 APP_VERSION=""
 QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
 MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
@@ -40,6 +41,7 @@ Opciones:
   --version <v>         Versión del instalador (si no, se lee de CMakeLists)
   --exe <name.exe>      Ejecutable principal (default: zfsmgr_qt.exe)
   --cli <name.exe>      Herramienta de línea de órdenes (default: zfsmgr_cli.exe).
+  --web <name.exe>      Servidor web local (default: zfsmgr_web.exe).
                         Si no está en --input-dir se omite y el instalador se genera
                         igual: la aplicación gráfica no depende de ella.
   --qt-prefix <dir>     Prefijo Qt6 para Windows (bin/Qt6*.dll y plugins/). Por defecto
@@ -64,6 +66,7 @@ while [[ $# -gt 0 ]]; do
     --version) shift; APP_VERSION="${1:-}"; shift ;;
     --exe) shift; APP_EXE="${1:-}"; shift ;;
     --cli) shift; CLI_EXE="${1:-}"; shift ;;
+    --web) shift; WEB_EXE="${1:-}"; shift ;;
     --qt-prefix) shift; QT6_PREFIX="${1:-}"; shift ;;
     --mingw-triple) shift; MINGW_TRIPLE="${1:-}"; shift ;;
     --wineprefix) shift; WINEPREFIX="${1:-}"; shift ;;
@@ -303,6 +306,18 @@ prepare_payload() {
       cp -a "${SCRIPT_DIR}/../i18n" "${PAYLOAD_DIR}/bin/"
       echo "[payload] Catálogos de traducción incluidos en bin/i18n"
     fi
+    # El servidor web, al mismo bin/. Comparte con el CLI el runtime de MinGW que ya se
+    # ha copiado ahí arriba, así que no añade ni una DLL: son los dos el mismo tipo de
+    # binario —cliente sin Qt— y por eso caben en el mismo sitio sin pagarlo dos veces.
+    #
+    # Aviso y no error si falta, igual que con el CLI: la aplicación gráfica no depende
+    # de él y abortar el instalador entero sería desproporcionado.
+    if [[ -n "${WEB_EXE}" && -f "${INPUT_DIR}/${WEB_EXE}" ]]; then
+      cp -f "${INPUT_DIR}/${WEB_EXE}" "${PAYLOAD_DIR}/bin/"
+      echo "[payload] Servidor web incluido en bin/: ${WEB_EXE}"
+    else
+      echo "[payload] Aviso: no se encontró ${INPUT_DIR}/${WEB_EXE}; el instalador irá sin servidor web." >&2
+    fi
     echo "[payload] CLI incluido en bin/: ${CLI_EXE}"
   else
     # Aviso y no error: la aplicación gráfica no depende del CLI, y abortar el instalador
@@ -364,13 +379,13 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 ; que va a gestionar en remoto, pero VISIBLE y desmarcable: levantar un servidor SSH
 ; cambia la exposición del equipo en la red y eso no se hace en silencio.
 Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage this machine remotely from another ZFSMgr)"; GroupDescription: "Remote access:"
-; Poner zfsmgr-cli en el PATH de la máquina.
+; Poner {app}\\bin en el PATH de la máquina: ahí están zfsmgr_cli y zfsmgr_web.
 ;
 ; Marcada por omisión porque es a lo que viene quien quiere la herramienta de línea de
 ; órdenes, pero VISIBLE y desmarcable por el mismo motivo que la de OpenSSH: tocar el
 ; PATH del sistema cambia lo que ejecuta cualquier consola del equipo, y eso no se hace
 ; en silencio.
-Name: "addtopath"; Description: "Add zfsmgr-cli to the system PATH"; GroupDescription: "Command line:"
+Name: "addtopath"; Description: "Add zfsmgr-cli and zfsmgr-web to the system PATH"; GroupDescription: "Command line:"
 
 [Registry]
 ; expandsz y NO string: el Path del sistema suele traer %SystemRoot% dentro, y

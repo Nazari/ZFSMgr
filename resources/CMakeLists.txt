@@ -525,6 +525,16 @@ install(TARGETS zfsmgr_cli
     RUNTIME DESTINATION bin
 )
 
+# Y el servidor web, al lado. Es un cliente más —corre como el usuario, no como root— así
+# que va a `bin/` y no a `libexec/`, que es donde vive el agente.
+#
+# No lleva unidad de systemd ni nada que lo arranque solo, y es deliberado: escuchar en un
+# puerto con la clave maestra en memoria es algo que se hace a sabiendas y cuando uno
+# quiere, no algo que quede encendido porque se instaló un paquete.
+install(TARGETS zfsmgr_web
+    RUNTIME DESTINATION bin
+)
+
 # Y sus catálogos, que NO puede llevar dentro.
 #
 # La interfaz tiene los suyos compilados como recurso de Qt y funciona sin fichero

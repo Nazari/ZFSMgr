@@ -261,17 +261,19 @@ find_cross_tool() {
 mete_cli_en_bundle_macos() {
   local app_bundle="$1"
   local build_dir="$2"
-  local cli="${build_dir}/zfsmgr_cli"
-  if [[ ! -f "${cli}" ]]; then
-    echo "Error: no se encontró ${cli} para meter en el bundle." >&2
-    echo "       Sin él, el .app de macOS sale sin intérprete." >&2
-    return 1
-  fi
-  cp -f "${cli}" "${app_bundle}/Contents/MacOS/zfsmgr_cli"
-  chmod 0755 "${app_bundle}/Contents/MacOS/zfsmgr_cli"
+  local cliente
+  for cliente in zfsmgr_cli zfsmgr_web; do
+    if [[ ! -f "${build_dir}/${cliente}" ]]; then
+      echo "Error: no se encontró ${build_dir}/${cliente} para meter en el bundle." >&2
+      echo "       Sin él, el .app de macOS sale incompleto." >&2
+      return 1
+    fi
+    cp -f "${build_dir}/${cliente}" "${app_bundle}/Contents/MacOS/${cliente}"
+    chmod 0755 "${app_bundle}/Contents/MacOS/${cliente}"
+    echo "  empaquetado: Contents/MacOS/${cliente}"
+  done
   mkdir -p "${app_bundle}/Contents/Resources/i18n"
   cp -f "${PROJECT_ROOT}"/i18n/*.json "${app_bundle}/Contents/Resources/i18n/"
-  echo "  intérprete empaquetado: Contents/MacOS/zfsmgr_cli"
 }
 
 firma_adhoc_bundle() {

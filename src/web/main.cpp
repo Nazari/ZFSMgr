@@ -237,10 +237,19 @@ std::string fechaLegible(const std::string& crudo) {
         }
     }
     const std::time_t cuando = static_cast<std::time_t>(std::strtoll(t.c_str(), nullptr, 10));
+    // `localtime_r` es POSIX y en MinGW no existe; Windows trae `localtime_s`, con los
+    // argumentos al revés. Mismo reparto que ya hace el daemon — este binario se compila
+    // para Windows igual que el intérprete.
     std::tm partes{};
+#ifdef _WIN32
+    if (localtime_s(&partes, &cuando) != 0) {
+        return t;
+    }
+#else
     if (localtime_r(&cuando, &partes) == nullptr) {
         return t;
     }
+#endif
     char buf[32];
     if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &partes) == 0) {
         return t;
