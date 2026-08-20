@@ -190,8 +190,8 @@ div.hoja.hojads { padding-left: 1.15em; }
 div.abajo { margin-top: 1.2rem; }
 div.pestanas { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
                margin-bottom: .35rem; }
-span.pestgrupo { font-size: .86rem; color: var(--tenue); margin-right: .4rem;
-                 min-width: 5rem; }
+div.pestanas.dentro { margin: .1rem 0 .35rem 1.2rem; }
+div.pestanas.dentro a.pest { font-size: .82rem; padding: .15rem .6rem; }
 a.pest { font-size: .86rem; padding: .2rem .7rem; border: 1px solid var(--borde);
          border-radius: 4px; color: var(--tenue); background: var(--fondo); }
 a.pest:hover { border-color: var(--acento); text-decoration: none; }
@@ -556,8 +556,6 @@ enum class Vista {
     Capacidades,
     Historial,
     Programacion,
-    Registro,
-    Trabajos,
 };
 
 const char* claveDeVista(Vista v) {
@@ -572,8 +570,6 @@ const char* claveDeVista(Vista v) {
         case Vista::Capacidades:  return "caps";
         case Vista::Historial:    return "historial";
         case Vista::Programacion: return "gsa";
-        case Vista::Registro:     return "registro";
-        case Vista::Trabajos:     return "trabajos";
     }
     return "";
 }
@@ -590,8 +586,6 @@ std::string tituloDeVista(Vista v, const std::string& objeto) {
         case Vista::Capacidades:  return "Capacidades de " + objeto;
         case Vista::Historial:    return "Historial de " + objeto;
         case Vista::Programacion: return "Instantáneas programadas de " + objeto;
-        case Vista::Registro:     return "Registro del daemon de " + objeto;
-        case Vista::Trabajos:     return "Trabajos de " + objeto;
     }
     return objeto;
 }
@@ -600,7 +594,7 @@ Vista vistaDesde(const std::string& s) {
     static const Vista todas[] = {
         Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
         Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
-        Vista::Programacion, Vista::Registro, Vista::Trabajos,
+        Vista::Programacion,
     };
     for (const Vista v : todas) {
         if (s == claveDeVista(v)) {
@@ -1206,27 +1200,38 @@ std::string panelApuntes(const std::string& soloDe) {
     return tabla({"Hora", "Máquina", "Qué se pidió", "Resultado", "Tardó", "Detalle"}, filas);
 }
 
-// La fila de pestañas. Las de máquina llevan dentro las dos de Qt —Terminal y Daemon—, más
-// Transferencias, que en Qt es una pestaña suelta que aquí no puede serlo: los trabajos son
-// de UNA máquina, y agregarlos obligaría a preguntárselo a las cuatro en cada página.
+// Las pestañas, en DOS filas, que es la forma que tiene la interfaz de Qt: una por
+// conexión arriba, y dentro de la elegida las suyas —Terminal, Daemon, Transferencias—.
+//
+// Antes estaban las cuatro máquinas a la vez con sus tres pestañas cada una: trece enlaces
+// en cinco filas, y ninguno decía cuál se estaba mirando sin buscar el resaltado. Con dos
+// niveles la fila de arriba dice DÓNDE se está y la de abajo QUÉ de ahí, que es una
+// pregunta cada una.
+//
+// Al pulsar una máquina se abre su «Terminal» y no su «Daemon»: el Terminal sale de
+// memoria y no cuesta nada, y así cambiar de máquina no dispara una consulta que a lo
+// mejor no se quería. El daemon está a un clic.
 std::string pestanasDelLog(const std::vector<B::ConnectionProfile>& perfiles,
                            const std::string& base, const PestanaLog& activa) {
-    const auto una = [&](const std::string& clave, const std::string& texto) {
-        const bool esta = (clave == activa.clave);
+    const auto una = [&](const std::string& clave, const std::string& texto, bool esta) {
         return "<a class=\"pest" + std::string(esta ? " activa" : "") + "\" href=\""
                + H::escapaHtml(base + "log=" + H::haciaUrl(clave)) + "\">" + H::escapaHtml(texto)
                + "</a>";
     };
     std::string h = "<div class=\"pestanas\">";
-    h += una("combinado", "Log combinado");
-    h += "</div>";
+    h += una("combinado", "Log combinado", activa.tipo == "combinado");
     for (const B::ConnectionProfile& p : perfiles) {
         const std::string id = p.id.empty() ? p.name : p.id;
-        h += "<div class=\"pestanas\"><span class=\"pestgrupo\">" + H::escapaHtml(id)
-             + "</span>";
-        h += una("term:" + id, "Terminal");
-        h += una("daemon:" + id, "Daemon");
-        h += una("trabajos:" + id, "Transferencias");
+        h += una("term:" + id, id, activa.conexion == id);
+    }
+    h += "</div>";
+    // La fila de dentro solo cuando hay una máquina elegida: sin ella no hay nada que
+    // dividir, y una fila de pestañas que no se puede pulsar es un adorno.
+    if (!activa.conexion.empty()) {
+        h += "<div class=\"pestanas dentro\">";
+        h += una("term:" + activa.conexion, "Terminal", activa.tipo == "term");
+        h += una("daemon:" + activa.conexion, "Daemon", activa.tipo == "daemon");
+        h += una("trabajos:" + activa.conexion, "Transferencias", activa.tipo == "trabajos");
         h += "</div>";
     }
     return h;
@@ -2579,18 +2584,6 @@ int main(int argc, char** argv) {
             const Vista vistaMaquina = vistaDesde(campoDeConsulta("v"));
             std::string cargadoMaquina;
             switch (vistaMaquina) {
-                case Vista::Registro:
-                    cargadoMaquina = pide({"--dump-daemon-log", "0"}, 30000)
-                                         ? panelTexto(salida)
-                                         : std::string("<p class=\"vacio\">no se pudo leer el "
-                                                       "registro</p>");
-                    break;
-                case Vista::Trabajos:
-                    cargadoMaquina = pide({"--job-list"}, 20000)
-                                         ? panelTexto(salida)
-                                         : std::string("<p class=\"vacio\">no se pudieron leer "
-                                                       "los trabajos</p>");
-                    break;
                 case Vista::Programacion:
                     cargadoMaquina = pide({"--dump-zfs-get-gsa-raw-all-pools"}, 30000)
                                          ? panelProgramacion(conn, std::string(),
@@ -2611,11 +2604,12 @@ int main(int argc, char** argv) {
             const auto urlM = [&](Vista v) {
                 return "/c/" + H::haciaUrl(conn) + "?v=" + claveDeVista(v);
             };
+            // El registro del daemon y los trabajos NO tienen marco aquí: son pestañas de
+            // la ventana de abajo —«Daemon» y «Transferencias»— y tenerlos en los dos
+            // sitios obliga a elegir cuál de los dos se mira, que es una pregunta que no
+            // debería existir. La programación sí se queda: no está abajo, y es de la
+            // máquina entera.
             std::string derC = marco("Pools", panelPools(conn, pools), false);
-            derC += marcoQueSeCarga("Registro del daemon", urlM(Vista::Registro),
-                                    vistaMaquina == Vista::Registro, cargadoMaquina);
-            derC += marcoQueSeCarga("Trabajos en curso", urlM(Vista::Trabajos),
-                                    vistaMaquina == Vista::Trabajos, cargadoMaquina);
             derC += marcoQueSeCarga("Instantáneas programadas", urlM(Vista::Programacion),
                                     vistaMaquina == Vista::Programacion, cargadoMaquina);
             derC += marco("Acciones", accionesDeMaquina(conn), false);
@@ -2787,16 +2781,6 @@ int main(int argc, char** argv) {
                 if (pideOFalla({"--dump-zfs-get-gsa-raw-recursive", sel}, "la programación")) {
                     loCargado = panelProgramacion(conn, objeto, sel, salida,
                                                   sesion.testigo());
-                }
-                break;
-            case Vista::Registro:
-                if (pideOFalla({"--dump-daemon-log", "0"}, "el registro del daemon")) {
-                    loCargado = panelTexto(salida);
-                }
-                break;
-            case Vista::Trabajos:
-                if (pideOFalla({"--job-list"}, "los trabajos")) {
-                    loCargado = panelTexto(salida);
                 }
                 break;
         }
