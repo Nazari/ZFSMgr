@@ -5,6 +5,7 @@
 #include "zfsprops.h"
 #include "daemoninstall.h"
 #include "dosextremos.h"
+#include "transferencia.h"
 #include "zfsallow.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
@@ -947,6 +948,116 @@ int main() {
         igual(G::destinoDesdeUrl("zfsm://solomaquina"), "zfsm://solomaquina",
               "gsa: una URL sin dataset no se convierte a medias");
         igual(G::destinoComoUrl(""), "", "gsa: el vacio sigue vacio");
+    }
+
+    // --- por dónde van los bytes, y desde dónde se reanuda
+    //
+    // Fase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transferencia,
+    // que se pueden probar sin mover un byte. Lo que se fija son los NOES y su orden, porque
+    // el orden es lo que hace que el motivo sea util: decir «no hay daemon» cuando el
+    // problema es que un extremo es Windows manda a instalar algo que no arregla nada.
+    {
+        namespace TR = zfsmgr::base::transferencia;
+        auto ext = [](const char* c, const char* o, bool win, bool dae, bool job) {
+            TR::Extremo e;
+            e.conexion = c; e.objeto = o;
+            e.esWindows = win; e.tieneDaemon = dae; e.admiteTrabajos = job;
+            return e;
+        };
+        const TR::Extremo snapOk = ext("local", "p/d@lunes", false, true, true);
+        const TR::Extremo dsOk   = ext("unibody", "t/copias", false, true, true);
+
+        // El caso bueno: los dos con daemon y con trabajos. Se pueden probar los TRES, y
+        // en ese orden.
+        const TR::Plan buena = TR::planea(snapOk, dsOk, false);
+        comprobar(buena.sePuede() && buena.caminos.size() == 3, "transferencia: los tres caminos");
+        comprobar(buena.caminos.at(0) == TR::Camino::TrabajoAsincrono
+                      && buena.caminos.at(1) == TR::Camino::DaemonADaemon
+                      && buena.caminos.at(2) == TR::Camino::TuberiaSsh,
+                  "transferencia: y en orden de preferencia");
+
+        // **La tuberia SSH no necesita daemon en ningun extremo**: manda `zfs send` y
+        // `zfs recv` por SSH. Es lo que queda cuando no hay daemon, y por eso una copia
+        // entre dos maquinas sin agente sigue siendo posible.
+        const TR::Extremo sinNada = ext("unibody", "t/copias", false, false, false);
+        const TR::Plan pelada = TR::planea(ext("local", "p/d@x", false, false, false), sinNada,
+                                           false);
+        comprobar(pelada.sePuede() && pelada.caminos.size() == 1
+                      && pelada.caminos.at(0) == TR::Camino::TuberiaSsh,
+                  "transferencia: sin daemon en ninguno, queda la tuberia SSH");
+
+        // Con daemon en los dos pero sin trabajos: se cae el asincrono y quedan dos.
+        const TR::Extremo sinJobs = ext("unibody", "t/copias", false, true, false);
+        const TR::Plan dos = TR::planea(snapOk, sinJobs, false);
+        comprobar(dos.caminos.size() == 2 && dos.caminos.at(0) == TR::Camino::DaemonADaemon,
+                  "transferencia: sin trabajos, la interfaz aun tiene dos caminos");
+
+        // Y para quien NO puede esperar, los otros dos no son un respaldo: son otra cosa
+        // que no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
+        comprobar(TR::planea(snapOk, sinJobs, true).fallo == TR::Fallo::SinTrabajos,
+                  "transferencia: quien no puede esperar solo tiene el asincrono");
+        comprobar(TR::planea(snapOk, sinJobs, true).caminos.empty(),
+                  "transferencia: y no se le ofrece ninguno");
+        comprobar(TR::planea(snapOk, dsOk, true).caminos.size() == 1,
+                  "transferencia: con trabajos en los dos, si");
+
+        // EL ORDEN de los noes. Windows corta TODO, no solo un camino: los dos primeros
+        // necesitan tuberia y el tercero es un guion POSIX que alli no se ejecuta.
+        const TR::Extremo win = ext("oldlau", "wp/d", true, true, true);
+        comprobar(TR::planea(snapOk, win, false).fallo == TR::Fallo::ExtremoWindows,
+                  "transferencia: Windows corta aunque tenga daemon y trabajos");
+        comprobar(TR::planea(snapOk, win, false).caminos.empty(),
+                  "transferencia: y no deja ningun camino que probar");
+        // Y lo que no depende del camino corta antes que Windows.
+        comprobar(TR::planea(ext("local", "p/d", false, true, true), win, false).fallo
+                      == TR::Fallo::OrigenNoEsInstantanea,
+                  "transferencia: «el origen no es instantanea» manda sobre Windows");
+        comprobar(TR::planea(snapOk, snapOk, false).fallo == TR::Fallo::ElMismoObjeto,
+                  "transferencia: el mismo objeto, lo primero de todo");
+        comprobar(TR::planea(snapOk, ext("unibody", "t/c@ya", false, true, true), false).fallo
+                      == TR::Fallo::DestinoNoEsDataset,
+                  "transferencia: no se recibe SOBRE una instantanea");
+
+        // Cada motivo con su texto, y ninguno repetido: es lo que se enseña.
+        std::set<std::string> textos;
+        for (const TR::Fallo f : {TR::Fallo::ElMismoObjeto, TR::Fallo::OrigenNoEsInstantanea,
+                                  TR::Fallo::DestinoNoEsDataset, TR::Fallo::ExtremoWindows,
+                                  TR::Fallo::SinTrabajos}) {
+            comprobar(!TR::etiquetaDe(f).empty(), "transferencia: el motivo tiene texto");
+            textos.insert(TR::etiquetaDe(f));
+        }
+        comprobar(textos.size() == 5, "transferencia: y los cinco son distintos");
+
+        // --- el testigo de reanudacion
+        //
+        // ESTO es lo que costo una tarde en su dia: las copias van con -R, o sea toda la
+        // jerarquia en un flujo, y al cortarse ZFS deja el testigo en el dataset que estaba
+        // recibiendo, que casi NUNCA es la raiz. Mirar solo la raiz decia «no hay nada que
+        // reanudar» con 247 MB ya transferidos.
+        const std::string enElHijo =
+            "t/copias\t-\n"
+            "t/copias/uno\t-\n"
+            "t/copias/dos\t1-e7c3a...-token\n";
+        const auto rHijo = TR::testigoDeReanudacion("t/copias", enElHijo);
+        comprobar(rHijo.hay(), "transferencia: el testigo se encuentra en el DESCENDIENTE");
+        igual(rHijo.quienLoTiene, "t/copias/dos", "transferencia: y se dice en cual estaba");
+
+        // El del propio objetivo manda sobre los de sus descendientes.
+        const std::string enLosDos =
+            "t/copias\tTESTIGO-RAIZ\n"
+            "t/copias/dos\tTESTIGO-HIJO\n";
+        igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
+              "transferencia: el del objetivo manda sobre el del hijo");
+
+        // «-» es «no hay», no un testigo que se llama asi.
+        comprobar(!TR::testigoDeReanudacion("t/copias", "t/copias\t-\n").hay(),
+                  "transferencia: «-» es que no hay ninguno");
+        comprobar(!TR::testigoDeReanudacion("t/copias", "").hay(),
+                  "transferencia: y sin salida tampoco hay");
+        // Que el dataset no salga NO significa que no haya nada a medias: significa que aun
+        // no existe, que es lo normal en una copia nueva.
+        comprobar(!TR::testigoDeReanudacion("t/nuevo", "t/copias\t-\n").hay(),
+                  "transferencia: un destino que aun no existe no tiene testigo");
     }
 
     // --- los permisos delegados: leer `zfs allow` y componer lo que los cambia

@@ -61,15 +61,25 @@ Lo que NO baja, y se queda en cada cliente:
 
 La frontera se dibuja donde ya está: las 24 líneas de diálogo por función se quedan arriba.
 
-## Decisión 2: hay TRES caminos, y el orden importa
+## Decisión 2: los caminos, y el orden importa
 
-Esto es lo que hay hoy, medido leyendo el código, y hay que conservarlo tal cual: cada
-escalón existe porque el de arriba falló en una máquina real.
+> **Corregido al implementar la fase 0.** Aquí decía «tres caminos» con el respaldo por tar
+> dentro, y leyendo el código resultó que no es así: Copiar **no tiene respaldo por tar**
+> —cuando no hay tubería que montar, se para y lo dice— y el tar es cosa de Sincronizar,
+> que mueve ficheros. También faltaba un camino entero. Se deja escrito el error porque es
+> justo para lo que sirve escribir el diseño antes: el que venga detrás no tiene por qué
+> volver a leer 2.554 líneas para descubrir lo mismo.
 
-**1. Daemon a daemon** (`--zfs-recv-listen` + `--zfs-send-to-peer`). El receptor abre un
-puerto y el emisor se conecta. Es el bueno: sin shell, sin intermediarios y sin que los
-bytes pasen por el cliente. Dos detalles que ya costaron sangre y que hay que llevarse
-enteros:
+Los caminos de Copiar y Nivelar son estos, en orden de preferencia:
+
+**1. Trabajo asíncrono** (`--job-submit`). Lo lanza el cliente y lo **sostiene el daemon**:
+sobrevive a que se cierre la ventana. Necesita daemon en los dos extremos y que los dos
+declaren `JOBS_SUPPORT=1`.
+
+**2. Daemon a daemon** (`--zfs-recv-listen` + `--zfs-send-to-peer`). El receptor abre un
+puerto y el emisor se conecta. Sin shell y sin que los bytes pasen por el cliente, pero lo
+sostiene quien lo lanzó. Necesita daemon en los dos. Dos detalles que ya costaron sangre y
+que hay que llevarse enteros:
 
 - **El receptor escucha en IPv6 con `V6ONLY` desactivado**, que acepta también IPv4. Con
   `AF_INET` a secas, dos máquinas que se hablan por IPv6 fallaban con «cannot connect to
@@ -78,16 +88,21 @@ enteros:
   puesta. Una máquina puede tener varias interfaces, estar tras NAT o llegar por VPN, y solo
   el otro extremo sabe por dónde entró.
 
-**2. Respaldo por tar** (`--mutate-sync-temp-tar-source` / `-dest`). Solo si el primero no
-se pudo montar.
+**3. Tubería por SSH**: `ssh origen 'zfs send' | ssh destino 'zfs recv'`, en tres variantes
+—misma conexión, remoto a remoto directo, o pasando por el cliente—. **No necesita daemon en
+ningún extremo**, y ese es el dato que se me había escapado: una copia entre dos máquinas sin
+agente sigue siendo posible. Por eso este camino siempre está en la lista.
 
-**3. Nada.** Con un extremo Windows y sin camino daemon-a-daemon no hay tercer escalón, y
-eso se dice en lugar de intentarlo: el agente de Windows no transmite por tubería todavía.
+**Y con un extremo Windows no hay ninguno.** No es que se caiga a otro: los dos primeros
+necesitan transmitir por una tubería y el agente de Windows no lo hace, y el tercero es un
+guion de shell POSIX que allí no puede ejecutarse desde que se retiró MSYS2. Encolarlo
+igualmente hacía que PowerShell devolviera su objeto de error en XML, y el usuario veía un
+`<Objs Version="1.1.0.1">…` sin relación aparente con la copia que había pedido.
 
-**Sincronizar no es de esta familia.** Usa `rsync` (20 menciones) y `tar`, no `zfs send`.
+**Sincronizar no es de esta familia.** Usa `rsync` (48 menciones) y `tar`, no `zfs send`.
 Copia FICHEROS, no el dataset; no reanuda con testigo, no necesita instantánea común, y sus
-modos de fallo son otros. Debe ser un módulo aparte y no un caso de un `enum` compartido:
-meterlo en el mismo sitio obligaría a que cada decisión preguntara «¿y si es rsync?».
+modos de fallo son otros. Módulo aparte: meterlo aquí obligaría a que cada decisión
+preguntara «¿y si es rsync?».
 
 ## Decisión 3: la reanudación se lleva tal cual, con su comentario
 
@@ -130,7 +145,7 @@ que volver a comprobarlo antes de fiarse.
 
 | Fase | Qué | Por qué en este sitio |
 |---|---|---|
-| 0 | `base/transferencia`: los TIPOS —extremos, camino, motivo de que no se pueda, testigo de reanudación— y la elección de camino, con pruebas | Es lo que decide todo lo demás, y se puede probar sin mover un byte |
+| 0 | **HECHA** — `base/transferencia`: los tipos, el plan de caminos y el testigo de reanudación, con 40 aserciones | Es lo que decide todo lo demás, y se puede probar sin mover un byte. De hecho corrigió este documento |
 | 1 | Bajar `transferResumeTokenFor` y `sourceViewOfThisHost`. Son pequeñas, aisladas, y las dos guardan un descubrimiento caro | Da el módulo real con poco riesgo |
 | 2 | Bajar **Copiar**. La interfaz pasa a llamarlo; se comprueba que sigue haciendo lo mismo contra dos máquinas | Es la más corta de las tres y la que más se usa |
 | 3 | **Nivelar**, que comparte casi todo con Copiar | Sale barata detrás de la 2 |
