@@ -22,6 +22,7 @@
 // El `T(clave, castellano)` del intérprete: mismos catálogos, mismas claves, mismo
 // ayudante. Un tercer sistema de traducción en el mismo programa acabaría discrepando.
 #include "tr.h"
+#include "zfsallow.h"
 #include "zfsprops.h"
 #include "storewarnings.h"
 #include "strutil.h"
@@ -47,6 +48,7 @@ namespace H = zfsmgr::web::http;
 namespace L = zfsmgr::base::listados;
 namespace ZP = zfsmgr::base::zfsprops;
 namespace DX = zfsmgr::base::dosextremos;
+namespace ZA = zfsmgr::base::zfsallow;
 
 namespace D = zfsmgr::web::dav;
 
@@ -1222,6 +1224,93 @@ std::string paginaColeccionDav(const std::string& ruta, const std::vector<D::Rec
                      T("t_web_usado_7f0217", "Usado")},
                     filas);
     return envuelve("/" + ruta, enlace("/", "ZFSMgr"), cuerpo, testigo);
+}
+
+// Los permisos DELEGADOS, en una tabla con lo que se puede quitar y un formulario para
+// añadir.
+//
+// Era un volcado de texto, que para leerlo servía y para cambiarlo no. Y cambiarlo es lo
+// que uno viene a hacer aquí: delegar `snapshot` a alguien es lo que le permite hacer copias
+// sin ser root, que es el motivo de que esto exista.
+//
+// El ALCANCE se enseña con todas las letras —«solo aquí», «aquí y en los descendientes»—
+// en vez de con la letra de la bandera. Es la parte que se equivoca: en la salida de `zfs
+// allow` va en el título de la sección y no en la línea, y conceder a los descendientes lo
+// que se quería conceder solo aquí no da ningún error, simplemente pasa.
+std::string panelPermisos(const std::string& conn, const std::string& raiz,
+                          const std::string& ds, const std::string& salida,
+                          const std::string& testigo) {
+    const auto entradas = ZA::analiza(salida);
+    std::vector<std::vector<std::string>> filas;
+    for (std::size_t i = 0; i < entradas.size(); ++i) {
+        const ZA::Entrada& e = entradas[i];
+        std::string permisos;
+        for (const std::string& p : e.permisos) {
+            if (!permisos.empty()) {
+                permisos += ", ";
+            }
+            permisos += H::escapaHtml(p);
+        }
+        // Para retirar hace falta decir EXACTAMENTE la misma entrada, así que se manda su
+        // índice y el servidor la vuelve a leer. Mandar los campos sueltos por el
+        // formulario dejaría que una recarga vieja retirara algo que ya no es lo mismo.
+        filas.push_back({H::escapaHtml(ZA::etiquetaDe(e.quien)),
+                         H::escapaHtml(e.nombre.empty() ? std::string("—") : e.nombre),
+                         permisos,
+                         H::escapaHtml(ZA::etiquetaDe(e.alcance)),
+                         boton(conn, ds, raiz, "quitar-permiso", T("t_web_quitar", "Quitar"),
+                               testigo,
+                               "<input type=\"hidden\" name=\"idx\" value=\"" + std::to_string(i)
+                                   + "\">",
+                               true)});
+    }
+    std::string h;
+    if (filas.empty()) {
+        h += "<p class=\"vacio\">"
+             + H::escapaHtml(T("t_web_sin_permisos",
+                               "(este dataset no tiene ningún permiso delegado)"))
+             + "</p>";
+    } else {
+        h += tabla({T("t_web_a_quien", "A quién"), T("t_poolcrt_auto004", "Nombre"),
+                    T("t_web_permisos_col", "Permisos"), T("t_web_alcance", "Alcance"), ""},
+                   filas);
+    }
+
+    // El formulario de alta. Los permisos se teclean separados por comas, como los escribe
+    // `zfs`: una lista de casillas con los cuarenta y tantos que hay sería peor de usar.
+    std::string f = "<div class=\"fila\">";
+    f += "<label class=\"campo\">" + H::escapaHtml(T("t_web_a_quien", "A quién"))
+         + " <select name=\"quien\">";
+    for (const ZA::Quien q : {ZA::Quien::Usuario, ZA::Quien::Grupo, ZA::Quien::Todos}) {
+        f += "<option value=\"" + std::string(ZA::claveDe(q)) + "\">"
+             + H::escapaHtml(ZA::etiquetaDe(q)) + "</option>";
+    }
+    f += "</select></label>";
+    f += "<label class=\"campo\">" + H::escapaHtml(T("t_poolcrt_auto004", "Nombre"))
+         + " <input name=\"nombre\" placeholder=\"linarese\"></label>";
+    f += "<label class=\"campo\">" + H::escapaHtml(T("t_web_alcance", "Alcance"))
+         + " <select name=\"alcance\">";
+    for (const ZA::Alcance a : {ZA::Alcance::LocalYDescendientes, ZA::Alcance::Local,
+                                ZA::Alcance::Descendientes, ZA::Alcance::AlCrear}) {
+        f += "<option value=\"" + std::string(ZA::claveDe(a)) + "\">"
+             + H::escapaHtml(ZA::etiquetaDe(a)) + "</option>";
+    }
+    f += "</select></label></div>";
+    f += "<div class=\"fila\"><label class=\"campo\">"
+         + H::escapaHtml(T("t_web_permisos_col", "Permisos"))
+         + " <input name=\"permisos\" placeholder=\"snapshot,mount,create\" required></label>";
+    f += "</div>";
+    h += grupoDeAcciones(T("t_web_delegar", "Delegar permisos"),
+                         "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+                             + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn)
+                             + "\"><input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(ds)
+                             + "\"><input type=\"hidden\" name=\"raiz\" value=\""
+                             + H::escapaHtml(raiz)
+                             + "\"><input type=\"hidden\" name=\"volver\" value=\"permisos\">"
+                               "<input type=\"hidden\" name=\"que\" value=\"dar-permiso\">"
+                             + f + "<button type=\"submit\">"
+                             + H::escapaHtml(T("t_web_delegar_b", "Delegar")) + "</button></form>");
+    return h;
 }
 
 // Las RETENCIONES de una o varias instantáneas, de `zfs holds -H`: una línea por
@@ -2789,6 +2878,160 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 verbo = {"--mutate-zfs-clone", origen.objeto, objeto + "/" + nombre};
+            } else if (que == "dar-permiso" || que == "quitar-permiso") {
+                if (objeto.find('@') != std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("los permisos son de un dataset, no de una "
+                                           "instantánea",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                ZA::Entrada entrada;
+                if (que == "quitar-permiso") {
+                    // Se RELEE la lista y se coge la entrada por su índice, en vez de
+                    // fiarse de unos campos ocultos. Entre que se pintó la página y se
+                    // pulsó, alguien pudo cambiar los permisos desde otro sitio; con los
+                    // campos del formulario se retiraría algo que ya no es lo que se veía.
+                    std::string sal;
+                    std::string er;
+                    int rcP = -1;
+                    if (!llamaAgente(*sesionZfs, *perfil, {"--dump-zfs-allow", objeto}, sal, er,
+                                     rcP, nullptr, 30000)
+                        || rcP != 0) {
+                        r.codigo = 502;
+                        r.cuerpo = paginaError("no se pudieron releer los permisos",
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                    const auto lista = ZA::analiza(sal);
+                    const long idx = std::atol(p.campo("idx").c_str());
+                    if (idx < 0 || static_cast<std::size_t>(idx) >= lista.size()) {
+                        r.codigo = 409;
+                        r.cuerpo = paginaError("esos permisos han cambiado mientras mirabas: "
+                                               "vuelve a abrirlos",
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                    entrada = lista[static_cast<std::size_t>(idx)];
+                } else {
+                    entrada.quien = ZA::quienDesde(p.campo("quien"));
+                    entrada.alcance = ZA::alcanceDesde(p.campo("alcance"));
+                    entrada.nombre = B::trim(p.campo("nombre"));
+                    for (const std::string& t : B::split(p.campo("permisos"), ",", true)) {
+                        const std::string perm = B::trim(t);
+                        // Un permiso viaja hasta un argv de `zfs`: se comprueba que es lo
+                        // que dice ser y no una bandera colada.
+                        if (perm.empty() || perm[0] == '-' || perm.find(' ') != std::string::npos
+                            || perm.find(',') != std::string::npos) {
+                            r.codigo = 400;
+                            r.cuerpo = paginaError("permiso no válido: «" + perm + "»",
+                                                   sesion.testigo());
+                            respuesta = H::componer(r);
+                            return true;
+                        }
+                        entrada.permisos.push_back(perm);
+                    }
+                    if (entrada.permisos.empty()) {
+                        r.codigo = 400;
+                        r.cuerpo = paginaError("hay que decir qué permisos se delegan",
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                    // Un nombre hace falta salvo para «todos» y para «al crear», que no
+                    // nombran a nadie. Sin esta comprobación, `zfs` recibiría la lista de
+                    // permisos en el sitio del destinatario.
+                    const bool nombraAAlguien = entrada.quien != ZA::Quien::Todos
+                                                && entrada.alcance != ZA::Alcance::AlCrear;
+                    if (nombraAAlguien
+                        && (entrada.nombre.empty()
+                            || entrada.nombre.find(' ') != std::string::npos)) {
+                        r.codigo = 400;
+                        r.cuerpo = paginaError("falta a quién se le delega, o el nombre no vale",
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                }
+                const std::vector<std::string> argv =
+                    que == "dar-permiso" ? ZA::argvConceder(entrada, objeto)
+                                         : ZA::argvRetirar(entrada, objeto);
+                // Por el verbo de LOTE aunque sea una sola: es el que el daemon expone para
+                // esto, y admite varias en una orden el día que se editen en bloque.
+                B::json::Value lote{B::json::Array{}};
+                lote.push(B::json::Value(argvEnBase64(argv)));
+                std::string salA;
+                std::string errA;
+                int rcA = -1;
+                if (!llamaAgente(*sesionZfs, *perfil,
+                                 {"--mutate-zfs-allow-batch",
+                                  B::base64Encode(B::json::toCompact(lote))},
+                                 salA, errA, rcA, nullptr, 60000)
+                    || rcA != 0) {
+                    r.codigo = 502;
+                    r.cuerpo = paginaError("no se pudo: " + B::trim(errA.empty() ? salA : errA),
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                // **Y SE COMPRUEBA QUE PASÓ.**
+                //
+                // `zfs allow` devuelve CERO cuando el usuario o el grupo no existen: se
+                // limita a imprimir su «Usage» por la salida de error. Comprobado a mano —
+                // con un grupo inexistente sale rc=0 y no se delega nada—. Así que fiarse
+                // del código de salida hacía que la web dijera «hecho» y no hubiera pasado
+                // nada, que es la peor forma de fallar.
+                //
+                // Solo un permiso inventado da rc distinto de cero. Todo lo demás hay que
+                // mirarlo releyendo.
+                std::string salV;
+                std::string errV;
+                int rcV = -1;
+                if (llamaAgente(*sesionZfs, *perfil, {"--dump-zfs-allow", objeto}, salV, errV,
+                                rcV, nullptr, 30000)
+                    && rcV == 0) {
+                    bool esta = false;
+                    for (const ZA::Entrada& hay : ZA::analiza(salV)) {
+                        if (hay.quien != entrada.quien || hay.alcance != entrada.alcance
+                            || hay.nombre != entrada.nombre) {
+                            continue;
+                        }
+                        for (const std::string& p1 : entrada.permisos) {
+                            esta = esta
+                                   || std::find(hay.permisos.begin(), hay.permisos.end(), p1)
+                                          != hay.permisos.end();
+                        }
+                    }
+                    if (que == "dar-permiso" && !esta) {
+                        r.codigo = 502;
+                        r.cuerpo = paginaError(
+                            "ZFS aceptó la orden pero no delegó nada. Lo normal es que ese "
+                            "usuario o grupo no exista en «" + conn + "»: compruébelo con "
+                            "«id " + entrada.nombre + "» en esa máquina.",
+                            sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                    if (que == "quitar-permiso" && esta) {
+                        r.codigo = 502;
+                        r.cuerpo = paginaError("ZFS aceptó la orden pero el permiso sigue ahí",
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                }
+                r.codigo = 302;
+                r.cabecerasExtra.push_back(
+                    "Location: " + urlDe(conn, B::trim(p.campo("raiz")).empty()
+                                                   ? objeto
+                                                   : B::trim(p.campo("raiz")),
+                                         objeto, Vista::Permisos));
+                r.cuerpo = "";
+                respuesta = H::componer(r);
+                return true;
             } else if (que == "poner-hold" || que == "soltar-hold") {
                 const std::string etiqueta = B::trim(p.campo("etiqueta"));
                 // La etiqueta viaja hasta un argv de `zfs`. Se valida AQUÍ además de en el
@@ -3373,7 +3616,7 @@ int main(int argc, char** argv) {
                 break;
             case Vista::Permisos:
                 if (pideOFalla({"--dump-zfs-allow", sel}, "los permisos")) {
-                    loCargado = panelTexto(salida);
+                    loCargado = panelPermisos(conn, objeto, sel, salida, sesion.testigo());
                 }
                 break;
             case Vista::Contenido: {

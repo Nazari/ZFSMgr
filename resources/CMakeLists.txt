@@ -120,6 +120,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/daemoninstall.h
     ../src/base/dosextremos.cpp
     ../src/base/dosextremos.h
+    ../src/base/zfsallow.cpp
+    ../src/base/zfsallow.h
     ../src/base/zfsmurl.cpp
     ../src/base/zfsmurl.h
     ../src/base/tlsclient.cpp

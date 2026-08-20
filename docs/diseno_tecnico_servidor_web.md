@@ -135,6 +135,11 @@ seis, funcionan **Comparar** y **Clonar aquí**; las otras cuatro se ofrecen en 
 motivo, porque necesitan la orquestación de transferencia que aún vive dentro de Qt
 (`mainwindow_transfer.cpp`, 2.554 líneas).
 
+**Los permisos delegados: escribibles.** Se leen con `base/zfsallow` —una sola copia del
+analizador, que estaba también en el intérprete— y se cambian con `--mutate-zfs-allow-batch`.
+Con una comprobación después de escribir, porque `zfs allow` devuelve CERO cuando el usuario
+o el grupo no existen.
+
 **Hay que escribirlo:** la lista de pendientes como plan de trabajo, el diálogo de creación
 de pool con sus dispositivos, y las capturas de ayuda. Y las cuatro de transferencia
 —copiar, mover, sincronizar y nivelar—, que piden bajar esa orquestación a la capa base

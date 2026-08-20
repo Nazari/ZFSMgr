@@ -5,6 +5,7 @@
 #include "zfsprops.h"
 #include "daemoninstall.h"
 #include "dosextremos.h"
+#include "zfsallow.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
 #include "listados.h"
@@ -30,6 +31,7 @@
 #include "zfsmurl.h"
 #include "gsa.h"
 #include "zfsprops.h"
+#include <algorithm>
 #include <sstream>
 #include <atomic>
 
@@ -945,6 +947,110 @@ int main() {
         igual(G::destinoDesdeUrl("zfsm://solomaquina"), "zfsm://solomaquina",
               "gsa: una URL sin dataset no se convierte a medias");
         igual(G::destinoComoUrl(""), "", "gsa: el vacio sigue vacio");
+    }
+
+    // --- los permisos delegados: leer `zfs allow` y componer lo que los cambia
+    //
+    // El fixture es SALIDA REAL, capturada de un pool creado para esto con las cinco formas
+    // que tiene el mandato: usuario, grupo, everyone, un conjunto y el alcance «solo los
+    // descendientes». El formato parece facil hasta que se mira: el ALCANCE va en el TITULO
+    // de la seccion y no en la linea, asi que perderlo significa conceder a los
+    // descendientes lo que se queria conceder solo aqui.
+    {
+        namespace ZA = zfsmgr::base::zfsallow;
+        const std::string real =
+            "---- Permissions on wperm/d ------------------------------------------\n"
+            "Permission sets:\n"
+            "\t@basico hold,snapshot\n"
+            "Descendent permissions:\n"
+            "\tuser linarese destroy\n"
+            "Local+Descendent permissions:\n"
+            "\tuser root @basico\n"
+            "\tuser linarese create,mount,snapshot\n"
+            "\teveryone mount\n";
+        const auto es = ZA::analiza(real);
+        comprobar(es.size() == 5, "zfsallow: las cinco entradas");
+
+        comprobar(es[0].alcance == ZA::Alcance::Conjunto && es[0].quien == ZA::Quien::Conjunto,
+                  "zfsallow: el conjunto");
+        igual(es[0].nombre, "@basico", "zfsallow: con su nombre y su arroba");
+        comprobar(es[0].permisos.size() == 2, "zfsallow: y sus dos permisos");
+
+        // ESTA es la que importa: la linea dice «user linarese destroy» y no dice nada del
+        // alcance. Sale del titulo de encima.
+        comprobar(es[1].alcance == ZA::Alcance::Descendientes,
+                  "zfsallow: el alcance sale del TITULO de la seccion");
+        igual(es[1].nombre, "linarese", "zfsallow: y el usuario de la linea");
+
+        comprobar(es[2].alcance == ZA::Alcance::LocalYDescendientes,
+                  "zfsallow: la seccion siguiente cambia el alcance");
+        igual(es[2].permisos.at(0), "@basico",
+              "zfsallow: un conjunto se concede como si fuera un permiso");
+        comprobar(es[4].quien == ZA::Quien::Todos && es[4].nombre.empty(),
+                  "zfsallow: «everyone» no nombra a nadie");
+
+        // Y el camino de vuelta: el argv que hay que ejecutar.
+        const auto conceder = ZA::argvConceder(es[1], "wperm/d");
+        igual(conceder.at(0), "allow", "zfsallow: la orden");
+        comprobar(std::find(conceder.begin(), conceder.end(), "-d") != conceder.end(),
+                  "zfsallow: «solo descendientes» lleva -d");
+        comprobar(std::find(conceder.begin(), conceder.end(), "-u") != conceder.end(),
+                  "zfsallow: y a un usuario, -u");
+        igual(conceder.back(), "wperm/d", "zfsallow: el dataset al final");
+        igual(ZA::argvRetirar(es[1], "wperm/d").at(0), "unallow",
+              "zfsallow: retirar es la misma forma con otra orden");
+
+        // «aqui y en los descendientes» va SIN bandera de alcance: es lo que hace `zfs
+        // allow` por omision, y ponerle una lo estrecharia.
+        const auto ambos = ZA::argvConceder(es[2], "wperm/d");
+        comprobar(std::find(ambos.begin(), ambos.end(), "-l") == ambos.end()
+                      && std::find(ambos.begin(), ambos.end(), "-d") == ambos.end(),
+                  "zfsallow: el alcance de los dos no lleva bandera");
+
+        // «everyone» no lleva nombre en el argv: el destinatario ES la bandera.
+        const auto todos = ZA::argvConceder(es[4], "wperm/d");
+        comprobar(std::find(todos.begin(), todos.end(), "-e") != todos.end(),
+                  "zfsallow: everyone lleva -e");
+        comprobar(std::find(todos.begin(), todos.end(), "everyone") == todos.end(),
+                  "zfsallow: y NO repite la palabra como destinatario");
+
+        // «Create time permissions» no nombra a nadie: su linea es SOLO la lista de
+        // permisos. Sin ese caso se saltaba entera, y esos permisos —los que hereda quien
+        // cree un descendiente— no salian por ninguna parte.
+        const auto crear = ZA::analiza("Create time permissions:\n\trollback,mount\n");
+        comprobar(crear.size() == 1, "zfsallow: «al crear» se lee aunque no nombre a nadie");
+        comprobar(crear.at(0).alcance == ZA::Alcance::AlCrear, "zfsallow: con su alcance");
+        comprobar(crear.at(0).permisos.size() == 2, "zfsallow: y sus dos permisos");
+        const auto argvCrear = ZA::argvConceder(crear.at(0), "p/d");
+        comprobar(std::find(argvCrear.begin(), argvCrear.end(), "-c") != argvCrear.end(),
+                  "zfsallow: y se concede con -c");
+        comprobar(argvCrear.size() == 4, "zfsallow: sin destinatario: allow -c <perms> <ds>");
+
+        // Los textos de ZFS, que son CONTRATO: el tsv y el json del interprete los llevan y
+        // un guion puede estar comparandolos. Cambiarlos por algo mas legible lo romperia
+        // sin avisar, asi que se fijan aqui.
+        igual(ZA::seccionZfs(ZA::Alcance::LocalYDescendientes), "Local+Descendent permissions",
+              "zfsallow: el titulo exacto de la seccion");
+        igual(ZA::seccionZfs(ZA::Alcance::AlCrear), "Create time permissions",
+              "zfsallow: y el de «al crear»");
+        igual(ZA::tokenZfs(ZA::Quien::Usuario), "user", "zfsallow: la palabra de zfs");
+        igual(ZA::tokenZfs(ZA::Quien::Todos), "everyone", "zfsallow: y la de everyone");
+        // Y la vuelta y vuelta: lo que se lee de una seccion se vuelve a nombrar igual.
+        for (const ZA::Alcance a : {ZA::Alcance::Local, ZA::Alcance::Descendientes,
+                                    ZA::Alcance::LocalYDescendientes, ZA::Alcance::AlCrear,
+                                    ZA::Alcance::Conjunto}) {
+            const auto ida = ZA::analiza(std::string(ZA::seccionZfs(a)) + ":\n\tuser x lee\n");
+            comprobar(!ida.empty() && ida.at(0).alcance == a,
+                      std::string("zfsallow: la seccion «") + ZA::seccionZfs(a) + "» se reconoce");
+        }
+
+        // Un dataset sin nada delegado devuelve la lista vacia, y eso no es un error.
+        comprobar(ZA::analiza("").empty(), "zfsallow: sin permisos, lista vacia");
+        comprobar(ZA::analiza("---- Permissions on x ----\n").empty(),
+                  "zfsallow: solo la cabecera tampoco es una entrada");
+        // Y una linea que no se entiende se salta en vez de inventarse una entrada.
+        comprobar(ZA::analiza("Local permissions:\n\tvete a saber\n").empty(),
+                  "zfsallow: lo que no se entiende no se inventa");
     }
 
     // --- qué se puede hacer con DOS extremos

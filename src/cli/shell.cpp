@@ -9,6 +9,7 @@
 #include "connectionjson.h"
 #include "gsa.h"
 #include "storefiles.h"
+#include "zfsallow.h"
 #include "zfsprops.h"
 #include "helpers.h"
 #include "linea.h"
@@ -1032,41 +1033,21 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_quien", "QUIÉN"), T("t_cab_permisos", "PERMISOS")};
     t.campos = {"scope", "kind", "who", "permissions"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
-    std::string alcance;
-    for (const std::string& cruda : B::split(out, "\n", true)) {
-        if (B::startsWith(cruda, "----")) {
-            continue;  // la cabecera con el nombre del dataset
-        }
-        // Las secciones no van indentadas y acaban en dos puntos.
-        if (!cruda.empty() && cruda.front() != '\t' && cruda.front() != ' '
-            && B::endsWith(B::trim(cruda), ":")) {
-            alcance = B::trim(cruda);
-            alcance.pop_back();
-            continue;
-        }
-        const std::string linea = B::trim(cruda);
-        if (linea.empty()) {
-            continue;
-        }
-        // «user <quien> <permisos>», «group <quien> <permisos>», «everyone <permisos>»,
-        // «@conjunto <permisos>».
-        const std::vector<std::string> c = B::split(linea, " ", true);
-        if (c.empty()) {
-            continue;
-        }
-        const std::string clase = c.front();
-        std::size_t iPerms = 1;
-        std::string quien;
-        if ((clase == "user" || clase == "group") && c.size() >= 2) {
-            quien = c[1];
-            iPerms = 2;
-        } else if (clase == "everyone") {
-            quien = "everyone";
-        } else {
-            quien = clase;  // un conjunto @nombre
-        }
-        std::vector<std::string> permisos(c.begin() + std::min(iPerms, c.size()), c.end());
-        t.filas.push_back({alcance, clase, quien, B::join(permisos, ",")});
+    // El análisis vive en `base/zfsallow`, no aquí.
+    //
+    // Estaba escrito dos veces —esta y la que hizo falta para el servidor web— sobre un
+    // formato que tiene una trampa: el ALCANCE va en el título de la sección y no en la
+    // línea, así que una copia que se despiste concede a los descendientes lo que se quería
+    // conceder solo aquí. Una sola copia, con pruebas sobre salida real.
+    namespace ZA = zfsmgr::base::zfsallow;
+    for (const ZA::Entrada& en : ZA::analiza(out)) {
+        const std::string quien = en.nombre.empty() ? std::string(ZA::tokenZfs(en.quien))
+                                                    : en.nombre;
+        // Con los TEXTOS DE ZFS y no con los legibles: esta salida la leen guiones, y ya
+        // decía «Local+Descendent permissions» y «user». Cambiarlos por algo más bonito
+        // rompería un guion sin avisar.
+        t.filas.push_back({ZA::seccionZfs(en.alcance), ZA::tokenZfs(en.quien), quien,
+                           B::join(en.permisos, ",")});
     }
     t.imprime(e.formato);
     return true;
