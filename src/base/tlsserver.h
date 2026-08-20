@@ -29,9 +29,13 @@ bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaC
 //
 // De una en una y no con hilos: en la fase 0 lo que importa es la superficie, no el
 // rendimiento, y un servidor secuencial no tiene carreras que revisar.
+// `alEscuchar`, si se pasa, se llama UNA vez y solo cuando el socket ya está escuchando.
+// Es donde va el cartel de «servidor en marcha»: escribirlo antes de llamar aquí deja al
+// usuario con una URL que nunca funcionó cuando el puerto estaba cogido.
 bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string& peticion, std::string& respuesta)>& atiende,
-           const std::function<bool()>& sigueVivo, std::string& error);
+           const std::function<bool()>& sigueVivo, std::string& error,
+           const std::function<void()>& alEscuchar = {});
 
 }  // namespace zfsmgr::base::tlsserver

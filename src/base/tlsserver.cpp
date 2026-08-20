@@ -6,6 +6,7 @@
 #include <openssl/x509v3.h>
 
 #include <cstdio>
+#include <cerrno>
 #include <cstring>
 
 #ifdef _WIN32
@@ -114,7 +115,8 @@ bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaC
 bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string&, std::string&)>& atiende,
-           const std::function<bool()>& sigueVivo, std::string& error) {
+           const std::function<bool()>& sigueVivo, std::string& error,
+           const std::function<void()>& alEscuchar) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -151,10 +153,32 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
     }
     if (::bind(escucha, reinterpret_cast<sockaddr*>(&dir), sizeof(dir)) != 0
         || ::listen(escucha, 16) != 0) {
-        error = "no se pudo escuchar en " + bind + ":" + std::to_string(puerto);
+        // El MOTIVO, no solo el hecho. «No se pudo escuchar» a secas obliga a adivinar
+        // entre un puerto cogido, un permiso y una dirección que no es de esta máquina, y
+        // el sistema acaba de decir cuál de las tres es.
+#ifdef _WIN32
+        const int codigo = WSAGetLastError();
+        const bool cogido = (codigo == WSAEADDRINUSE);
+        const std::string porQue = "código " + std::to_string(codigo);
+#else
+        const int codigo = errno;
+        const bool cogido = (codigo == EADDRINUSE);
+        const std::string porQue = std::strerror(codigo);
+#endif
+        error = "no se pudo escuchar en " + bind + ":" + std::to_string(puerto) + ": " + porQue;
+        if (cogido) {
+            error += "\n"
+                     "Ese puerto ya lo tiene otro proceso: otra copia de este mismo servidor,\n"
+                     "o un túnel SSH que quedó suelto de una ejecución anterior. Use\n"
+                     "«--port <otro>», o mire quién lo tiene con «ss -ltnp | grep "
+                   + std::to_string(puerto) + "».";
+        }
         CIERRA_SOCKET(escucha);
         SSL_CTX_free(ctx);
         return false;
+    }
+    if (alEscuchar) {
+        alEscuchar();
     }
 
     while (!sigueVivo || sigueVivo()) {

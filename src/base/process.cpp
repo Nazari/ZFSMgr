@@ -20,6 +20,9 @@
 #include <poll.h>
 #include <sys/select.h>
 #include <sys/wait.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -864,6 +867,7 @@ void ChildProcess::olvida() {
 
 bool ChildProcess::start(const std::string& program, const std::vector<std::string>& args) {
     stop(1500);
+    const pid_t padre = getpid();
     std::vector<char*> argv;
     argv.reserve(args.size() + 2);
     argv.push_back(const_cast<char*>(program.c_str()));
@@ -877,8 +881,30 @@ bool ChildProcess::start(const std::string& program, const std::vector<std::stri
         return false;
     }
     if (pid == 0) {
+#ifdef __linux__
+        // **Que el túnel muera con quien lo montó.** El `setsid()` de abajo lo desconecta
+        // del terminal —hace falta, ver el comentario— pero de paso lo deja sobreviviendo
+        // a su propio cliente: si la aplicación se cierra de golpe, se cuelga o la matan,
+        // el `ssh -L` sigue corriendo con `ppid=1` para siempre.
+        //
+        // No es teórico. En la máquina de desarrollo había 31 túneles huérfanos, el más
+        // viejo de casi cuatro días, y uno se había quedado con el 47654 — el puerto por
+        // omisión del servidor web, que por eso no arrancaba.
+        //
+        // El `getppid()` de después cierra la carrera: si el padre murió entre el `fork` y
+        // este `prctl`, la señal ya no va a llegar nunca y hay que irse a mano.
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (getppid() != padre) {
+            _exit(0);
+        }
+#endif
         // Sesión propia: un `ssh -L` que comparta el grupo de procesos recibiría el
         // Ctrl-C del terminal que lanzó la aplicación y el túnel se caería solo.
+        //
+        // `setsid()` NO borra el PR_SET_PDEATHSIG de arriba: la señal se sigue enviando
+        // cuando muere el hilo que hizo el fork. Por eso los túneles se montan siempre
+        // desde el hilo principal —en la interfaz, el de la ventana—, que vive lo que vive
+        // el proceso.
         setsid();
         execvp(program.c_str(), argv.data());
         _exit(127);
@@ -1019,7 +1045,32 @@ void aseguraWinsockLocal() {}
 
 }  // namespace
 
+namespace {
+
+std::uint16_t reserveFreeLocalPortCrudo();
+
+// Los puertos que este programa se reserva y que, por tanto, un túnel no debe ocupar.
+bool esPuertoNuestro(std::uint16_t p) { return p == 47653 || p == 47654; }
+
+}  // namespace
+
 std::uint16_t reserveFreeLocalPort() {
+    // Se pide varias veces si hace falta: la probabilidad de que el núcleo dé justo uno de
+    // los nuestros es pequeña, pero no es cero —le pasó a un servidor web que no arrancó—
+    // y volver a pedir es lo más barato que hay.
+    for (int intento = 0; intento < 8; ++intento) {
+        const std::uint16_t p = reserveFreeLocalPortCrudo();
+        if (p == 0 || !esPuertoNuestro(p)) {
+            return p;
+        }
+    }
+    return 0;
+}
+
+namespace {
+
+// Lo que da el núcleo, sin filtrar.
+std::uint16_t reserveFreeLocalPortCrudo() {
     aseguraWinsockLocal();
     const SockLocal s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == kSockLocalInvalido) {
@@ -1046,6 +1097,8 @@ std::uint16_t reserveFreeLocalPort() {
     cierraLocal(s);
     return puerto;
 }
+
+}  // namespace
 
 bool canConnectLocal(std::uint16_t port, int timeoutMs) {
     if (port == 0) {

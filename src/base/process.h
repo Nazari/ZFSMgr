@@ -122,6 +122,13 @@ private:
 // podría cogerlo. Es lo mismo que hacía la versión con Qt, y la alternativa —pasarle a ssh
 // un descriptor ya abierto— no existe en su línea de órdenes. Si ocurre, `ssh` falla al
 // reenviar y el túnel no se da por bueno, que es el comportamiento correcto.
+// Un puerto libre de la máquina, para el extremo local de un túnel `ssh -L`.
+//
+// **Nunca devuelve un puerto que este programa se reserva para sí** —47653 el daemon,
+// 47654 el servidor web—, aunque el núcleo lo ofrezca. El rango efímero de Linux empieza
+// en 32768, así que los dos caen dentro y el sistema los reparte igual que cualquier otro:
+// un túnel podía quedarse con el puerto del servidor web y luego el servidor web no
+// arrancaba, con un mensaje que no decía quién lo tenía.
 std::uint16_t reserveFreeLocalPort();
 
 // ¿Acepta ya conexiones ese puerto en 127.0.0.1? Es la pregunta que hay que hacerle a un

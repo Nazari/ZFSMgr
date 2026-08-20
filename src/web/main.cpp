@@ -21,6 +21,7 @@
 #include "storewarnings.h"
 #include "strutil.h"
 #include "tlsserver.h"
+#include "transporttunnel.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1321,9 +1322,15 @@ int main(int argc, char** argv) {
                      "red; lo normal es dejarlo local y llegar por un túnel SSH.\n",
                      op.bind.c_str());
     }
-    std::fprintf(stderr, "zfsmgr-web escuchando en https://%s:%d/\n", op.bind.c_str(), op.puerto);
-    std::fprintf(stderr, "abra esta URL, que lleva la sesión:\n  https://%s:%d/?s=%s\n",
-                 op.bind.c_str(), op.puerto, sesion.id().c_str());
+    // El cartel NO se imprime aquí: se imprime cuando el socket ya escucha. Escribirlo
+    // antes anunciaba «zfsmgr-web escuchando en …» con su URL de sesión y a continuación
+    // «no se pudo escuchar», dejando al usuario con un enlace que nunca funcionó.
+    const auto yaEscucha = [&] {
+        std::fprintf(stderr, "zfsmgr-web escuchando en https://%s:%d/\n", op.bind.c_str(),
+                     op.puerto);
+        std::fprintf(stderr, "abra esta URL, que lleva la sesión:\n  https://%s:%d/?s=%s\n",
+                     op.bind.c_str(), op.puerto, sesion.id().c_str());
+    };
 
     const auto atiende = [&](const std::string& crudo, std::string& respuesta) {
         const H::Peticion p = H::analiza(crudo);
@@ -2188,11 +2195,22 @@ int main(int argc, char** argv) {
         return true;
     };
 
+    // Los túneles se cierran AL SALIR, por las dos puertas.
+    //
+    // Nadie lo hacía en este binario ni en el intérprete —solo la interfaz, en su
+    // destructor—, y un `ssh -L` con `setsid()` sobrevive a quien lo montó. En la máquina
+    // de desarrollo se habían acumulado 31, el más viejo de cuatro días, y uno se había
+    // quedado con el 47654: el puerto por omisión de este mismo servidor, que por eso no
+    // arrancaba.
+    const auto cierraTuneles = [&] { B::transport::closeAllTunnels(sesionZfs->transporte); };
+
     std::string err;
     if (!B::tlsserver::sirve(op.bind, op.puerto, rutaCert, rutaClave, atiende,
-                             [] { return g_vivo.load(); }, err)) {
+                             [] { return g_vivo.load(); }, err, yaEscucha)) {
         std::fprintf(stderr, "%s\n", err.c_str());
+        cierraTuneles();
         return 1;
     }
+    cierraTuneles();
     return 0;
 }

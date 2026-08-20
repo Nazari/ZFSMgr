@@ -12,6 +12,8 @@
 #include "connectionjson.h"
 #include "i18n.h"
 #include "session.h"
+
+#include "transporttunnel.h"
 #include "shell.h"
 #include "tabla.h"
 #include "json.h"
@@ -406,10 +408,15 @@ int main(int argc, char** argv) {
         // configuración a hablar con las máquinas.
         auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso, op.sinSecretos);
         rc = zfsmgr::cli::ejecutarShell(*ses, op.formato, op.urlInicial, op.asumirSi);
+        zfsmgr::base::transport::closeAllTunnels(ses->transporte);
     } else {
         rc = listarConexiones(op, maestra);
     }
     // El secreto no se queda en memoria más de lo necesario.
+    //
+    // Y los túneles tampoco se quedan vivos: un `ssh -L` lleva `setsid()` —para que el
+    // Ctrl-C del terminal no se lo lleve por delante— y eso hace que sobreviva al
+    // intérprete que lo montó. Cada ejecución dejaba uno atrás, reteniendo un puerto.
     if (!maestra.empty()) {
         volatile char* p = &maestra[0];
         for (std::size_t i = 0; i < maestra.size(); ++i) {

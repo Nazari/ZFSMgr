@@ -912,6 +912,29 @@ int main() {
                   "listados: pero la basura si lo es");
     }
 
+    // --- el puerto local de un tunel nunca es uno de los NUESTROS
+    //
+    // El rango efimero de Linux es 32768-60999 e incluye el 47653 (daemon) y el 47654
+    // (servidor web), asi que el nucleo los reparte como cualquier otro. Un `ssh -L` se
+    // quedaba con el 47654 y despues el servidor web no arrancaba, con un mensaje que no
+    // decia quien lo tenia. Paso de verdad.
+    {
+        bool salioUnoNuestro = false;
+        int cuantos = 0;
+        for (int i = 0; i < 200; ++i) {
+            const std::uint16_t p = zfsmgr::base::reserveFreeLocalPort();
+            if (p == 0) {
+                continue;   // sin puertos libres en esta maquina: no es lo que se prueba
+            }
+            ++cuantos;
+            if (p == 47653 || p == 47654) {
+                salioUnoNuestro = true;
+            }
+        }
+        comprobar(cuantos > 0, "puertos: el sistema da puertos libres");
+        comprobar(!salioUnoNuestro, "puertos: y NUNCA uno de los que este programa reserva");
+    }
+
     // --- qué propiedad se puede escribir encima
     //
     // Esta regla estaba TRES veces: `isDatasetPropertySupportedOnPlatform` duplicada letra
