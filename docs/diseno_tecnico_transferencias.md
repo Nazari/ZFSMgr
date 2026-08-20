@@ -151,7 +151,7 @@ que volver a comprobarlo antes de fiarse.
 | 2b | **HECHA a medias** — bajada la COMPOSICIÓN de la orden: dónde se recibe de verdad, el `zfs send`, el `zfs recv -Fus` y cuál de los tres montajes toca. Falta el intercambio en vivo del camino daemon-a-daemon, que es E/S y no composición | Es la más corta de las tres y la que más se usa |
 | 2c | **HECHA** — bajado el camino ASÍNCRONO (`lanzaTrabajo`): los tres pasos que la web necesita. 86 líneas de la ventana pasan a 24 | Es lo que desbloquea la fase 4, y no dependía de la 3 |
 | 3 | **Nivelar**, que comparte casi todo con Copiar | Sale barata detrás de la 2 |
-| 4 | La web ofrece las dos, **solo por trabajos**, con el motivo cuando no se pueda | Primer valor visible |
+| 4 | **HECHA** — la web ofrece Copiar y Nivelar, solo por trabajos, con el motivo cuando no se pueda. Comprobado copiando de verdad desde el navegador | Primer valor visible |
 | 5 | **Mover** = Copiar + destruir el origen, con la confirmación en cada cliente | Es la 2 con un paso más, y el paso más peligroso |
 | 6 | **Sincronizar**, en su propio módulo | La más grande y la que menos comparte |
 

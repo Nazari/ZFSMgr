@@ -19,6 +19,8 @@
 #include "session.h"
 #include "secretinput.h"
 #include "storefiles.h"
+#include "transferencia.h"
+#include "transportcmd.h"
 // El `T(clave, castellano)` del intérprete: mismos catálogos, mismas claves, mismo
 // ayudante. Un tercer sistema de traducción en el mismo programa acabaría discrepando.
 #include "tr.h"
@@ -49,6 +51,7 @@ namespace L = zfsmgr::base::listados;
 namespace ZP = zfsmgr::base::zfsprops;
 namespace DX = zfsmgr::base::dosextremos;
 namespace ZA = zfsmgr::base::zfsallow;
+namespace TR = zfsmgr::base::transferencia;
 
 namespace D = zfsmgr::web::dav;
 
@@ -1010,13 +1013,37 @@ std::string avisoDeOrigen(const DX::Extremo& origen) {
 // existen; enseñarlas sin decir por qué no se pueden deja al usuario probando.
 std::string accionesDeDosExtremos(const std::string& conn, const std::string& raiz,
                                   const std::string& sel, const DX::Extremo& origen,
-                                  const std::string& testigo) {
+                                  const TR::Plan& plan, const std::string& testigo) {
     const DX::Extremo destino{conn, sel};
     std::string h;
     for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar,
                                DX::Accion::Mover, DX::Accion::Sincronizar, DX::Accion::Nivelar}) {
         const DX::NoAplica porQue = DX::compruebo(a, origen, destino);
         const std::string etiqueta = DX::etiquetaDe(a);
+        // Copiar y Nivelar SÍ se pueden, si el plan de transferencia lo dice. El motivo de
+        // que no —un extremo Windows, un ZFS viejo, un daemon sin trabajos— sale del plan,
+        // que es quien lo sabe, y no de una lista escrita aquí.
+        const bool esDeTransferencia = (a == DX::Accion::Copiar || a == DX::Accion::Nivelar);
+        if (esDeTransferencia && porQue == DX::NoAplica::TodaviaNoEstaEnLaWeb) {
+            if (plan.sePuede()) {
+                h += "<div>"
+                     + boton(conn, sel, raiz,
+                             a == DX::Accion::Copiar ? "copiar-desde-origen"
+                                                     : "nivelar-desde-origen",
+                             etiqueta, testigo,
+                             "<label class=\"campo\"><input type=\"checkbox\" name=\"rec\" "
+                             "value=\"1\" checked> "
+                                 + H::escapaHtml(T("t_web_con_hijos",
+                                                   "con sus descendientes"))
+                                 + "</label> ")
+                     + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                     + H::escapaHtml(sel) + "</span></div>";
+                continue;
+            }
+            h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
+                 + H::escapaHtml(TR::etiquetaDe(plan.fallo)) + "</span></div>";
+            continue;
+        }
         if (porQue != DX::NoAplica::Ninguna) {
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
                  + H::escapaHtml(DX::etiquetaDe(porQue)) + "</span></div>";
@@ -1044,7 +1071,8 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
 // estado del propio dataset y «Acciones» para lo que toca sus DATOS.
 std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const L::Entrada* e,
-                              const DX::Extremo& origen, const std::string& testigo) {
+                              const DX::Extremo& origen, const TR::Plan& plan,
+                              const std::string& testigo) {
     const bool montado = e != nullptr && e->montado == "yes";
     const bool cifrado = e != nullptr && !e->cifrado.empty() && e->cifrado != "off"
                          && e->cifrado != "-";
@@ -1089,7 +1117,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                          "<div>" + enlace("/origen?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(ds),
                                           T("t_web_marcar_origen", "Marcar como origen"))
                              + "</div>"
-                             + accionesDeDosExtremos(conn, raiz, ds, origen, testigo));
+                             + accionesDeDosExtremos(conn, raiz, ds, origen, plan, testigo));
     h += "<div class=\"pendiente\">Desglosar, Ensamblar, Desde Dir y Hacia Dir todavía no "
          "están en la web. Se hacen desde la interfaz o desde el intérprete.</div>";
     return h;
@@ -1099,7 +1127,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
 // un segundo extremo.
 std::string accionesDeInstantanea(const std::string& conn, const std::string& raiz,
                                   const std::string& snap, const DX::Extremo& origen,
-                                  const std::string& testigo) {
+                                  const TR::Plan& plan, const std::string& testigo) {
     std::string h;
     std::string g;
     g += boton(conn, snap, raiz, "clonar", T("t_web_clonar_98a66b", "Clonar"), testigo,
@@ -1116,7 +1144,7 @@ std::string accionesDeInstantanea(const std::string& conn, const std::string& ra
                          "<div>" + enlace("/origen?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(snap),
                                           T("t_web_marcar_origen", "Marcar como origen"))
                              + "</div>"
-                             + accionesDeDosExtremos(conn, raiz, snap, origen, testigo));
+                             + accionesDeDosExtremos(conn, raiz, snap, origen, plan, testigo));
     h += "<div class=\"pendiente\">«Nuevo Hold» y «Release» no están: el daemon no tiene "
          "todavía un verbo para leer los holds, y la interfaz los lee por shell — que es "
          "justo lo que este servidor no hace.</div>";
@@ -1180,6 +1208,46 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
                          std::to_string(its == arbol.instantaneas.end() ? 0 : its->second.size())});
     }
     return fichaDeDatos(datos);
+}
+
+// El resultado de lanzar una copia. NO redirige, igual que la instalación del daemon: lo
+// que hay que leer aquí es el identificador con el que seguirla, y una redirección lo
+// tiraría. Se puede porque lanzar dos veces no es destructivo: el segundo trabajo se
+// encuentra el destino ocupado y se para.
+std::string paginaTrabajoLanzado(const std::string& conn, const std::string& origen,
+                                 const std::string& destino, const TR::Trabajo& t,
+                                 const TR::Reanudacion& reanuda, const std::string& testigo) {
+    std::string cuerpo;
+    if (t.ok()) {
+        cuerpo += "<p>" + H::escapaHtml(B::format(T("t_web_job_ok",
+                                                    "Copia lanzada: %1 → %2. La hace el daemon, "
+                                                    "así que sigue aunque cierre esta página."),
+                                                  {origen, destino}))
+                  + "</p>";
+        cuerpo += "<p class=\"tenue\">" + H::escapaHtml(T("t_web_job_id", "Identificador"))
+                  + ": <code>" + H::escapaHtml(t.id) + "</code></p>";
+        if (reanuda.hay()) {
+            cuerpo += "<div class=\"pendiente\">"
+                      + H::escapaHtml(B::format(
+                            T("t_web_job_reanuda",
+                              "Se ha continuado una transferencia que quedó a medias en %1, en "
+                              "vez de mandarlo todo otra vez."),
+                            {reanuda.quienLoTiene}))
+                      + "</div>";
+        }
+        cuerpo += "<p>"
+                  + enlace("/c/" + H::haciaUrl(conn) + "?log=trabajos%3A" + H::haciaUrl(conn),
+                           T("t_jobs_tab_001", "Transferencias"))
+                  + "</p>";
+    } else {
+        cuerpo += "<p>" + H::escapaHtml(TR::etiquetaDe(t.fallo)) + "</p>";
+        if (!t.detalle.empty()) {
+            cuerpo += "<pre>" + H::escapaHtml(t.detalle) + "</pre>";
+        }
+    }
+    cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), T("t_web_volver_a_e70d48", "Volver a "))
+              + "</p>";
+    return envuelve(T("t_web_copiar_t", "Copiar"), enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 // Una colección de WebDAV, para el navegador.
@@ -2165,7 +2233,16 @@ int main(int argc, char** argv) {
 
     // Lo que ya se preguntó a cada máquina, para no volver a esperar por ella en cada
     // recarga. Vive lo que vive el proceso.
-    std::map<std::string, std::string> versionPorConexion;
+    // Lo que se sabe de cada máquina, preguntado UNA vez y recordado durante la vida del
+    // proceso —incluido el fallo—. Sin eso, cada página que necesite decidir si se puede
+    // copiar volvería a esperar el plazo entero por una máquina apagada.
+    struct Salud {
+        std::string versionAgente;   // ya marcada con «*» o «+» si procede
+        std::string versionZfs;
+        bool vivo{false};
+        bool admiteTrabajos{false};
+    };
+    std::map<std::string, Salud> saludPorConexion;
 
     zfsmgr::web::Sesion sesion;
     sesion.abre();
@@ -2243,6 +2320,49 @@ int main(int argc, char** argv) {
         long long tamano{0};
     };
     FicheroPedido ficheroPedido;
+
+    // Lo que se sabe de una máquina, preguntándoselo la primera vez y recordándolo después.
+    // Dos llamadas: `--health` trae la versión del agente y si admite trabajos, y la versión
+    // de ZFS hay que pedirla aparte porque `--health` no la lleva.
+    const auto saludDe = [&](const B::ConnectionProfile& perfilC) {
+        const std::string id = perfilC.id.empty() ? perfilC.name : perfilC.id;
+        const auto ya = saludPorConexion.find(id);
+        if (ya != saludPorConexion.end()) {
+            return ya->second;
+        }
+        Salud sal;
+        std::string salida;
+        std::string err;
+        int rc = -1;
+        std::string version;
+        if (llamaAgente(*sesionZfs, perfilC, {"--health"}, salida, err, rc, nullptr, 8000)
+            && rc == 0) {
+            sal.vivo = true;
+            for (const std::string& linea : B::split(salida, "\n", true)) {
+                const std::string l = B::trim(linea);
+                if (B::startsWith(l, "VERSION=")) {
+                    version = B::trim(l.substr(8));
+                } else if (B::startsWith(l, "JOBS_SUPPORT=")) {
+                    sal.admiteTrabajos = (B::trim(l.substr(13)) == "1");
+                }
+            }
+            std::string salidaZ;
+            std::string errZ;
+            int rcZ = -1;
+            if (llamaAgente(*sesionZfs, perfilC, {"--dump-zfs-version"}, salidaZ, errZ, rcZ,
+                            nullptr, 8000)
+                && rcZ == 0) {
+                // `zfs version` escribe «zfs-2.4.2-…» en la primera línea.
+                const std::string primera = B::trim(B::split(salidaZ, "\n", true).empty()
+                                                        ? std::string()
+                                                        : B::split(salidaZ, "\n", true).front());
+                sal.versionZfs = B::startsWith(primera, "zfs-") ? primera.substr(4) : primera;
+            }
+        }
+        sal.versionAgente = marcaDeVersion(version);
+        saludPorConexion[id] = sal;
+        return sal;
+    };
 
     const auto atiende = [&](const std::string& crudo, std::string& respuesta) {
         ficheroPedido = FicheroPedido{};
@@ -2665,7 +2785,7 @@ int main(int argc, char** argv) {
                 // Se olvida la versión recordada de esa máquina: acaba de cambiar, y
                 // seguir enseñando la vieja es justo lo contrario de lo que uno espera
                 // después de pulsar «instalar».
-                versionPorConexion.erase(perfil->id.empty() ? perfil->name : perfil->id);
+                saludPorConexion.erase(perfil->id.empty() ? perfil->name : perfil->id);
                 r.cuerpo = paginaInstalacion(conn, res, traza, sesion.testigo());
                 r.codigo = res.ok() ? 200 : 502;
                 respuesta = H::componer(r);
@@ -2863,6 +2983,70 @@ int main(int argc, char** argv) {
                 }
                 argv.push_back(objeto);
                 verbo = {"--mutate-zfs-generic", argvEnBase64(argv)};
+            } else if (que == "copiar-desde-origen" || que == "nivelar-desde-origen") {
+                const DX::Extremo origen = origenDe(p);
+                const B::ConnectionProfile* perfilOrigen =
+                    origen.vacio() ? nullptr
+                                   : zfsmgr::cli::buscarConexion(conns, origen.conexion);
+                if (perfilOrigen == nullptr) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError(T("t_web_sin_origen_marcado",
+                                             "no hay ningún origen marcado, o su máquina ya no "
+                                             "está en la lista"),
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                // Se vuelve a planear AQUÍ y no se confía en lo que se pintó: entre que se
+                // dibujó la página y se pulsó, el origen pudo cambiar en otra pestaña o una
+                // máquina pudo caerse.
+                const Salud sO = saludDe(*perfilOrigen);
+                const Salud sD = saludDe(*perfil);
+                TR::Extremo eO;
+                eO.conexion = origen.conexion;
+                eO.objeto = origen.objeto;
+                eO.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
+                eO.tieneDaemon = sO.vivo;
+                eO.admiteTrabajos = sO.admiteTrabajos;
+                eO.versionZfs = sO.versionZfs;
+                TR::Extremo eD;
+                eD.conexion = conn;
+                eD.objeto = objeto;
+                eD.esWindows = B::transport::isWindowsConnection(*perfil);
+                eD.tieneDaemon = sD.vivo;
+                eD.admiteTrabajos = sD.admiteTrabajos;
+                eD.versionZfs = sD.versionZfs;
+                const TR::Plan plan = TR::planea(eO, eD, /*exigeAsincrono=*/true);
+                if (!plan.sePuede()) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError(TR::etiquetaDe(plan.fallo), sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+
+                const std::string destino = TR::destinoReal(origen.dataset(), objeto);
+                // El testigo de reanudación, si quedó algo a medias. Con él puesto, el
+                // envío continúa desde donde iba en vez de mandarlo todo otra vez.
+                const auto reanuda = TR::buscaTestigo(sesionZfs->transporte, *perfil, destino,
+                                                      false);
+                TR::OpcionesDeEnvio opciones;
+                opciones.R = (p.campo("rec") == "1");
+                const TR::LlamadaAlAgente llama =
+                    [&](const B::ConnectionProfile& maquina,
+                        const std::vector<std::string>& args, int timeoutMs, std::string& out,
+                        std::string& errL, int& rcL) {
+                        return llamaAgente(*sesionZfs, maquina, args, out, errL, rcL, nullptr,
+                                           timeoutMs);
+                    };
+                const auto lanzado = TR::lanzaTrabajo(
+                    sesionZfs->transporte, llama, *perfilOrigen, *perfil, origen.objeto, destino,
+                    std::string(), TR::banderasDeEnvio(opciones), reanuda.testigo,
+                    origen.conexion == conn, op.verboso);
+                r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, destino, lanzado, reanuda,
+                                                sesion.testigo());
+                r.codigo = lanzado.ok() ? 200 : 502;
+                respuesta = H::componer(r);
+                return true;
             } else if (que == "clonar-desde-origen") {
                 const DX::Extremo origen = origenDe(p);
                 const DX::Extremo destino{conn, objeto};
@@ -3219,29 +3403,7 @@ int main(int argc, char** argv) {
                     versiones.push_back("-");
                     continue;
                 }
-                const auto ya = versionPorConexion.find(id);
-                if (ya != versionPorConexion.end()) {
-                    versiones.push_back(ya->second);
-                    continue;
-                }
-                std::string salidaH;
-                std::string errH;
-                int rcH = -1;
-                std::string motivoH;
-                std::string version;
-                if (llamaAgente(*sesionZfs, perfilC, {"--health"}, salidaH, errH,
-                                                rcH, &motivoH, 8000)
-                    && rcH == 0) {
-                    for (const std::string& linea : B::split(salidaH, "\n", true)) {
-                        if (B::startsWith(B::trim(linea), "VERSION=")) {
-                            version = B::trim(B::trim(linea).substr(8));
-                            break;
-                        }
-                    }
-                }
-                const std::string marcada = marcaDeVersion(version);
-                versionPorConexion[id] = marcada;
-                versiones.push_back(marcada);
+                versiones.push_back(saludDe(perfilC).versionAgente);
             }
             // La raíz es el MISMO árbol que todo lo demás, con `zfsm://` arriba y las
             // máquinas colgando. Antes era una tabla suelta, y desde ella había que pasar
@@ -3489,6 +3651,36 @@ int main(int argc, char** argv) {
         const L::Entrada* entradaSel =
             itSel != arbol.porNombre.end() ? &itSel->second : nullptr;
 
+        // ¿Se puede transferir del origen marcado a lo que se está mirando?
+        //
+        // `exigeAsincrono` va en TRUE siempre desde aquí: este servidor atiende de una en
+        // una y una petición HTTP no puede durar las horas que dura una copia. Solo vale el
+        // camino que sostiene el daemon.
+        TR::Plan planTransfer;
+        if (!origenMarcado.vacio()) {
+            const B::ConnectionProfile* perfilOrigen =
+                zfsmgr::cli::buscarConexion(conns, origenMarcado.conexion);
+            if (perfilOrigen != nullptr) {
+                const Salud sOrigen = saludDe(*perfilOrigen);
+                const Salud sDestino = saludDe(*perfil);
+                TR::Extremo eOrigen;
+                eOrigen.conexion = origenMarcado.conexion;
+                eOrigen.objeto = origenMarcado.objeto;
+                eOrigen.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
+                eOrigen.tieneDaemon = sOrigen.vivo;
+                eOrigen.admiteTrabajos = sOrigen.admiteTrabajos;
+                eOrigen.versionZfs = sOrigen.versionZfs;
+                TR::Extremo eDestino;
+                eDestino.conexion = conn;
+                eDestino.objeto = sel;
+                eDestino.esWindows = B::transport::isWindowsConnection(*perfil);
+                eDestino.tieneDaemon = sDestino.vivo;
+                eDestino.admiteTrabajos = sDestino.admiteTrabajos;
+                eDestino.versionZfs = sDestino.versionZfs;
+                planTransfer = TR::planea(eOrigen, eDestino, /*exigeAsincrono=*/true);
+            }
+        }
+
         // La plataforma de la máquina y el tipo del objeto: los dos hacen falta para saber
         // qué propiedad se puede escribir encima. `jailed` solo existe en FreeBSD, y a una
         // instantánea no se le cambia nada de ZFS —solo sus propiedades de usuario—.
@@ -3695,9 +3887,9 @@ int main(int argc, char** argv) {
             case Vista::Acciones:
                 cuerpo = selEsInstantanea
                              ? accionesDeInstantanea(conn, objeto, sel, origenMarcado,
-                                                     sesion.testigo())
+                                                     planTransfer, sesion.testigo())
                              : accionesDeDataset(conn, objeto, sel, entradaSel, origenMarcado,
-                                                 sesion.testigo());
+                                                 planTransfer, sesion.testigo());
                 break;
             case Vista::AccionesPool:
                 cuerpo = accionesDePool(conn, objeto, sesion.testigo());
