@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
@@ -183,6 +184,20 @@ a.marcoenlace:hover span.marcotit { color: var(--acento); }
 details.marco > summary::before { margin-right: .1rem; }
 div.marco.cerrado span.marcotit { padding-left: 1em; }
 div.hoja.hojads { padding-left: 1.15em; }
+div.abajo { margin-top: 1.2rem; }
+div.pestanas { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
+               margin-bottom: .35rem; }
+span.pestgrupo { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+                 color: var(--tenue); margin-right: .4rem; min-width: 5rem; }
+a.pest { font-size: .86rem; padding: .2rem .7rem; border: 1px solid var(--borde);
+         border-radius: 4px; color: var(--tenue); background: var(--fondo); }
+a.pest:hover { border-color: var(--acento); text-decoration: none; }
+a.pest.activa { background: var(--acento); border-color: var(--acento); color: #fff;
+                font-weight: 600; }
+div.logcuerpo { margin-top: .5rem; max-height: 26rem; overflow: auto;
+                border: 1px solid var(--borde); border-radius: 5px; padding: .4rem .6rem; }
+div.logcuerpo pre { margin: 0; background: transparent; padding: 0; }
+span.malo { color: #a33; font-weight: 600; }
 div.hoja.hojads a.nodo { color: var(--tinta); }
 div.marcocuerpo { padding: .7rem .8rem .2rem; }
 div.marcocuerpo > table { margin-top: 0; }
@@ -255,6 +270,22 @@ std::string bytesLegibles(const std::string& crudo) {
 // Se pinta en la hora LOCAL de quien mira, no en la de la máquina remota: quien lee la
 // página está aquí, y una instantánea «de anoche» tiene que salir con la hora de anoche
 // suya. La diferencia importa con una máquina en otro huso.
+// La fecha que da el daemon en sus trabajos: ISO-8601 en UTC. Se deja en UTC —es lo que
+// dice la cadena y cambiarlo a la hora local exigiría convertirla, no reescribirla— pero se
+// quita la «T» y la «Z», que son ruido para quien la lee.
+std::string fechaIso(const std::string& crudo) {
+    std::string t = B::trim(crudo);
+    const std::size_t i = t.find('T');
+    if (i != std::string::npos) {
+        t[i] = ' ';
+    }
+    if (!t.empty() && t.back() == 'Z') {
+        t.pop_back();
+        t += " UTC";
+    }
+    return t;
+}
+
 std::string fechaLegible(const std::string& crudo) {
     const std::string t = B::trim(crudo);
     if (t.empty() || t == "-") {
@@ -330,6 +361,99 @@ std::string argvEnBase64(const std::vector<std::string>& argv) {
 // rechaza la petición con 403 aunque la cookie sea la buena.
 std::string campoTestigo(const std::string& testigo) {
     return "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
+}
+
+// ── El registro de lo que ESTE servidor ha hecho ─────────────────────────────
+//
+// La interfaz de Qt tiene un «Log combinado» que sale de un fichero que ella misma escribe
+// (`~/.config/ZFSMgr/application.log`). Este servidor no escribía ninguno, así que no había
+// forma de saber qué le había pedido a qué máquina, ni con qué resultado, ni por qué había
+// tardado lo que tardó.
+//
+// Vive en MEMORIA y no en un fichero, a propósito: un servidor que uno arranca cuando le
+// hace falta y para al terminar no debería dejar en el disco la lista de qué datasets miró.
+// Se pierde al parar, y aquí eso es lo correcto. El registro que sí persiste es el del
+// daemon, que es de la máquina y no de quien la mira.
+struct Apunte {
+    std::string cuando;
+    std::string conexion;
+    std::string verbo;
+    int rc{0};
+    long ms{0};
+    bool hablo{true};
+    std::string detalle;
+};
+
+// Un anillo, no una lista que crece: este proceso puede estar días levantado, y un registro
+// sin tope es una fuga de memoria con otro nombre.
+constexpr std::size_t kApuntesMax = 500;
+std::vector<Apunte> g_apuntes;
+
+void anota(Apunte a) {
+    if (g_apuntes.size() >= kApuntesMax) {
+        g_apuntes.erase(g_apuntes.begin());
+    }
+    g_apuntes.push_back(std::move(a));
+}
+
+std::string ahoraLegible() {
+    const std::time_t t = std::time(nullptr);
+    std::tm partes{};
+#ifdef _WIN32
+    if (localtime_s(&partes, &t) != 0) {
+        return {};
+    }
+#else
+    if (localtime_r(&t, &partes) == nullptr) {
+        return {};
+    }
+#endif
+    char buf[16];
+    if (std::strftime(buf, sizeof(buf), "%H:%M:%S", &partes) == 0) {
+        return {};
+    }
+    return buf;
+}
+
+// La ÚNICA puerta por la que este servidor habla con una máquina.
+//
+// Existe para que anotar no dependa de acordarse: había siete sitios llamando al agente y
+// cada uno tendría que haber escrito su apunte. Uno que se olvidara dejaría un hueco en el
+// registro justo donde importa —el sitio raro, el que falla— y nadie lo notaría.
+bool llamaAgente(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfil,
+                 const std::vector<std::string>& args, std::string& salida, std::string& err,
+                 int& rc, std::string* motivo, int timeoutMs) {
+    const auto t0 = std::chrono::steady_clock::now();
+    std::string porQue;
+    const bool hablo =
+        zfsmgr::cli::ejecutarAgente(ses, perfil, args, salida, err, rc, &porQue, timeoutMs);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - t0)
+                        .count();
+    Apunte a;
+    a.cuando = ahoraLegible();
+    a.conexion = perfil.id.empty() ? perfil.name : perfil.id;
+    // El VERBO y sus argumentos, menos las cargas en base64: ahí dentro viajan frases de
+    // cifrado y contenidos de fichero, y un registro no es sitio para ninguna de las dos.
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (!a.verbo.empty()) {
+            a.verbo += " ";
+        }
+        a.verbo += (i == 0 || args[i].size() < 40) ? args[i] : "<carga>";
+    }
+    a.rc = rc;
+    a.ms = static_cast<long>(ms);
+    a.hablo = hablo;
+    if (!hablo) {
+        a.detalle = porQue;
+    } else if (rc != 0) {
+        a.detalle = B::trim(err.empty() ? salida : err).substr(0, 200);
+    }
+    anota(std::move(a));
+    if (motivo != nullptr) {
+        *motivo = porQue;
+    }
+    return hablo;
 }
 
 std::string marcaDeVersion(const std::string& version) {
@@ -944,13 +1068,213 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
     return h;
 }
 
+// El registro del daemon, recortado por la cola.
+//
+// Dos cosas que hay que quitarle. La primera línea es un marcador interno
+// —`__ZFSMGR_LOG_OFFSET__:2093152`— que sirve para pedir solo lo nuevo la próxima vez, y no
+// tiene nada que ver con lo que pasó en la máquina. Y son 50.000 líneas: enseñarlas todas
+// es tirar dos megas por el socket para que nadie mire más allá del final.
+//
+// Se recorta por la COLA porque un registro se lee por el final: lo último que hizo la
+// máquina es lo que uno viene a ver.
+std::string panelRegistroDaemon(const std::string& crudo, std::size_t cuantas) {
+    std::vector<std::string> lineas;
+    for (const std::string& l : B::split(crudo, "\n", false)) {
+        if (B::startsWith(l, "__ZFSMGR_LOG_OFFSET__:")) {
+            continue;
+        }
+        lineas.push_back(l);
+    }
+    while (!lineas.empty() && B::trim(lineas.back()).empty()) {
+        lineas.pop_back();
+    }
+    if (lineas.empty()) {
+        return "<p class=\"vacio\">(el registro del daemon está vacío)</p>";
+    }
+    const std::size_t total = lineas.size();
+    std::string h;
+    if (total > cuantas) {
+        h += "<p class=\"tenue\">Las últimas " + std::to_string(cuantas) + " líneas de "
+             + std::to_string(total) + ".</p>";
+        lineas.erase(lineas.begin(), lineas.end() - static_cast<long>(cuantas));
+    }
+    std::string texto;
+    for (const std::string& l : lineas) {
+        texto += l + "\n";
+    }
+    return h + "<pre>" + H::escapaHtml(B::trim(texto)) + "</pre>";
+}
+
+// Los trabajos del daemon, que llegan como una línea `JOB={…}` por trabajo.
+std::string panelTrabajos(const std::string& crudo) {
+    std::vector<std::vector<std::string>> filas;
+    for (const std::string& l : B::split(crudo, "\n", true)) {
+        if (!B::startsWith(B::trim(l), "JOB=")) {
+            continue;
+        }
+        B::json::Value j;
+        std::string errJ;
+        if (!B::json::parse(B::trim(l).substr(4), j, &errJ)) {
+            continue;
+        }
+        const std::string estado = j["state"].toString();
+        filas.push_back({H::escapaHtml(j["id"].toString()),
+                         H::escapaHtml(j["type"].toString()),
+                         H::escapaHtml(j["snap"].toString()),
+                         estado == "done" ? std::string("done")
+                                          : "<span class=\"malo\">" + H::escapaHtml(estado)
+                                                + "</span>",
+                         H::escapaHtml(bytesLegibles(std::to_string(j["bytes"].toInt()))),
+                         H::escapaHtml(fechaIso(j["started"].toString())),
+                         H::escapaHtml(j["error"].toString())});
+    }
+    if (filas.empty()) {
+        return "<p class=\"vacio\">(no hay trabajos en esta máquina)</p>";
+    }
+    return tabla({"Id", "Tipo", "Instantánea", "Estado", "Bytes", "Empezó", "Error"}, filas);
+}
+
+// ── La tercera ventana: el REGISTRO ──────────────────────────────────────────
+//
+// Debajo de las dos columnas, plegable y plegada de fábrica, con las mismas pestañas que la
+// interfaz de Qt salvo «Ajustes» y «Cambios pendientes» —que no son registros: uno es
+// configuración y el otro un plan de trabajo, y meterlos aquí solo era herencia—.
+//
+// **Sin JavaScript unas pestañas no son pestañas**: cambiar de pestaña es recargar. Por eso
+// cada una es un enlace que pone `?log=<clave>` en la URL, y la activa se pinta distinta.
+// La consecuencia buena es que la pestaña abierta va en la dirección: se puede guardar en
+// marcadores y sobrevive a una recarga, cosa que en Qt no pasa.
+//
+// Y el registro NO se refresca solo. Se podría con `<meta http-equiv="refresh">`, que es
+// HTML puro y la política de contenido admite, pero recargaría la página entera cada pocos
+// segundos: parpadeo, pérdida de lo que uno tuviera abierto y —lo que de verdad importa—
+// una consulta a la máquina en cada vuelta por cada marco abierto, que es justo lo que se
+// acaba de quitar. Hay un botón de refrescar, que es explícito y cuesta lo que cuesta.
+
+// La pestaña activa, tal como viaja en la URL.
+struct PestanaLog {
+    std::string clave;      // «combinado», «term:local», «daemon:local», «trabajos:local»
+    std::string tipo;       // «combinado», «term», «daemon», «trabajos»
+    std::string conexion;   // vacío en «combinado»
+};
+
+PestanaLog pestanaDesde(const std::string& crudo) {
+    PestanaLog p;
+    p.clave = B::trim(crudo);
+    const std::size_t i = p.clave.find(':');
+    if (i == std::string::npos) {
+        p.tipo = p.clave;
+        return p;
+    }
+    p.tipo = p.clave.substr(0, i);
+    p.conexion = p.clave.substr(i + 1);
+    return p;
+}
+
+// El registro de este servidor, en una tabla. `soloDe` vacío = todas las máquinas, que es
+// la pestaña «Combinado»; con un identificador dentro es el «Terminal» de esa máquina.
+std::string panelApuntes(const std::string& soloDe) {
+    std::vector<std::vector<std::string>> filas;
+    // Del más reciente al más viejo: lo que uno acaba de hacer es lo que quiere ver, y en
+    // un anillo de 500 lo de abajo del todo casi nunca importa.
+    for (auto it = g_apuntes.rbegin(); it != g_apuntes.rend(); ++it) {
+        if (!soloDe.empty() && it->conexion != soloDe) {
+            continue;
+        }
+        std::string estado;
+        if (!it->hablo) {
+            estado = "<span class=\"malo\">sin respuesta</span>";
+        } else if (it->rc != 0) {
+            estado = "<span class=\"malo\">rc=" + std::to_string(it->rc) + "</span>";
+        } else {
+            estado = "ok";
+        }
+        filas.push_back({H::escapaHtml(it->cuando),
+                         H::escapaHtml(it->conexion),
+                         H::escapaHtml(it->verbo),
+                         estado,
+                         std::to_string(it->ms) + " ms",
+                         H::escapaHtml(it->detalle)});
+    }
+    if (filas.empty()) {
+        return "<p class=\"vacio\">(este servidor no ha hablado todavía con ninguna máquina"
+               + std::string(soloDe.empty() ? "" : " «" + H::escapaHtml(soloDe) + "»") + ")</p>";
+    }
+    return tabla({"Hora", "Máquina", "Qué se pidió", "Resultado", "Tardó", "Detalle"}, filas);
+}
+
+// La fila de pestañas. Las de máquina llevan dentro las dos de Qt —Terminal y Daemon—, más
+// Transferencias, que en Qt es una pestaña suelta que aquí no puede serlo: los trabajos son
+// de UNA máquina, y agregarlos obligaría a preguntárselo a las cuatro en cada página.
+std::string pestanasDelLog(const std::vector<B::ConnectionProfile>& perfiles,
+                           const std::string& base, const PestanaLog& activa) {
+    const auto una = [&](const std::string& clave, const std::string& texto) {
+        const bool esta = (clave == activa.clave);
+        return "<a class=\"pest" + std::string(esta ? " activa" : "") + "\" href=\""
+               + H::escapaHtml(base + "log=" + H::haciaUrl(clave)) + "\">" + H::escapaHtml(texto)
+               + "</a>";
+    };
+    std::string h = "<div class=\"pestanas\">";
+    h += una("combinado", "Log combinado");
+    h += "</div>";
+    for (const B::ConnectionProfile& p : perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        h += "<div class=\"pestanas\"><span class=\"pestgrupo\">" + H::escapaHtml(id)
+             + "</span>";
+        h += una("term:" + id, "Terminal");
+        h += una("daemon:" + id, "Daemon");
+        h += una("trabajos:" + id, "Transferencias");
+        h += "</div>";
+    }
+    return h;
+}
+
+// La ventana entera. `cargado` es lo que se haya ido a buscar para la pestaña activa; las
+// que salen de memoria —Combinado y Terminal— no lo necesitan.
+std::string ventanaDelLog(const std::vector<B::ConnectionProfile>& perfiles,
+                          const std::string& base, const PestanaLog& activa,
+                          const std::string& cargado, const std::string& testigo) {
+    std::string cuerpo = pestanasDelLog(perfiles, base, activa);
+    cuerpo += "<div class=\"logcuerpo\">";
+    if (activa.clave.empty()) {
+        cuerpo += "<p class=\"vacio\">(elija una pestaña)</p>";
+    } else if (activa.tipo == "combinado") {
+        cuerpo += panelApuntes(std::string());
+    } else if (activa.tipo == "term") {
+        cuerpo += panelApuntes(activa.conexion);
+    } else {
+        cuerpo += cargado;
+    }
+    cuerpo += "</div>";
+    // Refrescar es explícito: un enlace a esta misma URL. Y para el daemon, el latido, que
+    // es el botón que la interfaz de Qt tiene en esa misma pestaña.
+    if (!activa.clave.empty()) {
+        cuerpo += "<p>" + enlace(base + "log=" + H::haciaUrl(activa.clave), "Refrescar");
+        if (activa.tipo == "daemon" && !activa.conexion.empty()) {
+            cuerpo += " · ";
+            cuerpo += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">"
+                      + campoTestigo(testigo)
+                      + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(activa.conexion)
+                      + "\"><input type=\"hidden\" name=\"o\" value=\""
+                      + H::escapaHtml(activa.conexion)
+                      + "\"><input type=\"hidden\" name=\"que\" value=\"latido\">"
+                        "<button type=\"submit\">Latido</button></form>";
+        }
+        cuerpo += "</p>";
+    }
+    return marco("Registro", cuerpo, !activa.clave.empty());
+}
+
 // Las dos columnas. El árbol va en un panel que se queda quieto al desplazar la derecha:
 // perder de vista dónde se está es lo que hace inservible un árbol grande.
 std::string envuelveDosPaneles(const std::string& titulo, const std::string& migas,
                                const std::string& izq, const std::string& der,
-                               const std::string& testigo) {
+                               const std::string& abajo, const std::string& testigo) {
     std::string cuerpo = "<div class=\"dos\"><div class=\"izq\">" + izq + "</div>";
     cuerpo += "<div class=\"der\">" + der + "</div></div>";
+    // La tercera ventana va DEBAJO de las dos y a todo lo ancho, no dentro de una columna:
+    // un registro en media pantalla obliga a desplazarse en horizontal por cada línea.
+    cuerpo += "<div class=\"abajo\">" + abajo + "</div>";
     return envuelve(titulo, migas, cuerpo, testigo, true);
 }
 
@@ -1462,7 +1786,7 @@ int main(int argc, char** argv) {
                 std::string dentro;
                 bool encontrado = objeto.empty();
                 while (!encontrado) {
-                    if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD,
+                    if (llamaAgente(*sesionZfs, *perfilD,
                                                     {"--dump-zfs-list-all", dataset}, salidaD,
                                                     errD, rcD, &motivoD, 30000)
                         && rcD == 0) {
@@ -1481,7 +1805,7 @@ int main(int argc, char** argv) {
                                    : std::vector<std::string>{"--dump-zfs-list-all", dataset};
                 if (!encontrado
                     || (objeto.empty()
-                        && (!zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD, verboD, salidaD,
+                        && (!llamaAgente(*sesionZfs, *perfilD, verboD, salidaD,
                                                          errD, rcD, &motivoD, 30000)
                             || rcD != 0))) {
                     r.codigo = 502;
@@ -1529,7 +1853,7 @@ int main(int argc, char** argv) {
                         std::string errF;
                         int rcF = -1;
                         std::string motivoF;
-                        if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilD,
+                        if (llamaAgente(*sesionZfs, *perfilD,
                                                         {"--dump-dir-list", rutaFs}, salidaF, errF,
                                                         rcF, &motivoF, 30000)
                             && rcF == 0) {
@@ -1575,7 +1899,7 @@ int main(int argc, char** argv) {
                 int rcG = -1;
                 std::string motivoG;
                 std::string contenido;
-                if (zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfilPedido,
+                if (llamaAgente(*sesionZfs, *perfilPedido,
                                                 {"--dump-file", rutaBaseFs}, b64, errG, rcG,
                                                 &motivoG, 60000)
                     && rcG == 0 && B::base64Decode(B::trim(b64), contenido)) {
@@ -1757,6 +2081,8 @@ int main(int argc, char** argv) {
                     verbo = {"--mutate-zfs-load-key", B::base64Encode(objeto),
                              B::base64Encode(p.campo("frase"))};
                 }
+            } else if (que == "latido") {
+                verbo = {"--heartbeat"};
             } else if (B::startsWith(que, "pool-")) {
                 const std::string op = que.substr(5);
                 std::vector<std::string> argv;
@@ -1794,7 +2120,7 @@ int main(int argc, char** argv) {
             std::string errM;
             int rcM = -1;
             std::string motivoM;
-            const bool hablo = zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfil, verbo, salidaM,
+            const bool hablo = llamaAgente(*sesionZfs, *perfil, verbo, salidaM,
                                                            errM, rcM, &motivoM, 120000);
             if (!hablo || rcM != 0) {
                 r.codigo = 502;
@@ -1807,6 +2133,19 @@ int main(int argc, char** argv) {
 
             // Redirección después de un POST: si no, recargar la página REPITE la acción, y
             // «crear instantánea» dos veces es ruido pero «destruir» dos veces es otra cosa.
+            // El latido es de la MÁQUINA, no de un dataset: se vuelve a su página con la
+            // pestaña del daemon abierta, que es donde va a aparecer lo que acaba de
+            // provocar. Sin este caso aparte, el reparto de abajo lo mandaba a
+            // «/c/local/local» —un pool con el nombre de la máquina— que no existe.
+            if (que == "latido") {
+                r.codigo = 302;
+                r.cabecerasExtra.push_back("Location: /c/" + H::haciaUrl(conn) + "?log=daemon%3A"
+                                           + H::haciaUrl(conn));
+                r.cuerpo = "";
+                respuesta = H::componer(r);
+                return true;
+            }
+
             // Se vuelve al MISMO nodo sobre el que se actuó, con su árbol montado. Antes
             // se volvía a la raíz del pool y había que rehacer el camino a mano.
             const std::string volverA = objeto.find('@') != std::string::npos
@@ -1836,6 +2175,53 @@ int main(int argc, char** argv) {
         // rancia si se edita por el intérprete mientras esto corre.
         const auto conns = zfsmgr::cli::cargarConexiones(op.dirConfig, maestra);
 
+        // La pestaña del registro viaja en la MISMA consulta que el resto, aparte de `sel`
+        // y `v`: son ejes independientes —uno puede tener abierto el daemon de «oldlau»
+        // mientras mira las propiedades de un dataset de «local»— y mezclarlos obligaría a
+        // cerrar uno para ver el otro.
+        const auto valorDeConsulta = [&p](const std::string& nombre) {
+            for (const std::string& par : B::split(p.consulta, "&", true)) {
+                const std::size_t i = par.find('=');
+                if (i == std::string::npos) {
+                    continue;
+                }
+                if (H::desdeUrl(par.substr(0, i)) == nombre) {
+                    return H::desdeUrl(par.substr(i + 1));
+                }
+            }
+            return std::string();
+        };
+        const PestanaLog pestana = pestanaDesde(valorDeConsulta("log"));
+
+        // Lo que la pestaña activa necesite de una máquina. «Combinado» y «Terminal» salen
+        // de memoria y no piden nada; el daemon y los trabajos sí, y por eso solo se piden
+        // cuando esa pestaña está abierta.
+        std::string logCargado;
+        if (!pestana.conexion.empty()
+            && (pestana.tipo == "daemon" || pestana.tipo == "trabajos")) {
+            const B::ConnectionProfile* perfilLog =
+                zfsmgr::cli::buscarConexion(conns, pestana.conexion);
+            if (perfilLog == nullptr) {
+                logCargado = "<p class=\"vacio\">no hay ninguna conexión «"
+                             + H::escapaHtml(pestana.conexion) + "»</p>";
+            } else {
+                std::string sal;
+                std::string er;
+                int rcL = -1;
+                const std::vector<std::string> verboL =
+                    pestana.tipo == "daemon" ? std::vector<std::string>{"--dump-daemon-log", "0"}
+                                             : std::vector<std::string>{"--job-list"};
+                if (llamaAgente(*sesionZfs, *perfilLog, verboL, sal, er, rcL, nullptr, 30000)
+                    && rcL == 0) {
+                    logCargado = pestana.tipo == "daemon" ? panelRegistroDaemon(sal, 300)
+                                                          : panelTrabajos(sal);
+                } else {
+                    logCargado = "<p class=\"vacio\">no se pudo leer: "
+                                 + H::escapaHtml(B::trim(er.empty() ? sal : er)) + "</p>";
+                }
+            }
+        }
+
         if (p.ruta == "/") {
             // La versión del agente de cada máquina. Se pregunta y se RECUERDA durante la
             // vida del proceso, incluido el fallo: sin eso, cada recarga de la portada
@@ -1859,7 +2245,7 @@ int main(int argc, char** argv) {
                 int rcH = -1;
                 std::string motivoH;
                 std::string version;
-                if (zfsmgr::cli::ejecutarAgente(*sesionZfs, perfilC, {"--health"}, salidaH, errH,
+                if (llamaAgente(*sesionZfs, perfilC, {"--health"}, salidaH, errH,
                                                 rcH, &motivoH, 8000)
                     && rcH == 0) {
                     for (const std::string& linea : B::split(salidaH, "\n", true)) {
@@ -1881,7 +2267,10 @@ int main(int argc, char** argv) {
                 panelArbol(conns.perfiles, std::string(), std::string(), {}, Arbol{},
                            std::string(), false);
             std::string derR = marco("Máquinas", panelConexiones(conns.perfiles, versiones), false);
-            r.cuerpo = envuelveDosPaneles("zfsm://", "ZFSMgr", izqR, derR, sesion.testigo());
+            r.cuerpo = envuelveDosPaneles(
+                "zfsm://", "ZFSMgr", izqR, derR,
+                ventanaDelLog(conns.perfiles, "/?", pestana, logCargado, sesion.testigo()),
+                sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -1942,7 +2331,7 @@ int main(int argc, char** argv) {
             err.clear();
             rc = -1;
             std::string motivo;
-            return zfsmgr::cli::ejecutarAgente(*sesionZfs, *perfil, args, salida, err, rc,
+            return llamaAgente(*sesionZfs, *perfil, args, salida, err, rc,
                                                &motivo, timeoutMs)
                    && rc == 0;
         };
@@ -2022,8 +2411,15 @@ int main(int argc, char** argv) {
             derC += marcoQueSeCarga("Instantáneas programadas", urlM(Vista::Programacion),
                                     vistaMaquina == Vista::Programacion, cargadoMaquina);
             derC += marco("Acciones", accionesDeMaquina(conn), false);
-            r.cuerpo = envuelveDosPaneles(conn, enlace("/", "ZFSMgr"), izqC, derC,
-                                          sesion.testigo());
+            // La base para los enlaces de las pestañas: la MISMA URL, conservando lo que
+            // ya hubiera abierto. Cambiar de pestaña del registro no debe cerrar el marco
+            // que uno estaba mirando.
+            const std::string baseLog =
+                "/c/" + H::haciaUrl(conn) + "?v=" + claveDeVista(vistaMaquina) + "&";
+            r.cuerpo = envuelveDosPaneles(
+                conn, enlace("/", "ZFSMgr"), izqC, derC,
+                ventanaDelLog(conns.perfiles, baseLog, pestana, logCargado, sesion.testigo()),
+                sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -2234,7 +2630,13 @@ int main(int argc, char** argv) {
 
         const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + H::haciaUrl(conn), conn)
                                   + " / " + enlace(urlDe(conn, objeto, objeto, Vista::Resumen), objeto);
-        r.cuerpo = envuelveDosPaneles(tituloDeVista(vista, sel), migas, izq, der, sesion.testigo());
+        const std::string baseLog = "/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(objeto)
+                                    + "?sel=" + H::haciaUrl(sel) + "&v=" + claveDeVista(vista)
+                                    + "&";
+        r.cuerpo = envuelveDosPaneles(
+            tituloDeVista(vista, sel), migas, izq, der,
+            ventanaDelLog(conns.perfiles, baseLog, pestana, logCargado, sesion.testigo()),
+            sesion.testigo());
         respuesta = H::componer(r);
         return true;
     };

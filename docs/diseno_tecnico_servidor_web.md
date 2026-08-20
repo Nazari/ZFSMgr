@@ -109,6 +109,25 @@ dentro de un campo —desplegable si la propiedad tiene lista cerrada— y su bo
 se puede cambiar lo decide `base/zfsprops`, que es la MISMA regla que usa la interfaz de Qt:
 estaba escrita tres veces dentro de la GUI y ahora está una sola vez, sin Qt.
 
+**El registro: HECHO, como tercera ventana.** Debajo de las dos columnas, plegable y
+plegada de fábrica, con las pestañas de Qt menos «Ajustes» y «Cambios pendientes» —que no
+son registros—. Sin JavaScript unas pestañas no son pestañas: cada una es un enlace que
+pone `?log=` en la URL. Efecto lateral bueno: la pestaña abierta es parte de la dirección y
+sobrevive a una recarga, cosa que en Qt no pasa.
+
+**No se refresca solo, y es una decisión.** Se podría con `<meta http-equiv="refresh">`,
+que es HTML puro y la política admite, pero recargaría la página entera cada pocos
+segundos: parpadeo, pérdida de lo que hubiera abierto, y una consulta por cada marco
+abierto en cada vuelta. Hay un botón de refrescar.
+
+**La CSP se queda en `default-src 'none'`.** Se estudió subir a `script-src 'self'` para
+tener pestañas y refresco de verdad, y se descartó: `'self'` no permite guiones en línea ni
+`eval`, así que para ejecutar código haría falta una URL de este origen que devuelva
+JavaScript —hoy no hay ninguna, porque WebDAV sirve todo como
+`application/octet-stream` con `nosniff`—, pero eso convierte dos detalles de higiene en
+condiciones críticas y cambia la garantía de estructural a «no se nos escapa ningún
+escape». Con el daemon corriendo como root en cuatro máquinas, no compensa por un log.
+
 **Hay que escribirlo:** la lista de pendientes como
 plan de trabajo, el diálogo de creación de pool con sus dispositivos, y las capturas de
 ayuda. Y las acciones de DOS extremos —copiar, mover, clonar entre máquinas, sincronizar,
