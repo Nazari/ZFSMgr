@@ -917,6 +917,36 @@ int main() {
                   "listados: pero la basura si lo es");
     }
 
+    // --- el destino de la programacion: guardado de una forma, ensenado de otra
+    //
+    // «Conexion::Pool/Dataset» es lo que hay ESCRITO en las propiedades de datasets que ya
+    // existen, y lo que el planificador del daemon parte por «::». No se puede cambiar. Pero
+    // esa nomenclatura es anterior a `zfsm://` y en pantalla convive mal con el resto, asi
+    // que se convierte en los dos sentidos.
+    {
+        namespace G = zfsmgr::base::gsa;
+        igual(G::destinoComoUrl("unibody::tank/copias"), "zfsm://unibody/tank/copias",
+              "gsa: el destino guardado se ensena como URL");
+        igual(G::destinoDesdeUrl("zfsm://unibody/tank/copias"), "unibody::tank/copias",
+              "gsa: y la URL se guarda como siempre");
+        // La vuelta y vuelta no pierde nada, que es lo unico que impide que las dos mitades
+        // se separen.
+        for (const char* d : {"unibody::tank/copias", "local::fc16", "oldlau::winpool/sb/x"}) {
+            igual(G::destinoDesdeUrl(G::destinoComoUrl(d)), d,
+                  std::string("gsa: ida y vuelta de «") + d + "»");
+        }
+        // Se admiten las DOS formas al teclear: quien escriba a mano puede poner cualquiera.
+        igual(G::destinoDesdeUrl("unibody::tank/copias"), "unibody::tank/copias",
+              "gsa: el formato de siempre se acepta tal cual");
+        // Y lo que no tiene forma de nada se deja pasar para que lo rechace la validacion
+        // CON SU MOTIVO, no aqui en silencio.
+        igual(G::destinoComoUrl("sinformato"), "sinformato",
+              "gsa: lo que no tiene la forma se deja como esta");
+        igual(G::destinoDesdeUrl("zfsm://solomaquina"), "zfsm://solomaquina",
+              "gsa: una URL sin dataset no se convierte a medias");
+        igual(G::destinoComoUrl(""), "", "gsa: el vacio sigue vacio");
+    }
+
     // --- qué se puede hacer con DOS extremos
     //
     // La regla estaba dentro del menú contextual de la interfaz. No es de interfaz: es qué

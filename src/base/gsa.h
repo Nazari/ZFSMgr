@@ -101,6 +101,26 @@ std::string etiquetaDe(Fallo f);
 // clase es lo que va entre el primer y el segundo guion.
 std::string claseDeInstantanea(const std::string& nombre);
 
+// ── El destino, en las dos formas que tiene ──────────────────────────────────
+//
+// **Guardado en ZFS va como «Conexión::Pool/Dataset»**, y eso no se puede cambiar: está
+// escrito en las propiedades de datasets que ya existen, y el planificador del daemon lo
+// parte por «::» (`daemon_main.cpp`). Cambiar el formato rompería las programaciones
+// puestas y la interfaz que las escribió.
+//
+// Pero esa nomenclatura es de antes de que existiera `zfsm://`, y en pantalla convive mal
+// con las direcciones que usa el resto del programa. Así que se GUARDA como siempre y se
+// ENSEÑA como URL. Estas dos funciones son la conversión, y viven aquí —junto a lo que lee
+// y valida el destino— para que no acabe habiendo una copia por cliente.
+
+// «Conexión::Pool/Dataset» → «zfsm://Conexión/Pool/Dataset». Devuelve el texto tal cual si
+// no tiene la forma esperada: enseñar algo raro es mejor que esconderlo.
+std::string destinoComoUrl(const std::string& destino);
+
+// La vuelta. Admite las DOS formas en la entrada —una URL o el formato de siempre— porque
+// quien teclea a mano puede escribir cualquiera de las dos y las dos se entienden.
+std::string destinoDesdeUrl(const std::string& texto);
+
 // Las instantáneas de un dataset, ORDENADAS para enseñarlas: primero las manuales, en el
 // orden en que llegaron, y después las programadas agrupadas por clase, con las clases
 // conocidas en orden de periodo —de la hora al año— y las desconocidas al final.

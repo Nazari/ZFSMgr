@@ -458,6 +458,10 @@ ExecResult getDatasetMountpointCapture(const std::string& dataset) {
 std::string agentCapabilityList() {
     std::vector<std::string> caps = {
         "--dump-zfs-allow",
+        // Los holds: leerlos y soltarlos. Se declaran para que un cliente nuevo hablando
+        // con un agente viejo NO ofrezca la función y falle al pulsarla; sabrá que no está.
+        "--dump-zfs-holds",
+        "--mutate-zfs-release",
     };
     caps.push_back("--dump-tool-availability");
     // Transferencias y trabajos en segundo plano, ya en las dos plataformas (fases 1 a 5).
@@ -5736,6 +5740,35 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow <dataset>\n"; return r; }
         return runExecCapture("zfs", {"allow", params[0]});
     }
+    // Los HOLDS de una instantánea: qué retenciones tiene puestas.
+    //
+    // La interfaz los lee mandando `zfs holds -H` por shell —de lo poco que quedaba— y por
+    // eso el servidor web no podía enseñarlos: no iba a abrir un camino de shell para esto.
+    // Aquí es un verbo tipado como los demás.
+    //
+    // Admite VARIAS instantáneas en una llamada, y no un dataset.
+    //
+    // `zfs holds` solo acepta instantáneas —comprobado: con un dataset contesta «is not a
+    // snapshot», y `-r` tampoco lo cambia— así que pedir «los holds de este dataset» no
+    // existe como orden. Pero sí acepta una lista, y el cliente ya tiene los nombres de las
+    // instantáneas del listado del árbol: una llamada por dataset en vez de una por
+    // instantánea.
+    if (cmd == "--dump-zfs-holds") {
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-holds <snapshot> [snapshot...]\n"; return r; }
+        std::vector<std::string> a = {"holds", "-H"};
+        for (const auto& sn : params) { a.push_back(sn); }
+        return runExecCapture("zfs", a);
+    }
+    // Y soltar uno. `zfs release <tag> <snapshot>`: la etiqueta primero.
+    //
+    // No pasa por `--mutate-zfs-generic` aunque «release» esté en su lista: así el daemon
+    // ve los DOS argumentos por separado y no una carga en base64 que hay que decodificar
+    // para saber sobre qué actúa. Un verbo propio se lee en el registro.
+    if (cmd == "--mutate-zfs-release") {
+        if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-release <tag> <snapshot>\n"; return r; }
+        return runExecCapture("zfs", {"release", params[0], params[1]});
+    }
+
     if (cmd == "--dump-zfs-allow-batch") {
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-allow-batch <ds1> [ds2...]\n"; return r; }
         r.rc = 0;
@@ -7470,6 +7503,26 @@ int main(int argc, char* argv[]) {
     }
     if (cmd == "--dump-zpool-guid-status-batch") {
         return runDumpZpoolGuidStatusBatch();
+    }
+    // Los holds, también por línea de órdenes: es como se llega al agente cuando todavía no
+    // hay daemon escuchando, y como se prueban a mano. Sin esta rama, el verbo existe por
+    // RPC y contesta «usage» por la otra puerta, que es la clase de asimetría que cuesta
+    // media tarde encontrar.
+    if (cmd == "--dump-zfs-holds") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        std::vector<std::string> a = {"holds", "-H"};
+        for (std::size_t i = 2; i < args.size(); ++i) { a.push_back(args[i]); }
+        return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-release") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"release", args[2], args[3]});
     }
     if (cmd == "--dump-zpool-guid") {
         if (args.size() < 3) {

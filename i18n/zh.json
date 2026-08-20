@@ -258,6 +258,8 @@
     "t_web_confirmar_81b4b6": "确认",
     "t_web_creacion_4e62d9": "创建时间",
     "t_web_dataset_105268": "数据集",
+    "t_web_dav_dir": "目录",
+    "t_web_dav_fich": "文件",
     "t_web_diarias_31be0d": "每日",
     "t_web_diff_borrado": "已删除",
     "t_web_diff_cambiado": "已更改",
@@ -274,6 +276,7 @@
     "t_web_manuales_f41c0e": "手动",
     "t_web_maquina_bf8c85": "主机",
     "t_web_marcar_origen": "标记为来源",
+    "t_web_nombre": "名称",
     "t_web_origen_marcado": "已标记来源",
     "t_web_pools_2fd96d": "存储池",
     "t_web_programacion_cca584": "计划",
@@ -284,6 +287,7 @@
     "t_web_salud_d302f9": "健康",
     "t_web_sistema_c00416": "系统",
     "t_web_terminal_a1f52c": "终端",
+    "t_web_tipo": "类型",
     "t_web_usado_7f0217": "已用",
     "t_web_uso_2483c7": "使用率"
   }

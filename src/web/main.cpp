@@ -204,7 +204,9 @@ div.pestanas { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
 div.pestanas.dentro { margin: .1rem 0 .35rem 1.2rem; }
 div.detalle { border: 1px solid var(--borde); border-radius: 6px; padding: .8rem 1rem .3rem;
               margin-top: .5rem; }
+h2.detalletit { margin: 0 0 .6rem; font-size: 1.05rem; color: var(--tinta); }
 div.detalle > h2:first-child { margin-top: 0; }
+body.ancho > div.dos { margin-top: .8rem; }
 span.pestgrupo { font-size: .86rem; color: var(--tenue); margin-right: .4rem;
                  min-width: 4.5rem; }
 div.pestanas.dentro a.pest { font-size: .82rem; padding: .15rem .6rem; }
@@ -250,8 +252,20 @@ std::string envuelve(const std::string& titulo, const std::string& migas,
     // columna del árbol se queda sin sitio en cuanto los nombres se anidan. Se suelta justo
     // en las páginas que lo necesitan, en vez de castigar a todas.
     h += ancho ? "<body class=\"ancho\">" : "<body>";
-    h += "<nav class=\"migas\">" + migas + "</nav>";
-    h += "<h1>" + H::escapaHtml(titulo) + "</h1>";
+    // Ni migas ni <h1> en las páginas de dos paneles.
+    //
+    // Había hasta TRES líneas antes de llegar al árbol: la ruta de migas, el título de la
+    // vista y el aviso del origen marcado. Las dos primeras decían lo mismo que ya dice el
+    // árbol —el nodo elegido va resaltado— y una la repetía la pestaña activa, así que
+    // ocupaban un tercio de la pantalla para no añadir nada. El título de la vista baja
+    // DENTRO de la pestaña, que es donde tiene contexto.
+    //
+    // Las páginas sueltas —confirmar, error, instalar el daemon— sí los conservan: ahí no
+    // hay árbol ni pestañas que digan dónde se está.
+    if (!ancho) {
+        h += "<nav class=\"migas\">" + migas + "</nav>";
+        h += "<h1>" + H::escapaHtml(titulo) + "</h1>";
+    }
     h += cuerpo;
     h += "<footer><form class=\"enlinea\" method=\"post\" action=\"/salir\">";
     h += "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
@@ -978,8 +992,12 @@ std::string avisoDeOrigen(const DX::Extremo& origen) {
     if (origen.vacio()) {
         return {};
     }
+    // Como URL y no como «conexión::objeto»: es la misma cosa que nombra el árbol y la
+    // barra de direcciones, y tener dos nomenclaturas para lo mismo obliga a traducir de
+    // cabeza cada vez.
     return "<div class=\"origen\">" + H::escapaHtml(T("t_web_origen_marcado", "Origen marcado"))
-           + ": <strong>" + H::escapaHtml(origen.conexion + "::" + origen.objeto) + "</strong> "
+           + ": <strong>zfsm://" + H::escapaHtml(origen.conexion + "/" + origen.objeto)
+           + "</strong> "
            + enlace("/origen?quitar=1", T("t_web_quitar_origen", "quitar")) + "</div>";
 }
 
@@ -1157,6 +1175,50 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
                          std::to_string(its == arbol.instantaneas.end() ? 0 : its->second.size())});
     }
     return fichaDeDatos(datos);
+}
+
+// Una colección de WebDAV, para el navegador.
+//
+// El mismo listado que los exploradores reciben en XML, pero en HTML y con enlaces. Se
+// ordena con los directorios primero y luego por nombre, que es como se lee un directorio.
+std::string paginaColeccionDav(const std::string& ruta, const std::vector<D::Recurso>& recursos,
+                               const std::string& testigo) {
+    std::vector<std::vector<std::string>> filas;
+    std::vector<const D::Recurso*> orden;
+    for (const D::Recurso& re : recursos) {
+        // El primero de la lista es el propio recurso pedido: enseñarlo dentro de sí mismo
+        // sería un enlace que no lleva a ninguna parte.
+        if (re.href == "/dav/" + ruta + "/" || re.href == "/dav/" + ruta) {
+            continue;
+        }
+        orden.push_back(&re);
+    }
+    std::sort(orden.begin(), orden.end(), [](const D::Recurso* a, const D::Recurso* b) {
+        if (a->coleccion != b->coleccion) {
+            return a->coleccion;
+        }
+        return a->nombre < b->nombre;
+    });
+    for (const D::Recurso* re : orden) {
+        filas.push_back({enlace(re->href, re->nombre + (re->coleccion ? "/" : "")),
+                         re->coleccion ? H::escapaHtml(T("t_web_dav_dir", "directorio"))
+                                         : H::escapaHtml(T("t_web_dav_fich", "fichero")),
+                         re->coleccion ? std::string()
+                                         : H::escapaHtml(bytesLegibles(std::to_string(re->tamano)))});
+    }
+    std::string cuerpo;
+    // Subir un nivel. Sin esto, entrar en un directorio es un viaje de ida.
+    if (!ruta.empty()) {
+        const std::size_t barra = ruta.find_last_of('/');
+        cuerpo += "<p>" + enlace("/dav/" + (barra == std::string::npos ? std::string()
+                                                                      : ruta.substr(0, barra) + "/"),
+                                 T("t_web_dav_arriba", "Subir un nivel"))
+                  + "</p>";
+    }
+    cuerpo += tabla({T("t_web_nombre", "Nombre"), T("t_web_tipo", "Tipo"),
+                     T("t_web_usado_7f0217", "Usado")},
+                    filas);
+    return envuelve("/" + ruta, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 // El resultado de `zfs diff`, que llega como líneas «<marca>\t<ruta>[\t<ruta nueva>]».
@@ -1689,9 +1751,9 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
     f += "<p class=\"tenue\">Cada número es cuántas se guardan de esa clase. Un cero es «no "
          "hagas ninguna», no «guárdalas todas».</p>";
     f += "<div class=\"fila\">" + casilla("nivelar", "Nivelar con el destino", mia.prog.nivelar)
-         + "<label class=\"campo\">Destino <input name=\"destino\" "
-           "placeholder=\"Conexión::pool/dataset\" value=\""
-         + H::escapaHtml(mia.prog.destino) + "\"></label></div>";
+         + "<label class=\"campo\">" + H::escapaHtml(T("t_web_destino_c1a0f9", "Destino"))
+         + " <input name=\"destino\" placeholder=\"zfsm://máquina/pool/dataset\" value=\""
+         + H::escapaHtml(B::gsa::destinoComoUrl(mia.prog.destino)) + "\"></label></div>";
     f += "<button type=\"submit\">Guardar</button></form>";
     if (mia.local) {
         f += boton(conn, sel, raiz, "desprogramar", T("t_web_quitarla_de_478a25", "Quitarla de aquí"), testigo, std::string(),
@@ -1713,7 +1775,8 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
                          std::to_string(p.horario), std::to_string(p.diario),
                          std::to_string(p.semanal), std::to_string(p.mensual),
                          std::to_string(p.anual),
-                         p.nivelar ? H::escapaHtml(p.destino) : std::string()});
+                         p.nivelar ? H::escapaHtml(B::gsa::destinoComoUrl(p.destino))
+                                   : std::string()});
     }
     h += "<div class=\"grupotit\">Programaciones puestas por debajo</div>";
     h += tabla({T("t_web_dataset_105268", "Dataset"), T("t_web_activada_ae4df8", "Activada"), T("t_web_recursiva_9c3c8d", "Recursiva"), "Hor.", "Dia.", "Sem.", "Men.", "Anu.",
@@ -2306,8 +2369,16 @@ int main(int argc, char** argv) {
                 respuesta = H::componer(r);
                 return true;
             }
-            r.tipo = "text/plain; charset=utf-8";
-            r.cuerpo = p.metodo == "HEAD" ? std::string() : "coleccion\n";
+            // Una colección pedida por GET se sirve NAVEGABLE, no con la palabra
+            // «coleccion».
+            //
+            // Los exploradores de archivos usan PROPFIND y por eso funcionaban; un
+            // navegador hace un GET normal, y lo que veía era literalmente «coleccion».
+            // Con el listado se puede recorrer todo el árbol de ficheros desde el
+            // navegador, que es lo que uno espera al pegar una de estas direcciones.
+            r.tipo = "text/html; charset=utf-8";
+            r.cuerpo = p.metodo == "HEAD" ? std::string()
+                                          : paginaColeccionDav(ruta, recursos, sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -2514,7 +2585,9 @@ int main(int argc, char** argv) {
                 prog.activado = (p.campo("activado") == "1");
                 prog.recursivo = (p.campo("recursivo") == "1");
                 prog.nivelar = (p.campo("nivelar") == "1");
-                prog.destino = B::trim(p.campo("destino"));
+                // Se teclea como URL y se GUARDA como siempre: el planificador del daemon
+                // parte el valor por «::» y está escrito así en datasets que ya existen.
+                prog.destino = B::gsa::destinoDesdeUrl(p.campo("destino"));
                 const std::pair<const char*, int*> ret[] = {
                     {"horario", &prog.horario}, {"diario", &prog.diario},
                     {"semanal", &prog.semanal}, {"mensual", &prog.mensual},
@@ -2779,7 +2852,7 @@ int main(int argc, char** argv) {
                            std::string(), false);
             // En la raíz solo hay una cosa que enseñar, así que no hay barra: una barra de
             // una pestaña es un adorno.
-            std::string derR = "<div class=\"detalle\">"
+            std::string derR = "<div class=\"detalle\"><h2 class=\"detalletit\">zfsm://</h2>"
                                + panelConexiones(conns.perfiles, versiones) + "</div>";
             r.cuerpo = envuelveDosPaneles(
                 "zfsm://", "ZFSMgr", izqR, derR,
@@ -2942,7 +3015,8 @@ int main(int argc, char** argv) {
                 }
                 derC += "</div>";
             }
-            derC += "<div class=\"detalle\">" + cuerpoC + "</div>";
+            derC += "<div class=\"detalle\"><h2 class=\"detalletit\">" + H::escapaHtml(conn)
+                    + "</h2>" + cuerpoC + "</div>";
             // La base para los enlaces de las pestañas: la MISMA URL, conservando lo que
             // ya hubiera abierto. Cambiar de pestaña del registro no debe cerrar el marco
             // que uno estaba mirando.
@@ -3215,7 +3289,8 @@ int main(int argc, char** argv) {
                 break;
         }
         der = barraDePestanas(grupos, conn, objeto, sel, vistaFinal)
-              + "<div class=\"detalle\">" + cuerpo + "</div>";
+              + "<div class=\"detalle\"><h2 class=\"detalletit\">"
+              + H::escapaHtml(tituloDeVista(vistaFinal, sel)) + "</h2>" + cuerpo + "</div>";
 
         const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + H::haciaUrl(conn), conn)
                                   + " / " + enlace(urlDe(conn, objeto, objeto, Vista::Resumen), objeto);

@@ -264,3 +264,30 @@ std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas
 }
 
 }  // namespace zfsmgr::base::gsa
+
+namespace zfsmgr::base::gsa {
+
+std::string destinoComoUrl(const std::string& destino) {
+    const std::string t = trim(destino);
+    const std::size_t sep = t.find("::");
+    if (sep == std::string::npos || sep == 0 || sep + 2 >= t.size()) {
+        return t;
+    }
+    return "zfsm://" + t.substr(0, sep) + "/" + t.substr(sep + 2);
+}
+
+std::string destinoDesdeUrl(const std::string& texto) {
+    std::string t = trim(texto);
+    if (!startsWith(toLowerAscii(t), "zfsm://")) {
+        return t;   // ya viene en el formato que se guarda, o es basura que validará otro
+    }
+    t = t.substr(7);
+    const std::size_t barra = t.find('/');
+    if (barra == std::string::npos || barra == 0 || barra + 1 >= t.size()) {
+        return trim(texto);   // «zfsm://maquina» no nombra ningún dataset: que falle la
+                              // validación con su motivo, no aquí en silencio
+    }
+    return t.substr(0, barra) + "::" + t.substr(barra + 1);
+}
+
+}  // namespace zfsmgr::base::gsa
