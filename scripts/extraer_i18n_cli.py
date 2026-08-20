@@ -59,7 +59,12 @@ def extrae(ruta):
 
 def main():
     encontrados = {}
-    for ruta in sorted((RAIZ / 'src' / 'cli').glob('*.cpp')):
+    # El servidor web usa el MISMO `T(clave, castellano)` y los mismos catálogos, así que
+    # sus textos se cosechan igual. Sin esta línea, marcarlos en el código no servía de
+    # nada: la clave no llegaba nunca a `es.json` y la traducción no tenía dónde colgarse.
+    fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp')) \
+            + sorted((RAIZ / 'src' / 'web').glob('*.cpp'))
+    for ruta in fuentes:
         encontrados.update(extrae(ruta))
     esRuta = RAIZ / 'i18n' / 'es.json'
     es = json.loads(esRuta.read_text(encoding='utf-8'))

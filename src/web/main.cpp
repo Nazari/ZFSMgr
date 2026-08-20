@@ -13,10 +13,14 @@
 #include "connectionjson.h"
 #include "daemoninstall.h"
 #include "gsa.h"
+#include "i18n.h"
 #include "listados.h"
 #include "session.h"
 #include "secretinput.h"
 #include "storefiles.h"
+// El `T(clave, castellano)` del intérprete: mismos catálogos, mismas claves, mismo
+// ayudante. Un tercer sistema de traducción en el mismo programa acabaría discrepando.
+#include "tr.h"
 #include "zfsprops.h"
 #include "storewarnings.h"
 #include "strutil.h"
@@ -41,6 +45,7 @@ namespace CJ = zfsmgr::base::connjson;
 namespace H = zfsmgr::web::http;
 namespace L = zfsmgr::base::listados;
 namespace ZP = zfsmgr::base::zfsprops;
+
 namespace D = zfsmgr::web::dav;
 
 namespace {
@@ -71,6 +76,7 @@ struct Opciones {
     int puerto{47654};
     int passwordFd{-1};
     bool verboso{false};
+    std::string idioma;   // vacío = el de la configuración, y si no, castellano
 };
 
 void uso() {
@@ -86,6 +92,9 @@ void uso() {
                  "                        cambiarlo expone tus máquinas: hazlo a sabiendas.\n"
                  "  --port <n>            Puerto. Por omisión 47654.\n"
                  "  --password-fd <n>     Lee la contraseña maestra de ese descriptor.\n"
+                 "  --lang es|en|zh       Idioma. Sin él, el de la interfaz gráfica\n"
+                 "                        (app.language de config.json). Cada navegador\n"
+                 "                        puede elegir el suyo desde el pie de la página.\n"
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
                  "                        transporte con cada máquina. Sin esto, un fallo\n"
                  "                        de transporte solo se ve como «no se pudo».\n"
@@ -202,6 +211,8 @@ a.pest { font-size: .86rem; padding: .2rem .7rem; border: 1px solid var(--borde)
 a.pest:hover { border-color: var(--acento); text-decoration: none; }
 a.pest.activa { background: var(--acento); border-color: var(--acento); color: #fff;
                 font-weight: 600; }
+a.idioma { color: var(--tenue); margin-right: .3rem; }
+a.idioma.activo { color: var(--tinta); font-weight: 600; text-decoration: underline; }
 div.logcuerpo { margin-top: .5rem; max-height: 26rem; overflow: auto;
                 border: 1px solid var(--borde); border-radius: 5px; padding: .4rem .6rem; }
 div.logcuerpo pre { margin: 0; background: transparent; padding: 0; }
@@ -239,7 +250,20 @@ std::string envuelve(const std::string& titulo, const std::string& migas,
     h += cuerpo;
     h += "<footer><form class=\"enlinea\" method=\"post\" action=\"/salir\">";
     h += "<input type=\"hidden\" name=\"testigo\" value=\"" + H::escapaHtml(testigo) + "\">";
-    h += "<button type=\"submit\">Cerrar el servidor</button></form>";
+    h += "<button type=\"submit\">" + H::escapaHtml(T("t_web_cerrar", "Cerrar el servidor"))
+         + "</button></form>";
+    // El idioma se elige por NAVEGADOR y no por proceso: dos personas mirando el mismo
+    // servidor pueden querer idiomas distintos, y un `--lang` que mandara sobre todos
+    // obligaría a reiniciarlo para cambiarlo. Va en su propia cookie, no en la de sesión:
+    // cambiar de idioma no debe tocar la autenticación.
+    h += " · ";
+    for (const auto& idi : {std::pair<const char*, const char*>{"es", "Español"},
+                            {"en", "English"},
+                            {"zh", "中文"}}) {
+        const bool esta = (zfsmgr::base::i18n::language() == idi.first);
+        h += "<a class=\"idioma" + std::string(esta ? " activo" : "") + "\" href=\"/idioma?a="
+             + idi.first + "\">" + idi.second + "</a> ";
+    }
     h += " zfsmgr-web " + H::escapaHtml(B::agentversion::laEsperada()) + "</footer>";
     h += "</body></html>";
     return h;
@@ -503,7 +527,7 @@ std::string panelConexiones(const std::vector<B::ConnectionProfile>& perfiles,
                               : H::escapaHtml(i < versiones.size() ? versiones[i]
                                                                   : std::string("-")))});
     }
-    return tabla({"ID", "Nombre", "Tipo", "Sistema", "Host", "Usuario", "Daemon"}, filas);
+    return tabla({"ID", T("t_poolcrt_auto004", "Nombre"), T("t_tipo_6cc619", "Tipo"), T("t_web_sistema_c00416", "Sistema"), T("t_host_3960ec", "Host"), T("t_usuario_3f2ecd", "Usuario"), T("t_conn_agent_001", "Daemon")}, filas);
 }
 
 std::string panelPools(const std::string& conn, const std::vector<L::Pool>& pools) {
@@ -515,7 +539,7 @@ std::string panelPools(const std::string& conn, const std::vector<L::Pool>& pool
                          H::escapaHtml(p.libre),
                          H::escapaHtml(p.uso)});
     }
-    return tabla({"Pool", "Salud", "Tamaño", "Libre", "Uso"}, filas);
+    return tabla({T("t_tree_pool_prefix_001", "Pool"), T("t_web_salud_d302f9", "Salud"), T("t_poolcrt_auto018", "Tamaño"), T("t_web_libre_a68851", "Libre"), T("t_web_uso_2483c7", "Uso")}, filas);
 }
 
 // Lo que se le puede hacer a una MÁQUINA, que no es lo mismo que a un dataset.
@@ -524,9 +548,9 @@ std::string panelPools(const std::string& conn, const std::vector<L::Pool>& pool
 // no son acciones sino cosas que se miran. Un enlace que solo enseña algo no pinta en el
 // mismo sitio que un botón que cambia la máquina.
 std::string accionesDeMaquina(const std::string& conn) {
-    return grupoDeAcciones("Daemon",
+    return grupoDeAcciones(T("t_conn_agent_001", "Daemon"),
                            enlace("/confirmar?c=" + H::haciaUrl(conn) + "&que=instalar-daemon",
-                                  "Instalar o actualizar el daemon…"));
+                                  T("t_web_instalar_o_a_81953d", "Instalar o actualizar el daemon…")));
 }
 
 // ── El árbol de la izquierda ─────────────────────────────────────────────────
@@ -681,12 +705,12 @@ bool llevaHasta(const std::string& posible, const std::string& sel) {
 // semanales…— y las de mano aparte. El reparto no se hace aquí: lo hace la capa base, que
 // es la misma que usa el planificador para decidir qué poda.
 std::string etiquetaDeClase(const std::string& clase) {
-    if (clase.empty())          { return "Manuales"; }
-    if (clase == "hourly")      { return "Horarias"; }
-    if (clase == "daily")       { return "Diarias"; }
-    if (clase == "weekly")      { return "Semanales"; }
-    if (clase == "monthly")     { return "Mensuales"; }
-    if (clase == "yearly")      { return "Anuales"; }
+    if (clase.empty())          { return T("t_web_manuales_f41c0e", "Manuales"); }
+    if (clase == "hourly")      { return T("t_web_horarias_5399f3", "Horarias"); }
+    if (clase == "daily")       { return T("t_web_diarias_31be0d", "Diarias"); }
+    if (clase == "weekly")      { return T("t_ctx_snap_group_weekly", "Semanales"); }
+    if (clase == "monthly")     { return T("t_ctx_snap_group_monthly", "Mensuales"); }
+    if (clase == "yearly")      { return T("t_ctx_snap_group_yearly", "Anuales"); }
     return clase;
 }
 
@@ -928,24 +952,24 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
     std::string h;
 
     std::string ds1;
-    ds1 += boton(conn, ds, raiz, "crear-dataset", "Crear", testigo,
+    ds1 += boton(conn, ds, raiz, "crear-dataset", T("t_ctx_ds_create001", "Crear"), testigo,
                  "<label>hijo <input name=\"nombre\" placeholder=\"nombre\" required></label> ");
-    ds1 += boton(conn, ds, raiz, "renombrar", "Renombrar", testigo,
+    ds1 += boton(conn, ds, raiz, "renombrar", T("t_rename_group_001", "Renombrar"), testigo,
                  "<label>a <input name=\"nombre\" placeholder=\"pool/otro\" required></label> ");
     // Montar solo si NO está montado y desmontar solo si lo está. Lo que no aplica no sale:
     // un botón que siempre falla enseña menos que su ausencia.
     if (!montado) {
-        ds1 += boton(conn, ds, raiz, "montar", "Montar", testigo);
+        ds1 += boton(conn, ds, raiz, "montar", T("t_ctx_ds_mount001", "Montar"), testigo);
     } else {
-        ds1 += boton(conn, ds, raiz, "desmontar", "Desmontar", testigo);
+        ds1 += boton(conn, ds, raiz, "desmontar", T("t_ctx_ds_unmount001", "Desmontar"), testigo);
     }
     ds1 += enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(ds)
                       + "&que=borrar-dataset&raiz=" + H::haciaUrl(raiz),
-                  "Borrar…");
-    h += grupoDeAcciones("Dataset", ds1);
+                  T("t_web_borrar_6b5f63", "Borrar…"));
+    h += grupoDeAcciones(T("t_web_dataset_105268", "Dataset"), ds1);
 
     std::string snap;
-    snap += boton(conn, ds, raiz, "crear-instantanea", "Crear instantánea", testigo,
+    snap += boton(conn, ds, raiz, "crear-instantanea", T("t_web_crear_instan_300c04", "Crear instantánea"), testigo,
                   campo("nombre", "nombre") + " <label><input type=\"checkbox\" name=\"rec\" "
                   "value=\"1\"> recursiva</label> ");
     h += grupoDeAcciones("Instantáneas", snap);
@@ -955,10 +979,10 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
         // una URL se queda en el historial del navegador y en el registro de cualquier
         // intermediario. Es la misma regla que impide pasarla por argumento al agente.
         std::string cif;
-        cif += boton(conn, ds, raiz, "cargar-clave", "Cargar clave", testigo,
+        cif += boton(conn, ds, raiz, "cargar-clave", T("t_ctx_load_key001", "Cargar clave"), testigo,
                      "<input type=\"password\" name=\"frase\" placeholder=\"frase\" required> ");
-        cif += boton(conn, ds, raiz, "descargar-clave", "Descargar clave", testigo);
-        h += grupoDeAcciones("Clave de cifrado", cif);
+        cif += boton(conn, ds, raiz, "descargar-clave", T("t_ctx_unload_key001", "Descargar clave"), testigo);
+        h += grupoDeAcciones(T("t_web_clave_de_cif_e5875e", "Clave de cifrado"), cif);
     }
 
     // Lo que TODAVÍA no está, dicho en su sitio. Un panel que enseña ocho acciones y calla
@@ -977,16 +1001,16 @@ std::string accionesDeInstantanea(const std::string& conn, const std::string& ra
                                   const std::string& snap, const std::string& testigo) {
     std::string h;
     std::string g;
-    g += boton(conn, snap, raiz, "clonar", "Clonar", testigo,
+    g += boton(conn, snap, raiz, "clonar", T("t_web_clonar_98a66b", "Clonar"), testigo,
                "<label>en <input name=\"nombre\" placeholder=\"pool/clon\" required></label> ");
     g += enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(snap)
                     + "&que=rollback&raiz=" + H::haciaUrl(raiz),
-                "Rollback…");
+                T("t_web_rollback_a61c5c", "Rollback…"));
     g += " · ";
     g += enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(snap)
                     + "&que=borrar-instantanea&raiz=" + H::haciaUrl(raiz),
-                "Borrar…");
-    h += grupoDeAcciones("Instantánea", g);
+                T("t_web_borrar_6b5f63", "Borrar…"));
+    h += grupoDeAcciones(T("t_web_instantanea_659df4", "Instantánea"), g);
     h += "<div class=\"pendiente\">«Nuevo Hold» y «Release» no están: el daemon no tiene "
          "todavía un verbo para leer los holds, y la interfaz los lee por shell — que es "
          "justo lo que este servidor no hace.</div>";
@@ -998,12 +1022,12 @@ std::string accionesDePool(const std::string& conn, const std::string& pool,
                            const std::string& testigo) {
     std::string h;
     std::string g;
-    g += boton(conn, pool, pool, "pool-scrub", "Scrub", testigo);
-    g += boton(conn, pool, pool, "pool-scrub-parar", "Parar scrub", testigo);
-    g += boton(conn, pool, pool, "pool-trim", "Trim", testigo);
-    g += boton(conn, pool, pool, "pool-sync", "Sync", testigo);
-    g += boton(conn, pool, pool, "pool-clear", "Clear", testigo);
-    h += grupoDeAcciones("Gestión", g);
+    g += boton(conn, pool, pool, "pool-scrub", T("t_web_scrub_d47fb4", "Scrub"), testigo);
+    g += boton(conn, pool, pool, "pool-scrub-parar", T("t_web_parar_scrub_ccc4f3", "Parar scrub"), testigo);
+    g += boton(conn, pool, pool, "pool-trim", T("t_web_trim_0266ab", "Trim"), testigo);
+    g += boton(conn, pool, pool, "pool-sync", T("t_web_sync_905f63", "Sync"), testigo);
+    g += boton(conn, pool, pool, "pool-clear", T("t_web_clear_719ea3", "Clear"), testigo);
+    h += grupoDeAcciones(T("t_ctx_management001", "Gestión"), g);
     h += "<div class=\"pendiente\">Importar, Exportar, Upgrade, Reguid, Initialize y Destroy "
          "no están todavía en la web.</div>";
     return h;
@@ -1030,13 +1054,13 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
         return "<p class=\"vacio\">(ese nodo no está en el listado)</p>";
     }
     std::vector<std::pair<std::string, std::string>> datos = {
-        {"Nombre", e->nombre},
+        {T("t_poolcrt_auto004", "Nombre"), e->nombre},
         {"GUID", e->guid},
-        {"Usado", bytesLegibles(e->usado)},
+        {T("t_web_usado_7f0217", "Usado"), bytesLegibles(e->usado)},
         {"Referenciado", bytesLegibles(e->referenciado)},
         {"Compresión", e->compresion},
         {"Cifrado", e->cifrado},
-        {"Creación", fechaLegible(e->creacion)},
+        {T("t_web_creacion_4e62d9", "Creación"), fechaLegible(e->creacion)},
     };
     if (!e->esInstantanea()) {
         datos.push_back({"Montado", e->montado});
@@ -1088,12 +1112,12 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
                  it == porCorto.end() ? std::string() : H::escapaHtml(bytesLegibles(it->second->usado)),
                  it == porCorto.end() ? std::string() : H::escapaHtml(fechaLegible(it->second->creacion)),
                  enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
-                            + "&que=rollback&raiz=" + H::haciaUrl(raiz), "Rollback…")
+                            + "&que=rollback&raiz=" + H::haciaUrl(raiz), T("t_web_rollback_a61c5c", "Rollback…"))
                      + " · "
                      + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
-                                  + "&que=borrar-instantanea&raiz=" + H::haciaUrl(raiz), "Borrar…")});
+                                  + "&que=borrar-instantanea&raiz=" + H::haciaUrl(raiz), T("t_web_borrar_6b5f63", "Borrar…"))});
         }
-        h += tabla({"Nombre", "Usado", "Creación", ""}, filas);
+        h += tabla({T("t_poolcrt_auto004", "Nombre"), T("t_web_usado_7f0217", "Usado"), T("t_web_creacion_4e62d9", "Creación"), ""}, filas);
     }
     (void)testigo;
     return h;
@@ -1162,7 +1186,7 @@ std::string panelTrabajos(const std::string& crudo) {
     if (filas.empty()) {
         return "<p class=\"vacio\">(no hay trabajos en esta máquina)</p>";
     }
-    return tabla({"Id", "Tipo", "Instantánea", "Estado", "Bytes", "Empezó", "Error"}, filas);
+    return tabla({T("t_web_id_474ae5", "Id"), T("t_tipo_6cc619", "Tipo"), T("t_web_instantanea_659df4", "Instantánea"), T("t_status_001", "Estado"), T("t_web_bytes_8e5fda", "Bytes"), "Empezó", T("t_web_error_7f2f6a", "Error")}, filas);
 }
 
 // ── La tercera ventana: el REGISTRO ──────────────────────────────────────────
@@ -1231,7 +1255,7 @@ std::string panelApuntes(const std::string& soloDe) {
         return "<p class=\"vacio\">(este servidor no ha hablado todavía con ninguna máquina"
                + std::string(soloDe.empty() ? "" : " «" + H::escapaHtml(soloDe) + "»") + ")</p>";
     }
-    return tabla({"Hora", "Máquina", "Qué se pidió", "Resultado", "Tardó", "Detalle"}, filas);
+    return tabla({T("t_web_hora_f07dc2", "Hora"), T("t_web_maquina_bf8c85", "Máquina"), "Qué se pidió", T("t_web_resultado_c7589d", "Resultado"), T("t_web_tardo_f56f03", "Tardó"), T("t_conn_agent_detail_001", "Detalle")}, filas);
 }
 
 // Las pestañas, en DOS filas, que es la forma que tiene la interfaz de Qt: una por
@@ -1253,7 +1277,7 @@ std::string pestanasDelLog(const std::vector<B::ConnectionProfile>& perfiles,
                + "</a>";
     };
     std::string h = "<div class=\"pestanas\">";
-    h += una("combinado", "Log combinado", activa.tipo == "combinado");
+    h += una("combinado", T("t_combined_log001", "Log combinado"), activa.tipo == "combinado");
     for (const B::ConnectionProfile& p : perfiles) {
         const std::string id = p.id.empty() ? p.name : p.id;
         h += una("term:" + id, id, activa.conexion == id);
@@ -1263,9 +1287,9 @@ std::string pestanasDelLog(const std::vector<B::ConnectionProfile>& perfiles,
     // dividir, y una fila de pestañas que no se puede pulsar es un adorno.
     if (!activa.conexion.empty()) {
         h += "<div class=\"pestanas dentro\">";
-        h += una("term:" + activa.conexion, "Terminal", activa.tipo == "term");
-        h += una("daemon:" + activa.conexion, "Daemon", activa.tipo == "daemon");
-        h += una("trabajos:" + activa.conexion, "Transferencias", activa.tipo == "trabajos");
+        h += una("term:" + activa.conexion, T("t_web_terminal_a1f52c", "Terminal"), activa.tipo == "term");
+        h += una("daemon:" + activa.conexion, T("t_conn_agent_001", "Daemon"), activa.tipo == "daemon");
+        h += una("trabajos:" + activa.conexion, T("t_jobs_tab_001", "Transferencias"), activa.tipo == "trabajos");
         h += "</div>";
     }
     return h;
@@ -1291,7 +1315,7 @@ std::string ventanaDelLog(const std::vector<B::ConnectionProfile>& perfiles,
     // Refrescar es explícito: un enlace a esta misma URL. Y para el daemon, el latido, que
     // es el botón que la interfaz de Qt tiene en esa misma pestaña.
     if (!activa.clave.empty()) {
-        cuerpo += "<p>" + enlace(base + "log=" + H::haciaUrl(activa.clave), "Refrescar");
+        cuerpo += "<p>" + enlace(base + "log=" + H::haciaUrl(activa.clave), T("t_refresh_conn_ctx001", "Refrescar"));
         if (activa.tipo == "daemon" && !activa.conexion.empty()) {
             cuerpo += " · ";
             cuerpo += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">"
@@ -1304,7 +1328,7 @@ std::string ventanaDelLog(const std::vector<B::ConnectionProfile>& perfiles,
         }
         cuerpo += "</p>";
     }
-    return marco("Registro", cuerpo, !activa.clave.empty());
+    return marco(T("t_web_registro_b6965e", "Registro"), cuerpo, !activa.clave.empty());
 }
 
 // Las dos columnas. El árbol va en un panel que se queda quieto al desplazar la derecha:
@@ -1442,9 +1466,9 @@ std::string panelContenido(const std::string& conn, const std::string& objeto,
                          dir ? std::string() : bytesLegibles(std::to_string(e["size"].toInt()))});
     }
     std::sort(filas.begin(), filas.end());
-    std::string h = tabla({"Nombre", "Tipo", "Tamaño"}, filas);
+    std::string h = tabla({T("t_poolcrt_auto004", "Nombre"), T("t_tipo_6cc619", "Tipo"), T("t_poolcrt_auto018", "Tamaño")}, filas);
     h += "<p>" + enlace("/dav/" + H::haciaUrl(conn) + "/" + H::haciaUrl(objeto) + "/",
-                        "Abrir por WebDAV")
+                        T("t_web_abrir_por_we_49f221", "Abrir por WebDAV"))
          + " <span class=\"tenue\">— para montarlo en el explorador de archivos</span></p>";
     return h;
 }
@@ -1535,14 +1559,14 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
                     + "<input type=\"hidden\" name=\"raiz\" value=\"" + H::escapaHtml(raiz) + "\">"
                     + "<input type=\"hidden\" name=\"volver\" value=\"gsa\">"
                     + "<input type=\"hidden\" name=\"que\" value=\"programar\">";
-    f += "<div class=\"fila\">" + casilla("activado", "Activada", mia.prog.activado)
+    f += "<div class=\"fila\">" + casilla("activado", T("t_web_activada_ae4df8", "Activada"), mia.prog.activado)
          + casilla("recursivo", "Recursiva (cubre los descendientes)", mia.prog.recursivo)
          + "</div>";
-    f += "<div class=\"fila\">" + numero("horario", "Horarias", mia.prog.horario)
-         + numero("diario", "Diarias", mia.prog.diario)
-         + numero("semanal", "Semanales", mia.prog.semanal)
-         + numero("mensual", "Mensuales", mia.prog.mensual)
-         + numero("anual", "Anuales", mia.prog.anual) + "</div>";
+    f += "<div class=\"fila\">" + numero("horario", T("t_web_horarias_5399f3", "Horarias"), mia.prog.horario)
+         + numero("diario", T("t_web_diarias_31be0d", "Diarias"), mia.prog.diario)
+         + numero("semanal", T("t_ctx_snap_group_weekly", "Semanales"), mia.prog.semanal)
+         + numero("mensual", T("t_ctx_snap_group_monthly", "Mensuales"), mia.prog.mensual)
+         + numero("anual", T("t_ctx_snap_group_yearly", "Anuales"), mia.prog.anual) + "</div>";
     f += "<p class=\"tenue\">Cada número es cuántas se guardan de esa clase. Un cero es «no "
          "hagas ninguna», no «guárdalas todas».</p>";
     f += "<div class=\"fila\">" + casilla("nivelar", "Nivelar con el destino", mia.prog.nivelar)
@@ -1551,7 +1575,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
          + H::escapaHtml(mia.prog.destino) + "\"></label></div>";
     f += "<button type=\"submit\">Guardar</button></form>";
     if (mia.local) {
-        f += boton(conn, sel, raiz, "desprogramar", "Quitarla de aquí", testigo, std::string(),
+        f += boton(conn, sel, raiz, "desprogramar", T("t_web_quitarla_de_478a25", "Quitarla de aquí"), testigo, std::string(),
                    true);
     }
     h += grupoDeAcciones(mia.local ? "Programación de " + sel + " (puesta aquí)"
@@ -1573,7 +1597,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
                          p.nivelar ? H::escapaHtml(p.destino) : std::string()});
     }
     h += "<div class=\"grupotit\">Programaciones puestas por debajo</div>";
-    h += tabla({"Dataset", "Activada", "Recursiva", "Hor.", "Dia.", "Sem.", "Men.", "Anu.",
+    h += tabla({T("t_web_dataset_105268", "Dataset"), T("t_web_activada_ae4df8", "Activada"), T("t_web_recursiva_9c3c8d", "Recursiva"), "Hor.", "Dia.", "Sem.", "Men.", "Anu.",
                 "Nivela con"},
                filas);
     return h;
@@ -1612,12 +1636,12 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
         // impide pasarla por argumento al agente, donde la vería cualquier «ps».
         cuerpo += "<p class=\"tenue\">Si la conexión necesita sudo y no tiene la contraseña "
                   "guardada, póngala aquí. Si la tiene guardada, deje el campo vacío.</p>";
-        cuerpo += boton(conn, conn, raiz, que, "Sí, instalar", testigo,
+        cuerpo += boton(conn, conn, raiz, que, T("t_web_si_instalar_ac8069", "Sí, instalar"), testigo,
                         "<label>Contraseña de sudo "
                         "<input type=\"password\" name=\"sudo\" autocomplete=\"off\"></label> ",
                         true);
         cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), "No, volver") + "</p>";
-        return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
+        return envuelve(T("t_web_confirmar_81b4b6", "Confirmar"), enlace("/", "ZFSMgr"), cuerpo, testigo);
     }
     if (que == "borrar-instantanea" || que == "borrar-dataset" || que == "rollback") {
         // El alcance se elige AQUÍ y no en el botón del panel, porque es parte de lo que
@@ -1642,7 +1666,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
     cuerpo += "<p>" + enlace(urlDe(conn, raiz.empty() ? padre : raiz, padre, Vista::Resumen),
                              "No, volver")
               + "</p>";
-    return envuelve("Confirmar", enlace("/", "ZFSMgr"), cuerpo, testigo);
+    return envuelve(T("t_web_confirmar_81b4b6", "Confirmar"), enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
 // El resultado de instalar el daemon, con la traza de lo que dijo la otra máquina.
@@ -1688,8 +1712,8 @@ std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::R
     if (!B::trim(traza).empty()) {
         cuerpo += "<h2>Lo que dijo la máquina</h2><pre>" + H::escapaHtml(B::trim(traza)) + "</pre>";
     }
-    cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), "Volver a " + conn) + " · "
-              + enlace("/", "Conexiones") + "</p>";
+    cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), T("t_web_volver_a_e70d48", "Volver a ") + conn) + " · "
+              + enlace("/", T("t_web_conexiones_bf843e", "Conexiones")) + "</p>";
     return envuelve("Instalar el daemon en " + conn, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
@@ -1724,6 +1748,7 @@ int main(int argc, char** argv) {
         if (a == "--port" && i + 1 < argc) { op.puerto = std::atoi(argv[++i]); continue; }
         if (a == "--password-fd" && i + 1 < argc) { op.passwordFd = std::atoi(argv[++i]); continue; }
         if (a == "-v" || a == "--verbose") { op.verboso = true; continue; }
+        if (a == "--lang" && i + 1 < argc) { op.idioma = argv[++i]; continue; }
         std::fprintf(stderr, "zfsmgr-web: opción desconocida: %s\n", a.c_str());
         uso();
         return 2;
@@ -1781,6 +1806,29 @@ int main(int argc, char** argv) {
 
     // La sesión de transporte: la misma que monta el intérprete, con su proveedor de
     // credenciales y su persistencia de TLS. No se duplica el cableado.
+    // El idioma de partida: lo que diga `--lang` y, si no, el que tenga puesto la interfaz
+    // gráfica. Va DESPUÉS de leer los argumentos porque `--config-dir` puede cambiar dónde
+    // está esa preferencia. Es el mismo reparto que hace el intérprete.
+    //
+    // Los catálogos se buscan al lado del ejecutable y en los sitios donde los deja la
+    // instalación: el servidor no enlaza Qt, así que los lee del disco como el intérprete.
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../share/zfsmgr/i18n");
+    zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../Resources/i18n");
+    std::string idiomaBase = op.idioma;
+    if (idiomaBase.empty()) {
+        ST::Aviso avisoIdioma;
+        const auto raizCfg = ST::leerConfig(op.dirConfig, avisoIdioma);
+        idiomaBase = raizCfg["app"]["language"].toString();
+        if (idiomaBase.empty()) {
+            idiomaBase = raizCfg["ui"]["language"].toString();
+        }
+    }
+    if (!idiomaBase.empty()) {
+        zfsmgr::base::i18n::setLanguage(idiomaBase);
+    }
+
     auto sesionZfs = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso);
     if (!sesionZfs) {
         std::fprintf(stderr, "no se pudo montar la sesión de transporte\n");
@@ -1808,6 +1856,14 @@ int main(int argc, char** argv) {
 
     const auto atiende = [&](const std::string& crudo, std::string& respuesta) {
         const H::Peticion p = H::analiza(crudo);
+        // El idioma de ESTA petición. Se pone en cada una porque el catálogo es global al
+        // proceso y el servidor atiende de una en una: dejarlo puesto de la anterior
+        // serviría la página en el idioma de otro navegador.
+        {
+            const std::string suyo = p.cookie("zfsmgr_idioma");
+            zfsmgr::base::i18n::setLanguage(
+                (suyo == "es" || suyo == "en" || suyo == "zh") ? suyo : idiomaBase);
+        }
         H::Respuesta r;
         if (!p.valida) {
             r.codigo = 400;
@@ -1819,6 +1875,32 @@ int main(int argc, char** argv) {
 
         // La hoja de estilo. Va antes de exigir sesión: es lo único público, y sin ella la
         // página de «sin sesión» se vería igual de cruda que lo demás.
+        // Elegir idioma. Es un GET y no un POST a propósito: no cambia nada de ninguna
+        // máquina —solo cómo se lee esta página— así que no necesita testigo, y así el
+        // enlace del pie funciona sin formulario.
+        if (p.ruta == "/idioma") {
+            std::string quiere;
+            for (const std::string& par : B::split(p.consulta, "&", true)) {
+                const std::size_t i = par.find('=');
+                if (i != std::string::npos && H::desdeUrl(par.substr(0, i)) == "a") {
+                    quiere = H::desdeUrl(par.substr(i + 1));
+                }
+            }
+            // Solo los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
+            // guardarse: una cookie con basura dentro dejaría la página en castellano sin
+            // que se entienda por qué.
+            if (quiere != "es" && quiere != "en" && quiere != "zh") {
+                quiere = "es";
+            }
+            r.codigo = 302;
+            r.cabecerasExtra.push_back("Set-Cookie: zfsmgr_idioma=" + quiere
+                                       + "; Path=/; Secure; SameSite=Strict; Max-Age=31536000");
+            r.cabecerasExtra.push_back("Location: /");
+            r.cuerpo = "";
+            respuesta = H::componer(r);
+            return true;
+        }
+
         if (p.ruta == "/estilo.css") {
             r.tipo = "text/css; charset=utf-8";
             r.cuerpo = kEstiloCss;
@@ -2646,9 +2728,9 @@ int main(int argc, char** argv) {
             // La programación sí, porque no está abajo y es de la máquina entera.
             const std::vector<std::pair<std::string, std::vector<Pestana>>> gruposC = {
                 {std::string(),
-                 {{Vista::Resumen, "Pools"},
-                  {Vista::Programacion, "Programación"},
-                  {Vista::Acciones, "Acciones"}}}};
+                 {{Vista::Resumen, T("t_web_pools_2fd96d", "Pools")},
+                  {Vista::Programacion, T("t_web_programacion_cca584", "Programación")},
+                  {Vista::Acciones, T("t_help_actions_001", "Acciones")}}}};
             std::string cuerpoC;
             switch (vistaMaquina) {
                 case Vista::Programacion:
@@ -2767,27 +2849,33 @@ int main(int argc, char** argv) {
         // nombra porque el nodo del pool va FUNDIDO con su dataset raíz, y sin decirlo no
         // se sabe cuál de los dos objetos toca cada pestaña.
         if (esNodoDePool) {
-            grupos.push_back({"Pool",
-                              {{Vista::Estado, "Estado y dispositivos"},
-                               {Vista::PropsPool, "Propiedades"},
-                               {Vista::Capacidades, "Capacidades"},
-                               {Vista::Historial, "Historial"},
-                               {Vista::AccionesPool, "Acciones"}}});
+            grupos.push_back({T("t_tree_pool_prefix_001", "Pool"),
+                              {{Vista::Estado, T("t_web_estado_y_dis_70618f", "Estado y dispositivos")},
+                               {Vista::PropsPool, T("t_props_tab_001", "Propiedades")},
+                               {Vista::Capacidades, T("t_pool_caps_merged_001", "Capacidades")},
+                               {Vista::Historial, T("t_pool_history_t1", "Historial")},
+                               {Vista::AccionesPool, T("t_help_actions_001", "Acciones")}}});
         }
 
-        std::vector<Pestana> delObjeto = {{Vista::Resumen, "Ficha"},
-                                          {Vista::Props, "Propiedades"}};
+        std::vector<Pestana> delObjeto = {{Vista::Resumen, T("t_web_ficha_58dc18", "Ficha")},
+                                          {Vista::Props, T("t_props_tab_001", "Propiedades")}};
         if (!selEsInstantanea) {
             const auto itS = arbol.instantaneas.find(sel);
             const std::size_t cuantas = itS == arbol.instantaneas.end() ? 0 : itS->second.size();
-            delObjeto.push_back({Vista::Permisos, "Permisos"});
-            delObjeto.push_back({Vista::Contenido, "Contenido"});
-            delObjeto.push_back({Vista::Programacion, "Programación"});
-            delObjeto.push_back({Vista::Instantaneas,
-                                 "Instantáneas (" + std::to_string(cuantas) + ")"});
+            delObjeto.push_back({Vista::Permisos, T("t_permissions_node_001", "Permisos")});
+            delObjeto.push_back({Vista::Contenido, T("t_content_node_001", "Contenido")});
+            delObjeto.push_back({Vista::Programacion, T("t_web_programacion_cca584", "Programación")});
+            // Compuesta y no literal: se usa `format` con un hueco, que es como lo hace el
+            // intérprete. Concatenar el número al texto deja la etiqueta a medio traducir,
+            // y además obliga a que el número vaya siempre al final, cosa que no se puede
+            // prometer de todos los idiomas.
+            delObjeto.push_back(
+                {Vista::Instantaneas,
+                 B::format(T("t_web_instantaneas_n", "Instantáneas (%1)"),
+                           {std::to_string(cuantas)})});
         }
-        delObjeto.push_back({Vista::Acciones, "Acciones"});
-        grupos.push_back({esNodoDePool ? "Dataset" : std::string(),
+        delObjeto.push_back({Vista::Acciones, T("t_help_actions_001", "Acciones")});
+        grupos.push_back({esNodoDePool ? T("t_web_dataset_105268", "Dataset") : std::string(),
                           delObjeto});
 
         // Una vista que no le corresponde a este objeto —«Capacidades» sobre un dataset,
