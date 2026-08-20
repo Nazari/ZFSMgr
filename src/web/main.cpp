@@ -191,6 +191,11 @@ div.abajo { margin-top: 1.2rem; }
 div.pestanas { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
                margin-bottom: .35rem; }
 div.pestanas.dentro { margin: .1rem 0 .35rem 1.2rem; }
+div.detalle { border: 1px solid var(--borde); border-radius: 6px; padding: .8rem 1rem .3rem;
+              margin-top: .5rem; }
+div.detalle > h2:first-child { margin-top: 0; }
+span.pestgrupo { font-size: .86rem; color: var(--tenue); margin-right: .4rem;
+                 min-width: 4.5rem; }
 div.pestanas.dentro a.pest { font-size: .82rem; padding: .15rem .6rem; }
 a.pest { font-size: .86rem; padding: .2rem .7rem; border: 1px solid var(--borde);
          border-radius: 4px; color: var(--tenue); background: var(--fondo); }
@@ -546,7 +551,6 @@ std::string accionesDeMaquina(const std::string& conn) {
 // obliga a contestar en los dos sitios que reparten por vista —el título y el contenido—
 // cuando se añada una, que es como se evita la vista que existe en el menú y no se pinta.
 enum class Vista {
-    Ninguna,
     Resumen,
     Props,
     Permisos,
@@ -556,11 +560,16 @@ enum class Vista {
     Capacidades,
     Historial,
     Programacion,
+    // Las tres siguientes no consultan nada —salen del listado del árbol o son
+    // formularios— pero necesitan una vista propia para poder ser pestañas: una pestaña es
+    // un enlace, y un enlace necesita una URL.
+    Instantaneas,
+    Acciones,
+    AccionesPool,
 };
 
 const char* claveDeVista(Vista v) {
     switch (v) {
-        case Vista::Ninguna:      return "";
         case Vista::Resumen:      return "resumen";
         case Vista::Props:        return "props";
         case Vista::Permisos:     return "permisos";
@@ -570,13 +579,15 @@ const char* claveDeVista(Vista v) {
         case Vista::Capacidades:  return "caps";
         case Vista::Historial:    return "historial";
         case Vista::Programacion: return "gsa";
+        case Vista::Instantaneas: return "instantaneas";
+        case Vista::Acciones:     return "acciones";
+        case Vista::AccionesPool: return "acciones-pool";
     }
     return "";
 }
 
 std::string tituloDeVista(Vista v, const std::string& objeto) {
     switch (v) {
-        case Vista::Ninguna:      return objeto;
         case Vista::Resumen:      return objeto;
         case Vista::Props:        return "Propiedades de " + objeto;
         case Vista::Permisos:     return "Permisos de " + objeto;
@@ -586,6 +597,9 @@ std::string tituloDeVista(Vista v, const std::string& objeto) {
         case Vista::Capacidades:  return "Capacidades de " + objeto;
         case Vista::Historial:    return "Historial de " + objeto;
         case Vista::Programacion: return "Instantáneas programadas de " + objeto;
+        case Vista::Instantaneas: return "Instantáneas de " + objeto;
+        case Vista::Acciones:     return "Acciones sobre " + objeto;
+        case Vista::AccionesPool: return "Acciones sobre el pool " + objeto;
     }
     return objeto;
 }
@@ -594,16 +608,16 @@ Vista vistaDesde(const std::string& s) {
     static const Vista todas[] = {
         Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
         Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
-        Vista::Programacion,
+        Vista::Programacion, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
     };
     for (const Vista v : todas) {
         if (s == claveDeVista(v)) {
             return v;
         }
     }
-    // Lo que no se reconoce —y la ausencia— es «nada abierto». Es lo que se ve al llegar
-    // a un nodo: los marcos de la derecha plegados, y ninguna consulta hecha todavía.
-    return Vista::Ninguna;
+    // Lo que no se reconoce —y la ausencia— es la FICHA. Es lo que se ve al llegar a un
+    // nodo, y no cuesta ninguna consulta: sus datos ya vinieron con el listado del árbol.
+    return Vista::Resumen;
 }
 
 // El listado, ordenado por parentesco. Se construye una vez por petición y lo consultan
@@ -641,8 +655,11 @@ std::string urlDe(const std::string& conn, const std::string& raiz, const std::s
     if (raiz.empty()) {
         return "/c/" + H::haciaUrl(conn);
     }
-    return "/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(raiz) + "?sel=" + H::haciaUrl(sel)
-           + "&v=" + claveDeVista(v);
+    const std::string base = "/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(raiz)
+                             + "?sel=" + H::haciaUrl(sel);
+    // La vista de fábrica no se escribe: un enlace del árbol no tiene por qué llevar
+    // «&v=resumen» colgando, y sin él la URL dice lo mismo.
+    return v == Vista::Resumen ? base : base + "&v=" + claveDeVista(v);
 }
 
 std::string enlaceDeNodo(const std::string& destino, const std::string& texto, bool elegido) {
@@ -702,7 +719,7 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
         // pinta como hoja, con la misma sangría que si lo tuviera.
         h += "<div class=\"hoja hojads\">";
     }
-    h += enlaceDeNodo(urlDe(conn, raiz, nodo, Vista::Ninguna), corto, sel == nodo);
+    h += enlaceDeNodo(urlDe(conn, raiz, nodo, Vista::Resumen), corto, sel == nodo);
     if (itE != arbol.porNombre.end()) {
         h += " <span class=\"tenue\">" + H::escapaHtml(bytesLegibles(itE->second.usado));
         if (itE->second.montado != "yes") {
@@ -842,40 +859,57 @@ std::string campo(const std::string& nombre, const std::string& hueco, bool obli
            + "\"" + (obligatorio ? " required" : "") + ">";
 }
 
-// Un MARCO: un bloque del panel derecho que se pliega. La ficha, las propiedades y las
-// acciones son cosas distintas y ocupan mucho; con todo desplegado a la vez hay que
-// desplazarse para llegar a lo de abajo y se pierde de vista lo de arriba.
+// Un MARCO plegable. Del panel derecho se fue —allí son pestañas— y le queda un solo
+// usuario: la ventana del registro, que se pliega entera porque es la tercera y no
+// siempre se mira.
 //
-// `<details>` otra vez, que es HTML y no JavaScript. Lo que sale abierto de fábrica es lo
-// que uno ha ido a mirar —la vista que eligió en el árbol— y las acciones; lo demás va
-// plegado y basta un clic.
+// `<details>`, que es HTML y no JavaScript: el navegador sabe plegar solo.
 std::string marco(const std::string& titulo, const std::string& cuerpo, bool abierto) {
     return std::string("<details class=\"marco\"") + (abierto ? " open" : "") + ">"
            + "<summary><span class=\"marcotit\">" + H::escapaHtml(titulo) + "</span></summary>"
            + "<div class=\"marcocuerpo\">" + cuerpo + "</div></details>";
 }
 
-// Un marco cuyo contenido HAY QUE IR A BUSCAR a la máquina.
+// ── Las pestañas del panel derecho ───────────────────────────────────────────
 //
-// Todos los marcos salen plegados al llegar a un nodo, y eso obliga a distinguir dos
-// clases. Los que salen gratis —la ficha, las instantáneas, las acciones— ya traen su
-// contenido dentro: el triángulo los abre y ya está, sin pedir nada.
+// El detalle era una pila de marcos plegables, todos plegados de fábrica. Funcionaba, pero
+// con doce sobre un pool la pila era una lista de títulos entre los que buscar, y abrir dos
+// dejaba el segundo fuera de la pantalla. Con pestañas hay una barra que se lee de un
+// vistazo y un solo contenido debajo, que es la forma que ya tiene la ventana de abajo.
 //
-// Estos otros no: sus datos cuestan una consulta a la máquina, y un `<details>` cerrado no
-// puede ir a buscarlos solo, porque para eso haría falta un guion y este servidor no sirve
-// guiones. Así que su título es un ENLACE: al pulsarlo se recarga la página con ese marco
-// —y solo ese— cargado y abierto. Lo que se gana es que llegar a un dataset no dispare
-// cinco consultas de las que se van a mirar cero o una.
-std::string marcoQueSeCarga(const std::string& titulo, const std::string& url, bool activo,
-                            const std::string& cuerpo) {
-    if (activo) {
-        return std::string("<details class=\"marco\" open><summary><span class=\"marcotit\">")
-               + H::escapaHtml(titulo) + "</span></summary><div class=\"marcocuerpo\">" + cuerpo
-               + "</div></details>";
+// **Cambia el valor de fábrica, y a mejor.** Antes, al llegar a un nodo no se veía nada:
+// todo plegado. Ahora se ve la FICHA, que sigue sin costar ninguna consulta —sus datos
+// vinieron con el listado del árbol—. Se pasa de «nada, y gratis» a «algo útil, y gratis».
+//
+// El coste no cambia: se consulta la pestaña activa y ninguna más.
+struct Pestana {
+    Vista vista;
+    std::string texto;
+};
+
+// Una barra con sus grupos. Los grupos existen por el nodo del POOL, que va fundido con su
+// dataset raíz: son dos objetos en un nodo, y sus pestañas no se mezclan bien sin decir
+// cuál es de cuál.
+std::string barraDePestanas(const std::vector<std::pair<std::string, std::vector<Pestana>>>& grupos,
+                            const std::string& conn, const std::string& raiz,
+                            const std::string& sel, Vista activa) {
+    std::string h;
+    for (const auto& grupo : grupos) {
+        if (grupo.second.empty()) {
+            continue;
+        }
+        h += "<div class=\"pestanas\">";
+        if (!grupo.first.empty()) {
+            h += "<span class=\"pestgrupo\">" + H::escapaHtml(grupo.first) + "</span>";
+        }
+        for (const Pestana& t : grupo.second) {
+            h += "<a class=\"pest" + std::string(t.vista == activa ? " activa" : "")
+                 + "\" href=\"" + H::escapaHtml(urlDe(conn, raiz, sel, t.vista)) + "\">"
+                 + H::escapaHtml(t.texto) + "</a>";
+        }
+        h += "</div>";
     }
-    return "<div class=\"marco cerrado\"><a class=\"marcoenlace\" href=\"" + H::escapaHtml(url)
-           + "\"><span class=\"marcotit\">" + H::escapaHtml(titulo)
-           + "</span><span class=\"tenue\"> — pulse para consultarlo</span></a></div>";
+    return h;
 }
 
 std::string grupoDeAcciones(const std::string& titulo, const std::string& cuerpo) {
@@ -1050,7 +1084,7 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
             const auto it = porCorto.find(corto);
             const std::string entera = ds + "@" + corto;
             filas.push_back(
-                {enlace(urlDe(conn, raiz, entera, Vista::Ninguna), corto),
+                {enlace(urlDe(conn, raiz, entera, Vista::Resumen), corto),
                  it == porCorto.end() ? std::string() : H::escapaHtml(bytesLegibles(it->second->usado)),
                  it == porCorto.end() ? std::string() : H::escapaHtml(fechaLegible(it->second->creacion)),
                  enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
@@ -2477,7 +2511,10 @@ int main(int argc, char** argv) {
             const std::string izqR =
                 panelArbol(conns.perfiles, std::string(), std::string(), {}, Arbol{},
                            std::string(), false);
-            std::string derR = marco("Máquinas", panelConexiones(conns.perfiles, versiones), false);
+            // En la raíz solo hay una cosa que enseñar, así que no hay barra: una barra de
+            // una pestaña es un adorno.
+            std::string derR = "<div class=\"detalle\">"
+                               + panelConexiones(conns.perfiles, versiones) + "</div>";
             r.cuerpo = envuelveDosPaneles(
                 "zfsm://", "ZFSMgr", izqR, derR,
                 ventanaDelLog(conns.perfiles, "/?", pestana, logCargado, sesion.testigo()),
@@ -2601,18 +2638,45 @@ int main(int argc, char** argv) {
             // Los marcos de la MÁQUINA, plegados como los demás. Registro y trabajos se
             // consultan al abrirlos, no al entrar: un registro de miles de líneas por cada
             // vez que uno pasa por la máquina es tiempo pagado para nada.
-            const auto urlM = [&](Vista v) {
-                return "/c/" + H::haciaUrl(conn) + "?v=" + claveDeVista(v);
+            // Las mismas pestañas que en un dataset, con lo que le toca a una MÁQUINA.
+            //
+            // El registro del daemon y los trabajos NO están: son pestañas de la ventana de
+            // abajo —«Daemon» y «Transferencias»— y tenerlos en los dos sitios obliga a
+            // elegir cuál de los dos se mira, que es una pregunta que no debería existir.
+            // La programación sí, porque no está abajo y es de la máquina entera.
+            const std::vector<std::pair<std::string, std::vector<Pestana>>> gruposC = {
+                {std::string(),
+                 {{Vista::Resumen, "Pools"},
+                  {Vista::Programacion, "Programación"},
+                  {Vista::Acciones, "Acciones"}}}};
+            std::string cuerpoC;
+            switch (vistaMaquina) {
+                case Vista::Programacion:
+                    cuerpoC = cargadoMaquina;
+                    break;
+                case Vista::Acciones:
+                    cuerpoC = accionesDeMaquina(conn);
+                    break;
+                default:
+                    cuerpoC = panelPools(conn, pools);
+                    break;
+            }
+            const auto urlC = [&](Vista v) {
+                return v == Vista::Resumen ? "/c/" + H::haciaUrl(conn)
+                                           : "/c/" + H::haciaUrl(conn) + "?v=" + claveDeVista(v);
             };
-            // El registro del daemon y los trabajos NO tienen marco aquí: son pestañas de
-            // la ventana de abajo —«Daemon» y «Transferencias»— y tenerlos en los dos
-            // sitios obliga a elegir cuál de los dos se mira, que es una pregunta que no
-            // debería existir. La programación sí se queda: no está abajo, y es de la
-            // máquina entera.
-            std::string derC = marco("Pools", panelPools(conn, pools), false);
-            derC += marcoQueSeCarga("Instantáneas programadas", urlM(Vista::Programacion),
-                                    vistaMaquina == Vista::Programacion, cargadoMaquina);
-            derC += marco("Acciones", accionesDeMaquina(conn), false);
+            std::string derC;
+            for (const auto& g : gruposC) {
+                derC += "<div class=\"pestanas\">";
+                for (const Pestana& t : g.second) {
+                    derC += "<a class=\"pest"
+                            + std::string(t.vista == vistaMaquina ? " activa" : "") + "\" href=\""
+                            + H::escapaHtml(urlC(t.vista)) + "\">" + H::escapaHtml(t.texto)
+                            + "</a>";
+                }
+                derC += "</div>";
+            }
+            derC += "<div class=\"detalle\">" + cuerpoC + "</div>";
             // La base para los enlaces de las pestañas: la MISMA URL, conservando lo que
             // ya hubiera abierto. Cambiar de pestaña del registro no debe cerrar el marco
             // que uno estaba mirando.
@@ -2692,6 +2756,51 @@ int main(int argc, char** argv) {
         const bool selEsInstantanea = sel.find('@') != std::string::npos;
         const std::string tipoDelObjeto = selEsInstantanea ? "snapshot" : "filesystem";
 
+        // La BARRA de pestañas y, debajo, la elegida. Antes esto era una pila de marcos
+        // plegables; con doce sobre un pool la pila era una lista de títulos entre los que
+        // buscar, y abrir dos dejaba el segundo fuera de la pantalla.
+        const bool esNodoDePool = (sel == objeto && objeto.find('/') == std::string::npos);
+        std::vector<std::pair<std::string, std::vector<Pestana>>> grupos;
+
+        // Las del pool van en su propio grupo, y solo cuando lo elegido ES el pool: dentro
+        // de un dataset hijo, un «Historial del pool» hablaría de otra cosa. El grupo se
+        // nombra porque el nodo del pool va FUNDIDO con su dataset raíz, y sin decirlo no
+        // se sabe cuál de los dos objetos toca cada pestaña.
+        if (esNodoDePool) {
+            grupos.push_back({"Pool",
+                              {{Vista::Estado, "Estado y dispositivos"},
+                               {Vista::PropsPool, "Propiedades"},
+                               {Vista::Capacidades, "Capacidades"},
+                               {Vista::Historial, "Historial"},
+                               {Vista::AccionesPool, "Acciones"}}});
+        }
+
+        std::vector<Pestana> delObjeto = {{Vista::Resumen, "Ficha"},
+                                          {Vista::Props, "Propiedades"}};
+        if (!selEsInstantanea) {
+            const auto itS = arbol.instantaneas.find(sel);
+            const std::size_t cuantas = itS == arbol.instantaneas.end() ? 0 : itS->second.size();
+            delObjeto.push_back({Vista::Permisos, "Permisos"});
+            delObjeto.push_back({Vista::Contenido, "Contenido"});
+            delObjeto.push_back({Vista::Programacion, "Programación"});
+            delObjeto.push_back({Vista::Instantaneas,
+                                 "Instantáneas (" + std::to_string(cuantas) + ")"});
+        }
+        delObjeto.push_back({Vista::Acciones, "Acciones"});
+        grupos.push_back({esNodoDePool ? "Dataset" : std::string(),
+                          delObjeto});
+
+        // Una vista que no le corresponde a este objeto —«Capacidades» sobre un dataset,
+        // «Contenido» sobre una instantánea— cae a la ficha en vez de enseñar un panel
+        // vacío bajo una pestaña que no está en la barra.
+        bool laHay = false;
+        for (const auto& g : grupos) {
+            for (const Pestana& t : g.second) {
+                laHay = laHay || (t.vista == vista);
+            }
+        }
+        const Vista vistaFinal = laHay ? vista : Vista::Resumen;
+
         // El panel derecho: TODOS los marcos que le caben a este nodo, y todos PLEGADOS.
         //
         // Es lo que sustituye a los nodos de adorno que colgaban del árbol. La diferencia
@@ -2732,10 +2841,12 @@ int main(int argc, char** argv) {
                                          plataforma, !deUnPool, sesion.testigo());
         };
 
-        switch (vista) {
-            case Vista::Ninguna:
+        switch (vistaFinal) {
             case Vista::Resumen:
-                break;   // nada que consultar: todo lo que se ve ya vino con el árbol
+            case Vista::Instantaneas:
+            case Vista::Acciones:
+            case Vista::AccionesPool:
+                break;   // nada que consultar: sale del listado del árbol, o es un formulario
             case Vista::Props:
                 if (pideOFalla({"--dump-zfs-get-all", sel}, "las propiedades")) {
                     propsEn(false, false);
@@ -2786,40 +2897,35 @@ int main(int argc, char** argv) {
         }
         (void)cargoBien;
 
-        const auto marcoV = [&](Vista v, const std::string& titulo) {
-            return marcoQueSeCarga(titulo, urlDe(conn, objeto, sel, v), vista == v, loCargado);
-        };
-
-        // El pool: sus marcos van primero, y solo cuando lo elegido ES el pool. Dentro de
-        // un dataset hijo, un «Historial del pool» estaría hablando de otra cosa.
-        if (sel == objeto && objeto.find('/') == std::string::npos) {
-            der += marcoV(Vista::Estado, "Estado y dispositivos");
-            der += marcoV(Vista::PropsPool, "Propiedades del pool");
-            der += marcoV(Vista::Capacidades, "Capacidades");
-            der += marcoV(Vista::Historial, "Historial");
-            der += marco("Acciones del pool", accionesDePool(conn, objeto, sesion.testigo()),
-                         false);
+        std::string cuerpo;
+        switch (vistaFinal) {
+            case Vista::Resumen:
+                cuerpo = resumenDelNodo(sel, arbol);
+                break;
+            case Vista::Instantaneas:
+                cuerpo = panelInstantaneas(conn, objeto, sel, arbol, sesion.testigo());
+                break;
+            case Vista::Acciones:
+                cuerpo = selEsInstantanea
+                             ? accionesDeInstantanea(conn, objeto, sel, sesion.testigo())
+                             : accionesDeDataset(conn, objeto, sel, entradaSel, sesion.testigo());
+                break;
+            case Vista::AccionesPool:
+                cuerpo = accionesDePool(conn, objeto, sesion.testigo());
+                break;
+            case Vista::Props:
+            case Vista::Permisos:
+            case Vista::Contenido:
+            case Vista::Estado:
+            case Vista::PropsPool:
+            case Vista::Capacidades:
+            case Vista::Historial:
+            case Vista::Programacion:
+                cuerpo = loCargado;
+                break;
         }
-
-        // Y el objeto elegido. La ficha y las instantáneas salen GRATIS —sus datos ya
-        // vinieron en el listado del árbol—, así que su marco lleva el contenido dentro y
-        // se abre sin ir a ninguna parte.
-        der += marco("Ficha de " + sel, resumenDelNodo(sel, arbol), false);
-        der += marcoV(Vista::Props, "Propiedades");
-        if (!selEsInstantanea) {
-            der += marcoV(Vista::Permisos, "Permisos");
-            der += marcoV(Vista::Contenido, "Contenido");
-            der += marcoV(Vista::Programacion, "Programación de instantáneas");
-            const auto itS = arbol.instantaneas.find(sel);
-            const std::size_t cuantas = itS == arbol.instantaneas.end() ? 0 : itS->second.size();
-            der += marco("Instantáneas (" + std::to_string(cuantas) + ")",
-                         panelInstantaneas(conn, objeto, sel, arbol, sesion.testigo()), false);
-            der += marco("Acciones",
-                         accionesDeDataset(conn, objeto, sel, entradaSel, sesion.testigo()), false);
-        } else {
-            der += marco("Acciones",
-                         accionesDeInstantanea(conn, objeto, sel, sesion.testigo()), false);
-        }
+        der = barraDePestanas(grupos, conn, objeto, sel, vistaFinal)
+              + "<div class=\"detalle\">" + cuerpo + "</div>";
 
         const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + H::haciaUrl(conn), conn)
                                   + " / " + enlace(urlDe(conn, objeto, objeto, Vista::Resumen), objeto);

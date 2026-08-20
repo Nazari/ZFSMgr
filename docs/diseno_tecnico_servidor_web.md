@@ -156,7 +156,7 @@ base lo lee— y el tema oscuro.
 | 1 | **HECHA** — Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | **HECHA** — Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
 | 3 | **HECHA a medias** — WebDAV sobre la misma escucha: el árbol de ZFS sí, los ficheros de dentro no (hacen falta dos verbos nuevos en el daemon) | Cae casi solo una vez hay servidor |
-| 4 | **EN CURSO** — dos paneles: a la izquierda UN árbol desde `zfsm://` (máquinas → pools → datasets → instantáneas) con los mismos nodos que Qt; a la derecha, marcos plegables con la ficha, la vista elegida y las acciones | |
+| 4 | **EN CURSO** — tres ventanas: a la izquierda UN árbol desde `zfsm://` (solo máquinas, pools y datasets); a la derecha el detalle EN PESTAÑAS; y abajo el registro, plegable, con las pestañas de Qt en dos niveles | |
 | 5 | Retirar Qt | Solo cuando 4 esté medido contra la lista, no antes |
 
 ## Lo que hay que resolver y todavía no sé
