@@ -128,11 +128,17 @@ JavaScript —hoy no hay ninguna, porque WebDAV sirve todo como
 condiciones críticas y cambia la garantía de estructural a «no se nos escapa ningún
 escape». Con el daemon corriendo como root en cuatro máquinas, no compensa por un log.
 
-**Hay que escribirlo:** la lista de pendientes como
-plan de trabajo, el diálogo de creación de pool con sus dispositivos, y las capturas de
-ayuda. Y las acciones de DOS extremos —copiar, mover, clonar entre máquinas, sincronizar,
-nivelar y diff—, que son las que en Qt piden marcar un origen: eso es estado entre páginas
-y hay que decidir dónde vive antes de escribirlo.
+**Las acciones de DOS extremos: el mecanismo, HECHO.** El origen marcado vive en una
+cookie —es una marca del navegador que tiene que sobrevivir a moverse por el árbol— y la
+regla de qué aplica entre dos objetos está en `base/dosextremos`, no en la interfaz. De las
+seis, funcionan **Comparar** y **Clonar aquí**; las otras cuatro se ofrecen en gris con el
+motivo, porque necesitan la orquestación de transferencia que aún vive dentro de Qt
+(`mainwindow_transfer.cpp`, 2.554 líneas).
+
+**Hay que escribirlo:** la lista de pendientes como plan de trabajo, el diálogo de creación
+de pool con sus dispositivos, y las capturas de ayuda. Y las cuatro de transferencia
+—copiar, mover, sincronizar y nivelar—, que piden bajar esa orquestación a la capa base
+antes de poder llamarse desde aquí.
 
 **Instalar o actualizar el daemon: HECHO**, y es el caso raro. Es la única operación que
 **no puede pasar por el daemon** —entra por SSH y `scp`, porque si hubiera daemon no haría

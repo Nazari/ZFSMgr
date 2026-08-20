@@ -4,6 +4,7 @@
 
 #include "zfsprops.h"
 #include "daemoninstall.h"
+#include "dosextremos.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
 #include "listados.h"
@@ -914,6 +915,77 @@ int main() {
                   "listados: salida vacia de zpool get no es un fallo");
         comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
+    }
+
+    // --- qué se puede hacer con DOS extremos
+    //
+    // La regla estaba dentro del menú contextual de la interfaz. No es de interfaz: es qué
+    // deja hacer ZFS entre dos objetos, y el servidor web necesita la misma para saber qué
+    // ofrece y qué deja en gris. Lo que se fija aquí son los NOES, que es lo que se enseña.
+    {
+        namespace DX = zfsmgr::base::dosextremos;
+        const DX::Extremo snap{"local", "fc16/user@lunes"};
+        const DX::Extremo snap2{"local", "fc16/user@martes"};
+        const DX::Extremo ds{"local", "fc16/user"};
+        const DX::Extremo otroDs{"local", "fc16/work"};
+        const DX::Extremo otraMaq{"unibody", "tank/x"};
+        const DX::Extremo nada{};
+
+        // Comparar: dos puntos de la MISMA historia. Es lo que la gente espera mal la
+        // primera vez —cree que compara dos datasets cualesquiera— y por eso el motivo
+        // tiene que salir escrito.
+        comprobar(DX::compruebo(DX::Accion::Diff, snap, snap2) == DX::NoAplica::Ninguna,
+                  "dosextremos: comparar dos instantaneas del mismo dataset");
+        comprobar(DX::compruebo(DX::Accion::Diff, snap, ds) == DX::NoAplica::Ninguna,
+                  "dosextremos: y una instantanea contra su dataset vivo");
+        comprobar(DX::compruebo(DX::Accion::Diff, snap, otroDs) == DX::NoAplica::DistintoDataset,
+                  "dosextremos: pero NO contra otro dataset");
+        comprobar(DX::compruebo(DX::Accion::Diff, ds, otroDs)
+                      == DX::NoAplica::OrigenNoEsInstantanea,
+                  "dosextremos: ni con un dataset de origen");
+        comprobar(DX::compruebo(DX::Accion::Diff, snap, otraMaq) == DX::NoAplica::DistintaMaquina,
+                  "dosextremos: ni entre maquinas distintas");
+
+        // Clonar: de una instantanea a un sitio, y ese sitio es un dataset.
+        comprobar(DX::compruebo(DX::Accion::Clonar, snap, otroDs) == DX::NoAplica::Ninguna,
+                  "dosextremos: clonar de una instantanea a un dataset");
+        comprobar(DX::compruebo(DX::Accion::Clonar, snap, snap2)
+                      == DX::NoAplica::DestinoNoEsDataset,
+                  "dosextremos: no se clona SOBRE una instantanea");
+        comprobar(DX::compruebo(DX::Accion::Clonar, ds, otroDs)
+                      == DX::NoAplica::OrigenNoEsInstantanea,
+                  "dosextremos: ni desde un dataset");
+
+        // Sin origen, ninguna. Y el mismo objeto en los dos extremos tampoco.
+        for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar}) {
+            comprobar(DX::compruebo(a, nada, ds) == DX::NoAplica::SinOrigen,
+                      std::string("dosextremos: sin origen no aplica ") + DX::claveDe(a));
+            comprobar(DX::compruebo(a, ds, ds) == DX::NoAplica::ElMismoObjeto,
+                      std::string("dosextremos: el mismo objeto no aplica ") + DX::claveDe(a));
+        }
+
+        // Las cuatro de transferencia se ofrecen y se dicen: esconderlas haria creer que
+        // no existen, y el motivo por el que no estan es distinto de «no aplica aqui».
+        for (const DX::Accion a : {DX::Accion::Copiar, DX::Accion::Mover, DX::Accion::Sincronizar,
+                                   DX::Accion::Nivelar}) {
+            comprobar(DX::compruebo(a, snap, otroDs) == DX::NoAplica::TodaviaNoEstaEnLaWeb,
+                      std::string("dosextremos: ") + DX::claveDe(a) + " dice que aun no esta");
+        }
+
+        // Cada motivo tiene su texto, y ninguno se confunde con otro: es lo que se pinta.
+        std::set<std::string> textos;
+        for (const DX::NoAplica n : {DX::NoAplica::SinOrigen, DX::NoAplica::ElMismoObjeto,
+                                     DX::NoAplica::OrigenNoEsInstantanea,
+                                     DX::NoAplica::DestinoNoEsDataset,
+                                     DX::NoAplica::DistintoDataset, DX::NoAplica::DistintaMaquina,
+                                     DX::NoAplica::TodaviaNoEstaEnLaWeb}) {
+            const std::string t = DX::etiquetaDe(n);
+            comprobar(!t.empty(), "dosextremos: el motivo tiene texto");
+            textos.insert(t);
+        }
+        comprobar(textos.size() == 7, "dosextremos: y los siete motivos son distintos");
+        igual(DX::etiquetaDe(DX::NoAplica::Ninguna), "",
+              "dosextremos: «si aplica» no tiene motivo que enseñar");
     }
 
     // --- una respuesta LENTA no se da por perdida

@@ -12,6 +12,7 @@
 #include "agentversion.h"
 #include "connectionjson.h"
 #include "daemoninstall.h"
+#include "dosextremos.h"
 #include "gsa.h"
 #include "i18n.h"
 #include "listados.h"
@@ -45,6 +46,7 @@ namespace CJ = zfsmgr::base::connjson;
 namespace H = zfsmgr::web::http;
 namespace L = zfsmgr::base::listados;
 namespace ZP = zfsmgr::base::zfsprops;
+namespace DX = zfsmgr::base::dosextremos;
 
 namespace D = zfsmgr::web::dav;
 
@@ -213,6 +215,9 @@ a.pest.activa { background: var(--acento); border-color: var(--acento); color: #
                 font-weight: 600; }
 a.idioma { color: var(--tenue); margin-right: .3rem; }
 a.idioma.activo { color: var(--tinta); font-weight: 600; text-decoration: underline; }
+div.origen { border: 1px solid var(--acento); border-radius: 5px; background: var(--suave);
+             padding: .35rem .7rem; margin: .3rem 0 .6rem; font-size: .9rem; }
+div.engris { color: var(--tenue); padding: .12rem 0; }
 div.logcuerpo { margin-top: .5rem; max-height: 26rem; overflow: auto;
                 border: 1px solid var(--borde); border-radius: 5px; padding: .4rem .6rem; }
 div.logcuerpo pre { margin: 0; background: transparent; padding: 0; }
@@ -590,6 +595,7 @@ enum class Vista {
     Instantaneas,
     Acciones,
     AccionesPool,
+    Diff,
 };
 
 const char* claveDeVista(Vista v) {
@@ -606,6 +612,7 @@ const char* claveDeVista(Vista v) {
         case Vista::Instantaneas: return "instantaneas";
         case Vista::Acciones:     return "acciones";
         case Vista::AccionesPool: return "acciones-pool";
+        case Vista::Diff:         return "diff";
     }
     return "";
 }
@@ -624,6 +631,7 @@ std::string tituloDeVista(Vista v, const std::string& objeto) {
         case Vista::Instantaneas: return "Instantáneas de " + objeto;
         case Vista::Acciones:     return "Acciones sobre " + objeto;
         case Vista::AccionesPool: return "Acciones sobre el pool " + objeto;
+        case Vista::Diff:         return "Comparar con " + objeto;
     }
     return objeto;
 }
@@ -633,6 +641,7 @@ Vista vistaDesde(const std::string& s) {
         Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
         Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
         Vista::Programacion, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
+        Vista::Diff,
     };
     for (const Vista v : todas) {
         if (s == claveDeVista(v)) {
@@ -941,11 +950,78 @@ std::string grupoDeAcciones(const std::string& titulo, const std::string& cuerpo
            + cuerpo + "</div>";
 }
 
+// ── El origen marcado, y las acciones de dos extremos ────────────────────────
+//
+// El mecanismo de la interfaz de Qt: se marca un origen y luego se pulsa sobre otro nodo,
+// como copiar y pegar. Aquí el origen vive en una COOKIE, no en la URL: es una marca del
+// navegador que tiene que sobrevivir a moverse por el árbol, y meterla en cada enlace
+// obligaría a arrastrarla por todas las páginas y se perdería al escribir una a mano.
+//
+// En su propia cookie y no en la de sesión, por lo mismo que el idioma: marcar un origen no
+// tiene nada que ver con estar autenticado.
+DX::Extremo origenDe(const H::Peticion& p) {
+    // El valor va codificado ENTERO —«local%7Cwdx%2Fdatos%40lunes»— porque un nombre de
+    // dataset puede llevar dentro casi cualquier cosa y una cookie no admite comas ni
+    // puntos y coma. Así que primero se descodifica y luego se parte por la barra; al
+    // revés, la barra viene escrita «%7C» y no se encuentra nunca.
+    const std::string crudo = H::desdeUrl(p.cookie("zfsmgr_origen"));
+    const std::size_t i = crudo.find('|');
+    if (i == std::string::npos) {
+        return {};
+    }
+    return {crudo.substr(0, i), crudo.substr(i + 1)};
+}
+
+// El aviso de qué hay marcado. Sale en TODAS las páginas mientras haya origen: una marca
+// invisible es una marca que se olvida, y la siguiente acción de dos extremos sorprende.
+std::string avisoDeOrigen(const DX::Extremo& origen) {
+    if (origen.vacio()) {
+        return {};
+    }
+    return "<div class=\"origen\">" + H::escapaHtml(T("t_web_origen_marcado", "Origen marcado"))
+           + ": <strong>" + H::escapaHtml(origen.conexion + "::" + origen.objeto) + "</strong> "
+           + enlace("/origen?quitar=1", T("t_web_quitar_origen", "quitar")) + "</div>";
+}
+
+// Las seis, con las que no aplican EN GRIS y con el motivo. Esconderlas haría creer que no
+// existen; enseñarlas sin decir por qué no se pueden deja al usuario probando.
+std::string accionesDeDosExtremos(const std::string& conn, const std::string& raiz,
+                                  const std::string& sel, const DX::Extremo& origen,
+                                  const std::string& testigo) {
+    const DX::Extremo destino{conn, sel};
+    std::string h;
+    for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar,
+                               DX::Accion::Mover, DX::Accion::Sincronizar, DX::Accion::Nivelar}) {
+        const DX::NoAplica porQue = DX::compruebo(a, origen, destino);
+        const std::string etiqueta = DX::etiquetaDe(a);
+        if (porQue != DX::NoAplica::Ninguna) {
+            h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
+                 + H::escapaHtml(DX::etiquetaDe(porQue)) + "</span></div>";
+            continue;
+        }
+        if (a == DX::Accion::Diff) {
+            h += "<div>" + enlace(urlDe(conn, raiz, sel, Vista::Diff), etiqueta)
+                 + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                 + H::escapaHtml(sel) + "</span></div>";
+            continue;
+        }
+        if (a == DX::Accion::Clonar) {
+            h += "<div>"
+                 + boton(conn, sel, raiz, "clonar-desde-origen", etiqueta, testigo,
+                         "<label class=\"campo\">"
+                             + H::escapaHtml(T("t_web_con_el_nombre", "con el nombre"))
+                             + " <input name=\"nombre\" placeholder=\"clon\" required></label> ")
+                 + "</div>";
+        }
+    }
+    return h;
+}
+
 // El menú contextual de un DATASET, con los mismos submenús que en Qt: «Dataset» para el
 // estado del propio dataset y «Acciones» para lo que toca sus DATOS.
 std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const L::Entrada* e,
-                              const std::string& testigo) {
+                              const DX::Extremo& origen, const std::string& testigo) {
     const bool montado = e != nullptr && e->montado == "yes";
     const bool cifrado = e != nullptr && !e->cifrado.empty() && e->cifrado != "off"
                          && e->cifrado != "-";
@@ -985,20 +1061,22 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
         h += grupoDeAcciones(T("t_web_clave_de_cif_e5875e", "Clave de cifrado"), cif);
     }
 
-    // Lo que TODAVÍA no está, dicho en su sitio. Un panel que enseña ocho acciones y calla
-    // las otras seis deja creyendo que la web puede hacer lo mismo que la interfaz; y estas
-    // seis no son un olvido, es que necesitan dos extremos —un origen marcado y un
-    // destino—, que es un estado entre páginas que aquí no existe todavía.
-    h += "<div class=\"pendiente\">Copiar, Mover, Clonar, Sincronizar, Nivelar y Diff piden "
-         "dos extremos y aún no están en la web; Desglosar, Ensamblar, Desde Dir y Hacia Dir "
-         "tampoco. Se hacen desde la interfaz o desde el intérprete.</div>";
+    // Las de DOS extremos. El origen se marca aquí y se usa desde otro nodo.
+    h += grupoDeAcciones(T("t_web_origen_destino", "Con dos extremos"),
+                         "<div>" + enlace("/origen?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(ds),
+                                          T("t_web_marcar_origen", "Marcar como origen"))
+                             + "</div>"
+                             + accionesDeDosExtremos(conn, raiz, ds, origen, testigo));
+    h += "<div class=\"pendiente\">Desglosar, Ensamblar, Desde Dir y Hacia Dir todavía no "
+         "están en la web. Se hacen desde la interfaz o desde el intérprete.</div>";
     return h;
 }
 
 // El menú de una INSTANTÁNEA. En Qt son cinco entradas; aquí están las tres que no piden
 // un segundo extremo.
 std::string accionesDeInstantanea(const std::string& conn, const std::string& raiz,
-                                  const std::string& snap, const std::string& testigo) {
+                                  const std::string& snap, const DX::Extremo& origen,
+                                  const std::string& testigo) {
     std::string h;
     std::string g;
     g += boton(conn, snap, raiz, "clonar", T("t_web_clonar_98a66b", "Clonar"), testigo,
@@ -1011,6 +1089,11 @@ std::string accionesDeInstantanea(const std::string& conn, const std::string& ra
                     + "&que=borrar-instantanea&raiz=" + H::haciaUrl(raiz),
                 T("t_web_borrar_6b5f63", "Borrar…"));
     h += grupoDeAcciones(T("t_web_instantanea_659df4", "Instantánea"), g);
+    h += grupoDeAcciones(T("t_web_origen_destino", "Con dos extremos"),
+                         "<div>" + enlace("/origen?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(snap),
+                                          T("t_web_marcar_origen", "Marcar como origen"))
+                             + "</div>"
+                             + accionesDeDosExtremos(conn, raiz, snap, origen, testigo));
     h += "<div class=\"pendiente\">«Nuevo Hold» y «Release» no están: el daemon no tiene "
          "todavía un verbo para leer los holds, y la interfaz los lee por shell — que es "
          "justo lo que este servidor no hace.</div>";
@@ -1074,6 +1157,40 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
                          std::to_string(its == arbol.instantaneas.end() ? 0 : its->second.size())});
     }
     return fichaDeDatos(datos);
+}
+
+// El resultado de `zfs diff`, que llega como líneas «<marca>\t<ruta>[\t<ruta nueva>]».
+//
+// Las marcas son de una letra y no se leen solas: «-» es que ya no está, «+» que es nuevo,
+// «M» que cambió y «R» que se renombró. Se traducen aquí en vez de enseñarlas en crudo,
+// porque el punto de comparar es entender qué pasó entre los dos momentos.
+std::string panelDiff(const std::string& salida, const std::string& desde,
+                      const std::string& hasta) {
+    std::vector<std::vector<std::string>> filas;
+    for (const std::string& linea : B::split(salida, "\n", true)) {
+        const std::vector<std::string> col = B::split(linea, "\t", false);
+        if (col.size() < 2) {
+            continue;
+        }
+        const std::string marca = B::trim(col[0]);
+        std::string que;
+        if (marca == "-")      { que = T("t_web_diff_borrado", "borrado"); }
+        else if (marca == "+") { que = T("t_web_diff_nuevo", "nuevo"); }
+        else if (marca == "M") { que = T("t_web_diff_cambiado", "cambiado"); }
+        else if (marca == "R") { que = T("t_web_diff_renombrado", "renombrado"); }
+        else                   { que = marca; }
+        filas.push_back({H::escapaHtml(que), H::escapaHtml(col[1]),
+                         col.size() > 2 ? H::escapaHtml(col[2]) : std::string()});
+    }
+    std::string h = "<p class=\"tenue\">" + H::escapaHtml(desde) + " → " + H::escapaHtml(hasta)
+                    + "</p>";
+    if (filas.empty()) {
+        return h + "<p class=\"vacio\">"
+               + H::escapaHtml(T("t_web_diff_igual", "(no hay ninguna diferencia)")) + "</p>";
+    }
+    return h + tabla({T("t_web_diff_que", "Qué"), T("t_web_diff_ruta", "Ruta"),
+                      T("t_web_diff_ahora", "Ahora se llama")},
+                     filas);
 }
 
 // Las instantáneas de un dataset, agrupadas por clase del planificador como en la interfaz
@@ -1335,8 +1452,10 @@ std::string ventanaDelLog(const std::vector<B::ConnectionProfile>& perfiles,
 // perder de vista dónde se está es lo que hace inservible un árbol grande.
 std::string envuelveDosPaneles(const std::string& titulo, const std::string& migas,
                                const std::string& izq, const std::string& der,
-                               const std::string& abajo, const std::string& testigo) {
-    std::string cuerpo = "<div class=\"dos\"><div class=\"izq\">" + izq + "</div>";
+                               const std::string& abajo, const std::string& aviso,
+                               const std::string& testigo) {
+    std::string cuerpo = aviso;
+    cuerpo += "<div class=\"dos\"><div class=\"izq\">" + izq + "</div>";
     cuerpo += "<div class=\"der\">" + der + "</div></div>";
     // La tercera ventana va DEBAJO de las dos y a todo lo ancho, no dentro de una columna:
     // un registro en media pantalla obliga a desplazarse en horizontal por cada línea.
@@ -1901,6 +2020,45 @@ int main(int argc, char** argv) {
             return true;
         }
 
+        // Marcar o quitar el origen. GET como el idioma, y por lo mismo: no cambia nada de
+        // ninguna máquina, solo una marca de este navegador.
+        if (p.ruta == "/origen") {
+            std::string c;
+            std::string o;
+            bool quitar = false;
+            for (const std::string& par : B::split(p.consulta, "&", true)) {
+                const std::size_t i = par.find('=');
+                if (i == std::string::npos) {
+                    continue;
+                }
+                const std::string k = H::desdeUrl(par.substr(0, i));
+                const std::string v = H::desdeUrl(par.substr(i + 1));
+                if (k == "c")            { c = v; }
+                else if (k == "o")       { o = v; }
+                else if (k == "quitar")  { quitar = true; }
+            }
+            r.codigo = 302;
+            if (quitar || c.empty() || o.empty()) {
+                r.cabecerasExtra.push_back("Set-Cookie: zfsmgr_origen=; Path=/; Secure; "
+                                           "SameSite=Strict; Max-Age=0");
+                r.cabecerasExtra.push_back("Location: /");
+            } else {
+                r.cabecerasExtra.push_back("Set-Cookie: zfsmgr_origen=" + H::haciaUrl(c) + "%7C"
+                                           + H::haciaUrl(o)
+                                           + "; Path=/; Secure; SameSite=Strict; Max-Age=86400");
+                // Se vuelve al MISMO sitio: marcar un origen no debería sacar a nadie de
+                // donde estaba, que es justo desde donde va a ir a buscar el destino.
+                r.cabecerasExtra.push_back(
+                    "Location: " + urlDe(c, o.substr(0, o.find('/') == std::string::npos
+                                                            ? o.size()
+                                                            : o.find('/')),
+                                         o, Vista::Acciones));
+            }
+            r.cuerpo = "";
+            respuesta = H::componer(r);
+            return true;
+        }
+
         if (p.ruta == "/estilo.css") {
             r.tipo = "text/css; charset=utf-8";
             r.cuerpo = kEstiloCss;
@@ -2408,6 +2566,31 @@ int main(int argc, char** argv) {
                 }
                 argv.push_back(objeto);
                 verbo = {"--mutate-zfs-generic", argvEnBase64(argv)};
+            } else if (que == "clonar-desde-origen") {
+                const DX::Extremo origen = origenDe(p);
+                const DX::Extremo destino{conn, objeto};
+                const DX::NoAplica porQue = DX::compruebo(DX::Accion::Clonar, origen, destino);
+                // Se vuelve a comprobar AQUÍ y no solo al pintar el botón: entre que se
+                // dibujó la página y se pulsó, el origen pudo cambiar en otra pestaña del
+                // navegador. Validar solo donde se pinta no valida nada.
+                if (porQue != DX::NoAplica::Ninguna) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("no se puede clonar: " + DX::etiquetaDe(porQue),
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                const std::string nombre = B::trim(p.campo("nombre"));
+                if (nombre.empty() || nombre.find('@') != std::string::npos
+                    || nombre.find('/') != std::string::npos
+                    || nombre.find(' ') != std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("nombre de clon no válido: «" + nombre + "»",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                verbo = {"--mutate-zfs-clone", origen.objeto, objeto + "/" + nombre};
             } else if (que == "latido") {
                 verbo = {"--heartbeat"};
             } else if (B::startsWith(que, "pool-")) {
@@ -2519,6 +2702,7 @@ int main(int argc, char** argv) {
             return std::string();
         };
         const PestanaLog pestana = pestanaDesde(valorDeConsulta("log"));
+        const DX::Extremo origenMarcado = origenDe(p);
 
         // Lo que la pestaña activa necesite de una máquina. «Combinado» y «Terminal» salen
         // de memoria y no piden nada; el daemon y los trabajos sí, y por eso solo se piden
@@ -2600,7 +2784,7 @@ int main(int argc, char** argv) {
             r.cuerpo = envuelveDosPaneles(
                 "zfsm://", "ZFSMgr", izqR, derR,
                 ventanaDelLog(conns.perfiles, "/?", pestana, logCargado, sesion.testigo()),
-                sesion.testigo());
+                avisoDeOrigen(origenMarcado), sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -2767,7 +2951,7 @@ int main(int argc, char** argv) {
             r.cuerpo = envuelveDosPaneles(
                 conn, enlace("/", "ZFSMgr"), izqC, derC,
                 ventanaDelLog(conns.perfiles, baseLog, pestana, logCargado, sesion.testigo()),
-                sesion.testigo());
+                avisoDeOrigen(origenMarcado), sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -2873,6 +3057,12 @@ int main(int argc, char** argv) {
                 {Vista::Instantaneas,
                  B::format(T("t_web_instantaneas_n", "Instantáneas (%1)"),
                            {std::to_string(cuantas)})});
+        }
+        // «Comparar» solo sale cuando hay un origen que se puede comparar con esto: una
+        // pestaña que al pulsarla dice «no aplica» es una pestaña de más.
+        if (DX::compruebo(DX::Accion::Diff, origenMarcado, DX::Extremo{conn, sel})
+            == DX::NoAplica::Ninguna) {
+            delObjeto.push_back({Vista::Diff, DX::etiquetaDe(DX::Accion::Diff)});
         }
         delObjeto.push_back({Vista::Acciones, T("t_help_actions_001", "Acciones")});
         grupos.push_back({esNodoDePool ? T("t_web_dataset_105268", "Dataset") : std::string(),
@@ -2982,6 +3172,15 @@ int main(int argc, char** argv) {
                                                   sesion.testigo());
                 }
                 break;
+            case Vista::Diff:
+                // Los dos extremos en el orden que quiere `zfs diff`: primero el más
+                // antiguo. Va el ORIGEN marcado contra el destino elegido, que es
+                // exactamente lo que la regla acaba de dar por bueno.
+                if (pideOFalla({"--dump-zfs-diff", origenMarcado.objeto, sel},
+                               "la comparación")) {
+                    loCargado = panelDiff(salida, origenMarcado.objeto, sel);
+                }
+                break;
         }
         (void)cargoBien;
 
@@ -2995,8 +3194,10 @@ int main(int argc, char** argv) {
                 break;
             case Vista::Acciones:
                 cuerpo = selEsInstantanea
-                             ? accionesDeInstantanea(conn, objeto, sel, sesion.testigo())
-                             : accionesDeDataset(conn, objeto, sel, entradaSel, sesion.testigo());
+                             ? accionesDeInstantanea(conn, objeto, sel, origenMarcado,
+                                                     sesion.testigo())
+                             : accionesDeDataset(conn, objeto, sel, entradaSel, origenMarcado,
+                                                 sesion.testigo());
                 break;
             case Vista::AccionesPool:
                 cuerpo = accionesDePool(conn, objeto, sesion.testigo());
@@ -3009,6 +3210,7 @@ int main(int argc, char** argv) {
             case Vista::Capacidades:
             case Vista::Historial:
             case Vista::Programacion:
+            case Vista::Diff:
                 cuerpo = loCargado;
                 break;
         }
@@ -3021,9 +3223,11 @@ int main(int argc, char** argv) {
                                     + "?sel=" + H::haciaUrl(sel) + "&v=" + claveDeVista(vista)
                                     + "&";
         r.cuerpo = envuelveDosPaneles(
-            tituloDeVista(vista, sel), migas, izq, der,
+            // `vistaFinal` y no `vista`: si se pidió a mano una que no aplica, el título
+            // tiene que decir lo que se está enseñando de verdad.
+            tituloDeVista(vistaFinal, sel), migas, izq, der,
             ventanaDelLog(conns.perfiles, baseLog, pestana, logCargado, sesion.testigo()),
-            sesion.testigo());
+            avisoDeOrigen(origenMarcado), sesion.testigo());
         respuesta = H::componer(r);
         return true;
     };
