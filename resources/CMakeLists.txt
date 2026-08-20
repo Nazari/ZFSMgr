@@ -59,6 +59,7 @@ cmd:--dump-block-devices
 cmd:--dump-dir-list
 cmd:--dump-file
 cmd:--dump-zfs-holds
+cmd:--mutate-zfs-hold
 cmd:--mutate-zfs-release
 health:caps-declared
 win:native-only

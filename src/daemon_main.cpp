@@ -461,6 +461,7 @@ std::string agentCapabilityList() {
         // Los holds: leerlos y soltarlos. Se declaran para que un cliente nuevo hablando
         // con un agente viejo NO ofrezca la función y falle al pulsarla; sabrá que no está.
         "--dump-zfs-holds",
+        "--mutate-zfs-hold",
         "--mutate-zfs-release",
     };
     caps.push_back("--dump-tool-availability");
@@ -5798,6 +5799,13 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         for (const auto& sn : params) { a.push_back(sn); }
         return runExecCapture("zfs", a);
     }
+    // Poner una retención. `zfs hold <tag> <snapshot>`: la etiqueta primero, igual que
+    // release. Verbo propio y no `--mutate-zfs-generic` por lo mismo que el otro: así el
+    // daemon ve los dos argumentos por separado y el registro se lee.
+    if (cmd == "--mutate-zfs-hold") {
+        if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-hold <tag> <snapshot>\n"; return r; }
+        return runExecCapture("zfs", {"hold", params[0], params[1]});
+    }
     // Y soltar uno. `zfs release <tag> <snapshot>`: la etiqueta primero.
     //
     // No pasa por `--mutate-zfs-generic` aunque «release» esté en su lista: así el daemon
@@ -7555,6 +7563,13 @@ int main(int argc, char* argv[]) {
         std::vector<std::string> a = {"holds", "-H"};
         for (std::size_t i = 2; i < args.size(); ++i) { a.push_back(args[i]); }
         return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-hold") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"hold", args[2], args[3]});
     }
     if (cmd == "--mutate-zfs-release") {
         if (args.size() < 4) {

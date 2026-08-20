@@ -147,9 +147,11 @@ falta instalarlo—, así que no bastaba con un verbo RPC. El guion vivía dentr
 `src/base/daemoninstall` y ahora lo usan los dos clientes. La versión del listado de
 conexiones, cuando sale marcada con `*`, ES el enlace para actualizarla.
 
-**No se puede con los verbos de hoy:** los *holds* de una instantánea. La interfaz los lee
-con `zfs holds` por shell y el daemon no tiene verbo para ellos; añadir aquí un camino de
-shell iría justo contra lo que se está quitando. Hace falta un `--dump-zfs-holds`.
+**Los *holds*: HECHOS.** Eran lo último que la interfaz hacía por shell, así que el
+servidor no podía enseñarlos sin abrir un camino de shell. Ahora hay tres verbos tipados
+—`--dump-zfs-holds`, `--mutate-zfs-hold`, `--mutate-zfs-release`— y la web los usa: pestaña
+propia en cada instantánea, y una columna en el listado que dice cuáles están retenidas
+antes de que uno intente borrarlas.
 
 **Se decide si entra:** los tres idiomas —el catálogo ya está en `i18n/*.json` y la capa
 base lo lee— y el tema oscuro.

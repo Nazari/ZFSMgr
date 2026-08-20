@@ -610,6 +610,7 @@ enum class Vista {
     Acciones,
     AccionesPool,
     Diff,
+    Holds,
 };
 
 const char* claveDeVista(Vista v) {
@@ -627,6 +628,7 @@ const char* claveDeVista(Vista v) {
         case Vista::Acciones:     return "acciones";
         case Vista::AccionesPool: return "acciones-pool";
         case Vista::Diff:         return "diff";
+        case Vista::Holds:        return "holds";
     }
     return "";
 }
@@ -646,6 +648,7 @@ std::string tituloDeVista(Vista v, const std::string& objeto) {
         case Vista::Acciones:     return "Acciones sobre " + objeto;
         case Vista::AccionesPool: return "Acciones sobre el pool " + objeto;
         case Vista::Diff:         return "Comparar con " + objeto;
+        case Vista::Holds:        return "Retenciones de " + objeto;
     }
     return objeto;
 }
@@ -655,7 +658,7 @@ Vista vistaDesde(const std::string& s) {
         Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
         Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
         Vista::Programacion, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
-        Vista::Diff,
+        Vista::Diff, Vista::Holds,
     };
     for (const Vista v : todas) {
         if (s == claveDeVista(v)) {
@@ -1221,6 +1224,63 @@ std::string paginaColeccionDav(const std::string& ruta, const std::vector<D::Rec
     return envuelve("/" + ruta, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
 
+// Las RETENCIONES de una o varias instantáneas, de `zfs holds -H`: una línea por
+// retención, «instantánea \t etiqueta \t cuándo».
+//
+// Una retención es lo que impide destruir una instantánea, así que lo que uno viene a
+// buscar aquí casi siempre es «por qué no puedo borrar esto». Por eso sale la etiqueta al
+// lado del botón de soltarla, y no en una pantalla aparte.
+std::map<std::string, std::vector<std::pair<std::string, std::string>>> leeHolds(
+    const std::string& salida) {
+    std::map<std::string, std::vector<std::pair<std::string, std::string>>> out;
+    for (const std::string& linea : B::split(salida, "\n", true)) {
+        const std::vector<std::string> col = B::split(linea, "\t", false);
+        if (col.size() < 2) {
+            continue;
+        }
+        out[B::trim(col[0])].push_back(
+            {B::trim(col[1]), col.size() > 2 ? B::trim(col[2]) : std::string()});
+    }
+    return out;
+}
+
+std::string panelHolds(const std::string& conn, const std::string& raiz, const std::string& snap,
+                       const std::string& salida, const std::string& testigo) {
+    const auto todas = leeHolds(salida);
+    const auto it = todas.find(snap);
+    std::vector<std::vector<std::string>> filas;
+    if (it != todas.end()) {
+        for (const auto& h : it->second) {
+            filas.push_back({H::escapaHtml(h.first), H::escapaHtml(h.second),
+                             boton(conn, snap, raiz, "soltar-hold",
+                                   T("t_web_soltar", "Soltar"), testigo,
+                                   "<input type=\"hidden\" name=\"etiqueta\" value=\""
+                                       + H::escapaHtml(h.first) + "\">")});
+        }
+    }
+    std::string h;
+    if (filas.empty()) {
+        h += "<p class=\"vacio\">"
+             + H::escapaHtml(T("t_web_sin_holds",
+                               "(esta instantánea no tiene ninguna retención: se puede "
+                               "destruir)"))
+             + "</p>";
+    } else {
+        h += "<p class=\"tenue\">"
+             + H::escapaHtml(T("t_web_holds_expl",
+                               "Mientras haya una retención, ZFS se niega a destruir la "
+                               "instantánea. Suéltelas todas para poder borrarla."))
+             + "</p>";
+        h += tabla({T("t_web_etiqueta", "Etiqueta"), T("t_web_desde", "Puesta"), ""}, filas);
+    }
+    h += grupoDeAcciones(
+        T("t_web_nuevo_hold", "Nueva retención"),
+        boton(conn, snap, raiz, "poner-hold", T("t_web_retener", "Retener"), testigo,
+              "<label class=\"campo\">" + H::escapaHtml(T("t_web_etiqueta", "Etiqueta"))
+                  + " <input name=\"etiqueta\" placeholder=\"no-borrar\" required></label> "));
+    return h;
+}
+
 // El resultado de `zfs diff`, que llega como líneas «<marca>\t<ruta>[\t<ruta nueva>]».
 //
 // Las marcas son de una letra y no se leen solas: «-» es que ya no está, «+» que es nuevo,
@@ -1266,7 +1326,7 @@ std::string panelDiff(const std::string& salida, const std::string& desde,
 // No cuesta ninguna consulta: `--dump-zfs-list-all` ya las trajo con el árbol.
 std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const Arbol& arbol,
-                              const std::string& testigo) {
+                              const std::string& salidaHolds, const std::string& testigo) {
     const auto itS = arbol.instantaneas.find(ds);
     if (itS == arbol.instantaneas.end() || itS->second.empty()) {
         return "<p class=\"vacio\">(este dataset no tiene instantáneas)</p>";
@@ -1278,6 +1338,10 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
         cortos.push_back(corto);
         porCorto[corto] = &e;
     }
+    // Las retenciones de TODAS las de este dataset, de una sola consulta. Es lo que
+    // convierte esta lista en útil: una instantánea retenida NO se puede destruir, y
+    // enterarse al pulsar «Borrar» es enterarse tarde.
+    const auto holds = leeHolds(salidaHolds);
     std::string h;
     for (const auto& grupo : B::gsa::agrupaInstantaneas(cortos)) {
         h += "<div class=\"grupotit\">" + H::escapaHtml(etiquetaDeClase(grupo.first)) + " ("
@@ -1286,17 +1350,42 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
         for (const std::string& corto : grupo.second) {
             const auto it = porCorto.find(corto);
             const std::string entera = ds + "@" + corto;
+            const auto itH = holds.find(entera);
+            std::string retenida;
+            if (itH != holds.end() && !itH->second.empty()) {
+                for (const auto& et : itH->second) {
+                    if (!retenida.empty()) {
+                        retenida += ", ";
+                    }
+                    retenida += H::escapaHtml(et.first);
+                }
+                retenida = "<span class=\"malo\">" + retenida + "</span>";
+            }
             filas.push_back(
                 {enlace(urlDe(conn, raiz, entera, Vista::Resumen), corto),
-                 it == porCorto.end() ? std::string() : H::escapaHtml(bytesLegibles(it->second->usado)),
-                 it == porCorto.end() ? std::string() : H::escapaHtml(fechaLegible(it->second->creacion)),
-                 enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
-                            + "&que=rollback&raiz=" + H::haciaUrl(raiz), T("t_web_rollback_a61c5c", "Rollback…"))
-                     + " · "
-                     + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
-                                  + "&que=borrar-instantanea&raiz=" + H::haciaUrl(raiz), T("t_web_borrar_6b5f63", "Borrar…"))});
+                 it == porCorto.end() ? std::string()
+                                      : H::escapaHtml(bytesLegibles(it->second->usado)),
+                 it == porCorto.end() ? std::string()
+                                      : H::escapaHtml(fechaLegible(it->second->creacion)),
+                 retenida,
+                 // Retenida no se borra: ZFS lo impide. Se ofrece el enlace a sus
+                 // retenciones en vez del de borrar, que solo llevaría a un error.
+                 retenida.empty()
+                     ? enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(entera)
+                                  + "&que=rollback&raiz=" + H::haciaUrl(raiz),
+                              T("t_web_rollback_a61c5c", "Rollback…"))
+                           + " · "
+                           + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o="
+                                        + H::haciaUrl(entera) + "&que=borrar-instantanea&raiz="
+                                        + H::haciaUrl(raiz),
+                                    T("t_web_borrar_6b5f63", "Borrar…"))
+                     : enlace(urlDe(conn, raiz, entera, Vista::Holds),
+                              T("t_web_ver_holds", "Ver sus retenciones…"))});
         }
-        h += tabla({T("t_poolcrt_auto004", "Nombre"), T("t_web_usado_7f0217", "Usado"), T("t_web_creacion_4e62d9", "Creación"), ""}, filas);
+        h += tabla({T("t_poolcrt_auto004", "Nombre"), T("t_web_usado_7f0217", "Usado"),
+                    T("t_web_creacion_4e62d9", "Creación"), T("t_web_holds_tab", "Retenciones"),
+                    ""},
+                   filas);
     }
     (void)testigo;
     return h;
@@ -2700,6 +2789,28 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 verbo = {"--mutate-zfs-clone", origen.objeto, objeto + "/" + nombre};
+            } else if (que == "poner-hold" || que == "soltar-hold") {
+                const std::string etiqueta = B::trim(p.campo("etiqueta"));
+                // La etiqueta viaja hasta un argv de `zfs`. Se valida AQUÍ además de en el
+                // daemon: un espacio o una arroba dentro convertirían la orden en otra.
+                if (etiqueta.empty() || etiqueta.find(' ') != std::string::npos
+                    || etiqueta.find('@') != std::string::npos
+                    || etiqueta.find('/') != std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("etiqueta no válida: «" + etiqueta + "»",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                if (objeto.find('@') == std::string::npos) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("las retenciones son de una instantánea",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                verbo = {que == "poner-hold" ? "--mutate-zfs-hold" : "--mutate-zfs-release",
+                         etiqueta, objeto};
             } else if (que == "latido") {
                 verbo = {"--heartbeat"};
             } else if (B::startsWith(que, "pool-")) {
@@ -3153,6 +3264,11 @@ int main(int argc, char** argv) {
 
         std::vector<Pestana> delObjeto = {{Vista::Resumen, T("t_web_ficha_58dc18", "Ficha")},
                                           {Vista::Props, T("t_props_tab_001", "Propiedades")}};
+        if (selEsInstantanea) {
+            // Solo en instantáneas: `zfs holds` no admite un dataset —contesta «is not a
+            // snapshot», comprobado— así que una pestaña ahí no tendría qué enseñar.
+            delObjeto.push_back({Vista::Holds, T("t_web_holds_tab", "Retenciones")});
+        }
         if (!selEsInstantanea) {
             const auto itS = arbol.instantaneas.find(sel);
             const std::size_t cuantas = itS == arbol.instantaneas.end() ? 0 : itS->second.size();
@@ -3231,10 +3347,25 @@ int main(int argc, char** argv) {
 
         switch (vistaFinal) {
             case Vista::Resumen:
-            case Vista::Instantaneas:
             case Vista::Acciones:
             case Vista::AccionesPool:
-                break;   // nada que consultar: sale del listado del árbol, o es un formulario
+                break;   // nada que consultar: sale del árbol, o es un formulario
+            case Vista::Instantaneas: {
+                // UNA consulta con todas las instantáneas del dataset dentro. `zfs holds`
+                // admite una lista, así que saber cuáles están retenidas cuesta una llamada
+                // y no una por instantánea.
+                const auto itS = arbol.instantaneas.find(sel);
+                if (itS != arbol.instantaneas.end() && !itS->second.empty()) {
+                    std::vector<std::string> args = {"--dump-zfs-holds"};
+                    for (const L::Entrada& e : itS->second) {
+                        args.push_back(e.nombre);
+                    }
+                    if (pide(args, 30000)) {
+                        loCargado = salida;
+                    }
+                }
+                break;
+            }
             case Vista::Props:
                 if (pideOFalla({"--dump-zfs-get-all", sel}, "las propiedades")) {
                     propsEn(false, false);
@@ -3282,6 +3413,11 @@ int main(int argc, char** argv) {
                                                   sesion.testigo());
                 }
                 break;
+            case Vista::Holds:
+                if (pideOFalla({"--dump-zfs-holds", sel}, "las retenciones")) {
+                    loCargado = panelHolds(conn, objeto, sel, salida, sesion.testigo());
+                }
+                break;
             case Vista::Diff:
                 // Los dos extremos en el orden que quiere `zfs diff`: primero el más
                 // antiguo. Va el ORIGEN marcado contra el destino elegido, que es
@@ -3300,7 +3436,8 @@ int main(int argc, char** argv) {
                 cuerpo = resumenDelNodo(sel, arbol);
                 break;
             case Vista::Instantaneas:
-                cuerpo = panelInstantaneas(conn, objeto, sel, arbol, sesion.testigo());
+                cuerpo = panelInstantaneas(conn, objeto, sel, arbol, loCargado,
+                                           sesion.testigo());
                 break;
             case Vista::Acciones:
                 cuerpo = selEsInstantanea
@@ -3321,6 +3458,7 @@ int main(int argc, char** argv) {
             case Vista::Historial:
             case Vista::Programacion:
             case Vista::Diff:
+            case Vista::Holds:
                 cuerpo = loCargado;
                 break;
         }
