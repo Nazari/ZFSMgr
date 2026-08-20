@@ -638,19 +638,19 @@ const char* claveDeVista(Vista v) {
 std::string tituloDeVista(Vista v, const std::string& objeto) {
     switch (v) {
         case Vista::Resumen:      return objeto;
-        case Vista::Props:        return "Propiedades de " + objeto;
-        case Vista::Permisos:     return "Permisos de " + objeto;
-        case Vista::Contenido:    return "Contenido de " + objeto;
-        case Vista::Estado:       return "Estado de " + objeto;
-        case Vista::PropsPool:    return "Propiedades del pool " + objeto;
-        case Vista::Capacidades:  return "Capacidades de " + objeto;
-        case Vista::Historial:    return "Historial de " + objeto;
-        case Vista::Programacion: return "Instantáneas programadas de " + objeto;
-        case Vista::Instantaneas: return "Instantáneas de " + objeto;
-        case Vista::Acciones:     return "Acciones sobre " + objeto;
-        case Vista::AccionesPool: return "Acciones sobre el pool " + objeto;
-        case Vista::Diff:         return "Comparar con " + objeto;
-        case Vista::Holds:        return "Retenciones de " + objeto;
+        case Vista::Props:        return B::format(T("t_web_t_props", "Propiedades de %1"), {objeto});
+        case Vista::Permisos:     return B::format(T("t_web_t_perms", "Permisos de %1"), {objeto});
+        case Vista::Contenido:    return B::format(T("t_web_t_cont", "Contenido de %1"), {objeto});
+        case Vista::Estado:       return B::format(T("t_web_t_estado", "Estado de %1"), {objeto});
+        case Vista::PropsPool:    return B::format(T("t_web_t_ppool", "Propiedades del pool %1"), {objeto});
+        case Vista::Capacidades:  return B::format(T("t_web_t_caps", "Capacidades de %1"), {objeto});
+        case Vista::Historial:    return B::format(T("t_web_t_hist", "Historial de %1"), {objeto});
+        case Vista::Programacion: return B::format(T("t_web_t_gsa", "Instantáneas programadas de %1"), {objeto});
+        case Vista::Instantaneas: return B::format(T("t_web_t_snaps", "Instantáneas de %1"), {objeto});
+        case Vista::Acciones:     return B::format(T("t_web_t_acc", "Acciones sobre %1"), {objeto});
+        case Vista::AccionesPool: return B::format(T("t_web_t_accpool", "Acciones sobre el pool %1"), {objeto});
+        case Vista::Diff:         return B::format(T("t_web_t_diff", "Comparar con %1"), {objeto});
+        case Vista::Holds:        return B::format(T("t_web_t_holds", "Retenciones de %1"), {objeto});
     }
     return objeto;
 }
@@ -1170,7 +1170,7 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
     };
     if (!e->esInstantanea()) {
         datos.push_back({"Montado", e->montado});
-        datos.push_back({"Punto de montaje", e->puntoMontaje});
+        datos.push_back({T("t_web_punto_de_monta_70570c", "Punto de montaje"), e->puntoMontaje});
         datos.push_back({"canmount", e->canmount});
         const auto ith = arbol.hijos.find(e->nombre);
         datos.push_back({"Datasets hijos",
@@ -1919,7 +1919,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
                     + "<input type=\"hidden\" name=\"volver\" value=\"gsa\">"
                     + "<input type=\"hidden\" name=\"que\" value=\"programar\">";
     f += "<div class=\"fila\">" + casilla("activado", T("t_web_activada_ae4df8", "Activada"), mia.prog.activado)
-         + casilla("recursivo", "Recursiva (cubre los descendientes)", mia.prog.recursivo)
+         + casilla("recursivo", T("t_web_recursiva_cubr_6c95e7", "Recursiva (cubre los descendientes)"), mia.prog.recursivo)
          + "</div>";
     f += "<div class=\"fila\">" + numero("horario", T("t_web_horarias_5399f3", "Horarias"), mia.prog.horario)
          + numero("diario", T("t_web_diarias_31be0d", "Diarias"), mia.prog.diario)
@@ -1928,7 +1928,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
          + numero("anual", T("t_ctx_snap_group_yearly", "Anuales"), mia.prog.anual) + "</div>";
     f += "<p class=\"tenue\">Cada número es cuántas se guardan de esa clase. Un cero es «no "
          "hagas ninguna», no «guárdalas todas».</p>";
-    f += "<div class=\"fila\">" + casilla("nivelar", "Nivelar con el destino", mia.prog.nivelar)
+    f += "<div class=\"fila\">" + casilla("nivelar", T("t_web_nivelar_con_el_e446c5", "Nivelar con el destino"), mia.prog.nivelar)
          + "<label class=\"campo\">" + H::escapaHtml(T("t_web_destino_c1a0f9", "Destino"))
          + " <input name=\"destino\" placeholder=\"zfsm://máquina/pool/dataset\" value=\""
          + H::escapaHtml(B::gsa::destinoComoUrl(mia.prog.destino)) + "\"></label></div>";
@@ -1973,20 +1973,28 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                             const std::string& testigo) {
     std::string texto;
     if (que == "borrar-instantanea") {
-        texto = "Se va a DESTRUIR la instantánea «" + objeto + "» en «" + conn
-                + "». Lo que hubiera en ella se pierde y no hay vuelta atrás.";
+        texto = B::format(T("t_web_conf_delsnap",
+                            "Se va a DESTRUIR la instantánea «%1» en «%2». Lo que hubiera en "
+                            "ella se pierde y no hay vuelta atrás."),
+                          {objeto, conn});
     } else if (que == "borrar-dataset") {
-        texto = "Se va a DESTRUIR el dataset «" + objeto + "» en «" + conn
-                + "» con todo lo que contenga. No hay vuelta atrás.";
+        texto = B::format(T("t_web_conf_delds",
+                            "Se va a DESTRUIR el dataset «%1» en «%2» con todo lo que "
+                            "contenga. No hay vuelta atrás."),
+                          {objeto, conn});
     } else if (que == "rollback") {
-        texto = "Se va a volver el dataset al estado de «" + objeto + "» en «" + conn
-                + "». Todo lo escrito DESPUÉS de esa instantánea se pierde.";
+        texto = B::format(T("t_web_conf_rollback",
+                            "Se va a volver el dataset al estado de «%1» en «%2». Todo lo "
+                            "escrito DESPUÉS de esa instantánea se pierde."),
+                          {objeto, conn});
     } else if (que == "instalar-daemon") {
-        texto = "Se va a REEMPLAZAR el binario del daemon en «" + conn
-                + "» y reiniciar su servicio. Mientras dure, esa máquina deja de contestar; "
-                  "lo que estuviera en marcha allí —un scrub, una transferencia— se corta.";
+        texto = B::format(T("t_web_conf_daemon",
+                            "Se va a REEMPLAZAR el binario del daemon en «%1» y reiniciar su "
+                            "servicio. Mientras dure, esa máquina deja de contestar; lo que "
+                            "estuviera en marcha allí —un scrub, una transferencia— se corta."),
+                          {conn});
     } else {
-        texto = "Acción desconocida.";
+        texto = T("t_web_conf_nada", "Acción desconocida.");
     }
     std::string cuerpo = "<p>" + H::escapaHtml(texto) + "</p>";
     if (que == "instalar-daemon") {
@@ -2017,7 +2025,9 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                     "destruyendo las instantáneas posteriores</label> ";
         }
         cuerpo += boton(conn, objeto, raiz, que,
-                        que == "rollback" ? "Sí, volver atrás" : "Sí, destruirlo", testigo,
+                        que == "rollback" ? T("t_web_si_atras", "Sí, volver atrás")
+                                          : T("t_web_si_destruir", "Sí, destruirlo"),
+                        testigo,
                         extra, true);
     }
     const std::string padre = objeto.find('@') != std::string::npos
@@ -2613,7 +2623,7 @@ int main(int argc, char** argv) {
             const B::ConnectionProfile* perfil = zfsmgr::cli::buscarConexion(conns, conn);
             if (!perfil || objeto.empty()) {
                 r.codigo = 400;
-                r.cuerpo = paginaError("falta la conexión o el objeto", sesion.testigo());
+                r.cuerpo = paginaError(T("t_web_falta_la_conex_797512", "falta la conexión o el objeto"), sesion.testigo());
                 respuesta = H::componer(r);
                 return true;
             }
@@ -2672,7 +2682,7 @@ int main(int argc, char** argv) {
                     || nombre.find('/') != std::string::npos
                     || nombre.find(' ') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("nombre de instantánea no válido: «" + nombre + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_nsnap", "nombre de instantánea no válido: «%1»"), {nombre}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2697,7 +2707,7 @@ int main(int argc, char** argv) {
                     || nombre.find('/') != std::string::npos
                     || nombre.find(' ') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("nombre de dataset no válido: «" + nombre + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_nds", "nombre de dataset no válido: «%1»"), {nombre}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2708,7 +2718,7 @@ int main(int argc, char** argv) {
                 if (nombre.empty() || nombre.find('@') != std::string::npos
                     || nombre.find(' ') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("nombre de destino no válido: «" + nombre + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_ndest", "nombre de destino no válido: «%1»"), {nombre}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2719,7 +2729,7 @@ int main(int argc, char** argv) {
                 if (objeto.find('@') == std::string::npos || nombre.empty()
                     || nombre.find(' ') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("un clon se hace de una instantánea a un dataset nuevo",
+                    r.cuerpo = paginaError(T("t_web_un_clon_se_hac_cd0391", "un clon se hace de una instantánea a un dataset nuevo"),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2728,7 +2738,7 @@ int main(int argc, char** argv) {
             } else if (que == "borrar-dataset") {
                 if (objeto.find('@') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("eso es una instantánea, no un dataset",
+                    r.cuerpo = paginaError(T("t_web_eso_es_una_ins_043b45", "eso es una instantánea, no un dataset"),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2738,7 +2748,7 @@ int main(int argc, char** argv) {
             } else if (que == "rollback") {
                 if (objeto.find('@') == std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("un rollback va a una instantánea", sesion.testigo());
+                    r.cuerpo = paginaError(T("t_web_un_rollback_va_847fee", "un rollback va a una instantánea"), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
@@ -2872,7 +2882,7 @@ int main(int argc, char** argv) {
                     || nombre.find('/') != std::string::npos
                     || nombre.find(' ') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("nombre de clon no válido: «" + nombre + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_nclon", "nombre de clon no válido: «%1»"), {nombre}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -2900,7 +2910,7 @@ int main(int argc, char** argv) {
                                      rcP, nullptr, 30000)
                         || rcP != 0) {
                         r.codigo = 502;
-                        r.cuerpo = paginaError("no se pudieron releer los permisos",
+                        r.cuerpo = paginaError(T("t_web_no_se_pudieron_a882e1", "no se pudieron releer los permisos"),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -2927,7 +2937,7 @@ int main(int argc, char** argv) {
                         if (perm.empty() || perm[0] == '-' || perm.find(' ') != std::string::npos
                             || perm.find(',') != std::string::npos) {
                             r.codigo = 400;
-                            r.cuerpo = paginaError("permiso no válido: «" + perm + "»",
+                            r.cuerpo = paginaError(B::format(T("t_web_e_nperm", "permiso no válido: «%1»"), {perm}),
                                                    sesion.testigo());
                             respuesta = H::componer(r);
                             return true;
@@ -2936,7 +2946,7 @@ int main(int argc, char** argv) {
                     }
                     if (entrada.permisos.empty()) {
                         r.codigo = 400;
-                        r.cuerpo = paginaError("hay que decir qué permisos se delegan",
+                        r.cuerpo = paginaError(T("t_web_hay_que_decir_0b8a38", "hay que decir qué permisos se delegan"),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -2950,7 +2960,7 @@ int main(int argc, char** argv) {
                         && (entrada.nombre.empty()
                             || entrada.nombre.find(' ') != std::string::npos)) {
                         r.codigo = 400;
-                        r.cuerpo = paginaError("falta a quién se le delega, o el nombre no vale",
+                        r.cuerpo = paginaError(T("t_web_falta_a_quien_22ffab", "falta a quién se le delega, o el nombre no vale"),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -3017,7 +3027,7 @@ int main(int argc, char** argv) {
                     }
                     if (que == "quitar-permiso" && esta) {
                         r.codigo = 502;
-                        r.cuerpo = paginaError("ZFS aceptó la orden pero el permiso sigue ahí",
+                        r.cuerpo = paginaError(T("t_web_zfs_acepto_la_127c02", "ZFS aceptó la orden pero el permiso sigue ahí"),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -3040,14 +3050,14 @@ int main(int argc, char** argv) {
                     || etiqueta.find('@') != std::string::npos
                     || etiqueta.find('/') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("etiqueta no válida: «" + etiqueta + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_netiq", "etiqueta no válida: «%1»"), {etiqueta}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
                 if (objeto.find('@') == std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("las retenciones son de una instantánea",
+                    r.cuerpo = paginaError(T("t_web_las_retencione_58d5a1", "las retenciones son de una instantánea"),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -3066,7 +3076,7 @@ int main(int argc, char** argv) {
                 else if (op == "clear")        { argv = {"clear", objeto}; }
                 if (argv.empty()) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("acción de pool desconocida: «" + op + "»",
+                    r.cuerpo = paginaError(B::format(T("t_web_e_accpool", "acción de pool desconocida: «%1»"), {op}),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -3077,14 +3087,14 @@ int main(int argc, char** argv) {
                 const std::string valor = p.campo("valor");
                 if (prop.empty() || prop.find('=') != std::string::npos) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("propiedad no válida: «" + prop + "»", sesion.testigo());
+                    r.cuerpo = paginaError(B::format(T("t_web_e_nprop", "propiedad no válida: «%1»"), {prop}), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
                 verbo = {"--mutate-zfs-generic", argvEnBase64({"set", prop + "=" + valor, objeto})};
             } else {
                 r.codigo = 400;
-                r.cuerpo = paginaError("acción desconocida: «" + que + "»", sesion.testigo());
+                r.cuerpo = paginaError(B::format(T("t_web_e_acc", "acción desconocida: «%1»"), {que}), sesion.testigo());
                 respuesta = H::componer(r);
                 return true;
             }
@@ -3291,7 +3301,7 @@ int main(int argc, char** argv) {
         const B::ConnectionProfile* perfil = zfsmgr::cli::buscarConexion(conns, conn);
         if (!perfil) {
             r.codigo = 404;
-            r.cuerpo = paginaError("no hay ninguna conexión «" + conn + "»", sesion.testigo());
+            r.cuerpo = paginaError(B::format(T("t_web_e_conn", "no hay ninguna conexión «%1»"), {conn}), sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
@@ -3468,7 +3478,7 @@ int main(int argc, char** argv) {
 
         if (!pide({"--dump-zfs-list-all", objeto}, 30000)) {
             r.codigo = 502;
-            r.cuerpo = paginaError("no se pudo listar «" + objeto + "»", sesion.testigo());
+            r.cuerpo = paginaError(B::format(T("t_web_e_list", "no se pudo listar «%1»"), {objeto}), sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
