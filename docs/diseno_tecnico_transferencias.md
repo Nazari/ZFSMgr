@@ -147,7 +147,8 @@ que volver a comprobarlo antes de fiarse.
 |---|---|---|
 | 0 | **HECHA** — `base/transferencia`: los tipos, el plan de caminos y el testigo de reanudación, con 40 aserciones | Es lo que decide todo lo demás, y se puede probar sin mover un byte. De hecho corrigió este documento |
 | 1 | **HECHA** — bajadas `transferResumeTokenFor` y `sourceViewOfThisHost`; la interfaz las llama. Cambio de comportamiento: **ninguno**, a propósito | Da el módulo real con poco riesgo |
-| 2 | Bajar **Copiar**. La interfaz pasa a llamarlo; se comprueba que sigue haciendo lo mismo contra dos máquinas | Es la más corta de las tres y la que más se usa |
+| 2a | **HECHA** — las REGLAS que Copiar necesita: la versión mínima de OpenZFS y las banderas de `zfs send`. Sin comportamiento nuevo | Al empezar la 2 apareció que arrastra ~110 líneas de ayudantes que este documento no había contado; partirla deja los dos trozos comprobables |
+| 2b | Bajar **Copiar** entero, con los ayudantes de shell que le faltan (`sshExecFromLocal`, `wrapRemoteCommand`, `daemonizeShellMutationArgs`). La interfaz pasa a llamarlo | Es la más corta de las tres y la que más se usa |
 | 3 | **Nivelar**, que comparte casi todo con Copiar | Sale barata detrás de la 2 |
 | 4 | La web ofrece las dos, **solo por trabajos**, con el motivo cuando no se pueda | Primer valor visible |
 | 5 | **Mover** = Copiar + destruir el origen, con la confirmación en cada cliente | Es la 2 con un paso más, y el paso más peligroso |

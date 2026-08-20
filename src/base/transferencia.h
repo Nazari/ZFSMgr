@@ -45,6 +45,7 @@ enum class Fallo {
     DestinoNoEsDataset,
     ExtremoWindows,          // el agente de Windows no transmite por tubería todavía
     SinTrabajos,             // hace falta el camino asíncrono y algún extremo no lo admite
+    ZfsDemasiadoViejo,       // por debajo de 2.3.3 no se transfiere
 };
 
 const char* claveDe(Camino c);
@@ -60,6 +61,7 @@ struct Extremo {
     bool esWindows{false};
     bool tieneDaemon{false};
     bool admiteTrabajos{false};  // `JOBS_SUPPORT=1` en su `--health`
+    std::string versionZfs;      // «2.3.3», «2.2.99-1», … vacía si no se sabe
 
     bool esInstantanea() const { return objeto.find('@') != std::string::npos; }
     std::string dataset() const {
@@ -67,6 +69,27 @@ struct Extremo {
         return i == std::string::npos ? objeto : objeto.substr(0, i);
     }
 };
+
+// ¿Esta versión de OpenZFS puede transferir?
+//
+// Por debajo de **2.3.3** no. Es una regla del proyecto, no de ZFS, y estaba escrita dentro
+// de la ventana. Una versión vacía o que no se entiende NO bloquea: no saber la versión es
+// distinto de saber que es vieja, y bloquear por no saber dejaría sin copiar a una máquina
+// que quizá puede.
+bool versionAdmiteTransferencia(const std::string& version);
+
+// Las banderas de `zfs send`, en el orden en que las escribe el programa.
+struct OpcionesDeEnvio {
+    bool w{false};   // crudo: manda el dataset cifrado tal cual, sin descifrarlo
+    bool L{false};   // bloques grandes
+    bool e{false};   // «embedded»: aprovecha los bloques ya comprimidos
+    bool c{false};   // comprimido
+    bool R{false};   // toda la jerarquía, con sus instantáneas
+};
+
+// «-wLR», o vacío si no hay ninguna. Vacío y no «-»: un guion con un «-» suelto en medio
+// es un argumento que `zfs` no entiende.
+std::string banderasDeEnvio(const OpcionesDeEnvio& o);
 
 // Los caminos que se pueden probar, EN ORDEN, y no uno solo.
 //

@@ -119,14 +119,15 @@ bool showZfsSendOptionsDialog(QWidget* parent,
 
 QString buildZfsSendFlags(const ZfsSendOptions& opts)
 {
-    QString flags = QStringLiteral("-");
-    if (opts.flagW) flags += 'w';
-    if (opts.flagL) flags += 'L';
-    if (opts.flagE) flags += 'e';
-    if (opts.flagC) flags += 'c';
-    if (opts.flagR) flags += 'R';
-    if (flags == QStringLiteral("-")) flags.clear();
-    return flags;
+    // Las banderas viven en `base/transferencia`: el servidor web tiene que componer las
+    // mismas, y dos listas con el mismo orden acaban discrepando en cuanto se añada una.
+    zfsmgr::base::transferencia::OpcionesDeEnvio o;
+    o.w = opts.flagW;
+    o.L = opts.flagL;
+    o.e = opts.flagE;
+    o.c = opts.flagC;
+    o.R = opts.flagR;
+    return QString::fromStdString(zfsmgr::base::transferencia::banderasDeEnvio(o));
 }
 
 QString syncCodecToken(mwhelpers::StreamCodec codec) {

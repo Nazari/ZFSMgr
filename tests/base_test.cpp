@@ -1049,6 +1049,45 @@ int main() {
         igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
+        // --- la version de OpenZFS que admite transferir
+        //
+        // Por debajo de 2.3.3 no. La regla es del proyecto, no de ZFS, y estaba escrita
+        // dentro de la ventana. Lo que se fija es la FRONTERA y, sobre todo, que no saber la
+        // version NO bloquea: no saberla es distinto de saber que es vieja, y bloquear por
+        // no saber dejaria sin copiar a una maquina que quiza puede.
+        comprobar(!TR::versionAdmiteTransferencia("2.3.2"), "version: 2.3.2 no");
+        comprobar(TR::versionAdmiteTransferencia("2.3.3"), "version: 2.3.3 justo si");
+        comprobar(TR::versionAdmiteTransferencia("2.3.4"), "version: y de ahi para arriba");
+        comprobar(!TR::versionAdmiteTransferencia("2.2.99"), "version: 2.2.x no, por alta que sea");
+        comprobar(TR::versionAdmiteTransferencia("2.4.0"), "version: 2.4 si");
+        comprobar(TR::versionAdmiteTransferencia("3.0.0"), "version: la rama 3 no es «vieja»");
+        // El sufijo de distribucion no dice nada del formato del flujo: se ignora.
+        comprobar(TR::versionAdmiteTransferencia("2.3.3-1ubuntu2"), "version: con sufijo, igual");
+        comprobar(!TR::versionAdmiteTransferencia("2.2.7-pve1"), "version: y la vieja con sufijo");
+        // «2.3» sin el tercer numero es 2.3.0, que es menor que 2.3.3.
+        comprobar(!TR::versionAdmiteTransferencia("2.3"), "version: «2.3» es 2.3.0");
+        // No saberla no bloquea.
+        comprobar(TR::versionAdmiteTransferencia(""), "version: vacia no bloquea");
+        comprobar(TR::versionAdmiteTransferencia("zfswin-2.4.1rc14"),
+                  "version: lo que no empieza por numero tampoco bloquea");
+
+        // Y entra en el plan ANTES que el camino: da igual por donde vayan los bytes si el
+        // formato del flujo no se entiende en el otro lado.
+        TR::Extremo viejo = ext("unibody", "t/copias", false, true, true);
+        viejo.versionZfs = "2.2.7";
+        comprobar(TR::planea(snapOk, viejo, false).fallo == TR::Fallo::ZfsDemasiadoViejo,
+                  "transferencia: un extremo con ZFS viejo corta el plan");
+        comprobar(TR::planea(snapOk, viejo, false).caminos.empty(),
+                  "transferencia: y no deja ningun camino");
+
+        // --- las banderas de `zfs send`
+        comprobar(TR::banderasDeEnvio({}).empty(), "banderas: sin ninguna, cadena vacia");
+        igual(TR::banderasDeEnvio({true, false, false, false, true}), "-wR",
+              "banderas: en el orden en que las escribe el programa");
+        igual(TR::banderasDeEnvio({true, true, true, true, true}), "-wLecR", "banderas: las cinco");
+        // Vacio y NO «-»: un guion suelto en medio del argv es algo que `zfs` no entiende.
+        comprobar(TR::banderasDeEnvio({}) != "-", "banderas: el guion solo no se emite");
+
         // --- la direccion con la que el ORIGEN ve a este equipo
         //
         // Dos cosas que se aprendieron a base de fallar, y las dos se fijan aqui.

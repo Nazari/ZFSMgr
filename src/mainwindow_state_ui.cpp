@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "transferencia.h"
+
 #include <QFontMetrics>
 #include "mainwindow_helpers.h"
 #include "connectioncapabilities.h"
@@ -408,47 +410,30 @@ void MainWindow::updateConnectionActionsState() {
 bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
                                           const DatasetSelectionContext& dst,
                                           QString* reasonOut) const {
-    auto parseVer = [](const QString& raw, int& a, int& b, int& c) -> bool {
-        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
-        const QRegularExpressionMatch m = rx.match(raw.trimmed());
-        if (!m.hasMatch()) {
-            return false;
-        }
-        a = m.captured(1).toInt();
-        b = m.captured(2).toInt();
-        c = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
-        return true;
-    };
-    auto isTooOld = [&](const DatasetSelectionContext& ctx, QString* connNameOut, QString* verOut) -> bool {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size() || ctx.connIdx >= m_conns.states.size()) {
+    // La REGLA —por debajo de 2.3.3 no se transfiere— vive en `base/transferencia`, junto
+    // al resto de las decisiones de una transferencia. Aquí queda mirar la versión de cada
+    // extremo y componer el aviso, que es lo que sí es de la ventana.
+    const auto demasiadoViejo = [this](const DatasetSelectionContext& ctx, QString* connOut,
+                                       QString* verOut) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()
+            || ctx.connIdx >= m_conns.states.size()) {
             return false;
         }
         const QString ver = m_conns.states[ctx.connIdx].zfsVersion.trimmed();
-        if (ver.isEmpty()) {
+        if (zfsmgr::base::transferencia::versionAdmiteTransferencia(ver.toStdString())) {
             return false;
         }
-        int ma = 0, mi = 0, pa = 0;
-        if (!parseVer(ver, ma, mi, pa)) {
-            return false;
-        }
-        if (connNameOut) {
-            *connNameOut = m_conns.profiles[ctx.connIdx].name;
-        }
-        if (verOut) {
-            *verOut = ver;
-        }
-        if (ma != 2) return false;
-        if (mi < 3) return true;
-        if (mi > 3) return false;
-        return pa < 3;
+        if (connOut) { *connOut = m_conns.profiles[ctx.connIdx].name; }
+        if (verOut) { *verOut = ver; }
+        return true;
     };
     if (!src.valid || !dst.valid) {
         return true;
     }
     QString badConn;
     QString badVer;
-    const bool srcTooOld = isTooOld(src, &badConn, &badVer);
-    const bool dstTooOld = isTooOld(dst, &badConn, &badVer);
+    const bool srcTooOld = demasiadoViejo(src, &badConn, &badVer);
+    const bool dstTooOld = demasiadoViejo(dst, &badConn, &badVer);
     if (!srcTooOld && !dstTooOld) {
         return true;
     }

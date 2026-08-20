@@ -24,6 +24,7 @@ const char* claveDe(Fallo f) {
         case Fallo::DestinoNoEsDataset:    return "destino-no-dataset";
         case Fallo::ExtremoWindows:        return "extremo-windows";
         case Fallo::SinTrabajos:           return "sin-trabajos";
+        case Fallo::ZfsDemasiadoViejo:     return "zfs-viejo";
     }
     return "";
 }
@@ -54,8 +55,60 @@ std::string etiquetaDe(Fallo f) {
         case Fallo::SinTrabajos:
             return "hace falta que los dos daemons admitan trabajos en segundo plano, "
                    "porque quien lo pide no puede esperar a que termine";
+        case Fallo::ZfsDemasiadoViejo:
+            return "alguno de los extremos usa un OpenZFS anterior al 2.3.3";
     }
     return {};
+}
+
+bool versionAdmiteTransferencia(const std::string& version) {
+    const std::string v = trim(version);
+    if (v.empty()) {
+        return true;   // no saberla no es saber que es vieja
+    }
+    // «2.3.3», «2.2.99-1», «2.3»… Se leen los tres primeros números y se para en cuanto
+    // deja de haberlos: el sufijo de distribución no dice nada del formato del flujo.
+    int n[3] = {0, 0, 0};
+    std::size_t i = 0;
+    for (int parte = 0; parte < 3; ++parte) {
+        if (i >= v.size() || v[i] < '0' || v[i] > '9') {
+            if (parte == 0) {
+                return true;   // no empieza por un número: no se entiende, no se bloquea
+            }
+            break;
+        }
+        int valor = 0;
+        while (i < v.size() && v[i] >= '0' && v[i] <= '9') {
+            valor = valor * 10 + (v[i] - '0');
+            ++i;
+        }
+        n[parte] = valor;
+        if (i < v.size() && v[i] == '.') {
+            ++i;
+        } else {
+            break;
+        }
+    }
+    if (n[0] != 2) {
+        return true;   // el 1 y el 3 no son «viejos»: la regla es sobre la rama 2
+    }
+    if (n[1] < 3) {
+        return false;
+    }
+    if (n[1] > 3) {
+        return true;
+    }
+    return n[2] >= 3;
+}
+
+std::string banderasDeEnvio(const OpcionesDeEnvio& o) {
+    std::string f = "-";
+    if (o.w) { f += 'w'; }
+    if (o.L) { f += 'L'; }
+    if (o.e) { f += 'e'; }
+    if (o.c) { f += 'c'; }
+    if (o.R) { f += 'R'; }
+    return f == "-" ? std::string() : f;
 }
 
 Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) {
@@ -73,6 +126,14 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) 
     }
     if (destino.esInstantanea()) {
         p.fallo = Fallo::DestinoNoEsDataset;
+        return p;
+    }
+
+    // La versión de ZFS antes que el camino: da igual por dónde vayan los bytes si el
+    // formato del flujo no se entiende en el otro lado.
+    if (!versionAdmiteTransferencia(origen.versionZfs)
+        || !versionAdmiteTransferencia(destino.versionZfs)) {
+        p.fallo = Fallo::ZfsDemasiadoViejo;
         return p;
     }
 
