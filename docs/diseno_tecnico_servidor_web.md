@@ -104,7 +104,12 @@ GSA; registro del daemon; trabajos en segundo plano.
 en la URL. Sale abierto lo que lleva hasta el nodo elegido y nada más, así que una recarga
 o un enlace guardado reconstruyen la misma vista sin que el servidor recuerde nada.
 
-**Hay que escribirlo:** la edición en línea de propiedades, la lista de pendientes como
+**La edición en línea de propiedades: HECHA.** Cada fila que se puede cambiar trae su valor
+dentro de un campo —desplegable si la propiedad tiene lista cerrada— y su botón al lado. Qué
+se puede cambiar lo decide `base/zfsprops`, que es la MISMA regla que usa la interfaz de Qt:
+estaba escrita tres veces dentro de la GUI y ahora está una sola vez, sin Qt.
+
+**Hay que escribirlo:** la lista de pendientes como
 plan de trabajo, el diálogo de creación de pool con sus dispositivos, y las capturas de
 ayuda. Y las acciones de DOS extremos —copiar, mover, clonar entre máquinas, sincronizar,
 nivelar y diff—, que son las que en Qt piden marcar un origen: eso es estado entre páginas
@@ -132,7 +137,7 @@ base lo lee— y el tema oscuro.
 | 1 | **HECHA** — Lectura completa: pools, datasets, propiedades, instantáneas | Todo son verbos `--dump-*`, que son inocuos y verificables uno a uno |
 | 2 | **HECHA** — Mutaciones, con confirmación | Aquí empieza a poder romper cosas |
 | 3 | **HECHA a medias** — WebDAV sobre la misma escucha: el árbol de ZFS sí, los ficheros de dentro no (hacen falta dos verbos nuevos en el daemon) | Cae casi solo una vez hay servidor |
-| 4 | **EN CURSO** — dos paneles: árbol a la izquierda con los mismos nodos que Qt (Propiedades, Permisos, Contenido, Programación, instantáneas agrupadas por clase) y a la derecha la ficha del nodo más sus acciones | |
+| 4 | **EN CURSO** — dos paneles: a la izquierda UN árbol desde `zfsm://` (máquinas → pools → datasets → instantáneas) con los mismos nodos que Qt; a la derecha, marcos plegables con la ficha, la vista elegida y las acciones | |
 | 5 | Retirar Qt | Solo cuando 4 esté medido contra la lista, no antes |
 
 ## Lo que hay que resolver y todavía no sé

@@ -72,6 +72,33 @@ std::vector<Entrada> entradas(const std::string& salidaTsv) {
 
 namespace {
 
+// El origen de una propiedad tal y como lo escribe `zfs get -H -o source`, a partir del
+// par «type/data» del JSON. Comprobado contra la salida real de las dos formas, que es de
+// donde salen estos nombres: no son una invención de este programa.
+std::string origenLegible(const std::string& tipo, const std::string& dato) {
+    const std::string t = toUpperAscii(trim(tipo));
+    if (t == "NONE" || t.empty()) {
+        return "-";   // calculada: `used`, `creation`. No se cambia.
+    }
+    if (t == "DEFAULT") {
+        return "default";
+    }
+    if (t == "LOCAL") {
+        return "local";
+    }
+    if (t == "RECEIVED") {
+        return "received";
+    }
+    if (t == "TEMPORARY") {
+        return "temporary";
+    }
+    if (t == "INHERITED") {
+        const std::string d = trim(dato);
+        return d.empty() || d == "-" ? "inherited" : "inherited from " + d;
+    }
+    return toLowerAscii(t);
+}
+
 // El cuerpo común de `zfs get -j` y `zpool get -j`: cambia la sección de la que cuelgan
 // los objetos y nada más.
 bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<Propiedad>& out,
@@ -91,10 +118,8 @@ bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<P
             Propiedad p;
             p.nombre = kv.first;
             p.valor = kv.second["value"].toString();
-            p.origen = kv.second["source"]["data"].toString();
-            if (p.origen.empty()) {
-                p.origen = kv.second["source"]["type"].toString();
-            }
+            p.origen = origenLegible(kv.second["source"]["type"].toString(),
+                                     kv.second["source"]["data"].toString());
             out.push_back(p);
         }
     }

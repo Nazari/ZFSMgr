@@ -1,5 +1,8 @@
 #include "zfsprops.h"
 
+#include "strutil.h"
+
+#include <set>
 #include <sstream>
 
 namespace zfsmgr::base::zfsprops {
@@ -125,6 +128,136 @@ bool banderasDeSendValidas(const std::string& cadena, std::string& mala) {
         }
     }
     return true;
+}
+
+}  // namespace zfsmgr::base::zfsprops
+
+namespace zfsmgr::base::zfsprops {
+namespace {
+
+std::string bajo(const std::string& s) { return toLowerAscii(trim(s)); }
+
+bool esCierto(const std::string& v) {
+    const std::string s = bajo(v);
+    return s == "true" || s == "on" || s == "yes" || s == "1";
+}
+
+// Las que se pueden escribir en cualquier tipo de dataset.
+const std::set<std::string>& comunes() {
+    static const std::set<std::string> s = {
+        "atime",      "relatime",       "readonly",   "compression", "checksum",
+        "sync",       "logbias",        "primarycache", "secondarycache", "dedup",
+        "copies",     "acltype",        "aclinherit", "xattr",       "normalization",
+        "casesensitivity", "utf8only",  "keylocation", "comment",
+    };
+    return s;
+}
+
+const std::set<std::string>& deSistemaDeFicheros() {
+    static const std::set<std::string> s = [] {
+        std::set<std::string> t = comunes();
+        for (const char* p : {"mountpoint", "canmount", "recordsize", "quota", "reservation",
+                              "refquota", "refreservation", "snapdir", "exec", "setuid",
+                              "devices", "driveletter", "sharesmb", "sharenfs", "nbmand",
+                              "overlay", "jailed", "zoned"}) {
+            t.insert(p);
+        }
+        return t;
+    }();
+    return s;
+}
+
+const std::set<std::string>& deVolumen() {
+    static const std::set<std::string> s = [] {
+        std::set<std::string> t = comunes();
+        for (const char* p : {"volsize", "volblocksize", "reservation", "refreservation",
+                              "snapdev", "volmode"}) {
+            t.insert(p);
+        }
+        return t;
+    }();
+    return s;
+}
+
+}  // namespace
+
+Plataforma plataformaDe(const std::string& osType, const std::string& osLine) {
+    const std::string junto = bajo(osType + " " + osLine);
+    if (contains(junto, "windows")) {
+        return Plataforma::Windows;
+    }
+    if (contains(junto, "darwin") || contains(junto, "mac")) {
+        return Plataforma::MacOs;
+    }
+    if (contains(junto, "freebsd")) {
+        return Plataforma::FreeBsd;
+    }
+    if (contains(junto, "linux")) {
+        return Plataforma::Linux;
+    }
+    return Plataforma::Otra;
+}
+
+bool esPropiedadDeUsuario(const std::string& prop) {
+    return prop.find(':') != std::string::npos;
+}
+
+bool soportadaEn(const std::string& prop, Plataforma p) {
+    const std::string n = bajo(prop);
+    if (n.empty()) {
+        return false;
+    }
+    if (n == "vscan") {
+        return false;
+    }
+    if (n == "jailed") {
+        return p == Plataforma::FreeBsd;
+    }
+    if (n == "zoned") {
+        return p == Plataforma::Linux;
+    }
+    if (n == "sharesmb") {
+        return p != Plataforma::MacOs;
+    }
+    if (n == "nbmand") {
+        return p == Plataforma::Linux;
+    }
+    return true;
+}
+
+bool editableEnLinea(const std::string& prop, const std::string& tipoDataset,
+                     const std::string& origen, const std::string& readonly, Plataforma p) {
+    const std::string n = bajo(prop);
+    const std::string tipo = bajo(tipoDataset);
+    if (n.empty()) {
+        return false;
+    }
+    if (!soportadaEn(n, p)) {
+        return false;
+    }
+    // Lo que ZFS declara de solo lectura no se toca, diga lo que diga la lista de abajo.
+    if (esCierto(readonly)) {
+        return false;
+    }
+    // Origen «-» es una propiedad CALCULADA —`used`, `creation`—, no una que esté puesta.
+    if (trim(origen) == "-") {
+        return false;
+    }
+    if (esPropiedadDeUsuario(n)) {
+        return true;
+    }
+    if (tipo == "filesystem") {
+        return deSistemaDeFicheros().count(n) > 0;
+    }
+    if (tipo == "volume") {
+        return deVolumen().count(n) > 0;
+    }
+    // A una instantánea no se le cambia nada: es de solo lectura por definición.
+    if (tipo == "snapshot") {
+        return false;
+    }
+    // Sin saber el tipo, se admite lo de cualquiera de los dos: es lo que hacía la interfaz.
+    return deSistemaDeFicheros().count(n) > 0 || deVolumen().count(n) > 0;
 }
 
 }  // namespace zfsmgr::base::zfsprops

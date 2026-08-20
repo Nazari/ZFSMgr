@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+
+#include "zfsprops.h"
 #include "base/gsa.h"
 #include "mainwindow_helpers.h"
 #include "i18nmanager.h"
@@ -110,52 +112,18 @@ QString selectionSideString(DatasetTreeContext side) {
     return QString();
 }
 
-enum class DatasetPlatformFamily {
-    Linux,
-    MacOS,
-    FreeBSD,
-    Windows,
-    Other,
-};
+// La familia de plataforma, el soporte por plataforma y la editabilidad viven ahora en
+// `base/zfsprops`, sin Qt. Estaban DUPLICADAS letra por letra en este fichero y en el
+// otro, y el servidor web necesita la misma regla para saber qué celda pinta con una caja
+// de edición. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
+using DatasetPlatformFamily = zfsmgr::base::zfsprops::Plataforma;
 
 DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
-    const QString merged = (osType + QStringLiteral(" ") + osLine).trimmed().toLower();
-    if (merged.contains(QStringLiteral("windows"))) {
-        return DatasetPlatformFamily::Windows;
-    }
-    if (merged.contains(QStringLiteral("darwin")) || merged.contains(QStringLiteral("mac"))) {
-        return DatasetPlatformFamily::MacOS;
-    }
-    if (merged.contains(QStringLiteral("freebsd"))) {
-        return DatasetPlatformFamily::FreeBSD;
-    }
-    if (merged.contains(QStringLiteral("linux"))) {
-        return DatasetPlatformFamily::Linux;
-    }
-    return DatasetPlatformFamily::Other;
+    return zfsmgr::base::zfsprops::plataformaDe(osType.toStdString(), osLine.toStdString());
 }
 
 bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
-    const QString prop = propName.trimmed().toLower();
-    if (prop.isEmpty()) {
-        return false;
-    }
-    if (prop == QStringLiteral("vscan")) {
-        return false;
-    }
-    if (prop == QStringLiteral("jailed")) {
-        return platform == DatasetPlatformFamily::FreeBSD;
-    }
-    if (prop == QStringLiteral("zoned")) {
-        return platform == DatasetPlatformFamily::Linux;
-    }
-    if (prop == QStringLiteral("sharesmb")) {
-        return platform != DatasetPlatformFamily::MacOS;
-    }
-    if (prop == QStringLiteral("nbmand")) {
-        return platform == DatasetPlatformFamily::Linux;
-    }
-    return true;
+    return zfsmgr::base::zfsprops::soportadaEn(propName.toStdString(), platform);
 }
 
 QStringList gsaUserProps() {
@@ -927,7 +895,7 @@ void restoreExpandedConnContentChildPaths(QTreeWidgetItem* datasetNode, const QS
 }
 
 bool isUserProperty(const QString& prop) {
-    return prop.contains(':');
+    return zfsmgr::base::zfsprops::esPropiedadDeUsuario(prop.toStdString());
 }
 
 bool isDatasetPropertyEditableInline(const QString& propName,
@@ -935,64 +903,10 @@ bool isDatasetPropertyEditableInline(const QString& propName,
                                      const QString& source,
                                      const QString& readonly,
                                      DatasetPlatformFamily platform) {
-    const QString prop = propName.trimmed().toLower();
-    const QString dsType = datasetType.trimmed().toLower();
-    const QString src = source.trimmed();
-    const QString ro = readonly.trimmed().toLower();
-    if (prop.isEmpty()) {
-        return false;
-    }
-    if (!isDatasetPropertySupportedOnPlatform(propName, platform)) {
-        return false;
-    }
-    if (ro == QStringLiteral("true") || ro == QStringLiteral("on") || ro == QStringLiteral("yes") || ro == QStringLiteral("1")) {
-        return false;
-    }
-    if (src == QStringLiteral("-")) {
-        return false;
-    }
-    if (isUserProperty(prop)) {
-        return true;
-    }
-
-    static const QSet<QString> common = {
-        QStringLiteral("atime"), QStringLiteral("relatime"), QStringLiteral("readonly"), QStringLiteral("compression"),
-        QStringLiteral("checksum"), QStringLiteral("sync"), QStringLiteral("logbias"), QStringLiteral("primarycache"),
-        QStringLiteral("secondarycache"), QStringLiteral("dedup"), QStringLiteral("copies"), QStringLiteral("acltype"),
-        QStringLiteral("aclinherit"), QStringLiteral("xattr"), QStringLiteral("normalization"),
-        QStringLiteral("casesensitivity"), QStringLiteral("utf8only"), QStringLiteral("keylocation"), QStringLiteral("comment")
-    };
-    static const QSet<QString> fs = []() {
-        QSet<QString> s = common;
-        s.unite(QSet<QString>{
-            QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
-            QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
-            QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices"),
-            QStringLiteral("driveletter"), QStringLiteral("sharesmb"), QStringLiteral("sharenfs"),
-            QStringLiteral("nbmand"), QStringLiteral("overlay"), QStringLiteral("jailed"),
-            QStringLiteral("zoned")
-        });
-        return s;
-    }();
-    static const QSet<QString> vol = []() {
-        QSet<QString> s = common;
-        s.unite(QSet<QString>{
-            QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("reservation"),
-            QStringLiteral("refreservation"), QStringLiteral("snapdev"), QStringLiteral("volmode")
-        });
-        return s;
-    }();
-
-    if (dsType == QStringLiteral("filesystem")) {
-        return fs.contains(prop);
-    }
-    if (dsType == QStringLiteral("volume")) {
-        return vol.contains(prop);
-    }
-    if (dsType == QStringLiteral("snapshot")) {
-        return false;
-    }
-    return fs.contains(prop) || vol.contains(prop);
+    return zfsmgr::base::zfsprops::editableEnLinea(propName.toStdString(),
+                                                   datasetType.toStdString(),
+                                                   source.toStdString(),
+                                                   readonly.toStdString(), platform);
 }
 
 template <typename Rows>

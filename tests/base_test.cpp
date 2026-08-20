@@ -2,6 +2,7 @@
 // esa es justamente la comprobación que aporta. Por eso no usa QTest y trae su propio
 // arnés de cuatro líneas.
 
+#include "zfsprops.h"
 #include "daemoninstall.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
@@ -836,7 +837,46 @@ int main() {
         comprobar(L::propiedades(getJson, props, err), "listados: se analiza zfs get -j");
         comprobar(props.size() == 2, "listados: dos propiedades");
         igual(props.at(0).nombre, "atime", "listados: ordenadas por nombre");
-        igual(props.at(0).origen, "fc16", "listados: el origen heredado dice de donde");
+        igual(props.at(0).origen, "inherited from fc16",
+              "listados: el origen heredado dice de donde, como `zfs get -o source`");
+
+        // El origen se escribe COMO LO ESCRIBE `zfs get -H -o source`, y no es cosmetico:
+        // el «-» es la marca de una propiedad CALCULADA —`used`, `creation`— y es lo que
+        // mira la regla que decide si se puede escribir encima. El JSON trae
+        // «{"type":"DEFAULT","data":"-"}», asi que quedarse con `data` dejaba en «-» todo
+        // lo que estuviera por omision y hacia que `atime`, `quota` y `recordsize`
+        // salieran como si no se pudieran cambiar. Contrastado con la salida real de
+        // `zfs get` sobre fc16/user.
+        const std::string origenes =
+            R"({"datasets":{"d":{"properties":{)"
+            R"("atime":{"value":"on","source":{"type":"DEFAULT","data":"-"}},)"
+            R"("used":{"value":"1","source":{"type":"NONE","data":"-"}},)"
+            R"("mountpoint":{"value":"/x","source":{"type":"RECEIVED","data":"-"}},)"
+            R"("quota":{"value":"none","source":{"type":"LOCAL","data":"-"}},)"
+            R"("xattr":{"value":"sa","source":{"type":"INHERITED","data":"padre"}}}}}})";
+        std::vector<L::Propiedad> orig;
+        comprobar(L::propiedades(origenes, orig, err), "listados: se analizan los origenes");
+        std::map<std::string, std::string> porNombre;
+        for (const L::Propiedad& pr : orig) {
+            porNombre[pr.nombre] = pr.origen;
+        }
+        igual(porNombre["atime"], "default", "listados: DEFAULT no es «-»");
+        igual(porNombre["used"], "-", "listados: NONE si es «-», que es lo calculado");
+        igual(porNombre["mountpoint"], "received", "listados: RECEIVED");
+        igual(porNombre["quota"], "local", "listados: LOCAL");
+        igual(porNombre["xattr"], "inherited from padre", "listados: INHERITED con su padre");
+
+        // Y lo que de verdad importaba: con el origen bien, la regla deja escribir encima
+        // de lo que esta por omision — que es la mayoria de las propiedades de un dataset
+        // recien creado.
+        comprobar(zfsmgr::base::zfsprops::editableEnLinea("atime", "filesystem",
+                                                          porNombre["atime"], "off",
+                                                          zfsmgr::base::zfsprops::Plataforma::Linux),
+                  "listados: una propiedad por omision SI se puede cambiar");
+        comprobar(!zfsmgr::base::zfsprops::editableEnLinea("used", "filesystem",
+                                                           porNombre["used"], "off",
+                                                           zfsmgr::base::zfsprops::Plataforma::Linux),
+                  "listados: y una calculada no");
         igual(props.at(1).valor, "lz4", "listados: y el valor");
 
         // `zpool get -j all` es el MISMO formato con la seccion cambiada: los objetos
@@ -870,6 +910,81 @@ int main() {
                   "listados: salida vacia de zpool get no es un fallo");
         comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
+    }
+
+    // --- qué propiedad se puede escribir encima
+    //
+    // Esta regla estaba TRES veces: `isDatasetPropertySupportedOnPlatform` duplicada letra
+    // por letra en `mainwindow_dataset_props.cpp` y `mainwindow_dataset_tree.cpp`, y la de
+    // editabilidad otras dos con nombres distintos —`isDatasetPropertyEditable` y
+    // `...EditableInline`— y el mismo cuerpo. Las tres con Qt dentro, así que el servidor
+    // web no podía usarlas y habría acabado con una cuarta.
+    {
+        namespace ZP = zfsmgr::base::zfsprops;
+        igual(std::to_string(static_cast<int>(ZP::plataformaDe("FreeBSD 15", ""))),
+              std::to_string(static_cast<int>(ZP::Plataforma::FreeBsd)), "zfsprops: FreeBSD");
+        igual(std::to_string(static_cast<int>(ZP::plataformaDe("", "Darwin 24.0"))),
+              std::to_string(static_cast<int>(ZP::Plataforma::MacOs)),
+              "zfsprops: la linea de uname vale cuando el perfil no dice nada");
+        igual(std::to_string(static_cast<int>(ZP::plataformaDe("", ""))),
+              std::to_string(static_cast<int>(ZP::Plataforma::Otra)),
+              "zfsprops: sin datos, no se inventa una");
+
+        // Lo que solo existe en un sistema. Ofrecerlo en otro es ofrecer un error.
+        comprobar(ZP::soportadaEn("jailed", ZP::Plataforma::FreeBsd), "zfsprops: jailed en FreeBSD");
+        comprobar(!ZP::soportadaEn("jailed", ZP::Plataforma::Linux), "zfsprops: y NO en Linux");
+        comprobar(ZP::soportadaEn("zoned", ZP::Plataforma::Linux), "zfsprops: zoned en Linux");
+        comprobar(!ZP::soportadaEn("zoned", ZP::Plataforma::FreeBsd), "zfsprops: y NO en FreeBSD");
+        comprobar(!ZP::soportadaEn("sharesmb", ZP::Plataforma::MacOs), "zfsprops: sharesmb no en macOS");
+        comprobar(!ZP::soportadaEn("vscan", ZP::Plataforma::Linux), "zfsprops: vscan en ningun sitio");
+
+        const auto lin = ZP::Plataforma::Linux;
+        comprobar(ZP::editableEnLinea("compression", "filesystem", "local", "off", lin),
+                  "zfsprops: compression se escribe");
+        comprobar(ZP::editableEnLinea("volsize", "volume", "local", "off", lin),
+                  "zfsprops: volsize en un volumen");
+        comprobar(!ZP::editableEnLinea("volsize", "filesystem", "local", "off", lin),
+                  "zfsprops: pero NO en un sistema de ficheros");
+        comprobar(ZP::editableEnLinea("quota", "filesystem", "local", "off", lin),
+                  "zfsprops: quota en un sistema de ficheros");
+        comprobar(!ZP::editableEnLinea("quota", "volume", "local", "off", lin),
+                  "zfsprops: y NO en un volumen");
+
+        // Los tres cortes que van ANTES de mirar la lista, y que son los que de verdad
+        // evitan ofrecer una caja de edición que solo puede fallar.
+        comprobar(!ZP::editableEnLinea("used", "filesystem", "-", "off", lin),
+                  "zfsprops: origen «-» es calculada, no editable");
+        comprobar(!ZP::editableEnLinea("compression", "filesystem", "local", "on", lin),
+                  "zfsprops: lo que ZFS declara readonly no se toca");
+        comprobar(!ZP::editableEnLinea("compression", "filesystem", "local", "yes", lin),
+                  "zfsprops: y «yes» cuenta igual que «on»");
+        comprobar(!ZP::editableEnLinea("jailed", "filesystem", "local", "off", lin),
+                  "zfsprops: lo no soportado en la plataforma tampoco");
+
+        // A una instantánea no se le cambia nada. Es de solo lectura por definición, y en
+        // el árbol se seleccionan tanto como los datasets.
+        comprobar(!ZP::editableEnLinea("compression", "snapshot", "local", "off", lin),
+                  "zfsprops: a una instantanea no se le escribe");
+
+        // Las del usuario SIEMPRE, porque ZFS no las interpreta — y ahí es donde este
+        // programa guarda su programación.
+        comprobar(ZP::editableEnLinea("org.fc16.gsa:diario", "filesystem", "local", "off", lin),
+                  "zfsprops: las propiedades de usuario se escriben");
+        comprobar(ZP::esPropiedadDeUsuario("org.fc16.gsa:diario"), "zfsprops: llevan dos puntos");
+        comprobar(!ZP::esPropiedadDeUsuario("compression"), "zfsprops: y las de ZFS no");
+        // Y SI se escriben en una instantánea, aunque las de ZFS no. No es un descuido de
+        // la regla: se le preguntó a ZFS. `zfs set org.fc16.prueba:x=1 pool@s1` la acepta y
+        // se lee de vuelta; `zfs set compression=zstd pool@s1` contesta «this property can
+        // not be modified for snapshots». La regla dice exactamente eso.
+        comprobar(ZP::editableEnLinea("org.fc16.gsa:diario", "snapshot", "local", "off", lin),
+                  "zfsprops: las de usuario SI se escriben en una instantanea");
+
+        // Sin saber el tipo se admite lo de cualquiera de los dos, que es lo que hacía la
+        // interfaz: es mejor ofrecerlo y que ZFS diga que no, a esconder lo que sí valía.
+        comprobar(ZP::editableEnLinea("recordsize", "", "local", "off", lin),
+                  "zfsprops: sin tipo, se admite lo de los dos");
+        comprobar(!ZP::editableEnLinea("creation", "", "local", "off", lin),
+                  "zfsprops: pero no lo que no esta en ninguna lista");
     }
 
     // --- el guion que instala el daemon

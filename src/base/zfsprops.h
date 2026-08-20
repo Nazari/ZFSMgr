@@ -17,6 +17,40 @@ const std::map<std::string, std::vector<std::string>>& propiedadesConValores();
 // Los valores posibles de una propiedad, o vacío si no tiene lista cerrada.
 const std::vector<std::string>& valoresDe(const std::string& propiedad);
 
+// La familia de sistema de la máquina donde vive el dataset. Importa porque hay
+// propiedades que solo existen en una: `jailed` es de FreeBSD, `zoned` de Linux.
+enum class Plataforma {
+    Linux,
+    MacOs,
+    FreeBsd,
+    Windows,
+    Otra,
+};
+
+// De lo que se sabe de la máquina —el tipo declarado en el perfil y la línea de `uname`—
+// a una familia. Mira las dos juntas: el perfil puede venir sin rellenar.
+Plataforma plataformaDe(const std::string& osType, const std::string& osLine);
+
+// Las propiedades del usuario llevan «:» en el nombre. Siempre se pueden escribir: ZFS no
+// las interpreta, y este programa guarda ahí su programación (`org.fc16.gsa:*`).
+bool esPropiedadDeUsuario(const std::string& prop);
+
+// ¿Existe esa propiedad en esa plataforma? Ofrecer `jailed` en Linux es ofrecer un error.
+bool soportadaEn(const std::string& prop, Plataforma p);
+
+// ¿Se puede cambiar el valor de esa propiedad ESCRIBIÉNDOLO encima?
+//
+// Hace falta más que el nombre: `origen` distingue una propiedad de verdad de una
+// calculada —el «-» las marca—, `readonly` es lo que dice el propio ZFS, y el tipo separa
+// un sistema de ficheros de un volumen; a una instantánea no se le cambia nada.
+//
+// **Estaba duplicada LETRA POR LETRA en `mainwindow_dataset_props.cpp` y en
+// `mainwindow_dataset_tree.cpp`**, las dos con Qt dentro. No es una regla de interfaz: es
+// lo que ZFS deja hacer, y el servidor web necesita exactamente la misma para saber qué
+// celda pinta con una caja de edición y cuál no.
+bool editableEnLinea(const std::string& prop, const std::string& tipoDataset,
+                     const std::string& origen, const std::string& readonly, Plataforma p);
+
 // Una bandera de `zfs send`, tal y como la escribe el usuario.
 struct BanderaSend {
     const char* forma;   // "-w"

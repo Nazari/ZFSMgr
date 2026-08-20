@@ -63,7 +63,16 @@ std::vector<Entrada> entradas(const std::string& salidaTsv);
 struct Propiedad {
     std::string nombre;
     std::string valor;
-    std::string origen;   // local, default, inherited from…, -
+    // El origen, ESCRITO COMO LO ESCRIBE `zfs get -H -o source`: «local», «default»,
+    // «inherited from fc16», «received», «-».
+    //
+    // El JSON no lo da así: trae `{"type":"DEFAULT","data":"-"}`, y quedarse con `data`
+    // —que es lo que se hacía— deja en «-» todo lo que viene por omisión. Ese «-» significa
+    // otra cosa: es la marca de una propiedad CALCULADA, como `used` o `creation`. Con las
+    // dos cosas escritas igual no había forma de distinguir «se puede cambiar y nadie la ha
+    // cambiado» de «esto no se cambia», y el servidor web dejaba de ofrecer la edición de
+    // `atime`, `quota` y `recordsize` — todo lo que estuviera por omisión.
+    std::string origen;
 };
 
 // De `zfs get -j all`. Ordenadas por nombre, que es como se leen.
