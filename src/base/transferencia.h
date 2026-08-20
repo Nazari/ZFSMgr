@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 
+#include "connectionprofile.h"
+#include "transportsession.h"
+
 // Mover DATOS entre dos extremos: por dónde van los bytes y desde dónde se reanuda.
 //
 // Aquí NO hay transferencia: hay las DECISIONES de una transferencia. Vive en la capa base
@@ -98,12 +101,35 @@ struct Reanudacion {
     bool hay() const { return !testigo.empty(); }
 };
 
-// De la salida de `zfs get -H -o name,value -r receive_resume_token <objetivo>`: una línea
-// por dataset, con «-» donde no hay ninguno.
+// La REGLA de cuál gana, separada de ir a buscarlos.
 //
-// UNA consulta para todo el subárbol, y no una por descendiente como hacía la interfaz: la
-// regla de cuál gana es la misma —el propio objetivo primero, y si no el primer
-// descendiente que tenga uno— pero se paga una llamada en vez de N.
+// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Quien las junta es
+// `buscaTestigo`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
 Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string& salidaTsv);
+
+// La dirección con la que el ORIGEN ve a este equipo, sacada de lo que devuelve
+// `echo $SSH_CLIENT`. Vacía si no vale.
+//
+// **Admite IPv6 CON zona**: sshd puede contestar `fe80::d11d:24e3:5547:cbd6%enp1s0f0`, que
+// es justo lo que devolvió la máquina de pruebas. Una validación de solo hexadecimal y
+// puntos lo rechazaba y dejaba la copia sin dirección a la que volver.
+std::string direccionDeSshClient(const std::string& salida);
+
+// ── Lo que sí va a preguntar a las máquinas ──────────────────────────────────
+
+// Con qué dirección ve el ORIGEN a este equipo.
+//
+// Se le PREGUNTA a él en vez de deducirlo: la máquina puede tener varias interfaces, estar
+// detrás de NAT o llegar por VPN, y solo el otro extremo sabe por dónde entró la conexión.
+std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& origen,
+                             bool verboso);
+
+// El testigo de reanudación que haya en el destino o en sus descendientes.
+//
+// Son N+1 consultas —una por dataset—, que es lo que hace hoy la interfaz. Se conserva tal
+// cual a propósito: esta fase no cambia comportamiento. Con un verbo que leyera una
+// propiedad de forma recursiva sería una sola, y está anotado en el diseño.
+Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino,
+                         const std::string& objetivo, bool verboso);
 
 }  // namespace zfsmgr::base::transferencia

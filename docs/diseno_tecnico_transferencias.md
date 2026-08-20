@@ -146,7 +146,7 @@ que volver a comprobarlo antes de fiarse.
 | Fase | Qué | Por qué en este sitio |
 |---|---|---|
 | 0 | **HECHA** — `base/transferencia`: los tipos, el plan de caminos y el testigo de reanudación, con 40 aserciones | Es lo que decide todo lo demás, y se puede probar sin mover un byte. De hecho corrigió este documento |
-| 1 | Bajar `transferResumeTokenFor` y `sourceViewOfThisHost`. Son pequeñas, aisladas, y las dos guardan un descubrimiento caro | Da el módulo real con poco riesgo |
+| 1 | **HECHA** — bajadas `transferResumeTokenFor` y `sourceViewOfThisHost`; la interfaz las llama. Cambio de comportamiento: **ninguno**, a propósito | Da el módulo real con poco riesgo |
 | 2 | Bajar **Copiar**. La interfaz pasa a llamarlo; se comprueba que sigue haciendo lo mismo contra dos máquinas | Es la más corta de las tres y la que más se usa |
 | 3 | **Nivelar**, que comparte casi todo con Copiar | Sale barata detrás de la 2 |
 | 4 | La web ofrece las dos, **solo por trabajos**, con el motivo cuando no se pueda | Primer valor visible |
@@ -171,6 +171,12 @@ mirar una transferencia y saber si está bien:
   que cae al tar; forzar un extremo Windows y ver que se para con el motivo.
 
 ## Lo que no sé todavía
+
+**Una consulta recursiva de una propiedad.** `buscaTestigo` hace N+1 llamadas —una por
+descendiente— porque es lo que hacía la interfaz y la fase 1 no cambia comportamiento. Con un
+`--dump-zfs-get-prop-recursive` sería una sola. Merece la pena el día que se toque el daemon
+por otra cosa; solo no, porque obliga a un respaldo para los agentes viejos y la degradación
+mala sería «no hay testigo» —o sea, volver a mandarlo todo—.
 
 **Cuánto de las 2.554 líneas sobrevive.** Buena parte es `QString::arg` componiendo mensajes
 y trozos de argv; con `std::string` y `format` eso encoge. No me atrevo a dar un número

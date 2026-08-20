@@ -1049,6 +1049,33 @@ int main() {
         igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
+        // --- la direccion con la que el ORIGEN ve a este equipo
+        //
+        // Dos cosas que se aprendieron a base de fallar, y las dos se fijan aqui.
+        igual(TR::direccionDeSshClient("192.168.1.40 54321 22\n"), "192.168.1.40",
+              "sshclient: el primer campo es la direccion");
+        // El recorte se hace en C++ y NO con `${SSH_CLIENT%% *}` en la orden: esa orden la
+        // lanza el cliente, que puede ser Windows, y alli «%» es la expansion de cmd — se
+        // comia parte del texto y devolvia una direccion con una letra de mas.
+        igual(TR::direccionDeSshClient("10.0.0.1 1 2\n10.0.0.2 3 4\n"), "10.0.0.1",
+              "sshclient: solo la primera linea");
+
+        // **IPv6 CON ZONA.** sshd contesto `fe80::…%enp1s0f0` en la maquina de pruebas, y
+        // una validacion de solo hexadecimal y puntos lo rechazaba: la copia se quedaba sin
+        // direccion a la que volver y moria con «cannot connect to peer».
+        igual(TR::direccionDeSshClient("fe80::d11d:24e3:5547:cbd6%enp1s0f0 54321 22"),
+              "fe80::d11d:24e3:5547:cbd6%enp1s0f0", "sshclient: IPv6 con zona se admite");
+        igual(TR::direccionDeSshClient("2001:db8::1 1 2"), "2001:db8::1",
+              "sshclient: y IPv6 a secas");
+
+        // Lo que no parece una direccion se descarta en vez de mandarse al otro extremo.
+        igual(TR::direccionDeSshClient(""), "", "sshclient: sin salida, nada");
+        igual(TR::direccionDeSshClient("\n"), "", "sshclient: una linea vacia tampoco");
+        igual(TR::direccionDeSshClient("hola 1 2"), "",
+              "sshclient: sin dos puntos ni punto no es una direccion");
+        igual(TR::direccionDeSshClient("1.2.3.4;rm -rf / 1 2"), "",
+              "sshclient: y un caracter que no toca lo descarta entero");
+
         // «-» es «no hay», no un testigo que se llama asi.
         comprobar(!TR::testigoDeReanudacion("t/copias", "t/copias\t-\n").hay(),
                   "transferencia: «-» es que no hay ninguno");

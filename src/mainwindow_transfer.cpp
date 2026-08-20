@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+
+#include "transferencia.h"
 #include "mainwindow_helpers.h"
 #include "daemonpayload.h"
 #include "agentversion.h"
@@ -302,42 +304,8 @@ QString MainWindow::sourceViewOfThisHost(int srcConnIdx) {
     if (srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) {
         return QString();
     }
-    const ConnectionProfile sp = m_conns.profiles.at(srcConnIdx);
-    if (isLocalConnection(sp)) {
-        return QStringLiteral("127.0.0.1");
-    }
-    // Sin sudo ni agente: es una variable del entorno de la propia sesión SSH.
-    // Dos cosas aprendidas a base de fallar, y las dos están en esta orden:
-    //
-    // 1. SIN el `%` de la expansión de shell (`${SSH_CLIENT%% *}`). Esta orden la lanza
-    //    el cliente, que puede ser Windows, y allí `%` es el carácter de expansión de
-    //    variables de cmd: se comía parte del texto y devolvía una dirección con una
-    //    letra de más. El primer campo se recorta AQUÍ, en C++, donde nadie lo reescribe.
-    // 2. allowAgentRpc=false. Con el valor por defecto la orden se desviaba al daemon
-    //    por RPC, y allí $SSH_CLIENT no existe porque no es una sesión SSH.
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(sp, QStringLiteral("echo $SSH_CLIENT"),
-                           8000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false)
-                    && rc == 0;
-    if (!ok) {
-        return QString();
-    }
-    // SSH_CLIENT = "<dirección> <puerto origen> <puerto destino>".
-    const QString addr =
-        out.trimmed().section(QLatin1Char('\n'), 0, 0).trimmed().section(QLatin1Char(' '), 0, 0);
-
-    // La validación admite IPv6 CON zona: sshd puede responder algo como
-    // fe80::d11d:24e3:5547:cbd6%enp1s0f0, que es justo lo que devolvió la máquina de
-    // pruebas. Un regex de solo hexadecimal y puntos lo rechazaba y dejaba la copia sin
-    // dirección a la que volver.
-    static const QRegularExpression rxAddr(QStringLiteral("^[0-9A-Za-z:.%_-]+$"));
-    if (addr.isEmpty() || !rxAddr.match(addr).hasMatch()
-        || (!addr.contains(QLatin1Char(':')) && !addr.contains(QLatin1Char('.')))) {
-        return QString();
-    }
-    return addr;
+    return QString::fromStdString(zfsmgr::base::transferencia::comoMeVeElOrigen(
+        m_transport, toBaseProfile(m_conns.profiles.at(srcConnIdx)), false));
 }
 
 QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
@@ -348,55 +316,13 @@ QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || dataset.trimmed().isEmpty()) {
         return QString();
     }
-    const QString target = dataset.trimmed();
-
-    auto tokenOf = [&](const QString& ds) -> QString {
-        QString value;
-        if (!getDatasetProperty(connIdx, ds, QStringLiteral("receive_resume_token"), value)) {
-            // Que no se pueda leer NO significa que no haya nada a medias: puede que el
-            // dataset aún no exista, que es el caso normal en una copia nueva.
-            return QString();
-        }
-        value = value.trimmed();
-        // ZFS devuelve "-" cuando no hay ninguno.
-        return (value == QStringLiteral("-")) ? QString() : value;
-    };
-
-    const QString own = tokenOf(target);
-    if (!own.isEmpty()) {
-        if (holderOut) { *holderOut = target; }
-        return own;
+    const auto r = zfsmgr::base::transferencia::buscaTestigo(
+        m_transport, toBaseProfile(m_conns.profiles.at(connIdx)),
+        dataset.trimmed().toStdString(), false);
+    if (holderOut) {
+        *holderOut = QString::fromStdString(r.quienLoTiene);
     }
-
-    // Y si no lo tiene él, sus descendientes.
-    //
-    // Las copias van con -R, o sea toda la jerarquía en un solo flujo. Al cortarse, ZFS
-    // deja el testigo en el dataset que estaba recibiendo en ese momento, que casi nunca
-    // es la raíz: medido cortando una copia de 3,4 GB, el padre quedó completo y el
-    // testigo apareció en el hijo. Mirar solo la raíz daba «no hay nada que reanudar»
-    // teniendo 247 MB ya transferidos.
-    const ConnectionProfile p = m_conns.profiles.at(connIdx);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runAgentCommand(p, {QStringLiteral("--dump-zfs-list-children"), target},
-                         15000, out, err, rc)
-        || rc != 0) {
-        return QString();
-    }
-    const QStringList children = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    for (const QString& raw : children) {
-        const QString ds = raw.trimmed();
-        if (ds.isEmpty() || ds == target) {
-            continue;
-        }
-        const QString t = tokenOf(ds);
-        if (!t.isEmpty()) {
-            if (holderOut) { *holderOut = ds; }
-            return t;
-        }
-    }
-    return QString();
+    return QString::fromStdString(r.testigo);
 }
 
 bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,

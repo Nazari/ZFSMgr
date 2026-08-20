@@ -1,6 +1,8 @@
 #include "transferencia.h"
 
 #include "strutil.h"
+#include "transportcmd.h"
+#include "transportrpc.h"
 
 namespace zfsmgr::base::transferencia {
 
@@ -141,6 +143,100 @@ Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string&
         r.quienLoTiene = conTestigo.front().first;
     }
     return r;
+}
+
+std::string direccionDeSshClient(const std::string& salida) {
+    // SSH_CLIENT = «<dirección> <puerto origen> <puerto destino>». Se coge la primera línea
+    // y su primer campo.
+    //
+    // **El recorte se hace AQUÍ, en C++, y no con `${SSH_CLIENT%% *}` en la orden.** Esa
+    // orden la lanza el cliente, que puede ser Windows, y allí «%» es el carácter de
+    // expansión de variables de cmd: se comía parte del texto y devolvía una dirección con
+    // una letra de más.
+    std::string primera = trim(salida);
+    const std::size_t salto = primera.find('\n');
+    if (salto != std::string::npos) {
+        primera = trim(primera.substr(0, salto));
+    }
+    const std::size_t espacio = primera.find(' ');
+    const std::string dir = trim(espacio == std::string::npos ? primera
+                                                              : primera.substr(0, espacio));
+    if (dir.empty()) {
+        return {};
+    }
+    // Lo que se admite incluye «%» y letras: una IPv6 con zona los lleva.
+    for (const char c : dir) {
+        const bool vale = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')
+                          || (c >= 'a' && c <= 'z') || c == ':' || c == '.' || c == '%'
+                          || c == '_' || c == '-';
+        if (!vale) {
+            return {};
+        }
+    }
+    // Y tiene que parecerse a una dirección: sin dos puntos ni punto no lo es.
+    if (dir.find(':') == std::string::npos && dir.find('.') == std::string::npos) {
+        return {};
+    }
+    return dir;
+}
+
+std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& origen,
+                             bool verboso) {
+    if (transport::isLocalConnection(origen)) {
+        return "127.0.0.1";
+    }
+    std::string out;
+    std::string err;
+    int rc = -1;
+    // `allowAgentRpc=false` a propósito: con el valor de siempre la orden se desviaba al
+    // daemon por RPC, y allí `$SSH_CLIENT` no existe porque no es una sesión SSH.
+    if (!transport::runSsh(ses, origen, "echo $SSH_CLIENT", 8000, out, err, rc, {}, {}, {}, {},
+                           /*allowAgentRpc=*/false, verboso)
+        || rc != 0) {
+        return {};
+    }
+    return direccionDeSshClient(out);
+}
+
+Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino,
+                         const std::string& objetivo, bool verboso) {
+    const std::string diana = trim(objetivo);
+    if (diana.empty()) {
+        return {};
+    }
+    const auto testigoDe = [&](const std::string& ds) {
+        std::string out;
+        std::string err;
+        int rc = -1;
+        if (!transport::tryAgentRpcOverSsh(ses, destino,
+                                           {"--dump-zfs-get-prop", "receive_resume_token", ds},
+                                           15000, out, err, rc, {}, {}, verboso)
+            || rc != 0) {
+            // Que no se pueda leer NO significa que no haya nada a medias: puede que el
+            // dataset aún no exista, que es el caso normal en una copia nueva.
+            return std::string();
+        }
+        return trim(out);
+    };
+
+    // Se compone el mismo TSV que analiza la regla, para que la decisión esté escrita una
+    // sola vez y probada aparte.
+    std::string tsv = diana + "\t" + testigoDe(diana) + "\n";
+    std::string hijos;
+    std::string err;
+    int rc = -1;
+    if (transport::tryAgentRpcOverSsh(ses, destino, {"--dump-zfs-list-children", diana}, 15000,
+                                      hijos, err, rc, {}, {}, verboso)
+        && rc == 0) {
+        for (const std::string& cruda : split(hijos, "\n", true)) {
+            const std::string ds = trim(cruda);
+            if (ds.empty() || ds == diana) {
+                continue;
+            }
+            tsv += ds + "\t" + testigoDe(ds) + "\n";
+        }
+    }
+    return testigoDeReanudacion(diana, tsv);
 }
 
 }  // namespace zfsmgr::base::transferencia
