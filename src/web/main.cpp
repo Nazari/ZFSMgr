@@ -114,14 +114,12 @@ body.ancho { max-width: none; }
 a { color: var(--acento); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1 { font-size: 1.5rem; margin: .4rem 0 1rem; }
-h2 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; color: var(--tenue);
-     text-transform: uppercase; letter-spacing: .04em; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; color: var(--tenue); }
 nav.migas { padding: .8rem 0; color: var(--tenue); font-size: .9rem; }
 nav.migas a { color: var(--tenue); }
 table { border-collapse: collapse; width: 100%; margin: .3rem 0 1rem; font-size: .93rem; }
-th { text-align: left; font-weight: 600; color: var(--tenue); font-size: .8rem;
-     text-transform: uppercase; letter-spacing: .03em; padding: .4rem .6rem;
-     border-bottom: 1px solid var(--borde); }
+th { text-align: left; font-weight: 600; color: var(--tenue); font-size: .86rem;
+     padding: .4rem .6rem; border-bottom: 1px solid var(--borde); }
 td { padding: .38rem .6rem; border-bottom: 1px solid var(--suave); }
 tr:hover td { background: var(--suave); }
 form.enlinea { display: inline-block; margin: 0 .4rem .4rem 0; }
@@ -144,8 +142,7 @@ div.rama { margin-left: 1.1rem; padding-left: .6rem; border-left: 1px solid var(
 ul.instantaneas { list-style: none; margin: .1rem 0 .3rem; padding: 0; font-size: .88rem; }
 ul.instantaneas li { padding: .1rem 0; color: var(--tenue); }
 details.menu { display: inline-block; margin: .1rem 0 .35rem; }
-details.menu > summary { font-size: .82rem; color: var(--tenue); text-transform: uppercase;
-                         letter-spacing: .03em; }
+details.menu > summary { font-size: .82rem; color: var(--tenue); }
 div.dos { display: grid; grid-template-columns: minmax(230px, 26%) 1fr; gap: 0 1.5rem;
            align-items: start; }
 div.izq { border-right: 1px solid var(--borde); padding: 0 1rem .5rem 0;
@@ -163,15 +160,18 @@ div.arbol a.sel { background: var(--acento); color: #fff; border-radius: 3px;
 div.hoja { padding: .1rem 0 .1rem 1.15em; }
 div.hoja a.nodo { color: var(--tenue); }
 span.seccion { color: var(--tenue); }
-div.seccion.tit { color: var(--tenue); font-size: .78rem; text-transform: uppercase;
-                  letter-spacing: .04em; margin: .7rem 0 .2rem; }
+div.seccion.tit { color: var(--tenue); font-size: .82rem; margin: .7rem 0 .2rem; }
 table.ficha { width: auto; }
 table.ficha th { width: 12rem; border-bottom: 1px solid var(--suave); vertical-align: top; }
 table.ficha td { font-variant-numeric: tabular-nums; }
 div.grupo { border: 1px solid var(--borde); border-radius: 6px; padding: .6rem .8rem;
             margin: 0 0 .7rem; }
-div.grupotit { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
-               color: var(--tenue); margin-bottom: .45rem; }
+div.grupotit { font-size: .88rem; color: var(--tenue); font-weight: 600;
+               margin-bottom: .45rem; }
+div.fila { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; align-items: center;
+           margin-bottom: .5rem; }
+label.campo { font-size: .92rem; }
+label.campo input[type="number"] { width: 4.5rem; }
 div.pendiente { color: var(--tenue); font-size: .86rem; border-left: 3px solid var(--borde);
                 padding: .3rem 0 .3rem .7rem; margin: .8rem 0; }
 details.marco { border: 1px solid var(--borde); border-radius: 6px; margin: 0 0 .9rem;
@@ -180,8 +180,7 @@ details.marco > summary { padding: .55rem .8rem; background: var(--suave);
                           border-radius: 5px 5px 5px 5px; }
 details.marco[open] > summary { border-bottom: 1px solid var(--borde);
                                 border-radius: 5px 5px 0 0; }
-span.marcotit { font-size: .82rem; text-transform: uppercase; letter-spacing: .05em;
-                color: var(--tenue); font-weight: 600; }
+span.marcotit { font-size: .95rem; color: var(--tinta); font-weight: 600; }
 div.marco.cerrado { padding: .55rem .8rem; background: var(--suave); }
 a.marcoenlace { display: block; color: inherit; }
 a.marcoenlace:hover span.marcotit { color: var(--acento); }
@@ -191,8 +190,8 @@ div.hoja.hojads { padding-left: 1.15em; }
 div.abajo { margin-top: 1.2rem; }
 div.pestanas { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
                margin-bottom: .35rem; }
-span.pestgrupo { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
-                 color: var(--tenue); margin-right: .4rem; min-width: 5rem; }
+span.pestgrupo { font-size: .86rem; color: var(--tenue); margin-right: .4rem;
+                 min-width: 5rem; }
 a.pest { font-size: .86rem; padding: .2rem .7rem; border: 1px solid var(--borde);
          border-radius: 4px; color: var(--tenue); background: var(--fondo); }
 a.pest:hover { border-color: var(--acento); text-decoration: none; }
@@ -1411,29 +1410,134 @@ std::string panelContenido(const std::string& conn, const std::string& objeto,
     return h;
 }
 
-// La programación de instantáneas, tal como la guarda ZFS: una propiedad `org.fc16.gsa:*`
-// por línea. Se enseña agrupada por dataset porque la consulta es recursiva.
-std::string panelProgramacion(const std::string& salidaTsv) {
-    std::vector<std::vector<std::string>> filas;
+// La programación de instantáneas: la de ESTE dataset, editable, y las que haya puestas por
+// debajo.
+//
+// Antes era un volcado de `zfs get -r` con una fila por propiedad, y eso lo hacía
+// inservible por dos motivos distintos:
+//
+//   - **Salían las instantáneas.** Una instantánea no programa instantáneas. Aparecían
+//     porque las propiedades de usuario se heredan y la consulta es recursiva, así que un
+//     solo dataset programado llenaba la tabla con una fila por cada una de sus
+//     instantáneas por cada uno de los nueve ajustes.
+//   - **Salían las HEREDADAS, y eso no es ruido: engaña.** El planificador del daemon mira
+//     `org.fc16.gsa:activado` SOLO si está puesto en local —`daemon_main.cpp:4659`—, así
+//     que a un descendiente que hereda «activado=on» no se le hace ninguna instantánea.
+//     Enseñarlo como programado promete algo que no va a ocurrir.
+//
+// Ahora hay una fila por DATASET con programación propia, leída por la misma función que
+// usa el planificador para decidir qué hace, y un formulario para cambiarla.
+
+// Los ajustes de un dataset, sacados del volcado `name, property, value, source`.
+struct ProgramacionLeida {
+    B::gsa::Programacion prog;
+    bool local{false};   // puesta AQUÍ, que es lo único que el planificador mira
+};
+
+std::map<std::string, ProgramacionLeida> leeProgramaciones(const std::string& salidaTsv) {
+    // Las instantáneas se descartan en la puerta: no hay ninguna decisión más abajo que
+    // dependa de ellas.
+    std::map<std::string, std::map<std::string, std::string>> props;
+    std::map<std::string, bool> hayLocal;
     for (const std::string& linea : B::split(salidaTsv, "\n", true)) {
         const std::vector<std::string> col = B::split(linea, "\t", false);
         if (col.size() < 4) {
             continue;
         }
-        if (B::trim(col[2]) == "-") {
-            continue;   // sin poner: no dice nada y llenaría la tabla de guiones
+        const std::string& ds = col[0];
+        if (ds.find('@') != std::string::npos) {
+            continue;
         }
-        std::string prop = col[1];
-        if (B::startsWith(prop, B::gsa::kPrefijo)) {
-            prop = prop.substr(std::string(B::gsa::kPrefijo).size());
+        props[ds][col[1]] = B::trim(col[2]);
+        if (B::trim(col[3]) == "local") {
+            hayLocal[ds] = true;
         }
-        filas.push_back({H::escapaHtml(col[0]), H::escapaHtml(prop), H::escapaHtml(col[2]),
-                         H::escapaHtml(col[3])});
     }
-    if (filas.empty()) {
-        return "<p class=\"vacio\">(no hay ninguna programación puesta aquí)</p>";
+    std::map<std::string, ProgramacionLeida> out;
+    for (const auto& kv : props) {
+        ProgramacionLeida r;
+        B::gsa::Motivo porQue;
+        if (!B::gsa::desdePropiedades(kv.second, r.prog, porQue)) {
+            continue;   // un valor que no se entiende: no se inventa una programación
+        }
+        r.local = hayLocal[kv.first];
+        out[kv.first] = r;
     }
-    return tabla({"Dataset", "Ajuste", "Valor", "Origen"}, filas);
+    return out;
+}
+
+std::string casilla(const std::string& nombre, const std::string& etiqueta, bool puesta) {
+    return "<label class=\"campo\"><input type=\"checkbox\" name=\"" + H::escapaHtml(nombre)
+           + "\" value=\"1\"" + (puesta ? " checked" : "") + "> " + H::escapaHtml(etiqueta)
+           + "</label>";
+}
+
+std::string numero(const std::string& nombre, const std::string& etiqueta, int valor) {
+    return "<label class=\"campo\">" + H::escapaHtml(etiqueta)
+           + " <input type=\"number\" min=\"0\" name=\"" + H::escapaHtml(nombre) + "\" value=\""
+           + std::to_string(valor) + "\"></label>";
+}
+
+std::string panelProgramacion(const std::string& conn, const std::string& raiz,
+                              const std::string& sel, const std::string& salidaTsv,
+                              const std::string& testigo) {
+    const auto todas = leeProgramaciones(salidaTsv);
+    const auto itYo = todas.find(sel);
+    const ProgramacionLeida mia = itYo == todas.end() ? ProgramacionLeida{} : itYo->second;
+
+    std::string h = "<p class=\"tenue\">El planificador solo mira la programación puesta en el "
+                    "propio dataset. Lo que se hereda del padre NO se aplica: para que a un "
+                    "dataset se le hagan instantáneas, o se programa aquí, o el padre tiene "
+                    "puesta la recursiva.</p>";
+
+    std::string f = "<form method=\"post\" action=\"/accion\">" + campoTestigo(testigo)
+                    + "<input type=\"hidden\" name=\"c\" value=\"" + H::escapaHtml(conn) + "\">"
+                    + "<input type=\"hidden\" name=\"o\" value=\"" + H::escapaHtml(sel) + "\">"
+                    + "<input type=\"hidden\" name=\"raiz\" value=\"" + H::escapaHtml(raiz) + "\">"
+                    + "<input type=\"hidden\" name=\"volver\" value=\"gsa\">"
+                    + "<input type=\"hidden\" name=\"que\" value=\"programar\">";
+    f += "<div class=\"fila\">" + casilla("activado", "Activada", mia.prog.activado)
+         + casilla("recursivo", "Recursiva (cubre los descendientes)", mia.prog.recursivo)
+         + "</div>";
+    f += "<div class=\"fila\">" + numero("horario", "Horarias", mia.prog.horario)
+         + numero("diario", "Diarias", mia.prog.diario)
+         + numero("semanal", "Semanales", mia.prog.semanal)
+         + numero("mensual", "Mensuales", mia.prog.mensual)
+         + numero("anual", "Anuales", mia.prog.anual) + "</div>";
+    f += "<p class=\"tenue\">Cada número es cuántas se guardan de esa clase. Un cero es «no "
+         "hagas ninguna», no «guárdalas todas».</p>";
+    f += "<div class=\"fila\">" + casilla("nivelar", "Nivelar con el destino", mia.prog.nivelar)
+         + "<label class=\"campo\">Destino <input name=\"destino\" "
+           "placeholder=\"Conexión::pool/dataset\" value=\""
+         + H::escapaHtml(mia.prog.destino) + "\"></label></div>";
+    f += "<button type=\"submit\">Guardar</button></form>";
+    if (mia.local) {
+        f += boton(conn, sel, raiz, "desprogramar", "Quitarla de aquí", testigo, std::string(),
+                   true);
+    }
+    h += grupoDeAcciones(mia.local ? "Programación de " + sel + " (puesta aquí)"
+                                   : "Programación de " + sel + " (sin poner)",
+                         f);
+
+    // Y las que haya puestas POR DEBAJO, que es lo que uno quiere saber al mirar un pool.
+    std::vector<std::vector<std::string>> filas;
+    for (const auto& kv : todas) {
+        if (!kv.second.local || kv.first == sel) {
+            continue;
+        }
+        const B::gsa::Programacion& p = kv.second.prog;
+        filas.push_back({enlace(urlDe(conn, raiz, kv.first, Vista::Programacion), kv.first),
+                         p.activado ? "sí" : "no", p.recursivo ? "sí" : "no",
+                         std::to_string(p.horario), std::to_string(p.diario),
+                         std::to_string(p.semanal), std::to_string(p.mensual),
+                         std::to_string(p.anual),
+                         p.nivelar ? H::escapaHtml(p.destino) : std::string()});
+    }
+    h += "<div class=\"grupotit\">Programaciones puestas por debajo</div>";
+    h += tabla({"Dataset", "Activada", "Recursiva", "Hor.", "Dia.", "Sem.", "Men.", "Anu.",
+                "Nivela con"},
+               filas);
+    return h;
 }
 
 // La página de confirmación de algo que destruye.
@@ -2086,6 +2190,103 @@ int main(int argc, char** argv) {
                     verbo = {"--mutate-zfs-load-key", B::base64Encode(objeto),
                              B::base64Encode(p.campo("frase"))};
                 }
+            } else if (que == "programar" || que == "desprogramar") {
+                // Los nueve ajustes en UNA sola orden: `zfs set a=1 b=2 … dataset`. Nueve
+                // llamadas separadas dejarían una programación a medias si fallara la
+                // quinta, y a medias es peor que no puesta —hay retenciones nuevas con el
+                // «activado» viejo—.
+                if (que == "desprogramar") {
+                    // `zfs inherit` solo admite UNA propiedad, así que aquí sí van nueve.
+                    // Se hacen todas aunque alguna falle: dejar tres puestas y seis
+                    // quitadas es exactamente lo que no queremos.
+                    bool todoBien = true;
+                    std::string ultimoErr;
+                    for (const auto& kv : B::gsa::aPropiedades(B::gsa::Programacion{})) {
+                        std::string sO;
+                        std::string eO;
+                        int rO = -1;
+                        if (!llamaAgente(*sesionZfs, *perfil,
+                                         {"--mutate-zfs-generic",
+                                          argvEnBase64({"inherit", kv.first, objeto})},
+                                         sO, eO, rO, nullptr, 60000)
+                            || rO != 0) {
+                            todoBien = false;
+                            ultimoErr = B::trim(eO.empty() ? sO : eO);
+                        }
+                    }
+                    if (!todoBien) {
+                        r.codigo = 502;
+                        r.cuerpo = paginaError("no se pudo quitar la programación: " + ultimoErr,
+                                               sesion.testigo());
+                        respuesta = H::componer(r);
+                        return true;
+                    }
+                    r.codigo = 302;
+                    r.cabecerasExtra.push_back(
+                        "Location: " + urlDe(conn, B::trim(p.campo("raiz")).empty()
+                                                       ? objeto
+                                                       : B::trim(p.campo("raiz")),
+                                             objeto, Vista::Programacion));
+                    r.cuerpo = "";
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                B::gsa::Programacion prog;
+                prog.activado = (p.campo("activado") == "1");
+                prog.recursivo = (p.campo("recursivo") == "1");
+                prog.nivelar = (p.campo("nivelar") == "1");
+                prog.destino = B::trim(p.campo("destino"));
+                const std::pair<const char*, int*> ret[] = {
+                    {"horario", &prog.horario}, {"diario", &prog.diario},
+                    {"semanal", &prog.semanal}, {"mensual", &prog.mensual},
+                    {"anual", &prog.anual},
+                };
+                bool numerosBien = true;
+                for (const auto& c : ret) {
+                    const std::string v = B::trim(p.campo(c.first));
+                    if (v.empty()) {
+                        *c.second = 0;
+                        continue;
+                    }
+                    if (v.find_first_not_of("0123456789") != std::string::npos) {
+                        numerosBien = false;
+                        break;
+                    }
+                    *c.second = std::atoi(v.c_str());
+                }
+                if (!numerosBien) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("las retenciones tienen que ser números enteros "
+                                           "mayores o iguales que cero",
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                // La MISMA validación que usa la interfaz, en la capa base: activada sin
+                // ninguna retención hace la instantánea y la borra —casi siempre es un
+                // olvido, y callarlo deja creyendo que hay copias—, y nivelar sin destino
+                // no puede nivelar contra nada.
+                B::gsa::Motivo porQue;
+                const auto existe = [&conns](const std::string& idConn) {
+                    return zfsmgr::cli::buscarConexion(conns, idConn) != nullptr;
+                };
+                if (!B::gsa::valida(objeto, prog, existe, porQue)) {
+                    r.codigo = 400;
+                    r.cuerpo = paginaError("no se puede guardar: "
+                                               + B::gsa::etiquetaDe(porQue.fallo)
+                                               + (porQue.detalle.empty()
+                                                      ? std::string()
+                                                      : " («" + porQue.detalle + "»)"),
+                                           sesion.testigo());
+                    respuesta = H::componer(r);
+                    return true;
+                }
+                std::vector<std::string> argv = {"set"};
+                for (const auto& kv : B::gsa::aPropiedades(prog)) {
+                    argv.push_back(kv.first + "=" + kv.second);
+                }
+                argv.push_back(objeto);
+                verbo = {"--mutate-zfs-generic", argvEnBase64(argv)};
             } else if (que == "latido") {
                 verbo = {"--heartbeat"};
             } else if (B::startsWith(que, "pool-")) {
@@ -2392,7 +2593,9 @@ int main(int argc, char** argv) {
                     break;
                 case Vista::Programacion:
                     cargadoMaquina = pide({"--dump-zfs-get-gsa-raw-all-pools"}, 30000)
-                                         ? panelProgramacion(salida)
+                                         ? panelProgramacion(conn, std::string(),
+                                                             std::string(), salida,
+                                                             sesion.testigo())
                                          : std::string("<p class=\"vacio\">no se pudo leer la "
                                                        "programación</p>");
                     break;
@@ -2582,7 +2785,8 @@ int main(int argc, char** argv) {
                 break;
             case Vista::Programacion:
                 if (pideOFalla({"--dump-zfs-get-gsa-raw-recursive", sel}, "la programación")) {
-                    loCargado = panelProgramacion(salida);
+                    loCargado = panelProgramacion(conn, objeto, sel, salida,
+                                                  sesion.testigo());
                 }
                 break;
             case Vista::Registro:
