@@ -1049,6 +1049,63 @@ int main() {
         igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
+        // --- donde se recibe DE VERDAD
+        //
+        // No es el dataset sobre el que se pulso: se le anade el nombre del origen. Este
+        // detalle es tambien el que hace que buscar el testigo de reanudacion sobre el
+        // dataset pulsado no encuentre nada — hay que buscarlo sobre ESTE.
+        igual(TR::destinoReal("p/datos", "t/respaldos"), "t/respaldos/datos",
+              "destino: se anade el nombre del origen");
+        igual(TR::destinoReal("p/a/b/datos", "t/respaldos"), "t/respaldos/datos",
+              "destino: solo la hoja, no la ruta entera");
+        // Si el destino ya acaba en ese nombre se toma tal cual: copiar dos veces al mismo
+        // sitio dejaria «respaldos/datos/datos».
+        igual(TR::destinoReal("p/datos", "t/respaldos/datos"), "t/respaldos/datos",
+              "destino: si ya acaba en el nombre, no se repite");
+        igual(TR::destinoReal("p/datos", "t/datos"), "t/datos",
+              "destino: aunque sea el primer nivel");
+        // Un pool entero como origen: su «hoja» es el propio nombre del pool.
+        igual(TR::destinoReal("wpool", "t/respaldos"), "t/respaldos/wpool",
+              "destino: un pool entero tambien lleva su nombre");
+        igual(TR::destinoReal("p/datos", ""), "", "destino: sin destino, nada que componer");
+
+        // --- las ordenes de envio y recepcion
+        igual(TR::ordenDeEnvio("p/d@lunes", ""), "zfs send 'p/d@lunes'",
+              "orden: sin banderas");
+        igual(TR::ordenDeEnvio("p/d@lunes", "-wR"), "zfs send -wR 'p/d@lunes'",
+              "orden: con banderas");
+        // El «-Fus» del receptor no es decorativo: la «s» es lo que hace que un corte deje
+        // un envio EN SUSPENSO con su testigo en vez de basura. Sin ella no habria
+        // reanudacion y cada corte obligaria a mandarlo todo otra vez.
+        igual(TR::ordenDeRecepcion("t/respaldos/datos"), "zfs recv -Fus 't/respaldos/datos'",
+              "orden: la recepcion lleva -Fus, con la «s» de suspenso");
+        // Un nombre con comilla dentro no puede romper la orden. El escapado es el de
+        // siempre en shell: cerrar la comilla, meter una entre dobles, y volver a abrir.
+        igual(TR::ordenDeEnvio("p/d@ra\'ro", ""), "zfs send 'p/d@ra'\"'\"'ro'",
+              "orden: la comilla del nombre no rompe la orden");
+
+        // --- como se juntan los dos lados
+        zfsmgr::base::ConnectionProfile local;
+        local.name = "Local";
+        local.connType = "Local";
+        zfsmgr::base::ConnectionProfile remoto1;
+        remoto1.name = "unibody";
+        remoto1.connType = "SSH";
+        remoto1.host = "unib.local";
+        zfsmgr::base::ConnectionProfile remoto2 = remoto1;
+        remoto2.name = "mmela";
+        remoto2.host = "mmela.local";
+        comprobar(TR::montajeDe(remoto1, remoto1, true) == TR::Montaje::MismaConexion,
+                  "montaje: la misma conexion es una tuberia local");
+        comprobar(TR::montajeDe(remoto1, remoto2, false) == TR::Montaje::RemotoARemotoDirecto,
+                  "montaje: dos remotos por SSH se hablan directamente");
+        // Con un extremo local los datos TIENEN que pasar por aqui: es el caro, y es el
+        // que siempre vale.
+        comprobar(TR::montajeDe(local, remoto1, false) == TR::Montaje::PorElCliente,
+                  "montaje: con un extremo local, por el cliente");
+        comprobar(TR::montajeDe(remoto1, local, false) == TR::Montaje::PorElCliente,
+                  "montaje: da igual cual de los dos sea local");
+
         // --- la version de OpenZFS que admite transferir
         //
         // Por debajo de 2.3.3 no. La regla es del proyecto, no de ZFS, y estaba escrita

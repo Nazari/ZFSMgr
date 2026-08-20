@@ -372,14 +372,11 @@ void MainWindow::actionCopySnapshot() {
     }
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
-    const QString srcLeaf = src.datasetName.section('/', -1);
-    QString recvTarget = dst.datasetName;
-    if (!srcLeaf.isEmpty()) {
-        const QString dstLeaf = dst.datasetName.section('/', -1);
-        if (!dst.datasetName.endsWith(QStringLiteral("/") + srcLeaf) && dstLeaf != srcLeaf) {
-            recvTarget = dst.datasetName + QStringLiteral("/") + srcLeaf;
-        }
-    }
+    // Dónde se recibe DE VERDAD: al destino elegido se le añade el nombre del origen, y
+    // esa regla vive ahora en `base/transferencia` porque es la misma que hace que buscar
+    // el testigo de reanudación sobre el dataset pulsado no encuentre nada.
+    const QString recvTarget = QString::fromStdString(zfsmgr::base::transferencia::destinoReal(
+        src.datasetName.toStdString(), dst.datasetName.toStdString()));
 
     // ¿Quedó una transferencia a medias en el destino?
     //
@@ -454,20 +451,18 @@ void MainWindow::actionCopySnapshot() {
         return;
     }
     const QString sendFlags = buildZfsSendFlags(sendOpts);
-    const QString sendRawCmd = sendFlags.isEmpty()
-        ? QStringLiteral("zfs send %1").arg(shSingleQuote(srcSnap))
-        : QStringLiteral("zfs send %1 %2").arg(sendFlags, shSingleQuote(srcSnap));
-    const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
+    const QString sendRawCmd = QString::fromStdString(zfsmgr::base::transferencia::ordenDeEnvio(
+        srcSnap.toStdString(), sendFlags.toStdString()));
+    const QString recvRawCmd = QString::fromStdString(
+        zfsmgr::base::transferencia::ordenDeRecepcion(recvTarget.toStdString()));
     QString sendCmd = withSudo(sp, sendRawCmd);
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
     QString pipeline;
     const bool directRemoteToRemote =
-        !sameConnection
-        && !isLocalConnection(sp)
-        && !isLocalConnection(dp)
-        && sp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-        && dp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+        zfsmgr::base::transferencia::montajeDe(toBaseProfile(sp), toBaseProfile(dp),
+                                               sameConnection)
+        == zfsmgr::base::transferencia::Montaje::RemotoARemotoDirecto;
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));
@@ -1371,11 +1366,9 @@ void MainWindow::actionLevelSnapshot() {
 
     QString pipeline;
     const bool directRemoteToRemote =
-        !sameConnection
-        && !isLocalConnection(sp)
-        && !isLocalConnection(dp)
-        && sp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-        && dp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+        zfsmgr::base::transferencia::montajeDe(toBaseProfile(sp), toBaseProfile(dp),
+                                               sameConnection)
+        == zfsmgr::base::transferencia::Montaje::RemotoARemotoDirecto;
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));

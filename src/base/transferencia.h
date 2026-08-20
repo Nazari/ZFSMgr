@@ -138,6 +138,39 @@ Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string&
 // puntos lo rechazaba y dejaba la copia sin dirección a la que volver.
 std::string direccionDeSshClient(const std::string& salida);
 
+// ── Cómo se compone la orden de copiar ───────────────────────────────────────
+
+// Dónde se recibe de verdad.
+//
+// No es el dataset sobre el que se pulsó: se le añade el NOMBRE DEL ORIGEN, para que copiar
+// «datos» sobre «respaldos» deje «respaldos/datos» y no vuelque encima. Salvo que el destino
+// ya acabe en ese nombre, en cuyo caso se toma tal cual — o si no, copiar dos veces al mismo
+// sitio crearía «respaldos/datos/datos».
+//
+// Ese detalle es también el que hace que buscar el testigo de reanudación sobre el dataset
+// pulsado no encuentre nada: hay que buscarlo sobre ESTE.
+std::string destinoReal(const std::string& origenDataset, const std::string& destinoElegido);
+
+// `zfs send [banderas] <instantánea>` y `zfs recv -Fus <destino>`, sin envolver.
+//
+// El `-Fus` del receptor no es decorativo: la «s» es lo que hace que un corte deje un envío
+// EN SUSPENSO con su testigo, en vez de basura. Sin ella no habría reanudación posible y
+// cada corte obligaría a mandarlo todo otra vez.
+std::string ordenDeEnvio(const std::string& instantanea, const std::string& banderas);
+std::string ordenDeRecepcion(const std::string& destino);
+
+// Cómo se juntan los dos lados. Es lo que cambia según dónde estén los extremos.
+enum class Montaje {
+    MismaConexion,      // los dos en la misma máquina: una tubería local
+    RemotoARemotoDirecto,  // los dos remotos por SSH: el origen se conecta al destino
+    PorElCliente,       // `ssh origen … | ssh destino …`: los bytes pasan por aquí
+};
+
+// Cuál de los tres toca. `PorElCliente` es el que siempre vale y el más caro: los datos dan
+// un rodeo por esta máquina.
+Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& destino,
+                  bool mismaConexion);
+
 // ── Lo que sí va a preguntar a las máquinas ──────────────────────────────────
 
 // Con qué dirección ve el ORIGEN a este equipo.

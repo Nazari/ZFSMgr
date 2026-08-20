@@ -301,3 +301,48 @@ Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino
 }
 
 }  // namespace zfsmgr::base::transferencia
+
+namespace zfsmgr::base::transferencia {
+
+std::string destinoReal(const std::string& origenDataset, const std::string& destinoElegido) {
+    const std::string origen = trim(origenDataset);
+    const std::string destino = trim(destinoElegido);
+    const std::size_t barra = origen.find_last_of('/');
+    const std::string hoja = barra == std::string::npos ? origen : origen.substr(barra + 1);
+    if (hoja.empty() || destino.empty()) {
+        return destino;
+    }
+    const std::size_t barraDestino = destino.find_last_of('/');
+    const std::string hojaDestino =
+        barraDestino == std::string::npos ? destino : destino.substr(barraDestino + 1);
+    // Ya acaba en el nombre del origen: se toma tal cual. Sin esto, copiar dos veces al
+    // mismo sitio dejaría «respaldos/datos/datos».
+    if (hojaDestino == hoja || endsWith(destino, "/" + hoja)) {
+        return destino;
+    }
+    return destino + "/" + hoja;
+}
+
+std::string ordenDeEnvio(const std::string& instantanea, const std::string& banderas) {
+    const std::string b = trim(banderas);
+    return b.empty() ? "zfs send " + shSingleQuote(instantanea)
+                     : "zfs send " + b + " " + shSingleQuote(instantanea);
+}
+
+std::string ordenDeRecepcion(const std::string& destino) {
+    return "zfs recv -Fus " + shSingleQuote(destino);
+}
+
+Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& destino,
+                  bool mismaConexion) {
+    if (mismaConexion) {
+        return Montaje::MismaConexion;
+    }
+    const bool losDosRemotosPorSsh = !transport::isLocalConnection(origen)
+                                     && !transport::isLocalConnection(destino)
+                                     && toLowerAscii(trim(origen.connType)) == "ssh"
+                                     && toLowerAscii(trim(destino.connType)) == "ssh";
+    return losDosRemotosPorSsh ? Montaje::RemotoARemotoDirecto : Montaje::PorElCliente;
+}
+
+}  // namespace zfsmgr::base::transferencia
