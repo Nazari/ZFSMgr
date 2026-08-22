@@ -1,20 +1,23 @@
-# 命令行（`zfsmgr_cli`）
+# 命令行（`zfsmgr-cli`）
 
 ZFSMgr 附带一个终端工具，它所做的事与图形窗口相同，并且面向**同一批连接**：从同一位置
 读取 `config.json` 与 `trust-store.json`，通过同一条加密隧道通信，执行相同的代理动词。
 它不是一个拥有自己配置的独立程序。
 
 在 Windows 上，安装程序会把它加入 `PATH`（只要保留相应的勾选项），因此可以在 `cmd` 或
-PowerShell 中直接按名称调用。在 Linux 与 macOS 上，它**尚未随应用程序一起安装**：请从编译
-产物所在的位置运行。
+PowerShell 中直接按名称调用。在 Linux 与 macOS 上，它**会随应用一起安装**到 `bin`，
+因此同样可以按名称调用。以前不是这样，它没有出现在任何 Unix 软件包中。
+
+此外还有一个 **Web 服务器** `zfsmgr-web`：在浏览器中展示同样的内容，不使用 JavaScript，
+通过 SSH 隧道访问。三者——窗口、命令行和服务器——都与同一个代理通信，共享同样的规则。
 
 ## 两种用法
 
 **带命令**，用于脚本：
 
 ```sh
-zfsmgr_cli connections list
-zfsmgr_cli --format json connections list | jq '.connections[] | select(.tls == false)'
+zfsmgr-cli connections list
+zfsmgr-cli --format json connections list | jq '.connections[] | select(.tls == false)'
 ```
 
 **不带任何命令**，此时它表现为一个交互式解释器：存在一个“位置”——一个 `zfsm://` URL——
@@ -72,7 +75,7 @@ zfsm://oldlau/winpool/sa@yesterday> ls #content
 描述符传入，因而可以配合任意密码管理器使用：
 
 ```sh
-zfsmgr_cli --password-fd 3 connections list  3< <(pass show zfsmgr)
+zfsmgr-cli --password-fd 3 connections list  3< <(pass show zfsmgr)
 ```
 
 使用 `--no-secrets` 时不解密任何内容，也不会索取主密码：加密字段显示为 `<cifrado>`。
@@ -90,4 +93,4 @@ zfsmgr_cli --password-fd 3 connections list  3< <(pass show zfsmgr)
 （`[daemon-rpc]`）还是 SSH，以及失败时的原因。该日志中的密码与 TLS 材料均已遮蔽。
 
 请求的结果输出到**标准输出**，日志输出到**标准错误**，因此
-`zfsmgr_cli ... > data.tsv` 不会把两者混在一起。
+`zfsmgr-cli ... > data.tsv` 不会把两者混在一起。

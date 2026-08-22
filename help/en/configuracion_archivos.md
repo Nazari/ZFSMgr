@@ -45,9 +45,10 @@ Inside `app` the following are stored, among others:
 
 - The `Source` mark is per session: it is lost when the application closes. There is no
   target to store: it is the node you request the action on.
-- The **pending changes list** IS stored (`pending_actions` key), with each action's
-  command and WITHOUT passwords: they are replaced by a marker and restored from the
-  connection on load.
+- The pending-changes list **is gone**, and with it the `pending_actions` key in the config
+  file. Actions run when you press them, so there is nothing pending to keep between
+  sessions. Property and permission drafts are still session-only: close without applying
+  them and they are lost.
 - Tree column widths are kept when switching connection or panel within the same session, but not across restarts.
 
 ## Loading at startup

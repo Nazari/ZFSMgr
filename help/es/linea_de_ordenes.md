@@ -1,4 +1,4 @@
-# Línea de órdenes (`zfsmgr_cli`)
+# Línea de órdenes (`zfsmgr-cli`)
 
 ZFSMgr trae una herramienta de terminal que hace lo mismo que la ventana, contra las
 **mismas conexiones**: lee `config.json` y `trust-store.json` del mismo sitio, habla por
@@ -6,16 +6,21 @@ el mismo túnel cifrado y ejecuta los mismos verbos del agente. No es un program
 con su propia configuración.
 
 En Windows el instalador la deja en el `PATH` —si deja marcada esa casilla—, así que se
-llama por su nombre desde `cmd` o PowerShell. En Linux y macOS **todavía no se instala
-junto a la aplicación**: se ejecuta desde donde se haya compilado.
+llama por su nombre desde `cmd` o PowerShell. En Linux y macOS **se instala junto a la
+aplicación**, en `bin`, así que también se llama por su nombre. Antes no era así y no salía
+en ningún paquete de Unix.
+
+Hay además un **servidor web**, `zfsmgr-web`: enseña lo mismo en un navegador, sin
+JavaScript, y se llega a él por un túnel SSH. Los tres —ventana, intérprete y servidor—
+hablan con el mismo agente y comparten las mismas reglas.
 
 ## Dos formas de usarla
 
 **Con una orden**, para guiones:
 
 ```sh
-zfsmgr_cli connections list
-zfsmgr_cli --format json connections list | jq '.connections[] | select(.tls == false)'
+zfsmgr-cli connections list
+zfsmgr-cli --format json connections list | jq '.connections[] | select(.tls == false)'
 ```
 
 **Sin ninguna orden**, y entonces se comporta como un intérprete: hay una posición
@@ -81,7 +86,7 @@ para cualquier usuario de la máquina. Solo por terminal o por descriptor de fic
 que permite usar cualquier gestor de secretos:
 
 ```sh
-zfsmgr_cli --password-fd 3 connections list  3< <(pass show zfsmgr)
+zfsmgr-cli --password-fd 3 connections list  3< <(pass show zfsmgr)
 ```
 
 Con `--no-secrets` no se descifra nada y no se pide la contraseña maestra: los campos
@@ -103,4 +108,4 @@ orden se envía, si va por el túnel del daemon (`[daemon-rpc]`) o por SSH, y po
 falla si falla. Las contraseñas y el material TLS salen tapados en ese registro.
 
 La salida de lo que se pide va a la **salida estándar** y el registro a la **de error**,
-así que `zfsmgr_cli ... > datos.tsv` no mezcla las dos.
+así que `zfsmgr-cli ... > datos.tsv` no mezcla las dos.

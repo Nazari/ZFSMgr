@@ -26,5 +26,6 @@ Base command:
 Notes:
 
 - If conditions are not met, the button is disabled.
-- The action is queued in `Pending changes` and runs only when changes are applied; when finished, the target connection and its contents are refreshed.
+- **It runs when you press it.** It used to be added to a pending-changes list and wait for
+  you to apply it; that list is gone.
 - If either connection runs OpenZFS below `2.3.3`, the action is blocked at run time, even if the button looked enabled.

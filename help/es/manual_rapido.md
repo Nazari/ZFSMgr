@@ -8,13 +8,13 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 
 - Zona superior: un único árbol unificado que ocupa todo el ancho y casi todo el alto.
 - Banda central, de **una sola línea**: `Origen`, `Estado` y `Progreso`.
-- Zona inferior: pestañas (`Cambios pendientes`, `Ajustes`, `Log combinado`,
+- Zona inferior: pestañas (`Transferencias`, `Ajustes`, `Log combinado`,
   `Transferencias`). `Terminal` y `Daemon` no están aquí: son sub-pestañas **de cada
   conexión**, dentro del `Log combinado`.
 
 La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar`,
 `Sincronizar`, `Nivelar` y `Diff` se piden desde el menú contextual del nodo destino
-(ver `Menús contextuales`). `Cambios pendientes` pasó a ser la primera pestaña de abajo.
+(ver `Menús contextuales`). `Transferencias` es la primera pestaña de abajo.
 
 ## Árbol unificado
 
@@ -107,54 +107,24 @@ La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar
   - `Desde Dir`
   - `Hacia Dir`
 
-## Cambios pendientes
+## Transferencias
 
-- `Cambios pendientes` muestra descripciones legibles, no comandos crudos.
-- **El título de la pestaña lleva la cuenta entre paréntesis y en negrita** cuando hay
-  algo pendiente, para que no pase inadvertido con la pestaña sin mirar.
-- Los cambios se acumulan en orden de inserción.
-- Al hacer clic en una línea, ZFSMgr intenta enfocar el objeto y la sección afectada.
-- Acciones diferidas típicas:
-  - cambios de propiedades
-  - permisos
-  - `Rename`, `Move`, `Rollback`, `Hold`, `Release`
-  - `Copy`, `Level`, `Sync`
-  - borrado diferido de datasets/snapshots
+Esta pestaña era `Cambios pendientes` y guardaba órdenes a la espera de que usted pulsara
+`Aplicar cambios`. **Ya no.** Las acciones se ejecutan al pulsarlas, y la pestaña muestra
+ahora los **trabajos en marcha**: qué está corriendo, su progreso, y un botón para
+cancelarlo.
 
-### La lista es un plan de trabajo, no una cola que se vacía
+Lo que sí se sigue editando en lote son las **propiedades** y los **permisos**: se acumulan
+como borradores y se aplican con `Aplicar cambios`. Son ediciones de un estado, con un final
+natural; una acción como `Desglosar` o `Hacia Dir` no lo es.
 
-Las **acciones** (`Desglosar`, `Ensamblar`, `Desde Dir`, `Hacia Dir`, montar, desmontar,
-crear, borrar…) se comportan así:
+Consecuencias de que la lista ya no exista:
 
-- **No se borran al ejecutarse.** Se quedan con su resultado y **se desmarcan solas**.
-  Desmarcarlas, en vez de borrarlas, evita que un segundo `Aplicar cambios` repita por
-  descuido un `Desglosar` o un `Hacia Dir` con borrado.
-- **Casilla `Activa`**: decide si la entrada entra en el próximo `Aplicar cambios`.
-  Volver a marcarla es todo lo que hace falta para repetir la acción.
-- **La lista sobrevive al cierre.** Si sale sin aplicar, al arrancar siguen ahí.
-- **`Poner nombre...`** (menú contextual) para distinguir entradas parecidas.
-- **`Editar...`** (menú contextual) reabre el diálogo con lo que se pidió, en las cuatro
-  acciones avanzadas. Cancelar la edición **no** borra la acción.
-- Para quitar una entrada hay que hacerlo **a mano**: `Eliminar`, o `Vaciar lista` para
-  descartarlo todo, que pide confirmación y enumera lo que se lleva.
-- Una acción encolada guarda la ORDEN ya construida, así que no incorpora los arreglos
-  posteriores del programa. Si la encoló otra versión, la fila sale con **⚠** y se
-  pregunta antes de ejecutarla: lo seguro es quitarla y volver a pedir la acción.
+- No hay nada que sobreviva al cierre de la aplicación: si no la ejecutó, no ocurrió. Antes
+  la lista se guardaba en disco, con la orden de cada acción dentro.
+- No hay que acordarse de aplicar nada. Antes una acción pedida y no aplicada parecía hecha.
+- Los borradores de propiedades y permisos **sí** se pierden al cerrar sin aplicarlos.
 
-Las **propiedades, los permisos y los renombrados** no funcionan así: siguen
-desapareciendo al aplicarse. Son ediciones de un estado, con un final natural, no
-trabajos que tenga sentido repetir.
-
-### Qué NO se guarda en disco
-
-- **Las contraseñas.** La orden de cada acción lleva dentro la de `sudo`; al guardar se
-  sustituye por un marcador y al cargar se repone desde la conexión, donde vive cifrada.
-  Si cambia la contraseña entre sesiones, la acción restaurada usa la nueva.
-- **Las frases de cifrado.** Una acción que cree un dataset cifrado **no se guarda**:
-  guardarla sin el secreto sería peor, porque al aplicarla crearía el dataset sin cifrar
-  o fallaría a mitad. Al re-editarla, la frase se vuelve a pedir.
-- Una acción cuya **conexión ya no existe** se descarta al arrancar, en vez de quedarse
-  como una línea que falla al pulsarla.
 
 ## Conectividad y logs
 

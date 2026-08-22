@@ -58,4 +58,5 @@ Los grupos son independientes por:
 - Los permisos ZFS también se editan inline, pero en modo borrador.
 - Las propiedades de usuario (las que llevan `:` en el nombre, como `org.fc16.gsa:*`) son editables y también muestran el control de herencia.
 - No muestran control de herencia las propiedades de solo lectura, las que no aplican a la plataforma, y `canmount`.
-- Al pulsar una línea en `Pending changes`, ZFSMgr intenta enfocar el objeto y la sección correspondiente.
+- La lista de cambios pendientes ya no existe, así que tampoco el salto al objeto desde ella.
+Los borradores de propiedades se ven en la propia rejilla, resaltados.

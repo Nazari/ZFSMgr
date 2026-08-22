@@ -113,6 +113,13 @@ With source datos@lunes ▸
    Compare with datos@lunes
 ```
 
+**`Move` copies nothing.** It is a `zfs rename`: the dataset changes place in the tree
+and the data stays where it is, so it is instantaneous and there is no original left to
+delete. That is why it only works **within the same pool and the same machine**, with
+datasets on both ends — never snapshots. To take something to another pool or another
+machine, use `Copy`. What does change is the mountpoint of that dataset and of everything
+beneath it.
+
 There is no target to mark: it is the node you click on. The `Source:` line at the top
 remembers what is marked, and its tooltip shows it in full when the name does not fit.
 
@@ -132,7 +139,8 @@ On the merged pool node, `Split and root` appears right after the `Pool` submenu
 ## Rules
 
 - Destructive actions ask for confirmation.
-- Several actions work in deferred mode and accumulate in `Pending changes`.
+- **Properties**, **permissions** and **renames** are edited as drafts and applied with
+  `Apply changes`. Actions are not: they run when you press them.
 - `Mark as source` updates the `Source:` line in the top band. The target is not marked: it is the node whose menu you opened.
 - The `@` node (snapshot grouper) has no context menu.
 - On `Dataset properties` and `Snapshot properties` the context menu contains only `Manage property display`.

@@ -1,4 +1,4 @@
-# Command line (`zfsmgr_cli`)
+# Command line (`zfsmgr-cli`)
 
 ZFSMgr ships a terminal tool that does what the window does, against the **same
 connections**: it reads `config.json` and `trust-store.json` from the same place, talks
@@ -6,16 +6,21 @@ over the same encrypted tunnel and runs the same agent verbs. It is not a separa
 program with its own configuration.
 
 On Windows the installer puts it on the `PATH` — if you leave that box ticked — so you
-call it by name from `cmd` or PowerShell. On Linux and macOS it is **not installed
-alongside the application yet**: you run it from wherever it was built.
+call it by name from `cmd` or PowerShell. On Linux and macOS it **is installed
+alongside the application**, in `bin`, so it is also called by name. That was not the case
+before, and it did not ship in any Unix package.
+
+There is also a **web server**, `zfsmgr-web`: it shows the same thing in a browser, without
+JavaScript, reached over an SSH tunnel. All three — window, shell and server — talk to the
+same agent and share the same rules.
 
 ## Two ways to use it
 
 **With a command**, for scripts:
 
 ```sh
-zfsmgr_cli connections list
-zfsmgr_cli --format json connections list | jq '.connections[] | select(.tls == false)'
+zfsmgr-cli connections list
+zfsmgr-cli --format json connections list | jq '.connections[] | select(.tls == false)'
 ```
 
 **With no command at all**, and then it behaves as a shell: there is a location — a
@@ -81,7 +86,7 @@ user of the machine. Only through the terminal or a file descriptor, which lets 
 any secret manager:
 
 ```sh
-zfsmgr_cli --password-fd 3 connections list  3< <(pass show zfsmgr)
+zfsmgr-cli --password-fd 3 connections list  3< <(pass show zfsmgr)
 ```
 
 With `--no-secrets` nothing is decrypted and no master password is asked for: encrypted
@@ -103,4 +108,4 @@ is sent, whether it goes over the daemon tunnel (`[daemon-rpc]`) or over SSH, an
 failed if it did. Passwords and TLS material are masked in that log.
 
 What you asked for goes to **standard output** and the log to **standard error**, so
-`zfsmgr_cli ... > data.tsv` does not mix the two.
+`zfsmgr-cli ... > data.tsv` does not mix the two.

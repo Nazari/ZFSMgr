@@ -45,9 +45,10 @@ Dentro de `app` se guardan, entre otras cosas:
 
 - La marca de `Origen` es de sesión: se pierde al cerrar la aplicación. No hay destino
   que guardar: es el nodo sobre el que se pide la acción.
-- La **lista de cambios pendientes** sí se guarda (clave `pending_actions`), con la orden
-  de cada acción y SIN contraseñas: se sustituyen por un marcador y se reponen desde la
-  conexión al cargar.
+- La lista de cambios pendientes **ya no existe**, y con ella desapareció la clave
+  `pending_actions` del fichero de configuración. Las acciones se ejecutan al pulsarlas, así
+  que no hay nada pendiente que guardar entre sesiones. Los borradores de propiedades y de
+  permisos siguen siendo de sesión: si cierra sin aplicarlos, se pierden.
 - Los anchos de columna del árbol se conservan al cambiar de conexión o de panel dentro de la misma sesión, pero no entre arranques.
 
 ## Carga al iniciar

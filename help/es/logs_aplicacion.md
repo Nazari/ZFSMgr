@@ -2,10 +2,11 @@
 
 La parte inferior de la ventana usa pestañas:
 
-- `Cambios pendientes`: lo que se aplicará al pulsar `Aplicar cambios`.
+- `Transferencias`: los trabajos en marcha, con su progreso y un botón para cancelarlos.
+  Antes esta pestaña era `Cambios pendientes` y guardaba órdenes a la espera de que
+  usted las aplicara; ahora las órdenes se ejecutan al pulsarlas.
 - `Ajustes`: opciones de log y confirmación de acciones.
 - `Log combinado`: log principal de aplicación.
-- `Transferencias`: lista de jobs de transferencia en background (Copy/Level daemon-a-daemon).
 
 Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pestañas:
 
@@ -31,7 +32,10 @@ Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pes
 
 ## Pestaña Transferencias
 
-- Muestra una fila por cada job de transferencia (Copy/Level daemon-a-daemon).
+- Muestra una fila por cada trabajo en marcha: `Copiar` y `Nivelar` entre daemons, y también
+  `Desde Dir` cuando va por el árbol entre daemons.
+- En esa misma zona están los botones `Aplicar cambios` y `Deshacer cambios`, que sirven
+  **solo** a los borradores de propiedades y de permisos: las acciones ya no se encolan.
 - Cada fila incluye: estado, datasets origen/destino, bytes transferidos, velocidad y tiempo.
 - Estados posibles: `running`, `done`, `failed`, `cancelled`.
 - El botón `Refrescar` fuerza una consulta de estado a los daemons.

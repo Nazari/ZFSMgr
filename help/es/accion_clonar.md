@@ -26,5 +26,6 @@ Comando base:
 Notas:
 
 - Si no cumple condiciones, el boton aparece deshabilitado.
-- La acción se añade a `Cambios pendientes` y solo se ejecuta al aplicar los cambios; al terminar se refresca la conexion destino y su contenido.
+- **Se ejecuta al pulsarla.** Antes se añadía a una lista de cambios pendientes y esperaba
+  a que usted la aplicara; esa lista ya no existe.
 - Si alguna conexión usa OpenZFS por debajo de `2.3.3`, la acción se bloquea al ejecutarse, aunque el botón aparezca habilitado.

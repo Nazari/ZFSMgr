@@ -4,6 +4,9 @@ Goal: copy dataset content into a directory on the selected connection host.
 
 Conditions:
 
+- **Not available on Windows connections**: the agent there does not serve this verb,
+  because moving the dataset out of the way — which turning it into a directory in place
+  requires — cannot be done on Windows.
 - Dataset selected in the pool tree.
 - Selection must be a dataset (not a snapshot).
 - On Unix connections it requires the `zfsmgr-agent` daemon to be installed: there is no shell fallback.
@@ -11,7 +14,8 @@ Conditions:
 Behavior:
 
 - Opens a dialog to choose the destination directory.
-- The action is added to `Pending changes` and only runs when you apply the changes. On applying it shows the command, asks for confirmation and blocks the interface while it lasts.
+- **It runs when you press it.** It used to be added to a pending-changes list and wait for
+  you to apply it; that list is gone.
 - Relocates the dataset onto a temporary mountpoint and copies its contents with the agent's own copy (permissions, hard links, sparse files, extended attributes and, with them, POSIX ACLs). Relocating it is what allows the destination directory to be the very path where the dataset was mounted.
 - If the copy completes successfully:
   - optionally deletes the source dataset (checkbox).

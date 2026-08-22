@@ -2,7 +2,9 @@
 
 The bottom area uses tabs:
 
-- `Pending changes`: what will be applied when you press `Apply changes`.
+- `Transfers`: the jobs in flight, with their progress and a button to cancel them. This tab
+  used to be `Pending changes` and held commands waiting for you to apply them; commands
+  now run when you press them.
 - `Settings`: log options and action confirmation.
 - `Combined log`: main application log.
 - `Transfers`: list of background daemon transfer jobs (Copy/Level daemon-to-daemon).

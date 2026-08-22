@@ -52,24 +52,27 @@ El agente de Windows no implementa aún algunas funciones. La aplicación **no l
 intenta**: aparecen deshabilitadas indicando el motivo, y la ficha de la conexión las
 lista bajo *Funciones no disponibles*.
 
-- Sincronizar **entre máquinas distintas**, que necesita `rsync` para mandar por la red solo las diferencias, y `rsync` no existe en Windows. Sincronizar entre dos datasets de la **misma** máquina sí funciona: va por la copia propia del agente, con `--delete` y con simulacro.
 - *Hacia Dir*, que monta el dataset en un punto temporal para volcarlo, y eso contra
   letras de unidad no significa lo mismo.
 - Reparar puntos de montaje temporales, por la misma razón.
 - Instantáneas automáticas programadas: se apoyan en ZED, y OpenZFS on Windows no lo trae.
 
 Lo que sí funciona: leer y modificar datasets y pools, instantáneas, clonar, permisos
-ZFS, *Desglosar* y *Ensamblar*, **Copiar y Nivelar instantáneas entre máquinas**, los
-**trabajos en segundo plano**, y el registro y el latido del agente.
+ZFS, *Ensamblar*, **Copiar y Nivelar instantáneas entre máquinas**, los **trabajos en
+segundo plano**, y el registro y el latido del agente.
+
+**Desglosar no está disponible en Windows**, y *Hacia Dir* tampoco. Los motivos están más
+abajo.
 
 Esa lista no está escrita en la aplicación: **la declara el propio agente** al
 consultarle su estado, así que se pone al día sola cuando se instala una versión que
 cubra más.
 
-## Desglosar y Ensamblar: dónde acaba el contenido
+## Por qué Desglosar no está en Windows (y Ensamblar sí)
 
-Funcionan en Windows, pero el resultado **no se ve igual que en Unix**, y conviene
-saberlo antes de usarlos.
+Aquí decía que las dos funcionaban «aunque el resultado no se ve igual que en Unix». Se
+comprobó en una máquina real y resultó ser peor que eso, así que **Desglosar se ha
+retirado en Windows**.
 
 Allí los datasets **no se anidan bajo su padre**: cada uno se monta como un enlace en
 la raíz de la unidad, con el nombre de su último componente. Se ve mirando `Z:\`:
@@ -82,10 +85,18 @@ Directory of Z:\
 
 `winpool/padre/hijo` está en `Z:\hijo`, no dentro de `Z:\padre`, que aparece vacío.
 
-Consecuencia práctica: al **desglosar** `Z:\datos\fotos`, el contenido pasa a estar en
-`Z:\fotos`. Sigue perteneciendo al dataset `winpool/datos/fotos` —la jerarquía de ZFS
-es la correcta— pero la ruta en el explorador cambia. Al **ensamblar**, vuelve a su
-sitio dentro del padre.
+Consecuencia práctica: al **desglosar** `Z:\datos\fotos`, el contenido pasaba a estar en
+`Z:\fotos`, en la raíz de la unidad. La jerarquía de ZFS quedaba correcta
+—`winpool/datos/fotos` existía— pero **sus ficheros desaparecían de donde usted los tenía
+y aparecían en el nivel superior del disco**, y la operación decía que había ido bien.
+
+No tiene arreglo: en Windows `zfs set mountpoint` solo acepta una letra de unidad, `none` o
+`legacy`, así que a un dataset hijo no se le puede decir que se monte en `Z:\datos\fotos`.
+Por eso el agente ya no ofrece esa función allí y la interfaz la enseña deshabilitada con su
+motivo.
+
+**Ensamblar sí funciona**, y está comprobado: los datasets vuelven a ser directorios en su
+sitio, dentro del padre.
 
 Es el modelo de OpenZFS para Windows, no una decisión de ZFSMgr.
 

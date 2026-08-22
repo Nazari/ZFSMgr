@@ -4,6 +4,10 @@ Goal: turn directories of the dataset into child datasets.
 
 Requirements:
 
+- **Not available on Windows connections.** There, datasets mount under the pool's drive
+  letter and cannot have their own mountpoint, so the new dataset would not end up where
+  the directory is: its files would appear at the root of the drive. The action is shown
+  disabled with that reason. See `Windows connections`.
 - A dataset selected in the pool tree.
 - The dataset must be **mounted**: otherwise no candidate directory is listed.
 - On Unix connections it requires the `zfsmgr-agent` agent: there is no shell fallback.

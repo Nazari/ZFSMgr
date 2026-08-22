@@ -120,6 +120,12 @@ arriba recuerda qué hay marcado, y su tooltip lo muestra completo cuando el nom
 Lo que no aplica sale **en gris, con el motivo en el tooltip**: que el origen no es un
 snapshot, que los pools no coinciden, que `Diff` compara dos puntos del mismo dataset, o
 que las versiones de OpenZFS no son compatibles para transferir.
+
+**`Mover` no copia nada.** Es un `zfs rename`: el dataset cambia de sitio en el árbol y
+los datos se quedan donde están, así que es instantáneo y no queda un original que borrar.
+Por eso solo funciona **dentro del mismo pool y la misma máquina**, y con datasets a los
+dos lados —nunca snapshots—. Para llevar algo a otro pool o a otra máquina es `Copiar`.
+Lo que sí cambia es la ruta de montaje de ese dataset y la de todo lo que cuelgue de él.
 - En holds:
   - `Release`
 
@@ -133,7 +139,8 @@ En el nodo pool fusionado, `Split and root` aparece justo después del submenú 
 ## Reglas
 
 - Las acciones destructivas piden confirmación.
-- Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
+- Las **propiedades**, los **permisos** y los **renombrados** se editan como borradores y se
+aplican con `Aplicar cambios`. Las acciones no: se ejecutan al pulsarlas.
 - `Marcar como origen` actualiza la línea `Origen:` de la banda superior. El destino no se marca: es el nodo sobre el que se abre el menú.
 - El nodo `@` (agrupador de snapshots) no tiene menú contextual.
 - En `Dataset properties` y `Snapshot properties` el menú contextual contiene únicamente `Gestionar visualización de propiedades`.

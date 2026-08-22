@@ -58,4 +58,5 @@ Groups are independent per:
 - ZFS permissions are also edited inline, but in draft mode.
 - User properties (those with a `:` in the name, such as `org.fc16.gsa:*`) are editable and also show the inheritance control.
 - Read-only properties, properties that do not apply to the platform, and `canmount` do not show the inheritance control.
-- Clicking a line in `Pending changes` makes ZFSMgr try to focus the matching object and section.
+- The pending-changes list is gone, and so is jumping to the object from it. Property
+  drafts are shown highlighted in the grid itself.

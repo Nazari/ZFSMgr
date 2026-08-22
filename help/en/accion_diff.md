@@ -9,6 +9,8 @@
 
 Restrictions:
 
+- **Requires the agent** on the connection: it used to compare with `zfs diff` over SSH and
+  that path has been withdrawn. Without an agent the reason is given instead of trying.
 - Source and Target must be in the same connection
 - Source and Target must be in the same pool
 - both must refer to the same base dataset

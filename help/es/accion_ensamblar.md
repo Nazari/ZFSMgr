@@ -4,6 +4,8 @@ Objetivo: absorber un subdataset en el dataset padre, dejando su contenido como 
 
 Condiciones:
 
+- **Sí está disponible en conexiones Windows**, al contrario que `Desglosar`. Comprobado
+  contra una máquina real: los datasets vuelven a ser directorios en su sitio.
 - Dataset seleccionado en el árbol del pool.
 - El dataset padre debe estar **montado**; si no lo está, la operación falla con `mountpoint=none`. Cada subdataset seleccionado lo monta el propio agente.
 - En conexiones Unix requiere el agente `zfsmgr-agent` instalado: no hay alternativa por shell.

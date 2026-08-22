@@ -4,6 +4,10 @@ Objetivo: convertir directorios del dataset en subdatasets.
 
 Condiciones:
 
+- **No está disponible en conexiones Windows.** Allí los datasets se montan bajo la letra
+  de unidad del pool y no admiten un punto de montaje propio, así que el dataset nuevo no
+  quedaría donde está el directorio: sus ficheros aparecerían en la raíz de la unidad. La
+  acción sale deshabilitada con ese motivo. Ver `Conexiones Windows`.
 - Dataset seleccionado en el árbol del pool.
 - El dataset debe estar **montado**: si no lo está, no se listará ningún directorio candidato.
 - En conexiones Unix requiere el agente `zfsmgr-agent` instalado: no hay alternativa por shell.

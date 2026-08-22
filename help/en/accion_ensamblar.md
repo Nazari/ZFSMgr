@@ -4,6 +4,8 @@ Goal: absorb a child dataset into its parent dataset, leaving its contents as a 
 
 Requirements:
 
+- **It IS available on Windows connections**, unlike `Breakdown`. Verified against a real
+  machine: datasets go back to being directories in place.
 - A dataset selected in the pool tree.
 - The parent dataset must be **mounted**; otherwise the operation fails with `mountpoint=none`. Each selected child dataset is mounted by the agent itself.
 - On Unix connections it requires the `zfsmgr-agent` agent: there is no shell fallback.

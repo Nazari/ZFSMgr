@@ -52,23 +52,25 @@ The Windows agent does not implement some features yet. The application **does n
 attempt them**: they appear disabled with the reason, and the connection card lists
 them under *Unavailable features*.
 
-- Sync **between different machines**, which needs `rsync` to send only the differences over the network, and `rsync` does not exist on Windows. Syncing two datasets on the **same** machine does work: it goes through the agent's own copy, with `--delete` and with a dry run.
 - *To Dir*, which mounts the dataset at a temporary point to pour it out, and that means
   nothing against drive letters.
 - Repairing temporary mountpoints, for the same reason.
 - Scheduled automatic snapshots: they rely on ZED, and OpenZFS on Windows does not ship it.
 
 What does work: reading and modifying datasets and pools, snapshots, cloning, ZFS
-permissions, *Breakdown* and *Assemble*, **Copy and Level snapshots between machines**,
-**background jobs**, and the agent log and heartbeat.
+permissions, *Assemble*, **Copy and Level snapshots between machines**, **background
+jobs**, and the agent log and heartbeat.
+
+**Breakdown is not available on Windows**, and neither is *To dir*. The reasons are below.
 
 That list is not written into the application: **the agent declares it** when asked for
 its status, so it updates itself once a version covering more is installed.
 
-## Breakdown and Assemble: where the content ends up
+## Why Breakdown is not on Windows (and Assemble is)
 
-They work on Windows, but the result **does not look the same as on Unix**, and it is
-worth knowing before using them.
+This section used to say both worked, "though the result does not look the same as on
+Unix". It was checked on a real machine and turned out to be worse than that, so
+**Breakdown has been withdrawn on Windows**.
 
 There, datasets **do not nest under their parent**: each one mounts as a link at the
 root of the drive, named after its last component. You can see it in `Z:\`:
@@ -81,9 +83,17 @@ Directory of Z:\
 
 `winpool/parent/child` lives in `Z:\child`, not inside `Z:\parent`, which looks empty.
 
-In practice: breaking down `Z:\data\photos` leaves the content in `Z:\photos`. It
-still belongs to the dataset `winpool/data/photos` —the ZFS hierarchy is correct— but
-the path in the explorer changes. Assembling puts it back inside the parent.
+In practice: breaking down `Z:\data\photos` used to leave the content in `Z:\photos`, at
+the root of the drive. The ZFS hierarchy was correct, but **your files vanished from where
+you had them and turned up at the top level of the disk**, and the operation reported
+success.
+
+There is no fix: on Windows `zfs set mountpoint` only accepts a drive letter, `none` or
+`legacy`, so a child dataset cannot be told to mount inside its parent. The agent no longer
+offers that function there, and the interface shows it disabled with the reason.
+
+**Assemble does work**, and it is verified: datasets go back to being directories in place,
+inside the parent.
 
 This is OpenZFS on Windows' model, not a ZFSMgr decision.
 

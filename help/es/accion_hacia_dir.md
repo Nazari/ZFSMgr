@@ -4,6 +4,9 @@ Objetivo: copiar el contenido de un dataset a un directorio en la maquina de la 
 
 Condiciones:
 
+- **No está disponible en conexiones Windows**: el agente de allí no sirve este verbo,
+  porque apartar el dataset a un montaje temporal —lo que exige convertirlo en un
+  directorio en su mismo sitio— no se puede hacer en Windows.
 - Dataset seleccionado en el árbol del pool.
 - La seleccion debe ser dataset (no snapshot).
 - En conexiones Unix requiere el agente `zfsmgr-agent` instalado: no hay alternativa por shell.
@@ -11,7 +14,8 @@ Condiciones:
 Comportamiento:
 
 - Abre una ventana para seleccionar el directorio destino.
-- La acción se añade a `Cambios pendientes` y solo se ejecuta al aplicar los cambios. Al aplicarla muestra el comando, pide confirmación y bloquea la interfaz mientras dura.
+- **Se ejecuta al pulsarla.** Antes se añadía a una lista de cambios pendientes y esperaba
+  a que usted la aplicara; esa lista ya no existe.
 - Reubica el dataset en un punto de montaje temporal y copia su contenido con la copia propia del agente (permisos, enlaces duros, ficheros dispersos, atributos extendidos y, con ellos, las ACL POSIX). Reubicarlo permite que el directorio destino sea la propia ruta donde estaba montado.
 - Si la copia termina correctamente:
   - opcionalmente elimina el dataset origen (segun check).

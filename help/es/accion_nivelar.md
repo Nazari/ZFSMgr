@@ -20,14 +20,19 @@ Requisitos de nivelación (si no se cumplen, la acción se cancela con un aviso)
 
 Comportamiento:
 
-- Antes de encolar se abre un diálogo con las opciones de `zfs send`.
-- Si el destino tiene daemon activo con soporte de jobs (`JOBS_SUPPORT=1`) —y también el origen, cuando son conexiones distintas— y ninguna de las dos es Windows, la transferencia se lanza como **job en background**:
+- Al pulsarla se abre un diálogo con las opciones de `zfs send`.
+- Si el destino tiene daemon activo con soporte de jobs (`JOBS_SUPPORT=1`) —y también el origen, cuando son conexiones distintas—, la acción se lanza
+  como trabajo en segundo plano.
   - Los datos fluyen directamente de daemon a daemon, sin pasar por la máquina donde corre ZFSMgr.
   - La GUI no se bloquea; el progreso se muestra en la pestaña **Transferencias**.
   - Se puede cerrar la GUI mientras la transferencia continúa en el daemon.
   - Los jobs pueden cancelarse desde la pestaña Transferencias.
-- **Si alguno de los dos extremos es Windows, la acción no está disponible**: el agente de Windows todavía no implementa la transmisión del flujo entre máquinas.
-- Si no hay soporte de jobs, la acción cae en modo síncrono: se añade a `Cambios pendientes` y se ejecuta al aplicar los cambios.
+- **Windows ya no queda fuera.** El agente de Windows transmite el flujo entre máquinas
+  igual que los demás, y está comprobado contra una máquina real. Lo que sí hace falta,
+  en Windows y fuera de él, es **agente en las dos puntas**: sin él no hay camino, y se
+  dice el motivo en vez de intentarlo por shell.
+- Si no hay soporte de trabajos, la acción se ejecuta de forma síncrona: la ventana se
+  queda esperando a que termine, con su progreso en el registro.
 - Con origen y destino en la **misma conexión**, la tubería `zfs send | zfs recv` la monta el propio daemon (`--zfs-pipe-local`), sin shell remoto. En esa ruta **no se muestran líneas de progreso**; el avance solo es visible en la ruta de jobs.
 - Registra el modo de transferencia elegido en nivel INFO y el cambio pendiente en nivel NORMAL.
 - Si alguna conexión está por debajo de `2.3.3`, la acción se bloquea.

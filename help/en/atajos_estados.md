@@ -15,5 +15,7 @@
   - same pool
 - Snapshots are selected from the `@` node (there is no `Select snapshot` menu anymore).
 - If source or target runs OpenZFS `< 2.3.3`, `Copy`, `Level`, and `Sync` are blocked.
-- `Apply changes` is enabled only when `Pending changes` contains real work.
+- `Apply changes` is enabled only when there are real property or permission drafts. Those
+  two ARE edited in batches and applied with a button; actions are not: they run when you
+  press them.
 - Normal navigation uses cache; refresh happens explicitly or after actions that require it.

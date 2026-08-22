@@ -9,6 +9,8 @@
 
 Restricciones:
 
+- **Requiere el agente** en la conexión: antes se comparaba con `zfs diff` por SSH y ese
+  camino se ha retirado. Sin agente se dice el motivo en vez de intentarlo.
 - Origen y Destino deben estar en la misma conexión
 - Origen y Destino deben estar en el mismo pool
 - ambos deben referirse al mismo dataset base

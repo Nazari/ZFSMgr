@@ -8,14 +8,14 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 - Top area: a single unified tree spanning the full width and nearly the full height.
 - Middle band, a **single line**: `Source`, `Status` and `Progress`.
-- Bottom area: tabs (`Pending changes`, `Settings`, `Combined log`, `Transfers`).
+- Bottom area: tabs (`Transfers`, `Settings`, `Combined log`).
   `Terminal` and `Daemon` are not here: they are sub-tabs **of each connection**, inside
   the `Combined log`.
 
 
 The `Actions` box with its six buttons is gone: `Copy`, `Move`, `Clone`, `Sync`, `Level`
 and `Diff` are requested from the target node's context menu (see `Context menus`).
-`Pending changes` became the first tab at the bottom.
+`Transfers` is the first tab at the bottom.
 
 ## Unified tree
 
@@ -108,55 +108,24 @@ and `Diff` are requested from the target node's context menu (see `Context menus
   - `From Dir`
   - `To Dir`
 
-## Pending changes
+## Transfers
 
-- `Pending changes` shows readable descriptions, not raw commands.
-- **The tab title carries the count in parentheses, in bold**, whenever something is
-  pending, so it does not go unnoticed while the tab is out of sight.
-- Changes accumulate in insertion order.
-- Clicking one line makes ZFSMgr try to focus the affected object and section.
-- Typical deferred actions:
-  - property changes
-  - permissions
-  - `Rename`, `Move`, `Rollback`, `Hold`, `Release`
-  - `Copy`, `Level`, `Sync`
-  - deferred dataset/snapshot deletion
+This tab used to be `Pending changes` and held commands waiting for you to press
+`Apply changes`. **Not any more.** Actions run when you press them, and the tab now shows the
+**jobs in flight**: what is running, its progress, and a button to cancel it.
 
-### The list is a work plan, not a queue that drains
+What is still edited in batches are **properties** and **permissions**: they pile up as
+drafts and are applied with `Apply changes`. Those are edits to a state, with a natural end;
+an action like `Break down` or `To dir` is not.
 
-**Actions** (`Breakdown`, `Assemble`, `From Dir`, `To Dir`, mount, unmount, create,
-destroy…) behave like this:
+What follows from the list being gone:
 
-- **They are not removed when they run.** They keep their result and **untick
-  themselves**. Unticking rather than deleting is what stops a second `Apply changes`
-  from accidentally repeating a `Breakdown` or a `To Dir` with deletion.
-- **`Active` checkbox**: decides whether the entry takes part in the next
-  `Apply changes`. Ticking it again is all it takes to run the action once more.
-- **The list survives closing the app.** Leave without applying and it is still there
-  next time.
-- **`Set name...`** (context menu) to tell similar entries apart.
-- **`Edit...`** (context menu) reopens the dialog with what you asked for, for all four
-  advanced actions. Cancelling the edit does **not** delete the action.
-- Removing an entry is **manual**: `Delete`, or `Empty list` to discard everything, which
-  asks for confirmation and lists what it takes with it.
-- A queued action stores the command ALREADY BUILT, so it does not pick up later fixes to
-  the program. If another version queued it, the row shows **⚠** and you are asked before
-  it runs: the safe move is to remove it and request the action again.
+- Nothing survives closing the application: if you did not run it, it did not happen. The
+  list used to be stored on disk, with each action's command inside it.
+- There is nothing to remember to apply. An action requested and not applied used to look
+  done.
+- Property and permission drafts **are** lost if you close without applying them.
 
-**Properties, permissions and renames** do not work this way: they still disappear once
-applied. They are edits to a state, with a natural end, not jobs worth repeating.
-
-### What is NOT written to disk
-
-- **Passwords.** Each action's command carries the `sudo` password inside it; on save it
-  is replaced by a marker and on load restored from the connection, where it lives
-  encrypted. Change the password between sessions and the restored action uses the new
-  one.
-- **Encryption passphrases.** An action that creates an encrypted dataset **is not
-  saved**: saving it without the secret would be worse, since applying it would create
-  the dataset unencrypted or fail midway. Re-editing it asks for the passphrase again.
-- An action whose **connection no longer exists** is dropped at startup, rather than
-  staying as a line that fails when you click it.
 
 ## Connectivity and logs
 
