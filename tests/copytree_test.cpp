@@ -1,4 +1,5 @@
 #include "copytree.h"
+#include "arbolremoto.h"
 
 #include <QtTest/QtTest>
 
@@ -15,6 +16,7 @@
 #endif
 
 namespace fs = std::filesystem;
+namespace AR = zfsmgr::arbolremoto;
 using namespace zfsmgr::copytree;
 
 namespace {
@@ -311,6 +313,365 @@ private Q_SLOTS:
         QVERIFY(!r.ok);
         QVERIFY(!r.error.empty());
     }
+
+    // --- El arbol por el socket entre daemons -------------------------------------
+    //
+    // Aqui se prueba TODO menos la red: recorrer, el formato de cable y el plan. Lo que
+    // queda fuera es el socket, que ya esta probado por el rele de las transferencias.
+
+    void recorreDistingueLosCuatroTipos() {
+        namedirs();
+        std::vector<AR::Entrada> e;
+        std::string err;
+        QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
+        std::map<std::string, AR::Tipo> porRuta;
+        for (const auto& x : e) porRuta[x.ruta] = x.tipo;
+        QCOMPARE(porRuta.count("sub"), size_t(1));
+        QVERIFY(porRuta["sub"] == AR::Tipo::Directorio);
+        QVERIFY(porRuta["a.txt"] == AR::Tipo::Fichero);
+        QVERIFY(porRuta["enlace"] == AR::Tipo::Enlace);
+        // El segundo nombre del mismo fichero llega como enlace duro, no como copia: es
+        // la diferencia entre sincronizar un arbol y duplicarlo. Y cual de los dos es «el
+        // fichero» NO depende del orden del directorio: es el primero por orden
+        // alfabetico, para que los dos extremos describan el arbol igual.
+        QVERIFY(porRuta["duro.txt"] == AR::Tipo::EnlaceDuro);
+        for (const auto& x : e) {
+            if (x.ruta == "duro.txt") {
+                QCOMPARE(QString::fromStdString(x.destino), QStringLiteral("a.txt"));
+            }
+        }
+    }
+
+    void loDelVolumenNoEsDelArbol() {
+        // La papelera y la carpeta de restauracion son del VOLUMEN, no de quien lo usa.
+        // Sin esto, sincronizar la raiz de una unidad Windows con borrado proponia borrar
+        // la papelera entera; se vio en una pasada en seco contra una unidad de verdad.
+        fs::create_directories(src_ / "$RECYCLE.BIN" / "S-1-5-21");
+        writeFile(src_ / "$RECYCLE.BIN" / "S-1-5-21" / "desktop.ini", "x");
+        fs::create_directories(src_ / "System Volume Information");
+        // Pero uno del usuario con el mismo nombre MAS ABAJO si es suyo.
+        fs::create_directories(src_ / "mio" / "$RECYCLE.BIN");
+        writeFile(src_ / "mio" / "$RECYCLE.BIN" / "dato.txt", "mio");
+        std::vector<AR::Entrada> e;
+        std::string err;
+        QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
+        for (const auto& x : e) {
+            QVERIFY2(x.ruta.rfind("$RECYCLE.BIN", 0) != 0, x.ruta.c_str());
+            QVERIFY2(x.ruta.rfind("System Volume Information", 0) != 0, x.ruta.c_str());
+        }
+        bool hayElDelUsuario = false;
+        for (const auto& x : e) {
+            if (x.ruta == "mio/$RECYCLE.BIN/dato.txt") hayElDelUsuario = true;
+        }
+        QVERIFY2(hayElDelUsuario, "lo del usuario mas abajo si va");
+    }
+
+    void lasRutasVanSiempreConBarras() {
+        namedirs();
+        std::vector<AR::Entrada> e;
+        std::string err;
+        QVERIFY(AR::recorre(src_.string(), e, err));
+        for (const auto& x : e) {
+            QVERIFY2(x.ruta.find('\\') == std::string::npos,
+                     "una ruta con barra invertida no casaria en el otro extremo");
+        }
+    }
+
+    void elManifiestoSobreviveAlViajeDeIdaYVuelta() {
+        namedirs();
+        std::vector<AR::Entrada> e;
+        std::string err;
+        QVERIFY(AR::recorre(src_.string(), e, err));
+        std::vector<AR::Entrada> vuelta;
+        QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), e.size());
+        for (size_t i = 0; i < e.size(); ++i) {
+            QCOMPARE(QString::fromStdString(vuelta[i].ruta), QString::fromStdString(e[i].ruta));
+            QCOMPARE(vuelta[i].tamano, e[i].tamano);
+            QCOMPARE(vuelta[i].fecha, e[i].fecha);
+        }
+    }
+
+    void unNombreConSaltoDeLineaNoRompeElManifiesto() {
+        // Las longitudes van explicitas justo por esto: un nombre puede llevar dentro un
+        // salto de linea, y partir por lineas dejaria el manifiesto descolocado.
+        std::vector<AR::Entrada> e(1);
+        e[0].ruta = "raro\ncon salto.txt";
+        e[0].tipo = AR::Tipo::Fichero;
+        e[0].tamano = 7;
+        std::vector<AR::Entrada> vuelta;
+        std::string err;
+        QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(vuelta[0].ruta), QString::fromStdString(e[0].ruta));
+    }
+
+    void elPlanSaltaLoQueYaEstaIgual() {
+        std::vector<AR::Entrada> o(1), d(1);
+        o[0].ruta = d[0].ruta = "a.txt";
+        o[0].tamano = d[0].tamano = 10;
+        o[0].fecha = d[0].fecha = 1000;
+        const AR::Plan p = AR::planea(o, d, false);
+        QCOMPARE(p.operaciones.size(), size_t(0));
+        QCOMPARE(p.iguales, uint64_t(1));
+        QCOMPARE(p.bytes, uint64_t(0));
+    }
+
+    void unaFechaDistintaLoVuelveACopiar() {
+        std::vector<AR::Entrada> o(1), d(1);
+        o[0].ruta = d[0].ruta = "a.txt";
+        o[0].tamano = d[0].tamano = 10;
+        o[0].fecha = 1001;
+        d[0].fecha = 1000;
+        const AR::Plan p = AR::planea(o, d, false);
+        QCOMPARE(p.operaciones.size(), size_t(1));
+        QVERIFY(p.operaciones[0].accion == AR::Accion::Copiar);
+        QCOMPARE(p.bytes, uint64_t(10));
+    }
+
+    void sinBorradoNoSeBorraNada() {
+        std::vector<AR::Entrada> o;
+        std::vector<AR::Entrada> d(1);
+        d[0].ruta = "sobra.txt";
+        QCOMPARE(AR::planea(o, d, false).operaciones.size(), size_t(0));
+    }
+
+    void conBorradoSeVaDeDentroHaciaFuera() {
+        // Un directorio se borra DESPUES de lo que tiene dentro. Al reves, el borrado
+        // falla y el motivo no explica por que.
+        std::vector<AR::Entrada> o;
+        std::vector<AR::Entrada> d(2);
+        d[0].ruta = "dir";
+        d[0].tipo = AR::Tipo::Directorio;
+        d[1].ruta = "dir/dentro.txt";
+        const AR::Plan p = AR::planea(o, d, true);
+        QCOMPARE(p.operaciones.size(), size_t(2));
+        QCOMPARE(QString::fromStdString(p.operaciones[0].entrada.ruta),
+                 QStringLiteral("dir/dentro.txt"));
+        QCOMPARE(QString::fromStdString(p.operaciones[1].entrada.ruta), QStringLiteral("dir"));
+    }
+
+    void unEnlaceQueCambiaDeDestinoSeRehace() {
+        std::vector<AR::Entrada> o(1), d(1);
+        o[0].ruta = d[0].ruta = "l";
+        o[0].tipo = d[0].tipo = AR::Tipo::Enlace;
+        o[0].destino = "a.txt";
+        d[0].destino = "b.txt";
+        const AR::Plan p = AR::planea(o, d, false);
+        QCOMPARE(p.operaciones.size(), size_t(1));
+        QVERIFY(p.operaciones[0].accion == AR::Accion::Enlazar);
+    }
+
+    void laCabeceraSobreviveAlViajeDeIdaYVuelta() {
+        AR::Operacion o;
+        o.accion = AR::Accion::Copiar;
+        o.entrada.ruta = "sub/a.txt";
+        o.entrada.destino = "";
+        o.entrada.modo = 0644;
+        o.entrada.fecha = 1700000000;
+        o.entrada.tamano = 12345;
+        AR::Operacion vuelta;
+        size_t lr = 0, ld = 0;
+        std::string err;
+        QVERIFY2(AR::analizaCabecera(AR::cabeceraDe(o), vuelta, lr, ld, err), err.c_str());
+        QVERIFY(vuelta.accion == AR::Accion::Copiar);
+        QCOMPARE(vuelta.entrada.tamano, uint64_t(12345));
+        QCOMPARE(vuelta.entrada.fecha, int64_t(1700000000));
+        QCOMPARE(lr, o.entrada.ruta.size());
+        QCOMPARE(ld, size_t(0));
+    }
+
+    // --- Delta: mandar solo lo que cambio -----------------------------------------
+
+    void laSumaRodanteCoincideConLaCalculadaDeCero() {
+        // El truco del algoritmo es actualizar la suma en O(1) al deslizar un byte. Si la
+        // version rodante y la version «de cero» no dieran lo mismo, no se reconoceria
+        // ningun bloque y el delta mandaria el fichero entero sin decir nada.
+        std::string datos = "abcdefghijklmnopqrstuvwxyz0123456789";
+        const size_t v = 8;
+        const auto* p = reinterpret_cast<const unsigned char*>(datos.data());
+        uint32_t s = AR::sumaRodante(p, v);
+        for (size_t i = 0; i + v < datos.size(); ++i) {
+            const unsigned char sale = p[i];
+            const unsigned char entra = p[i + v];
+            uint32_t a = s & 0xffff, b = (s >> 16) & 0xffff;
+            a = (a - sale + entra) & 0xffff;
+            b = (b - uint32_t(v) * sale + a) & 0xffff;
+            s = a | (b << 16);
+            QCOMPARE(s, AR::sumaRodante(p + i + 1, v));
+        }
+    }
+
+    void unFicheroIgualNoMandaNiUnByte() {
+        // Con contenido variado, para que cada bloque tenga su propia firma. Con un solo
+        // byte repetido todos los bloques son iguales y la prueba mediria otra cosa.
+        std::string datos;
+        for (size_t i = 0; i < 300000; ++i) datos.push_back(char('a' + (i * 13) % 26));
+        writeFile(src_ / "g.bin", datos);
+        std::vector<AR::Firma> fi;
+        std::string err;
+        const size_t tb = 8192;
+        QVERIFY2(AR::firmasDe((src_ / "g.bin").string(), tb, fi, err), err.c_str());
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY2(AR::delta((src_ / "g.bin").string(), fi, tb, ins, literales, err), err.c_str());
+        QCOMPARE(literales, uint64_t(0));
+        // Y en UNA sola instruccion: los bloques seguidos se juntan.
+        QCOMPARE(ins.size(), size_t(1));
+        QVERIFY(ins[0].tipo == AR::TipoInstruccion::Copiar);
+    }
+
+    void unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones() {
+        // Un disco virtual medio vacio son megas del mismo byte: todos esos bloques tienen
+        // la misma firma. Cogiendo siempre el primer candidato salia una instruccion por
+        // bloque; prefiriendo el siguiente al ultimo copiado, sale una para todos.
+        writeFile(src_ / "r.bin", std::string(300000, 'x'));
+        std::vector<AR::Firma> fi;
+        std::string err;
+        const size_t tb = 8192;
+        QVERIFY(AR::firmasDe((src_ / "r.bin").string(), tb, fi, err));
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY(AR::delta((src_ / "r.bin").string(), fi, tb, ins, literales, err));
+        QCOMPARE(literales, uint64_t(0));
+        QVERIFY2(ins.size() <= 2,
+                 QStringLiteral("salieron %1 instrucciones").arg(ins.size())
+                     .toUtf8().constData());
+    }
+
+    void soloViajaLoQueCambio() {
+        std::string base(300000, 'x');
+        writeFile(dst_ / "viejo.bin", base);
+        std::string nuevo = base;
+        nuevo.replace(150000, 10, "CAMBIADOxx");
+        writeFile(src_ / "nuevo.bin", nuevo);
+        std::vector<AR::Firma> fi;
+        std::string err;
+        const size_t tb = 8192;
+        QVERIFY(AR::firmasDe((dst_ / "viejo.bin").string(), tb, fi, err));
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY(AR::delta((src_ / "nuevo.bin").string(), fi, tb, ins, literales, err));
+        // Un cambio de 10 bytes no puede costar 300 KB: como mucho el bloque que lo
+        // contiene. Si esto crece, el delta ha dejado de servir para nada.
+        QVERIFY2(literales <= 2 * tb,
+                 QStringLiteral("literales=%1").arg(literales).toUtf8().constData());
+        QVERIFY(literales > 0);
+    }
+
+    void unByteInsertadoAlPrincipioNoTiraElReconocimiento() {
+        // Este es el caso que separa la ventana deslizante de comparar bloques alineados:
+        // con bloques alineados, insertar un byte al principio desplaza TODO y no se
+        // reconoceria ni un bloque.
+        std::string base(200000, 'q');
+        for (size_t i = 0; i < base.size(); ++i) base[i] = char('a' + (i % 26));
+        writeFile(dst_ / "b.bin", base);
+        writeFile(src_ / "b.bin", std::string("Z") + base);
+        std::vector<AR::Firma> fi;
+        std::string err;
+        const size_t tb = 8192;
+        QVERIFY(AR::firmasDe((dst_ / "b.bin").string(), tb, fi, err));
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY(AR::delta((src_ / "b.bin").string(), fi, tb, ins, literales, err));
+        QVERIFY2(literales < 3 * tb,
+                 QStringLiteral("con un byte insertado viajaron %1").arg(literales)
+                     .toUtf8().constData());
+    }
+
+    void elDeltaReconstruyeExactamenteElOriginal() {
+        // La prueba que de verdad importa: aplicar las instrucciones tiene que devolver el
+        // fichero del origen byte a byte. Un fallo aqui corrompe datos en silencio.
+        std::string viejo;
+        for (size_t i = 0; i < 250000; ++i) viejo.push_back(char('a' + (i * 7) % 26));
+        std::string nuevo = viejo;
+        nuevo.replace(1000, 5, "XXXXX");
+        nuevo.replace(120000, 3, "YYY");
+        nuevo += "cola que antes no estaba";
+        writeFile(dst_ / "v.bin", viejo);
+        writeFile(src_ / "n.bin", nuevo);
+        const size_t tb = AR::tamanoDeBloque(nuevo.size());
+        std::vector<AR::Firma> fi;
+        std::string err;
+        QVERIFY(AR::firmasDe((dst_ / "v.bin").string(), tb, fi, err));
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY(AR::delta((src_ / "n.bin").string(), fi, tb, ins, literales, err));
+
+        std::string rehecho;
+        for (const auto& in : ins) {
+            if (in.tipo == AR::TipoInstruccion::Literal) {
+                rehecho += in.datos;
+            } else {
+                for (uint64_t k = 0; k < in.cuantos; ++k) {
+                    const size_t off = size_t(in.bloque + k) * tb;
+                    rehecho += viejo.substr(off, std::min(tb, viejo.size() - off));
+                }
+            }
+        }
+        QCOMPARE(int(rehecho.size()), int(nuevo.size()));
+        QVERIFY2(rehecho == nuevo, "lo reconstruido NO es igual al original");
+    }
+
+    void unFicheroMayorQueElBufferNoSeTrunca() {
+        // Con bloques de 8 KiB el buffer interno es de 1 MiB. Un consumo que caia justo en
+        // el final del buffer dejaba `ini == fin` y el bucle salia SIN volver a leer: el
+        // delta describia solo el primer megabyte y el resto desaparecia en silencio.
+        // Aqui se usan 3 MB para cruzar ese limite varias veces.
+        std::string datos;
+        for (size_t i = 0; i < 3u * 1024 * 1024; ++i) datos.push_back(char('a' + (i * 31) % 26));
+        writeFile(dst_ / "big.bin", datos);
+        std::string cambiado = datos;
+        cambiado.replace(2u * 1024 * 1024, 4, "ZZZZ");
+        writeFile(src_ / "big.bin", cambiado);
+        const size_t tb = 8192;
+        std::vector<AR::Firma> fi;
+        std::string err;
+        QVERIFY(AR::firmasDe((dst_ / "big.bin").string(), tb, fi, err));
+        std::vector<AR::Instruccion> ins;
+        uint64_t literales = 0;
+        QVERIFY(AR::delta((src_ / "big.bin").string(), fi, tb, ins, literales, err));
+
+        std::string rehecho;
+        for (const auto& in : ins) {
+            if (in.tipo == AR::TipoInstruccion::Literal) {
+                rehecho += in.datos;
+            } else {
+                for (uint64_t k = 0; k < in.cuantos; ++k) {
+                    const size_t off = size_t(in.bloque + k) * tb;
+                    rehecho += datos.substr(off, std::min(tb, datos.size() - off));
+                }
+            }
+        }
+        QCOMPARE(int(rehecho.size()), int(cambiado.size()));
+        QVERIFY2(rehecho == cambiado, "el delta trunco el fichero en el limite del buffer");
+        QVERIFY2(literales <= 2 * tb,
+                 QStringLiteral("viajaron %1 bytes").arg(literales).toUtf8().constData());
+    }
+
+    void lasFirmasSobrevivenAlViajeDeIdaYVuelta() {
+        writeFile(src_ / "f.bin", std::string(100000, 'k'));
+        std::vector<AR::Firma> fi;
+        std::string err;
+        QVERIFY(AR::firmasDe((src_ / "f.bin").string(), 8192, fi, err));
+        std::vector<AR::Firma> vuelta;
+        QVERIFY2(AR::analizaFirmas(AR::serializaFirmas(fi), vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), fi.size());
+        for (size_t i = 0; i < fi.size(); ++i) {
+            QCOMPARE(vuelta[i].debil, fi[i].debil);
+            QCOMPARE(memcmp(vuelta[i].fuerte, fi[i].fuerte, 16), 0);
+        }
+    }
+
+private:
+    // Un arbol con los cuatro tipos dentro.
+    void namedirs() {
+        fs::create_directories(src_ / "sub");
+        writeFile(src_ / "a.txt", "hola");
+        fs::create_hard_link(src_ / "a.txt", src_ / "duro.txt");
+        fs::create_symlink("a.txt", src_ / "enlace");
+    }
+
 };
 
 QTEST_MAIN(CopyTreeTest)

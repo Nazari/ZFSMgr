@@ -31,13 +31,25 @@ private Q_SLOTS:
             Feature::RepairAltMountpoints,
             Feature::DirToDir,
             Feature::ToolAvailability,
-            Feature::RsyncSync,
         };
         for (const Feature f : pending) {
             const Availability a = featureAvailability(f, windowsReady());
             QVERIFY(!a.available);
             QCOMPARE(a.reason, Reason::WindowsAgentPending);
         }
+    }
+
+    // Sincronizar también está en Windows, y la tabla decía que no.
+    //
+    // La mentira no llegaba a la interfaz porque nadie consultaba esa entrada, pero sí llegó
+    // a la ayuda, que la copió. Comprobado de fc16 a una máquina Windows: entre máquinas se
+    // usa una tubería `tar` por SSH y los ficheros llegan.
+    //
+    // Lo que cambia allí es el SIGNIFICADO: esa tubería no borra en el destino, así que
+    // Sincronizar añade y sobrescribe pero no quita lo que sobra. Eso no es «no disponible».
+    void windowsSyncIsAvailable() {
+        const Availability a = featureAvailability(Feature::RsyncSync, windowsReady());
+        QVERIFY(a.available);
     }
 
     // Copiar y Nivelar snapshot SÍ están en Windows desde que el agente sabe recibir y

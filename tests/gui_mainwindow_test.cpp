@@ -328,7 +328,7 @@ private Q_SLOTS:
 
     }
 
-    void poolContextMenuIncludesImportRenameAndReguid() {
+    void poolContextMenuSeparatesImportedFromImportable() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
@@ -341,13 +341,31 @@ private Q_SLOTS:
                                                     {QStringLiteral("tank2")});
         window.rebuildConnectionDetailsForTest();
 
+        // Los dos menús son EXCLUYENTES, y antes este test afirmaba lo contrario.
+        //
+        // Pedía que el pool ya importado ofreciera «Importar renombrando» y que el
+        // importable ofreciera «Reguid». Ninguna de las dos cosas ocurre en la aplicación:
+        // en `buildPoolRootMenuState`, `canImport` exige acción «Importar», y Reguid
+        // —como Scrub, Destroy y el resto— cuelga de `canExport`, que exige la contraria.
+        // Un menú con Importar, Exportar y Reguid a la vez no existe.
+        //
+        // Pasaba porque `poolContextMenuLabelsForTest` devolvía una lista fija con TODAS
+        // las etiquetas y tiraba el estado que calculaba justo encima. Al hacer que
+        // devuelva lo que el estado dice, el test se cayó y enseñó lo que llevaba
+        // afirmando. Se comprueba en los dos sentidos —lo que está y lo que NO— porque
+        // solo con `contains` una lista fija vuelve a pasar sin que nadie se entere.
         const QStringList importedPoolMenu = window.poolContextMenuLabelsForTest(QStringLiteral("tank1"), false);
         QVERIFY(importedPoolMenu.contains(QStringLiteral("Reguid")));
-        QVERIFY(importedPoolMenu.contains(QStringLiteral("Importar renombrando")));
+        // «Export» y no «Exportar»: la ventana de prueba se crea con idioma "en" y esa
+        // etiqueta SÍ pasa por `trk()`. «Reguid» e «Importar renombrando» no —van como
+        // literales sin traducir—, y por eso se leen igual en los tres idiomas.
+        QVERIFY(importedPoolMenu.contains(QStringLiteral("Export")));
+        QVERIFY(!importedPoolMenu.contains(QStringLiteral("Importar renombrando")));
 
         const QStringList importablePoolMenu = window.poolContextMenuLabelsForTest(QStringLiteral("tank2"), false);
-        QVERIFY(importablePoolMenu.contains(QStringLiteral("Reguid")));
         QVERIFY(importablePoolMenu.contains(QStringLiteral("Importar renombrando")));
+        QVERIFY(!importablePoolMenu.contains(QStringLiteral("Export")));
+        QVERIFY(!importablePoolMenu.contains(QStringLiteral("Reguid")));
     }
 
     // Un lote que toca varias conexiones debe repintar el árbol UNA vez, no una por

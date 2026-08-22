@@ -1,0 +1,951 @@
+#include "mainwindow.h"
+#include "mainwindow_helpers.h"
+#include "peticiones.h"
+
+#include <QApplication>
+#include <QClipboard>
+#include <QComboBox>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QFont>
+#include <QMetaObject>
+#include <QPlainTextEdit>
+#include <QQueue>
+#include <QRegularExpression>
+#include <QScrollBar>
+#include <QTabWidget>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextStream>
+#include <QThread>
+#include <QSet>
+#include <QSysInfo>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QVBoxLayout>
+
+#include <QtConcurrent/QtConcurrent>
+
+#if defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+#include <syslog.h>
+#endif
+
+#ifdef Q_OS_MACOS
+#include <os/log.h>
+#endif
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+#include <string>
+
+namespace {
+constexpr int kMaxUiLogLineChars = 4096;
+
+QString truncateLogLineForUi(const QString& line) {
+    if (line.size() <= kMaxUiLogLineChars) {
+        return line;
+    }
+    const int dropped = line.size() - kMaxUiLogLineChars;
+    return line.left(kMaxUiLogLineChars)
+           + QStringLiteral(" ... [truncated %1 chars]").arg(dropped);
+}
+
+constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
+constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
+
+QString tsNowForLog() {
+    return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+}
+
+QString normalizeHostTokenForLogs(QString host) {
+    host = host.trimmed().toLower();
+    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+        host = host.mid(1, host.size() - 2);
+    }
+    while (host.endsWith('.')) {
+        host.chop(1);
+    }
+    return host;
+}
+
+QString localizeLegacyAppLogMessage(const QString& language, QString msg) {
+    if (language.trimmed().toLower() != QStringLiteral("en")) {
+        return msg;
+    }
+    msg.replace(QStringLiteral("cancelada: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("cancelado: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("Cambio pendiente añadido:"), QStringLiteral("Pending change added:"));
+    msg.replace(QStringLiteral("Idioma cambiado a"), QStringLiteral("Language changed to"));
+    msg.replace(QStringLiteral("Motivo:"), QStringLiteral("Reason:"));
+    return msg;
+}
+
+bool isLocalHostForLogs(const QString& host) {
+    const QString h = normalizeHostTokenForLogs(host);
+    if (h.isEmpty()) {
+        return false;
+    }
+    if (h == QStringLiteral("localhost")
+        || h == QStringLiteral("127.0.0.1")
+        || h == QStringLiteral("::1")) {
+        return true;
+    }
+    static const QSet<QString> aliases = []() {
+        QSet<QString> s;
+        s.insert(QStringLiteral("localhost"));
+        s.insert(QStringLiteral("127.0.0.1"));
+        s.insert(QStringLiteral("::1"));
+        const QString local = normalizeHostTokenForLogs(QSysInfo::machineHostName());
+        if (!local.isEmpty()) {
+            s.insert(local);
+            s.insert(local + QStringLiteral(".local"));
+            const int dot = local.indexOf('.');
+            if (dot > 0) {
+                const QString shortName = local.left(dot);
+                s.insert(shortName);
+                s.insert(shortName + QStringLiteral(".local"));
+            }
+        }
+        return s;
+    }();
+    return aliases.contains(h);
+}
+
+struct CompactLogParts {
+    QString date;
+    QString time;
+    QString conn;
+    QString level;
+    QString msg;
+};
+
+CompactLogParts parseCompactLogParts(const QString& fullLine) {
+    CompactLogParts out;
+    static const QRegularExpression lineRx(
+        QStringLiteral("^\\[(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\]\\s+\\[([^\\]]+)\\]\\s*(.*)$"));
+    static const QRegularExpression sshRx(QStringLiteral("^\\[SSH\\s+([^\\]]+)\\]\\s*(.*)$"));
+
+    const QRegularExpressionMatch m = lineRx.match(fullLine.trimmed());
+    if (!m.hasMatch()) {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.level = QStringLiteral("-");
+        out.conn = QStringLiteral("-");
+        out.msg = fullLine.trimmed();
+        return out;
+    }
+    out.date = m.captured(1).trimmed();
+    out.time = m.captured(2).trimmed();
+    out.level = m.captured(3).trimmed();
+    out.msg = m.captured(4).trimmed();
+    out.conn = QStringLiteral("-");
+    const QRegularExpressionMatch sm = sshRx.match(out.msg);
+    if (sm.hasMatch()) {
+        out.conn = sm.captured(1).trimmed();
+        out.msg = sm.captured(2).trimmed();
+    }
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
+
+CompactLogParts parseGsaLogParts(const QString& line, const QString& connName) {
+    CompactLogParts out;
+    static const QRegularExpression gsaRx(
+        QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\s+(.*)$"));
+    const QString trimmed = line.trimmed();
+    const QRegularExpressionMatch m = gsaRx.match(trimmed);
+    if (m.hasMatch()) {
+        out.date = m.captured(1).trimmed();
+        out.time = m.captured(2).trimmed();
+        out.msg = m.captured(3).trimmed();
+    } else {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.msg = trimmed;
+    }
+    out.conn = connName.trimmed().isEmpty() ? QStringLiteral("-") : connName.trimmed();
+    out.level = QStringLiteral("GSA");
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
+
+
+
+bool looksLikeGsaRuntimeLine(const QString& line) {
+    const QString s = line.trimmed();
+    if (s.isEmpty()) {
+        return false;
+    }
+    static const QRegularExpression gsaStamped(
+        QStringLiteral("^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+GSA\\b"));
+    if (gsaStamped.match(s).hasMatch()) {
+        return true;
+    }
+    const QString low = s.toLower();
+    return low.startsWith(QStringLiteral("gsa "))
+           || low.contains(QStringLiteral(" zfsmgr-gsa"))
+           || low.contains(QStringLiteral(" gsa "))
+           || low.contains(QStringLiteral("org.fc16.gsa:"));
+}
+
+void ensureLogHorizontalScrollTracking(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    if (view->property("zfsmgr_hscroll_track_init").toBool()) {
+        return;
+    }
+    view->setProperty("zfsmgr_hscroll_track_init", true);
+    view->setProperty("zfsmgr_hscroll_user_override", false);
+    QScrollBar* h = view->horizontalScrollBar();
+    if (!h) {
+        return;
+    }
+    QObject::connect(h, &QScrollBar::valueChanged, view, [view, h](int value) {
+        if (h->property("zfsmgr_hscroll_programmatic").toBool()) {
+            return;
+        }
+        if (value != h->minimum()) {
+            view->setProperty("zfsmgr_hscroll_user_override", true);
+        }
+    });
+}
+
+void scrollLogViewToLatest(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    ensureLogHorizontalScrollTracking(view);
+    auto apply = [view]() {
+        if (QScrollBar* h = view->horizontalScrollBar()) {
+            const bool userOverride = view->property("zfsmgr_hscroll_user_override").toBool();
+            if (!userOverride) {
+                h->setProperty("zfsmgr_hscroll_programmatic", true);
+                h->setValue(h->minimum());
+                h->setProperty("zfsmgr_hscroll_programmatic", false);
+            }
+        }
+        if (QScrollBar* v = view->verticalScrollBar()) {
+            v->setValue(v->maximum());
+        }
+    };
+    apply();
+    QMetaObject::invokeMethod(view, apply, Qt::QueuedConnection);
+}
+
+} // namespace
+
+void MainWindow::initLogPersistence() {
+    const QString dir = m_conns.store.configDir();
+    if (dir.isEmpty()) {
+        return;
+    }
+    m_appLogPath = dir + "/application.log";
+    rotateLogIfNeeded();
+}
+
+void MainWindow::rotateLogIfNeeded() {
+    if (m_appLogPath.isEmpty()) {
+        return;
+    }
+    const qint64 maxBytes = qint64(qMax(1, m_logMaxSizeMb)) * 1024LL * 1024LL;
+    constexpr int backups = 5;
+
+    QFileInfo fi(m_appLogPath);
+    if (!fi.exists() || fi.size() < maxBytes) {
+        return;
+    }
+
+    for (int i = backups; i >= 1; --i) {
+        const QString src = (i == 1) ? m_appLogPath : (m_appLogPath + "." + QString::number(i - 1));
+        const QString dst = m_appLogPath + "." + QString::number(i);
+        if (QFile::exists(dst)) {
+            QFile::remove(dst);
+        }
+        if (QFile::exists(src)) {
+            QFile::rename(src, dst);
+        }
+    }
+}
+
+void MainWindow::appendLogToFile(const QString& line) {
+    if (m_appLogPath.isEmpty()) {
+        return;
+    }
+    const qint64 maxBytes = qint64(qMax(1, m_logMaxSizeMb)) * 1024LL * 1024LL;
+    // Rotar según los bytes que llevamos escritos, no preguntando al sistema de
+    // ficheros en cada línea. La cuenta se inicializa al abrir.
+    if (m_appLogFile && m_appLogBytes >= maxBytes) {
+        m_appLogFile->close();
+        m_appLogFile.reset();
+        rotateLogIfNeeded();
+        m_appLogBytes = 0;
+    }
+    if (!m_appLogFile) {
+        auto f = std::make_unique<QFile>(m_appLogPath);
+        if (!f->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
+        m_appLogBytes = f->size();
+        m_appLogFile = std::move(f);
+    }
+    const QByteArray payload = (maskSecrets(line) + QLatin1Char('\n')).toUtf8();
+    const qint64 written = m_appLogFile->write(payload);
+    if (written < 0) {
+        // El descriptor dejó de servir (disco lleno, fichero movido): se suelta para
+        // que el siguiente intento lo reabra en vez de perder el resto de la sesión.
+        m_appLogFile->close();
+        m_appLogFile.reset();
+        return;
+    }
+    m_appLogBytes += written;
+    // Sin flush por línea: el sistema operativo ya garantiza el orden y, si la
+    // aplicación se cierra, closeEvent lo vacía. Un fallo duro puede perder las
+    // últimas líneas; a cambio el registro deja de dominar el tiempo de refresco.
+    m_appLogFile->flush();
+}
+
+void MainWindow::flushAppLogFile() {
+    if (m_appLogFile) {
+        m_appLogFile->flush();
+    }
+}
+
+void MainWindow::appendLogToNative(const QString& level, const QString& line) {
+    const QString msg = maskSecrets(line).trimmed();
+    if (msg.isEmpty()) {
+        return;
+    }
+
+#ifdef Q_OS_MACOS
+    static os_log_t nativeLog = os_log_create("com.zfsmgr.app", "application");
+    os_log_type_t type = OS_LOG_TYPE_DEFAULT;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        type = OS_LOG_TYPE_ERROR;
+    } else if (lvl == QStringLiteral("warn")) {
+        type = OS_LOG_TYPE_FAULT;
+    } else if (lvl == QStringLiteral("info")) {
+        type = OS_LOG_TYPE_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        type = OS_LOG_TYPE_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    os_log_with_type(nativeLog, type, "%{public}s", utf8.constData());
+#elif defined(Q_OS_WIN)
+    WORD eventType = EVENTLOG_INFORMATION_TYPE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        eventType = EVENTLOG_ERROR_TYPE;
+    } else if (lvl == QStringLiteral("warn")) {
+        eventType = EVENTLOG_WARNING_TYPE;
+    }
+    // El registro de eventos de Windows es para lo que un administrador querría ver,
+    // no para trazas. Enviar cada línea DEBUG/NORMAL lo llenaba de ruido y costaba una
+    // llamada al servicio por línea: medido en una VM, 0,65 ms abriendo la fuente cada
+    // vez frente a 0,07 ms reutilizándola.
+    if (eventType == EVENTLOG_INFORMATION_TYPE) {
+        return;
+    }
+    // La fuente se abre UNA vez y se conserva. Abrirla y cerrarla por línea era el
+    // mismo defecto que en el fichero de registro.
+    static HANDLE handle = []() -> HANDLE {
+        HANDLE h = RegisterEventSourceW(nullptr, L"ZFSMgr");
+        return h ? h : RegisterEventSourceW(nullptr, L"Application");
+    }();
+    if (!handle) {
+        return;
+    }
+    const std::wstring wide = msg.toStdWString();
+    LPCWSTR strings[1] = { wide.c_str() };
+    ReportEventW(handle, eventType, 0, 0x1000, nullptr, 1, 0, strings, nullptr);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+    static bool nativeOpen = false;
+    if (!nativeOpen) {
+        openlog("ZFSMgr", LOG_PID | LOG_NDELAY, LOG_USER);
+        nativeOpen = true;
+    }
+    int priority = LOG_NOTICE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        priority = LOG_ERR;
+    } else if (lvl == QStringLiteral("warn")) {
+        priority = LOG_WARNING;
+    } else if (lvl == QStringLiteral("info")) {
+        priority = LOG_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        priority = LOG_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    syslog(priority, "%s", utf8.constData());
+#else
+    Q_UNUSED(level);
+    Q_UNUSED(msg);
+#endif
+}
+
+void MainWindow::clearAppLog() {
+    m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
+    m_connCompactState.clear();
+    m_connGsaCompactState.clear();
+    m_connectionDaemonLogOffset.clear();
+    for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
+        if (it.value()) {
+            it.value()->clear();
+        }
+    }
+    for (auto it = m_connectionGsaLogViews.begin(); it != m_connectionGsaLogViews.end(); ++it) {
+        if (it.value()) {
+            it.value()->clear();
+        }
+    }
+    if (m_lastDetailText) {
+        m_lastDetailText->clear();
+    }
+    if (!m_appLogPath.isEmpty()) {
+        QFile f(m_appLogPath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            f.close();
+        }
+    }
+}
+
+void MainWindow::copyAppLogToClipboard() {
+    QClipboard* cb = QApplication::clipboard();
+    if (!cb) {
+        return;
+    }
+    QString text = QStringLiteral("[Aplicación]\n") + m_logView->toPlainText();
+    for (auto it = m_connectionLogViews.constBegin(); it != m_connectionLogViews.constEnd(); ++it) {
+        const QString connId = it.key();
+        const QPlainTextEdit* view = it.value();
+        QString connName = connId;
+        for (const auto& p : m_conns.profiles) {
+            if (p.id == connId) {
+                connName = p.name;
+                break;
+            }
+        }
+        text += QStringLiteral("\n\n[%1]\n%2").arg(connName, view ? view->toPlainText() : QString());
+    }
+    cb->setText(text);
+}
+
+QString MainWindow::maskSecrets(const QString& text) const {
+    if (text.isEmpty()) {
+        return text;
+    }
+    // Los patrones viven en mwhelpers::maskCommandSecrets, compartidos con la vista
+    // previa de confirmación y con test. Aquí solo queda lo que depende del estado.
+    QString out = mwhelpers::maskCommandSecrets(text);
+    for (const ConnectionProfile& p : m_conns.profiles) {
+        if (!p.password.isEmpty()) {
+            out.replace(p.password, QStringLiteral("[secret]"));
+        }
+    }
+    // The sudo password entered at runtime for the local connection is not part of
+    // m_conns.profiles, so the loop above would miss it.
+    if (!m_localSudoPassword.isEmpty()) {
+        out.replace(m_localSudoPassword, QStringLiteral("[secret]"));
+    }
+    return out;
+}
+
+void MainWindow::logUiAction(const QString& action) {
+    appLog(QStringLiteral("INFO"), QStringLiteral("UI action: %1").arg(action));
+}
+
+void MainWindow::appLog(const QString& level, const QString& msg) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, level, msg]() {
+            appLog(level, msg);
+        }, Qt::QueuedConnection);
+        return;
+    }
+    const QString normalizedMsg = localizeLegacyAppLogMessage(m_language, msg);
+    const QString safeMsg = truncateLogLineForUi(maskSecrets(normalizedMsg));
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, safeMsg);
+    const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
+                                                         : m_logLevelSetting.toLower();
+    auto rank = [](const QString& l) -> int {
+        const QString x = l.toLower();
+        if (x == QStringLiteral("debug")) {
+            return 2;
+        }
+        if (x == QStringLiteral("info")) {
+            return 1;
+        }
+        return 0;
+    };
+    const QString lvl = level.toLower();
+    const bool always = (lvl == QStringLiteral("warn") || lvl == QStringLiteral("error"));
+    if (always || rank(lvl) <= rank(current)) {
+        appendAppLogLineToView(line);
+    }
+    if (m_lastDetailText) {
+        m_lastDetailText->setPlainText(line);
+    }
+    appendLogToFile(line);
+    appendLogToNative(level, line);
+}
+
+void MainWindow::debugTrace(const QString& msg) {
+    appLog(QStringLiteral("DEBUG"), msg);
+}
+
+void MainWindow::appendAppLogLineToView(const QString& fullLine) {
+    if (!m_logView) {
+        return;
+    }
+    const CompactLogParts p = parseCompactLogParts(fullLine);
+    QStringList changed;
+    if (!m_compactPrevValid || p.date != m_compactPrevDate) {
+        changed << p.date;
+    }
+    if (!m_compactPrevValid || p.time != m_compactPrevTime) {
+        changed << p.time;
+    }
+    if (!m_compactPrevValid || p.conn != m_compactPrevConn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!m_compactPrevValid || p.level != m_compactPrevLevel) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    m_logView->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    trimLogWidget(m_logView);
+    m_compactPrevValid = true;
+    m_compactPrevDate = p.date;
+    m_compactPrevTime = p.time;
+    m_compactPrevConn = p.conn;
+    m_compactPrevLevel = p.level;
+}
+
+void MainWindow::loadPersistedAppLogToView() {
+    if (!m_logView || m_appLogPath.isEmpty()) {
+        return;
+    }
+    QQueue<QString> allLines;
+    const int limit = qMax(1, maxLogLines());
+    auto pushLine = [&](const QString& rawLine) {
+        const QString ln = rawLine.trimmed();
+        if (ln.isEmpty()) {
+            return;
+        }
+        allLines.enqueue(truncateLogLineForUi(ln));
+        while (allLines.size() > limit) {
+            allLines.dequeue();
+        }
+    };
+    const QFileInfo currentFi(m_appLogPath);
+    const QString baseName = currentFi.fileName();
+    const QString baseDir = currentFi.absolutePath();
+    // Read rotated logs from oldest to newest, then current file.
+    for (int i = 5; i >= 1; --i) {
+        const QString fp = QStringLiteral("%1/%2.%3").arg(baseDir, baseName).arg(i);
+        QFile f(fp);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        QTextStream ts(&f);
+        while (!ts.atEnd()) {
+            pushLine(ts.readLine());
+        }
+    }
+    QFile current(m_appLogPath);
+    if (current.exists() && current.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream ts(&current);
+        while (!ts.atEnd()) {
+            pushLine(ts.readLine());
+        }
+    }
+    if (allLines.isEmpty()) {
+        return;
+    }
+    m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
+    for (const QString& ln : allLines) {
+        appendAppLogLineToView(maskSecrets(ln));
+    }
+}
+
+int MainWindow::maxLogLines() const {
+    const int v = m_logMaxLinesSetting;
+    if (v != 100 && v != 200 && v != 500 && v != 1000) {
+        return 500;
+    }
+    return v;
+}
+
+void MainWindow::trimLogWidget(QPlainTextEdit* widget) {
+    if (!widget) {
+        return;
+    }
+    QTextDocument* doc = widget->document();
+    if (!doc) {
+        return;
+    }
+    const int limit = maxLogLines();
+    while (doc->blockCount() > limit) {
+        QTextCursor c(doc);
+        c.movePosition(QTextCursor::Start);
+        c.select(QTextCursor::LineUnderCursor);
+        c.removeSelectedText();
+        c.deleteChar();
+    }
+}
+
+void MainWindow::syncConnectionLogTabs() {
+    if (!m_logsTabs) {
+        return;
+    }
+    QSet<QString> wanted;
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const auto& p = m_conns.profiles[i];
+        const bool localConn = isLocalConnection(p);
+        const QString st = (i < m_conns.states.size()) ? m_conns.states[i].status.trimmed().toUpper() : QString();
+        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForLogs(p.host));
+        if (redirectedLocal) {
+            continue;
+        }
+        wanted.insert(p.id);
+        if (m_connectionLogViews.contains(p.id)) {
+            // Daemon log: solo refresca si aún no hay contenido (primera carga).
+            // Las actualizaciones se disparan por eventos ZED o por el botón Heartbeat.
+            if (QPlainTextEdit* dv = m_connectionGsaLogViews.value(p.id, nullptr)) {
+                if (dv->document()->isEmpty()) {
+                    refreshConnectionDaemonLogAsync(i);
+                }
+            }
+            continue;
+        }
+        auto* tab = new QWidget(m_logsTabs);
+        auto* lay = new QVBoxLayout(tab);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+
+        auto* innerTabs = new QTabWidget(tab);
+        auto* terminalPage = new QWidget(innerTabs);
+        auto* terminalLay = new QVBoxLayout(terminalPage);
+        terminalLay->setContentsMargins(0, 0, 0, 0);
+        terminalLay->setSpacing(0);
+        auto* terminalView = new QPlainTextEdit(terminalPage);
+        terminalView->setReadOnly(true);
+        terminalView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        terminalView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        terminalView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            terminalView->setFont(m_logView->font());
+        }
+        terminalLay->addWidget(terminalView, 1);
+        innerTabs->addTab(terminalPage, QStringLiteral("Terminal"));
+
+        auto* gsaPage = new QWidget(innerTabs);
+        auto* gsaLay = new QVBoxLayout(gsaPage);
+        gsaLay->setContentsMargins(0, 0, 0, 0);
+        gsaLay->setSpacing(0);
+        auto* daemonBtnRow = new QWidget(gsaPage);
+        auto* daemonBtnLay = new QHBoxLayout(daemonBtnRow);
+        daemonBtnLay->setContentsMargins(4, 2, 4, 2);
+        auto* heartbeatBtn = new QPushButton(QStringLiteral("Heartbeat"), daemonBtnRow);
+        daemonBtnLay->addWidget(heartbeatBtn);
+        daemonBtnLay->addStretch(1);
+        gsaLay->addWidget(daemonBtnRow, 0);
+        auto* gsaView = new QPlainTextEdit(gsaPage);
+        gsaView->setReadOnly(true);
+        gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        gsaView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        gsaView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            gsaView->setFont(m_logView->font());
+        }
+        gsaLay->addWidget(gsaView, 1);
+        innerTabs->addTab(gsaPage, QStringLiteral("Daemon"));
+        {
+            const QString capturedId = p.id;
+            connect(heartbeatBtn, &QPushButton::clicked, this, [this, capturedId]() {
+                runDaemonHeartbeat(capturedId);
+            });
+        }
+
+        lay->addWidget(innerTabs, 1);
+        m_logsTabs->addTab(tab, p.name);
+        m_connectionLogViews.insert(p.id, terminalView);
+        m_connectionGsaLogViews.insert(p.id, gsaView);
+        m_connectionLogTabs.insert(p.id, tab);
+        refreshConnectionDaemonLogAsync(i);
+    }
+
+    for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end();) {
+        if (wanted.contains(it.key())) {
+            ++it;
+            continue;
+        }
+        QWidget* tab = m_connectionLogTabs.value(it.key(), nullptr);
+        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
+        if (idx >= 0) {
+            m_logsTabs->removeTab(idx);
+        }
+        if (tab) {
+            tab->deleteLater();
+        }
+        m_connectionGsaLogViews.remove(it.key());
+        m_connectionLogTabs.remove(it.key());
+        m_connCompactState.remove(it.key());
+        m_connGsaCompactState.remove(it.key());
+        m_connectionDaemonLogOffset.remove(it.key());
+        it = m_connectionLogViews.erase(it);
+    }
+
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const QString id = m_conns.profiles[i].id;
+        if (!wanted.contains(id)) {
+            continue;
+        }
+        QWidget* tab = m_connectionLogTabs.value(id, nullptr);
+        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
+        if (idx >= 0) {
+            m_logsTabs->setTabText(idx, m_conns.profiles[i].name);
+        }
+    }
+}
+
+void MainWindow::appendConnectionLog(const QString& connId, const QString& line) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, connId, line]() {
+            appendConnectionLog(connId, line);
+        }, Qt::QueuedConnection);
+        return;
+    }
+    QString connName = connId;
+    for (const auto& p : m_conns.profiles) {
+        if (p.id == connId) {
+            connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+            break;
+        }
+    }
+    const QString maskedLine = truncateLogLineForUi(maskSecrets(line));
+    const bool routeToGsa = looksLikeGsaRuntimeLine(maskedLine);
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("[SSH %1] %2").arg(connName, maskedLine));
+
+    QPlainTextEdit* view = routeToGsa ? m_connectionGsaLogViews.value(connId, nullptr)
+                                      : m_connectionLogViews.value(connId, nullptr);
+    if (!view) {
+        return;
+    }
+    const CompactLogParts p = routeToGsa
+        ? parseGsaLogParts(maskedLine, connName)
+        : parseCompactLogParts(QStringLiteral("[%1] [NORMAL] [SSH %2] %3")
+                                   .arg(tsNowForLog(), connName, maskedLine));
+    ConnCompactState& st = routeToGsa ? m_connGsaCompactState[connId]
+                                      : m_connCompactState[connId];
+    QStringList changed;
+    if (!st.valid || p.date != st.date) {
+        changed << p.date;
+    }
+    if (!st.valid || p.time != st.time) {
+        changed << p.time;
+    }
+    if (!st.valid || p.conn != st.conn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!st.valid || p.level != st.level) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    st.valid = true;
+    st.date = p.date;
+    st.time = p.time;
+    st.conn = p.conn;
+    st.level = p.level;
+    trimLogWidget(view);
+    scrollLogViewToLatest(view);
+}
+
+void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
+{
+    if (idx < 0 || idx >= m_conns.profiles.size()) {
+        return;
+    }
+    const QString connId = m_conns.profiles[idx].id;
+    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
+    if (!view) {
+        return;
+    }
+    if (isConnectionDisconnected(idx)) {
+        return;
+    }
+    const ConnectionProfile profile = m_conns.profiles[idx];
+    // La conexión Local queda fuera del refresco AUTOMÁTICO del log, y no por ser
+    // local: la tarea en segundo plano captura la ventana y puede sobrevivirla, lo que
+    // es un uso después de liberar. Con conexiones remotas no se manifiesta porque el
+    // comando falla enseguida; en local llega a ejecutarse y da SIGSEGV al cerrar.
+    //
+    // El latido y la reinstalación del daemon SÍ funcionan en local: los lanza el
+    // usuario y no quedan en vuelo. Arreglar el tiempo de vida de estas tareas es un
+    // trabajo aparte que afecta también a las conexiones remotas.
+    if (isLocalConnection(profile)) {
+        return;
+    }
+
+    if (fullReset) {
+        view->clear();
+        m_connectionDaemonLogOffset.remove(connId);
+    }
+    const qint64 offset = m_connectionDaemonLogOffset.value(connId, 0);
+
+    const QString cmd =
+        // Segundo argumento: máximo de bytes. Con offset 0 —cada arranque— el daemon
+        // devuelve solo la COLA en vez de días enteros de latidos. 256 KiB dan de sobra
+        // para las 2000 líneas que la vista conserva.
+        mwhelpers::agentCommand(profile,
+                                mwhelpers::argvQt(zfsmgr::commands::peticiones::registro(
+                                                      static_cast<unsigned long long>(offset),
+                                                      262144))
+                                    .join(QLatin1Char(' ')));
+
+    (void)QtConcurrent::run([this, profile, connId, cmd, offset]() {
+        QString out, err;
+        int rc = -1;
+        // Ver la nota de refreshConnectionsState: el agente de Windows debe invocarse
+        // como binario nativo, no a través del bash de MSYS2 que elige el modo Auto.
+        // Sin eco al registro: el destino de estas líneas es la vista del log del
+        // daemon. Se piden desde el desplazamiento 0 en cada arranque, y con un daemon
+        // llevando días en marcha son ~13.000 líneas de latidos —medido: el 84 % de todo
+        // el registro de la aplicación—, cada una con su escritura a fichero y su
+        // llamada al registro de eventos de Windows.
+        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {}, {},
+                               /*allowAgentRpc=*/true, /*echoOutputToLog=*/false)
+                        && rc == 0;
+        QMetaObject::invokeMethod(this, [this, connId, out, offset, ok]() {
+            QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
+            if (!v || !ok || out.isEmpty()) {
+                return;
+            }
+            QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            // El daemon declara el desplazamiento ABSOLUTO donde termina lo que envía.
+            // Hace falta porque al devolver solo la cola la vieja cuenta —sumar el
+            // tamaño de lo recibido al desplazamiento pedido— dejaría de corresponder
+            // con el fichero y el siguiente refresco releería lo mismo. Un daemon
+            // anterior no emite la marca: entonces se usa la cuenta de siempre.
+            qint64 newOffset = -1;
+            if (!lines.isEmpty()
+                && lines.first().startsWith(QStringLiteral("__ZFSMGR_LOG_OFFSET__:"))) {
+                bool okOff = false;
+                const qint64 parsed =
+                    lines.first().section(QLatin1Char(':'), 1).trimmed().toLongLong(&okOff);
+                if (okOff && parsed >= 0) {
+                    newOffset = parsed;
+                }
+                lines.removeFirst();
+            }
+            if (newOffset < 0) {
+                newOffset = offset + static_cast<qint64>(out.toUtf8().size());
+            }
+            m_connectionDaemonLogOffset[connId] = newOffset;
+            // Recortar ANTES de pintar y añadir en un solo bloque. appendPlainText por
+            // línea rehace el trazado del widget en cada llamada: con el volcado inicial
+            // desde el desplazamiento 0 de un daemon que lleva días en marcha son ~27.000
+            // llamadas en el hilo de interfaz (medido en una VM Windows). trimLogWidget
+            // recortaba después, así que se pagaba el pintado de todo lo que iba a
+            // descartarse.
+            constexpr int kMaxDumpLines = 2000;
+            const int dropped = qMax(0, lines.size() - kMaxDumpLines);
+            if (dropped > 0) {
+                lines = lines.mid(dropped);
+            }
+            QStringList kept;
+            kept.reserve(lines.size() + 1);
+            if (dropped > 0) {
+                kept << QStringLiteral("… %1 líneas anteriores omitidas").arg(dropped);
+            }
+            for (const QString& line : lines) {
+                const QString t = line.trimmed();
+                if (!t.isEmpty()) {
+                    kept << t;
+                }
+            }
+            if (!kept.isEmpty()) {
+                v->appendPlainText(kept.join(QLatin1Char('\n')));
+            }
+            trimLogWidget(v);
+            scrollLogViewToLatest(v);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::runDaemonHeartbeat(const QString& connId)
+{
+    int idx = -1;
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (m_conns.profiles[i].id == connId) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0 || isConnectionDisconnected(idx)) {
+        return;
+    }
+    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
+    if (view) {
+        view->appendPlainText(QStringLiteral("--- heartbeat ---"));
+    }
+    const ConnectionProfile profile = m_conns.profiles[idx];
+
+    const QString hbCmd = mwhelpers::agentCommand(profile, QStringLiteral("--heartbeat"));
+
+    (void)QtConcurrent::run([this, idx, connId, hbCmd, profile]() {
+        QString out, err;
+        int rc = -1;
+        const bool ok = runSsh(profile, hbCmd, 10000, out, err, rc, {}, {}, {});
+        QMetaObject::invokeMethod(this, [this, connId, out, err, ok, rc, idx]() {
+            QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
+            if (!v) return;
+            if (ok && rc == 0 && !out.trimmed().isEmpty()) {
+                const QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QString t = line.trimmed();
+                    if (!t.isEmpty()) {
+                        v->appendPlainText(t);
+                    }
+                }
+            } else {
+                v->appendPlainText(
+                    QStringLiteral("heartbeat failed rc=%1 %2")
+                        .arg(rc)
+                        .arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
+            }
+            // Also fetch new daemon log entries since last offset
+            refreshConnectionDaemonLogAsync(idx);
+            trimLogWidget(v);
+            scrollLogViewToLatest(v);
+        }, Qt::QueuedConnection);
+    });
+}

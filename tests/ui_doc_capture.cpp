@@ -199,6 +199,16 @@ int main(int argc, char** argv) {
                                                 {QStringLiteral("tank1")},
                                                 {QStringLiteral("tank2")});
     window.setConnectionGsaStateForTest(0, true, true, QStringLiteral("0.10.0rc1.5"));
+    // Los nodos de «Datasets programados» y «Permisos» solo existen si su opción de
+    // visualización está puesta. Sin esto no aparecían, sus capturas se saltaban en silencio
+    // y en la ayuda se quedaban las de la vez anterior — que es como acabaron siendo de hace
+    // meses sin que nadie se enterara.
+    //
+    // Solo se pone esta: `setShowPoolInfoNodeForTest` y `setShowInlineGsaNodeForTest` están
+    // DECLARADAS en mainwindow.h y no implementadas en ninguna parte, así que usarlas no
+    // falla al compilar sino al enlazar. Se deja dicho aquí para que quien las busque no
+    // pierda el rato.
+    window.setShowAutomaticSnapshotsForTest(true);
     window.configurePoolDatasetsForTest(
         0,
         QStringLiteral("tank1"),
@@ -242,6 +252,10 @@ int main(int argc, char** argv) {
     app.processEvents();
     app.processEvents();
 
+    // Con qué comparar después para saber si una captura se escribió DE VERDAD en esta
+    // pasada, o si lo que hay en disco es la de la vez anterior.
+    const QDateTime arranque = QDateTime::currentDateTime().addSecs(-1);
+
     QTreeWidget* mainTree = window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified"));
     if (!mainTree) {
         mainTree = window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeTop"));
@@ -260,11 +274,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
         return 1;
     }
+    // Un solo árbol, una sola captura.
+    //
+    // Aquí se guardaba el MISMO `mainTree->grab()` dos veces, como «top-tree» y como
+    // «bottom-tree». Venía de cuando la vista tenía dos árboles; ahora es unificado
+    // (`connContentTreeUnified`), así que la segunda salía byte a byte igual que la primera
+    // —comprobado con md5— y no la usaba nadie.
     if (!savePixmap(mainTree->grab(), outputPath(outDir, QStringLiteral("top-tree.png")), &error)) {
-        fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-        return 1;
-    }
-    if (!savePixmap(mainTree->grab(), outputPath(outDir, QStringLiteral("bottom-tree.png")), &error)) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
         return 1;
     }
@@ -304,6 +320,13 @@ int main(int argc, char** argv) {
     const QStringList refreshMenuLabels = window.connectionRefreshMenuLabelsForTest();
     const QStringList importedPoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank1"), false);
     const QStringList importablePoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank2"), false);
+
+    if (qEnvironmentVariableIsSet("ZFSMGR_CAPTURE_DEBUG")) {
+        fprintf(stderr, "[dbg] importado(tank1)=%s\n",
+                importedPoolLabels.join(QStringLiteral("|")).toLocal8Bit().constData());
+        fprintf(stderr, "[dbg] importable(tank2)=%s\n",
+                importablePoolLabels.join(QStringLiteral("|")).toLocal8Bit().constData());
+    }
 
     QMap<QString, QStringList> connectionSubmenus;
     connectionSubmenus.insert(QStringLiteral("Refrescar"), refreshMenuLabels);
@@ -355,6 +378,64 @@ int main(int argc, char** argv) {
                     outputPath(outDir, QStringLiteral("pool-context-menu-importable.png")),
                     &error)) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
+        return 1;
+    }
+
+    // **Y se comprueba que estén todas.**
+    //
+    // Varias capturas cuelgan de encontrar un nodo concreto del árbol, y si no aparecía se
+    // saltaban SIN DECIR NADA: la herramienta terminaba con éxito y en el disco se quedaba
+    // la imagen vieja. Así es como la ayuda acabó mostrando capturas de hace meses mientras
+    // el generador decía que había ido bien. Si falta alguna, se dice y se falla.
+    const QStringList esperadas = {
+        QStringLiteral("main-window.png"),
+        QStringLiteral("top-tree.png"),
+        QStringLiteral("connection-context-menu.png"),
+        QStringLiteral("connection-refresh-menu.png"),
+        QStringLiteral("pool-context-menu-imported.png"),
+        QStringLiteral("pool-context-menu-importable.png"),
+    };
+    // Estas dos NO se pueden generar hoy, y por eso están fuera de la lista de exigidas en
+    // vez de hacer fallar cada pasada. El motivo no es del generador:
+    //
+    //  - «Datasets programados» solo aparece si están puestas DOS opciones de visualización
+    //    a la vez, y una de ellas —`setShowPoolInfoNodeForTest`— está declarada en
+    //    mainwindow.h y NO implementada. Es el punto 9 del backlog antiguo.
+    //
+    //    Probado el 2026-08-22: sembrar la programación con `stageGsaDraftForTest` —que es
+    //    el gancho que parece hecho para esto— NO basta. El nodo cuelga además de esas
+    //    opciones de visualización, así que hace falta implementar el gancho que falta; no
+    //    es cuestión de datos.
+    //  - «Permisos» tampoco aparece en el árbol de demostración.
+    //
+    // Se avisa en cada pasada para que no se olvide: lo que hay en disco con esos nombres es
+    // de la última vez que se pudo, y puede no parecerse a la aplicación de hoy.
+    const QStringList noSePueden = {
+        QStringLiteral("schedule-snapshots-node.png"),
+        QStringLiteral("permissions-node.png"),
+    };
+    for (const QString& nombre : noSePueden) {
+        if (QFileInfo(outputPath(outDir, nombre)).exists()) {
+            fprintf(stderr,
+                    "aviso: %s no se regenera (ver el comentario de noSePueden); "
+                    "lo que hay en disco es antiguo\n",
+                    nombre.toLocal8Bit().constData());
+        }
+    }
+    QStringList faltan;
+    for (const QString& nombre : esperadas) {
+        const QFileInfo fi(outputPath(outDir, nombre));
+        // Vale con que exista Y se haya escrito en esta pasada: una imagen vieja que se
+        // queda es justo lo que hay que detectar.
+        if (!fi.exists() || fi.lastModified() < arranque) {
+            faltan.push_back(nombre);
+        }
+    }
+    if (!faltan.isEmpty()) {
+        fprintf(stderr,
+                "no se generaron %d capturas y en disco quedan las anteriores: %s\n",
+                static_cast<int>(faltan.size()),
+                faltan.join(QStringLiteral(", ")).toLocal8Bit().constData());
         return 1;
     }
 
