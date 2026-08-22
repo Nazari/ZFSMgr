@@ -21,3 +21,21 @@ Listado de cambios.
 
 3. Crear nuevo artefacto servidor https de HTML5 que sea lo más parecido posible a la GUI Qt actual.
 4. Eliminar por completo Qt del proyecto, solo quedarían el resto de artefactos (daemon, cli, https server e integraciones con los exploradores de archivo mencionados)
+
+5. Retirar la dependencia de rsync también en Unix, sustituyéndolo por el árbol por el socket entre daemons (src/arbolremoto), que ya se usa entre máquinas y dentro de Windows y que ya lleva transferencia delta con el algoritmo de rsync.
+   NO se puede hacer todavía: hoy rsync se invoca con -aHWS más -A y -X cuando el sistema los admite, y el árbol preserva menos. Faltan cuatro cosas, en este orden de importancia:
+   	- Propietario y grupo. Es la grave: una sincronización que corre como root deja todo perteneciendo a root, y no avisa. Un /home o un dataset de VMs queda inservible. Hay que llevar uid/gid Y sus nombres en el manifiesto y resolver en destino por nombre, cayendo a numérico; rsync tiene el mismo problema entre máquinas y lo resuelve así.
+   	- Fecha exacta. Hoy viaja en segundos enteros y eso no detecta un cambio dentro del mismo segundo que además conserve el tamaño. Se vio en vivo en oldlau: un fichero con contenido distinto salió como IGUAL. Mandar también nanosegundos y comparar exacto cuando los dos lados los tienen.
+   	- Ficheros dispersos. Hoy se rellenan: un disco virtual de 100 GB con 8 GB usados llegaría ocupando 100 GB. SEEK_HOLE/SEEK_DATA en POSIX, y su equivalente en Windows.
+   	- Dispositivos y ficheros especiales. Hoy se saltan en silencio. Poco frecuente en datasets de datos.
+   	- ACL y atributos extendidos: lo más caro y lo más específico de cada plataforma. Decidir si los datasets de uno los usan antes de invertir ahí.
+   El orden es primero PARIDAD DEMOSTRADA y después retirada, y la paridad hay que medirla contra rsync sobre el mismo árbol comparando propietarios, huecos y atributos uno a uno; no vale con que «parezca igual». Mientras tanto rsync se queda: hoy preserva cosas que el árbol pierde sin decirlo.
+   El motivo para hacerlo es el mismo que llevó el árbol a Windows: con dos mecanismos, el menos usado acumula fallos que nadie ve.
+
+6. Revisión completa de la ayuda de la GUI Qt (help/es, help/en, help/zh). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
+   Lo que ya se sabe y sirve de punto de partida:
+   	- Las capturas manuales crearpool.png y creardataset.png son de abril y el capturador automático NO cubre esos diálogos. O se le añaden esos dos estados, o se retiran de la ayuda.
+   	- En help/img/auto quedan tres huérfanas que ni se generan ni se usan: connection-gsa-menu.png, permissions-node.png y schedule-snapshots-node.png. Las dos últimas no se pueden generar hasta que se arregle lo del punto 9 del backlog antiguo (el nodo 'Datasets programados' exige dos opciones de visualización a la vez, y setShowPoolInfoNodeForTest está declarada en mainwindow.h SIN implementar: falla al enlazar, no al compilar).
+   	- La captura del menú contextual de pool que estuvo meses en la ayuda mostraba a la vez 'Importar' y 'Exportar', un menú que no existe en la aplicación. Ya está arreglado el generador, pero conviene mirar si el TEXTO que la acompaña describía ese menú inventado.
+   	- La ayuda solo referencia 6 imágenes en total para toda la GUI. Para lo que ha crecido la aplicación es poco: hay que decidir qué merece captura y qué no, en vez de dejar las que hay por inercia.
+   Al hacerla, contrastar contra el código como se hizo con la auditoría anterior (project_help_docs_audit): lo que dice la ayuda frente a lo que hace la aplicación, no frente a lo que uno recuerda.

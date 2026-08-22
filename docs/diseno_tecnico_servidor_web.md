@@ -2,13 +2,13 @@
 
 ## Por qué
 
-La interfaz de Qt son **50.945 líneas**, `zfsmgr_qt` pesa **9,3 MB** y el `.app` de macOS
+La interfaz de Qt son **50.945 líneas**, `zfsmgr-gui` pesa **9,3 MB** y el `.app` de macOS
 **79 MB**. Enfrente, el agente ocupa **545 KB** y el intérprete **1,1 MB**. Casi toda esa
 diferencia es Qt, y con él vienen los 18,6 GB de imagen de toolchain, el aprovisionamiento
 por objetivo y las cuatro pasadas de una release.
 
 Esto no era planteable hasta hace unos días. Ahora sí, y por una razón concreta: **la capa
-base son 9.016 líneas sin Qt** y `zfsmgr_cli` ya demuestra que sobre ella se sostiene un
+base son 9.016 líneas sin Qt** y `zfsmgr-cli` ya demuestra que sobre ella se sostiene un
 cliente completo. El servidor web no inventa una capa nueva — es el mismo cliente con una
 cara HTTP en vez de un terminal.
 
@@ -175,7 +175,7 @@ base lo lee— y el tema oscuro.
 ## Lo que hay que resolver y todavía no sé
 
 **El tamaño real, ya medido en la fase 0:** el binario son 329 KB frente a los 9,3 MB de
-`zfsmgr_qt`. No dice cuánto ocupará con la interfaz entera, pero sí que el punto de partida
+`zfsmgr-gui`. No dice cuánto ocupará con la interfaz entera, pero sí que el punto de partida
 no arrastra peso.
 
 **El túnel se monta en UN hilo.** `TransportSession` tiene `tunnelsAllowedHere` y
@@ -194,3 +194,137 @@ número de cuánto encoge hasta tener la fase 1 hecha y medida.
 
 **Qué pasa con las capturas de la ayuda.** Se generan hoy con `ui_doc_capture`, que es Qt.
 O se rehacen contra el servidor, o la ayuda se queda con las de la interfaz vieja.
+
+## Lo que faltaba respecto de Qt y el intérprete
+
+Se hizo el inventario contrastando el código, no la memoria: las acciones que atiende la web
+frente a los mandatos del intérprete y los menús de Qt. Faltaba esto, y ya está:
+
+- **Gestión de conexiones** — crear, editar y borrar. Era el hueco de verdad: sin ella la web
+  servía para gobernar lo que ya existía, pero **una instalación nueva no se podía montar
+  desde el navegador**. Reutiliza `guardarConexion`/`borrarConexion` del intérprete, que a su
+  vez usan `storefiles::guardaPerfil` — cifrado y material TLS incluidos.
+- **`zfs promote`** — se ofrece en todos los datasets y no solo en clones, porque el listado
+  del árbol no trae la propiedad `origin` y averiguarla costaría una consulta por dataset
+  dibujado. Sobre uno que no es clon, ZFS responde «not a cloned filesystem» y no toca nada.
+- **Pools: importar, exportar, crear y destruir.** El daemon ya permitía las cuatro en sus
+  verbos genéricos (`isAllowedMutationOp`), así que no hizo falta tocar el agente.
+
+### Tres decisiones que no son de interfaz
+
+**La contraseña de una conexión, al editar, sale vacía y vacío significa «déjala como
+estaba».** Si el campo se rellenara con la guardada, bastaría abrir la página para que
+apareciera en el HTML; y si vacío significara «bórrala», cambiar el puerto se llevaría la
+contraseña por delante sin decirlo. Comprobado descifrando el fichero antes y después de una
+edición: el texto en claro sobrevive.
+
+**Guardar una conexión que ya existe parte del perfil guardado**, no de uno nuevo. Así los
+campos que el formulario no enseña —el material TLS, el identificador de máquina— no se
+pierden por cambiar el puerto.
+
+**Destruir un pool pide escribir su nombre.** Es lo único de la web que se lleva un pool
+entero por delante, y un clic de más no debería poder hacerlo. Exportar, que se le parece,
+tiene su propia confirmación y dice expresamente que no es lo mismo.
+
+### Y un aviso que salió de probarlo
+
+El formulario de crear pool separa dispositivos libres de ocupados, pero **«libre» no
+quiere decir «vacío»**: lo que dice la sonda es que no se le reconoce sistema de ficheros y
+que no está montado. En la máquina de pruebas, una partición real del disco del sistema
+figuraba como elegible, y `zpool create -f` la habría sobrescrito sin preguntar. El
+formulario lo dice ahora en rojo.
+
+## Desglosar, Ensamblar, Hacia Dir y Desde Dir
+
+Las cuatro, y las tres primeras por sus verbos de siempre —`--mutate-advanced-breakdown`,
+`--mutate-advanced-assemble` y `--mutate-advanced-todir`— lanzadas como TRABAJO del daemon:
+mueven datos y pueden tardar.
+
+**Ensamblar elige los hijos, no los escribe.** El árbol ya los trae, así que el formulario
+pinta una casilla por hijo real. Escribir un nombre a mano es la forma de equivocarse en una
+operación que mueve datos.
+
+**`todir` solo en Unix**, y se dice: el verbo del daemon está dentro de `#ifndef _WIN32`
+porque usa el montaje alternativo, que allí no existe.
+
+### Dos fallos que salieron al probarlo
+
+**El primero era mío**: mandaba a `assemble` los hijos con nombre RELATIVO —`fotos`— y el
+verbo del daemon los quiere COMPLETOS —`tanque/media/fotos`—. El texto de ayuda del
+intérprete dice que valen los relativos, y es verdad… para el intérprete, que los completa
+antes de llamar al agente.
+
+**El segundo era del daemon, y es peor**: con un nombre que no le cuadraba, `assemble`
+respondía **rc=0 sin haber hecho nada**. El salto que lo provocaba tiene una razón legítima
+—un hijo ya absorbido por su padre cuando se seleccionan los dos— pero se tragaba también
+«me has nombrado algo que nunca fue hijo». Ahora se cuentan los que se hacen y, si no se
+hace ninguno, se falla diciendo que los nombres van completos.
+
+Es el mismo patrón que apareció en el árbol por socket: decir «hecho» cuando no se ha hecho
+nada es el peor fallo posible en algo que mueve datos, y no se ve leyendo.
+
+### «Desde Dir» va por otro camino que el intérprete
+
+`--mutate-advanced-fromdir` existe pero está marcado **solo para terminal a propósito**: lee
+un tar por la entrada estándar, y el canal RPC no tiene entrada estándar. Así que la web usa
+el **árbol por el socket entre daemons**, que hace lo mismo sin tar y funciona igual con un
+extremo Windows.
+
+Comprobado en las dos formas: un directorio local dentro de un dataset local, y
+`unibody:/tmp/desdeunib` dentro de un dataset de esta máquina.
+
+Dos diferencias que se dicen en la página, no se esconden: entra en la RAÍZ del dataset
+—el `--subdir` del intérprete no está, porque el receptor exige que el directorio de destino
+exista y crearlo pediría un verbo que hoy no hay— y **no borra nada** de lo que ya hubiera,
+porque traer un directorio es añadir, no sincronizar.
+
+### Una cosa observada, no arreglada
+
+`assemble` deja el directorio recreado en modo `700`, no con el que tenía. Es del verbo del
+daemon y le pasa igual al intérprete y a la interfaz; se anota aquí porque el contenido sí
+se conserva y la sorpresa está en los permisos.
+
+## Montajes extraviados, y Windows en una misma máquina
+
+**`repair-mounts`** entra tal cual: su verbo del daemon SIN «apply» solo informa, así que la
+web enseña primero lo que hay y solo después ofrece devolverlos a su sitio. Ese reparto lo
+trae el verbo; aquí no se inventa nada.
+
+**Sincronizar dentro de una misma máquina Windows** ya se puede. Ese caso iba por rsync, que
+allí no existe; ahora va por el ÁRBOL, con el daemon conectándose consigo mismo por el bucle
+local — el mismo camino que entre máquinas. En Unix se queda rsync, que está probado y hace
+delta. Es la única diferencia que queda, y es por lo que hay en cada plataforma, no por dos
+implementaciones nuestras.
+
+Comprobado en vivo dentro de oldlau: `winpool/sa` → `winpool/sb`, con creación de
+subdirectorio, copia y borrado de lo que sobraba.
+
+### Y de paso, la limitación de la fecha se vio sola
+
+En esa prueba, `uno.txt` decía «nuevo» en el origen y «viejo» en el destino —contenido
+distinto— y salió como IGUAL. Los dos tenían el MISMO tamaño y la misma marca de tiempo al
+segundo, que es la granularidad con la que viaja la fecha. Está documentado en
+`diseno_tecnico_transferencias.md` y aquí se ve en la práctica: un cambio dentro del mismo
+segundo que además conserve el tamaño no se detecta. Es la misma consecuencia que
+`rsync --modify-window=1`, aunque rsync por omisión afina más.
+
+## `authorize-key` y `export-trust`: no van por aquí, y no es por trabajo
+
+Los dos actúan **en el home del usuario SSH** de la máquina de destino:
+
+- `authorize-key` añade la clave a `~/.ssh/authorized_keys` de ese usuario.
+- `export-trust` escribe en `$HOME/.config/ZFSMgr` de ese usuario.
+
+El daemon corre como **root**. Servirlos por RPC pondría la clave en el `authorized_keys` de
+root y el almacén en el `.config` de root: dos sitios distintos de los que el intérprete usa,
+con el agravante de que **parecería que ha funcionado**. Uno de los dos, además, autorizaría
+una entrada por SSH como root que nadie pidió.
+
+Se quedan en el intérprete y en la interfaz, que actúan como el usuario que toca. Meterlos en
+la web pediría verbos que escriben ficheros de otro usuario siendo root, y eso es una
+primitiva demasiado potente para ahorrarse un cambio de herramienta.
+
+### Lo que sigue sin estar
+
+`authorize-key` y `export-trust`, por lo de arriba; y la lista de cambios pendientes, que se
+dejó fuera a propósito.

@@ -745,7 +745,7 @@ llama.
 
 ## Paso 4: el CLI existe
 
-`src/cli/`, objetivo `zfsmgr_cli`. **Enlaza solo contra `zfsmgr_base`**, y eso no es un
+`src/cli/`, objetivo `zfsmgr-cli`. **Enlaza solo contra `zfsmgr_base`**, y eso no es un
 detalle de empaquetado: es el contrato. Si algún día deja de compilar por un símbolo de
 Qt, es que se ha metido interfaz en la capa de lógica.
 
@@ -1181,3 +1181,856 @@ Después de `mainwindow_helpers`:
    el envoltorio Qt de la clase más el traductor de motivos.
 2. **`mainwindow_refresh.cpp`** (1.174, solo 2 métodos de `MainWindow`).
 3. A partir de ahí toca desacoplar de `MainWindow`, que es otro tipo de trabajo.
+
+## Barrido de duplicidades
+
+Se buscaron con `grep`, no de memoria: lo que estaba escrito más de una vez y no tenía por
+qué. Cinco cosas, y todas eran **contratos del daemon** copiados en los clientes.
+
+| Qué | Estaba en | Ahora |
+|---|---|---|
+| La carga de `--mutate-rsync-local` | interfaz, intérprete y web, cada uno armando el JSON | `sincronizacion::cargaRsync` |
+| `argv` → JSON → base64 | **catorce sitios**: once en la interfaz, dos en el intérprete, uno en la web | `helpers::argvParaAgente` |
+| Resolver y conectar con el otro extremo | dos veces en el daemon: emisor de `zfs send` y emisor del árbol | `conectaConElPar` |
+| Leer `PORT=`/`TOKEN=` | `transferencia::leeEscucha` y una copia en la web | solo la de la capa base |
+| Leer `JOB_ID=` | dos veces en el mismo fichero de la web | `idDeTrabajoEn` |
+
+El criterio no fue «esto se parece» sino **de quién es la decisión**. El orden de los campos
+de una carga, cómo se serializa un argv o qué familias se prueban al conectar son cosas del
+DAEMON: ninguno de los tres clientes tiene por qué saberlas, y teniéndolas cada uno se
+arreglan por separado. `conectaConElPar` es el ejemplo claro: la doble pila IPv6 costó un
+diagnóstico entero, y con dos copias el siguiente arreglo entra en una y se olvida en la
+otra.
+
+Lo que **no** se unificó, a propósito: la comparación «ya está igual» de `copytree` usa la
+fecha exacta y la del árbol remoto la usa en segundos enteros. Parecen la misma regla y no
+lo son —una compara dentro de un sistema de ficheros y la otra entre dos distintos—;
+juntarlas rompería una de las dos.
+
+### Una trampa del build que conviene saber
+
+`cmake --build builds/linux --target ZFSMgr` **no compila las fuentes de la interfaz**: eso
+lo hace el objetivo `zfsmgr_core`. Durante este barrido, once conversiones que no compilaban
+dieron «build limpio» con `--target ZFSMgr` y solo salieron al construir `zfsmgr_core`. Para
+comprobar un cambio en la interfaz hay que usar `zfsmgr_core` o construir sin `--target`.
+
+## El reparto de `src/` (2026-08-21)
+
+```
+src/
+  native/    la interfaz de Qt          62 ficheros
+  cli/       el intérprete
+  web/       el servidor sin JavaScript
+  daemon/    el agente que corre como root
+  commands/  las OPERACIONES del dominio
+  base/      lo que no sabe qué es ZFS
+```
+
+Antes, los 62 ficheros de Qt vivían en la raíz de `src/` junto al daemon —9000 líneas de un
+programa distinto, que corre como root y no enlaza Qt—, y las operaciones estaban mezcladas
+con las primitivas dentro de `base/`.
+
+**La línea entre `base/` y `commands/`**, que es la única que hay que tener clara para que
+esto no vuelva a ser un cajón:
+
+- `base/` no sabe qué es ZFS: cadenas, JSON, procesos, TLS, transporte, almacenamiento,
+  i18n, y dónde está instalado el agente. Serviría igual en otro programa.
+- `commands/` nombra conceptos de éste: copiar, nivelar, mover, sincronizar, desglosar,
+  ensamblar, GSA, permisos, peers, el árbol remoto.
+
+**La dependencia va en un solo sentido y se hace cumplir.** La ruta de inclusión de
+`zfsmgr_base` es solo `../src/base`: sin `../src`, un `#include "commands/…"` desde `base/`
+no resuelve y el build falla en el sitio.
+
+Costó dos intentos dar con el punto donde eso se puede comprobar, y merece quedar escrito
+porque lo intuitivo no funciona:
+
+- **Enlazar no lo detecta.** Una biblioteca estática no resuelve símbolos al crearse, y
+  cualquier programa que enlace las dos los encuentra. Se probó metiendo en `base/` una
+  llamada a `commands::peers::etiquetaDe`: compiló y enlazó sin una queja.
+- **Con `../src` en la ruta tampoco.** El include resolvía por `../src/commands/…`.
+
+Lo único que lo hace cumplir es restringir lo que `base/` alcanza a ver.
+
+**Un hallazgo del propio reparto**: al separar las bibliotecas, el build señaló que
+`base/helpers.cpp` y `base/transportcmd.cpp` incluían `daemonpayload.h`. Al mirarlo, lo
+único que usaban eran `unixBinPath()` y `windowsBinPath()` —dónde está instalado el
+agente—, no la composición de cargas. La conclusión no fue tapar la violación sino que
+`daemonpayload` **no es una orden**: es disposición de la instalación. Se devolvió a
+`base/`. La regla sirvió para lo que se puso: decir dónde estaba de verdad la línea.
+
+## Fase 2, primera entrega: Desglosar, Ensamblar y Hacia Dir
+
+`commands/avanzadas.{h,cpp}` compone el argv de las tres y guarda sus reglas. Los tres
+clientes lo llaman; ninguno arma ya esas órdenes por su cuenta.
+
+**Lo que se ganó no es el argv, son las reglas**, que estaban repartidas de tres maneras
+distintas para lo mismo:
+
+| | antes | ahora |
+|---|---|---|
+| Nombre completo del hijo (`assemble`) | comentario en `cli/shell.cpp`, la misma expresión copiada en `web/main.cpp`, y en Qt por un mapa del árbol | `hijoConNombreCompleto`, con pruebas |
+| Par a medias en `breakdown` | el web saltaba filas vacías; el CLI y Qt no comprobaban nada | se descarta el par ENTERO |
+| Ruta absoluta en `todir` | en ninguna parte | `rutaDeDestinoValida`, y los tres rechazan una relativa |
+
+De las tres, la primera es la que enseña por qué esto importa: el agente comprueba cada hijo
+con `zfs list <hijo>`, así que un nombre relativo no existe para él y la operación se saldaba
+con «ya absorbido» y **rc=0** —decía que sí sin hacer nada—. Se descubrió ejecutando, no
+leyendo, y acabó escrita en dos comentarios y resuelta de una tercera forma.
+
+Que en Qt llegaran ya completos por un mapa del árbol no era que la regla se aplicara: era
+que se cumplía por casualidad. Si ese mapa devolviera alguna vez un relativo, la interfaz
+habría tenido el fallo sin que nada lo dijera.
+
+**Comprobado ejecutando** sobre un pool de pruebas: desglosar dos directorios por el CLI,
+ensamblar por el CLI y por el web **con nombre relativo** en los dos casos, y las tres
+guardas nuevas rechazando —hacia dir con ruta relativa, ensamblar sin hijos utilizables—.
+
+**Un residuo que apareció de paso**: `m_pendingEditSeed`, el mecanismo para reabrir el
+diálogo de una acción ENCOLADA y re-editarla. Nadie lo activaba ya —murió con la lista de
+cambios pendientes— pero seguían ahí sus lecturas. Retirado.
+
+## Fase 2, segunda entrega: pools, instantáneas y datasets
+
+Tres módulos más en `commands/`, y en los tres el valor está en las reglas, no en el argv.
+
+### `commands/pools`
+
+Diez operaciones de mantenimiento. La regla que justifica el módulo:
+
+> **`parar` y `pausar` NO son la misma letra en todas.** En `scrub` son `-s` y `-p`; en
+> `trim` e `initialize` son `-c` y `-s`. O sea que **`-s` significa «parar» en scrub y
+> «suspender» en initialize**.
+
+Eso no es teoría: el servidor web tenía un botón «Parar initialize» que mandaba `-s`, o sea
+que suspendía. El botón decía una cosa y hacía otra. Corregido, y fijado por tests en las
+tres operaciones. De paso se añadió «Parar trim», que no se ofrecía.
+
+También guarda el orden —banderas, pool, discos— con sus dos historias de fallo (discos
+delante → «invalid character '/' in pool name»; banderas detrás → ignoradas EN SILENCIO), y
+qué operaciones se confirman, que no es solo «las que destruyen»: `clear` no borra datos
+pero borra la cuenta de errores, y se teclea queriendo limpiar el terminal.
+
+### `commands/instantaneas`
+
+Crear, destruir, rollback, clonar y retener. Dos reglas que se pierden fácil:
+
+- **La etiqueta de una retención va PRIMERO**, al revés de como se dice hablando. Invertirlos
+  no da error: `zfs hold` acepta dos cadenas cualesquiera y falla luego diciendo que no
+  encuentra la instantánea «micopia».
+- **El verbo tipado `--mutate-zfs-hold` NO admite `-r`**: lee exactamente dos parámetros. El
+  recursivo tiene que ir por el verbo genérico. El módulo expone las dos formas en vez de
+  aceptar un parámetro que se ignoraría.
+
+El alcance de `destroy`/`rollback` pasa de ser las letras sueltas «R», «r» y vacío a un
+enumerado con nombres: en una llamada, esas tres letras no se distinguen de un vistazo y son
+la diferencia entre borrar una cosa o un subárbol con sus clones.
+
+### `commands/datasets`
+
+Crear, renombrar, montar, promover y propiedades. La regla:
+
+> Un nombre de renombrado **sin barra** significa «cámbiale la hoja, déjalo donde está», así
+> que se le antepone el padre.
+
+El intérprete la aplicaba; el servidor web no. Quien tecleaba «fotos» para renombrar
+`tank/media/cine` recibía de ZFS «cannot create 'fotos': missing dataset name», que no dice
+qué hacer. Comprobado en vivo antes y después: ahora el web renombra con la hoja a secas.
+
+### Verificado ejecutando
+
+Sobre un pool de pruebas de 250 MB: retener y soltar por el CLI —con la comprobación directa
+de `zfs holds`—, rechazo de una etiqueta con espacios, clonar, rollback (se comprueba que
+desaparece lo escrito después), y renombrado desde el web con nombre a secas.
+
+## Fase 2, tercera entrega: Qt empieza a usar `commands/`
+
+La interfaz construía una **cadena de shell** —`zpool scrub 'tank'`— y luego
+`daemonizeZpoolMutationArgs` la volvía a trocear para meterla en el verbo tipado. Ese viaje
+argv → cadena → argv es el que el plan técnico señala como origen de fallos: el corte no
+respeta comillas, así que un nombre con `;`, `&` o `|` dentro trunca los argumentos.
+
+**La cadena sigue haciendo falta**, pero solo para el camino de RESPALDO por SSH cuando no
+hay daemon. Así que no se quita: se invierte el sentido. Ahora el argv se construye primero
+—desde `commands::pools`, con sus reglas— y la cadena se deriva de él con
+`mwhelpers::cadenaDeArgv`, que entrecomilla TODO, incluidas las banderas. Antes se
+entrecomillaba solo el nombre del pool, decidiendo caso por caso qué lo necesitaba; decidirlo
+era justamente lo que se hacía mal.
+
+Se añadió `daemonizeZpoolMutationArgs(int, const QStringList&)`, que conserva todas las
+comprobaciones de la variante de cadena —daemon instalado, activo, versión de API, y que el
+`import` solo va por RPC si ese daemon lo sirve— y se salta el troceo.
+
+**Convertidos los 11 sitios.** Ninguno construye ya la cadena primero.
+
+### La decisión sobre los varios pools
+
+Cinco de ellos no encajaban en el módulo, y la razón era un hallazgo: **la interfaz exponía
+operaciones sobre VARIOS pools que el módulo no modela**, porque el intérprete y el servidor
+web trabajan siempre sobre uno. `zpool export tank1 tank2` es válido para ZFS.
+
+Se decidió **una llamada por pool**, por ser más simple y uniforme con el resto de clientes.
+
+Tiene una consecuencia que hay que aceptar y que se ve en la vista previa —ahora enseña una
+orden por pool en vez de una sola—: **dejan de ser atómicas**. Si la segunda falla, la
+primera ya se exportó. Por eso el bucle PARA en el primer fallo y dice cuál falló, en vez de
+seguir y dejar un resultado a medias que nadie sabría explicar.
+
+Dos casos NO son una lista y siguen siendo una sola orden, porque no nombran pools:
+
+- `zpool export -a` y `zpool sync` sin argumentos significan «todos».
+- `zpool upgrade -v` enumera las características que soporta el sistema: es una LECTURA, no
+  la mutación de un pool. No pasa por el módulo, que exige uno; forzarlo habría sido
+  distorsionarlo para que cupiera algo que no es una operación sobre un pool.
+
+### Un fallo que apareció al convertir
+
+En `import`, las banderas se construían **ya entrecomilladas** con `shSingleQuote` —porque
+iban a una cadena de shell—. Al pasar a argv habrían quedado entrecomilladas DOS veces, y al
+daemon le habrían llegado con las comillas dentro del argumento: `-c '/ruta/fichero'` como un
+solo argumento con apóstrofos incluidos. Trece banderas afectadas. Se ve fácil al escribirlo
+y es invisible después, porque el fallo sería «no encuentro el fichero '/ruta/fichero'» con
+las comillas dentro del mensaje.
+
+Importar renombrando gana además la validación del nombre nuevo —`nombreDePoolValido`, la
+misma del intérprete y el servidor web—, que en la interfaz no existía: se mandaba a ZFS y
+se leía su queja.
+
+## Fase 2, cuarta entrega: instantáneas y datasets en Qt
+
+Mismo patrón que en pools: `daemonizeZfsMutationArgs(int, const QStringList&)` recibe el argv
+ya construido, y la cadena —que sigue haciendo falta para el respaldo por SSH— se deriva de
+él con `cadenaDeArgv`.
+
+Convertidos: **renombrar**, **destruir**, **clonar** y **rollback**.
+
+Y en cada uno apareció algo que no era solo duplicación:
+
+| Sitio | Lo que había |
+|---|---|
+| **renombrar** | no aplicaba la regla del nombre sin barra; ahora la hereda de `commands::datasets` |
+| **destruir** | pasaba la cadena `"none"` como alcance. Funcionaba **por casualidad**: el daemon solo mira si el valor es «r» o «R», así que cualquier otra cosa significa «ninguno». El módulo devuelve la cadena vacía, que es lo que el verbo espera |
+| **clonar** | **no validaba nada**: se mandaba a ZFS y se leía su queja, que además habla de otra cosa cuando el origen no es una instantánea |
+| **rollback** | entrecomillaba **a mano** con `'%1'`, sin `shSingleQuote`. Un nombre con un apóstrofo dentro rompía la orden |
+
+El módulo de instantáneas gana `argvZfsClonar`, la forma genérica de clonar, por el mismo
+motivo que su gemela de las retenciones: el verbo tipado toma exactamente dos argumentos y
+hay pantallas que ofrecen `-p`, `-u` y propiedades.
+
+### Lo que NO se ha tocado, y por qué
+
+`daemonMutationPlanForCommand` sigue existiendo: es el parser que convierte una cadena de
+shell en verbo tipado. Ya no lo alimentan los sitios convertidos, pero sí el camino de la
+orden libre —donde el usuario escribe la orden— y los productores de `snapshot`, que pasan
+por el mecanismo de borradores. Eliminarlo del todo exige que el borrador lleve argv en vez
+de cadena, y eso es otra pasada.
+
+Los `QStringLiteral("zfs clone")` que quedan en `mainwindow_dataset_actions.cpp` y
+`mainwindow_dialogs.cpp` **no construyen nada**: son comparaciones de texto para decidir si
+una orden necesita confirmación reforzada.
+
+## Permisos en Qt: el diff que nadie había probado
+
+Hecho. Y lo interesante no es que ahora use `commands/zfsallow`, sino **por qué no se podía
+probar antes**.
+
+El cálculo de qué hay que cambiar —dado lo que había delegado y lo que muestra la ficha,
+qué se retira y qué se concede— vivía en una lambda dentro de `applyDatasetPropertyChanges`,
+una función de 400 líneas que además toca propiedades, renombrados y refrescos. Para
+ejecutar esas veinte líneas había que abrir la ventana, seleccionar un dataset, editar
+permisos a mano y pulsar Aplicar. Con eso delante, nadie iba a recorrer las combinaciones:
+
+- cuatro estados por entrada —aparece, desaparece, cambia, sigue igual—,
+- por tres alcances —local, descendientes, ambos—,
+- más «al crear» y los conjuntos con nombre.
+
+Doce combinaciones, y **ninguna se había comprobado nunca**.
+
+Ahora es `uilogic::permissionChangeCommands(entrada, dataset) → QList<QStringList>`. Es una
+función pura: entra la entrada de caché —que lleva los originales y los actuales— y sale la
+lista de argv. Once casos en `tests/ui_logic_test.cpp`, uno por combinación.
+
+Dos reglas que el diff tiene que respetar y que solo se ven cuando se escriben los casos:
+
+- **El orden de los permisos no es un cambio.** «create,mount» y «mount,create» son lo
+  mismo. Si no se normalizan, cada apertura de la ficha produce un unallow+allow que deja
+  todo igual.
+- **Cambiar una concesión es retirarla y volver a concederla, en ese orden.** `zfs allow`
+  SUMA: sin el `unallow` previo, pasar de «create,mount» a «create» dejaría `mount` puesto.
+
+Y el lote ya no viaja como cadena. Antes se unían con `; `, y al otro lado
+`daemonMutationPlanForCommand` volvía a trocear por ese separador —con un corte que no
+respeta comillas— para armar el `--mutate-zfs-allow-batch`. Esa rama se ha borrado:
+`daemonizeZfsAllowBatchArgs` codifica el argv de cada orden por su cuenta y el lote entero
+después, así que **en ningún punto del viaje hay una cadena que alguien tenga que partir**.
+La cadena se sigue componiendo, pero solo para la vista previa de la confirmación y para el
+respaldo por SSH.
+
+Comprobado contra `tpool` en fc16, aplicando un lote por el propio verbo del daemon y
+leyendo con `zfs allow`: los cuatro alcances caen donde deben, el cambio reduce en vez de
+sumar, y lo que no cambia no genera orden.
+
+Un detalle del daemon que conviene saber: el lote **no para en el primer fallo**, los
+ejecuta todos y devuelve el primer código de error. Es lo correcto aquí —parar tampoco
+desharía un `unallow` ya hecho— y la ficha se recarga leyendo el estado real, así que
+muestra lo que hay, no lo que se pidió.
+
+## Listados en Qt: una llamada al daemon que se tiraba entera
+
+Esto entró en la lista como «Qt parsea el TSV por su cuenta», que suena a limpieza. No lo
+era.
+
+`loadPoolDatasets` pedía `--dump-zfs-list-all` al daemon y luego decidía si la respuesta
+servía **mirando si era JSON**:
+
+```cpp
+const bool pareceJson = jsonPayload.trimmed().startsWith(QLatin1Char('{'));
+const QJsonObject datasets = doc.object().value("datasets").toObject();
+if (!datasets.isEmpty()) { loadedFromJson = true; ... }
+```
+
+Ese verbo es `zfs list -H -p`: TSV de diez columnas, y nunca ha sido JSON. Así que la
+condición no se cumplía jamás, la respuesta del daemon se descartaba y treinta líneas más
+abajo el listado se volvía a pedir con `zfs list` por SSH y `sudo`.
+
+**Medido en el registro de la aplicación**, no deducido: 4018 «Loading datasets» y 4006
+ejecuciones del `zfs list` de respaldo. Es decir, prácticamente **el 100 % de los listados
+de datasets iba por SSH**, y cada uno gastaba además un viaje al daemon que se tiraba. El
+árbol de datasets —el camino de lectura más usado de la aplicación— era el único que no
+pasaba por el daemon. (Los 83 «Invalid JSON from zfsmgr-zfs-list-all» del registro son de
+antes de que se añadiera `pareceJson`: se taparon los avisos, no la rama que los producía.)
+
+Un efecto secundario que se ve en el mismo registro: el respaldo usa `sudo -n`, así que en
+una sesión sin credenciales el listado fallaba con «sudo: se requiere una contraseña». Por
+RPC no hace falta: el daemon ya es root.
+
+Ahora el TSV que llega se reparte con `commands::listados::entradas` —la misma función que
+usa el servidor web, ya cubierta en `base_test.cpp`— y el respaldo por SSH queda para lo que
+debía ser: Windows y las conexiones sin daemon al día. Una respuesta vacía no se da por
+buena: todo pool tiene al menos su dataset raíz.
+
+Lo que **no** se ha movido, y no debe moverse: montar el árbol. Columnas, iconos, orden y
+estado de expansión son de Qt. Lo que sale de Qt es solo el reparto de columnas, que era una
+regla de formato con tres copias.
+
+## Desde Dir: lo que no puede ser un RPC, y lo que sí
+
+De las cuatro acciones que mueven contenido, **Desde Dir es la única que no puede ser una
+llamada al daemon**, y no por descuido: el verbo `--mutate-advanced-fromdir` lee un tar por
+la entrada estándar, y el canal RPC no tiene entrada estándar. Así que la tubería se queda:
+las dos puntas por SSH y la máquina de quien manda en medio, que es la que tiene las
+credenciales de ambas.
+
+Lo que sí sale de los clientes son sus reglas, que estaban en tres sitios distintos:
+
+- El intérprete y la interfaz componían cada uno la orden de recepción pegando cadenas.
+  Ahora las dos llaman a `avanzadas::argvDesdeDir`.
+- El subdirectorio de destino lo comprobaba **solo el daemon, al otro extremo de la
+  tubería**. Para cuando lo miraba, el `tar` del origen ya estaba corriendo: la operación
+  moría a mitad con parte del contenido ya fuera de su máquina. Ahora
+  `subdirectorioRelativoValido` lo comprueba antes de abrir nada.
+- Y la regla de colocación —dónde cae cada origen dentro del dataset— vivía en cuarenta
+  líneas de lambdas dentro de una función de la interfaz.
+
+### El fallo de la regla de colocación
+
+La regla era: un origen va a la raíz; varios, cada uno a un subdirectorio con su nombre; si
+dos coinciden, se antepone el nombre de su máquina.
+
+Anteponer la máquina desempata cuando las máquinas son **distintas**. Dos directorios
+llamados «docs» de la **misma** conexión daban los dos `fc16-docs`, y los dos tar se
+extraían en el mismo sitio: los árboles se mezclan y los ficheros con el mismo nombre se
+sobrescriben en silencio.
+
+Comprobado en vivo contra `tpool`, con dos directorios `docs` que contenían cada uno su
+`informe.txt`:
+
+```
+--- con la regla antigua, informe.txt dice:
+informe de B
+```
+
+El de A había desaparecido. En una operación cuyo trabajo es copiar, eso es perder contenido
+sin decir nada.
+
+`subdirectoriosDeDestino` ahora **garantiza que los destinos son únicos** —el segundo lleva
+sufijo— y limpia el nombre resultante: un nombre de conexión con una barra dentro habría
+creado un nivel de más, y un `..` habría hecho que el receptor rechazara el destino con el
+tar ya en marcha. Diez casos de prueba, uno por variante.
+
+Con la misma comprobación en vivo, los dos orígenes caen ahora en `fc16-docs` y
+`fc16-docs-2`, cada uno con su contenido.
+
+### Y después: Desde Dir sin tubería
+
+El servidor web hacía Desde Dir por otro camino —copia de árbol **entre daemons**, sin tar y
+sin stdin—. Preguntado si ese camino servía también para la ventana y el intérprete, la
+respuesta resultó ser sí, con un hueco de por medio.
+
+**El hueco.** `--tree-recv-listen`, el receptor del árbol, exige que el directorio de destino
+ya exista:
+
+```cpp
+if (!std::filesystem::is_directory(raiz, ec)) { r.rc = 2; r.err = "no es un directorio: " + raiz; }
+```
+
+No lo crea, y por eso el servidor web solo sabía volcar en la raíz del dataset —lo decía su
+propio comentario: «crear uno pediría un verbo que hoy no hay»—. Pero la regla de colocación
+crea subdirectorios, así que tal cual el árbol no le valía a Desde Dir.
+
+**El verbo que faltaba ya estaba medio escrito.** `--mutate-advanced-fromdir` hace cuatro
+cosas: montar el dataset, resolver su punto de montaje efectivo, crear el subdirectorio y
+leer un tar por la entrada estándar. Solo la cuarta es la que obliga a la tubería. Partido en
+dos, la primera mitad es `--mutate-advanced-fromdir-prepare`, que va por RPC y contesta
+`DST=<ruta absoluta>`.
+
+Con eso, Desde Dir entero es RPC:
+
+```
+destino:  --mutate-advanced-fromdir-prepare <dataset> <rel>   -> DST=/tpool/desdecli/traido
+destino:  --tree-recv-listen DST                              -> PORT=…  TOKEN=…
+origen:   [--job-submit] --tree-send-to-peer <dir> <dir> <puerto> <testigo>
+```
+
+Los tres pasos viven en `transferencia::lanzaTrabajoDeArbol`, al lado de `lanzaTrabajo`, que
+es la misma coreografía para una instantánea. El verbo va **fuera** del `#ifndef _WIN32`:
+no usa tar ni nada de Unix, y `getDatasetMountpointCapture` ya consulta los montajes reales
+—en Windows la propiedad `mountpoint` dice «/pool/ds» y el montaje de verdad es «Z:\ds»—.
+
+**Qué cambia.**
+
+| | Tubería de tar | Árbol entre daemons |
+|---|---|---|
+| Por dónde van los datos | por la máquina de quien manda | de máquina a máquina |
+| Progreso y cancelación | no | sí, es un trabajo |
+| Si se cierra la ventana | muere a mitad | sigue |
+| Segunda pasada | reenvía todo | solo lo que cambió |
+| Shell | `ssh … tar \| ssh … sudo agente` | ninguno |
+| Windows en el origen | tar de Windows | igual que Unix |
+| Requiere daemon en… | solo el destino | las dos puntas |
+
+Copiar 100 GB de una máquina a otra movía 200 GB por la de en medio. Ya no.
+
+**Lo que NO se ha borrado, y por qué.** La tubería sigue, de respaldo. El árbol pide daemon
+en las dos puntas —al tar le basta con el destino—, y además el destino abre un puerto
+efímero al que el origen conecta: donde haya un cortafuegos entre las dos máquinas, SSH pasa
+y esto no.
+
+**Y con «borrar los directorios de origen» marcado se usa la tubería a propósito.** Por el
+árbol la copia es un trabajo asíncrono, así que el borrado se lanzaría sin saber si el envío
+terminó. La tubería encadena con `&&`. Entre perder la mejora y borrar un origen que quizá
+no llegó a copiarse, no hay duda.
+
+**Cómo se decide, y por qué no por la versión.** La ventana pregunta por la CAPACIDAD:
+`caps::Feature::DirFromDirTree`, que se resuelve contra el `CAPS=` que el agente publica en
+`--health`. Añadir un verbo no cambia la versión de API, así que un daemon «al día» en
+versión puede no conocerlo; preguntando por el verbo, un agente sin actualizar simplemente se
+va por la tubería en lugar de fallar. El intérprete no cachea estado de las máquinas, así que
+allí se INTENTA y se cae al respaldo diciendo por qué.
+
+**Una trampa que costó una pasada.** `Trabajo::ok()` exige identificador, y sin encolar no
+hay ninguno: el envío síncrono terminaba bien y `ok()` decía que no, así que el intérprete se
+iba al respaldo después de haber copiado. Ahí se mira `fallo`. `ok()` significa «hay un
+trabajo al que seguirle la pista», no «salió bien».
+
+Comprobado en vivo contra `tpool`: por el intérprete, `fromdir --subdir traido` mueve el
+árbol sin tar (`APLICADAS=4 BYTES=22`), el contenido llega correcto, y la segunda pasada
+mueve `BYTES=0` con `IGUALES=4`.
+
+## Fase 3 — ningún cliente opera sin agente
+
+La regla nueva: **ningún cliente trabaja con una máquina que no tenga daemon**. Con una
+excepción acordada: **instalar el daemon no puede ir por el daemon**, así que el SSH
+sobrevive para el arranque —poner el agente en marcha, traer su material TLS, instalar la
+clave— y para nada más.
+
+El punto de partida medido: de 59 verbos del agente, 34 se construyen a mano en dos o tres
+clientes; Qt tiene 46 bloques de guion embebido (~791 líneas); y **el servidor web no
+construye ni una sola cadena de shell**, lo que prueba que se puede y sirve de modelo.
+
+### Lo que ya no está
+
+**541 líneas de shell que no ejecutaba nadie.** `daemonpayload::unixStubScript()` era un
+agente entero en `sh` —44 verbos, con cargas de Python incrustadas— y su único llamante era
+una prueba. El fichero pasó de 781 a 241 líneas.
+
+**El respaldo del listado de datasets.** Ejecutaba `zfs list` por SSH con sudo, y atendía el
+100 % de los listados. De paso, Windows entra ahora por el daemon como los demás: estaba
+envuelto en `if (!isWin)`, así que allí ni se intentaba.
+
+**Dos lambdas muertas en transferencias** —`buildSourceExecutionCommand` e `isDaemonReady`,
+duplicadas en Copiar y en Nivelar— que nadie invocaba desde que se retiraron esos respaldos,
+pero que dejaban un `withSudo` a la vista dando a entender que el camino sabía caer a shell.
+
+**Seis respaldos de mutación.** Crear y soltar un hold, rollback, promover, y el listado de
+descendientes de Desglosar y Ensamblar. Todos tenían la misma forma: si el daemon está, verbo
+tipado; si no, la orden `zfs` en crudo por SSH. Ahora exigen agente.
+
+### Dos defectos que aparecieron al hacerlo
+
+**Borrar un DATASET no pasaba nunca por verbo tipado.** La condición era
+`daemonMutateApiOk && target.contains('@')`, y `'@'` solo lo tienen las instantáneas. O sea
+que todo borrado de dataset —incluido `-R`, que arrastra clones y descendientes— salía por
+shell. Ahora va por `--mutate-zfs-generic destroy`, comprobado en vivo con un dataset con
+hijo.
+
+**`--dump-dir-list` y `--dump-file` estaban muertos en Windows.** Su comprobación de
+seguridad —que la ruta caiga dentro de un punto de montaje de ZFS— comparaba contra la
+propiedad `mountpoint`, que en Windows dice «/winpool/sa», mientras el montaje real es
+«Z:/sa/». Verificado contra OldLau: la propiedad y `zfs mount` dan cosas distintas. Así que
+contestaba «la ruta no está dentro de ningún punto de montaje» a cualquier ruta, incluida la
+buena — y eso afectaba al navegador de ficheros del servidor web. Es el mismo error de
+familia que ya se había corregido en Desglosar y en el árbol de la interfaz: **deducir la
+ruta de una propiedad heredable en vez de consultar los montajes de verdad**.
+
+### El intérprete, un guion menos
+
+`ls #content` listaba con `ls -lA` por SSH en Unix y con `Get-ChildItem` en Windows, y su
+comentario decía que el agente no tenía verbo para esto. Sí lo tiene —`--dump-dir-list`, el
+que usa el servidor web—. Se gana más que quitar dos guiones: los dos formatos eran
+**distintos**, así que la misma orden enseñaba unas columnas en Unix y otras en Windows. Y el
+reparto del JSON vive ahora en `listados::contenidoDeDirectorio`, compartido con el web.
+
+Comprobado sobre `tpool` y sobre `winpool` de OldLau: la misma tabla en las dos.
+
+### Lo que queda de la fase 3
+
+- El respaldo genérico de `runAgentCommand` (`mainwindow_remote.cpp`), que hay que conservar
+  **solo** para los verbos que no pueden ir por RPC porque leen la entrada estándar.
+- Los respaldos de rsync en transferencias, y la rama `zfs diff` por shell.
+- Dos sitios que llaman a `--health` como cadena en vez de por `runAgentCommand`.
+- Tres caminos que hoy NO tienen verbo y por eso siguen siendo shell: las letras de unidad de
+  Windows, el listado de directorios de Desglosar en Windows, y «¿hay hijos montados?».
+
+## Fase 4 — que el nombre de un verbo no se escriba en un cliente
+
+El nombre de un verbo —«--dump-zpool-status»— es un contrato entre el daemon y sus tres
+clientes, y se escribía a mano en cada uno. Medido antes de tocar nada: de **59 verbos, 34
+aparecían literalmente en dos o tres clientes**; veinte en los tres.
+
+Eso no es feo, es frágil de una manera concreta: con el verbo se reparte también **cuántos
+argumentos lleva y en qué orden**, y eso no estaba escrito en ninguna parte. Cuando un verbo
+gana un argumento, el cliente que no se entera no falla al compilar. Falla en ejecución,
+contra una máquina, y con suerte.
+
+`commands/peticiones` es una función por cosa que se le pide. No decide nada más —ni
+transporte, ni sudo, ni formato— porque eso sí es de cada cliente: una conexión Local no se
+alcanza igual que una remota.
+
+Las mutaciones con reglas propias **no** están ahí: viven donde vive su regla —`pools`,
+`instantaneas`, `datasets`, `avanzadas`, `zfsallow`—, porque componer su argv exige saber qué
+significa cada bandera. `peticiones` es para lo que no tiene más regla que su nombre.
+
+### Lo que se lleva por delante
+
+Tres cosas que se veían al escribir las funciones y no al leer las llamadas:
+
+- **Un verbo pelado NO se manda.** Si el argumento obligatorio viene vacío se devuelve la
+  lista vacía: el daemon contestaría con su línea de uso y un rc=2, que es un error mucho
+  peor de leer que no haber preguntado.
+- **`--dump-daemon-log` cuenta BYTES, no líneas**, aunque el nombre no lo diga: el daemon hace
+  `seek`. Un cliente que pida «las últimas 200» recibe 200 bytes a media palabra.
+- **`--dump-zfs-get-prop` lleva la propiedad ANTES que el objeto**, al revés de como se dice
+  en voz alta. La función lo pide en ese mismo orden para que no haya que acordarse.
+
+### La lista de verbos encolables tiene un solo dueño
+
+`--job-submit` solo acepta unas pocas mutaciones —las largas—. Esa lista la necesitan el
+daemon (para no fiarse del cliente) y los clientes (para decidir antes de pedir nada), así
+que la tentación era escribirla dos veces. No: vive en `peticiones::sePuedeEncolar`, y
+`daemon_main.cpp` —que enlaza `zfsmgr_commands`— la llama. `isAsyncSubmittableCommand` es una
+línea.
+
+### Y las mutaciones, donde vive su regla
+
+Las mutaciones no fueron todas a `peticiones`. Las que tienen regla propia se componen en su
+módulo, que es donde está escrito qué significa cada bandera:
+
+- crear, destruir, rollback y clonar una instantánea → `commands/instantaneas`
+- renombrar, montar, promover, propiedades → `commands/datasets`
+- las diez operaciones de pool → `commands/pools`
+- Desglosar, Ensamblar, Hacia Dir, Desde Dir → `commands/avanzadas`
+
+Al hacerlo apareció un hueco: **no había función para crear una instantánea**. Los tres
+clientes pegaban `dataset + "@" + nombre` a mano, cada uno con su propia idea de qué nombre
+vale. Ahora es `instantaneas::argvCrearInstantanea`, que compone el nombre completo y lo
+valida.
+
+En `peticiones` quedaron solo las que no tienen más regla que su forma —los dos genéricos,
+las claves, los pares, la escucha, rsync, el lote de permisos—. Y ahí dos de ellas ganaron
+algo: **`cargaClave` y `cambiaClave` codifican sus argumentos aquí dentro**. Una frase de paso
+en argv la ve cualquiera con un `ps`; dejar la codificación en manos del llamante era invitar
+a que un cliente se olvidara.
+
+### Resultado
+
+Verbos del agente escritos literalmente en un cliente:
+
+| | antes | después |
+|---|---|---|
+| intérprete | 35 | **0** |
+| servidor web | 51 | **0** |
+| interfaz Qt | 35 | 21 |
+
+De los 21 de Qt, **ninguno construye una llamada**: nueve son el registro de capacidades
+—donde el nombre del verbo ES el dato—, cuatro son comprobaciones de texto en
+`mainwindow_pools.cpp` para saber si una orden ya fue por RPC, y seis viven dentro de
+`daemonMutationPlanForCommand`, el parseo de cadena a argv que desaparece cuando los
+borradores lleven argv.
+
+### Una coreografía menos
+
+El servidor web tenía su propia versión de los tres pasos del árbol entre daemons —escuchar,
+averiguar la dirección de vuelta, enviar— dentro de `sincroniza`. Era la **tercera copia**, y
+la única que además sabía pedir `--delete`. Ahora las tres llaman a
+`transferencia::lanzaTrabajoDeArbol`, y el borrado es un parámetro con un comentario que dice
+por qué «Desde Dir» lo deja en falso: traer un directorio es AÑADIR, y con el borrado puesto
+se llevaría por delante lo que ya hubiera en el destino.
+
+### Verificación
+
+Buena parte de la conversión se hizo con expresiones regulares, y eso se comprueba
+ejecutando, no leyendo. Contra `tpool` y las cuatro máquinas: `ls` en los cuatro equipos, las
+secciones `#properties`, `#permissions` y `#content`, y el ciclo completo de una instantánea
+—crear, clonar, destruir el clon, destruir la instantánea— por el intérprete.
+
+## Fase 5 — los verbos que faltaban para poder borrar el shell de Qt
+
+Tres caminos seguían siendo guion porque «no había verbo». Al mirarlos de cerca, **dos de los
+tres ya lo tenían**.
+
+### «¿Hay hijos montados?» — no hacía falta ningún verbo
+
+Antes de desmontar, la interfaz preguntaba si había descendientes montados con un guion
+—uno de `sh` con `awk` y otro de PowerShell— ejecutado por SSH **solo para contestar sí o
+no**. La respuesta ya estaba en `--dump-zfs-mount`, que el agente sirve en las dos
+plataformas: ahora se calcula con `listados::tieneDescendientesMontados`.
+
+Y al escribir su prueba apareció la regla que el guion sí respetaba y que era fácil perder:
+el prefijo lleva barra. **«tank/datos2» empieza por «tank/datos» y no está debajo de él**;
+sin la barra, desmontar un dataset preguntaría por un hermano con nombre parecido.
+
+### El listado de Desglosar en Windows — el verbo ya existía
+
+`--dump-advanced-breakdown-list` resuelve el punto de montaje con los montajes REALES y
+recorre el árbol con `std::filesystem`, o sea que funciona igual en las dos plataformas. Qt
+lo usaba solo en Unix y en Windows tenía 55 líneas de PowerShell que hacían lo mismo:
+resolver la letra de unidad subiendo por los padres y recorrer con `Get-ChildItem`.
+
+Comprobado contra OldLau antes de cambiar nada: el verbo contesta `__MP__=Z:/sa` y la lista
+de directorios. Las 55 líneas se han ido.
+
+### Las letras de unidad — este sí era nuevo
+
+`--dump-zfs-driveletters <pool>`, que era el último camino de shell del refresco. Lleva el
+ORIGEN de la propiedad, y eso no es un detalle: en Windows los descendientes heredan la letra
+del pool y se montan planos bajo esa unidad, así que dos datasets con la misma letra heredada
+es el funcionamiento normal. Sin el origen, cualquier pool con más de un dataset parecía tener
+letras duplicadas y ese aviso llenaba el registro en cada refresco.
+
+Comprobado contra OldLau:
+
+```
+winpool     Z:  local
+winpool/sa  z:  temporary
+winpool/sb  z:  temporary
+```
+
+Existe también fuera de Windows: allí `zfs` contesta «invalid property 'driveletter'»
+—comprobado en macOS— con código distinto de cero, y el cliente lo lee como «no hay letras».
+Un verbo que solo existiera en una plataforma obligaría a quien llama a saber en cuál está.
+
+**Y volvió a morder la asimetría de despachos**: el verbo se añadió a la rama RPC y no a la
+de terminal, así que el agente contestaba con su línea de uso cuando se le llamaba por el
+respaldo. Es la tercera vez en este proyecto. Un verbo nuevo son SIEMPRE dos sitios en
+`daemon_main.cpp` más la tabla de capacidades.
+
+### Lo que queda, y qué necesita
+
+Guion embebido en Qt: de ~791 líneas a ~576. Los dos bloques grandes que quedan necesitan
+trabajo de verdad, no cableado:
+
+- **Hacia Dir en Windows** (~153 líneas de PowerShell). Ver la sección de abajo: no es
+  cableado, hace falta otro algoritmo.
+- **Crear pool** (~166 líneas). Ver la sección de abajo: el grueso no era crear, era
+  descubrir discos.
+
+### Hacia Dir en Windows: por qué no es un cableado
+
+La suposición era que `--mutate-advanced-todir` vivía bajo `#ifndef _WIN32` porque copiaba con
+`rsync`. **No es así**: `runRsyncCopyMoveCapture` conserva el nombre pero por dentro ya usa
+`copytree`, la copia propia del agente, que funciona en las dos plataformas.
+
+Lo que de verdad lo ata a Unix es otra cosa. El caso principal de Hacia Dir es convertir un
+dataset en un directorio **en su mismo sitio**, y para eso hay que quitar el dataset de en
+medio antes de escribir ahí: `AltMountGuard` lo reubica a un montaje temporal con
+`zfs set mountpoint=/tmp/...`.
+
+Y eso en Windows no se puede. Comprobado contra OldLau con un dataset de usar y tirar:
+
+```
+SET rc=1  cannot set property for 'winpool/prueba': 'mountpoint' must be
+          a drive letter, 'none', or 'legacy'
+DESPUES: /winpool/prueba
+```
+
+**Un dataset de Windows no se puede montar en un directorio.** Solo acepta letra de unidad,
+`none` o `legacy`. Así que la coreografía de Unix —aparta el dataset, copia a su antiguo
+sitio, destrúyelo— no tiene traducción directa.
+
+Sí la tiene otra, y además ya está escrita en el propio agente: es lo que hace **Ensamblar**.
+Copiar primero a un temporal DENTRO del dataset padre —mismo pool, misma unidad, así el paso
+final es un renombrado y no una segunda copia—, desmontar el hijo, renombrar el temporal a su
+sitio y destruir el dataset. `makeTempDirIn` ya está portado a Windows.
+
+Es trabajo de diseño sobre una operación que **destruye el dataset de origen**, así que se
+deja apuntado en vez de improvisado. Mientras tanto la tabla de capacidades sigue rechazando
+la acción en Windows con su motivo, que es el comportamiento correcto: no ofrecer lo que no
+se puede hacer.
+
+### Crear pool: el grueso no era crear
+
+De las ~166 líneas de guion del diálogo de crear pool, **crear el pool son dos**: `zpool
+create` ya se puede mandar por `--mutate-zpool-generic`, que tiene `create` en su lista
+blanca. El resto es DESCUBRIR DISCOS, con tres guiones —`lsblk` en Linux, `diskutil` en
+macOS, `Get-Partition` en Windows— que producen un formato común que Qt vuelve a analizar.
+
+Y para eso ya había verbo: `--dump-block-devices`. Solo que **estaba portado únicamente a
+Linux**; en las otras dos contestaba «no está portado a esta plataforma todavía».
+
+**macOS, portado y comprobado en mmela.** `diskutil list` da los identificadores y
+`diskutil info` los datos de cada uno en líneas «clave: valor». Se piden los bytes EXACTOS
+—«(494384795648 Bytes)»— y no el «494.4 GB» redondeado: esa cifra no sirve para decidir si un
+disco cabe en un pool, y reconvertirla es inventarse precisión que no había.
+
+Al comprobarlo aparecieron **dos formas de marcar como libre un disco que no lo está**, y las
+dos son peligrosas porque lo que se ofrece es borrarlo:
+
+1. **El disco de arranque.** La partición que aloja un contenedor APFS no tiene punto de
+   montaje ni sistema de ficheros propios —`diskutil` contesta «Not applicable»—, así que con
+   la regla de «montado o con fs» salía libre, y su disco entero también por herencia. Lo que
+   la delata es `Partition Type: Apple_APFS`. Verificado: `disk0s2` en mmela.
+2. **Un disco que respalda un pool importado.** Puede no tener nada de eso: `diskutil` solo
+   dice que es un disco. El que respalda `mpool` salía LIBRE.
+
+Lo segundo no se arregla con heurísticas de contenido, así que **se le pregunta a ZFS**:
+`zpool status -P` y se marca todo lo que aparezca como vdev. Es la respuesta autoritativa y
+vale en las dos plataformas. Con eso, mmela pasó de «25 dispositivos, 2 libres» a «25, 0
+libres», que es la verdad: ahí no hay ningún disco libre.
+
+**Windows, portado y comprobado en OldLau.** Allí la herramienta de consulta es PowerShell:
+se le llama con `execvp` y un guion CONSTANTE —no se interpola nada de quien pide—, igual que
+en macOS se llama a `diskutil`. La regla que importa sigue en pie: quien elige la ruta no
+elige además lo que se ejecuta.
+
+Dos cosas que solo se ven ejecutándolo:
+
+- **El agente no encontraba PowerShell.** Corre como tarea programada en la sesión de
+  servicios, y allí no está en el PATH: la primera versión contestó «cannot start
+  powershell». Va con la ruta absoluta y una lista de candidatos.
+- **El cruce con ZFS necesita traducir.** En Windows los vdev no se llaman como los
+  dispositivos: `zpool status -P` de un pool sobre el disco 2 dice «/dev/Harddisk2Partition0»
+  y el dispositivo es «\\.\PhysicalDrive2». Buscar la ruta tal cual —que es lo que hace la
+  rama de macOS— no habría encontrado nada, y el disco que respalda `winpool` habría salido
+  libre. Se extrae el número de «HarddiskN» y se marca ese disco.
+
+### Los alias `by-id`, que casi se pierden por el camino
+
+El diálogo ofrece los nombres `by-id` además de los `/dev/sdX`, y **no es un adorno**: un pool
+creado con `/dev/sdb` se rompe si mañana el kernel llama `sdc` a ese disco, y con el alias no.
+El verbo no los daba, así que cambiarlo por el verbo habría sido una regresión callada.
+
+Ahora los da —Linux y macOS, cada uno donde su sistema los pone— como entradas con `alias` y
+`resolved`. Y con eso desaparece además un SEGUNDO guion que el diálogo ejecutaba por SSH para
+lo mismo: un bucle de shell con `perl -MCwd=realpath` dentro.
+
+### El diálogo, cableado
+
+Los tres guiones se sustituyen por una llamada al verbo, y su respuesta se traduce a las
+mismas columnas que el análisis de abajo ya consumía: alias, rutas resueltas y deduplicado no
+se tocan. Los tamaños llegan en bytes y se formatean con la regla que ya usaba el intérprete,
+que por eso se ha movido de `cli/tabla.h` a `base/strutil`.
+
+`mainwindow_pool_create.cpp` pasa de ~166 líneas de guion a ~25. El total de guion embebido en
+Qt, de ~576 a ~355.
+
+Comprobado de extremo a extremo en fc16: crear un pool sobre fichero por
+`--mutate-zpool-generic create` funciona, y **el verbo pasa a marcar ese disco como ocupado en
+cuanto el pool existe** —de «1 libre» con el fichero suelto a no ofrecerlo—.
+
+### Desglosar y Ensamblar en Windows: uno sí, el otro no
+
+Los dos tenían su guion de PowerShell en la interfaz mientras el agente ya servía los verbos
+en las dos plataformas. Antes de cablearlos se comprobaron contra OldLau con un dataset de
+usar y tirar, y salieron dos respuestas distintas.
+
+**Ensamblar funciona.** El verbo devuelve los datasets a directorios en su sitio:
+`Z:\des\fotos\a.txt` donde tenía que estar. Cableado, y con eso desaparece también la
+condición por plataforma: es el mismo camino en todas.
+
+**Desglosar decía «ok» y movía los datos de sitio.** Esto es lo importante:
+
+```
+antes:   Z:\des\fotos\a.txt   Z:\des\musica\b.txt
+después: [BREAKDOWN] ok fotos -> winpool/des/fotos
+         [BREAKDOWN] ok musica -> winpool/des/musica
+         Z:\des\  ...vacío
+         Z:\fotos\a.txt      Z:\musica\b.txt      ← en la RAÍZ de la unidad
+```
+
+Los ficheros no se pierden —siguen ahí, con sus 8 y 11 bytes— pero ya no están donde el
+usuario los tenía: aparecen en el nivel superior del disco. La causa es de la plataforma:
+**Windows OpenZFS monta los descendientes planos bajo la letra del pool**, y no admite
+fijarles un punto de montaje —`zfs set mountpoint` allí solo acepta letra, `none` o
+`legacy`—. No hay forma de que `winpool/des/fotos` se monte en `Z:\des\fotos`.
+
+Y esto llevaba tiempo funcionando así: el comentario de la tabla de capacidades decía que
+Desglosar estaba «comprobada contra una máquina» en Windows. Lo estaba a nivel de «el verbo
+devuelve cero», no a nivel de «los datos quedan donde el usuario cree».
+
+Mover datos de sitio sin decirlo es peor que no hacer nada, así que:
+
+- el verbo **se niega en Windows** con el motivo escrito;
+- el agente **deja de anunciarlo** en `CAPS` allí, así que la tabla de capacidades deshabilita
+  la acción antes de que nadie la pulse;
+- y la interfaz, si se llega igualmente, lo explica en lugar de intentarlo.
+
+Verificado tras desplegar: `CAPS` en OldLau lista `--mutate-advanced-assemble` y no
+`--mutate-advanced-breakdown`, y pedirlo a mano contesta el motivo.
+
+Guion embebido en Qt: de ~355 a ~281 líneas.
+
+### Dos restos más
+
+**La sonda de códecs.** Antes de transferir hay que elegir entre `zstd` y `gzip`, y para eso
+se preguntaba a las dos máquinas si los tienen: cuatro sondas por SSH —`command -v` o
+`Get-Command`— **cada vez que se abría el diálogo**. El refresco ya pregunta al agente qué
+herramientas le faltan y lo guarda; solo faltaba que la lista incluyera esas dos. Ahora la
+sonda es mirar el estado que ya está en memoria.
+
+La prueba que guardaba esa lista comprobaba su TAMAÑO —«es corta a propósito»—. Un número
+solo dice que alguien la tocó, no si lo que metió tenía sentido, así que ahora comprueba el
+contenido y deja escrito cuáles son necesarias y cuáles son para elegir.
+
+**El navegador de ficheros se queda como está**, y a propósito: enseña permisos, dueño,
+grupo y fecha, y `--dump-dir-list` solo da nombre, tipo y tamaño. Convertirlo sin ampliar el
+verbo perdería columnas —y el marcador de enlace simbólico—. Ampliarlo es trabajo aparte, y
+son nueve líneas.
+
+## Fase 6 — el argv por acción
+
+
+
+Mover ficheros aclara el árbol pero **no concentra la lógica todavía**. Los tres clientes
+siguen armando el mismo argv por su cuenta:
+
+```
+cli/shell.cpp:2789          {"--mutate-advanced-assemble", destino.dataset}
+web/main.cpp:4755           {"--mutate-advanced-assemble", objeto}
+native/mainwindow_advanced.cpp:875   {"--mutate-advanced-assemble", ds}
+```
+
+Pequeño por acción, pero son ~20 acciones por 3 clientes, y con el argv se reparten también
+las reglas —como que a `assemble` los nombres se le dan COMPLETOS y no relativos, que no
+está escrita en ninguna parte y costó una sesión descubrirla—. Eso es lo que debe acabar en
+`commands/`, una función por acción, y con tests.

@@ -28,20 +28,6 @@ Legal references:
 - **GNU GPL v3**, Section 15: **Disclaimer of Warranty**.
 - **GNU GPL v3**, Section 16: **Limitation of Liability**.
 
-## Screenshots
-
-### Main window
-
-![ZFSMgr main window](help/img/auto/main-window.png)
-
-### Pool creation
-
-![ZFSMgr create pool dialog](help/img/crearpool.png)
-
-### Dataset creation
-
-![ZFSMgr create dataset dialog](help/img/creardataset.png)
-
 ## Releases
 
 - **Current beta line**: check the latest published release here:
@@ -112,9 +98,9 @@ Two clients ship next to the window, and both are installed the same way because
 are the same kind of thing: a client that links no Qt at all and talks to the daemon
 over the same tunnel.
 
-- **`zfsmgr_cli`** — the shell: the same operations as the window, driven from a
+- **`zfsmgr-cli`** — the shell: the same operations as the window, driven from a
   terminal, with a `zfsm://` URL as the current location.
-- **`zfsmgr_web`** — a local HTTPS server that serves the same tree to a browser. It
+- **`zfsmgr-web`** — a local HTTPS server that serves the same tree to a browser. It
   runs **as you**, not as root, and listens on `127.0.0.1` unless told otherwise.
   Nothing starts it for you: no service, no unit file. Listening on a port with the
   master password in memory is something you do on purpose. See
@@ -132,14 +118,14 @@ Where they land depends on how the platform installs software:
 macOS has no installer, so the links are yours to make:
 
 ```bash
-sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
-sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_web /usr/local/bin/zfsmgr_web
-zfsmgr_cli --help
-zfsmgr_web --help
+sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
+sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
+zfsmgr-cli --help
+zfsmgr-web --help
 ```
 
 Deleting the `.app` leaves those symlinks dangling; remove them with
-`sudo rm /usr/local/bin/zfsmgr_cli /usr/local/bin/zfsmgr_web`.
+`sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web`.
 
 The AppImage is the graphical application only. It is a single self-contained file, so
 nothing inside it is on your `PATH`; use the `.deb` if you want the shell.
@@ -486,7 +472,7 @@ Persistent configuration includes, among other things:
 ./scripts/build-linux.sh
 ```
 
-Expected binary: `builds/linux/zfsmgr_qt`
+Expected binary: `builds/linux/zfsmgr-gui`
 
 ### Linux AppImage (portable)
 
@@ -531,7 +517,7 @@ Installer generation is now explicit:
 
 Without `--inno`, the script only builds the application and skips Inno Setup packaging. This is also the behavior expected in GitHub Actions.
 
-On Windows, `zfsmgr_qt.exe` is built with an embedded UAC manifest and must be started with administrator privileges.
+On Windows, `zfsmgr-gui.exe` is built with an embedded UAC manifest and must be started with administrator privileges.
 
 ## Run
 

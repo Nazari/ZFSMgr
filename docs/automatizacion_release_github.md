@@ -3,9 +3,9 @@
 > **Nota (2026-08):** este documento describía un flujo apoyado en `buildall.sh`, que
 > compilaba por SSH en máquinas dedicadas de macOS, FreeBSD y Windows. Esas máquinas
 > ya no existen y el script se ha retirado. La compilación multiplataforma se hace
-> ahora en local con `docker/build.sh` (ver `docker/README.md`), y `release-github.sh`
-> usa `buildall-cross.sh`. Las menciones a `buildall.sh` que queden más abajo son
-> históricas.
+> ahora en este mismo equipo con `scripts/buildall-cross.sh`, que es lo que usa
+> `release-github.sh` (ver `docs/cross-compiling-linux.md`). Las menciones a
+> `buildall.sh` que queden más abajo son históricas.
 
 ## Objetivo
 

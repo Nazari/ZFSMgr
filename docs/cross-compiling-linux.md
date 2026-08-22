@@ -1,15 +1,25 @@
 # Cross-compiling desde Linux
 
-La forma recomendada de compilar todas las plataformas desde Linux es el contenedor:
-`docker/build.sh` (ver `docker/README.md`). Lleva la toolchain ya aprovisionada, así
-que no depende de rutas del `$HOME` ni de máquinas ajenas.
+Todas las plataformas se compilan **desde este mismo equipo**, con las toolchains
+cruzadas que deja `scripts/provision-cross-targets.sh`. No hace falta ninguna máquina
+ajena ni ningún contenedor.
 
-`scripts/buildall.sh`, que lanzaba los builds por SSH en máquinas dedicadas de
-macOS/FreeBSD/Windows, se ha retirado: esas máquinas ya no existen. Para compilar en
-sistemas nativos siguen estando `scripts/build-macos.sh`, `build-freebsd.sh` y
-`build-windows.ps1`, que son los que usa el CI de GitHub Actions en sus runners.
+Ha habido dos intentos anteriores, los dos retirados, y conviene saber por qué:
 
-Debajo, la base de cross-compiling local en Linux, que es la que usa el contenedor:
+- `scripts/buildall.sh` lanzaba los builds por SSH en máquinas dedicadas de
+  macOS/FreeBSD/Windows. Esas máquinas ya no existen.
+- `docker/build.sh` metía las toolchains en una imagen. Se retiró en agosto de 2026
+  porque **no aportaba ninguna capacidad**: la imagen se aprovisionaba ejecutando este
+  mismo `provision-cross-targets.sh`, así que las dos formas salían del mismo sitio, y
+  encima la imagen no era autosuficiente —macOS necesitaba `/opt/osxcross` montado del
+  anfitrión, y nunca podrá llevarlo dentro porque el SDK de Apple no se redistribuye—.
+  Costaba unos 48 GB entre imagen y su propio `builds/` para hacer lo mismo.
+
+Para compilar en sistemas nativos siguen estando `scripts/build-macos.sh`,
+`build-freebsd.sh` y `build-windows.ps1`, que son los que usa el CI de GitHub Actions en
+sus runners. **Lo que se publica sale del CI**, no de este equipo.
+
+La base del cross-compiling local:
 
 - `scripts/build-cross.sh`
 - `scripts/provision-cross-targets.sh`
@@ -19,7 +29,7 @@ Debajo, la base de cross-compiling local en Linux, que es la que usa el contened
 
 ## Estado por plataforma
 
-- Windows: viable y validado en este Linux (configura y compila `zfsmgr_qt.exe`).
+- Windows: viable y validado en este Linux (configura y compila `zfsmgr-gui.exe`).
 - FreeBSD: viable con sysroot FreeBSD + Qt6 para target FreeBSD.
 - macOS: viable con osxcross + SDK macOS + Qt6 para target macOS.
 

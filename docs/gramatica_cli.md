@@ -460,3 +460,38 @@ Eso da el mismo resultado —se acaban los argumentos ignorados, las órdenes se
 declarando, y la ayuda no puede mentir— sin generador de analizadores. Si más adelante la
 sintaxis crece (expresiones, tuberías entre órdenes, condicionales), entonces sí: la
 gramática ya estaría escrita y pasar a yacc sería mecánico.
+
+## `ls` sobre un pool enseña también su dataset raíz (2026-08-22)
+
+Un pool **es también un dataset**: el raíz. Y era el único que el intérprete no enseñaba en
+ninguna parte.
+
+La razón es estructural, no un olvido: todo dataset aparece con sus campos —usado,
+compresión, montaje, punto de montaje— en el listado de SU PADRE. El raíz de un pool no
+tiene padre dataset; su nivel de arriba es la conexión, y allí las filas llevan campos de
+POOL (estado, tamaño, capacidad, salud), que hablan del almacenamiento y no del sistema de
+ficheros. `listaDataset` se saltaba el propio objeto con un «el propio dataset no es hijo
+suyo» que es correcto en general y dejaba este caso sin cubrir.
+
+Consecuencia visible: un fichero en `/tanque/algo.txt` vive en el dataset `tanque`, y desde
+el intérprete no había forma de ver cuánto ocupa ese dataset ni dónde está montado.
+
+Ahora `ls` sobre un pool lo añade como PRIMERA fila:
+
+```
+zfsm://local/wls> ls
+NAME     TYPE      USED  COMPR  MOUNTED  MOUNTPOINT
+wls      dataset   234K  1.00   yes      /wls
+@prueba  snapshot  0B    1.04   -        -
+ds1      dataset   48K   1.00   yes      /wls/ds1
+```
+
+**Solo cuando lo listado es un pool**, no cualquier dataset: en `ls tanque/media` sus propios
+campos ya se vieron al listar `tanque`, y repetirlos en cada nivel sería ruido. Aquí no se
+repite nada, se rellena un hueco.
+
+El nombre va tal cual —«wls», no «.»— porque es el nombre real del dataset y así se puede
+copiar a otra orden.
+
+Es además el modelo que el servidor web ya seguía: allí el nodo del pool va **fundido** con
+su dataset raíz, y los hijos de éste cuelgan directamente del pool.

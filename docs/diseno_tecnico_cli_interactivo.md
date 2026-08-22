@@ -33,7 +33,8 @@ El modelo es el de un sistema de ficheros, con la lista de conexiones como raíz
 
 **La raíz no es una URL válida** —`zfsm://` sin conexión no nombra nada—, así que existe
 solo dentro del intérprete, donde sí hace falta: es el sitio al que subir desde una
-conexión. Se enseña como `zfsm:/`.
+conexión. Se enseña como `zfsm://`, con las dos barras del esquema: es la URL que el propio
+analizador aceptaría de vuelta.
 
 ### Las dos reglas que quitan ambigüedad a una ruta relativa
 
