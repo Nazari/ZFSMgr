@@ -54,14 +54,17 @@ typedef int pid_t;
 #include <openssl/pem.h>
 #include <openssl/rand.h>
 
+#include "peticiones.h"
+#include "arbolremoto.h"
 #include "copytree.h"
 #include "json.h"
 #include "base/process.h"
-#include "base/gsa.h"
+#include "base/sistemaoperativo.h"
+#include "commands/gsa.h"
 #include "base/strutil.h"
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
-#include "base/zfsprops.h"
+#include "commands/zfsprops.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
@@ -462,6 +465,7 @@ std::string agentCapabilityList() {
         // con un agente viejo NO ofrezca la función y falle al pulsarla; sabrá que no está.
         "--dump-zfs-holds",
         "--mutate-zfs-hold",
+        "--mutate-zfs-rename",
         "--mutate-zfs-release",
     };
     caps.push_back("--dump-tool-availability");
@@ -472,6 +476,10 @@ std::string agentCapabilityList() {
     // Copiar y Nivelar apagadas en Windows por mucho que la tabla dijera lo contrario.
     caps.push_back("--job-submit");
     caps.push_back("--zfs-send-to-peer");
+    caps.push_back("--dump-zfs-driveletters");
+    caps.push_back("--mutate-advanced-fromdir-prepare");
+    caps.push_back("--tree-recv-listen");
+    caps.push_back("--tree-send-to-peer");
     caps.push_back("--mutate-set-peers");
     caps.push_back("--dump-peers");
     caps.push_back("--mutate-set-bind");
@@ -486,7 +494,13 @@ std::string agentCapabilityList() {
     // makeTempDir sí estaba portado, pero lo que las rompía era otra cosa: la ruta se
     // deducía de la propiedad `mountpoint`, que allí vale «/pool/ds» y no existe. Ahora
     // se consultan los montajes reales y ambas están comprobadas contra una máquina.
+    // Ensamblar va en las dos plataformas —verificado contra una máquina Windows: los
+    // datasets vuelven a ser directorios en su sitio—. Desglosar NO: allí los descendientes
+    // se montan planos bajo la letra del pool, así que el dataset nuevo no quedaría donde
+    // estaba el directorio. Ver `runMutateAdvancedBreakdownCapture`.
+#ifndef _WIN32
     caps.push_back("--mutate-advanced-breakdown");
+#endif
     caps.push_back("--mutate-advanced-assemble");
     std::string out;
     for (size_t i = 0; i < caps.size(); ++i) {
@@ -858,7 +872,35 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
 }
 #endif
 
+// Desglosar: un subdirectorio pasa a ser un dataset hijo que ocupa su sitio.
+//
+// **En Windows no se puede, y por eso aquí se niega.** No es que falte portarlo: el verbo
+// funcionaba —creaba los datasets y movía los datos sin perder un byte— pero el resultado NO
+// era el que promete. Windows OpenZFS monta los descendientes PLANOS bajo la letra del pool y
+// no admite fijarles un punto de montaje: `zfs set mountpoint` allí solo acepta una letra de
+// unidad, `none` o `legacy`.
+//
+// O sea que desglosar «Z:\\des\\fotos» dejaba el dataset `winpool/des/fotos` montado en
+// «Z:\\fotos», en la RAÍZ de la unidad. Comprobado contra OldLau: los ficheros seguían ahí
+// —`Z:\\fotos\\a.txt`, 8 bytes— pero ya no donde el usuario los tenía, y la operación decía
+// «[BREAKDOWN] ok».
+//
+// Mover los datos de sitio sin decirlo es peor que no hacer nada, así que no se hace. Y como
+// el verbo deja de anunciarse en `CAPS`, la interfaz lo enseña deshabilitado con su motivo en
+// vez de ofrecer algo que no cumple.
+//
+// Ensamblar —el camino inverso— SÍ funciona allí y se conserva: verificado en la misma
+// máquina, los datasets vuelven a ser directorios en su sitio.
 ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
+#ifdef _WIN32
+    (void)params;
+    ExecResult noAqui;
+    noAqui.rc = 2;
+    noAqui.err = "Desglosar no está disponible en Windows: sus datasets se montan planos bajo "
+                 "la letra del pool y no admiten un punto de montaje propio, así que el "
+                 "dataset nuevo no quedaría donde estaba el directorio\n";
+    return noAqui;
+#endif
     ExecResult r;
     // Pares (directorio, nombre). El nombre es la ruta BAJO `dataset`, y no tiene por
     // qué reflejar la ruta del directorio: crear un dataset solo exige que exista su
@@ -910,6 +952,14 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         // hay que devolverle su nombre canónico. En ese caso tmpName es el dataset
         // REAL del usuario, así que ni se borra su origen ni se destruye al limpiar.
         bool alreadyDataset{false};
+        // Los permisos del DIRECTORIO original, para devolvérselos al dataset que ocupa su
+        // sitio. Sin esto, el punto de montaje nuevo sale con lo que ZFS pone por defecto
+        // —0755 y root— y un directorio que era `drwxr-s--x linarese` pasaba a
+        // `drwxr-xr-x root`. Es el mismo fallo que tenía Ensamblar, en espejo.
+        bool permisosLeidos{false};
+        unsigned int modo{0};
+        unsigned int uid{0};
+        unsigned int gid{0};
     };
     std::vector<Pending> pending;
 
@@ -1154,8 +1204,10 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     // ---- Fase 2: todo verificado; ahora sí se borra y se renombra ----
     // Borrado de los originales primero, de más profundo a menos, para que el punto de
     // montaje definitivo esté libre cuando se renombre.
-    std::vector<const Pending*> byDepth;
-    for (const Pending& p : pending) {
+    // No constante: el bucle de borrado anota en cada uno los permisos del directorio
+    // original, que es lo último que se sabe de él antes de que desaparezca.
+    std::vector<Pending*> byDepth;
+    for (Pending& p : pending) {
         byDepth.push_back(&p);
     }
     const auto depthOf = [](const std::string& v) {
@@ -1203,7 +1255,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         unmounted.push_back(kv);
     }
 
-    for (const Pending* p : byDepth) {
+    for (Pending* p : byDepth) {
         if (p->alreadyDataset) {
             continue;  // su "origen" es el propio dataset montado: borrarlo sería perderlo
         }
@@ -1215,6 +1267,13 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             r.err = "no se pudo consultar " + srcPath.string() + "\n";
             return r;
         }
+        // La misma lectura sirve para dos cosas: el dispositivo, para no cruzar montajes al
+        // borrar, y los permisos, para devolvérselos al dataset que va a ocupar este sitio.
+        // Se guarda aquí porque es el último momento en que el directorio original existe.
+        p->permisosLeidos = true;
+        p->modo = static_cast<unsigned int>(rootSt.st_mode & 07777);
+        p->uid = static_cast<unsigned int>(rootSt.st_uid);
+        p->gid = static_cast<unsigned int>(rootSt.st_gid);
         std::string rmErr;
         if (!removeTreeWithoutCrossingMounts(srcPath, rootSt.st_dev, rmErr)) {
             r.rc = 1;
@@ -1279,6 +1338,22 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             return setMp;
         }
         (void)runExecCapture("zfs", {"mount", child});
+#ifndef _WIN32
+        // Y los permisos del directorio que estaba aquí antes.
+        //
+        // No se aborta si falla: los datos ya están en su dataset y perder la operación por
+        // esto sería un cambio a peor. Se dice y se sigue.
+        if (p->permisosLeidos) {
+            if (::chmod(srcPath.c_str(), p->modo) != 0) {
+                r.out += "[BREAKDOWN] aviso: no se pudo poner el modo original en "
+                         + srcPath.string() + "\n";
+            }
+            if (::chown(srcPath.c_str(), p->uid, p->gid) != 0) {
+                r.out += "[BREAKDOWN] aviso: no se pudo poner el dueño original en "
+                         + srcPath.string() + "\n";
+            }
+        }
+#endif
         if (!p->tmpMp.empty()) {  // los que ya eran dataset no tienen temporal que limpiar
             std::error_code tmpEc;
             fs::remove_all(p->tmpMp, tmpEc);
@@ -1358,6 +1433,8 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                   }
                   return a < b;
               });
+    std::size_t hechos = 0;
+    std::size_t saltados = 0;
     for (std::size_t i = 1; i <= orderedChildren.size(); ++i) {
         const std::string child = orderedChildren[i - 1];
         if (child.empty()) {
@@ -1367,8 +1444,15 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // niveles, y ensamblar un hijo destruye recursivamente lo que cuelga de él. Si
         // se seleccionan padre e hijo, al llegar al hijo ya está absorbido. Antes eso
         // abortaba la operación entera con error, aunque el resultado fuera correcto.
+        //
+        // Pero ese mismo salto se tragaba también «me has nombrado algo que NUNCA fue hijo
+        // de este dataset»: la orden devolvía rc=0 sin haber hecho nada. Pasó de verdad
+        // llamándola con nombres relativos —`fotos` en vez de `tanque/media/fotos`—, que es
+        // lo que uno escribe si se fía del texto de ayuda. Decir «hecho» cuando no se ha
+        // hecho nada es el peor fallo posible aquí, así que ahora se cuenta y se dice.
         if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc != 0) {
             r.out += "[ASSEMBLE] ya absorbido " + child + "\n";
+            ++saltados;
             continue;
         }
         (void)runExecCapture("zfs", {"mount", child});
@@ -1380,6 +1464,28 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (childMp.empty()) {
             continue;
         }
+        // Los permisos y el dueño del PUNTO DE MONTAJE, antes de tocar nada.
+        //
+        // El directorio con el que acaba esta operación es la escala temporal renombrada, y
+        // `makeTempDirIn` la crea con `mkdtemp`, que pone 0700 y el usuario del daemon —o
+        // sea root—. Resultado: un dataset que cualquiera podía leer se convertía en un
+        // directorio `drwx------ root root`, y quien lo usaba se quedaba fuera de sus
+        // propios datos sin que nada lo dijera. Comprobado en vivo: tras ensamblar,
+        // `ls` sobre el directorio daba «Permiso denegado».
+        //
+        // Se lee AQUÍ y no después porque después ya no existe: el punto de montaje
+        // desaparece con el `zfs destroy`.
+        bool permisosLeidos = false;
+#ifndef _WIN32
+        struct stat permisosOrigen {};
+        permisosLeidos = (::stat(childMp.c_str(), &permisosOrigen) == 0);
+        if (!permisosLeidos) {
+            // No es motivo para abortar —los datos son lo importante— pero sí para decirlo:
+            // el directorio quedará con los del temporal y alguien tendrá que arreglarlo.
+            r.out += "[ASSEMBLE] aviso: no se pudieron leer los permisos de " + childMp
+                     + "; el directorio quedará con los del temporal\n";
+        }
+#endif
         const std::size_t pos = child.find_last_of('/');
         const std::string bn = (pos == std::string::npos) ? child : child.substr(pos + 1);
         if (bn.empty()) {
@@ -1645,6 +1751,28 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             std::error_code rmec;
             fs::remove_all(tmp, rmec);
         }
+
+        // Y se devuelven los permisos del punto de montaje original.
+        //
+        // Va después de los DOS caminos —el renombrado rápido y el respaldo por rsync—
+        // porque los dos acaban con un directorio creado por nosotros: el primero hereda los
+        // 0700 del `mkdtemp`, el segundo los de `create_directories`. Ninguno de los dos son
+        // los que tenía el dataset.
+        //
+        // Si algo falla aquí NO se aborta: los datos ya están en su sitio y bien, y perder
+        // la operación entera por unos permisos sería un cambio a peor. Se dice y se sigue.
+#ifndef _WIN32
+        if (permisosLeidos) {
+            if (::chmod(dst.c_str(), permisosOrigen.st_mode & 07777) != 0) {
+                r.out += "[ASSEMBLE] aviso: no se pudo poner el modo original en " + dst.string()
+                         + "\n";
+            }
+            if (::chown(dst.c_str(), permisosOrigen.st_uid, permisosOrigen.st_gid) != 0) {
+                r.out += "[ASSEMBLE] aviso: no se pudo poner el dueño original en " + dst.string()
+                         + "\n";
+            }
+        }
+#endif
         // Con el directorio ya en su sitio, devolver los hijos a su punto de montaje.
         // zfs crea el directorio si falta.
         // Se remonta el subárbol COMPLETO, no solo el hijo directo: antes de reasignar se
@@ -1682,6 +1810,18 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
                           + std::to_string(orderedChildren.size()) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
+        ++hechos;
+    }
+    // Ni uno solo: lo que se ha pedido no era hijo de este dataset. Devolver 0 aquí decía
+    // «hecho» sobre una operación que no tocó nada.
+    if (hechos == 0) {
+        r.rc = 1;
+        r.err = "ninguno de los nombres dados es un dataset hijo de este; "
+                "van con su nombre COMPLETO, no relativo\n";
+        return r;
+    }
+    if (saltados > 0) {
+        r.out += "[ASSEMBLE] " + std::to_string(saltados) + " no estaban\n";
     }
     r.rc = 0;
     return r;
@@ -1959,32 +2099,15 @@ std::string detectOsLine() {
     ExecResult unames = runExecCapture("uname", {"-s"});
     const std::string unameS = trim(unames.out);
     if (unameS == "Linux") {
+        // El parseo vive en la capa base porque la interfaz de Qt necesita el MISMO sobre el
+        // fichero que se trae del otro extremo. Allí lo hacía un guion de shell que no
+        // quitaba las comillas ni cuidaba el caso sin `VERSION_ID`.
         std::ifstream f("/etc/os-release");
         if (f.is_open()) {
-            std::string line;
-            std::string name;
-            std::string ver;
-            while (std::getline(f, line)) {
-                if (startsWith(line, "NAME=")) {
-                    name = line.substr(5);
-                } else if (startsWith(line, "VERSION_ID=")) {
-                    ver = line.substr(11);
-                }
-            }
-            auto stripQuote = [](std::string x) {
-                x = trim(x);
-                if (x.size() >= 2) {
-                    const char a = x.front();
-                    const char b = x.back();
-                    if ((a == '\'' && b == '\'') || (a == '"' && b == '"')) {
-                        x = x.substr(1, x.size() - 2);
-                    }
-                }
-                return trim(x);
-            };
-            name = stripQuote(name);
-            ver = stripQuote(ver);
-            const std::string combined = trim(name + " " + ver);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            const std::string combined =
+                zfsmgr::base::sistemaoperativo::deOsRelease(ss.str());
             if (!combined.empty()) {
                 return combined;
             }
@@ -2238,6 +2361,40 @@ int runGenericMutation(const std::string& tool, const std::string& payloadB64) {
     return runExecStreaming(tool, arr);
 }
 
+// ¿Hay algún motivo para NO intentar cambiar la frase de este dataset?
+//
+// `zfs change-key` sin banderas NO pregunta si `keylocation` apunta a un fichero o a una
+// URL: RELEE esa ubicación y deja la clave como estaba. Y sale con **rc=0**, así que el
+// cliente decía «frase cambiada» y la frase vieja seguía abriendo el dataset. Comprobado en
+// vivo: tras «cambiarla», la vieja cargaba la clave y la nueva daba «Incorrect key
+// provided».
+//
+// Afectaba por igual a la interfaz, al intérprete y al servidor web, porque los tres llaman
+// aquí con las banderas vacías.
+//
+// No se fuerza `-o keylocation=prompt` a espaldas de nadie: un dataset que toma su clave de
+// un fichero está así a propósito —se abre solo al arrancar— y cambiárselo de tapadillo
+// rompería ese arranque. Se dice lo que pasa y quien manda decide.
+//
+// **Vive en una función porque el verbo se despacha en DOS sitios** —la rama de RPC y la de
+// línea de órdenes—, y la primera versión de esta comprobación se puso solo en una: por RPC
+// avisaba y por CLI seguía mintiendo. Esa asimetría es una trampa conocida de este fichero.
+std::string motivoParaNoCambiarClave(const std::string& dataset, const std::string& flagsStr) {
+    if (flagsStr.find("keylocation") != std::string::npos) {
+        return {};  // quien llama ya ha dicho de dónde saldrá la clave
+    }
+    const ExecResult kl =
+        runExecCapture("zfs", {"get", "-H", "-o", "value", "keylocation", dataset});
+    const std::string ubicacion = trim(kl.out);
+    if (kl.rc != 0 || ubicacion.empty() || ubicacion == "prompt" || ubicacion == "-") {
+        return {};
+    }
+    return "este dataset toma su clave de «" + ubicacion
+           + "», no de una frase tecleada: cambiar la frase aquí no tendría ningún efecto.\n"
+             "Cambie primero el contenido de esa ubicación, o pase «-o keylocation=prompt» si "
+             "quiere que a partir de ahora la clave se pida.\n";
+}
+
 ExecResult runGenericMutationCapture(const std::string& tool, const std::string& payloadB64) {
     ExecResult r;
     std::string decoded;
@@ -2258,6 +2415,76 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
         return r;
     }
     return runExecCapture(tool, arr);
+}
+
+// --mutate-advanced-fromdir-prepare: la PRIMERA MITAD de «Desde Dir», sin el tar.
+//
+// Monta el dataset, resuelve su punto de montaje efectivo, comprueba el subdirectorio y lo
+// crea; luego dice en qué ruta absoluta ha quedado. Nada más.
+//
+// **Por qué existe.** `--mutate-advanced-fromdir` hace esto y además lee un tar por la
+// entrada estándar, y el canal RPC no tiene entrada estándar: por eso ese verbo es solo de
+// terminal y por eso «Desde Dir» era la única de las cuatro acciones que necesitaba una
+// tubería de shell con las dos puntas por SSH.
+//
+// Partido en dos, la otra mitad la puede hacer el transporte de árbol entre daemons
+// —`--tree-recv-listen` en el destino, `--tree-send-to-peer` en el origen—, que es el mismo
+// que usan `zfs send` y el servidor web. Con eso los datos van de máquina a máquina en vez
+// de pasar por el equipo de quien manda.
+//
+// `--tree-recv-listen` EXIGE que el directorio ya exista —comprueba `is_directory` y si no
+// devuelve 2—, y ese es justamente el motivo de que el servidor web no ofrezca
+// subdirectorio: sin este verbo, el árbol solo sabe volcar en la raíz del dataset.
+//
+// Va fuera del `#ifndef _WIN32` a propósito: no usa tar ni nada de Unix, y
+// `getDatasetMountpointCapture` ya consulta los montajes REALES —en Windows la propiedad
+// `mountpoint` dice «/pool/ds» y el montaje de verdad es «Z:\ds»—.
+ExecResult runMutateAdvancedFromDirPrepareCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.empty()) {
+        r.rc = 2;
+        r.err = "usage: --mutate-advanced-fromdir-prepare <dataset> [relative-subdir]\n";
+        return r;
+    }
+    const std::string dataset = trim(params[0]);
+    const std::string rel = params.size() > 1 ? trim(params[1]) : std::string();
+    if (dataset.empty()) {
+        r.rc = 2;
+        r.err = "empty dataset\n";
+        return r;
+    }
+    // La misma comprobación que hace el verbo con tar, y por el mismo motivo: cualquier cosa
+    // que pueda salirse del punto de montaje del dataset. El cliente la hace también antes de
+    // pedir nada, pero quien manda no es de fiar y este proceso es root.
+    if (!rel.empty() && (rel.front() == '/' || rel.front() == '\\'
+                         || rel.find("..") != std::string::npos)) {
+        r.rc = 2;
+        r.err = "invalid relative subdirectory\n";
+        return r;
+    }
+
+    (void)runExecCapture("zfs", {"set", "canmount=on", dataset});
+    (void)runExecCapture("zfs", {"mount", dataset});
+    const ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    const std::string mp = (mpRes.rc == 0) ? trim(mpRes.out) : std::string();
+    if (mp.empty()) {
+        r.rc = 4;
+        r.err = "could not resolve effective mountpoint\n";
+        return r;
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path destino = rel.empty() ? fs::path(mp) : (fs::path(mp) / fs::path(rel));
+    std::error_code mkec;
+    fs::create_directories(destino, mkec);
+    if (mkec && !fs::is_directory(destino)) {
+        r.rc = 1;
+        r.err = "cannot create destination directory\n";
+        return r;
+    }
+    r.rc = 0;
+    r.out = "DST=" + destino.string() + "\n";
+    return r;
 }
 
 #ifndef _WIN32
@@ -3392,16 +3619,15 @@ bool decodeZfsPipeLocal(const std::string& payloadB64,
     return true;
 }
 
-ExecResult runZfsPipeLocalCapture(const std::string& payloadB64) {
+// El encadenado en sí, ya con los dos argv resueltos.
+//
+// Está separado de la decodificación para que lo pueda usar quien YA tiene los argumentos y
+// no una carga en base64: dentro del propio daemon, empaquetar para desempaquetar acto
+// seguido es dar un rodeo. Lo usa la nivelación de GSA, que hasta ahora hacía este mismo
+// encadenado con `std::system()` y una tubería de shell montada por concatenación.
+ExecResult ejecutaTuberiaZfsLocal(const std::vector<std::string>& sendArgv,
+                                  const std::vector<std::string>& recvArgv) {
     ExecResult r;
-    std::vector<std::string> sendArgv;
-    std::vector<std::string> recvArgv;
-    std::string errMsg;
-    if (!decodeZfsPipeLocal(payloadB64, sendArgv, recvArgv, errMsg)) {
-        r.rc = 2;
-        r.err = errMsg;
-        return r;
-    }
 
     int dataPipe[2] = {-1, -1};
     int errPipe[2] = {-1, -1};
@@ -3501,6 +3727,35 @@ ExecResult runZfsPipeLocalCapture(const std::string& payloadB64) {
 
     r.err = errAccum;
     r.rc = (recvRc != 0) ? recvRc : sendRc;
+    return r;
+}
+
+// El verbo: decodifica y delega. Lo único suyo es el formato de la carga.
+ExecResult runZfsPipeLocalCapture(const std::string& payloadB64) {
+    std::vector<std::string> sendArgv;
+    std::vector<std::string> recvArgv;
+    std::string errMsg;
+    if (!decodeZfsPipeLocal(payloadB64, sendArgv, recvArgv, errMsg)) {
+        ExecResult r;
+        r.rc = 2;
+        r.err = errMsg;
+        return r;
+    }
+    return ejecutaTuberiaZfsLocal(sendArgv, recvArgv);
+}
+#else
+// En Windows no existe la tubería tipada: se monta con `fork()` y `pipe()`, y
+// `--zfs-pipe-local` no está entre los verbos que el agente de allí sirve.
+//
+// El hueco se rellena DICIÉNDOLO. Lo que había antes en el sitio que llama a esto era un
+// `std::system()` con `sh -lc` dentro, que en Windows no podía funcionar —allí no hay
+// `sh`— y devolvía un número de error sin explicar por qué: quien leyera el registro vería
+// «exit 1» y no el motivo. Un motivo escrito vale más que un fallo silencioso.
+ExecResult ejecutaTuberiaZfsLocal(const std::vector<std::string>&,
+                                  const std::vector<std::string>&) {
+    ExecResult r;
+    r.rc = 2;
+    r.err = "la tubería local «zfs send | zfs recv» no está portada a Windows\n";
     return r;
 }
 #endif // _WIN32
@@ -4104,11 +4359,47 @@ bool rutaDentroDeUnMountpoint(const std::string& ruta) {
     if (ec) {
         return false;
     }
+    // DÓNDE está montado cada uno se le pregunta a `zfs mount`, no a la propiedad.
+    //
+    // Es el mismo error que ya se corrigió en Desglosar y en el árbol de la interfaz, y aquí
+    // dejaba la comprobación IMPOSIBLE DE PASAR EN WINDOWS: la propiedad dice «/winpool/sa»
+    // —una ruta que allí no existe— y el montaje real es «Z:/sa/». Comprobado contra OldLau.
+    // O sea que `--dump-dir-list` y `--dump-file` estaban muertos en Windows: contestaban
+    // «la ruta no está dentro de ningún punto de montaje» a cualquier ruta, incluida la
+    // buena. Afectaba al navegador de ficheros del servidor web y al `ls #content` del
+    // intérprete.
+    //
+    // La propiedad se conserva de reserva: si `zfs mount` no contesta —o el dataset no
+    // aparece en su lista— es mejor eso que nada.
+    std::vector<std::string> puntos;
+    {
+        const ExecResult mnt = runExecCapture("zfs", {"mount"});
+        if (mnt.rc == 0) {
+            for (const std::string& linea : splitLines(mnt.out)) {
+                // «<dataset><espacios><ruta>»: la ruta es lo que va detrás del primer bloque
+                // de espacios, y puede llevar espacios dentro.
+                const std::string l = trim(linea);
+                const std::size_t sep = l.find_first_of(" \t");
+                if (sep == std::string::npos) {
+                    continue;
+                }
+                const std::string ruta = trim(l.substr(sep));
+                if (!ruta.empty()) {
+                    puntos.push_back(ruta);
+                }
+            }
+        }
+    }
     const ExecResult r = runExecCapture("zfs", {"list", "-H", "-o", "mountpoint"});
-    if (r.rc != 0) {
+    if (r.rc == 0) {
+        for (const std::string& linea : splitLines(r.out)) {
+            puntos.push_back(linea);
+        }
+    }
+    if (puntos.empty()) {
         return false;
     }
-    for (const std::string& linea : splitLines(r.out)) {
+    for (const std::string& linea : puntos) {
         const std::string mp = trim(linea);
         if (mp.empty() || mp == "-" || mp == "legacy" || mp == "none") {
             continue;
@@ -4605,17 +4896,46 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
     log("GSA level start for " + ds + " -> " + dstDataset);
 
     if (isLocal) {
-        // Misma máquina: una tubería local basta y no hay nada que cifrar. Sigue pasando
-        // por el intérprete, que es lo que queda por quitar aquí.
-        std::string recvCmd = target.useSudo
-                                  ? ("sudo -n sh -lc 'zfs recv " + recvOpts + " " + dstDataset + "'")
-                                  : ("zfs recv " + recvOpts + " " + dstDataset);
-        std::string sendCmd = "zfs send " + sendOpts;
-        if (!baseSnap.empty()) sendCmd += " -i @" + baseSnap;
-        sendCmd += " " + ds + "@" + snapName;
-        const int rc = std::system((sendCmd + " | sh -lc '" + recvCmd + "'").c_str()); // NOLINT
-        if (rc != 0) {
-            log("GSA level error for " + ds + ": exit " + std::to_string(rc));
+        // Misma máquina: el propio daemon encadena `zfs send` con `zfs recv`.
+        //
+        // Aquí había un `std::system()` con la tubería montada por concatenación de
+        // cadenas, y un `sudo -n sh -lc '…'` con el nombre del dataset metido dentro de
+        // comillas simples. Eso era lo último que quedaba del camino por intérprete en esta
+        // función —su propio comentario lo decía— y no hacía falta: el daemon ya monta esa
+        // tubería con `pipe()` y dos `execvp`, que es lo que sirve el verbo
+        // `--zfs-pipe-local`. Ahora los dos usan la misma pieza.
+        //
+        // El `sudo` desaparece por el camino y no se echa en falta: este código YA corre
+        // como root dentro del daemon, así que envolverse en sudo era pedir permiso para
+        // algo que ya se tiene.
+        std::vector<std::string> sendArgv = {"send"};
+        {
+            std::istringstream iss(sendOpts);
+            std::string tok;
+            while (iss >> tok) {
+                sendArgv.push_back(tok);
+            }
+        }
+        if (!baseSnap.empty()) {
+            sendArgv.push_back("-i");
+            sendArgv.push_back("@" + baseSnap);
+        }
+        sendArgv.push_back(ds + "@" + snapName);
+
+        std::vector<std::string> recvArgv = {"recv"};
+        {
+            std::istringstream iss(recvOpts);
+            std::string tok;
+            while (iss >> tok) {
+                recvArgv.push_back(tok);
+            }
+        }
+        recvArgv.push_back(dstDataset);
+
+        const ExecResult res = ejecutaTuberiaZfsLocal(sendArgv, recvArgv);
+        if (res.rc != 0) {
+            log("GSA level error for " + ds + ": exit " + std::to_string(res.rc)
+                + (trim(res.err).empty() ? "" : " — " + trim(res.err)));
         } else {
             log("GSA level done for " + ds + " -> " + dstDataset);
         }
@@ -4885,8 +5205,12 @@ static void ensureWinsock() {
 
 #ifdef _WIN32
 using TransferSocket = SOCKET;
+constexpr TransferSocket kSocketInvalido = INVALID_SOCKET;
 #else
 using TransferSocket = int;
+// En POSIX no existe `INVALID_SOCKET`: el valor malo es -1. Tener la constante evita el
+// `#ifdef` repetido en cada sitio que comprueba si un socket vale.
+constexpr TransferSocket kSocketInvalido = -1;
 #endif
 
 static void closeTransferSocket(TransferSocket s) {
@@ -4895,6 +5219,143 @@ static void closeTransferSocket(TransferSocket s) {
 #else
     if (s >= 0) { close(s); }
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Descriptores de transferencia que NO se heredan.
+//
+// Esto arregla un cuelgue medido, y la causa no está donde parece. El daemon es
+// multihilo: mientras un hilo atiende una recepción, otro puede estar lanzando un
+// `zfs send`. Todo descriptor abierto en ese instante lo hereda el hijo. Así que el
+// `zfs send` acababa con el socket ACEPTADO POR EL RECEPTOR entre sus descriptores.
+//
+// Consecuencia: cuando el `zfs recv` moría —por ejemplo, porque la copia estaba
+// duplicada— el daemon cerraba su copia del socket y la conexión NO se cerraba, porque
+// seguía sujeta por el `zfs send`. El emisor llenaba el búfer del receptor y se quedaba
+// dentro de send() para siempre. Sin error, sin fin de fichero, sin nada que mirar.
+// Comprobado con ss: «zfs pid=128516 fd=7» sujetando el extremo receptor.
+//
+// Por eso se marcan AL CREARLOS y no después: entre socket()/accept() y un fcntl
+// posterior cabe justo el fork del otro hilo, que es la carrera que se quiere cerrar.
+// Donde no hay forma atómica (macOS no tiene accept4) queda el fcntl, que estrecha la
+// ventana aunque no la cierre del todo.
+// ---------------------------------------------------------------------------
+static void noHeredarTransferSocket(TransferSocket fd) {
+#ifdef _WIN32
+    SetHandleInformation(reinterpret_cast<HANDLE>(fd), HANDLE_FLAG_INHERIT, 0);
+#else
+    const int f = fcntl(fd, F_GETFD, 0);
+    if (f >= 0) { fcntl(fd, F_SETFD, f | FD_CLOEXEC); }
+#endif
+}
+
+static TransferSocket creaTransferSocket(int family, int type, int proto) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    return socket(family, type | SOCK_CLOEXEC, proto);
+#else
+    const TransferSocket fd = socket(family, type, proto);
+#  ifdef _WIN32
+    if (fd != INVALID_SOCKET) { noHeredarTransferSocket(fd); }
+#  else
+    if (fd >= 0) { noHeredarTransferSocket(fd); }
+#  endif
+    return fd;
+#endif
+}
+
+static TransferSocket aceptaTransferSocket(TransferSocket listenFd) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    return accept4(listenFd, nullptr, nullptr, SOCK_CLOEXEC);
+#else
+    const TransferSocket fd = accept(listenFd, nullptr, nullptr);
+#  ifdef _WIN32
+    if (fd != INVALID_SOCKET) { noHeredarTransferSocket(fd); }
+#  else
+    if (fd >= 0) { noHeredarTransferSocket(fd); }
+#  endif
+    return fd;
+#endif
+}
+
+// Cuánto se espera a que el receptor lea antes de recuperar el control. No es un abandono:
+// al vencer se comprueba la cancelación y se reintenta el mismo envío.
+static const int kEsperaEnvioMs = 5000;
+// Cuánto se tolera SIN colocar un solo byte antes de dar la transferencia por muerta.
+// Generoso a propósito: un receptor lento volcando a disco puede tardar, y cortar una
+// transferencia buena es peor que tardar en cortar una mala.
+static const long kAtascoMaximoS = 600;
+
+static void ponPlazoDeEnvio(TransferSocket fd, int ms) {
+#ifdef _WIN32
+    DWORD v = static_cast<DWORD>(ms);
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&v), sizeof(v));
+#else
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+// ¿El send() volvió sin escribir porque venció el plazo, o porque la conexión se rompió?
+// Distinguirlo es lo que separa «espera y reintenta» de «esto ya no va a ir».
+static bool envioSoloAgotoElPlazo() {
+#ifdef _WIN32
+    const int e = WSAGetLastError();
+    return e == WSAETIMEDOUT || e == WSAEWOULDBLOCK;
+#else
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+#endif
+}
+
+// Conecta con el otro extremo de una transferencia, sea lo que sea lo que vaya a viajar.
+//
+// Lo usan los DOS emisores —el del flujo de `zfs send` y el del árbol de ficheros— y era la
+// misma secuencia escrita dos veces: resolver con las dos familias, crear el socket sin
+// herencia, probar cada dirección hasta que una conecte. Con dos copias, un arreglo como el
+// de la doble pila IPv6 entra en una y se olvida en la otra.
+//
+// Devuelve el socket ya con su plazo de envío puesto y SIN herencia, o inválido.
+//
+// Las dos cosas van aquí y no en quien llama, porque las dos existen por un fallo medido y
+// olvidarlas es silencioso:
+//
+//  - Sin plazo, `send()` se queda dentro del núcleo PARA SIEMPRE en cuanto el receptor deja
+//    de leer: ni se detecta el fallo, ni se atiende la cancelación, ni se llega a matar al
+//    hijo. Medido con una copia duplicada: «ESTAB Send-Q 2514232» y el emisor parado ahí.
+//  - Sin CLOEXEC, el `zfs send` que se lanza después hereda este socket, y entonces cerrarlo
+//    aquí no lo cierra de verdad: el receptor nunca ve el fin de los datos. Visto en el
+//    mismo caso, con el fd abierto en los dos procesos.
+static TransferSocket conectaConElPar(const std::string& host, const std::string& puerto) {
+#ifdef _WIN32
+    ensureWinsock();
+#endif
+    struct addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), puerto.c_str(), &hints, &res) != 0 || res == nullptr) {
+        return kSocketInvalido;
+    }
+    TransferSocket sock = kSocketInvalido;
+    for (struct addrinfo* it = res; it; it = it->ai_next) {
+        const TransferSocket fd =
+            creaTransferSocket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if (fd == kSocketInvalido) {
+            continue;
+        }
+        if (connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) {
+            sock = fd;
+            break;
+        }
+        closeTransferSocket(fd);
+    }
+    freeaddrinfo(res);
+    if (sock != kSocketInvalido) {
+        ponPlazoDeEnvio(sock, kEsperaEnvioMs);
+        noHeredarTransferSocket(sock);
+    }
+    return sock;
 }
 
 // Lanza un programa y deja su SALIDA colgando de una tubería que lee el llamante.
@@ -4996,6 +5457,29 @@ static long readSpawnedStdout(SpawnedStdout& s, char* buf, std::size_t len) {
 #endif
 }
 
+// Mata al hijo, sin esperarlo.
+//
+// Hace falta porque cerrar la tubería NO basta. `waitSpawnedStdout` cierra el extremo de
+// lectura contando con que el hijo reciba un SIGPIPE en su siguiente escritura y muera; pero
+// `zfs send` pasa ratos largos dentro del núcleo sin escribir nada —recorriendo el árbol de
+// bloques— y ahí no hay ninguna escritura que falle. Entonces el `waitpid` de abajo, que es
+// bloqueante, se queda esperando para siempre.
+//
+// Y lo que se queda esperando no es solo el hilo: es el POOL. Un `zfs send` vivo lo retiene,
+// así que ni se puede exportar ni destruir. Medido: tras un relé fallido quedó un
+// «zfs send -R worg/datos@uno» corriendo, y el pool no se dejó destruir hasta matarlo a mano.
+static void matarSpawnedStdout(SpawnedStdout& s) {
+#ifndef _WIN32
+    if (s.pid > 0) {
+        kill(s.pid, SIGTERM);
+    }
+#else
+    if (s.process) {
+        TerminateProcess(s.process, 1);
+    }
+#endif
+}
+
 static int waitSpawnedStdout(SpawnedStdout& s, std::string* errOut = nullptr) {
 #ifndef _WIN32
     if (s.readEnd >= 0) { close(s.readEnd); s.readEnd = -1; }
@@ -5035,7 +5519,7 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     const int sel = select(static_cast<int>(listenFd) + 1, &rfds, nullptr, nullptr, &tv);
     if (sel <= 0) { closeTransferSocket(listenFd); return; }
 
-    const TransferSocket clientFd = accept(listenFd, nullptr, nullptr);
+    const TransferSocket clientFd = aceptaTransferSocket(listenFd);
     closeTransferSocket(listenFd);
 #ifdef _WIN32
     if (clientFd == INVALID_SOCKET) { return; }
@@ -5068,15 +5552,40 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     argv2.push_back(const_cast<char*>("zfs"));
     for (const std::string& a : args) { argv2.push_back(const_cast<char*>(a.c_str())); }
     argv2.push_back(nullptr);
+    // La salida de error del hijo se recoge. Antes se iba a la del daemon —o sea, a
+    // ninguna parte cuando corre como servicio— y el motivo por el que `zfs recv` no
+    // aceptaba el flujo se perdía. Al emisor solo le llega que la conexión se cortó, así
+    // que si aquí tampoco queda constancia no hay dónde mirar.
+    int errPipe[2] = {-1, -1};
+    const bool hayTuberia = (pipe(errPipe) == 0);
     const pid_t pid = fork();
     if (pid == 0) {
         dup2(clientFd, STDIN_FILENO);
+        if (hayTuberia) { dup2(errPipe[1], STDERR_FILENO); close(errPipe[0]); close(errPipe[1]); }
         close(clientFd);
         execvp("zfs", argv2.data());
         _exit(127);
     }
     close(clientFd);
-    if (pid > 0) { waitpid(pid, nullptr, 0); }
+    std::string recvErr;
+    if (hayTuberia) {
+        close(errPipe[1]);
+        // Se vacía ANTES del waitpid: si la tubería se llenase con el hijo aún vivo y
+        // nosotros esperando, se quedarían los dos bloqueados el uno por el otro.
+        char eb[512];
+        ssize_t en = 0;
+        while ((en = read(errPipe[0], eb, sizeof(eb))) > 0) {
+            recvErr.append(eb, static_cast<size_t>(en));
+        }
+        close(errPipe[0]);
+    }
+    int recvStatus = 0;
+    if (pid > 0) { waitpid(pid, &recvStatus, 0); }
+    const int recvRc = decodeWaitStatus(recvStatus);
+    if (recvRc != 0) {
+        daemonLog("ERROR", "recv-listen: zfs recv sobre «" + dataset + "» falló (rc=" +
+                               std::to_string(recvRc) + ") " + trim(recvErr));
+    }
 #else
     // En Windows NO se le puede pasar el socket como entrada al proceso.
     //
@@ -5178,38 +5687,21 @@ static void runTransferReceiveSession(TransferSocket listenFd,
 // el proceso terminaría en cuanto imprimiera el puerto y se llevaría por delante el hilo
 // que iba a recibir. Ahí se emiten PORT y TOKEN por la salida —para que el emisor pueda
 // leerlos y conectarse— y se atiende la sesión sin soltar el proceso.
-static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force,
-                                          bool waitInline = false) {
-    ExecResult r;
-    if (trim(dataset).empty()) {
-        r.rc = 2; r.err = "empty dataset\n"; return r;
-    }
-    const std::string token = generateTransferToken();
-    if (token.empty()) {
-        r.rc = 1; r.err = "no se pudo generar el testigo de transferencia\n"; return r;
-    }
-
+// Abre el puerto por el que va a entrar una transferencia, y dice cuál le tocó.
+//
+// Está aparte porque lo usan DOS receptores —el de `zfs recv` y el del árbol de ficheros— y
+// dentro hay dos decisiones que costaron encontrar: la doble pila (se escucha en IPv6 con
+// V6ONLY desactivado, que acepta también IPv4) y que «0.0.0.0» es el valor por omisión de
+// la configuración y no una elección del usuario. Tenerlo dos veces sería tener esas dos
+// decisiones en un sitio y no en el otro.
+static bool abrePuertoDeTransferencia(TransferSocket& listenFd, int& puerto,
+                                      std::string& error) {
+    const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
 #ifdef _WIN32
     ensureWinsock();
-#endif
-
-    const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
-
-    // Doble pila: se escucha en IPv6 con V6ONLY desactivado, que acepta TAMBIÉN IPv4.
-    //
-    // Antes era AF_INET a secas, y eso rompía la copia entre máquinas que se hablan por
-    // IPv6. Medido: el emisor recibía como dirección de vuelta la que sshd le declara
-    // —una IPv6 link-local, fe80::…%enp1s0f0— y moría con «cannot connect to peer»,
-    // porque el receptor no escuchaba en esa familia. El síntoma era una transferencia
-    // que arrancaba y se quedaba en 0,00 GB.
-    //
-    // V6ONLY hay que ponerlo explícitamente: en Windows viene activado por defecto, así
-    // que sin esta línea el zócalo IPv6 rechazaría a los clientes IPv4.
-    TransferSocket listenFd =
-#ifdef _WIN32
-        INVALID_SOCKET;
+    listenFd = INVALID_SOCKET;
 #else
-        -1;
+    listenFd = -1;
 #endif
     bool boundV6 = false;
     // "0.0.0.0" es el valor POR DEFECTO de la estructura, no una decisión del usuario:
@@ -5227,7 +5719,8 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
         if (getaddrinfo(addr, nullptr, &hints2, &res2) != 0 || !res2) {
             return false;
         }
-        TransferSocket fd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+        TransferSocket fd = creaTransferSocket(res2->ai_family, res2->ai_socktype,
+                                               res2->ai_protocol);
 #ifdef _WIN32
         const bool bad = (fd == INVALID_SOCKET);
 #else
@@ -5257,21 +5750,847 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
     if (wantsExplicitBind) {
         // Si el usuario fijó una dirección, se respeta tal cual y no se elige familia.
         if (!tryBind(AF_UNSPEC, cfg2.transferBindAddr.c_str())) {
-            r.rc = 1; r.err = "no se pudo escuchar en " + cfg2.transferBindAddr + "\n"; return r;
+            error = "no se pudo escuchar en " + cfg2.transferBindAddr; return false;
         }
     } else if (!tryBind(AF_INET6, "::")) {
         // Sin IPv6 en la máquina, IPv4 a secas: es mejor que no escuchar.
         if (!tryBind(AF_INET, "0.0.0.0")) {
-            r.rc = 1; r.err = "no se pudo abrir el puerto de transferencia\n"; return r;
+            error = "no se pudo abrir el puerto de transferencia"; return false;
         }
     }
 
     struct sockaddr_storage bound{};
     socklen_t blen = sizeof(bound);
     getsockname(listenFd, reinterpret_cast<struct sockaddr*>(&bound), &blen);
-    const int assignedPort = static_cast<int>(
+    puerto = static_cast<int>(
         ntohs(boundV6 ? reinterpret_cast<struct sockaddr_in6*>(&bound)->sin6_port
                       : reinterpret_cast<struct sockaddr_in*>(&bound)->sin_port));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Sincronizar un ÁRBOL DE FICHEROS entre dos daemons.
+//
+// Mismo transporte que las transferencias de ZFS —el destino abre un puerto y devuelve un
+// testigo de un solo uso, el origen se conecta— pero por el cable no va un flujo de
+// `zfs send`, va un árbol. Eso es lo que le da a Windows una sincronización de verdad, con
+// borrado y con pasada en seco, que por tar no tenía.
+//
+// El reparto: el DESTINO manda primero su manifiesto —lo que ya tiene— y el ORIGEN decide.
+// Es una sola vuelta de red para todo el árbol, en vez de preguntar fichero a fichero.
+// ---------------------------------------------------------------------------
+namespace AR = zfsmgr::arbolremoto;
+
+// Escribe todo o falla. `send` puede colocar menos de lo que se le pide.
+static bool mandaTodo(TransferSocket s, const char* datos, std::size_t cuantos) {
+    std::size_t puesto = 0;
+    while (puesto < cuantos) {
+        const int n = send(s, datos + puesto, static_cast<int>(cuantos - puesto), 0);
+        if (n <= 0) {
+            return false;
+        }
+        puesto += static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+static bool mandaTodo(TransferSocket s, const std::string& t) {
+    return mandaTodo(s, t.data(), t.size());
+}
+
+// Lee exactamente `cuantos` bytes, o falla. Un `recv` corto no es un error: es lo normal.
+static bool leeExacto(TransferSocket s, char* destino, std::size_t cuantos) {
+    std::size_t leido = 0;
+    while (leido < cuantos) {
+        const int n = recv(s, destino + leido, static_cast<int>(cuantos - leido), 0);
+        if (n <= 0) {
+            return false;
+        }
+        leido += static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+// Una línea terminada en salto. Se lee byte a byte a propósito: detrás de la línea vienen
+// datos en crudo, y leer de más se los comería.
+static bool leeLinea(TransferSocket s, std::string& salida, std::size_t tope = 4096) {
+    salida.clear();
+    char c = 0;
+    while (salida.size() < tope) {
+        const int n = recv(s, &c, 1, 0);
+        if (n <= 0) {
+            return false;
+        }
+        if (c == '\n') {
+            return true;
+        }
+        salida.push_back(c);
+    }
+    return false;
+}
+
+// El manifiesto entero, que termina en una línea «E».
+static bool leeManifiesto(TransferSocket s, std::vector<AR::Entrada>& salida,
+                          std::string& error) {
+    std::string acumulado;
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(s, linea)) {
+            error = "se cortó la conexión leyendo el manifiesto";
+            return false;
+        }
+        acumulado += linea;
+        acumulado += '\n';
+        if (linea == "E") {
+            break;
+        }
+        // Tras la cabecera vienen la ruta y el destino, con las longitudes que declara.
+        std::istringstream iss(linea);
+        char letra = 0;
+        std::uint64_t tam = 0;
+        std::int64_t fecha = 0;
+        std::uint32_t modo = 0;
+        std::size_t lr = 0;
+        std::size_t ld = 0;
+        if (!(iss >> letra >> tam >> fecha >> modo >> lr >> ld)) {
+            error = "línea de manifiesto ilegible";
+            return false;
+        }
+        std::string nombres(lr + ld, '\0');
+        if (lr + ld > 0 && !leeExacto(s, nombres.data(), lr + ld)) {
+            error = "se cortó la conexión leyendo un nombre";
+            return false;
+        }
+        acumulado += nombres;
+    }
+    return AR::analizaManifiesto(acumulado, salida, error);
+}
+
+// El receptor: manda lo que tiene y aplica lo que le digan.
+static void runTreeReceiveSession(TransferSocket listenFd, const std::string& token,
+                                  const std::string& raiz) {
+    struct timeval tv{};
+    tv.tv_sec = 300;
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(listenFd, &rfds);
+    if (select(static_cast<int>(listenFd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) {
+        closeTransferSocket(listenFd);
+        return;
+    }
+    const TransferSocket cliente = aceptaTransferSocket(listenFd);
+    closeTransferSocket(listenFd);
+#ifdef _WIN32
+    if (cliente == INVALID_SOCKET) { return; }
+#else
+    if (cliente < 0) { return; }
+#endif
+    ponPlazoDeEnvio(cliente, kEsperaEnvioMs);
+
+    std::string recibido;
+    if (!leeLinea(cliente, recibido, 128) || recibido != token) {
+        closeTransferSocket(cliente);
+        daemonLog("WARN", "tree-recv: testigo que no coincide; conexión rechazada");
+        return;
+    }
+
+    std::vector<AR::Entrada> mias;
+    std::string err;
+    if (!AR::recorre(raiz, mias, err)) {
+        daemonLog("ERROR", "tree-recv: no se pudo recorrer «" + raiz + "»: " + err);
+        (void)mandaTodo(cliente, "E\n");
+        closeTransferSocket(cliente);
+        return;
+    }
+    if (!mandaTodo(cliente, AR::serializaManifiesto(mias))) {
+        closeTransferSocket(cliente);
+        return;
+    }
+
+    // El emisor pide firmas de los ficheros grandes que ya tenemos. Con ellas nos manda un
+    // PARCHE en vez del fichero entero. Se guarda el tamaño de bloque de cada uno, porque
+    // sin él las instrucciones «copia el bloque N» no significan nada.
+    const std::filesystem::path baseFirmas(raiz);
+    std::map<std::string, std::size_t> bloqueDe;
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(cliente, linea)) {
+            closeTransferSocket(cliente);
+            return;
+        }
+        if (linea == "E") {
+            break;
+        }
+        std::istringstream iss(linea);
+        char letra = 0;
+        std::size_t lr = 0;
+        if (!(iss >> letra >> lr) || letra != 'S') {
+            closeTransferSocket(cliente);
+            return;
+        }
+        std::string ruta(lr, '\0');
+        if (lr > 0 && !leeExacto(cliente, ruta.data(), lr)) {
+            closeTransferSocket(cliente);
+            return;
+        }
+        const std::filesystem::path suya =
+            (baseFirmas / std::filesystem::path(ruta)).lexically_normal();
+        std::error_code ecT;
+        const std::uint64_t tam = static_cast<std::uint64_t>(std::filesystem::file_size(suya, ecT));
+        if (ecT) {
+            continue;  // ya no está: el emisor lo mandará entero
+        }
+        const std::size_t tamBloque = AR::tamanoDeBloque(tam);
+        std::vector<AR::Firma> fs;
+        std::string errF;
+        if (!AR::firmasDe(suya.string(), tamBloque, fs, errF)) {
+            continue;
+        }
+        const std::string crudas = AR::serializaFirmas(fs);
+        bloqueDe[ruta] = tamBloque;
+        if (!mandaTodo(cliente, "G " + std::to_string(tamBloque) + " "
+                                    + std::to_string(crudas.size()) + " "
+                                    + std::to_string(ruta.size()) + "\n")
+            || !mandaTodo(cliente, ruta) || !mandaTodo(cliente, crudas)) {
+            closeTransferSocket(cliente);
+            return;
+        }
+    }
+    if (!mandaTodo(cliente, "E\n")) {
+        closeTransferSocket(cliente);
+        return;
+    }
+
+    std::uint64_t hechas = 0;
+    // Las que NO se pudieron aplicar. Se cuentan y se dicen, pero no cortan el resto: un
+    // enlace que no se puede crear no es motivo para dejar diez mil ficheros sin copiar.
+    //
+    // Existe porque estaba mal: los códigos de error de crear directorio, enlazar y borrar
+    // se ignoraban, así que una sincronización contra Windows —donde crear un enlace
+    // simbólico exige un privilegio— decía «hecho» y dejaba el enlace sin crear para
+    // siempre. Decir que algo se hizo cuando no se hizo es el peor fallo posible aquí.
+    std::uint64_t fallidas = 0;
+    std::string primerMotivo;
+    std::string fallo;
+    const std::filesystem::path base(raiz);
+    const auto anota = [&](const std::error_code& ec, const std::string& que,
+                           const std::string& ruta) {
+        if (!ec) {
+            return true;
+        }
+        ++fallidas;
+        if (primerMotivo.empty()) {
+            primerMotivo = que + " «" + ruta + "»: " + ec.message();
+        }
+        return false;
+    };
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(cliente, linea)) {
+            fallo = "se cortó la conexión";
+            break;
+        }
+        if (linea == "E") {
+            break;
+        }
+        if (!linea.empty() && linea[0] == 'P') {
+            // Un PARCHE: se reconstruye sobre un fichero nuevo leyendo trozos del viejo, y
+            // solo se pone en su sitio si el hash del resultado ENTERO coincide con el que
+            // manda el origen. Sin esa comprobación, un fallo en el delta corrompería el
+            // fichero en silencio, que es justo lo que no puede pasar aquí.
+            std::istringstream iss(linea);
+            char letra = 0;
+            std::uint32_t modo = 0;
+            std::int64_t fecha = 0;
+            std::uint64_t tamFinal = 0;
+            std::size_t lrp = 0;
+            std::size_t lhash = 0;
+            if (!(iss >> letra >> modo >> fecha >> tamFinal >> lrp >> lhash)) {
+                fallo = "cabecera de parche ilegible";
+                break;
+            }
+            std::string rutaP(lrp, '\0');
+            std::string hashEsperado(lhash, '\0');
+            if ((lrp > 0 && !leeExacto(cliente, rutaP.data(), lrp))
+                || (lhash > 0 && !leeExacto(cliente, hashEsperado.data(), lhash))) {
+                fallo = "se cortó leyendo la cabecera del parche";
+                break;
+            }
+            const std::filesystem::path vieja =
+                (base / std::filesystem::path(rutaP)).lexically_normal();
+            const std::string viejaTxt = vieja.generic_string();
+            if (viejaTxt.rfind(base.lexically_normal().generic_string(), 0) != 0) {
+                fallo = "ruta fuera del árbol: " + rutaP;
+                break;
+            }
+            const std::size_t tamBloque =
+                bloqueDe.count(rutaP) ? bloqueDe[rutaP] : AR::tamanoDeBloque(tamFinal);
+            const std::filesystem::path temporal = vieja.string() + ".zfsmgr-parche";
+            std::FILE* fv = std::fopen(vieja.string().c_str(), "rb");
+            std::FILE* fn = std::fopen(temporal.string().c_str(), "wb");
+            bool bienP = (fv != nullptr && fn != nullptr);
+            std::vector<char> tro(65536);
+            while (bienP) {
+                std::string li;
+                if (!leeLinea(cliente, li)) {
+                    fallo = "se cortó leyendo el parche";
+                    bienP = false;
+                    break;
+                }
+                if (li == "Z") {
+                    break;
+                }
+                std::istringstream is2(li);
+                char q = 0;
+                if (li[0] == 'C') {
+                    std::uint64_t blo = 0;
+                    std::uint64_t cuantos = 0;
+                    is2 >> q >> blo >> cuantos;
+                    for (std::uint64_t k = 0; k < cuantos && bienP; ++k) {
+                        if (std::fseek(fv, static_cast<long>((blo + k) * tamBloque), SEEK_SET)
+                            != 0) {
+                            bienP = false;
+                            break;
+                        }
+                        std::size_t quedanB = tamBloque;
+                        while (quedanB > 0) {
+                            const std::size_t n =
+                                std::fread(tro.data(), 1, std::min(quedanB, tro.size()), fv);
+                            if (n == 0) {
+                                break;  // el último bloque puede ser corto
+                            }
+                            if (std::fwrite(tro.data(), 1, n, fn) != n) {
+                                bienP = false;
+                                break;
+                            }
+                            quedanB -= n;
+                        }
+                    }
+                } else if (li[0] == 'L') {
+                    std::size_t cuantos = 0;
+                    is2 >> q >> cuantos;
+                    while (cuantos > 0) {
+                        const std::size_t t = std::min(cuantos, tro.size());
+                        if (!leeExacto(cliente, tro.data(), t)) {
+                            fallo = "se cortó leyendo datos del parche";
+                            bienP = false;
+                            break;
+                        }
+                        if (std::fwrite(tro.data(), 1, t, fn) != t) {
+                            bienP = false;
+                            break;
+                        }
+                        cuantos -= t;
+                    }
+                } else {
+                    fallo = "instrucción de parche desconocida";
+                    bienP = false;
+                }
+            }
+            if (fv != nullptr) { std::fclose(fv); }
+            if (fn != nullptr) { std::fclose(fn); }
+            if (!fallo.empty()) {
+                std::error_code ecB;
+                std::filesystem::remove(temporal, ecB);
+                break;
+            }
+            std::string hashSalido;
+            std::string errH;
+            std::error_code ecR;
+            if (bienP && AR::hashDeFichero(temporal.string(), hashSalido, errH)
+                && hashSalido == hashEsperado) {
+                std::filesystem::rename(temporal, vieja, ecR);
+                if (ecR) {
+                    ++fallidas;
+                    if (primerMotivo.empty()) {
+                        primerMotivo = "no se pudo colocar «" + rutaP + "»: " + ecR.message();
+                    }
+                } else {
+                    AR::ponModo(vieja.string(), modo);
+                    AR::ponFecha(vieja.string(), fecha);
+                    ++hechas;
+                }
+            } else {
+                // El original NO se toca: vale más un fichero viejo que uno a medias.
+                std::filesystem::remove(temporal, ecR);
+                ++fallidas;
+                if (primerMotivo.empty()) {
+                    primerMotivo = "el parche de «" + rutaP
+                                   + "» no reconstruyó el fichero esperado";
+                }
+            }
+            continue;
+        }
+        AR::Operacion op;
+        std::size_t lr = 0;
+        std::size_t ld = 0;
+        if (!AR::analizaCabecera(linea, op, lr, ld, fallo)) {
+            break;
+        }
+        std::string nombres(lr + ld, '\0');
+        if (lr + ld > 0 && !leeExacto(cliente, nombres.data(), lr + ld)) {
+            fallo = "se cortó la conexión leyendo un nombre";
+            break;
+        }
+        op.entrada.ruta = nombres.substr(0, lr);
+        op.entrada.destino = nombres.substr(lr, ld);
+
+        // La ruta viene del OTRO extremo, así que se comprueba antes de tocar el disco: sin
+        // esto, un «../..» en el manifiesto escribiría fuera del árbol que se sincroniza.
+        const std::filesystem::path destino =
+            (base / std::filesystem::path(op.entrada.ruta)).lexically_normal();
+        const std::string dTxt = destino.generic_string();
+        const std::string bTxt = base.lexically_normal().generic_string();
+        if (dTxt.rfind(bTxt, 0) != 0) {
+            fallo = "ruta fuera del árbol: " + op.entrada.ruta;
+            break;
+        }
+
+        std::error_code ec;
+        bool bienOp = true;
+        switch (op.accion) {
+            case AR::Accion::CrearDirectorio:
+                std::filesystem::create_directories(destino, ec);
+                // `create_directories` sobre uno que ya está no es un error, pero devuelve
+                // falso sin código: solo se mira el código.
+                bienOp = anota(ec, "crear el directorio", op.entrada.ruta);
+                AR::ponModo(destino.string(), op.entrada.modo);
+                break;
+            case AR::Accion::Copiar: {
+                std::filesystem::create_directories(destino.parent_path(), ec);
+                std::FILE* f = std::fopen(destino.string().c_str(), "wb");
+                // Si no se puede escribir, los bytes SE LEEN IGUAL y se tiran.
+                //
+                // No es por limpieza: el emisor ya los ha puesto en el cable detrás de la
+                // cabecera. Saltarse el fichero sin consumirlos dejaría el flujo
+                // descolocado, y la siguiente cabecera se leería a media altura de estos
+                // datos. Por eso un fichero que no se puede escribir se cuenta como fallo
+                // pero NO corta la sincronización; lo que sí la corta es que se rompa la
+                // conexión, porque entonces ya no hay nada que leer.
+                if (f == nullptr) {
+                    ++fallidas;
+                    if (primerMotivo.empty()) {
+                        primerMotivo = "no se pudo escribir «" + op.entrada.ruta + "»";
+                    }
+                }
+                std::vector<char> buf(65536);
+                std::uint64_t quedan = op.entrada.tamano;
+                bool bien = true;
+                while (quedan > 0) {
+                    const std::size_t trozo =
+                        static_cast<std::size_t>(std::min<std::uint64_t>(quedan, buf.size()));
+                    if (!leeExacto(cliente, buf.data(), trozo)) {
+                        bien = false;
+                        break;
+                    }
+                    if (f != nullptr && std::fwrite(buf.data(), 1, trozo, f) != trozo) {
+                        std::fclose(f);
+                        f = nullptr;
+                        ++fallidas;
+                        if (primerMotivo.empty()) {
+                            primerMotivo = "no se pudo escribir entero «" + op.entrada.ruta + "»";
+                        }
+                    }
+                    quedan -= trozo;
+                }
+                if (f != nullptr) {
+                    std::fclose(f);
+                } else {
+                    bienOp = false;
+                }
+                if (!bien) {
+                    fallo = "se cortó la conexión escribiendo " + op.entrada.ruta;
+                    break;
+                }
+                if (!bienOp) {
+                    break;  // sale del `case`, no del bucle: la cuenta ya está hecha
+                }
+                AR::ponModo(destino.string(), op.entrada.modo);
+                // La fecha, SIEMPRE. Sin ella la próxima pasada lo traería otra vez entero.
+                AR::ponFecha(destino.string(), op.entrada.fecha);
+                break;
+            }
+            case AR::Accion::Enlazar: {
+                std::error_code borrado;
+                std::filesystem::remove(destino, borrado);
+                std::filesystem::create_symlink(op.entrada.destino, destino, ec);
+                // En Windows crear un enlace simbólico necesita SeCreateSymbolicLinkPrivilege
+                // o el modo de desarrollador. Cuando no lo hay, esto falla y hay que DECIRLO:
+                // callarlo dejaba el enlace pendiente en todas las pasadas siguientes
+                // mientras el trabajo se apuntaba como terminado.
+                bienOp = anota(ec, "crear el enlace simbólico", op.entrada.ruta);
+                break;
+            }
+            case AR::Accion::EnlazarDuro: {
+                const std::filesystem::path orig =
+                    (base / std::filesystem::path(op.entrada.destino)).lexically_normal();
+                std::error_code borrado;
+                std::filesystem::remove(destino, borrado);
+                std::filesystem::create_hard_link(orig, destino, ec);
+                bienOp = anota(ec, "crear el enlace duro", op.entrada.ruta);
+                break;
+            }
+            case AR::Accion::Borrar:
+                std::filesystem::remove_all(destino, ec);
+                bienOp = anota(ec, "borrar", op.entrada.ruta);
+                break;
+        }
+        if (!fallo.empty()) {
+            break;
+        }
+        if (bienOp) {
+            ++hechas;
+        }
+    }
+
+    if (fallo.empty() && fallidas > 0) {
+        daemonLog("WARN", "tree-recv: " + std::to_string(fallidas)
+                              + " operaciones no se pudieron aplicar; la primera: "
+                              + primerMotivo);
+        (void)mandaTodo(cliente, "PARCIAL " + std::to_string(hechas) + " "
+                                     + std::to_string(fallidas) + " " + primerMotivo + "\n");
+    } else if (fallo.empty()) {
+        (void)mandaTodo(cliente, "OK " + std::to_string(hechas) + "\n");
+    } else {
+        daemonLog("ERROR", "tree-recv: " + fallo);
+        (void)mandaTodo(cliente, "ERR " + fallo + "\n");
+    }
+    closeTransferSocket(cliente);
+}
+
+static ExecResult runTreeRecvListenCapture(const std::string& raiz, bool waitInline = false) {
+    ExecResult r;
+    if (trim(raiz).empty()) {
+        r.rc = 2;
+        r.err = "falta el directorio\n";
+        return r;
+    }
+    std::error_code ec;
+    if (!std::filesystem::is_directory(raiz, ec)) {
+        r.rc = 2;
+        r.err = "no es un directorio: " + raiz + "\n";
+        return r;
+    }
+    const std::string token = generateTransferToken();
+    if (token.empty()) {
+        r.rc = 1;
+        r.err = "no se pudo generar el testigo de transferencia\n";
+        return r;
+    }
+    TransferSocket listenFd{};
+    int puerto = 0;
+    std::string errPuerto;
+    if (!abrePuertoDeTransferencia(listenFd, puerto, errPuerto)) {
+        r.rc = 1;
+        r.err = errPuerto + "\n";
+        return r;
+    }
+    if (waitInline) {
+        std::cout << "PORT=" << puerto << "\nTOKEN=" << token << "\n" << std::flush;
+        runTreeReceiveSession(listenFd, token, raiz);
+        r.rc = 0;
+        return r;
+    }
+    std::thread([listenFd, token, raiz]() {
+        runTreeReceiveSession(listenFd, token, raiz);
+    }).detach();
+    r.rc = 0;
+    r.out = "PORT=" + std::to_string(puerto) + "\nTOKEN=" + token + "\n";
+    return r;
+}
+
+// El emisor: pide el manifiesto, decide y manda.
+static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 4) {
+        r.rc = 2;
+        r.err = "usage: --tree-send-to-peer <dir> <host> <port> <token> [--delete] [--dry-run]\n";
+        return r;
+    }
+    const std::string raiz = params[0];
+    const std::string peerHost = params[1];
+    const std::string portStr = params[2];
+    const std::string token = params[3];
+    bool borra = false;
+    bool enSeco = false;
+    for (std::size_t i = 4; i < params.size(); ++i) {
+        if (params[i] == "--delete") { borra = true; }
+        else if (params[i] == "--dry-run") { enSeco = true; }
+    }
+
+    std::vector<AR::Entrada> mias;
+    std::string err;
+    if (!AR::recorre(raiz, mias, err)) {
+        r.rc = 2;
+        r.err = err + "\n";
+        return r;
+    }
+
+    const TransferSocket sock = conectaConElPar(peerHost, portStr);
+    if (sock == kSocketInvalido) {
+        r.rc = 1;
+        r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n";
+        return r;
+    }
+
+    if (!mandaTodo(sock, token + "\n")) {
+        closeTransferSocket(sock);
+        r.rc = 1;
+        r.err = "no se pudo saludar al receptor\n";
+        return r;
+    }
+
+    std::vector<AR::Entrada> suyas;
+    if (!leeManifiesto(sock, suyas, err)) {
+        closeTransferSocket(sock);
+        r.rc = 1;
+        r.err = err + "\n";
+        return r;
+    }
+
+    AR::Plan plan = AR::planea(mias, suyas, borra);
+
+    // ¿De qué ficheros compensa pedir firmas? Los que el destino YA TIENE y son grandes.
+    // De los que no tiene no hay nada contra qué comparar, y de los pequeños las firmas y
+    // la vuelta de red cuestan más que mandarlos enteros.
+    std::map<std::string, const AR::Entrada*> suyasPorRuta;
+    for (const AR::Entrada& e : suyas) {
+        suyasPorRuta.emplace(e.ruta, &e);
+    }
+    std::vector<std::string> pidoFirmas;
+    if (!enSeco) {
+        for (const AR::Operacion& o : plan.operaciones) {
+            if (o.accion != AR::Accion::Copiar || o.entrada.tamano < AR::kMinimoParaDelta) {
+                continue;
+            }
+            const auto it = suyasPorRuta.find(o.entrada.ruta);
+            if (it != suyasPorRuta.end() && it->second->tipo == AR::Tipo::Fichero
+                && it->second->tamano > 0) {
+                pidoFirmas.push_back(o.entrada.ruta);
+            }
+        }
+    }
+    for (const std::string& cual : pidoFirmas) {
+        if (!mandaTodo(sock, "S " + std::to_string(cual.size()) + "\n")
+            || !mandaTodo(sock, cual)) {
+            closeTransferSocket(sock);
+            r.rc = 1;
+            r.err = "se cortó al pedir las firmas\n";
+            return r;
+        }
+    }
+    if (!mandaTodo(sock, "E\n")) {
+        closeTransferSocket(sock);
+        r.rc = 1;
+        r.err = "se cortó al pedir las firmas\n";
+        return r;
+    }
+
+    // Las firmas que conteste el destino, por ruta.
+    std::map<std::string, std::pair<std::size_t, std::vector<AR::Firma>>> firmas;
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(sock, linea)) {
+            closeTransferSocket(sock);
+            r.rc = 1;
+            r.err = "se cortó leyendo las firmas\n";
+            return r;
+        }
+        if (linea == "E") {
+            break;
+        }
+        std::istringstream iss(linea);
+        char letra = 0;
+        std::size_t tamBloque = 0;
+        std::size_t bytes = 0;
+        std::size_t lr = 0;
+        if (!(iss >> letra >> tamBloque >> bytes >> lr) || letra != 'G') {
+            closeTransferSocket(sock);
+            r.rc = 1;
+            r.err = "respuesta de firmas ilegible\n";
+            return r;
+        }
+        std::string ruta(lr, '\0');
+        if (lr > 0 && !leeExacto(sock, ruta.data(), lr)) {
+            closeTransferSocket(sock);
+            r.rc = 1;
+            r.err = "se cortó leyendo el nombre de unas firmas\n";
+            return r;
+        }
+        std::string crudas(bytes, '\0');
+        if (bytes > 0 && !leeExacto(sock, crudas.data(), bytes)) {
+            closeTransferSocket(sock);
+            r.rc = 1;
+            r.err = "se cortó leyendo unas firmas\n";
+            return r;
+        }
+        std::vector<AR::Firma> fs;
+        std::string errF;
+        if (AR::analizaFirmas(crudas, fs, errF) && tamBloque > 0) {
+            firmas.emplace(ruta, std::make_pair(tamBloque, std::move(fs)));
+        }
+    }
+
+    std::string informe;
+    for (const AR::Operacion& o : plan.operaciones) {
+        informe += AR::describe(o);
+        informe += '\n';
+    }
+
+    if (enSeco) {
+        // No se manda nada: se cierra con «E» para que el otro extremo no espere.
+        (void)mandaTodo(sock, "E\n");
+        closeTransferSocket(sock);
+        r.rc = 0;
+        r.out = informe + "PENDIENTES=" + std::to_string(plan.operaciones.size())
+                + "\nBYTES=" + std::to_string(plan.bytes)
+                + "\nIGUALES=" + std::to_string(plan.iguales) + "\n";
+        return r;
+    }
+
+    const std::filesystem::path base(raiz);
+    bool bien = true;
+    std::uint64_t bytesLiteralesTotal = 0;
+    std::uint64_t bytesAhorrados = 0;
+    for (const AR::Operacion& o : plan.operaciones) {
+        // ¿Hay firmas de este fichero? Entonces va como PARCHE y no entero.
+        const auto itF = (o.accion == AR::Accion::Copiar)
+                             ? firmas.find(o.entrada.ruta)
+                             : firmas.end();
+        if (itF != firmas.end()) {
+            const std::size_t tamBloque = itF->second.first;
+            std::vector<AR::Instruccion> instrucciones;
+            std::uint64_t literales = 0;
+            std::string errD;
+            std::string hashEntero;
+            const std::string rutaLocal =
+                (std::filesystem::path(raiz) / std::filesystem::path(o.entrada.ruta)).string();
+            if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales,
+                          errD)
+                && AR::hashDeFichero(rutaLocal, hashEntero, errD)) {
+                bytesLiteralesTotal += literales;
+                bytesAhorrados += (o.entrada.tamano > literales) ? (o.entrada.tamano - literales)
+                                                                 : 0;
+                AR::Operacion parche = o;
+                std::string cab = "P " + std::to_string(o.entrada.modo) + " "
+                                  + std::to_string(o.entrada.fecha) + " "
+                                  + std::to_string(o.entrada.tamano) + " "
+                                  + std::to_string(o.entrada.ruta.size()) + " "
+                                  + std::to_string(hashEntero.size()) + "\n";
+                bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entrada.ruta)
+                       && mandaTodo(sock, hashEntero);
+                for (const AR::Instruccion& in : instrucciones) {
+                    if (!bien) {
+                        break;
+                    }
+                    if (in.tipo == AR::TipoInstruccion::Copiar) {
+                        bien = mandaTodo(sock, "C " + std::to_string(in.bloque) + " "
+                                                   + std::to_string(in.cuantos) + "\n");
+                    } else {
+                        bien = mandaTodo(sock, "L " + std::to_string(in.datos.size()) + "\n")
+                               && mandaTodo(sock, in.datos);
+                    }
+                }
+                if (bien) {
+                    bien = mandaTodo(sock, "Z\n");
+                }
+                if (!bien) {
+                    break;
+                }
+                continue;
+            }
+            // Si el delta no se pudo calcular, se manda entero: es lento, no es incorrecto.
+        }
+        if (!mandaTodo(sock, AR::cabeceraDe(o)) || !mandaTodo(sock, o.entrada.ruta)
+            || !mandaTodo(sock, o.entrada.destino)) {
+            bien = false;
+            break;
+        }
+        if (o.accion != AR::Accion::Copiar) {
+            continue;
+        }
+        const std::string rutaLocal = (base / std::filesystem::path(o.entrada.ruta)).string();
+        std::FILE* f = std::fopen(rutaLocal.c_str(), "rb");
+        if (f == nullptr) {
+            bien = false;
+            break;
+        }
+        std::vector<char> buf(65536);
+        std::uint64_t quedan = o.entrada.tamano;
+        while (quedan > 0 && bien) {
+            const std::size_t trozo =
+                static_cast<std::size_t>(std::min<std::uint64_t>(quedan, buf.size()));
+            const std::size_t leidos = std::fread(buf.data(), 1, trozo, f);
+            if (leidos != trozo || !mandaTodo(sock, buf.data(), trozo)) {
+                bien = false;
+                break;
+            }
+            quedan -= trozo;
+        }
+        std::fclose(f);
+    }
+    if (bien) {
+        bien = mandaTodo(sock, "E\n");
+    }
+    if (!bien) {
+        closeTransferSocket(sock);
+        r.rc = 1;
+        r.err = "se cortó el envío del árbol\n";
+        return r;
+    }
+
+    std::string respuesta;
+    if (!leeLinea(sock, respuesta)) {
+        respuesta = "ERR sin respuesta del receptor";
+    }
+    closeTransferSocket(sock);
+    if (respuesta.rfind("PARCIAL ", 0) == 0) {
+        // Aplicado a medias. NO se devuelve 0: quien lo lea tiene que enterarse de que su
+        // árbol no quedó igual, aunque la mayoría de las operaciones sí entraran.
+        r.rc = 1;
+        r.out = informe;
+        r.err = "no se pudo aplicar todo: " + trim(respuesta.substr(8)) + "\n";
+        return r;
+    }
+    if (respuesta.rfind("OK ", 0) != 0) {
+        r.rc = 1;
+        r.err = trim(respuesta) + "\n";
+        return r;
+    }
+    r.rc = 0;
+    r.out = informe + "APLICADAS=" + respuesta.substr(3)
+            + "\nBYTES=" + std::to_string(plan.bytes)
+            + "\nIGUALES=" + std::to_string(plan.iguales);
+    if (bytesAhorrados > 0) {
+        // Lo que el delta ha evitado mandar. Es el único número que dice si sirvió.
+        r.out += "\nAHORRADOS=" + std::to_string(bytesAhorrados)
+                 + "\nENVIADOS=" + std::to_string(bytesLiteralesTotal);
+    }
+    r.out += "\n";
+    return r;
+}
+
+static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force,
+                                          bool waitInline = false) {
+    ExecResult r;
+    if (trim(dataset).empty()) {
+        r.rc = 2; r.err = "empty dataset\n"; return r;
+    }
+    const std::string token = generateTransferToken();
+    if (token.empty()) {
+        r.rc = 1; r.err = "no se pudo generar el testigo de transferencia\n"; return r;
+    }
+
+    TransferSocket listenFd{};
+    int assignedPort = 0;
+    {
+        std::string errPuerto;
+        if (!abrePuertoDeTransferencia(listenFd, assignedPort, errPuerto)) {
+            r.rc = 1;
+            r.err = errPuerto + "\n";
+            return r;
+        }
+    }
 
     if (waitInline) {
         // El emisor necesita el puerto ANTES de que empiece la espera, así que se emite
@@ -5343,41 +6662,16 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer: sin snapshot ni testigo\n"; return r;
     }
 
-#ifdef _WIN32
-    ensureWinsock();
-#endif
-
-    struct addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo* res = nullptr;
+    // Resolver, crear el socket sin herencia y conectar: lo hace `conectaConElPar`, que es
+    // la misma secuencia que usa el emisor del árbol de ficheros. Estaba escrita dos veces,
+    // y con dos copias un arreglo como el de la doble pila IPv6 entra en una y se olvida en
+    // la otra. El plazo de envío y el CLOEXEC los pone también él.
     const std::string portStr = std::to_string(peerPort);
-    if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
-        r.rc = 1; r.err = "cannot resolve peer host: " + peerHost + "\n"; return r;
-    }
-#ifdef _WIN32
-    TransferSocket sockFd = INVALID_SOCKET;
-#else
-    TransferSocket sockFd = -1;
-#endif
-    for (struct addrinfo* it = res; it; it = it->ai_next) {
-        TransferSocket fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-#ifdef _WIN32
-        if (fd == INVALID_SOCKET) { continue; }
-#else
-        if (fd < 0) { continue; }
-#endif
-        if (connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
-        closeTransferSocket(fd);
-    }
-    freeaddrinfo(res);
-#ifdef _WIN32
-    const bool noSocket = (sockFd == INVALID_SOCKET);
-#else
-    const bool noSocket = (sockFd < 0);
-#endif
-    if (noSocket) {
-        r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r;
+    const TransferSocket sockFd = conectaConElPar(peerHost, portStr);
+    if (sockFd == kSocketInvalido) {
+        r.rc = 1;
+        r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n";
+        return r;
     }
 
     // send() en vez de write(): vale para sockets en las dos plataformas, y en Windows
@@ -5412,6 +6706,8 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     auto lastReport = t0;
     std::vector<char> buf(65536);
     bool relayOk = true;
+    bool atascado = false;
+    auto ultimoAvance = t0;
     auto reportProgress = [&](bool done) {
         const auto now = std::chrono::steady_clock::now();
         const long elapsed = static_cast<long>(
@@ -5431,10 +6727,31 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         long done = 0;
         while (done < n) {
             const int w = send(sockFd, buf.data() + done, static_cast<int>(n - done), 0);
-            if (w <= 0) { relayOk = false; break; }
-            done += w;
+            if (w > 0) {
+                done += w;
+                ultimoAvance = std::chrono::steady_clock::now();
+                continue;
+            }
+            if (!envioSoloAgotoElPlazo()) { relayOk = false; break; }
+
+            // Venció el plazo sin colocar un byte: el receptor no está leyendo. Aquí es
+            // donde antes se perdía el control para siempre. Ahora se aprovecha para
+            // atender la cancelación —que con el envío atascado NO llegaba nunca, porque
+            // onProgress solo se llamaba tras escribir— y para contar cuánto lleva parado.
+            const auto ahora = std::chrono::steady_clock::now();
+            const long parado = static_cast<long>(
+                std::chrono::duration_cast<std::chrono::seconds>(ahora - ultimoAvance).count());
+            if (onProgress) {
+                const long transcurrido = static_cast<long>(
+                    std::chrono::duration_cast<std::chrono::seconds>(ahora - t0).count());
+                const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+                const double rate = transcurrido > 0
+                                        ? mib / static_cast<double>(transcurrido) : mib;
+                if (!onProgress(totalBytes, transcurrido, rate)) { cancelled = true; break; }
+            }
+            if (parado >= kAtascoMaximoS) { relayOk = false; atascado = true; break; }
         }
-        if (!relayOk) { break; }
+        if (!relayOk || cancelled) { break; }
         totalBytes += static_cast<std::uint64_t>(n);
         const auto now = std::chrono::steady_clock::now();
         const long elapsed = static_cast<long>(
@@ -5450,6 +6767,16 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     closeTransferSocket(sockFd);
     if (!onProgress) { reportProgress(true); }
 
+    // Si el relé no llegó a su fin —el otro extremo rechazó, se cortó la red, o alguien
+    // canceló— hay que MATAR al emisor antes de esperarlo. Cerrar la tubería no basta:
+    // `zfs send` puede estar dentro del núcleo sin escribir nada, y entonces el `waitpid`
+    // de dentro de `waitSpawnedStdout` no vuelve nunca y el pool se queda retenido.
+    //
+    // Cuando el relé terminó bien no se toca: ahí el hijo ya ha salido solo, y mandarle una
+    // señal sería pedirle que muera a algo que ya está muerto.
+    if (!relayOk || cancelled) {
+        matarSpawnedStdout(child);
+    }
     std::string childErr;
     r.rc = waitSpawnedStdout(child, &childErr);
     if (cancelled) {
@@ -5459,11 +6786,25 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         r.out = "CANCELLED=1\n";
         return r;
     }
-    if (r.rc != 0) {
+    // El orden importa. Cuando el relé falla se MATA al `zfs send`, así que su código de
+    // salida pasa a ser 143 (SIGTERM) — un código que hemos provocado nosotros. Mirarlo
+    // primero hacía que el trabajo se apuntase como «zfs send failed (exit 143)», que manda
+    // a investigar el emisor cuando el problema estaba en el receptor. La causa que se
+    // conoce gana a la consecuencia.
+    if (atascado) {
+        // Distinto de un fallo de escritura: aquí la conexión NUNCA se rompió, sencillamente
+        // el otro extremo dejó de leer. Decirlo con esas palabras evita que se busque el
+        // problema en la red, que es donde no está.
+        r.rc = 1;
+        r.err = "el receptor dejó de leer: " + std::to_string(kAtascoMaximoS) +
+                " s sin poder enviar un solo byte\n";
+    } else if (!relayOk) {
+        r.rc = 1;
+        r.err = "se cortó la conexión con el receptor; mira el registro de la máquina de "
+                "destino para saber por qué falló zfs recv\n";
+    } else if (r.rc != 0) {
         r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
         if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
-    } else if (!relayOk) {
-        r.rc = 1; r.err = "relay write to peer failed\n";
     }
     return r;
 }
@@ -5548,6 +6889,389 @@ static ExecResult runDumpBlockDevicesCapture() {
             continue;
         }
         recorre(d, std::string());
+    }
+    // Los alias por identificador, y su destino real.
+    //
+    // **No es un adorno**: un pool creado con `/dev/sdb` se rompe si mañana el kernel llama
+    // `sdc` a ese disco, y con el alias no. Por eso el diálogo los ofrece, y por eso el verbo
+    // tiene que darlos: sin ellos, cambiarlo por el verbo habría sido una regresión callada.
+    //
+    // Van como entradas aparte, con `resolved` apuntando al dispositivo de verdad, que es lo
+    // que ya esperaba quien los lee.
+    for (const char* dir : {"/dev/disk/by-id"}) {
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(
+                 dir, std::filesystem::directory_options::skip_permission_denied, ec)) {
+            if (ec) {
+                break;
+            }
+            std::error_code rc2;
+            const std::filesystem::path destino = std::filesystem::canonical(e.path(), rc2);
+            if (rc2) {
+                continue;
+            }
+            zfsmgr::base::json::Value v;
+            v.set("path", zfsmgr::base::json::Value(e.path().string()));
+            v.set("resolved", zfsmgr::base::json::Value(destino.string()));
+            v.set("alias", zfsmgr::base::json::Value(true));
+            salida.push_back(v);
+        }
+    }
+
+    zfsmgr::base::json::Value raizSalida;
+    raizSalida.set("devices", zfsmgr::base::json::Value(std::move(salida)));
+    r.rc = 0;
+    r.out = zfsmgr::base::json::toCompact(raizSalida) + "\n";
+    return r;
+#elif defined(__APPLE__)
+    // macOS no tiene `lsblk`. `diskutil list` da los identificadores y `diskutil info` los
+    // datos de cada uno en líneas «clave: valor», que es lo más estable que ofrece: la salida
+    // de `diskutil list` a secas es una tabla con columnas alineadas y nombres de volumen que
+    // pueden llevar espacios, así que analizarla entera sería adivinar dónde acaba cada campo.
+    //
+    // Se piden los bytes EXACTOS, no el «494.4 GB»: la cifra redondeada no sirve para decidir
+    // si un disco cabe en un pool, y reconvertirla es inventarse precisión que no había.
+    ExecResult lista = runExecCapture("diskutil", {"list"});
+    if (lista.rc != 0) {
+        r.rc = lista.rc;
+        r.err = lista.err.empty() ? std::string("diskutil no disponible\n") : lista.err;
+        return r;
+    }
+    std::vector<std::string> ids;
+    for (const std::string& linea : splitLines(lista.out)) {
+        // El identificador es el último campo, y tiene forma «diskN» o «diskNsM». Filtrar por
+        // la FORMA y no por la posición es lo que hace que un nombre de volumen con espacios
+        // dentro no descoloque el análisis.
+        std::string ultimo;
+        {
+            std::istringstream iss(linea);
+            std::string tok;
+            while (iss >> tok) {
+                ultimo = tok;
+            }
+        }
+        if (ultimo.rfind("disk", 0) != 0) {
+            continue;
+        }
+        bool forma = ultimo.size() > 4;
+        for (std::size_t i = 4; i < ultimo.size() && forma; ++i) {
+            if (!std::isdigit(static_cast<unsigned char>(ultimo[i])) && ultimo[i] != 's') {
+                forma = false;
+            }
+        }
+        if (forma && std::find(ids.begin(), ids.end(), ultimo) == ids.end()) {
+            ids.push_back(ultimo);
+        }
+    }
+
+    struct Disp {
+        std::string ruta;
+        std::string padre;
+        std::string tipo;
+        std::string fs;
+        std::string montaje;
+        unsigned long long tamano{0};
+        bool enUso{false};
+    };
+    std::vector<Disp> disp;
+    for (const std::string& id : ids) {
+        const ExecResult info = runExecCapture("diskutil", {"info", id});
+        if (info.rc != 0) {
+            continue;
+        }
+        Disp d;
+        d.ruta = "/dev/" + id;
+        bool entero = false;
+        bool montado = false;
+        std::string tipoParticion;
+        std::string contenido;
+        for (const std::string& linea : splitLines(info.out)) {
+            const std::size_t dosp = linea.find(':');
+            if (dosp == std::string::npos) {
+                continue;
+            }
+            const std::string clave = trim(linea.substr(0, dosp));
+            const std::string valor = trim(linea.substr(dosp + 1));
+            if (clave == "Whole") {
+                entero = isTruthyValue(valor) || valor == "Yes";
+            } else if (clave == "Part of Whole" && !valor.empty()) {
+                d.padre = "/dev/" + valor;
+            } else if (clave == "Mount Point") {
+                d.montaje = valor;
+            } else if (clave == "File System Personality") {
+                // «Not applicable (no file system)» no es un sistema de ficheros.
+                d.fs = valor.rfind("Not applicable", 0) == 0 ? std::string() : valor;
+            } else if (clave == "Mounted") {
+                montado = isTruthyValue(valor) || valor == "Yes";
+            } else if (clave == "Content (IOContent)") {
+                // Para un disco ENTERO no hay «Partition Type»: lo que dice si tiene algo
+                // encima es su contenido. Un esquema de particiones ya es algo.
+                contenido = valor;
+            } else if (clave == "Partition Type") {
+                // **Esto es lo que salva el disco de arranque.** Una partición que aloja un
+                // contenedor APFS no tiene punto de montaje ni sistema de ficheros propios
+                // —`diskutil` contesta «Not applicable»—, así que con la regla de «montado o
+                // con fs» salía como LIBRE. Y su disco entero también, por herencia. Ofrecerlo
+                // para un pool nuevo era ofrecer borrar el arranque del equipo. Comprobado en
+                // mmela: disk0s2 es «Apple_APFS» y así aparecía.
+                //
+                // Cualquier tipo de partición que no sea espacio libre significa que ahí hay
+                // algo, aunque este mandado no sepa qué.
+                tipoParticion = valor;
+            } else if (clave == "Disk Size") {
+                // «494.4 GB (494384795648 Bytes) (exactly …)»: los de dentro del primer
+                // paréntesis son los buenos.
+                const std::size_t ab = valor.find('(');
+                const std::size_t by = valor.find(" Bytes");
+                if (ab != std::string::npos && by != std::string::npos && by > ab) {
+                    d.tamano = std::strtoull(valor.substr(ab + 1, by - ab - 1).c_str(), nullptr, 10);
+                }
+            }
+        }
+        d.tipo = entero ? "disk" : "part";
+        if (entero) {
+            d.padre.clear();
+        }
+        // Montado es estar en uso. Y tener sistema de ficheros encima también: un volumen
+        // desmontado con datos dentro no es un candidato libre para un pool nuevo.
+        auto significaAlgo = [](const std::string& v) {
+            return !v.empty() && v != "Empty" && v != "None" && v != "-"
+                   && v.rfind("Not applicable", 0) != 0;
+        };
+        d.enUso = montado || !d.montaje.empty() || !d.fs.empty()
+                  || significaAlgo(tipoParticion) || significaAlgo(contenido);
+        disp.push_back(d);
+    }
+    // **Y lo que diga ZFS manda.** Un disco que respalda un pool importado puede no tener
+    // sistema de ficheros, ni montaje, ni tipo de partición: `diskutil` de él solo dice que
+    // es un disco. Comprobado en mmela con el que respalda `mpool`: salía como LIBRE, y
+    // ofrecerlo para un pool nuevo era ofrecer destruir el que ya estaba encima.
+    //
+    // A ZFS se le pregunta por sus vdev y se marcan todos. Es la respuesta autoritativa: no
+    // hay heurística de nombres ni de contenido que la iguale.
+    {
+        const ExecResult est = runExecCapture("zpool", {"status", "-P"});
+        if (est.rc == 0) {
+            for (Disp& d2 : disp) {
+                if (!d2.enUso && est.out.find(d2.ruta) != std::string::npos) {
+                    d2.enUso = true;
+                }
+            }
+        }
+    }
+
+    // Un disco entero está en uso si CUALQUIER parte suya lo está. Sin esto, un disco con una
+    // partición montada aparecería como libre y ofrecerlo para un pool nuevo sería ofrecer
+    // borrar lo que hay dentro.
+    for (Disp& d : disp) {
+        if (d.tipo != "disk") {
+            continue;
+        }
+        for (const Disp& hija : disp) {
+            if (hija.padre == d.ruta && hija.enUso) {
+                d.enUso = true;
+                break;
+            }
+        }
+    }
+
+    zfsmgr::base::json::Array salida;
+    for (const Disp& d : disp) {
+        zfsmgr::base::json::Value v;
+        v.set("path", zfsmgr::base::json::Value(d.ruta));
+        v.set("size", zfsmgr::base::json::Value(static_cast<double>(d.tamano)));
+        v.set("fstype", zfsmgr::base::json::Value(d.fs == "-" ? std::string() : d.fs));
+        v.set("mountpoint", zfsmgr::base::json::Value(d.montaje));
+        v.set("type", zfsmgr::base::json::Value(d.tipo));
+        v.set("parent", zfsmgr::base::json::Value(d.padre));
+        v.set("inuse", zfsmgr::base::json::Value(d.enUso));
+        salida.push_back(v);
+    }
+    // Los alias por identificador, igual que en Linux pero donde los pone macOS. Ver el
+    // comentario de allí: un pool creado con el nombre del dispositivo se rompe si mañana
+    // cambia, y con el alias no.
+    for (const char* dir : {"/var/run/disk/by-id", "/private/var/run/disk/by-id"}) {
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(
+                 dir, std::filesystem::directory_options::skip_permission_denied, ec)) {
+            if (ec) {
+                break;
+            }
+            std::error_code rc2;
+            const std::filesystem::path destino = std::filesystem::canonical(e.path(), rc2);
+            if (rc2) {
+                continue;
+            }
+            zfsmgr::base::json::Value v;
+            v.set("path", zfsmgr::base::json::Value(e.path().string()));
+            v.set("resolved", zfsmgr::base::json::Value(destino.string()));
+            v.set("alias", zfsmgr::base::json::Value(true));
+            salida.push_back(v);
+        }
+    }
+
+    zfsmgr::base::json::Value raizSalida;
+    raizSalida.set("devices", zfsmgr::base::json::Value(std::move(salida)));
+    r.rc = 0;
+    r.out = zfsmgr::base::json::toCompact(raizSalida) + "\n";
+    return r;
+#elif defined(_WIN32)
+    // Windows no tiene `lsblk` ni `diskutil`: su herramienta de consulta de discos es
+    // PowerShell. Se le llama con `execvp` y un guion CONSTANTE —no se interpola nada que
+    // venga de quien pide—, igual que en macOS se llama a `diskutil`. La regla que importa
+    // sigue en pie: quien elige la ruta no elige además lo que se ejecuta.
+    static const char* kGuion =
+        "$ErrorActionPreference='SilentlyContinue'\n"
+        "foreach ($d in Get-Disk) {\n"
+        "  Write-Output (\"D`t\" + $d.Number + \"`t\" + $d.Size + \"`t\" + $d.PartitionStyle)\n"
+        "}\n"
+        "foreach ($p in Get-Partition) {\n"
+        "  $fs = ''\n"
+        "  $mp = ''\n"
+        "  if ($p.DriveLetter) { $mp = ([string]$p.DriveLetter + ':\\') }\n"
+        "  $v = Get-Volume -Partition $p\n"
+        "  if ($v -and $v.FileSystem) { $fs = [string]$v.FileSystem }\n"
+        "  Write-Output (\"P`t\" + $p.DiskNumber + \"`t\" + $p.PartitionNumber + \"`t\""
+        " + $p.Size + \"`t\" + $fs + \"`t\" + $mp + \"`t\" + $p.Type)\n"
+        "}\n";
+    // **Con la ruta absoluta.** El agente corre como tarea programada en la sesión de
+    // servicios, y allí `powershell` no está en el PATH: la primera versión de esto contestó
+    // «cannot start powershell» contra OldLau. Se prueban las rutas conocidas y, como último
+    // recurso, el nombre pelado por si alguien lo tiene en el PATH.
+    std::vector<std::string> candidatos;
+    if (const char* raiz = std::getenv("SystemRoot")) {
+        candidatos.push_back(std::string(raiz)
+                             + "\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    }
+    candidatos.push_back("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    candidatos.push_back("powershell");
+    ExecResult ps;
+    ps.rc = 1;
+    for (const std::string& exe : candidatos) {
+        ps = runExecCapture(exe, {"-NoProfile", "-NonInteractive", "-Command", kGuion});
+        if (ps.rc == 0) {
+            break;
+        }
+    }
+    if (ps.rc != 0) {
+        r.rc = ps.rc;
+        r.err = ps.err.empty() ? std::string("no se pudo consultar los discos\n") : ps.err;
+        return r;
+    }
+
+    struct Disp {
+        std::string ruta;
+        std::string padre;
+        std::string tipo;
+        std::string fs;
+        std::string montaje;
+        unsigned long long tamano{0};
+        bool enUso{false};
+        int disco{-1};
+    };
+    std::vector<Disp> disp;
+    for (const std::string& linea : splitLines(ps.out)) {
+        std::vector<std::string> c;
+        {
+            std::string campo;
+            for (const char ch : linea) {
+                if (ch == '\t') {
+                    c.push_back(campo);
+                    campo.clear();
+                } else if (ch != '\r') {
+                    campo.push_back(ch);
+                }
+            }
+            c.push_back(campo);
+        }
+        if (c.empty()) {
+            continue;
+        }
+        if (c[0] == "D" && c.size() >= 4) {
+            Disp d;
+            d.disco = std::atoi(c[1].c_str());
+            d.ruta = "\\\\.\\PhysicalDrive" + c[1];
+            d.tipo = "disk";
+            d.tamano = std::strtoull(c[2].c_str(), nullptr, 10);
+            // `RAW` es «sin esquema de particiones». No significa libre —un disco entero
+            // entregado a ZFS sale RAW— pero sí que no hay particiones que mirar.
+            d.enUso = (c[3] != "RAW" && !c[3].empty());
+            disp.push_back(d);
+        } else if (c[0] == "P" && c.size() >= 7) {
+            Disp d;
+            d.disco = std::atoi(c[1].c_str());
+            // El mismo formato que ya componía la interfaz, para no cambiar lo que se le
+            // pasa después a `zpool create`.
+            d.ruta = "\\\\.\\PhysicalDrive" + c[1] + "\\Partition" + c[2];
+            d.padre = "\\\\.\\PhysicalDrive" + c[1];
+            d.tipo = "part";
+            d.tamano = std::strtoull(c[3].c_str(), nullptr, 10);
+            d.fs = c[4];
+            d.montaje = c[5];
+            // Una partición con letra, con sistema de ficheros o con un tipo que no sea
+            // desconocido tiene algo dentro. «System», «Reserved» y «Recovery» son del
+            // arranque: ofrecerlas para un pool nuevo sería ofrecer romper el equipo.
+            d.enUso = !d.montaje.empty() || !d.fs.empty()
+                      || (!c[6].empty() && c[6] != "Unknown");
+            disp.push_back(d);
+        }
+    }
+
+    // **El cruce con ZFS necesita traducir.** En Windows los vdev no se llaman como los
+    // dispositivos: `zpool status -P` de un pool sobre el disco 2 dice
+    // «/dev/Harddisk2Partition0», no «\\.\PhysicalDrive2». Comprobado contra OldLau. Buscar
+    // la ruta tal cual —que es lo que hace la rama de macOS— no encontraría nada, y el disco
+    // que respalda un pool importado aparecería libre.
+    {
+        const ExecResult est = runExecCapture("zpool", {"status", "-P"});
+        if (est.rc == 0) {
+            std::set<int> ocupados;
+            const std::string marca = "Harddisk";
+            std::size_t pos = est.out.find(marca);
+            while (pos != std::string::npos) {
+                std::size_t i = pos + marca.size();
+                std::string num;
+                while (i < est.out.size() && std::isdigit(static_cast<unsigned char>(est.out[i]))) {
+                    num.push_back(est.out[i]);
+                    ++i;
+                }
+                if (!num.empty()) {
+                    ocupados.insert(std::atoi(num.c_str()));
+                }
+                pos = est.out.find(marca, i);
+            }
+            for (Disp& d : disp) {
+                if (d.disco >= 0 && ocupados.count(d.disco) > 0) {
+                    d.enUso = true;
+                }
+            }
+        }
+    }
+
+    // Un disco entero está en uso si CUALQUIER partición suya lo está.
+    for (Disp& d : disp) {
+        if (d.tipo != "disk") {
+            continue;
+        }
+        for (const Disp& hija : disp) {
+            if (hija.padre == d.ruta && hija.enUso) {
+                d.enUso = true;
+                break;
+            }
+        }
+    }
+
+    zfsmgr::base::json::Array salida;
+    for (const Disp& d : disp) {
+        zfsmgr::base::json::Value v;
+        v.set("path", zfsmgr::base::json::Value(d.ruta));
+        v.set("size", zfsmgr::base::json::Value(static_cast<double>(d.tamano)));
+        v.set("fstype", zfsmgr::base::json::Value(d.fs));
+        v.set("mountpoint", zfsmgr::base::json::Value(d.montaje));
+        v.set("type", zfsmgr::base::json::Value(d.tipo));
+        v.set("parent", zfsmgr::base::json::Value(d.padre));
+        v.set("inuse", zfsmgr::base::json::Value(d.enUso));
+        salida.push_back(v);
     }
     zfsmgr::base::json::Value raizSalida;
     raizSalida.set("devices", zfsmgr::base::json::Value(std::move(salida)));
@@ -5749,6 +7473,28 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-guid-map <dataset>\n"; return r; }
         return runExecCapture("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", params[0]});
     }
+    // Las letras de unidad de un pool, CON su origen.
+    //
+    // El origen hace falta para distinguir la letra PUESTA en un dataset de la HEREDADA del
+    // pool: en Windows los descendientes heredan la del pool y se montan planos bajo esa
+    // unidad, así que dos datasets con la misma letra heredada es el funcionamiento normal.
+    // Sin el origen, cualquier pool con más de un dataset parecía tener letras duplicadas, y
+    // ese aviso llenaba el registro en cada refresco tapando los de verdad.
+    //
+    // El verbo existe en las dos plataformas aunque solo Windows tenga letras. Fuera de
+    // Windows `zfs` contesta que la propiedad no existe —en macOS, «invalid property
+    // 'driveletter'», comprobado— con código distinto de cero, y el cliente lo lee como «no
+    // hay letras». Un verbo que solo existiera en una plataforma obligaría a quien llama a
+    // saber en cuál está, y eso es justo lo que se está quitando de la aplicación.
+    if (cmd == "--dump-zfs-driveletters") {
+        if (params.size() < 1) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --dump-zfs-driveletters <pool>\n";
+            return r;
+        }
+        return runExecCapture("zfs", {"get", "-H", "-o", "name,value,source", "-r", "driveletter",
+                                      params[0]});
+    }
     if (cmd == "--dump-zfs-list-children") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-list-children <dataset>\n"; return r; }
         return runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", params[0]});
@@ -5814,6 +7560,24 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-release") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-release <tag> <snapshot>\n"; return r; }
         return runExecCapture("zfs", {"release", params[0], params[1]});
+    }
+
+    // Mover un dataset de sitio DENTRO de su pool.
+    //
+    // Es `zfs rename` a secas, no una copia: el dataset cambia de sitio en el árbol y los
+    // datos no se mueven, así que es instantáneo y no hay nada que destruir después. Lo
+    // que la interfaz llama «Mover aquí» es exactamente esto.
+    //
+    // Verbo propio y no `--mutate-zfs-generic` por lo mismo que hold y release: así el
+    // daemon ve los dos nombres por separado y el registro dice qué se movió y a dónde,
+    // en vez de una carga en base64 que hay que descifrar para saberlo.
+    if (cmd == "--mutate-zfs-rename") {
+        if (params.size() < 2) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-zfs-rename <origen> <destino>\n";
+            return r;
+        }
+        return runExecCapture("zfs", {"rename", params[0], params[1]});
     }
 
     if (cmd == "--dump-zfs-allow-batch") {
@@ -6117,6 +7881,16 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             r.rc = 1; r.err = "peers.json ilegible: " + errJson + "\n"; return r;
         }
         std::ostringstream out;
+        // Con quién se identifica esta máquina, PRIMERO y en su propia línea.
+        //
+        // Antes no salía, y su ausencia es el fallo silencioso de este fichero: sin `self`,
+        // una nivelación GSA contra un dataset de esta misma máquina no reconoce el destino
+        // como propio, se va por el camino remoto y registra «no hay credenciales del par»
+        // —siendo el par uno mismo—. La rama local no se ejecuta jamás.
+        //
+        // Sin esta línea no había forma de diagnosticarlo desde fuera: el cliente listaba los
+        // pares y todo parecía correcto. Ahora se ve, y se ve vacío cuando falta.
+        out << "SELF\t" << trim(raiz["self"].toString()) << "\n";
         for (const auto& v : raiz["peers"].toArray()) {
             out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
                 << v["port"].toInt(0) << "\n";
@@ -6141,6 +7915,16 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             while (iss >> tok) changeArgs.push_back(tok);
         }
         changeArgs.push_back(dataset);
+
+        {
+            const std::string motivo = motivoParaNoCambiarClave(dataset, flagsStr);
+            if (!motivo.empty()) {
+                ExecResult neg;
+                neg.rc = 2;
+                neg.err = motivo;
+                return neg;
+            }
+        }
         return runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
     }
     if (cmd == "--mutate-zfs-generic") {
@@ -6265,6 +8049,26 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--zfs-send-to-peer") {
         return runZfsSendToPeerCapture(params);
     }
+    // El árbol de ficheros por el mismo transporte que el flujo de ZFS. Es lo que le da a
+    // Windows una sincronización con borrado y con pasada en seco, que por el respaldo de
+    // tar no tenía. Ver el bloque grande de arriba.
+    // Va por RPC —al contrario que `--mutate-advanced-fromdir`, que es solo de terminal—
+    // porque no lee nada por la entrada estándar: prepara el destino y dice dónde quedó.
+    if (cmd == "--mutate-advanced-fromdir-prepare") {
+        return runMutateAdvancedFromDirPrepareCapture(params);
+    }
+    if (cmd == "--tree-recv-listen") {
+        if (params.empty()) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --tree-recv-listen <dir>\n";
+            return r;
+        }
+        return runTreeRecvListenCapture(params[0]);
+    }
+    if (cmd == "--tree-send-to-peer") {
+        return runTreeSendToPeerCapture(params);
+    }
+
     if (cmd == "--zfs-recv-listen") {
         // params: dataset [force=0|1]
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
@@ -6614,11 +8418,14 @@ std::string dumpClassForCommand(const std::string& cmd) {
 // the daemon keeps working, so the client cannot safely retry. Submitting them as
 // jobs makes the RPC answer immediate and turns "did it finish?" into a question
 // with an actual answer (--job-status).
+// Qué mutaciones se pueden encolar como trabajo.
+//
+// La lista vive en `commands/peticiones` y NO se copia aquí: los clientes necesitan la misma
+// respuesta para elegir camino antes de pedir nada, y dos listas iguales que alguien tiene
+// que acordarse de tocar a la vez son dos listas que acaban diciendo cosas distintas. El
+// daemon enlaza `zfsmgr_commands`, así que puede preguntar en vez de repetir.
 bool isAsyncSubmittableCommand(const std::string& cmd) {
-    return cmd == "--mutate-advanced-breakdown"
-           || cmd == "--mutate-advanced-assemble"
-           || cmd == "--mutate-advanced-todir"
-           || cmd == "--mutate-rsync-local";
+    return zfsmgr::commands::peticiones::sePuedeEncolar(cmd);
 }
 
 void runSubmittedMutationJob(const std::string& jobId,
@@ -7571,6 +9378,13 @@ int main(int argc, char* argv[]) {
         }
         return runExecStreaming("zfs", {"hold", args[2], args[3]});
     }
+    if (cmd == "--mutate-zfs-rename") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"rename", args[2], args[3]});
+    }
     if (cmd == "--mutate-zfs-release") {
         if (args.size() < 4) {
             printUsage(args[0].c_str());
@@ -7649,6 +9463,14 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runExecStreaming("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", args[2]});
+    }
+    if (cmd == "--dump-zfs-driveletters") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"get", "-H", "-o", "name,value,source", "-r",
+                                        "driveletter", args[2]});
     }
     if (cmd == "--dump-zfs-list-children") {
         if (args.size() < 3) {
@@ -7866,6 +9688,10 @@ int main(int argc, char* argv[]) {
             while (iss >> tok) changeArgs.push_back(tok);
         }
         changeArgs.push_back(dataset);
+        {
+            const std::string motivo = motivoParaNoCambiarClave(dataset, flagsStr);
+            if (!motivo.empty()) { std::cerr << motivo; return 2; }
+        }
         const ExecResult e = runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
         if (!e.out.empty()) std::cout << e.out;
         if (!e.err.empty()) std::cerr << e.err;
@@ -8040,9 +9866,38 @@ int main(int argc, char* argv[]) {
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
     }
+    if (cmd == "--mutate-advanced-fromdir-prepare") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult pr = runMutateAdvancedFromDirPrepareCapture(
+            std::vector<std::string>(args.begin() + 2, args.end()));
+        std::cout << pr.out;
+        std::cerr << pr.err;
+        return pr.rc;
+    }
     // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
     // vuelve hasta que la transferencia termina: soltar el proceso mataría el hilo que
     // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
+    if (cmd == "--tree-recv-listen") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        // En la rama de terminal se espera EN LÍNEA: quien la usa a mano quiere ver el
+        // resultado, no que el proceso se muera dejando un hilo suelto detrás.
+        const ExecResult e = runTreeRecvListenCapture(args[2], /*waitInline=*/true);
+        if (!e.err.empty()) { std::cerr << e.err; }
+        return e.rc;
+    }
+    if (cmd == "--tree-send-to-peer") {
+        const ExecResult e =
+            runTreeSendToPeerCapture(std::vector<std::string>(args.begin() + 2, args.end()));
+        if (!e.out.empty()) { std::cout << e.out; }
+        if (!e.err.empty()) { std::cerr << e.err; }
+        return e.rc;
+    }
     if (cmd == "--zfs-recv-listen") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
