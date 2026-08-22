@@ -55,7 +55,7 @@ void uso() {
                  "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
                  "\n"
                  "Órdenes:\n"
-                 "  (ninguna)             Modo interactivo, empezando en zfsm://Local\n"
+                 "  (ninguna)             Modo interactivo, empezando en la raíz (zfsm://)\n"
                  "  connections list      Lista las conexiones configuradas\n"
                  "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
                  "  version               Versión de esta herramienta\n"

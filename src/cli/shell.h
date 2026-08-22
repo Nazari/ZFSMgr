@@ -7,7 +7,7 @@
 
 // El modo interactivo: `zfsmgr-cli` sin verbo se comporta como un intérprete de órdenes.
 //
-//     zfsm:/> cd oldlau/winpool/sa
+//     zfsm://> cd oldlau/winpool/sa
 //     zfsm://OldLau/winpool/sa> ls
 //     zfsm://OldLau/winpool/sa> snapshot @antes
 //
@@ -22,7 +22,9 @@ namespace zfsmgr::cli {
 
 // Arranca el intérprete. Devuelve el código de salida del proceso.
 //
-// `urlInicial` vacía empieza en `zfsm://Local`, que es la máquina donde uno ya está.
+// `urlInicial` vacía empieza en la RAÍZ (`zfsm://`), donde `ls` lista las conexiones. No se
+// arranca ya en `zfsm://Local`: hacía creer que esa máquina era el punto de partida
+// obligado, y este cliente gobierna varias.
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},
                   bool asumirSi = false);
 

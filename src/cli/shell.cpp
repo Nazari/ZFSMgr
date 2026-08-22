@@ -9,6 +9,8 @@
 #include "connectionjson.h"
 #include "gsa.h"
 #include "storefiles.h"
+#include "sincronizacion.h"
+#include "transferencia.h"
 #include "zfsallow.h"
 #include "zfsprops.h"
 #include "helpers.h"
@@ -18,6 +20,13 @@
 #include "secretinput.h"
 #include "strutil.h"
 #include "tr.h"
+#include "peers.h"
+#include "avanzadas.h"
+#include "listados.h"
+#include "peticiones.h"
+#include "pools.h"
+#include "instantaneas.h"
+#include "datasets.h"
 #include "transportcmd.h"
 #include "transporttunnel.h"
 #include "transportrpc.h"
@@ -49,6 +58,17 @@ namespace {
 namespace B = zfsmgr::base;
 namespace H = zfsmgr::base::helpers;
 namespace T = zfsmgr::base::transport;
+namespace PR = zfsmgr::base::peers;
+namespace AV = zfsmgr::commands::avanzadas;
+namespace PL = zfsmgr::commands::pools;
+// `INST` y no `IN`: en Windows `IN` es un MACRO de `windows.h`, y
+// `namespace IN = …` no compila allí. Lo cazó el cruce de MinGW.
+namespace INST = zfsmgr::commands::instantaneas;
+namespace DS = zfsmgr::commands::datasets;
+namespace TR = zfsmgr::base::transferencia;
+namespace L = zfsmgr::base::listados;
+namespace PET = zfsmgr::commands::peticiones;
+namespace SY = zfsmgr::base::sincronizacion;
 using B::ZfsmUrl;
 using B::ZfsmKind;
 
@@ -92,7 +112,13 @@ Nodo nodoDe(const ZfsmUrl& u) {
 
 std::string textoDe(const ZfsmUrl& u) {
     if (u.connection.empty()) {
-        return "zfsm:/";
+        // La raíz se enseña como «zfsm://», con las DOS barras del esquema.
+        //
+        // Decía «zfsm:/», que no es una URL de este esquema: `kEsquema` es «zfsm://» y el
+        // analizador exige las dos. Se veía poco porque la raíz era un sitio de paso; desde
+        // que el intérprete arranca aquí, es lo primero que se lee, y una URL que el propio
+        // programa no aceptaría de vuelta es mal sitio donde empezar.
+        return "zfsm://";
     }
     return B::formatZfsmUrl(u);
 }
@@ -849,7 +875,7 @@ void listaConexiones(Estado& e, const Peticion& pet) {
 // Los pools de una conexión, del JSON de `zpool list`.
 bool listaPools(Estado& e, const ZfsmUrl& destino) {
     std::string out;
-    if (!agente(e, destino, {"--dump-zpool-list"}, out)) {
+    if (!agente(e, destino, PET::listaDePools(), out)) {
         return false;
     }
     B::json::Value raiz;
@@ -893,7 +919,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // de permisos sobre los discos, un agente sin «Acceso total al disco» en macOS): si no
     // responde, se enseña lo importado y se sigue, en vez de no enseñar nada.
     std::string sonda;
-    if (agente(e, destino, {"--dump-zpool-import-probe"}, sonda, 25000)) {
+    if (agente(e, destino, PET::sondaDeImportables(), sonda, 25000)) {
         // El agente avisa cuando el sistema no le deja leer los discos. Es macOS y su
         // «Acceso total al disco»: sin él `zpool import` responde «no pools available to
         // import» igual que si de verdad no hubiera ninguno, así que una lista vacía aquí
@@ -930,7 +956,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
 // mountpoint,canmount.
 bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     std::string out;
-    if (!agente(e, destino, {"--dump-zfs-list-all", destino.dataset}, out)) {
+    if (!agente(e, destino, PET::listaDeDatasets(destino.dataset), out)) {
         return false;
     }
     Tabla t;
@@ -941,6 +967,21 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
     t.campos = {"name", "type", "used", "compressratio", "mounted", "mountpoint"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    // Un POOL es también un dataset: el raíz. Y es el ÚNICO que no se ve en ningún sitio.
+    //
+    // Todo dataset aparece con sus campos —usado, compresión, montaje— en el listado de su
+    // padre. El raíz de un pool no tiene padre dataset: su nivel de arriba es la conexión, y
+    // allí las filas llevan campos de POOL (estado, tamaño, capacidad, salud), que hablan del
+    // almacenamiento, no del sistema de ficheros. Así que `/wls/f.txt` vivía en un dataset
+    // que el intérprete no enseñaba por ninguna parte.
+    //
+    // Se añade como PRIMERA fila y solo cuando lo listado es un pool, no cualquier dataset:
+    // en `ls tanque/media` sus propios campos ya se vieron al listar `tanque`, y repetirlos
+    // en cada nivel sería ruido. Aquí no se repite nada, se rellena un hueco.
+    //
+    // El nombre va tal cual —«wls», no «.»— porque es el nombre real del dataset y con él se
+    // puede copiar y pegar a otra orden.
+    const bool esRaizDePool = destino.dataset.find('/') == std::string::npos;
     const std::string prefijo = destino.dataset + "/";
     for (const std::string& linea : B::split(out, "\n", true)) {
         const std::vector<std::string> c = B::split(linea, "\t", false);
@@ -949,7 +990,10 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         }
         const std::string& nombre = c[0];
         if (nombre == destino.dataset) {
-            continue;  // el propio dataset no es hijo suyo
+            if (esRaizDePool) {
+                t.filas.push_back({nombre, "dataset", c[2], c[3], c[7], c[8]});
+            }
+            continue;  // fuera de ese caso, el propio dataset no es hijo suyo
         }
         const std::size_t arroba = nombre.find('@');
         const bool esSnap = arroba != std::string::npos;
@@ -977,13 +1021,13 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
     const std::string objetivo = destino.zfsName();
     std::string out;
     if (!destino.detail.empty()) {
-        if (!agente(e, destino, {"--dump-zfs-get-prop", destino.detail.front(), objetivo}, out)) {
+        if (!agente(e, destino, PET::propiedadDeDataset(destino.detail.front(), objetivo), out)) {
             return false;
         }
         std::fprintf(stdout, "%s\n", B::trim(out).c_str());
         return true;
     }
-    if (!agente(e, destino, {"--dump-zfs-get-all", objetivo}, out)) {
+    if (!agente(e, destino, PET::propiedadesDeDataset(objetivo), out)) {
         return false;
     }
     B::json::Value raiz;
@@ -1024,7 +1068,7 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, {"--dump-zfs-allow", objetivo}, out)) {
+    if (!agente(e, destino, PET::permisosDe(objetivo), out)) {
         return false;
     }
     Tabla t;
@@ -1183,7 +1227,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     // instantánea se lee bajo el `.zfs` del dataset, que también hace falta montado.
     {
         std::string montado;
-        if (!agente(e, destino, {"--dump-zfs-get-prop", "mounted", destino.dataset}, montado)) {
+        if (!agente(e, destino, PET::propiedadDeDataset("mounted", destino.dataset), montado)) {
             return false;
         }
         if (B::trim(montado) == "no") {
@@ -1199,7 +1243,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     esWindows = T::isWindowsConnection(*p);
     if (esWindows) {
         std::string letra;
-        if (!agente(e, destino, {"--dump-zfs-get-prop", "driveletter", destino.pool}, letra)) {
+        if (!agente(e, destino, PET::propiedadDeDataset("driveletter", destino.pool), letra)) {
             return false;
         }
         letra = B::trim(letra);
@@ -1229,7 +1273,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
         }
     } else {
         std::string mp;
-        if (!agente(e, destino, {"--dump-zfs-get-prop", "mountpoint", destino.zfsName()}, mp)) {
+        if (!agente(e, destino, PET::propiedadDeDataset("mountpoint", destino.zfsName()), mp)) {
             return false;
         }
         base = B::trim(mp);
@@ -1252,78 +1296,51 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
 
 // El contenido: `#content[/ruta]`.
 //
-// Este camino NO es RPC tipado: se lista con `ls -lA` por el transporte de siempre, igual
-// que hace el navegador de ficheros de la interfaz. El agente no tiene verbo para esto, y
-// añadirlo es trabajo aparte.
+// **Por RPC tipado.** Aquí se listaba con `ls -lA` por SSH en Unix y con `Get-ChildItem` en
+// Windows, y el comentario decía que el agente no tenía verbo para esto. Sí lo tiene
+// —`--dump-dir-list`, el que usa el servidor web—: el daemon recorre el directorio él mismo
+// y contesta JSON, y solo si la ruta cae dentro de un punto de montaje de ZFS.
+//
+// Se gana más que quitar dos guiones: los dos formatos eran DISTINTOS, así que la misma
+// orden enseñaba unas columnas en Unix y otras en Windows. Ahora es una tabla, igual en las
+// dos, y sale por tsv y json como todo lo demás.
 bool listaContenido(Estado& e, const ZfsmUrl& destino) {
-    std::string error;
-    const auto* p = perfilVivoDe(e, destino, error);
-    if (!p) {
-        std::fprintf(stderr, "%s\n", error.c_str());
-        return false;
-    }
+    // La ruta la resuelve `rutaDeContenido`, que es la misma que usa el TABULADOR y la que
+    // sabe que en Windows el punto de montaje no es la propiedad `mountpoint` sino la letra
+    // de unidad del POOL.
     std::string base;
     bool esWindows = false;
     if (!rutaDeContenido(e, destino, base, esWindows, /*callado=*/false)) {
         return false;
     }
 
-    // La orden que lista. **SIN envolver en PowerShell aquí**: `runSsh` ya envuelve lo que
-    // va a una conexión Windows, y hacerlo dos veces devolvía el script expandido como
-    // texto en vez de ejecutarlo —las variables `$p` las resolvía el envoltorio de fuera y
-    // llegaban vacías—. Es el mismo motivo por el que la rama Unix pasa `sh -lc` en crudo.
-    std::string orden;
-    if (esWindows) {
-        // En Windows NO hay `sh`: el intérprete respondía «sh : The term 'sh' is not
-        // recognized as the name of a cmdlet». Se usa Get-ChildItem con campos separados
-        // por tabuladores, igual que el navegador de ficheros de la interfaz — y por el
-        // mismo motivo: imitar `ls -l` obligaría a inventar permisos, propietario y grupo
-        // que allí no significan lo mismo.
-        std::string entrecomillada = base;
-        B::replaceAll(entrecomillada, "'", "''");  // en PowerShell la comilla se dobla
-        orden = "$ErrorActionPreference='Stop'; $p='" + entrecomillada + "'; "
-                "if(-not (Test-Path -LiteralPath $p)){ Write-Error ('no existe: ' + $p); exit 3 }; "
-                "if(-not (Test-Path -LiteralPath $p -PathType Container)){ "
-                "  Write-Error ('no es un directorio: ' + $p); exit 2 }; "
-                "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
-                "  $d = if($_.PSIsContainer){'d'}else{'-'}; "
-                "  $z = if($_.PSIsContainer){0}else{$_.Length}; "
-                "  ($d + \"`t\" + $z + \"`t\" + $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') "
-                "     + \"`t\" + $_.Name) }";
-    } else {
-        const std::string guion =
-            "p=" + B::shSingleQuote(base)
-            + "; if [ -d \"$p\" ]; then ls -lA \"$p\" 2>&1; "
-              "elif [ -e \"$p\" ]; then echo \"no es un directorio: $p\" >&2; exit 2; "
-              "else echo \"no existe: $p\" >&2; exit 3; fi";
-        orden = "sh -lc " + B::shSingleQuote(guion);
-    }
-
-    const B::ConnectionProfile perfil = conSudo(e, *p);
     std::string out;
-    std::string err;
-    int rc = -1;
-    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, orden),
-                   20000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
-                   /*echoOutputToLog=*/e.ses->verboso)
-        || rc != 0) {
-        // Con el CLIXML limpiado, un fallo de PowerShell puede quedarse SIN texto: se dice
-        // al menos qué ruta y con qué código, que es lo que hace falta para entenderlo.
-        const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        if (detalle.empty()) {
-            std::fprintf(stderr, TC("t_no_se_pudo_cf3a73", "no se pudo listar %s (código %d)\n"), base.c_str(), rc);
-        } else {
-            std::fprintf(stderr, "%s\n", detalle.c_str());
-        }
-        e.ultimoRc = rc == 0 ? 1 : rc;
+    if (!agente(e, destino, PET::contenidoDeDirectorio(base), out)) {
         return false;
     }
-    std::fprintf(stdout, "%s", out.c_str());
-    if (!out.empty() && out.back() != '\n') {
-        std::fprintf(stdout, "\n");
+    std::vector<L::EntradaDeDirectorio> entradas;
+    std::string errJson;
+    if (!L::contenidoDeDirectorio(out, entradas, errJson)) {
+        std::fprintf(stderr, TC("t_contenido_ilegible", "respuesta ilegible al listar %s: %s\n"),
+                     base.c_str(), errJson.c_str());
+        e.ultimoRc = 1;
+        return false;
     }
+    Tabla t;
+    t.nombreJson = "entries";
+    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_tipo", "TIPO"),
+                        T("t_cab_tamano", "TAMAÑO")};
+    t.campos = {"name", "type", "size"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes};
+    for (const L::EntradaDeDirectorio& ent : entradas) {
+        t.filas.push_back({ent.nombre,
+                           ent.directorio ? "directory" : "file",
+                           ent.directorio ? "" : std::to_string(ent.tamano)});
+    }
+    t.imprime(e.formato);
     return true;
 }
+
 
 bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
@@ -1417,7 +1434,7 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
         std::string err;
         int rc = -1;
         std::string motivo;
-        if (!ejecutarAgente(*e.ses, *p, {"--dump-zfs-exists", destino.zfsName()}, out, err, rc,
+        if (!ejecutarAgente(*e.ses, *p, PET::existeDataset(destino.zfsName()), out, err, rc,
                             &motivo, 20000)) {
             std::fprintf(stderr, TC("t_no_se_pudo_1253da", "no se pudo comprobar %s: %s\n"), destino.zfsName().c_str(), motivo.c_str());
             e.ultimoRc = 1;
@@ -1438,12 +1455,9 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
 // --- Acciones sobre datasets, todas por `--mutate-zfs-generic`, que recibe el argv de
 // `zfs` en JSON y solo admite una lista cerrada de operaciones.
 bool zfsGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
-    B::json::Value arr{B::json::Array{}};
-    for (const std::string& a : argv) {
-        arr.push(B::json::Value(a));
-    }
+    // El empaquetado lo hace la capa base: es cómo espera el daemon los argumentos.
     std::string out;
-    return agente(e, destino, {"--mutate-zfs-generic", B::base64Encode(B::json::toCompact(arr))}, out);
+    return agente(e, destino, PET::zfsGenerico(B::helpers::argvParaAgente(argv)), out);
 }
 
 bool exigeDataset(const ZfsmUrl& u) {
@@ -1500,7 +1514,7 @@ bool creaInstantanea(Estado& e, const Peticion& pet, const ZfsmUrl& destinoEntra
     }
     std::string out;
     if (!agente(e, destino,
-                {"--mutate-zfs-snapshot", destino.dataset + "@" + nombre, recursivo ? "1" : "0"},
+                INST::argvCrearInstantanea(destino.dataset, nombre, recursivo),
                 out)) {
         return false;
     }
@@ -1576,8 +1590,10 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     }
     std::string out;
     if (!agente(e, destino,
-                {"--mutate-zfs-destroy", objetivo, pet.tiene("-f") ? "1" : "0",
-                 pet.tiene("-R") ? "R" : (pet.tiene("-r") ? "r" : "")},
+                INST::argvDestruir(objetivo, pet.tiene("-f"),
+                                   pet.tiene("-R")   ? INST::Alcance::Dependientes
+                                   : pet.tiene("-r") ? INST::Alcance::Descendientes
+                                                     : INST::Alcance::Solo),
                 out)) {
         return false;
     }
@@ -1606,8 +1622,10 @@ bool cmdRollback(Estado& e, const LineaAnalizada& linea) {
     }
     std::string out;
     if (!agente(e, destino,
-                {"--mutate-zfs-rollback", destino.zfsName(), pet.tiene("-f") ? "1" : "0",
-                 pet.tiene("-R") ? "R" : (pet.tiene("-r") ? "r" : "")},
+                INST::argvRollback(destino.zfsName(), pet.tiene("-f"),
+                                   pet.tiene("-R")   ? INST::Alcance::Dependientes
+                                   : pet.tiene("-r") ? INST::Alcance::Descendientes
+                                                     : INST::Alcance::Solo),
                 out)) {
         return false;
     }
@@ -1637,7 +1655,7 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
     const std::string nuevo =
         nombre.find('/') == std::string::npos ? origen.dataset + "/" + nombre : nombre;
     std::string out;
-    if (!agente(e, origen, {"--mutate-zfs-clone", origen.zfsName(), nuevo}, out)) {
+    if (!agente(e, origen, INST::argvClonar(origen.zfsName(), nuevo), out)) {
         return false;
     }
     std::fprintf(stderr, "clonado %s -> %s\n", origen.zfsName().c_str(), nuevo.c_str());
@@ -1953,13 +1971,16 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea) {
     if (!exigeDataset(destino)) {
         return false;
     }
-    const std::string nuevo = pet.uno("texto");
-    const std::size_t barra = destino.dataset.rfind('/');
-    const std::string completo =
-        nuevo.find('/') == std::string::npos && barra != std::string::npos
-            ? destino.dataset.substr(0, barra + 1) + nuevo
-            : nuevo;
-    if (!zfsGenerico(e, destino, {"rename", destino.dataset, completo})) {
+    // La regla —sin barra se conserva el padre— vive en `commands::datasets`, compartida con
+    // el servidor web, que no la tenía.
+    const std::vector<std::string> argvRen =
+        DS::argvRenombrar(destino.dataset, pet.uno("texto"));
+    if (argvRen.empty()) {
+        std::fputs(TC("t_rename_invalido", "ese nombre no sirve para renombrar\n"), stderr);
+        return false;
+    }
+    const std::string completo = argvRen.back();
+    if (!zfsGenerico(e, destino, argvRen)) {
         return false;
     }
     std::fprintf(stderr, "renombrado %s -> %s\n", destino.dataset.c_str(), completo.c_str());
@@ -2066,7 +2087,7 @@ std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::s
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
                        std::vector<B::gsa::Entrada>& out) {
     std::string crudo;
-    if (!agente(e, destino, {"--dump-zfs-get-gsa-raw-recursive", raiz}, crudo, 30000)) {
+    if (!agente(e, destino, PET::gsaDeDataset(raiz), crudo, 30000)) {
         return false;
     }
     for (const auto& kv : agrupaGsa(crudo)) {
@@ -2276,7 +2297,7 @@ bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    std::vector<std::string> argv{"--repair-alt-mountpoints"};
+    std::vector<std::string> argv = PET::reparaMontajesAlternativos({});
     if (aplicar) {
         argv.push_back("apply");
     }
@@ -2343,7 +2364,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         std::string out;
-        if (!agente(e, destino, {"--mutate-set-bind", dir}, out, 20000)) {
+        if (!agente(e, destino, PET::fijaEscucha(dir), out, 20000)) {
             return false;
         }
         std::fprintf(stderr, TC("t_peers_bind", "%s atiende ahora en %s; su daemon se está "
@@ -2352,8 +2373,32 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     }
     if (!pet.tiene("--push")) {
         std::string out;
-        if (!agente(e, destino, {"--dump-peers"}, out, 20000)) {
+        if (!agente(e, destino, PET::pares(), out, 20000)) {
             return false;
+        }
+        const PR::Vista vista = PR::analiza(out);
+        // Quién cree ser esa máquina va PRIMERO, y se dice también cuando falta.
+        //
+        // Su ausencia no rompe nada visible: rompe la nivelación GSA contra un dataset de la
+        // propia máquina, en silencio y con un mensaje que culpa al par. Sin enseñarlo aquí
+        // no había forma de dar con ello. Un daemon anterior a este cambio no lo emite, y
+        // entonces se dice eso mismo en vez de fingir que está vacío.
+        if (vista.self.empty()) {
+            // Dos causas, y desde aquí NO se distinguen: que la máquina no tenga puesto el
+            // dato, o que su daemon sea anterior a esta comprobación y por eso no lo diga.
+            // El mensaje las nombra las dos en vez de afirmar la que suene peor: dar por
+            // roto lo que solo está desactualizado manda a buscar donde no hay nada.
+            std::fputs(TC("t_peers_sin_self",
+                          "AVISO: esta máquina no ha dicho con qué nombre la llama usted.\n"
+                          "       O no lo tiene puesto —y entonces NO puede nivelar contra un\n"
+                          "       dataset suyo propio, sin avisar de ello—, o su daemon es\n"
+                          "       anterior a esta comprobación y simplemente no lo informa.\n"
+                          "       «peers --push» arregla lo primero; actualizar el daemon,\n"
+                          "       lo segundo.\n"),
+                       stderr);
+        } else {
+            std::fprintf(stderr, TC("t_peers_self", "se identifica como: %s\n"),
+                         vista.self.c_str());
         }
         Tabla t;
         t.nombreJson = "peers";
@@ -2361,44 +2406,22 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
                             T("t_cab_puerto", "PUERTO")};
         t.campos = {"id", "host", "port"};
         t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero};
-        for (const std::string& l : B::split(out, "\n", true)) {
-            const std::vector<std::string> c = B::split(l, "\t", false);
-            if (c.size() >= 3) {
-                t.filas.push_back({B::trim(c[0]), B::trim(c[1]), B::trim(c[2])});
-            }
+        for (const PR::Par& par : vista.pares) {
+            t.filas.push_back({par.id, par.host, std::to_string(par.puerto)});
         }
         t.imprime(e.formato);
         return true;
     }
 
-    // Lo que se manda: cada OTRA conexión con material TLS. La propia no, que sería
-    // decirle a la máquina cómo hablar consigo misma.
-    B::json::Array pares;
-    std::vector<std::string> nombres;
-    for (const auto& p : e.conns.perfiles) {
-        const std::string id = p.id.empty() ? p.name : p.id;
-        if (B::toLowerAscii(id) == B::toLowerAscii(destino.connection)) {
-            continue;
-        }
-        if (p.daemonTlsServerCertPem.empty() || p.daemonTlsClientCertPem.empty()
-            || p.daemonTlsClientKeyPem.empty()) {
-            continue;   // sin material TLS no hay nada que entregar
-        }
-        B::json::Value uno;
-        uno.set("id", B::json::Value(id));
-        uno.set("host", B::json::Value(T::isLocalConnection(p) ? std::string("127.0.0.1") : p.host));
-        uno.set("port", B::json::Value(static_cast<double>(p.daemonTlsPort)));
-        uno.set("server_cert_pem", B::json::Value(p.daemonTlsServerCertPem));
-        uno.set("client_cert_pem", B::json::Value(p.daemonTlsClientCertPem));
-        uno.set("client_key_pem", B::json::Value(p.daemonTlsClientKeyPem));
-        pares.push_back(uno);
-        nombres.push_back(id);
-    }
-    if (pares.empty()) {
-        std::fputs(TC("t_peers_ninguno", "no hay ninguna otra conexión con material TLS que "
-                     "entregar\n"), stderr);
+    // Componer la carga es cosa de la capa base: la interfaz y el servidor web necesitan
+    // exactamente lo mismo, y esto estaba solo aquí.
+    const PR::Entrega entrega =
+        PR::componeEntrega(e.conns.perfiles, destino.connection);
+    if (!entrega.sePuede()) {
+        std::fprintf(stderr, "%s\n", PR::etiquetaDe(entrega.fallo).c_str());
         return false;
     }
+    const std::vector<std::string>& nombres = entrega.nombres;
     if (!confirma(e, B::format(T("t_conf_peers", "Se van a entregar a %1 las credenciales de: %2.\n"
                                  "Con ellas, esa máquina puede hablar con las otras como si fuera "
                                  "usted. ¿Continuar?"),
@@ -2406,15 +2429,8 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    B::json::Value raiz;
-    // Con quién se identifica ESA máquina: lo sabe el cliente —le está entregando las
-    // credenciales a ella— y allí no hay forma de saberlo. Sirve para que el daemon
-    // distinga «nivela contra otra» de «nivela contra un dataset mío».
-    raiz.set("self", B::json::Value(destino.connection));
-    raiz.set("peers", B::json::Value(std::move(pares)));
-    const std::string carga = B::json::toCompact(raiz);
     std::string out;
-    if (!agente(e, destino, {"--mutate-set-peers", B::base64Encode(carga)}, out, 30000)) {
+    if (!agente(e, destino, PET::fijaPares(entrega.cargaB64), out, 30000)) {
         return false;
     }
     std::fprintf(stderr, TC("t_peers_puestos", "entregadas %zu credenciales a %s\n"),
@@ -2444,7 +2460,7 @@ bool cmdLog(Estado& e, const LineaAnalizada& linea) {
     // Un renglón del registro anda por los 120 bytes; se piden con holgura y sobra poco.
     const long bytes = (lineas + 20) * 400;
     std::string out;
-    if (!agente(e, pet.objetivo, {"--dump-daemon-log", "0", std::to_string(bytes)}, out, 30000)) {
+    if (!agente(e, pet.objetivo, PET::registro(0, bytes), out, 30000)) {
         return false;
     }
     std::vector<std::string> todas = B::split(out, "\n", false);
@@ -2486,7 +2502,7 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
         u.kind = ZfsmKind::Connection;
         u.connection = id;
         std::string listaPools;
-        if (!agente(e, u, {"--dump-zpool-list"}, listaPools, 20000)) {
+        if (!agente(e, u, PET::listaDePools(), listaPools, 20000)) {
             continue;   // con --all, una máquina que no contesta no invalida a las demás
         }
         B::json::Value raiz;
@@ -2669,8 +2685,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         }
         std::string out;
         const bool ok = agente(e, destino,
-                               {"--mutate-zfs-load-key", B::base64Encode(destino.dataset),
-                                B::base64Encode(frase)},
+                               PET::cargaClave(destino.dataset, frase),
                                out);
         for (char& c : frase) {
             c = '\0';
@@ -2716,8 +2731,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         }
         std::string out;
         const bool ok = agente(e, destino,
-                               {"--mutate-zfs-change-key", B::base64Encode(destino.dataset),
-                                B::base64Encode(frase), B::base64Encode(std::string())},
+                               PET::cambiaClave(destino.dataset, frase, std::string()),
                                out);
         for (char& c : frase) { c = '\0'; }
         if (!ok) {
@@ -2754,9 +2768,18 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    std::vector<std::string> argv{"--mutate-advanced-breakdown", destino.dataset};
-    for (const auto& x : pet.lista("texto")) {
-        argv.push_back(x);
+    // La lista llega en pares (subdirectorio, dataset nuevo); `argvDesglosar` los empareja y
+    // descarta entero el que venga a medias, que es lo que desplazaría a todos los demás.
+    std::vector<AV::Desglose> pares;
+    const auto& xs = pet.lista("texto");
+    for (std::size_t i = 0; i + 1 < xs.size(); i += 2) {
+        pares.push_back(AV::Desglose{xs[i], xs[i + 1]});
+    }
+    const std::vector<std::string> argv = AV::argvDesglosar(destino.dataset, pares);
+    if (argv.empty()) {
+        std::fputs(TC("t_nada_que_desglosar",
+                      "los subdirectorios van en pares: <subdir> <dataset-nuevo>\n"), stderr);
+        return false;
     }
     return lanzaOEspera(e, pet, destino, argv);
 }
@@ -2779,12 +2802,14 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    // Los hijos van con NOMBRE COMPLETO. El agente los comprueba con `zfs list <hijo>`, así
-    // que un nombre relativo no existe para él y la operación se salda con «ya absorbido»
-    // y rc=0: parece que ha funcionado y no ha hecho nada.
-    std::vector<std::string> argv{"--mutate-advanced-assemble", destino.dataset};
-    for (const auto& x : pet.lista("texto")) {
-        argv.push_back(x.find('/') == std::string::npos ? destino.dataset + "/" + x : x);
+    // La regla de los nombres completos vive en `commands::avanzadas`, con su porqué y sus
+    // pruebas. Aquí estaba escrita en un comentario, otra vez en el servidor web, y resuelta
+    // de una tercera manera en la interfaz.
+    const std::vector<std::string> argv =
+        AV::argvEnsamblar(destino.dataset, pet.lista("texto"));
+    if (argv.empty()) {
+        std::fputs(TC("t_nada_que_ensamblar", "ninguno de los nombres dados sirve\n"), stderr);
+        return false;
     }
     return lanzaOEspera(e, pet, destino, argv);
 }
@@ -2809,8 +2834,13 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    const std::vector<std::string> argvTodir{"--mutate-advanced-todir", destino.dataset,
-                                             pet.uno("ruta"), borraOrigen ? "1" : "0"};
+    const std::vector<std::string> argvTodir =
+        AV::argvHaciaDir(destino.dataset, pet.uno("ruta"), borraOrigen);
+    if (argvTodir.empty()) {
+        std::fputs(TC("t_ruta_no_absoluta",
+                      "el directorio de destino tiene que ser una ruta absoluta\n"), stderr);
+        return false;
+    }
     return lanzaOEspera(e, pet, destino, argvTodir);
 }
 
@@ -2872,6 +2902,17 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 
     const std::string dir = pet.uno("ruta");
     const std::string rel = pet.valor("subdir");
+    // El subdirectorio se comprueba AQUÍ, antes de preguntar y antes de abrir la tubería.
+    // Lo miraba solo el daemon, al otro extremo, y para entonces el tar del origen ya estaba
+    // corriendo: la operación moría a mitad con parte del contenido ya fuera de su máquina.
+    if (!AV::subdirectorioRelativoValido(rel)) {
+        std::fprintf(stderr,
+                     TC("t_fromdir_subdir_malo",
+                        "«%s» no sirve como subdirectorio: tiene que ser relativo al dataset y "
+                        "sin «..»\n"),
+                     rel.c_str());
+        return false;
+    }
     if (!confirma(e, B::format(T("t_conf_fromdir",
                                  "Se va a volcar %1 de %2 dentro de %3 en %4. ¿Continuar?"),
                                {dir, origen.connection, destino.dataset,
@@ -2887,8 +2928,63 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     // sonda por máquina. La interfaz la hace porque ya tiene esos datos cacheados.
     const std::string tarOrigen =
         H::buildTarSourceCommand(T::isWindowsConnection(src), dir, H::StreamCodec::None);
-    const std::string recibe = B::daemonpayload::unixBinPath() + " --mutate-advanced-fromdir "
-                               + B::shSingleQuote(destino.dataset) + " " + B::shSingleQuote(rel);
+    // ── Primero, sin tubería: el árbol entre daemons ─────────────────────────────
+    //
+    // El destino prepara el directorio y se pone a escuchar; el origen le manda el árbol
+    // directamente. Los datos NO pasan por esta máquina, y la copia es incremental.
+    //
+    // Se INTENTA en vez de comprobarse antes: aquí no hay estado cacheado de qué máquina
+    // tiene daemon —eso lo lleva la ventana—, y una llamada que falla dice exactamente lo
+    // mismo que diría la comprobación, sin costar un viaje de más cuando sí se puede.
+    {
+        const std::vector<std::string> prepArgv = AV::argvDesdeDirPreparar(destino.dataset, rel);
+        std::string pOut;
+        std::string pErr;
+        int pRc = -1;
+        const bool preparado = !prepArgv.empty()
+                               && ejecutarAgente(*e.ses, dst, prepArgv, pOut, pErr, pRc, nullptr,
+                                                 60000)
+                               && pRc == 0;
+        const std::string dirDestino = preparado ? AV::rutaPreparada(pOut) : std::string();
+        if (!dirDestino.empty()) {
+            const auto llama = [&e](const B::ConnectionProfile& maquina,
+                                    const std::vector<std::string>& args, int timeoutMs,
+                                    std::string& salida, std::string& err, int& rc) {
+                return ejecutarAgente(*e.ses, maquina, args, salida, err, rc, nullptr, timeoutMs);
+            };
+            std::string salidaEnvio;
+            const auto hecho = TR::lanzaTrabajoDeArbol(
+                e.ses->transporte, llama, src, dst, dir, dirDestino,
+                origen.connection == destino.connection, e.ses->verboso,
+                /*comoTrabajo=*/false, /*borrarEnDestino=*/false, /*enSeco=*/false,
+                &salidaEnvio);
+            // `fallo` y no `ok()`: sin encolar no hay identificador, y `ok()` exige uno.
+            if (hecho.fallo == TR::FalloTrabajo::Ninguno) {
+                std::fputs(salidaEnvio.c_str(), stdout);
+                return true;
+            }
+            // Que no se pueda por aquí no es un error de la orden: se sigue por la tubería,
+            // que solo pide daemon en el destino. Se dice por qué, para que no parezca que
+            // se eligió el camino lento porque sí.
+            std::fprintf(stderr,
+                         TC("t_fromdir_arbol_no", "el árbol entre daemons no pudo (%s); se sigue "
+                                                  "por la tubería\n"),
+                         TR::etiquetaDe(hecho.fallo).c_str());
+        }
+    }
+
+    // El argv lo compone el módulo, que es el mismo que usa la interfaz. La cadena se deriva
+    // de él —nunca al revés—: aquí hace falta porque lo que se ejecuta es una tubería de
+    // shell, y esa es justamente la punta que no puede ser un RPC.
+    const std::vector<std::string> fdArgv = AV::argvDesdeDir(destino.dataset, rel);
+    if (fdArgv.empty()) {
+        std::fprintf(stderr, TC("t_fromdir_destino_malo", "destino no válido para fromdir\n"));
+        return false;
+    }
+    std::string recibe = B::daemonpayload::unixBinPath();
+    for (const std::string& a : fdArgv) {
+        recibe += " " + B::shSingleQuote(a);
+    }
 
     // `sshExecFromLocal`: para una conexión LOCAL la orden se queda tal cual; para una SSH
     // se envuelve en `ssh host '...'`. Así la misma tubería vale para local->local,
@@ -3019,43 +3115,34 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
 
-    // 1) El destino se pone a escuchar.
-    std::string recvOut;
-    if (!agente(e, destino, {"--zfs-recv-listen", destino.dataset, "1"}, recvOut, 20000)) {
-        return false;
-    }
-    const auto claves = clavesDe(recvOut);
-    const std::string puerto = claves.count("PORT") ? claves.at("PORT") : std::string();
-    const std::string testigo = claves.count("TOKEN") ? claves.at("TOKEN") : std::string();
-    if (puerto.empty() || testigo.size() != 64) {
-        std::fputs(TC("t_el_destino_5cc244", "el destino no abrió el puerto de recepción correctamente\n"), stderr);
-        return false;
-    }
-
-    // 2) Con qué dirección ve el origen al destino. En la misma máquina, por el bucle
-    // local; si no, por el host del perfil — que es como el origen llega a él.
-    const std::string peer = mismaMaquina ? "127.0.0.1" : B::trim(pDestino->host);
-    if (peer.empty()) {
-        std::fprintf(stderr, TC("t_no_se_sabe_0d2422", "no se sabe con qué dirección ve %s a %s: la conexión de destino no "
-                     "tiene host\n"), origen.connection.c_str(), destino.connection.c_str());
-        return false;
-    }
-
-    // 3) El origen envía. Como TRABAJO: una transferencia grande no cabe en una espera.
+    // Los tres pasos —escuchar, resolver la dirección, enviar— los da `TR::lanzaTrabajo`.
     //
-    std::string sendOut;
-    if (!agente(e, origen,
-                {"--zfs-send-to-peer-async", origen.zfsName(), peer, puerto, testigo, base,
-                 banderasSend},
-                sendOut, 30000)) {
+    // Aquí había una copia entera de esa secuencia, y YA HABÍA DIVERGIDO: resolvía la
+    // dirección del destino como «el host del perfil», que cuando el destino es la conexión
+    // **Local** vale «localhost» y desde una máquina remota apunta al propio origen. Copiar
+    // de una máquina remota a Local dejaba al emisor conectándose consigo mismo. La capa
+    // base pregunta al origen con qué dirección nos ve, que es la única que le sirve para
+    // volver, y ese caso es justo el que se perdía al tener dos copias.
+    TR::LlamadaAlAgente llama = [&](const B::ConnectionProfile& maquina,
+                                    const std::vector<std::string>& args, int timeoutMs,
+                                    std::string& out, std::string& err, int& rc) {
+        std::string motivo;
+        return ejecutarAgente(*e.ses, maquina, args, out, err, rc, &motivo, timeoutMs);
+    };
+    const TR::Trabajo trabajo =
+        TR::lanzaTrabajo(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
+                         destino.dataset,
+                         base, banderasSend, /*testigoReanudacion=*/std::string(), mismaMaquina,
+                         e.ses->verboso);
+    if (!trabajo.ok()) {
+        const std::string detalle = B::trim(trabajo.detalle);
+        std::fprintf(stderr, "%s%s%s\n", TR::etiquetaDe(trabajo.fallo).c_str(),
+                     detalle.empty() ? "" : ": ", detalle.c_str());
+        e.ultimoRc = 1;
         return false;
     }
-    const auto cs = clavesDe(sendOut);
-    const std::string jobId = cs.count("JOB_ID") ? cs.at("JOB_ID") : std::string();
-    if (jobId.empty()) {
-        std::fputs(TC("t_el_origen__722922", "el origen no devolvió identificador de trabajo\n"), stderr);
-        return false;
-    }
+    const std::string jobId = trabajo.id;
+    e.ultimoRc = 0;
     std::fprintf(stdout, "%s\n", jobId.c_str());
     std::fprintf(stderr, TC("t_transferen_07aa2e", "transferencia en marcha como trabajo %s en %s\n"), jobId.c_str(), origen.connection.c_str());
 
@@ -3069,7 +3156,7 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         std::string est;
-        if (!agente(e, origen, {"--job-status", jobId}, est, 20000)) {
+        if (!agente(e, origen, PET::estadoDeTrabajo(jobId), est, 20000)) {
             return false;
         }
         const auto k = clavesDe(est);
@@ -3221,7 +3308,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
         }
     }
     std::string out;
-    if (!agente(e, destino, {"--job-list"}, out, 30000)) {
+    if (!agente(e, destino, PET::listaDeTrabajos(), out, 30000)) {
         return false;
     }
     Tabla t;
@@ -3295,14 +3382,14 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         std::string out;
-        if (!agente(e, destino, {"--job-cancel", id}, out, 30000)) {
+        if (!agente(e, destino, PET::cancelaTrabajo(id), out, 30000)) {
             return false;
         }
         std::fprintf(stderr, TC("t_cancelado__b0d1d4", "cancelado el trabajo %s\n"), id.c_str());
         return true;
     }
     std::string out;
-    if (!agente(e, destino, {"--job-status", id}, out, 30000)) {
+    if (!agente(e, destino, PET::estadoDeTrabajo(id), out, 30000)) {
         return false;
     }
     Tabla t;
@@ -3345,9 +3432,12 @@ bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 }
 
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
-    std::vector<std::string> conJob{"--job-submit"};
-    for (const auto& a : argv) {
-        conJob.push_back(a);
+    // `encola` además comprueba que el daemon sepa encolar ESE verbo: mandarle uno que no
+    // está en su lista es un viaje para recibir un rc=2.
+    const std::vector<std::string> conJob = PET::encola(argv);
+    if (conJob.empty()) {
+        std::fprintf(stderr, TC("t_no_encolable", "esa orden no se puede encolar como trabajo\n"));
+        return false;
     }
     std::string out;
     if (!agente(e, destino, conJob, out, 60000)) {
@@ -3370,12 +3460,8 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
 // una lista cerrada de operaciones: nunca hay un intérprete de por medio.
 
 bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
-    B::json::Value arr{B::json::Array{}};
-    for (const std::string& a : argv) {
-        arr.push(B::json::Value(a));
-    }
     std::string out;
-    if (!agente(e, destino, {"--mutate-zpool-generic", B::base64Encode(B::json::toCompact(arr))},
+    if (!agente(e, destino, PET::zpoolGenerico(B::helpers::argvParaAgente(argv)),
                 out, 0)) {
         return false;
     }
@@ -3396,31 +3482,25 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    std::vector<std::string> argv{op};
-    // `zpool scrub -s` para, `-p` pausa; trim e initialize usan -s/-c/-u. Se aceptan por
-    // nombre para no obligar a recordar qué letra usa cada uno. Cuál de las palabras vino
-    // ya lo ha separado la firma: aquí solo se traduce a la letra.
+    // La traducción de la fase a su letra —que NO es la misma para las tres operaciones— y
+    // el orden de los argumentos viven en `commands::pools`, compartidos con el servidor web.
+    // Aquí solo se decide QUÉ operación y con qué palabras la pidió el usuario.
     const std::string fase = B::toLowerAscii(pet.uno("fase"));
+    PL::Fase faseOp = PL::Fase::Arrancar;
     if (fase == "stop" || fase == "cancel") {
-        argv.push_back(std::string(op) == "scrub" ? "-s" : "-c");
+        faseOp = PL::Fase::Parar;
     } else if (fase == "pause" || fase == "suspend") {
-        argv.push_back(std::string(op) == "scrub" ? "-p" : "-s");
+        faseOp = PL::Fase::Pausar;
     }
-    // El orden que pide zpool: BANDERAS, luego el pool, luego los discos
-    // —`zpool trim [-r <rate>] <pool> [device]`—.
-    //
-    // Las dos mitades vienen de verlo fallar. Los discos iban ANTES del pool, así que
-    // `trim <pool> <disco>` respondía «invalid character '/' in pool name». Y las banderas
-    // nativas iban DESPUÉS del pool, donde zpool las ignora en silencio: `trim -r
-    // noesunritmo` decía «trim en marcha» y el historial del pool registraba
-    // `zpool trim pruebacli` a secas, sin el `-r`. Aceptada y no aplicada es la peor de las
-    // dos formas de fallar.
-    for (const std::string& b : pet.nativas()) {
-        argv.push_back(b);
-    }
-    argv.push_back(destino.pool);
-    for (const std::string& d : pet.lista("disco")) {
-        argv.push_back(d);
+    const std::string sub(op);
+    const PL::Operacion opPool = sub == "scrub"      ? PL::Operacion::Scrub
+                                 : sub == "trim"     ? PL::Operacion::Trim
+                                                     : PL::Operacion::Initialize;
+    std::vector<std::string> argv = PL::argv(opPool, destino.pool, faseOp, pet.nativas(),
+                                             pet.lista("disco"));
+    if (argv.empty()) {
+        std::fputs(TC("t_pool_op_invalida", "no se puede pedir eso sobre ese pool\n"), stderr);
+        return false;
     }
     if (!zpoolGenerico(e, destino, argv)) {
         return false;
@@ -3474,7 +3554,7 @@ bool cmdStatus(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, {"--dump-zpool-status", destino.pool}, out, 60000)) {
+    if (!agente(e, destino, PET::estadoDePool(destino.pool), out, 60000)) {
         return false;
     }
     std::fprintf(stdout, "%s", out.c_str());
@@ -3495,7 +3575,7 @@ bool cmdHistory(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, {"--dump-zpool-history", destino.pool}, out, 60000)) {
+    if (!agente(e, destino, PET::historialDePool(destino.pool), out, 60000)) {
         return false;
     }
     Tabla t;
@@ -3533,7 +3613,7 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
     }
     if (pet.lista("texto").empty()) {
         std::string out;
-        if (!agente(e, destino, {"--dump-zpool-import-probe"}, out, 60000)) {
+        if (!agente(e, destino, PET::sondaDeImportables(), out, 60000)) {
             return false;
         }
         std::fprintf(stdout, "%s", out.c_str());
@@ -3683,7 +3763,7 @@ bool cmdRefrescar(Estado& e, const LineaAnalizada& linea) {
 
     // Y ahora se pregunta a la máquina. Los dos verbos que la interfaz usa para lo mismo.
     std::string basicos;
-    if (!agente(e, destino, {"--dump-refresh-basics"}, basicos, 30000)) {
+    if (!agente(e, destino, PET::datosBasicosDelRefresco(), basicos, 30000)) {
         return false;
     }
     std::string salud;
@@ -3768,12 +3848,19 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    std::vector<std::string> argv{poner ? "hold" : "release"};
-    if (pet.tiene("-r")) {
-        argv.push_back("-r");
+    // El orden —etiqueta primero— y la validación viven en `commands::instantaneas`,
+    // compartidos con el servidor web. Se usa la forma de argv de `zfs` y no el verbo tipado
+    // porque el intérprete admite `-r`, y el tipado NO: ese lee exactamente dos parámetros.
+    const std::vector<std::string> argv =
+        poner ? INST::argvZfsRetener(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"))
+              : INST::argvZfsSoltar(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"));
+    if (argv.empty()) {
+        std::fputs(TC("t_retencion_invalida",
+                      "la etiqueta no puede llevar espacios, arrobas ni barras, y hay que "
+                      "nombrar una instantánea\n"),
+                   stderr);
+        return false;
     }
-    argv.push_back(pet.uno("etiqueta"));
-    argv.push_back(destino.zfsName());
     if (!zfsGenerico(e, destino, argv)) {
         return false;
     }
@@ -3805,7 +3892,7 @@ bool cmdDiff(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, origen, {"--dump-zfs-diff", origen.zfsName(), hasta.zfsName()}, out, 120000)) {
+    if (!agente(e, origen, PET::diferenciaEntre(origen.zfsName(), hasta.zfsName()), out, 120000)) {
         return false;
     }
     Tabla t;
@@ -3839,7 +3926,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, {"--dump-block-devices"}, out, 25000)) {
+    if (!agente(e, destino, PET::dispositivosDeBloque(), out, 25000)) {
         return false;
     }
     B::json::Value raiz;
@@ -3879,7 +3966,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
 // otro camino, que no está portado al intérprete.
 bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
     std::string mp;
-    if (!agente(e, u, {"--dump-zfs-get-prop", "mountpoint", u.zfsName()}, mp)) {
+    if (!agente(e, u, PET::propiedadDeDataset("mountpoint", u.zfsName()), mp)) {
         return false;
     }
     out = B::trim(mp);
@@ -3944,17 +4031,18 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    // El orden lo fija el daemon: [delete, dryRun, rsh, dstHost, origen, destino].
-    B::json::Array carga;
-    carga.push_back(B::json::Value(std::string(borra ? "1" : "0")));
-    carga.push_back(B::json::Value(std::string(simula ? "1" : "0")));
-    carga.push_back(B::json::Value(std::string()));  // rsh: mismo host
-    carga.push_back(B::json::Value(std::string()));  // dstHost: mismo host
-    carga.push_back(B::json::Value(rutaOrigen));
-    carga.push_back(B::json::Value(rutaDestino));
-    const std::vector<std::string> argv{
-        "--mutate-rsync-local",
-        B::base64Encode(B::json::toCompact(B::json::Value(std::move(carga))))};
+    // La carga la arma la capa base. Estaba escrita aquí, otra vez en la ventana principal
+    // y una tercera en el servidor web: tres copias del mismo orden de campos, que es un
+    // contrato del daemon y no de ninguno de los tres.
+    const std::string carga =
+        SY::cargaRsync({{rutaOrigen, rutaDestino}}, borra, simula, std::string(), std::string());
+    if (carga.empty()) {
+        std::fputs(TC("t_rsync_rutas_mal",
+                      "las rutas de origen y destino tienen que ser absolutas\n"),
+                   stderr);
+        return false;
+    }
+    const std::vector<std::string> argv = PET::copiaConRsync(carga);
     // Un `--check` es una simulación: no hay nada que mandar al daemon como trabajo, y lo
     // que uno quiere es LEER la salida ahora mismo.
     if (simula) {
@@ -4038,7 +4126,7 @@ std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
             int rc = -1;
             const auto* p = buscarConexion(e.conns, u.connection);
             if (!p || e.conns.desconectada(u.connection)
-                || !ejecutarAgente(*e.ses, *p, {"--dump-zpool-list"}, texto, err, rc, nullptr, 8000)
+                || !ejecutarAgente(*e.ses, *p, PET::listaDePools(), texto, err, rc, nullptr, 8000)
                 || rc != 0) {
                 return out;
             }
@@ -4058,7 +4146,7 @@ std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
             int rc = -1;
             const auto* p = buscarConexion(e.conns, u.connection);
             if (!p || e.conns.desconectada(u.connection)
-                || !ejecutarAgente(*e.ses, *p, {"--dump-zfs-list-all", u.dataset}, texto, err, rc,
+                || !ejecutarAgente(*e.ses, *p, PET::listaDeDatasets(u.dataset), texto, err, rc,
                                    nullptr, 12000)
                 || rc != 0) {
                 return out;
@@ -4107,7 +4195,7 @@ const std::vector<std::string>& propiedadesDe(Estado& e, const ZfsmUrl& donde) {
         std::string err;
         // El verbo devuelve el JSON de `zfs get -j`, no columnas: los nombres son las claves
         // de `properties`.
-        if (agente(e, donde, {"--dump-zfs-get-all", donde.zfsName()}, out, 20000)
+        if (agente(e, donde, PET::propiedadesDeDataset(donde.zfsName()), out, 20000)
             && B::json::parse(out, raiz, &err)) {
             for (const auto& ds : raiz["datasets"].toObject()) {
                 for (const auto& prop : ds.second["properties"].toObject()) {
@@ -4342,20 +4430,32 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         std::fprintf(stderr, "%s\n", e.conns.aviso.c_str());
     }
 
-    // Se empieza en la máquina donde uno ya está. Si no hay conexión «Local» configurada,
-    // se empieza en la raíz en vez de en una URL que no nombra nada.
+    // Se empieza en la RAÍZ, no en «Local».
+    //
+    // Antes se arrancaba en `zfsm://Local` por parecer el sitio útil, pero da una primera
+    // impresión falsa: hace creer que esa máquina es el punto de partida obligado, y en un
+    // cliente cuyo trabajo es gobernar VARIAS máquinas eso es lo contrario de lo que se
+    // quiere enseñar. Desde la raíz, `ls` lista las conexiones y se ve el mapa entero antes
+    // de bajar a ninguna; `cd local` sigue estando a una orden de distancia.
+    //
+    // Una URL dada en la línea de órdenes SÍ se respeta: quien la escribe sabe dónde quiere
+    // empezar. Y por eso el aviso de fallo solo tiene sentido en ese caso —arrancar en la
+    // raíz porque no se pidió otra cosa no es un error del que avisar—.
+    //
     // Se resuelve con `resuelve()` y no con `parseZfsmUrl()` a secas para que el nombre de
     // la conexión quede normalizado a su IDENTIFICADOR desde el primer momento: si no, el
-    // indicador decía «zfsm://Local» al arrancar y «zfsm://local/...» tras el primer `cd`,
-    // que parecen dos sitios distintos.
-    const std::string inicio = urlInicial.empty() ? std::string("zfsm://Local") : urlInicial;
-    std::string errInicio;
-    if (!resuelve(e, inicio, e.actual, errInicio)
-        || buscarConexion(e.conns, e.actual.connection) == nullptr) {
-        if (!urlInicial.empty()) {
-            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"), inicio.c_str(), errInicio.empty() ? "esa conexión no existe" : errInicio.c_str());
-        }
+    // indicador diría «zfsm://Local» y «zfsm://local/...» tras el primer `cd`, que parecen
+    // dos sitios distintos.
+    if (urlInicial.empty()) {
         e.actual = ZfsmUrl{};
+    } else {
+        std::string errInicio;
+        if (!resuelve(e, urlInicial, e.actual, errInicio)
+            || buscarConexion(e.conns, e.actual.connection) == nullptr) {
+            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"),
+                         urlInicial.c_str(), errInicio.c_str());
+            e.actual = ZfsmUrl{};
+        }
     }
 
     const bool interactivo = hayTerminal();

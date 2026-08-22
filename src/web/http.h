@@ -27,6 +27,12 @@ struct Peticion {
     std::string cookie(const std::string& nombre) const;
     // Un campo de un cuerpo `application/x-www-form-urlencoded`.
     std::string campo(const std::string& nombre) const;
+    // TODOS los valores de un campo que se repite.
+    //
+    // Un grupo de casillas manda el mismo nombre tantas veces como marcadas haya, y `campo`
+    // devuelve solo la primera: elegir tres discos para un pool y crearlo con uno es peor
+    // que no dejarlo crear.
+    std::vector<std::string> campos(const std::string& nombre) const;
 };
 
 // Analiza. Nunca lanza: una petición malformada devuelve `valida=false` y su motivo.

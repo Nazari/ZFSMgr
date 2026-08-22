@@ -59,6 +59,21 @@ std::string Peticion::campo(const std::string& nombre) const {
     return {};
 }
 
+std::vector<std::string> Peticion::campos(const std::string& nombre) const {
+    std::vector<std::string> out;
+    for (const std::string& par : B::split(cuerpo, "&", true)) {
+        std::string k;
+        std::string v;
+        if (!parteEn(par, "=", k, v)) {
+            continue;
+        }
+        if (desdeUrl(k) == nombre) {
+            out.push_back(desdeUrl(v));
+        }
+    }
+    return out;
+}
+
 Peticion analiza(const std::string& crudo) {
     Peticion p;
     const std::size_t finCabeceras = crudo.find("\r\n\r\n");
