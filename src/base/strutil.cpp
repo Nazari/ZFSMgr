@@ -1,5 +1,8 @@
 #include "strutil.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 #include <cctype>
 
 namespace zfsmgr::base {
@@ -378,6 +381,28 @@ bool base64Decode(const std::string& text, std::string& out) {
         }
     }
     return true;
+}
+
+}  // namespace zfsmgr::base
+
+namespace zfsmgr::base {
+
+std::string tamanoLegible(const std::string& v) {
+    char* fin = nullptr;
+    const double n = std::strtod(v.c_str(), &fin);
+    if (!fin || *fin != '\0' || v.empty()) {
+        return v;  // no es un número: se deja como vino
+    }
+    static const char* kUnidades[] = {"B", "K", "M", "G", "T", "P", "E"};
+    double x = n;
+    int u = 0;
+    while (x >= 1024.0 && u < 6) {
+        x /= 1024.0;
+        ++u;
+    }
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), (u == 0 || x >= 10.0) ? "%.0f%s" : "%.1f%s", x, kUnidades[u]);
+    return buf;
 }
 
 }  // namespace zfsmgr::base

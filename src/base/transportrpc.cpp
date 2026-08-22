@@ -160,12 +160,15 @@ bool runSshRaw(const ConnectionProfile& p,
     // entendible, y colgarse esperando una contraseña que nadie va a teclear no lo es.
     const bool hasPassword = !trim(p.password).empty();
     bool conSshpass = false;
+    // Vive hasta el final de la función, que es cuando se ha lanzado el proceso: si se
+    // cerrase antes, sshpass leería de un descriptor ya muerto.
+    H::SecretoPorDescriptor secreto(hasPassword ? p.password : std::string());
     if (hasPassword) {
         const std::string sshpassExe = H::findLocalExecutable("sshpass");
-        if (!sshpassExe.empty()) {
+        if (!sshpassExe.empty() && secreto.vale()) {
+            // La contraseña va por el descriptor, no por el argv: ver SecretoPorDescriptor.
             program = sshpassExe;
-            args.push_back("-p");
-            args.push_back(p.password);
+            args.push_back(secreto.opcionSshpass());
             args.push_back("ssh");
             conSshpass = true;
         }
@@ -868,13 +871,12 @@ bool runSsh(TransportSession& ses,
 
     const bool hayClave = !trim(p.password).empty();
     std::string program = "ssh";
-    std::vector<std::string> sshpassPrefijo;
     bool conSshpass = false;
+    std::string sshpassExe;
     if (hayClave) {
-        const std::string sshpassExe = H::findLocalExecutable("sshpass");
+        sshpassExe = H::findLocalExecutable("sshpass");
         if (!sshpassExe.empty()) {
             program = sshpassExe;
-            sshpassPrefijo = {"-p", p.password, "ssh"};
             conSshpass = true;
         }
     }
@@ -897,7 +899,23 @@ bool runSsh(TransportSession& ses,
         aErr.clear();
         aRc = -1;
 
-        std::vector<std::string> args = sshpassPrefijo;
+        // La contraseña se entrega por un DESCRIPTOR, y el descriptor se crea AQUÍ, dentro
+        // del intento, no fuera. Un pipe se lee una sola vez: como esta lambda se ejecuta
+        // dos veces —la segunda sin multiplexado— un único descriptor creado fuera llegaría
+        // vacío al reintento y la autenticación fallaría sin explicar por qué.
+        H::SecretoPorDescriptor secreto(conSshpass ? p.password : std::string());
+        std::string programa = program;
+        std::vector<std::string> args;
+        if (conSshpass) {
+            if (secreto.vale()) {
+                args.push_back(secreto.opcionSshpass());
+                args.push_back("ssh");
+            } else {
+                // Sin tubería no hay forma seria de darle la contraseña. Se lanza ssh a
+                // secas y que falle por credenciales, que es preferible a publicarla.
+                programa = "ssh";
+            }
+        }
         const std::string familyOpt = H::sshAddressFamilyOption(p);
         if (!familyOpt.empty()) {
             args.push_back(familyOpt);
@@ -939,7 +957,7 @@ bool runSsh(TransportSession& ses,
 
         VigilanteDeInactividad vig{ses,       p.id,          timeoutMs,          echoOutputToLog,
                                    onStdoutLine, onStderrLine, onIdleTimeoutRemaining};
-        const ExecResult res = runExecStream(program, args, stdinPayload, 0, vig.callbacks());
+        const ExecResult res = runExecStream(programa, args, stdinPayload, 0, vig.callbacks());
         aOut = res.out;
         aErr = res.err;
         if (res.rc == 127 && !vig.porInactividad) {

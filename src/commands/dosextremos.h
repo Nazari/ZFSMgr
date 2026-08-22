@@ -34,6 +34,9 @@ enum class NoAplica {
     DestinoNoEsDataset,
     DistintoDataset,         // `zfs diff` compara dos puntos del MISMO dataset
     DistintaMaquina,
+    DistintoPool,            // `zfs rename` no cruza pools
+    OrigenNoEsDataset,
+    DestinoDentroDelOrigen,  // meter un dataset dentro de sí mismo
     TodaviaNoEstaEnLaWeb,
 };
 
@@ -54,7 +57,26 @@ struct Extremo {
         const std::size_t i = objeto.find('@');
         return i == std::string::npos ? objeto : objeto.substr(0, i);
     }
+    // El pool: lo de delante de la primera barra. Hace falta porque `zfs rename` NO cruza
+    // pools —para eso está copiar— y el motivo hay que poder decirlo.
+    std::string pool() const {
+        const std::string d = dataset();
+        const std::size_t i = d.find('/');
+        return i == std::string::npos ? d : d.substr(0, i);
+    }
+    // El último componente del nombre, que es el que conserva al moverlo.
+    std::string hoja() const {
+        const std::string d = dataset();
+        const std::size_t i = d.rfind('/');
+        return i == std::string::npos ? d : d.substr(i + 1);
+    }
 };
+
+// A dónde queda un dataset movido bajo otro: «destino/hoja del origen».
+//
+// Vive aquí y no en quien pinta el menú porque es la MISMA cuenta que hace la interfaz de
+// Qt al encolar el renombrado, y tenerla dos veces es tenerla mal una de las dos.
+std::string destinoDeMover(const Extremo& origen, const Extremo& destino);
 
 // ¿Se puede hacer `a` desde `origen` hasta `destino`? `NoAplica::Ninguna` es que sí.
 NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino);

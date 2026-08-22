@@ -1,10 +1,14 @@
 #include "helpers.h"
 
 #include "daemonpayload.h"
+#include "json.h"
 #include "strutil.h"
 
 #include <cctype>
 #include <cstdio>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <cstdlib>
 #include <map>
 #include <regex>
@@ -78,24 +82,10 @@ bool parentAllowsChildMount(const std::string& parentMountpoint, const std::stri
     return isMountedValueTrue(parentMounted);
 }
 
-std::string buildHasMountedChildrenCommand(bool isWindows, const std::string& datasetName) {
-    if (isWindows) {
-        std::string dsPs = datasetName;
-        replaceAll(dsPs, "\'", ("''"));
-        return format("$ds='%1'; "
-                   "$has=$false; "
-                   "$children=@(zfs list -H -o name -r $ds 2>$null); "
-                   "if ($LASTEXITCODE -ne 0) { exit 2 }; "
-                   "foreach ($c in $children) { "
-                   "  if ([string]::IsNullOrWhiteSpace($c) -or $c -eq $ds) { continue }; "
-                   "  $m=(zfs get -H -o value mounted $c 2>$null | Out-String).Trim().ToLower(); "
-                   "  if ($m -eq 'yes' -or $m -eq 'on' -or $m -eq 'true' -or $m -eq '1') { $has=$true; break } "
-                   "}; "
-                   "if ($has) { exit 0 } else { exit 1 }", {dsPs});
-    }
-    return format("DATASET=%1; zfs mount | "
-               "awk -v ds=\"$DATASET\" '$1!=ds && index($1, ds \"/\")==1 { found=1; exit } END { exit found ? 0 : 1 }'", {shSingleQuote(datasetName)});
-}
+// `buildHasMountedChildrenCommand` vivía aquí: dos guiones —uno de `sh` y otro de
+// PowerShell— que se ejecutaban por SSH solo para contestar sí o no a «¿hay descendientes
+// montados?». La respuesta ya estaba en `--dump-zfs-mount`, que el agente sirve en las dos
+// plataformas; ahora se calcula con `listados::tieneDescendientesMontados`.
 
 std::string buildRecursiveUmountCommand(bool isWindows, const std::string& datasetName) {
     if (isWindows) {
@@ -364,6 +354,54 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
     return join(parts, " ");
 }
 
+std::string argvParaAgente(const std::vector<std::string>& argv) {
+    json::Value arr{json::Array{}};
+    for (const std::string& a : argv) {
+        arr.push(json::Value(a));
+    }
+    return base64Encode(json::toCompact(arr));
+}
+
+SecretoPorDescriptor::SecretoPorDescriptor(const std::string& secreto) {
+#ifndef _WIN32
+    int tubo[2] = {-1, -1};
+    if (pipe(tubo) != 0) {
+        return;
+    }
+    // Se escribe entera y se cierra el extremo de escritura ANTES de lanzar nada: así el
+    // hijo encuentra el dato ya puesto y un fin de fichero detrás, y nadie se queda
+    // esperando a nadie. Una contraseña no llega ni de lejos al tamaño del búfer del
+    // tubo, así que esta escritura no puede bloquear.
+    const std::string conSalto = secreto + "\n";
+    size_t puesto = 0;
+    while (puesto < conSalto.size()) {
+        const ssize_t n = ::write(tubo[1], conSalto.data() + puesto, conSalto.size() - puesto);
+        if (n <= 0) {
+            ::close(tubo[0]);
+            ::close(tubo[1]);
+            return;
+        }
+        puesto += static_cast<size_t>(n);
+    }
+    ::close(tubo[1]);
+    m_fd = tubo[0];
+#else
+    (void)secreto;  // en Windows no hay sshpass
+#endif
+}
+
+SecretoPorDescriptor::~SecretoPorDescriptor() {
+#ifndef _WIN32
+    if (m_fd >= 0) {
+        ::close(m_fd);
+    }
+#endif
+}
+
+std::string SecretoPorDescriptor::opcionSshpass() const {
+    return m_fd >= 0 ? ("-d" + std::to_string(m_fd)) : std::string();
+}
+
 ScpInvocacion scpUpload(const ConnectionProfile& p,
                         const std::string& localPath,
                         const std::string& remotePath,
@@ -377,12 +415,19 @@ ScpInvocacion scpUpload(const ConnectionProfile& p,
     if (!trim(p.password).empty()) {
         const std::string sshpassExe = findLocalExecutable("sshpass");
         if (!sshpassExe.empty()) {
-            inv.program = sshpassExe;
-            std::vector<std::string> conPrefijo{"-p", p.password, "scp"};
-            for (const auto& a : inv.args) {
-                conPrefijo.push_back(a);
+            auto secreto = std::make_shared<SecretoPorDescriptor>(p.password);
+            if (secreto->vale()) {
+                inv.program = sshpassExe;
+                std::vector<std::string> conPrefijo{secreto->opcionSshpass(), "scp"};
+                for (const auto& a : inv.args) {
+                    conPrefijo.push_back(a);
+                }
+                inv.args = std::move(conPrefijo);
+                inv.secreto = std::move(secreto);
             }
-            inv.args = std::move(conPrefijo);
+            // Si no se pudo montar la tubería se deja `scp` a secas. Antes esto pasaba la
+            // contraseña por el argv; es preferible fallar con el mensaje de scp que
+            // publicarla en la tabla de procesos.
         }
     }
     return inv;

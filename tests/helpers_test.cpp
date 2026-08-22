@@ -140,16 +140,6 @@ int main() {
         }
     }
 
-    {
-        const QString cmdUnix = buildHasMountedChildrenCommand(false, "pool/a");
-        if (!cmdUnix.contains("DATASET='pool/a'") || !cmdUnix.contains("index($1, ds \"/\")==1")) {
-            return fail("buildHasMountedChildrenCommand unix mismatch");
-        }
-        const QString cmdWin = buildHasMountedChildrenCommand(true, "pool/a");
-        if (!cmdWin.contains("$children=@(zfs list -H -o name -r $ds")) {
-            return fail("buildHasMountedChildrenCommand windows mismatch");
-        }
-    }
 
     {
         const QString cmdUnix = buildRecursiveUmountCommand(false, "pool/alpha");

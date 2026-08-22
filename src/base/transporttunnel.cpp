@@ -404,12 +404,15 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         std::vector<std::string> args;
         const bool hayClave = !trim(p.password).empty();
         bool conSshpass = false;
+        // La contraseña viaja por un descriptor, no por el argv. Este objeto tiene que
+        // seguir vivo hasta el `start()` de más abajo, que es quien lanza el proceso;
+        // por eso se declara en este ámbito y no dentro del `if`.
+        H::SecretoPorDescriptor secreto(hayClave ? p.password : std::string());
         if (hayClave) {
             const std::string sshpassExe = H::findLocalExecutable("sshpass");
-            if (!sshpassExe.empty()) {
+            if (!sshpassExe.empty() && secreto.vale()) {
                 programa = sshpassExe;
-                args.push_back("-p");
-                args.push_back(p.password);
+                args.push_back(secreto.opcionSshpass());
                 args.push_back("ssh");
                 conSshpass = true;
             }

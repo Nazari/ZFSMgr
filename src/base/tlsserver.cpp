@@ -17,6 +17,7 @@ using SocketT = SOCKET;
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -27,6 +28,46 @@ using SocketT = int;
 
 namespace zfsmgr::base::tlsserver {
 namespace {
+
+// Los sockets NO se heredan. Quien pide algo por aquí acaba provocando que se lance un
+// proceso —`zfs`, casi siempre—, y todo descriptor abierto en ese momento se lo lleva el
+// hijo. Un hijo que se quede con la conexión del cliente la mantiene viva aunque el
+// servidor la cierre, así que el otro extremo no ve nunca el final.
+//
+// No es hipotético: el mismo descuido en los sockets de transferencia dejaba un
+// `zfs send` sujetando el extremo del receptor y colgaba la copia para siempre.
+// Se marca AL CREAR y AL ACEPTAR, que es cuando puede hacerse de forma atómica: entre un
+// socket() y un fcntl() posterior cabe justo el fork de otro hilo, que es la carrera que
+// se quiere cerrar.
+void noHeredar(SocketT s) {
+#ifdef _WIN32
+    SetHandleInformation(reinterpret_cast<HANDLE>(s), HANDLE_FLAG_INHERIT, 0);
+#else
+    const int f = ::fcntl(s, F_GETFD, 0);
+    if (f >= 0) { ::fcntl(s, F_SETFD, f | FD_CLOEXEC); }
+#endif
+}
+
+SocketT creaSocketSinHerencia(int familia, int tipo, int proto) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    return ::socket(familia, tipo | SOCK_CLOEXEC, proto);
+#else
+    const SocketT s = ::socket(familia, tipo, proto);
+    if (s != INVALID_SOCKET) { noHeredar(s); }
+    return s;
+#endif
+}
+
+SocketT aceptaSinHerencia(SocketT escucha) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    return ::accept4(escucha, nullptr, nullptr, SOCK_CLOEXEC);
+#else
+    // macOS y Windows no tienen accept4: ahí queda la ventana entre aceptar y marcar.
+    const SocketT s = ::accept(escucha, nullptr, nullptr);
+    if (s != INVALID_SOCKET) { noHeredar(s); }
+    return s;
+#endif
+}
 
 std::string errorDeOpenssl() {
     const unsigned long e = ERR_get_error();
@@ -135,7 +176,7 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
         return false;
     }
 
-    const SocketT escucha = ::socket(AF_INET, SOCK_STREAM, 0);
+    const SocketT escucha = creaSocketSinHerencia(AF_INET, SOCK_STREAM, 0);
     if (escucha == INVALID_SOCKET) {
         error = "no se pudo crear el socket";
         SSL_CTX_free(ctx);
@@ -183,7 +224,7 @@ bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
     }
 
     while (!sigueVivo || sigueVivo()) {
-        const SocketT cliente = ::accept(escucha, nullptr, nullptr);
+        const SocketT cliente = aceptaSinHerencia(escucha);
         if (cliente == INVALID_SOCKET) {
             continue;
         }

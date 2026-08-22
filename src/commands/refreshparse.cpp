@@ -11,7 +11,11 @@ namespace {
 }  // namespace
 
 std::vector<std::string> zfsmgrUnixCommandSet() {
-    return {"zfs", "zpool", "rsync", "tar", "ssh", "sh"};
+    // `zstd` y `gzip` NO son necesarios para nada: se preguntan para poder ELEGIR códec al
+    // transferir. Antes eso costaba cuatro sondas por SSH —dos herramientas por dos
+    // extremos— cada vez que se abría el diálogo de sincronizar; aquí van con el resto y
+    // salen gratis del refresco que ya se hace.
+    return {"zfs", "zpool", "rsync", "tar", "ssh", "sh", "zstd", "gzip"};
 }
 
 std::string normalizeMachineUuid(std::string s) {

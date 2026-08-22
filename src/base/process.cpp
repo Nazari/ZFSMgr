@@ -1,5 +1,8 @@
 #include "process.h"
 
+#include <map>
+#include <set>
+#include <sstream>
 #include <cstring>
 #include <chrono>
 #include <thread>
@@ -1128,6 +1131,91 @@ bool canConnectLocal(std::uint16_t port, int timeoutMs) {
     const bool ok = ::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0;
     cierraLocal(s);
     return ok;
+}
+
+std::vector<long long> descendientesDe(long long raiz, const std::string& salidaPs) {
+    // pid -> hijos. Un `ps` de una máquina cargada trae miles de líneas, así que el mapa
+    // se construye una vez y el recorrido va por él, no releyendo el texto por nivel.
+    std::map<long long, std::vector<long long>> hijos;
+    std::istringstream iss(salidaPs);
+    std::string linea;
+    while (std::getline(iss, linea)) {
+        std::istringstream ls(linea);
+        long long pid = 0;
+        long long ppid = 0;
+        // Si la línea no trae dos números se descarta: `ps` con cabecera, una línea vacía
+        // al final, o una salida que no es la que esperábamos.
+        if (!(ls >> pid >> ppid)) {
+            continue;
+        }
+        if (pid <= 0) {
+            continue;
+        }
+        hijos[ppid].push_back(pid);
+    }
+
+    // Anchura desde la raíz, apuntando cada nivel por delante del anterior. Al terminar,
+    // `orden` queda de hojas a raíz sin tener que invertir nada después.
+    std::vector<long long> orden;
+    std::set<long long> vistos;
+    std::vector<long long> frontera{raiz};
+    vistos.insert(raiz);
+    while (!frontera.empty()) {
+        std::vector<long long> siguiente;
+        for (const long long pid : frontera) {
+            const auto it = hijos.find(pid);
+            if (it == hijos.end()) {
+                continue;
+            }
+            for (const long long h : it->second) {
+                // Un pid ya visto sería un ciclo —imposible en un árbol de procesos real,
+                // pero la salida de `ps` la escribe otro programa y no se le cree a ciegas—.
+                if (vistos.insert(h).second) {
+                    siguiente.push_back(h);
+                }
+            }
+        }
+        if (siguiente.empty()) {
+            break;
+        }
+        orden.insert(orden.begin(), siguiente.begin(), siguiente.end());
+        frontera = siguiente;
+    }
+    return orden;
+}
+
+void mataDescendencia(long long raiz, int msGracia) {
+    if (raiz <= 0) {
+        return;
+    }
+#ifndef _WIN32
+    // `-e` y no `-p <lista>`: hace falta el árbol ENTERO para poder bajar por él, y una
+    // sola lectura cuesta menos que una llamada por nivel.
+    const ExecResult ps = runExecCapture("ps", {"-eo", "pid=,ppid="});
+    if (ps.rc != 0) {
+        return;
+    }
+    const std::vector<long long> muertos = descendientesDe(raiz, ps.out);
+    for (const long long pid : muertos) {
+        ::kill(static_cast<pid_t>(pid), SIGTERM);
+    }
+    if (muertos.empty()) {
+        return;
+    }
+    if (msGracia > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(msGracia));
+    }
+    for (const long long pid : muertos) {
+        // Los que ya murieron dan ESRCH y no pasa nada; no hay forma de preguntarlo sin
+        // carrera, así que se manda y se ignora el error.
+        ::kill(static_cast<pid_t>(pid), SIGKILL);
+    }
+#else
+    (void)msGracia;
+    // En Windows no hay `ps` ni señales: `taskkill /T` recorre el árbol por su cuenta.
+    // Se deja aquí para que quien llame no tenga que saber en qué sistema está.
+    runExecCapture("taskkill", {"/PID", std::to_string(raiz), "/T", "/F"});
+#endif
 }
 
 }  // namespace zfsmgr::base

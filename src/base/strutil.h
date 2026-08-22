@@ -92,6 +92,14 @@ bool isLetterAt(const std::string& s, std::size_t pos);
 // Base64 estándar (RFC 4648) con relleno. `base64Decode` devuelve false si aparece un
 // carácter que no pertenece al alfabeto; los espacios se ignoran y el relleno corta.
 std::string base64Encode(const std::string& data);
+
+// Un tamaño en bytes, en la forma en que lo escribe `zfs`: una cifra decimal por debajo de
+// 10 y ninguna por encima —«9.5G», «500G»—. Lo que no sea un número se devuelve tal cual,
+// que es lo que hace falta cuando la fuente ya dio un texto.
+//
+// Vive aquí porque la escriben dos clientes. Estaba dentro de la tabla del intérprete, y la
+// ventana iba a necesitar la misma para enseñar lo que ahora le da el agente en bytes.
+std::string tamanoLegible(const std::string& v);
 bool base64Decode(const std::string& text, std::string& out);
 
 // `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.

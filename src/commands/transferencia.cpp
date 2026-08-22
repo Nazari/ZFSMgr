@@ -333,17 +333,6 @@ std::string ordenDeRecepcion(const std::string& destino) {
     return "zfs recv -Fus " + shSingleQuote(destino);
 }
 
-Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& destino,
-                  bool mismaConexion) {
-    if (mismaConexion) {
-        return Montaje::MismaConexion;
-    }
-    const bool losDosRemotosPorSsh = !transport::isLocalConnection(origen)
-                                     && !transport::isLocalConnection(destino)
-                                     && toLowerAscii(trim(origen.connType)) == "ssh"
-                                     && toLowerAscii(trim(destino.connType)) == "ssh";
-    return losDosRemotosPorSsh ? Montaje::RemotoARemotoDirecto : Montaje::PorElCliente;
-}
 
 }  // namespace zfsmgr::base::transferencia
 
@@ -390,6 +379,26 @@ std::string etiquetaDe(FalloTrabajo f) {
     return {};
 }
 
+std::string haciaDondeConecta(TransportSession& ses, const ConnectionProfile& origen,
+                              const ConnectionProfile& destino, bool mismaConexion,
+                              bool verboso) {
+    // El `host` del perfil del destino NO sirve cuando el destino es la conexión Local:
+    // vale «localhost», que desde el origen apunta al propio origen. La transferencia se
+    // quedaba intentando conectar consigo misma. Se le pregunta al origen con qué dirección
+    // nos ve, que es la única que con seguridad le sirve para volver.
+    //
+    // Está aparte porque lo necesitan DOS cosas: el flujo de `zfs send` y el árbol de
+    // ficheros. Copiarlo era garantizar que una de las dos se quedara sin el caso de Local
+    // —que es justo lo que le había pasado al intérprete—.
+    if (mismaConexion) {
+        return "127.0.0.1";
+    }
+    if (transport::isLocalConnection(destino)) {
+        return comoMeVeElOrigen(ses, origen, verboso);
+    }
+    return trim(destino.host);
+}
+
 Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
                      const ConnectionProfile& origen, const ConnectionProfile& destino,
                      const std::string& instantanea, const std::string& destinoDelRecv,
@@ -415,18 +424,11 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
     }
 
     // 2. Con qué dirección tiene que conectar el ORIGEN.
-    //
-    // El `host` del perfil del destino NO sirve cuando el destino es la conexión Local:
-    // vale «localhost», que desde el origen apunta al propio origen. La copia se quedaba
-    // intentando conectar consigo misma. Se le pregunta al origen con qué dirección nos ve,
-    // que es la única que con seguridad le sirve para volver.
-    std::string haciaDonde = mismaConexion ? std::string("127.0.0.1") : trim(destino.host);
-    if (!mismaConexion && transport::isLocalConnection(destino)) {
-        haciaDonde = comoMeVeElOrigen(ses, origen, verboso);
-        if (haciaDonde.empty()) {
-            t.fallo = FalloTrabajo::SinDireccionDeVuelta;
-            return t;
-        }
+    const std::string haciaDonde = haciaDondeConecta(ses, origen, destino, mismaConexion,
+                                                     verboso);
+    if (haciaDonde.empty()) {
+        t.fallo = FalloTrabajo::SinDireccionDeVuelta;
+        return t;
     }
 
     // 3. Que el origen arranque el envío. Con el testigo puesto, los tres campos de en
@@ -459,6 +461,167 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
         t.detalle = trim(salida);
     }
     return t;
+}
+
+Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
+                            const ConnectionProfile& origen, const ConnectionProfile& destino,
+                            const std::string& directorioOrigen,
+                            const std::string& directorioDestino, bool mismaConexion,
+                            bool verboso, bool comoTrabajo, bool borrarEnDestino, bool enSeco,
+                            std::string* salidaDelEnvio) {
+    Trabajo t;
+    if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
+        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.detalle = "falta el directorio de origen o el de destino";
+        return t;
+    }
+
+    // 1. Que el destino se ponga a escuchar. Falla si el directorio no existe, y eso es a
+    // propósito: crear directorios como root a petición de quien conecta no es cosa del
+    // receptor.
+    std::string salida;
+    std::string err;
+    int rc = -1;
+    if (!llama(destino, {"--tree-recv-listen", directorioDestino}, 30000, salida, err, rc)
+        || rc != 0) {
+        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.detalle = trim(err.empty() ? salida : err);
+        return t;
+    }
+    const EscuchaDelReceptor escucha = leeEscucha(salida);
+    if (!escucha.vale()) {
+        t.fallo = FalloTrabajo::RespuestaDeEscuchaNoVale;
+        t.detalle = trim(salida);
+        return t;
+    }
+
+    // 2. Con qué dirección ve el ORIGEN al destino. Es la misma regla que el flujo de
+    // instantáneas, y por eso se llama en vez de copiarse: el caso de la conexión Local
+    // —donde «localhost» apuntaría al propio origen— es el que se pierde al copiarla.
+    const std::string haciaDonde = haciaDondeConecta(ses, origen, destino, mismaConexion,
+                                                     verboso);
+    if (haciaDonde.empty()) {
+        t.fallo = FalloTrabajo::SinDireccionDeVuelta;
+        return t;
+    }
+
+    // 3. Que el origen envíe.
+    //
+    // `borrarEnDestino` es de SINCRONIZAR, no de traer: traer un directorio es AÑADIR, y con
+    // el borrado puesto esto se llevaría por delante lo que ya hubiera en el destino. Por eso
+    // es un parámetro y no algo que se decida aquí, y por eso «Desde Dir» lo deja en falso.
+    std::vector<std::string> args;
+    if (comoTrabajo) {
+        args.push_back("--job-submit");
+    }
+    args.push_back("--tree-send-to-peer");
+    args.push_back(directorioOrigen);
+    args.push_back(haciaDonde);
+    args.push_back(std::to_string(escucha.puerto));
+    args.push_back(escucha.testigo);
+    if (borrarEnDestino) {
+        args.push_back("--delete");
+    }
+    if (enSeco) {
+        args.push_back("--dry-run");
+    }
+    const ConnectionProfile& quienEnvia = mismaConexion ? destino : origen;
+    salida.clear();
+    err.clear();
+    rc = -1;
+    // Encolar es instantáneo; esperar puede tardar horas, y ahí el plazo lo pone quien
+    // llama a base de no ponerlo. Un plazo de un minuto sobre una copia de verdad la
+    // declararía fallida mientras sigue moviendo datos.
+    const int plazo = comoTrabajo ? 60000 : 0;
+    if (!llama(quienEnvia, args, plazo, salida, err, rc) || rc != 0) {
+        t.fallo = FalloTrabajo::EmisorNoArranco;
+        t.detalle = trim(err.empty() ? salida : err);
+        return t;
+    }
+    if (salidaDelEnvio != nullptr) {
+        *salidaDelEnvio = salida;
+    }
+    if (!comoTrabajo) {
+        return t;  // terminó: no hay identificador que leer ni que seguir
+    }
+    t.id = leeIdentificadorDeTrabajo(salida);
+    if (t.id.empty()) {
+        t.fallo = FalloTrabajo::SinIdentificador;
+        t.detalle = trim(salida);
+    }
+    return t;
+}
+
+std::string etiquetaDe(FalloNivelar f) {
+    switch (f) {
+        case FalloNivelar::Ninguno:
+            return {};
+        case FalloNivelar::ObjetivoNoEstaEnOrigen:
+            return "la instantánea de origen ya no está en su dataset";
+        case FalloNivelar::DestinoSinInstantaneas:
+            return "el destino no tiene ninguna instantánea: no hay base común desde la que "
+                   "seguir; para llevarlo entero, copie";
+        case FalloNivelar::BaseNoEstaEnOrigen:
+            return "la última instantánea del destino no existe en el origen: son historias "
+                   "distintas y no hay incremental posible";
+        case FalloNivelar::DestinoMasNuevo:
+            return "el destino tiene una instantánea más moderna que la que se quiere enviar";
+        case FalloNivelar::YaNivelado:
+            return "el destino ya está nivelado en esa instantánea";
+    }
+    return {};
+}
+
+PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
+                          const std::vector<Instantanea>& destino,
+                          const std::string& objetivo) {
+    PlanNivelar plan;
+    plan.objetivo = objetivo;
+
+    std::size_t iObjetivo = origen.size();
+    for (std::size_t i = 0; i < origen.size(); ++i) {
+        if (origen[i].nombre == objetivo) {
+            iObjetivo = i;
+            break;
+        }
+    }
+    if (iObjetivo == origen.size()) {
+        plan.fallo = FalloNivelar::ObjetivoNoEstaEnOrigen;
+        return plan;
+    }
+    if (destino.empty()) {
+        plan.fallo = FalloNivelar::DestinoSinInstantaneas;
+        return plan;
+    }
+
+    // La ÚLTIMA del destino marca hasta dónde llegó, y su GUID es lo que hay que reconocer
+    // en el origen. Buscarla por nombre daría con la equivocada en cuanto las dos máquinas
+    // tengan una instantánea llamada igual, que con nombres automáticos es lo normal y no
+    // lo raro.
+    const std::string guidUltima = destino.back().guid;
+    std::size_t iBase = origen.size();
+    if (!guidUltima.empty()) {
+        for (std::size_t i = 0; i < origen.size(); ++i) {
+            if (!origen[i].guid.empty() && origen[i].guid == guidUltima) {
+                iBase = i;
+                break;
+            }
+        }
+    }
+    if (iBase == origen.size()) {
+        plan.fallo = FalloNivelar::BaseNoEstaEnOrigen;
+        return plan;
+    }
+    if (iBase > iObjetivo) {
+        plan.fallo = FalloNivelar::DestinoMasNuevo;
+        return plan;
+    }
+    if (iBase == iObjetivo) {
+        plan.fallo = FalloNivelar::YaNivelado;
+        return plan;
+    }
+    plan.base = origen[iBase].nombre;
+    return plan;
 }
 
 }  // namespace zfsmgr::base::transferencia

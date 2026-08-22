@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -76,7 +77,6 @@ bool parentAllowsChildMount(const std::string& parentMountpoint,
 
 // Órdenes de montaje. En Windows salen en PowerShell y en Unix en shell POSIX, que es
 // la diferencia que obliga a llevar el `isWindows` hasta aquí.
-std::string buildHasMountedChildrenCommand(bool isWindows, const std::string& datasetName);
 std::string buildRecursiveUmountCommand(bool isWindows, const std::string& datasetName);
 std::string buildSingleUmountCommand(bool isWindows, const std::string& datasetName);
 std::string buildSingleMountCommand(const std::string& datasetName);
@@ -195,7 +195,7 @@ std::string maskCommandSecrets(const std::string& input);
 //
 // Hace falta porque el material TLS del daemon se lee ejecutando una orden, y su salida
 // —la clave privada del cliente, entera— se estaba volcando al registro línea a línea:
-// con `zfsmgr_cli -v` salía por la salida de error, de donde se copia y se pega. Es la
+// con `zfsmgr-cli -v` salía por la salida de error, de donde se copia y se pega. Es la
 // clave con la que se habla con el daemon como root.
 //
 // Se recorta lo de dentro, no la línea entera: la ruta y los marcadores se quedan, porque
@@ -223,6 +223,49 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // Los mismos argumentos, pero como lista para lanzar `scp` DIRECTAMENTE, sin intérprete.
 // `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
 // Windows no admite multiplexado.
+
+// Cómo viajan los argumentos de una orden en los verbos genéricos del daemon: un JSON con
+// la lista de cadenas, codificado en base64.
+//
+// **Es un contrato del DAEMON, no de quien llama.** Estaba escrito catorce veces —once en
+// la ventana principal, dos en el intérprete y una en el servidor web—, cada una armando el
+// mismo JSON a mano. Catorce sitios donde equivocarse por separado el día que ese formato
+// cambie, y ninguno de los tres clientes tiene por qué saber cómo se serializa.
+std::string argvParaAgente(const std::vector<std::string>& argv);
+
+// Entrega un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
+//
+// `sshpass -p <contraseña>` deja la contraseña en el argv, y el argv de cualquier proceso
+// lo lee todo el mundo con `ps`. sshpass la borra nada más arrancar —por eso en `ps` se
+// ven espacios donde estaba— pero entre el `exec` y ese borrado hay una ventana real, y
+// basta con mirar en el momento justo. La regla de la casa es que los secretos van por
+// descriptor o por terminal, nunca por argumento ni por variable de entorno (`-e` de
+// sshpass tampoco vale: el entorno se lee en /proc/<pid>/environ).
+//
+// **Un pipe se lee UNA sola vez.** Quien reintente un lanzamiento tiene que construir otro
+// objeto; por eso esto es de vida corta y se crea justo antes de cada `exec`, no una vez
+// por conexión. Con el segundo intento leyendo de un pipe ya vaciado, la autenticación
+// fallaría sin decir por qué.
+//
+// El descriptor se deja SIN CLOEXEC a propósito: aquí la herencia es justo lo que se
+// quiere, al revés que en los sockets.
+class SecretoPorDescriptor {
+public:
+    explicit SecretoPorDescriptor(const std::string& secreto);
+    ~SecretoPorDescriptor();
+    SecretoPorDescriptor(const SecretoPorDescriptor&) = delete;
+    SecretoPorDescriptor& operator=(const SecretoPorDescriptor&) = delete;
+
+    // Falso si no se pudo montar la tubería, o en Windows, donde no hay sshpass.
+    bool vale() const { return m_fd >= 0; }
+    int descriptor() const { return m_fd; }
+    // La opción tal cual la espera sshpass, pegada: «-d7».
+    std::string opcionSshpass() const;
+
+private:
+    int m_fd{-1};
+};
+
 // Subir un fichero por scp: EL PROGRAMA Y LOS ARGUMENTOS juntos.
 //
 // Van juntos porque no se pueden decidir por separado: si la conexión usa contraseña hay
@@ -232,6 +275,10 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 struct ScpInvocacion {
     std::string program;
     std::vector<std::string> args;
+    // La tubería por la que viaja la contraseña, si la hay. Va DENTRO de la invocación
+    // porque tiene que seguir abierta hasta que quien llama lance el proceso: si se
+    // cerrase al volver de scpUpload, sshpass leería de un descriptor muerto.
+    std::shared_ptr<SecretoPorDescriptor> secreto;
 };
 ScpInvocacion scpUpload(const ConnectionProfile& p,
                         const std::string& localPath,

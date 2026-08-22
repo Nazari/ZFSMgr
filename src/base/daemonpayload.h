@@ -24,7 +24,6 @@ std::string tlsServerKeyPath();
 std::string tlsClientCertPath();
 std::string tlsClientKeyPath();
 
-std::string unixStubScript(const std::string& version, const std::string& apiVersion);
 std::string windowsBinPath();
 std::string windowsUploadPath();
 std::string windowsNativeInstallCommand();

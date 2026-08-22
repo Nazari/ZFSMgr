@@ -160,17 +160,13 @@ std::string destinoReal(const std::string& origenDataset, const std::string& des
 std::string ordenDeEnvio(const std::string& instantanea, const std::string& banderas);
 std::string ordenDeRecepcion(const std::string& destino);
 
-// Cómo se juntan los dos lados. Es lo que cambia según dónde estén los extremos.
-enum class Montaje {
-    MismaConexion,      // los dos en la misma máquina: una tubería local
-    RemotoARemotoDirecto,  // los dos remotos por SSH: el origen se conecta al destino
-    PorElCliente,       // `ssh origen … | ssh destino …`: los bytes pasan por aquí
-};
-
-// Cuál de los tres toca. `PorElCliente` es el que siempre vale y el más caro: los datos dan
-// un rodeo por esta máquina.
-Montaje montajeDe(const ConnectionProfile& origen, const ConnectionProfile& destino,
-                  bool mismaConexion);
+// Aquí vivían `Montaje` y `montajeDe`: cuál de las tres formas de juntar los dos lados
+// tocaba —tubería local, remoto a remoto directo, o pasando los bytes por este equipo—.
+//
+// Se retiraron cuando Copiar y Nivelar dejaron de tener respaldos por shell. Las tres
+// formas eran formas de encadenar `ssh` y tuberías; con la transferencia hecha por un
+// trabajo del daemon no hay nada que montar: el receptor abre un puerto y el emisor se
+// conecta. La regla no se ha perdido, ha dejado de existir.
 
 // ── El camino asíncrono: un trabajo en el daemon ─────────────────────────────
 //
@@ -244,6 +240,52 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
 //
 // Se le PREGUNTA a él en vez de deducirlo: la máquina puede tener varias interfaces, estar
 // detrás de NAT o llegar por VPN, y solo el otro extremo sabe por dónde entró la conexión.
+// Con qué dirección tiene que conectar el ORIGEN para llegar al DESTINO.
+//
+// Vacío si no se puede averiguar. Lo usan el flujo de `zfs send` y el árbol de ficheros;
+// ver el comentario de la implementación para el caso de la conexión Local, que es el que
+// se pierde en cuanto alguien copia esta regla en vez de llamarla.
+// El mismo baile de tres pasos, pero llevando un ÁRBOL DE FICHEROS en vez de una
+// instantánea: el destino escucha, se averigua con qué dirección lo ve el origen, y el
+// origen envía.
+//
+// **Para qué sirve: «Desde Dir» sin tubería de shell.** Esa acción movía los datos con
+// `ssh origen 'tar -c' | ssh destino 'agente --mutate-advanced-fromdir'`, o sea pasando
+// TODO el contenido por la máquina de quien manda: copiar 100 GB de una máquina a otra
+// movía 200 GB por la de en medio. Aquí van de daemon a daemon.
+//
+// Y de paso se gana lo que ya tenía el flujo de `zfs send`: es un trabajo, así que hay
+// progreso, se puede cancelar y sobrevive a que se cierre la ventana. Además la copia es
+// incremental —salta lo que ya está igual comparando tamaño y fecha—, mientras que el tar
+// reenviaba el árbol entero en cada pasada.
+//
+// El directorio de destino tiene que EXISTIR: el receptor lo comprueba y falla si no. Para
+// crearlo está `avanzadas::argvDesdeDirPreparar`, que además monta el dataset y resuelve su
+// punto de montaje real.
+//
+// Requiere daemon en LAS DOS puntas. El camino del tar solo lo pedía en el destino, así que
+// esto no lo sustituye: lo adelanta cuando se puede.
+//
+// `comoTrabajo` decide si el envío se encola en el daemon —la ventana lo quiere así: no la
+// bloquea, se puede cancelar y sigue si se cierra— o si se espera a que termine, que es lo
+// que hace el intérprete porque su orden ya devolvía el resultado y un guion detrás cuenta
+// con que los ficheros estén.
+//
+// **Ojo con cómo se comprueba el resultado.** Con `comoTrabajo` falso no hay identificador
+// que devolver, así que `ok()` —que exige uno— diría que no aunque todo haya ido bien: ahí
+// lo que se mira es `fallo`. `ok()` significa «hay un trabajo al que seguirle la pista», no
+// «salió bien».
+Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
+                            const ConnectionProfile& origen, const ConnectionProfile& destino,
+                            const std::string& directorioOrigen,
+                            const std::string& directorioDestino, bool mismaConexion,
+                            bool verboso, bool comoTrabajo, bool borrarEnDestino = false,
+                            bool enSeco = false, std::string* salidaDelEnvio = nullptr);
+
+std::string haciaDondeConecta(TransportSession& ses, const ConnectionProfile& origen,
+                              const ConnectionProfile& destino, bool mismaConexion,
+                              bool verboso);
+
 std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& origen,
                              bool verboso);
 
@@ -254,5 +296,50 @@ std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& ori
 // propiedad de forma recursiva sería una sola, y está anotado en el diseño.
 Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino,
                          const std::string& objetivo, bool verboso);
+
+// ---------------------------------------------------------------------------
+// Nivelar: poner el destino al día del origen SIN volver a mandarlo todo.
+//
+// **No es copiar.** Copiar manda un flujo completo y recibe en «<destino>/<hoja>»; nivelar
+// manda un INCREMENTAL —`zfs send -I <base> <objetivo>`— y recibe en el dataset destino
+// tal cual. Confundirlos no es un matiz: con el destino ya poblado, el flujo completo llega
+// con `zfs recv -Fus` y arrastra lo que el origen no tenga.
+//
+// La base común NO se busca por nombre, se busca por GUID. Dos instantáneas pueden
+// llamarse igual en las dos máquinas sin tener nada que ver —basta con que las hayan creado
+// por separado— y enviar un incremental contra una base falsa es enviar contra otra
+// historia. El GUID ya viene en `--dump-zfs-list-all`, así que no cuesta ninguna consulta.
+//
+// Las tres negativas son de seguridad y vienen de la interfaz de Qt, que las tiene desde el
+// principio: sin ellas, nivelar puede tirar trabajo del destino sin avisar.
+struct Instantanea {
+    std::string nombre;   // corto, sin «dataset@»
+    std::string guid;
+};
+
+enum class FalloNivelar {
+    Ninguno,
+    ObjetivoNoEstaEnOrigen,
+    DestinoSinInstantaneas,
+    BaseNoEstaEnOrigen,
+    DestinoMasNuevo,
+    YaNivelado,
+};
+
+struct PlanNivelar {
+    std::string base;       // desde dónde: el «-I» del envío
+    std::string objetivo;   // hasta dónde
+    FalloNivelar fallo{FalloNivelar::Ninguno};
+    bool sePuede() const { return fallo == FalloNivelar::Ninguno; }
+};
+
+// Las dos listas van EN ORDEN DE CREACIÓN, que es como las da `zfs list -t snapshot`. El
+// orden es el que decide qué es «más nuevo», así que darlas ordenadas de otra forma no
+// devuelve un error: devuelve una respuesta equivocada.
+PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
+                          const std::vector<Instantanea>& destino,
+                          const std::string& objetivo);
+
+std::string etiquetaDe(FalloNivelar f);
 
 }  // namespace zfsmgr::base::transferencia

@@ -136,6 +136,35 @@ std::uint16_t reserveFreeLocalPort();
 // contaba como fallo del saludo TLS y castigaba la conexión sin motivo.
 bool canConnectLocal(std::uint16_t port, int timeoutMs);
 
+// --- Matar un árbol de procesos.
+//
+// Cancelar una acción tiene que llevarse por delante TODA la descendencia, no solo los
+// hijos directos: la cadena real de una transferencia es
+// `sh -> sudo -> sh -> zfsmgr-agent -> tar`, y si sobrevive el `tar` sigue escribiendo en
+// el destino y deja el punto de montaje ocupado —hasta el punto de no poder borrar el
+// dataset—. Visto de verdad tras abortar una copia.
+//
+// Aquí había un guion de shell que llamaba a `pgrep -P` por cada proceso y por cada uno de
+// ocho niveles, y remataba con `sleep 0.3` y dos bucles de `kill`. Se sustituye por UNA
+// lectura de `ps` y `kill()` directo, que es una llamada al sistema y no un proceso. De
+// paso desaparece el tope de ocho niveles, que no tenía por qué existir.
+
+// Los descendientes de `raiz` según la salida de `ps -eo pid=,ppid=`, **de hojas a raíz**.
+//
+// Ese orden es la parte que importa: matando primero al padre, el hijo queda huérfano y
+// puede seguir; y un padre vivo puede engendrar otro hijo mientras se mata al nieto.
+//
+// `raiz` NO va incluida —de eso se encarga quien la lanzó— y los ciclos no cuelgan: cada
+// pid se visita una sola vez.
+//
+// Separada de la ejecución para poder probarla con una salida de `ps` escrita a mano, que
+// es lo único de esto que se puede comprobar sin matar procesos de verdad.
+std::vector<long long> descendientesDe(long long raiz, const std::string& salidaPs);
+
+// Mata la descendencia de `raiz`: TERM a todos, se espera `msGracia`, y KILL a los que
+// sigan en pie. No toca a `raiz`.
+void mataDescendencia(long long raiz, int msGracia = 300);
+
 #ifdef _WIN32
 // CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así
 // que el entrecomillado es responsabilidad de quien la construye. La regla no es la

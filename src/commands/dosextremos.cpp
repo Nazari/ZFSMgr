@@ -42,6 +42,12 @@ std::string etiquetaDe(NoAplica n) {
             return "comparar es entre dos puntos del mismo dataset";
         case NoAplica::DistintaMaquina:
             return "los dos extremos tienen que estar en la misma máquina";
+        case NoAplica::DistintoPool:
+            return "mover es dentro del mismo pool; entre pools se copia";
+        case NoAplica::OrigenNoEsDataset:
+            return "el origen tiene que ser un dataset, no una instantánea";
+        case NoAplica::DestinoDentroDelOrigen:
+            return "el destino cuelga del origen: no se puede meter dentro de sí mismo";
         case NoAplica::TodaviaNoEstaEnLaWeb:
             return "todavía no está en la web: hágalo desde la interfaz o el intérprete";
     }
@@ -85,8 +91,37 @@ NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
                 return NoAplica::DestinoNoEsDataset;
             }
             return NoAplica::Ninguna;
-        case Accion::Copiar:
         case Accion::Mover:
+            // **Mover NO es copiar y destruir.** Es un `zfs rename`, que ZFS solo deja
+            // dentro del mismo pool: el dataset cambia de sitio en el árbol sin que se
+            // muevan los datos, y por eso es instantáneo y no hay nada que destruir
+            // después. La interfaz de Qt hace exactamente esto —lo encola como cambio
+            // pendiente— y aquí se replican sus mismas condiciones.
+            //
+            // Este documento decía «Copiar + destruir el origen». Era falso, y se vio al
+            // leer `executeConnectionTransferAction`. Se deja escrito porque la versión
+            // equivocada es más plausible que la verdadera y volverá a proponerse.
+            if (origen.conexion != destino.conexion) {
+                return NoAplica::DistintaMaquina;
+            }
+            if (origen.esInstantanea()) {
+                return NoAplica::OrigenNoEsDataset;
+            }
+            if (destino.esInstantanea()) {
+                return NoAplica::DestinoNoEsDataset;
+            }
+            if (origen.pool() != destino.pool()) {
+                return NoAplica::DistintoPool;
+            }
+            // Meter un dataset bajo uno de sus propios descendientes no tiene sentido y
+            // ZFS lo rechaza. Se compara con la barra puesta para que «tanque/datos» no
+            // parezca padre de «tanque/datos2».
+            if (destino.dataset() == origen.dataset()
+                || destino.dataset().rfind(origen.dataset() + "/", 0) == 0) {
+                return NoAplica::DestinoDentroDelOrigen;
+            }
+            return NoAplica::Ninguna;
+        case Accion::Copiar:
         case Accion::Sincronizar:
         case Accion::Nivelar:
             // Las cuatro necesitan la orquestación de transferencia, que hoy vive dentro
@@ -95,6 +130,10 @@ NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
             return NoAplica::TodaviaNoEstaEnLaWeb;
     }
     return NoAplica::Ninguna;
+}
+
+std::string destinoDeMover(const Extremo& origen, const Extremo& destino) {
+    return destino.dataset() + "/" + origen.hoja();
 }
 
 }  // namespace zfsmgr::base::dosextremos

@@ -139,4 +139,97 @@ bool propiedadesDePool(const std::string& salida, std::vector<Propiedad>& out,
     return propiedadesDe(salida, "pools", out, error);
 }
 
+bool contenidoDeDirectorio(const std::string& salida, std::vector<EntradaDeDirectorio>& out,
+                           std::string& error) {
+    out.clear();
+    error.clear();
+    zfsmgr::base::json::Value raiz;
+    if (!zfsmgr::base::json::parse(salida, raiz, &error)) {
+        return false;
+    }
+    for (const zfsmgr::base::json::Value& e : raiz["entries"].toArray()) {
+        EntradaDeDirectorio ent;
+        ent.nombre = e["name"].toString();
+        if (ent.nombre.empty()) {
+            continue;
+        }
+        ent.directorio = e["type"].toString() == "d";
+        // Un directorio no tiene tamaño que enseñar: el que trae el sistema de ficheros es
+        // el del propio nodo, no el de lo que contiene, y enseñarlo invita a leerlo mal.
+        ent.tamano = ent.directorio ? 0 : static_cast<std::uint64_t>(e["size"].toInt());
+        out.push_back(ent);
+    }
+    std::sort(out.begin(), out.end(),
+              [](const EntradaDeDirectorio& a, const EntradaDeDirectorio& b) {
+                  return a.nombre < b.nombre;
+              });
+    return true;
+}
+
+bool dispositivos(const std::string& salidaJson, std::vector<Dispositivo>& out,
+                  std::string& error) {
+    out.clear();
+    error.clear();
+    zfsmgr::base::json::Value raiz;
+    if (!zfsmgr::base::json::parse(salidaJson, raiz, &error)) {
+        return false;
+    }
+    for (const zfsmgr::base::json::Value& d : raiz["devices"].toArray()) {
+        Dispositivo x;
+        x.ruta = d["path"].toString();
+        if (x.ruta.empty()) {
+            continue;
+        }
+        x.resuelta = d["resolved"].toString();
+        x.alias = d["alias"].toBool();
+        x.tipo = d["type"].toString();
+        x.fs = d["fstype"].toString();
+        x.montaje = d["mountpoint"].toString();
+        x.padre = d["parent"].toString();
+        x.tamano = static_cast<std::uint64_t>(d["size"].toInt());
+        x.enUso = d["inuse"].toBool();
+        out.push_back(x);
+    }
+    return true;
+}
+
+bool montados(const std::string& salidaJson,
+              std::vector<std::pair<std::string, std::string>>& out, std::string& error) {
+    out.clear();
+    error.clear();
+    zfsmgr::base::json::Value raiz;
+    if (!zfsmgr::base::json::parse(salidaJson, raiz, &error)) {
+        return false;
+    }
+    // Ninguno montado NO es un error: es una respuesta legítima.
+    for (const auto& par : raiz["datasets"].toObject()) {
+        const std::string punto = par.second["mountpoint"].toString();
+        if (!par.first.empty()) {
+            out.emplace_back(par.first, punto);
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return true;
+}
+
+bool tieneDescendientesMontados(const std::string& salidaJson, const std::string& dataset) {
+    const std::string ds = zfsmgr::base::trim(dataset);
+    if (ds.empty()) {
+        return false;
+    }
+    std::vector<std::pair<std::string, std::string>> lista;
+    std::string err;
+    if (!montados(salidaJson, lista, err)) {
+        return false;
+    }
+    // Con la barra: «tank/datos2» empieza por «tank/datos» y no está debajo de él.
+    const std::string prefijo = ds + "/";
+    for (const auto& par : lista) {
+        if (par.first.rfind(prefijo, 0) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace zfsmgr::base::listados
