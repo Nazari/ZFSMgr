@@ -23,8 +23,8 @@ Uso:
 Descripción:
   Ejecuta builds locales en fc16 y deja artefactos en OUTPUT_DIR.
   - Linux nativo: .AppImage + .deb
-  - Windows cross: zfsmgr_qt.exe (+ instalador Inno opcional en Linux)
-  - FreeBSD cross: artefacto .pkg con zfsmgr_qt
+  - Windows cross: zfsmgr-gui.exe (+ instalador Inno opcional en Linux)
+  - FreeBSD cross: artefacto .pkg con zfsmgr-gui
   - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES) + nota de primer arranque
   - Agente: binarios zfsmgr_agent por plataforma/arquitectura en OUTPUT_DIR y builds/agents/
 
@@ -197,13 +197,13 @@ Comprobación:
    spctl -a -vv "/ruta/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr.app"
 
-El intérprete (zfsmgr_cli) y el servidor web (zfsmgr_web) viajan DENTRO del .app,
+El intérprete (zfsmgr-cli) y el servidor web (zfsmgr-web) viajan DENTRO del .app,
 porque en macOS no hay instalador. Para tenerlos en el PATH, un enlace cada uno:
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_web /usr/local/bin/zfsmgr_web
-Comprobación:  zfsmgr_cli --help   /   zfsmgr_web --help
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
+Comprobación:  zfsmgr-cli --help   /   zfsmgr-web --help
 Al desinstalar (borrar el .app) los enlaces quedan colgando; se quitan con:
-   sudo rm /usr/local/bin/zfsmgr_cli /usr/local/bin/zfsmgr_web
+   sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web
 
 [EN]
 These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
@@ -227,13 +227,13 @@ Verification:
    spctl -a -vv "/path/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr.app"
 
-The shell tool (zfsmgr_cli) and the local web server (zfsmgr_web) ship INSIDE the
+The shell tool (zfsmgr-cli) and the local web server (zfsmgr-web) ship INSIDE the
 .app, since macOS has no installer. To get them on your PATH, symlink each:
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_web /usr/local/bin/zfsmgr_web
-Check with:  zfsmgr_cli --help   /   zfsmgr_web --help
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
+Check with:  zfsmgr-cli --help   /   zfsmgr-web --help
 Deleting the .app leaves the symlinks dangling; remove them with:
-   sudo rm /usr/local/bin/zfsmgr_cli /usr/local/bin/zfsmgr_web
+   sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web
 
 [ZH]
 这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
@@ -256,12 +256,12 @@ Deleting the .app leaves the symlinks dangling; remove them with:
    spctl -a -vv "/路径/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr.app"
 
-命令行工具 (zfsmgr_cli) 打包在 .app 内部，因为 macOS 没有安装程序。
+命令行工具 (zfsmgr-cli) 打包在 .app 内部，因为 macOS 没有安装程序。
 若要加入 PATH，请创建符号链接：
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
-验证：  zfsmgr_cli --help
+   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
+验证：  zfsmgr-cli --help
 删除 .app 后链接会失效，可用以下命令移除：
-   sudo rm /usr/local/bin/zfsmgr_cli
+   sudo rm /usr/local/bin/zfsmgr-cli
 EOF
 }
 
@@ -487,7 +487,7 @@ package_freebsd_with_agent_bundle() {
   mkdir -p "${payload}/usr/local/bin" "${payload}/usr/local/share/zfsmgr/agents" \
            "${payload}/usr/local/share/zfsmgr/i18n"
 
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_qt"
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr-gui"
   cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent" "${payload}/usr/local/bin/zfsmgr_agent"
   # El intérprete va con los otros dos.
   #
@@ -496,13 +496,13 @@ package_freebsd_with_agent_bundle() {
   # también en este sitio. Lo mismo vale para los catálogos: el intérprete no enlaza Qt,
   # así que los lee del disco, y `share/zfsmgr/i18n` es una de las rutas que ya busca a
   # partir de su propio ejecutable.
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_cli" "${payload}/usr/local/bin/zfsmgr_cli"
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-cli"
   # Y el servidor web, por lo mismo: es el otro cliente sin Qt, y este paquete se arma a
   # mano. El .deb de Linux SÍ lo cogió solo, porque ese sale de `cmake --install`; aquí
   # había que nombrarlo. Es exactamente la trampa que ya se pisó con el intérprete.
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_web" "${payload}/usr/local/bin/zfsmgr_web"
-  chmod 0755 "${payload}/usr/local/bin/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_agent" \
-             "${payload}/usr/local/bin/zfsmgr_cli" "${payload}/usr/local/bin/zfsmgr_web" || true
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-web" "${payload}/usr/local/bin/zfsmgr-web"
+  chmod 0755 "${payload}/usr/local/bin/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr_agent" \
+             "${payload}/usr/local/bin/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-web" || true
   cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"
   cp -f "${PROJECT_ROOT}"/i18n/*.json "${payload}/usr/local/share/zfsmgr/i18n/"
 
@@ -568,28 +568,64 @@ PY
 }
 
 # El build nativo de Linux no busca Qt en ninguna parte: da por hecho que lo tiene el
-# sistema. En este equipo lo tiene, así que funcionaba; dentro del contenedor de
-# toolchain NO, y a propósito —el Qt de Ubuntu es 6.4.2 y el proyecto exige >= 6.5—,
-# de modo que la compilación en contenedor fallaba en su primer paso con "Could not
-# find Qt6". Se resuelve igual que ya se hace con Windows y FreeBSD: buscándolo en
-# ~/Qt, que es donde lo deja el aprovisionamiento y adonde apunta el enlace que crea
-# docker/build.sh.
+# sistema. Aquí lo tiene, así que funciona; pero eso deja de ser cierto en cuanto la
+# distribución traiga uno anterior al 6.5 que el proyecto exige. Se resuelve igual que ya
+# se hace con Windows y FreeBSD: buscándolo también en ~/Qt, que es donde lo deja
+# `provision-cross-targets.sh`.
 # Entorno propio de la fase Linux, aplicado con "env" en cada llamada y NO exportado.
 #
 # Exportarlo era el error: estas variables valen para UN objetivo. Un LD_LIBRARY_PATH
 # con el Qt de Linux se filtraba a la fase de FreeBSD, cuyo rcc es de otra versión, y
 # el cruce moría con "version Qt_6.11 not found". Es el mismo fallo de forma que fijar
 # QT_HOST_PATH a mano para todos los objetivos.
+# --- Qué versión de Qt usa cada objetivo.
+#
+# `qt-version.txt` es la ÚNICA versión que este proyecto decide, y la leen también el CI y
+# `provision-cross-targets.sh`. Sin fijarla aquí, el autodetect cogía «la más alta que
+# hubiera instalada» y el resultado dependía de la máquina: en un equipo con 6.8.3, 6.10.2
+# y 6.11.1 en ~/Qt, el .app de macOS salía contra 6.10.2 mientras el CI lo publicaba
+# contra 6.8.3. Compilaba —el moc del anfitrión emparejaba con el destino— así que no
+# fallaba nada: simplemente se distribuían dos cosas distintas con el mismo número.
+#
+# Esto ya estaba resuelto para Linux y solo para Linux. Ahora es una función y la usan los
+# tres, que es como no tener que acordarse la próxima vez.
+#
+# **FreeBSD queda fuera a propósito**: su Qt no sale de ~/Qt sino del sysroot, con la
+# versión que traiga el repositorio de paquetes de FreeBSD (hoy 6.11.1). Fijarla exigiría
+# compilar Qt para FreeBSD por nuestra cuenta.
+_qt_pin="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || true)"
+
+# El prefijo de Qt para un objetivo: el de la versión fijada si está instalada; si no, el
+# más alto que haya, PERO diciéndolo.
+#
+# El aviso importa más que el respaldo. Caer en silencio a otra versión es exactamente lo
+# que hacía que el binario dependiera del equipo, y un build que avisa es preferible a uno
+# que se niega: quien solo quiere probar algo no debería tener que instalar un Qt entero.
+qt_prefijo_del_objetivo() {
+  local sub="$1"       # gcc_64 | mingw_64 | macos
+  local etiqueta="$2"  # para el aviso
+  # La orden que lo arregla. Va como parámetro y no deducida del objetivo porque NO hay
+  # correspondencia: `--windows` trae a la vez el `mingw_64` del destino y el `gcc_64` del
+  # anfitrión, y el de macOS lo trae `--macos-qt` —`--macos` es otra cosa, compila osxcross
+  # y exige el SDK de Xcode, que no hace ninguna falta para esto—.
+  local arreglo="$3"
+  if [[ -n "${_qt_pin}" && -d "${HOME}/Qt/${_qt_pin}/${sub}" ]]; then
+    echo "${HOME}/Qt/${_qt_pin}/${sub}"
+    return 0
+  fi
+  local alt
+  alt="$(autodetect_path_glob "${HOME}/Qt/*/${sub}")"
+  if [[ -n "${alt}" && -n "${_qt_pin}" ]]; then
+    echo "AVISO: ${etiqueta} no tiene Qt ${_qt_pin} (el fijado en qt-version.txt);" >&2
+    echo "       se usa ${alt}, que NO es lo que publica el CI." >&2
+    echo "       Para alinearlo: scripts/provision-cross-targets.sh ${arreglo}" >&2
+  fi
+  echo "${alt}"
+}
+
 _linux_env=()
 if [[ -z "${CMAKE_PREFIX_PATH:-}" ]] && has_platform "linux"; then
-  # Se prefiere la versión fijada en qt-version.txt; autodetectar a secas cogía la más
-  # alta que hubiera instalada y el resultado dependía de la máquina.
-  _qt_pin="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || true)"
-  if [[ -n "${_qt_pin}" && -d "${HOME}/Qt/${_qt_pin}/gcc_64" ]]; then
-    _qt_linux="${HOME}/Qt/${_qt_pin}/gcc_64"
-  else
-    _qt_linux="$(autodetect_path_glob "${HOME}/Qt/*/gcc_64")"
-  fi
+  _qt_linux="$(qt_prefijo_del_objetivo gcc_64 linux --windows)"
   if [[ -n "${_qt_linux:-}" ]]; then
     _linux_env+=("CMAKE_PREFIX_PATH=${_qt_linux}")
     # linuxdeploy resuelve las dependencias por el enlazador, no por CMake, y su plugin
@@ -617,8 +653,9 @@ fi
 
 if has_platform "windows"; then
   if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
-    _qt_win_guess="$(autodetect_path_glob "${HOME}/Qt/*/mingw_64")"
+    _qt_win_guess="$(qt_prefijo_del_objetivo mingw_64 windows --windows)"
     [[ -n "${_qt_win_guess}" ]] && QT6_WINDOWS_PREFIX="${_qt_win_guess}" && export QT6_WINDOWS_PREFIX
+    [[ -n "${_qt_win_guess}" ]] && echo "Qt para Windows: ${_qt_win_guess}"
   fi
   run_phase windows-local "${SCRIPT_DIR}/build-cross.sh" --target windows --jobs "${JOBS}"
   set_agent_path_if_exists "windows-x86_64" "${PROJECT_ROOT}/builds/cross-windows/zfsmgr_agent.exe"
@@ -637,8 +674,22 @@ if has_platform "macos"; then
     _target="$(find_osxcross_target "${_arch}" || true)"
     [[ -n "${_target}" ]] || { echo "No se encontró OSXCROSS_TARGET para macOS/${_arch}" >&2; exit 1; }
     _openssl_prefix="$(ensure_macos_openssl "${_arch}" "${_target}")"
+    # Qt de macOS: la versión fijada, no «la más alta que haya».
+    #
+    # Aquí no había nada, así que `build-cross.sh` autodetectaba y se quedaba con la mayor.
+    # Se fija una sola vez para las dos arquitecturas —amd64 y arm64 comparten árbol de Qt—
+    # y no se pisa si viene ya puesta del entorno, que es como se prueba una versión
+    # distinta sin tocar el fichero.
+    if [[ -z "${QT6_MACOS_PREFIX:-}" ]]; then
+      _qt_mac_guess="$(qt_prefijo_del_objetivo macos macos --macos-qt)"
+      if [[ -n "${_qt_mac_guess}" ]]; then
+        QT6_MACOS_PREFIX="${_qt_mac_guess}"
+        export QT6_MACOS_PREFIX
+        echo "Qt para macOS: ${QT6_MACOS_PREFIX}"
+      fi
+    fi
     # Solo hace falta para el bundle de la interfaz; con --agent-only no se monta ninguno.
-    if [[ -n "${QT6_MACOS_PREFIX:-}" ]] || [[ -n "$(ls -d "${HOME}"/Qt/*/macos 2>/dev/null | head -1)" ]]; then
+    if [[ -n "${QT6_MACOS_PREFIX:-}" ]]; then
       ensure_macos_openssl_shared "${_arch}" "${_target}" >/dev/null
     fi
     _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
@@ -647,7 +698,7 @@ if has_platform "macos"; then
     # entero dejaba a macOS sin daemon por una dependencia que no es del daemon, y desde el
     # CLI se acababa instalando el agente de una compilación anterior.
     _mac_args=(--target macos --build-dir "${_build_dir}" --jobs "${JOBS}")
-    if [[ -z "${QT6_MACOS_PREFIX:-}" ]] && [[ -z "$(ls -d "${HOME}"/Qt/*/macos 2>/dev/null | head -1)" ]]; then
+    if [[ -z "${QT6_MACOS_PREFIX:-}" ]]; then
       echo "AVISO: sin Qt para macOS; se compila SOLO el agente de macOS/${_arch}." >&2
       echo "       La interfaz (.app) de macOS no se genera en esta pasada." >&2
       _mac_args+=(--agent-only)
@@ -677,8 +728,8 @@ if has_platform "linux"; then
 fi
 
 if has_platform "windows"; then
-  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr_qt.exe"
-  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr_qt.exe de Windows cross" >&2; exit 1; }
+  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr-gui.exe"
+  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr-gui.exe de Windows cross" >&2; exit 1; }
   cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
   if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
     _inno_extra_args=()
@@ -687,7 +738,7 @@ if has_platform "windows"; then
       --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
       --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
       --version "${APP_VERSION}" \
-      --exe "zfsmgr_qt.exe" \
+      --exe "zfsmgr-gui.exe" \
       --agent-bundle-dir "${AGENT_BUNDLE_DIR}" \
       "${_inno_extra_args[@]}"
     win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
@@ -697,7 +748,7 @@ if has_platform "windows"; then
 fi
 
 if has_platform "freebsd"; then
-  [[ -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" ]] || { echo "No se encontró zfsmgr_qt de FreeBSD cross" >&2; exit 1; }
+  [[ -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-gui" ]] || { echo "No se encontró zfsmgr-gui de FreeBSD cross" >&2; exit 1; }
   fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
   package_freebsd_with_agent_bundle "${fbsd_pkg}"
 fi

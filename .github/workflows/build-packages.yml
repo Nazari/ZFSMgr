@@ -295,7 +295,7 @@ jobs:
         with:
           name: zfsmgr-linux
           path: |
-            builds/linux/zfsmgr_qt
+            builds/linux/zfsmgr-gui
             builds/linux/zfsmgr_agent
           if-no-files-found: error
 
@@ -305,7 +305,7 @@ jobs:
         with:
           name: zfsmgr-windows
           path: |
-            builds/windows/Release/zfsmgr_qt.exe
+            builds/windows/Release/zfsmgr-gui.exe
             builds/windows/Release/zfsmgr_agent.exe
           if-no-files-found: error
 
@@ -345,7 +345,7 @@ jobs:
         with:
           name: zfsmgr-freebsd
           path: |
-            builds/freebsd/zfsmgr_qt
+            builds/freebsd/zfsmgr-gui
             builds/freebsd/zfsmgr_agent
           if-no-files-found: error
 

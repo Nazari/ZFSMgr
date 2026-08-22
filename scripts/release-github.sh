@@ -234,7 +234,7 @@ resolve_release_artifacts() {
   done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" "ZFSMgr-${VERSION}.app.zip" "ZFSMgr-${VERSION}-macos-*.app.zip" || true)
   MAC_FIRST_RUN_NOTE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}-macOS-first-run.txt" "ZFSMgr-${VERSION}-macos-first-run.txt" || true)"
   MAC_ARTIFACTS_JSON="$(join_by ";" "${MAC_ARTIFACTS[@]}")"
-  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_windows_build_dir}" "ZFSMgr-Setup-${VERSION}*.exe" "ZFSMgr-${VERSION}-windows.exe" "zfsmgr_qt.exe" || true)"
+  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_windows_build_dir}" "ZFSMgr-Setup-${VERSION}*.exe" "ZFSMgr-${VERSION}-windows.exe" "zfsmgr-gui.exe" || true)"
   if [[ -z "${WIN_ARTIFACT}" || ! -f "${WIN_ARTIFACT}" ]]; then
     WIN_ARTIFACT="$(find_one_release_artifact "${windows_build_dir}" "" "" "ZFSMgr-Setup-${VERSION}*.exe" || true)"
   fi

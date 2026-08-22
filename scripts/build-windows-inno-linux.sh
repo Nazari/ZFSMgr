@@ -22,9 +22,9 @@ WINEARCH="${WINEARCH:-win32}"
 INNO_URL="${INNO_URL:-https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe}"
 INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
-APP_EXE="zfsmgr_qt.exe"
-CLI_EXE="zfsmgr_cli.exe"
-WEB_EXE="zfsmgr_web.exe"
+APP_EXE="zfsmgr-gui.exe"
+CLI_EXE="zfsmgr-cli.exe"
+WEB_EXE="zfsmgr-web.exe"
 APP_VERSION=""
 QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
 MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
@@ -39,9 +39,9 @@ Opciones:
   --input-dir <dir>     Directorio con binarios Windows (default: builds/cross-windows)
   --output-dir <dir>    Directorio de salida del instalador (default: builds/windows-installer)
   --version <v>         Versión del instalador (si no, se lee de CMakeLists)
-  --exe <name.exe>      Ejecutable principal (default: zfsmgr_qt.exe)
-  --cli <name.exe>      Herramienta de línea de órdenes (default: zfsmgr_cli.exe).
-  --web <name.exe>      Servidor web local (default: zfsmgr_web.exe).
+  --exe <name.exe>      Ejecutable principal (default: zfsmgr-gui.exe)
+  --cli <name.exe>      Herramienta de línea de órdenes (default: zfsmgr-cli.exe).
+  --web <name.exe>      Servidor web local (default: zfsmgr-web.exe).
                         Si no está en --input-dir se omite y el instalador se genera
                         igual: la aplicación gráfica no depende de ella.
   --qt-prefix <dir>     Prefijo Qt6 para Windows (bin/Qt6*.dll y plugins/). Por defecto
@@ -379,7 +379,7 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 ; que va a gestionar en remoto, pero VISIBLE y desmarcable: levantar un servidor SSH
 ; cambia la exposición del equipo en la red y eso no se hace en silencio.
 Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage this machine remotely from another ZFSMgr)"; GroupDescription: "Remote access:"
-; Poner {app}\\bin en el PATH de la máquina: ahí están zfsmgr_cli y zfsmgr_web.
+; Poner {app}\\bin en el PATH de la máquina: ahí están zfsmgr-cli y zfsmgr-web.
 ;
 ; Marcada por omisión porque es a lo que viene quien quiere la herramienta de línea de
 ; órdenes, pero VISIBLE y desmarcable por el mismo motivo que la de OpenSSH: tocar el

@@ -803,7 +803,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # macOS no tiene instalador: se arrastra el .app. Así que el intérprete viaja donde
   # viaja la aplicación, y quien lo quiera en el PATH pone un enlace:
   #
-  #   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+  #   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
   #
   # En Contents/MacOS y no en otro sitio: es lo que hace que
   # `<ejecutable>/../Resources/i18n` —una de las cuatro rutas que src/cli/main.cpp ya
@@ -812,7 +812,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # Antes de firmar, como los agentes.
   # El servidor web viaja igual y por el mismo motivo: los dos son clientes sin Qt y en
   # macOS no hay instalador que los ponga en el PATH.
-  for cliente in zfsmgr_cli zfsmgr_web; do
+  for cliente in zfsmgr-cli zfsmgr-web; do
     if [[ ! -f "${BUILD_DIR}/${cliente}" ]]; then
       echo "Error: no se encontró ${BUILD_DIR}/${cliente} para meter en el bundle." >&2
       echo "       Sin él, el .app de macOS sale incompleto." >&2

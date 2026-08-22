@@ -40,8 +40,8 @@ Opciones:
   --windows                  Instala prerequisitos target Windows (Qt target+host y OpenSSL MinGW)
   --freebsd                  Descarga/actualiza sysroot base de FreeBSD
   --macos                    Prepara osxcross (requiere --macos-sdk)
-  --macos-image              Lo de macOS que cabe en la imagen: Qt y el firmador
-                             (no necesita SDK ni osxcross)
+  --macos-qt                 El Qt de macOS y el firmador, sin más: no necesita el SDK
+                             de Xcode ni osxcross, porque son binarios que baja aqt
   --all                      Equivale a --windows --freebsd --macos
   --qt-version <v>           Versión Qt para aqt (default: ${QT_VERSION})
   --qt-root <dir>            Prefijo instalación Qt (default: ${QT_ROOT})
@@ -316,9 +316,8 @@ install_freebsd_sysroot() {
 # El Qt para macOS, y NADA MÁS.
 #
 # Está aparte de `setup_osxcross` porque no necesita el SDK de Xcode: son binarios que
-# aqtinstall descarga. Eso es lo que permite meterlo en la imagen de Docker, donde el SDK
-# no puede estar —no es redistribuible— y osxcross se monta desde el anfitrión. Sin este
-# árbol el cruce de macOS compila el agente y NO la interfaz, que es como estaba.
+# aqtinstall descarga. Por eso se puede poner sin tener el SDK a mano. Sin este árbol el
+# cruce de macOS compila el agente y NO la interfaz, que es como estaba.
 #
 # El directorio se llama `macos` y no `clang_64`: aqt cambió el nombre en Qt 6, y
 # `build-cross.sh` busca los dos por ese motivo.
@@ -467,7 +466,7 @@ while [[ $# -gt 0 ]]; do
     --skip-qt) SKIP_QT=1; shift ;;
     --freebsd) DO_FREEBSD=1; shift ;;
     --macos) DO_MACOS=1; shift ;;
-    --macos-image) DO_MACOS_QT=1; shift ;;
+    --macos-qt) DO_MACOS_QT=1; shift ;;
     --all) DO_WINDOWS=1; DO_FREEBSD=1; DO_MACOS=1; shift ;;
     --qt-version) shift; QT_VERSION="${1:-}"; shift ;;
     --qt-root) shift; QT_ROOT="${1:-}"; shift ;;

@@ -246,7 +246,7 @@ find_cross_tool() {
 # macOS no tiene instalador: se arrastra el .app y ya está. Así que el intérprete viaja
 # donde viaja la aplicación, y quien lo quiera en el PATH pone un enlace:
 #
-#   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr_cli /usr/local/bin/zfsmgr_cli
+#   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
 #
 # `Contents/MacOS` no es un sitio cualquiera: es el que hace que la ruta
 # `<ejecutable>/../Resources/i18n` —una de las cuatro que `src/cli/main.cpp` ya busca—
@@ -261,8 +261,23 @@ find_cross_tool() {
 mete_cli_en_bundle_macos() {
   local app_bundle="$1"
   local build_dir="$2"
+  # Quitar antes lo que hubiera de una pasada anterior.
+  #
+  # El bundle vive DENTRO del directorio de compilación y no se regenera solo: al renombrar
+  # los ejecutables (`zfsmgr_cli` → `zfsmgr-cli`), los del nombre viejo se quedaron dentro y
+  # el .app salió con LOS DOS juegos —cuatro binarios donde debían ir dos, y dos de ellos de
+  # una compilación anterior—. Se vio abriendo el zip, no en el log: el empaquetado copiaba
+  # los nuevos y no se quejaba de nada.
+  #
+  # Se borra solo lo que este propio paso pone; el ejecutable principal del bundle se llama
+  # ZFSMgr y no casa con el patrón.
+  local viejo
+  for viejo in "${app_bundle}/Contents/MacOS/"zfsmgr[-_]*; do
+    [[ -e "${viejo}" ]] || continue
+    rm -f "${viejo}"
+  done
   local cliente
-  for cliente in zfsmgr_cli zfsmgr_web; do
+  for cliente in zfsmgr-cli zfsmgr-web; do
     if [[ ! -f "${build_dir}/${cliente}" ]]; then
       echo "Error: no se encontró ${build_dir}/${cliente} para meter en el bundle." >&2
       echo "       Sin él, el .app de macOS sale incompleto." >&2
@@ -286,7 +301,7 @@ firma_adhoc_bundle() {
     echo "Error: no hay rcodesign para firmar ${bundle}." >&2
     echo "Sin firma ad-hoc el bundle NO arranca en Apple Silicon: el despliegue reescribe" >&2
     echo "los install_name y eso invalida la firma con la que venía Qt." >&2
-    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos-image" >&2
+    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos-qt" >&2
     exit 1
   fi
   echo "Firmando (ad-hoc) ${bundle} con ${firmador}"
@@ -309,14 +324,14 @@ ensure_macos_bundle_runtime_cross() {
   # El binario principal POR NOMBRE, no «el primero que salga».
   #
   # Era un `find | head -n1`, y Contents/MacOS tenía un solo ejecutable. Desde que
-  # también lleva `zfsmgr_cli`, ese head podía devolver el intérprete y entonces las
+  # también lleva `zfsmgr-cli`, ese head podía devolver el intérprete y entonces las
   # dependencias que se resuelven abajo serían las suyas —ninguna: es autónomo— en vez
   # de las de la aplicación, que es la que necesita los frameworks de Qt. El .app
   # saldría sin Qt dentro y sin que nada fallara.
   local main_bin="${app_bundle}/Contents/MacOS/ZFSMgr"
   if [[ ! -f "${main_bin}" ]]; then
     main_bin="$(find "${app_bundle}/Contents/MacOS" -maxdepth 1 -type f -perm -111 \
-                     ! -name 'zfsmgr_cli' | head -n1 || true)"
+                     ! -name 'zfsmgr-cli' | head -n1 || true)"
   fi
   [[ -n "${main_bin}" ]] || { echo "No se encontró binario principal en ${app_bundle}/Contents/MacOS" >&2; return 1; }
 
@@ -728,6 +743,35 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
     target_extra_args+=("-DZFSMGR_AGENT_ONLY=ON")
   else
     target_extra_args+=("-DZFSMGR_AGENT_ONLY=OFF")
+  fi
+  # Un directorio ya configurado se queda con el Qt de la vez anterior.
+  #
+  # CMake graba las rutas de cada módulo —`Qt6Core_DIR`, `Qt6Widgets_DIR`…— en la caché y
+  # NO las revisa porque cambie una variable de entorno. Al fijar la versión en
+  # `qt-version.txt`, un `builds/cross-macos-arm64` de una pasada anterior seguía apuntando
+  # a la vieja mientras las herramientas del anfitrión ya eran de la nueva, y el configure
+  # moría con «Failed to find required Qt component "Widgets"» señalando una ruta que
+  # existe. El mensaje no dice nada de versiones, así que se pierde el rato buscando un Qt
+  # incompleto que está completo.
+  #
+  # Es el mismo cuidado que ya tenía `build-linux.sh` (`ensure_build_dir_qt_match`), que
+  # aquí faltaba. Se compara la raíz del Qt de destino, no el prefijo entero: la caché
+  # guarda `<raiz>/lib/cmake/Qt6Core`, no `<raiz>`.
+  if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    _qt_cacheado="$(sed -n 's/^Qt6Core_DIR:PATH=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+    _qt_pedido=""
+    case "${TARGET}" in
+      windows) _qt_pedido="${QT6_WINDOWS_PREFIX:-}" ;;
+      macos)   _qt_pedido="${QT6_MACOS_PREFIX:-}" ;;
+      freebsd) _qt_pedido="${QT6_FREEBSD_PREFIX:-}" ;;
+    esac
+    if [[ -n "${_qt_cacheado}" && -n "${_qt_pedido}" && "${_qt_cacheado}" != "${_qt_pedido}"/* ]]; then
+      echo "Detectado build cache con otro Qt:"
+      echo "  cache:  ${_qt_cacheado}"
+      echo "  pedido: ${_qt_pedido}"
+      echo "Regenerando ${BUILD_DIR}..."
+      rm -rf "${BUILD_DIR}"
+    fi
   fi
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
     "${cmake_generator_args[@]}" \

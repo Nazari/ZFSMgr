@@ -186,7 +186,7 @@ if [[ "${BUILD_PKG}" -eq 0 ]]; then
   ensure_build_dir_source_match
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"${NCPU}"
-  echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
+  echo "Build completado: ${BUILD_DIR}/zfsmgr-gui"
   exit 0
 fi
 
@@ -209,8 +209,8 @@ mkdir -p "${PKG_STAGE_DIR}" "${PKG_META_DIR}"
 
 # Instalar en staging con prefijo /usr/local para empaquetado pkg.
 DESTDIR="${PKG_STAGE_DIR}" cmake --install "${BUILD_DIR}" --prefix /usr/local
-if [[ ! -x "${PKG_STAGE_DIR}/usr/local/bin/zfsmgr_qt" ]]; then
-  echo "Error: staging incompleto, no existe ${PKG_STAGE_DIR}/usr/local/bin/zfsmgr_qt" >&2
+if [[ ! -x "${PKG_STAGE_DIR}/usr/local/bin/zfsmgr-gui" ]]; then
+  echo "Error: staging incompleto, no existe ${PKG_STAGE_DIR}/usr/local/bin/zfsmgr-gui" >&2
   exit 1
 fi
 

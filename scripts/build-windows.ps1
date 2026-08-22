@@ -643,7 +643,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\zfsmgr_qt.exe
+UninstallDisplayIcon={app}\zfsmgr-gui.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -655,11 +655,11 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 Source: "$sourceDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "connections.ini,*.pdb,*.obj,*.o,*.a,*.lib,*.exp,*.ilk,*.idb,*.tmp,*.log,*.tlog,CMakeFiles\*,.qt\*,Testing\*,zfsmgr_*_test.exe,*_autogen\*,*.cpp,*.c,*.h,*.hpp,*.md,*.txt"
 
 [Icons]
-Name: "{autoprograms}\ZFSMgr"; Filename: "{app}\zfsmgr_qt.exe"
-Name: "{autodesktop}\ZFSMgr"; Filename: "{app}\zfsmgr_qt.exe"; Tasks: desktopicon
+Name: "{autoprograms}\ZFSMgr"; Filename: "{app}\zfsmgr-gui.exe"
+Name: "{autodesktop}\ZFSMgr"; Filename: "{app}\zfsmgr-gui.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\zfsmgr_qt.exe"; Description: "Launch ZFSMgr"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\zfsmgr-gui.exe"; Description: "Launch ZFSMgr"; Flags: nowait postinstall skipifsilent
 "@
   Set-Content -Path $path -Value $iss -Encoding ascii
 }
@@ -674,11 +674,11 @@ function New-InstallerPayload([string]$sourceDir, [string]$payloadDir) {
   }
   New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
 
-  $mainExe = Join-Path $sourceDir "zfsmgr_qt.exe"
+  $mainExe = Join-Path $sourceDir "zfsmgr-gui.exe"
   if (-not (Test-Path $mainExe)) {
-    throw "No se encontro zfsmgr_qt.exe en: $sourceDir"
+    throw "No se encontro zfsmgr-gui.exe en: $sourceDir"
   }
-  Copy-Item -LiteralPath $mainExe -Destination (Join-Path $payloadDir "zfsmgr_qt.exe") -Force
+  Copy-Item -LiteralPath $mainExe -Destination (Join-Path $payloadDir "zfsmgr-gui.exe") -Force
 
   $qtConf = Join-Path $sourceDir "qt.conf"
   if (Test-Path $qtConf) {
@@ -1009,15 +1009,15 @@ if ($LASTEXITCODE -ne 0) {
   throw "Fallo en compilación (exit $LASTEXITCODE)"
 }
 
-$exeRelease = Join-Path $BuildDir "Release\zfsmgr_qt.exe"
-$exeSingle = Join-Path $BuildDir "zfsmgr_qt.exe"
+$exeRelease = Join-Path $BuildDir "Release\zfsmgr-gui.exe"
+$exeSingle = Join-Path $BuildDir "zfsmgr-gui.exe"
 $exePath = $null
 if (Test-Path $exeRelease) {
   $exePath = $exeRelease
 } elseif (Test-Path $exeSingle) {
   $exePath = $exeSingle
 } else {
-  throw "Compilación finalizada, pero no se encontró zfsmgr_qt.exe en $BuildDir."
+  throw "Compilación finalizada, pero no se encontró zfsmgr-gui.exe en $BuildDir."
 }
 
 # Despliegue de runtime Qt junto al ejecutable para evitar errores por DLLs faltantes.

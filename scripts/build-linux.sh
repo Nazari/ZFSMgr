@@ -218,7 +218,7 @@ if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   fi
   cmake "${cmake_args[@]}" "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
-  echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
+  echo "Build completado: ${BUILD_DIR}/zfsmgr-gui"
   exit 0
 fi
 
@@ -295,7 +295,7 @@ cat > "${APPDIR}/usr/share/applications/zfsmgr.desktop" <<'EOF'
 Type=Application
 Name=ZFSMgr
 Comment=Cross-platform OpenZFS GUI manager
-Exec=zfsmgr_qt
+Exec=zfsmgr-gui
 Icon=ZFSMgr
 Categories=System;Utility;
 Terminal=false

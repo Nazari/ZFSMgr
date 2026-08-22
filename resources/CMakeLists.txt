@@ -25,7 +25,7 @@ endif()
 
 set(ZFSMGR_APP_VERSION_STRING "0.93.1")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
-file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
+file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/native/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
 string(SUBSTRING "${ZFSMGR_GSA_SOURCE_SHA}" 0 9 ZFSMGR_GSA_VERSION_SUFFIX)
 string(REGEX REPLACE "[aA]" "1" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
 string(REGEX REPLACE "[bB]" "2" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
@@ -60,6 +60,9 @@ cmd:--dump-dir-list
 cmd:--dump-file
 cmd:--dump-zfs-holds
 cmd:--mutate-zfs-hold
+cmd:--mutate-zfs-rename
+cmd:--tree-recv-listen
+cmd:--tree-send-to-peer
 cmd:--mutate-zfs-release
 health:caps-declared
 win:native-only
@@ -115,28 +118,15 @@ find_package(Threads REQUIRED)
 add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
-    ../src/base/daemonpayload.cpp
-    ../src/base/daemoninstall.cpp
-    ../src/base/daemoninstall.h
-    ../src/base/dosextremos.cpp
-    ../src/base/dosextremos.h
-    ../src/base/zfsallow.cpp
-    ../src/base/zfsallow.h
-    ../src/base/transferencia.cpp
-    ../src/base/transferencia.h
-    ../src/base/zfsmurl.cpp
-    ../src/base/zfsmurl.h
+    ../src/base/sistemaoperativo.cpp
+    ../src/base/sistemaoperativo.h
     ../src/base/tlsclient.cpp
     ../src/base/tlsclient.h
     ../src/base/process.cpp
     ../src/base/process.h
-    ../src/base/refreshparse.cpp
-    ../src/base/refreshparse.h
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp
-    ../src/base/listados.cpp
-    ../src/base/listados.h
     ../src/base/tlsserver.cpp
     ../src/base/tlsserver.h
     ../src/base/storefiles.h
@@ -147,16 +137,12 @@ add_library(zfsmgr_base STATIC
     ../src/base/secretcipher.h
     ../src/base/json.cpp
     ../src/base/json.h
-    ../src/base/gsa.cpp
-    ../src/base/gsa.h
     ../src/base/i18n.cpp
     ../src/base/i18n.h
     ../src/base/helpers.cpp
     ../src/base/helpers.h
     ../src/base/transportcmd.cpp
     ../src/base/transportcmd.h
-    ../src/base/zfsprops.cpp
-    ../src/base/zfsprops.h
     ../src/base/transportreason.cpp
     ../src/base/transportreason.h
     ../src/base/transportrpc.cpp
@@ -164,8 +150,74 @@ add_library(zfsmgr_base STATIC
     ../src/base/transporttunnel.cpp
     ../src/base/transporttunnel.h
     ../src/base/transportsession.h
+    ../src/base/daemonpayload.cpp
     ../src/base/daemonpayload.h
 )
+
+# Capa de ÓRDENES: las operaciones del dominio.
+#
+# La diferencia con `zfsmgr_base` no es de tamaño ni de gusto, y conviene tenerla escrita
+# porque es lo único que evita que esto se convierta en un segundo cajón:
+#
+#   - `zfsmgr_base` no sabe qué es ZFS. Cadenas, JSON, procesos, TLS, transporte,
+#     almacenamiento, i18n. Serviría igual en un programa que no tuviera nada que ver.
+#   - `zfsmgr_commands` son las OPERACIONES: copiar, nivelar, mover, sincronizar, desglosar,
+#     ensamblar, GSA, permisos, peers, el árbol remoto. Nombran conceptos de este programa.
+#
+# **Y la dependencia va en un solo sentido, comprobado por el enlazador**: commands usa
+# base, base NO usa commands. Si alguien mete en `base/` un include de `commands/`, el build
+# falla en el sitio. Es la misma garantía que la de no enlazar Qt, y por el mismo motivo:
+# una regla que solo está escrita en un documento se incumple sin que nadie se entere.
+#
+# Aquí es donde debe acabar concentrándose la construcción de cada orden del agente. Hoy los
+# tres clientes arman el mismo argv por su cuenta —`--mutate-advanced-assemble` está escrito
+# en `cli/shell.cpp`, en `web/main.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus
+# reglas, que por eso no viven en ninguna parte.
+add_library(zfsmgr_commands STATIC
+    ../src/commands/datasets.cpp
+    ../src/commands/datasets.h
+    ../src/commands/instantaneas.cpp
+    ../src/commands/instantaneas.h
+    ../src/commands/pools.cpp
+    ../src/commands/pools.h
+    ../src/commands/avanzadas.cpp
+    ../src/commands/avanzadas.h
+    ../src/commands/daemoninstall.cpp
+    ../src/commands/daemoninstall.h
+    ../src/commands/dosextremos.cpp
+    ../src/commands/dosextremos.h
+    ../src/commands/peticiones.cpp
+    ../src/commands/zfsallow.cpp
+    ../src/commands/zfsallow.h
+    ../src/commands/transferencia.cpp
+    ../src/commands/sincronizacion.cpp
+    ../src/commands/peers.cpp
+    ../src/commands/peers.h
+    ../src/commands/transferencia.h
+    ../src/commands/zfsmurl.cpp
+    ../src/commands/zfsmurl.h
+    ../src/commands/refreshparse.cpp
+    ../src/commands/refreshparse.h
+    ../src/commands/listados.cpp
+    ../src/commands/listados.h
+    ../src/commands/gsa.cpp
+    ../src/commands/gsa.h
+    ../src/commands/zfsprops.cpp
+    ../src/commands/zfsprops.h
+)
+# **`base/` NO ve `commands/`, y eso es la regla, no una recomendación.**
+#
+# La ruta de inclusión de esta biblioteca es solo `../src/base`: deliberadamente NO lleva
+# `../src`, porque con él un `#include "commands/peers.h"` desde `base/` resolvería y la
+# separación quedaría en buenas intenciones. Comprobado: con `../src` puesto, meter ese
+# include en `base/strutil.cpp` compilaba y enlazaba sin una queja.
+#
+# Enlazar tampoco lo detecta —una biblioteca estática no resuelve símbolos al crearse, y
+# cualquier programa que enlace las dos los encuentra—, así que el único punto donde esto se
+# puede hacer cumplir es aquí, en lo que `base/` alcanza a ver.
+#
+# `PUBLIC` porque quien use base necesita esa ruta; los que además usan órdenes enlazan
+# `zfsmgr_commands`, que añade la suya.
 target_include_directories(zfsmgr_base PUBLIC ../src/base)
 # La versión del agente la necesita la propia capa base desde que `agentversion` vive aquí:
 # es un dato de la compilación, como en los otros dos objetivos que ya la reciben.
@@ -175,6 +227,8 @@ target_compile_definitions(zfsmgr_base PRIVATE
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+target_include_directories(zfsmgr_commands PUBLIC ../src ../src/base ../src/commands)
+target_link_libraries(zfsmgr_commands PUBLIC zfsmgr_base)
 if(WIN32)
     # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
     # y no con quien la use: si no, cada consumidor tendría que acordarse.
@@ -190,13 +244,14 @@ endif()
 # include que en la compilación normal funciona.
 
 if(ZFSMGR_AGENT_ONLY)
-    add_executable(zfsmgr_agent ../src/daemon_main.cpp ../src/copytree.cpp)
-    target_include_directories(zfsmgr_agent PRIVATE ../src)
+    add_executable(zfsmgr_agent ../src/daemon/daemon_main.cpp ../src/commands/copytree.cpp
+                             ../src/commands/arbolremoto.cpp)
+    target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
         ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
     )
-    target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_base OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
     if(WIN32)
         target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
         # Igual que en la compilación completa: el agente viaja SOLO, así que no puede
@@ -242,65 +297,64 @@ if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
 endif()
 
 set(ZFSMGR_CORE_SOURCES
-    ../src/mainwindow.cpp
-    ../src/mainwindow_helpers.cpp
-    ../src/helperinstallcatalog.cpp
-    ../src/helperinstallcatalog.h
-    ../src/mainwindow_ui_logic.cpp
-    ../src/connectioncapabilities.cpp
-    ../src/mainwindow_ui.cpp
-    ../src/mainwindow_dialogs.cpp
-    ../src/mainwindow_connections.cpp
-    ../src/mainwindow_pools.cpp
-    ../src/mainwindow_pool_create.cpp
-    ../src/mainwindow_selection.cpp
-    ../src/mainwindow_dataset_tree.cpp
-    ../src/mainwindow_permissions.cpp
-    ../src/mainwindow_filebrowser.cpp
-    ../src/mainwindow_dataset_props.cpp
-    ../src/mainwindow_pending_store.cpp
-    ../src/mainwindow_dataset_actions.cpp
-    ../src/mainwindow_dataset_manage.cpp
-    ../src/mainwindow_transfer.cpp
-    ../src/mainwindow_state_ui.cpp
-    ../src/mainwindow_advanced.cpp
-    ../src/mainwindow_advanced_dir.cpp
-    ../src/mainwindow_refresh.cpp
-    ../src/mainwindow_runtime_ui.cpp
-    ../src/mainwindow_remote.cpp
-    ../src/mainwindow_table_utils.cpp
-    ../src/mainwindow_settings.cpp
-    ../src/mainwindow_logging.cpp
-    ../src/mainwindow_help.cpp
-    ../src/mainwindow.h
-    ../src/connectionmodel.h
-    ../src/connectionregistry.h
-    ../src/transportsession.h
-    ../src/transport.h
-    ../src/connectiondatasettreepane.cpp
-    ../src/connectiondatasettreepane.h
-    ../src/connectiondatasettreecontroller.cpp
-    ../src/connectiondatasettreecontroller.h
-    ../src/connectiondatasettreecoordinator.cpp
-    ../src/connectiondatasettreecoordinator.h
-    ../src/connectiondatasettreewidget.cpp
-    ../src/connectiondatasettreewidget.h
-    ../src/mainwindow_connectiondatasettreedelegate.cpp
-    ../src/mainwindow_connectiondatasettreedelegate.h
-    ../src/connectionstore.cpp
-    ../src/connectionstore.h
-    ../src/connectiondialog.cpp
-    ../src/connectiondialog.h
-    ../src/masterpassworddialog.cpp
-    ../src/masterpassworddialog.h
-    ../src/i18nmanager.cpp
-    ../src/i18nmanager.h
-    ../src/secretcipher.cpp
-    ../src/secretcipher.h
-    ../src/agentversion.cpp
-    ../src/agentversion.h
-    ../src/daemonpayload.cpp
-    ../src/daemonpayload.h
+    ../src/native/mainwindow.cpp
+    ../src/native/mainwindow_helpers.cpp
+    ../src/native/helperinstallcatalog.cpp
+    ../src/native/helperinstallcatalog.h
+    ../src/native/mainwindow_ui_logic.cpp
+    ../src/native/connectioncapabilities.cpp
+    ../src/native/mainwindow_ui.cpp
+    ../src/native/mainwindow_dialogs.cpp
+    ../src/native/mainwindow_connections.cpp
+    ../src/native/mainwindow_pools.cpp
+    ../src/native/mainwindow_pool_create.cpp
+    ../src/native/mainwindow_selection.cpp
+    ../src/native/mainwindow_dataset_tree.cpp
+    ../src/native/mainwindow_permissions.cpp
+    ../src/native/mainwindow_filebrowser.cpp
+    ../src/native/mainwindow_dataset_props.cpp
+    ../src/native/mainwindow_dataset_actions.cpp
+    ../src/native/mainwindow_dataset_manage.cpp
+    ../src/native/mainwindow_transfer.cpp
+    ../src/native/mainwindow_state_ui.cpp
+    ../src/native/mainwindow_advanced.cpp
+    ../src/native/mainwindow_advanced_dir.cpp
+    ../src/native/mainwindow_refresh.cpp
+    ../src/native/mainwindow_runtime_ui.cpp
+    ../src/native/mainwindow_remote.cpp
+    ../src/native/mainwindow_table_utils.cpp
+    ../src/native/mainwindow_settings.cpp
+    ../src/native/mainwindow_logging.cpp
+    ../src/native/mainwindow_help.cpp
+    ../src/native/mainwindow.h
+    ../src/native/connectionmodel.h
+    ../src/native/connectionregistry.h
+    ../src/native/transportsession.h
+    ../src/native/transport.h
+    ../src/native/connectiondatasettreepane.cpp
+    ../src/native/connectiondatasettreepane.h
+    ../src/native/connectiondatasettreecontroller.cpp
+    ../src/native/connectiondatasettreecontroller.h
+    ../src/native/connectiondatasettreecoordinator.cpp
+    ../src/native/connectiondatasettreecoordinator.h
+    ../src/native/connectiondatasettreewidget.cpp
+    ../src/native/connectiondatasettreewidget.h
+    ../src/native/mainwindow_connectiondatasettreedelegate.cpp
+    ../src/native/mainwindow_connectiondatasettreedelegate.h
+    ../src/native/connectionstore.cpp
+    ../src/native/connectionstore.h
+    ../src/native/connectiondialog.cpp
+    ../src/native/connectiondialog.h
+    ../src/native/masterpassworddialog.cpp
+    ../src/native/masterpassworddialog.h
+    ../src/native/i18nmanager.cpp
+    ../src/native/i18nmanager.h
+    ../src/native/secretcipher.cpp
+    ../src/native/secretcipher.h
+    ../src/native/agentversion.cpp
+    ../src/native/agentversion.h
+    ../src/native/daemonpayload.cpp
+    ../src/native/daemonpayload.h
     resources.qrc
 )
 
@@ -309,7 +363,7 @@ set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este
 # binario, y ese es el contrato — si algún día deja de compilar por un símbolo de Qt, es
 # que se ha metido interfaz en la capa de lógica.
-add_executable(zfsmgr_cli
+add_executable(zfsmgr-cli
     # El analizador de la línea, GENERADO con bison y flex a partir de
     # ../src/cli/gramatica.{y,l} y guardado en el repositorio. Se regenera con
     # scripts/genera_gramatica.sh; no se genera aquí para no exigir bison/flex a quien
@@ -333,7 +387,7 @@ add_executable(zfsmgr_cli
     ../src/cli/shell.h
     ../src/cli/tabla.h
 )
-target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
+target_link_libraries(zfsmgr-cli PRIVATE zfsmgr_commands)
 # Los catálogos de traducción, al lado del ejecutable: el CLI los busca ahí primero.
 #
 # En un objetivo APARTE y no como POST_BUILD del ejecutable: aquello solo se ejecutaba al
@@ -342,12 +396,12 @@ target_link_libraries(zfsmgr_cli PRIVATE zfsmgr_base)
 # traducción que no aparece por mucho que uno la escriba.
 add_custom_target(zfsmgr_cli_i18n ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr_cli>/i18n
-    DEPENDS zfsmgr_cli
-    COMMENT "Copiando los catálogos de traducción junto a zfsmgr_cli")
+            ${CMAKE_CURRENT_SOURCE_DIR}/../i18n $<TARGET_FILE_DIR:zfsmgr-cli>/i18n
+    DEPENDS zfsmgr-cli
+    COMMENT "Copiando los catálogos de traducción junto a zfsmgr-cli")
 
-target_include_directories(zfsmgr_cli PRIVATE ../src/cli ../src/cli/generado)
-target_compile_definitions(zfsmgr_cli PRIVATE
+target_include_directories(zfsmgr-cli PRIVATE ../src ../src/cli ../src/cli/generado ../src/base ../src/commands)
+target_compile_definitions(zfsmgr-cli PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     # La versión del AGENTE, que no es la de la aplicación: lleva el sufijo del marcador de
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
@@ -355,9 +409,9 @@ target_compile_definitions(zfsmgr_cli PRIVATE
 )
 
 # El servidor web: un CLIENTE más, hermano del intérprete. Enlaza SOLO la capa base — el
-# mismo contrato que zfsmgr_cli: si algún día deja de compilar por un símbolo de Qt, es que
+# mismo contrato que zfsmgr-cli: si algún día deja de compilar por un símbolo de Qt, es que
 # se ha metido interfaz donde no toca. Ver docs/diseno_tecnico_servidor_web.md.
-add_executable(zfsmgr_web
+add_executable(zfsmgr-web
     ../src/web/main.cpp
     ../src/web/http.cpp
     ../src/web/http.h
@@ -373,9 +427,9 @@ add_executable(zfsmgr_web
     # Es el mismo cableado; duplicarlo sería tener dos formas de hablar con un daemon.
     ../src/cli/session.cpp
 )
-target_include_directories(zfsmgr_web PRIVATE ../src/web ../src/cli)
-target_link_libraries(zfsmgr_web PRIVATE zfsmgr_base)
-target_compile_definitions(zfsmgr_web PRIVATE
+target_include_directories(zfsmgr-web PRIVATE ../src ../src/web ../src/cli ../src/base ../src/commands)
+target_link_libraries(zfsmgr-web PRIVATE zfsmgr_commands)
+target_compile_definitions(zfsmgr-web PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
@@ -386,8 +440,8 @@ add_executable(zfsmgr_web_test
     ../src/web/sesion.cpp
     ../src/web/dav.cpp
 )
-target_include_directories(zfsmgr_web_test PRIVATE ../src/web)
-target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_base)
+target_include_directories(zfsmgr_web_test PRIVATE ../src ../src/web ../src/base ../src/commands)
+target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_commands)
 add_test(NAME zfsmgr_web_test COMMAND zfsmgr_web_test)
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
@@ -397,14 +451,14 @@ qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 # despliegue de macOS. Sin ella, el plugin TLS de OpenSSL de Qt no puede cargarse y
 # en macOS solo queda SecureTransport, que pide la clave del cliente en el llavero e
 # ignora la CA que se le pasa.
-target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto zfsmgr_base)
+target_link_libraries(zfsmgr_core PUBLIC zfsmgr_commands Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto zfsmgr_base)
 
 if(WIN32)
     # OpenSSL static builds on MinGW may require explicit Win32 system libs.
     target_link_libraries(zfsmgr_core PUBLIC ws2_32 crypt32 iphlpapi ncrypt bcrypt)
 endif()
 
-target_include_directories(zfsmgr_core PUBLIC ../src)
+target_include_directories(zfsmgr_core PUBLIC ../src ../src/native ../src/base ../src/commands)
 
 target_compile_definitions(zfsmgr_core PUBLIC
     QT_NO_KEYWORDS
@@ -413,22 +467,23 @@ target_compile_definitions(zfsmgr_core PUBLIC
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
-qt_add_executable(zfsmgr_qt
-    ../src/main.cpp
+qt_add_executable(zfsmgr-gui
+    ../src/native/main.cpp
 )
 
-target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
+target_link_libraries(zfsmgr-gui PRIVATE zfsmgr_core)
 
 add_executable(zfsmgr_agent
-    ../src/daemon_main.cpp
-    ../src/copytree.cpp
+    ../src/daemon/daemon_main.cpp
+    ../src/commands/copytree.cpp
+    ../src/commands/arbolremoto.cpp
 )
-target_include_directories(zfsmgr_agent PRIVATE ../src)
+target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
 target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
-target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_base OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
     # Enlazado estático del runtime en Windows: sin esto el .exe necesita
@@ -482,12 +537,12 @@ if(NOT WIN32)
 endif()
 
 if(WIN32)
-    target_sources(zfsmgr_qt PRIVATE appicon.rc)
-    set_target_properties(zfsmgr_qt PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(zfsmgr-gui PRIVATE appicon.rc)
+    set_target_properties(zfsmgr-gui PROPERTIES WIN32_EXECUTABLE TRUE)
     if(MSVC)
         # appicon.rc already embeds app.manifest; disable linker auto-manifest
         # to avoid CVT1100 duplicate MANIFEST in GitHub Actions (MSVC).
-        target_link_options(zfsmgr_qt PRIVATE "/MANIFEST:NO")
+        target_link_options(zfsmgr-gui PRIVATE "/MANIFEST:NO")
     endif()
 endif()
 
@@ -499,13 +554,13 @@ if(APPLE)
     set(ZFSMGR_BUNDLE_NAME "ZFSMgr")
     set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr.icns")
     set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    target_sources(zfsmgr_qt PRIVATE ${app_icns})
-    set_target_properties(zfsmgr_qt PROPERTIES
+    target_sources(zfsmgr-gui PRIVATE ${app_icns})
+    set_target_properties(zfsmgr-gui PROPERTIES
         MACOSX_BUNDLE TRUE
         OUTPUT_NAME "${ZFSMGR_BUNDLE_NAME}"
         MACOSX_BUNDLE_BUNDLE_NAME "${ZFSMGR_BUNDLE_NAME}"
         MACOSX_BUNDLE_ICON_FILE "ZFSMgr.icns"
-        # Sin esto, CMake genera com.yourcompany.zfsmgr_qt, su marcador de posición
+        # Sin esto, CMake genera com.yourcompany.zfsmgr-gui, su marcador de posición
         # por defecto, que es lo que aparecía en los informes de fallo del sistema.
         # Se usa el prefijo org.zfsmgr, que ya emplea el daemon en su plist de
         # launchd (org.zfsmgr.agent), en vez de introducir otro distinto.
@@ -518,7 +573,7 @@ if(APPLE)
     )
 endif()
 
-install(TARGETS zfsmgr_qt
+install(TARGETS zfsmgr-gui
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin
 )
@@ -532,7 +587,7 @@ install(TARGETS zfsmgr_agent
 # No estaba, y por eso no salía en NINGÚN paquete de Unix: ni en el .deb de Linux ni en el
 # pkg de FreeBSD, que los dos se arman a partir de estas reglas. En Windows sí se instala
 # porque el .iss lo copia a mano a {app}\bin. Aquí basta con nombrarlo.
-install(TARGETS zfsmgr_cli
+install(TARGETS zfsmgr-cli
     RUNTIME DESTINATION bin
 )
 
@@ -542,7 +597,7 @@ install(TARGETS zfsmgr_cli
 # No lleva unidad de systemd ni nada que lo arranque solo, y es deliberado: escuchar en un
 # puerto con la clave maestra en memoria es algo que se hace a sabiendas y cuando uno
 # quiere, no algo que quede encendido porque se instaló un paquete.
-install(TARGETS zfsmgr_web
+install(TARGETS zfsmgr-web
     RUNTIME DESTINATION bin
 )
 
@@ -573,7 +628,7 @@ if(UNIX AND NOT APPLE)
 Type=Application
 Name=ZFSMgr
 Comment=Cross-platform OpenZFS GUI manager
-Exec=zfsmgr_qt
+Exec=zfsmgr-gui
 Icon=ZFSMgr
 Categories=System;Utility;
 Terminal=false
@@ -610,14 +665,14 @@ endif()
 if(BUILD_TESTING)
     add_executable(zfsmgr_helpers_test
         ../tests/helpers_test.cpp
-        ../src/mainwindow_helpers.cpp
+        ../src/native/mainwindow_helpers.cpp
         # agentCommand() toma la ruta del binario de daemonpayload en vez de repetirla:
         # quien construye la invocación y quien la reconoce para convertirla en RPC deben
         # hablar de la misma ruta, o el comando se va por SSH en crudo sin avisar.
-        ../src/daemonpayload.cpp
+        ../src/native/daemonpayload.cpp
     )
-    target_include_directories(zfsmgr_helpers_test PRIVATE ../src)
-    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets zfsmgr_base)
+    target_include_directories(zfsmgr_helpers_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
+    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets zfsmgr_commands)
     target_compile_definitions(zfsmgr_helpers_test PRIVATE
         QT_NO_KEYWORDS
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
@@ -628,7 +683,7 @@ if(BUILD_TESTING)
     # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
     # sale en el commit que lo introduce, no meses después.
     add_executable(zfsmgr_base_test ../tests/base_test.cpp)
-    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_base OpenSSL::Crypto)
+    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands OpenSSL::Crypto)
     add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
     # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite
@@ -636,18 +691,19 @@ if(BUILD_TESTING)
     # ella cuelgan Desglosar, Ensamblar y Hacia Dir.
     add_executable(zfsmgr_copytree_test
         ../tests/copytree_test.cpp
-        ../src/copytree.cpp
+        ../src/commands/copytree.cpp
+        ../src/commands/arbolremoto.cpp
     )
-    target_include_directories(zfsmgr_copytree_test PRIVATE ../src)
-    target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test)
+    target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
+    target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
     target_compile_definitions(zfsmgr_copytree_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_copytree_test COMMAND zfsmgr_copytree_test)
 
     qt_add_executable(zfsmgr_capabilities_test
         ../tests/capabilities_test.cpp
-        ../src/connectioncapabilities.cpp
+        ../src/native/connectioncapabilities.cpp
     )
-    target_include_directories(zfsmgr_capabilities_test PRIVATE ../src)
+    target_include_directories(zfsmgr_capabilities_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_capabilities_test PRIVATE Qt6::Core Qt6::Test)
     target_compile_definitions(zfsmgr_capabilities_test PRIVATE
         QT_NO_KEYWORDS
@@ -657,10 +713,10 @@ if(BUILD_TESTING)
 
     qt_add_executable(zfsmgr_ui_logic_test
         ../tests/ui_logic_test.cpp
-        ../src/mainwindow_ui_logic.cpp
+        ../src/native/mainwindow_ui_logic.cpp
     )
-    target_include_directories(zfsmgr_ui_logic_test PRIVATE ../src)
-    target_link_libraries(zfsmgr_ui_logic_test PRIVATE Qt6::Core Qt6::Test)
+    target_include_directories(zfsmgr_ui_logic_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
+    target_link_libraries(zfsmgr_ui_logic_test PRIVATE Qt6::Core Qt6::Test zfsmgr_commands)
     target_compile_definitions(zfsmgr_ui_logic_test PRIVATE
         QT_NO_KEYWORDS
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
@@ -688,14 +744,14 @@ if(BUILD_TESTING)
         ../src/cli/generado/gramatica.lex.c
         ../src/cli/ayuda.cpp
     )
-    target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base)
-    target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_base)
+    target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base ../src ../src/base ../src/commands ../src/native)
+    target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_commands)
     add_test(NAME zfsmgr_gramatica_cli_test COMMAND zfsmgr_gramatica_cli_test)
 
     qt_add_executable(zfsmgr_gui_mainwindow_test
         ../tests/gui_mainwindow_test.cpp
     )
-    target_include_directories(zfsmgr_gui_mainwindow_test PRIVATE ../src)
+    target_include_directories(zfsmgr_gui_mainwindow_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_gui_mainwindow_test PRIVATE zfsmgr_core Qt6::Test)
     target_compile_definitions(zfsmgr_gui_mainwindow_test PRIVATE
         QT_NO_KEYWORDS
@@ -708,7 +764,7 @@ if(BUILD_TESTING)
     qt_add_executable(zfsmgr_ui_doc_capture
         ../tests/ui_doc_capture.cpp
     )
-    target_include_directories(zfsmgr_ui_doc_capture PRIVATE ../src)
+    target_include_directories(zfsmgr_ui_doc_capture PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_ui_doc_capture PRIVATE zfsmgr_core)
     target_compile_definitions(zfsmgr_ui_doc_capture PRIVATE
         QT_NO_KEYWORDS
