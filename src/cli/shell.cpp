@@ -5,6 +5,7 @@
 #include "daemoninstall.h"
 #include "daemonpayload.h"
 #include "ayuda.h"
+#include "creacion.h"
 #include "gramatica_cli.h"
 #include "connectionjson.h"
 #include "gsa.h"
@@ -496,7 +497,8 @@ struct Peticion {
 
 bool zfsGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
-bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino);
+bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
+                  const std::string& nombre);
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
                   const std::vector<std::string>& argv);
@@ -1982,18 +1984,49 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    const ZfsmUrl& destino = pet.objetivo;
-    // El mismo verbo en los tres niveles, porque es la misma idea —crear un nodo donde uno
-    // está—: en la RAÍZ una conexión, en una CONEXIÓN un pool, en un DATASET un hijo.
-    if (nodoDe(destino) == Nodo::Raiz) {
-        return cmdCrearConexion(e, pet);
-    }
-    if (nodoDe(destino) == Nodo::Conexion) {
-        return cmdCrearPool(e, pet, destino);
-    }
-    if (pet.lista("texto").empty()) {
+    ZfsmUrl destino = pet.objetivo;
+    if (pet.lista("texto").empty() && nodoDe(destino) != Nodo::Raiz) {
         std::fputs(TC("t_uso_create_c8fa17", "uso: create <nombre> [prop=valor...]\n"), stderr);
         return false;
+    }
+    // El mismo verbo en los tres niveles, porque es la misma idea —crear un nodo donde uno
+    // está—: en la RAÍZ una conexión, en una CONEXIÓN un pool, en un DATASET un hijo.
+    //
+    // Pero **el nivel no lo decide solo dónde uno está: también la forma del nombre**. Un
+    // nombre con barra no puede ser el de una conexión, así que desde la raíz
+    // `create unibody/sback/tmp` no es «una conexión que se llama así» —lo era, y se
+    // intentaba dar de alta— sino «el dataset sback/tmp en unibody». La regla vive en
+    // `creacion::queSeCrea`, entera y con sus pruebas.
+    namespace CR = creacion;
+    const CR::Nivel nivel = nodoDe(destino) == Nodo::Raiz       ? CR::Nivel::Raiz
+                            : nodoDe(destino) == Nodo::Conexion ? CR::Nivel::Conexion
+                                                                : CR::Nivel::Dataset;
+    const CR::Decision d = CR::queSeCrea(nivel, pet.uno("texto"));
+    if (!d.ruta.empty()) {
+        // Solo hay ruta que resolver cuando el nombre traía delante el tramo de la
+        // máquina. Se resuelve con la MISMA función que `cd`, para que «la conexión no
+        // existe» se diga igual en las dos.
+        ZfsmUrl base;
+        std::string error;
+        if (!resuelve(e, d.ruta, base, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+        destino = base;
+    }
+    if (d.que == CR::Objeto::Conexion) {
+        return cmdCrearConexion(e, pet);
+    }
+    if (d.que == CR::Objeto::Pool) {
+        return cmdCrearPool(e, pet, destino, d.ruta.empty() ? std::string() : d.nombre);
+    }
+    if (d.que == CR::Objeto::Dataset && destino.dataset.empty()) {
+        // El destino es una CONEXIÓN —se llegó desde la raíz con ruta, o se estaba ya en
+        // ella—, así que se le cuelga el nombre ZFS completo y el resto del camino, que ya
+        // sabe tratar un nombre con ruta, funciona igual. La condición mira el destino y
+        // no si hubo ruta: estando en `zfsm://unibody`, `create sback/tmp` no trae ruta
+        // que resolver y necesita esto lo mismo.
+        destino.dataset = d.nombre;
     }
     // Un nombre que empieza por `@` nombra una INSTANTÁNEA, no un hijo. Se decide por el
     // marcador y no por una opción, porque `@` es lo que ya distingue una instantánea en la
@@ -2014,7 +2047,7 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
     }
     // El nombre se toma como HIJO del sitio actual salvo que ya venga con ruta: escribir
     // `create datos` estando en `tank/casa` debe crear `tank/casa/datos`.
-    const std::string hijo = pet.uno("texto");
+    const std::string hijo = d.nombre;
     argv.push_back(hijo.find('/') == std::string::npos ? destino.dataset + "/" + hijo : hijo);
     if (!zfsGenerico(e, destino, argv)) {
         return false;
@@ -3704,7 +3737,8 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
 
 // Crear un pool. Es la orden MÁS destructiva de todas: escribe en los dispositivos que se
 // le den, y si alguno tenía datos, desaparecen. La confirmación los enumera uno a uno.
-bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
+bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
+                  const std::string& nombre) {
     if (pet.lista("texto").size() < 2) {
         std::fputs(TC("t_uso_create_63b88e", "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n"
                      "            [-o prop=valor] [-O prop-fs=valor] [--mountpoint <ruta>]\n"
@@ -3717,7 +3751,9 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
     // nombres. No se veía porque hasta ahora no se llegaba aquí: el preámbulo exigía estar
     // en un dataset y crear un pool era imposible, así que el fallo estaba tapado.
     const std::vector<std::string> textos = pet.lista("texto");
-    const std::string pool = textos.front();
+    // El nombre viene DADO y no se toma de textos.front(): desde la raíz, `create
+    // unibody/apar sda` lo trae ya separado de la máquina en la que se crea.
+    const std::string pool = nombre.empty() ? textos.front() : nombre;
     const std::vector<std::string> vdevs(textos.begin() + 1, textos.end());
     if (!confirma(e, B::format(T("t_conf_create_pool",
                                  "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "

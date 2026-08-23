@@ -388,6 +388,8 @@ add_executable(zfsmgr-cli
     ../src/cli/gramatica_cli.h
     ../src/cli/ayuda.cpp
     ../src/cli/ayuda.h
+    ../src/cli/creacion.cpp
+    ../src/cli/creacion.h
     ../src/cli/linea.cpp
     ../src/cli/linea.h
     ../src/cli/main.cpp
@@ -757,6 +759,7 @@ if(BUILD_TESTING)
         ../src/cli/ayuda.cpp
         ../src/cli/session.cpp
         ../src/cli/secretinput.cpp
+        ../src/cli/creacion.cpp
     )
     target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_commands)

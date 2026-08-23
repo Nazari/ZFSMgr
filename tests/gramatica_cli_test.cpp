@@ -12,6 +12,7 @@
 #include "ayuda.h"
 #include "gramatica_cli.h"
 #include "session.h"
+#include "creacion.h"
 #include "strutil.h"
 
 #include <cctype>
@@ -485,6 +486,66 @@ int main(int argc, char** argv) {
         comprueba(!ec && suyo == mio,
                   std::string("dirDelEjecutable dice «") + dir + "» y este binario está en «"
                       + mio.string() + "»");
+    }
+
+    // 6. `create` reparte por la FORMA del nombre, no solo por dónde se está.
+    //
+    // El caso que lo motivó: desde la raíz, `create unibody/sback/tmp` daba de alta una
+    // CONEXIÓN llamada «unibody/sback/tmp». Ninguna de estas doce combinaciones se había
+    // ejecutado nunca a propósito porque la regla vivía dentro de `cmdCreate`.
+    {
+        namespace CR = zfsmgr::cli::creacion;
+        const auto dec = [](CR::Nivel n, const char* t) { return CR::queSeCrea(n, t); };
+
+        // Raíz: sin barra es una conexión; con barra, el primer tramo ES la máquina.
+        comprueba(dec(CR::Nivel::Raiz, "casa").que == CR::Objeto::Conexion,
+                  "raíz + un tramo: una conexión");
+        comprueba(dec(CR::Nivel::Raiz, "casa").ruta.empty(),
+                  "raíz + un tramo: no hay ruta que resolver");
+        {
+            const auto d = dec(CR::Nivel::Raiz, "unibody/sback/tmp");
+            comprueba(d.que == CR::Objeto::Dataset, "raíz + tres tramos: un dataset");
+            igual(d.ruta, std::string("unibody"), "raíz + tres tramos: la máquina es el primero");
+            igual(d.nombre, std::string("sback/tmp"), "raíz + tres tramos: el nombre es el resto");
+        }
+        {
+            const auto d = dec(CR::Nivel::Raiz, "unibody/apar");
+            comprueba(d.que == CR::Objeto::Pool, "raíz + dos tramos: un pool");
+            igual(d.ruta, std::string("unibody"), "raíz + dos tramos: la máquina es el primero");
+            igual(d.nombre, std::string("apar"), "raíz + dos tramos: el pool es el segundo");
+        }
+        {   // Cuatro tramos o más siguen siendo un dataset, con su nombre ZFS entero.
+            const auto d = dec(CR::Nivel::Raiz, "unibody/sback/a/b");
+            comprueba(d.que == CR::Objeto::Dataset, "raíz + cuatro tramos: un dataset");
+            igual(d.nombre, std::string("sback/a/b"), "raíz + cuatro tramos: nombre ZFS entero");
+        }
+
+        // Conexión: un tramo es un pool nuevo, más de uno ya cuelga de uno.
+        comprueba(dec(CR::Nivel::Conexion, "apar").que == CR::Objeto::Pool,
+                  "conexión + un tramo: un pool");
+        {
+            const auto d = dec(CR::Nivel::Conexion, "sback/tmp");
+            comprueba(d.que == CR::Objeto::Dataset, "conexión + dos tramos: un dataset");
+            comprueba(d.ruta.empty(), "conexión: la máquina ya es la de uno, no hay ruta");
+            igual(d.nombre, std::string("sback/tmp"), "conexión: el nombre va entero");
+        }
+
+        // Dataset: siempre un hijo, lleve barra o no.
+        comprueba(dec(CR::Nivel::Dataset, "datos").que == CR::Objeto::Dataset,
+                  "dataset + un tramo: un hijo");
+        comprueba(dec(CR::Nivel::Dataset, "tank/otro").que == CR::Objeto::Dataset,
+                  "dataset + barra: sigue siendo un dataset");
+        comprueba(dec(CR::Nivel::Dataset, "tank/otro").ruta.empty(),
+                  "dataset + barra: no se resuelve ninguna máquina");
+
+        // El marcador `@` gana en los tres niveles.
+        for (const CR::Nivel n : {CR::Nivel::Raiz, CR::Nivel::Conexion, CR::Nivel::Dataset}) {
+            comprueba(dec(n, "@ayer").que == CR::Objeto::Instantanea,
+                      "«@» nombra una instantánea en cualquier nivel");
+        }
+        // Y un nombre con barra DETRÁS del arroba no lo convierte en otra cosa.
+        comprueba(dec(CR::Nivel::Raiz, "@a/b").que == CR::Objeto::Instantanea,
+                  "«@» gana también con barras detrás");
     }
 
     std::printf(fallos ? "FALLOS: %d\n" : "gramatica_cli_test OK\n", fallos);
