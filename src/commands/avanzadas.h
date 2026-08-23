@@ -151,4 +151,28 @@ std::string rutaPreparada(const std::string& salida);
 // máquinas, SSH pasa y esto no.
 bool puedeIrPorElArbol(bool origenTieneDaemon, bool destinoTieneDaemon);
 
+// ── Subárboles de ficheros ───────────────────────────────────────────────────
+
+// Las rutas que nombra un `#content/...`, expandiendo la notación de llaves.
+//
+//     ""                 -> {""}            todo el árbol
+//     "sub"              -> {"sub"}
+//     "{a,b,dir}"        -> {"a", "b", "dir"}
+//     "docs/{2024,2025}" -> {"docs/2024", "docs/2025"}
+//
+// Las llaves se expanden AQUÍ y no en el analizador de URL a propósito: convertir una URL
+// en varias cambiaría el contrato de `parseZfsmUrl` para todos sus usuarios, y esto solo lo
+// necesita quien trabaja con árboles de ficheros.
+//
+// Una llave vacía, sin cerrar o anidada devuelve la lista vacía: es un error de escritura y
+// adivinar qué se quiso decir es peor que decirlo.
+std::vector<std::string> rutasDeContenido(const std::string& ruta);
+
+// ¿Se queda esta ruta relativa DENTRO del árbol del que cuelga?
+//
+// Vacía sí: es la raíz. Absoluta no, y con `..` tampoco —ni al principio ni en medio—:
+// `sub/../../etc` sale del punto de montaje, y quien lo ejecuta es un proceso que corre
+// como root. El daemon no lo comprueba para rsync: solo exige que la ruta sea absoluta.
+bool rutaDeContenidoValida(const std::string& ruta);
+
 }  // namespace zfsmgr::commands::avanzadas

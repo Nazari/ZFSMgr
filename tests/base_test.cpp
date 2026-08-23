@@ -3266,6 +3266,41 @@ int main() {
         }
 
         {
+            // Subárboles de ficheros: `#content/{a,b}`.
+            comprobar(AV::rutasDeContenido("") == std::vector<std::string>{""},
+                      "contenido: sin ruta es el árbol entero");
+            comprobar(AV::rutasDeContenido("sub") == std::vector<std::string>{"sub"},
+                      "contenido: una ruta suelta");
+            comprobar(AV::rutasDeContenido("{a,b,dir}")
+                          == std::vector<std::string>{"a", "b", "dir"},
+                      "contenido: las llaves se expanden");
+            comprobar(AV::rutasDeContenido("docs/{2024,2025}")
+                          == std::vector<std::string>{"docs/2024", "docs/2025"},
+                      "contenido: con prefijo delante");
+            comprobar(AV::rutasDeContenido(" {a , b } ")
+                          == std::vector<std::string>{"a", "b"},
+                      "contenido: se recortan los espacios de cada pieza");
+            // Lo mal escrito NO se adivina: devolver algo a medias sincronizaría una parte
+            // distinta de la que se pidió, y con `--delete` eso borra.
+            comprobar(AV::rutasDeContenido("{a,b").empty(), "contenido: sin cerrar, nada");
+            comprobar(AV::rutasDeContenido("a,b}").empty(), "contenido: cierre suelto, nada");
+            comprobar(AV::rutasDeContenido("{a,{b,c}}").empty(), "contenido: anidadas, nada");
+            comprobar(AV::rutasDeContenido("{a,,b}").empty(), "contenido: pieza vacía, nada");
+            comprobar(AV::rutasDeContenido("{}").empty(), "contenido: llaves vacías, nada");
+            comprobar(AV::rutasDeContenido("{a,b}/{c,d}").empty(),
+                      "contenido: dos grupos, nada");
+
+            // Y lo que no puede salir del árbol. Quien lo ejecuta corre como root, y el
+            // daemon NO lo comprueba para rsync: solo exige que la ruta sea absoluta.
+            comprobar(AV::rutaDeContenidoValida(""), "contenido: la raíz vale");
+            comprobar(AV::rutaDeContenidoValida("a/b"), "contenido: una relativa vale");
+            comprobar(!AV::rutaDeContenidoValida("/etc"), "contenido: absoluta no");
+            comprobar(!AV::rutaDeContenidoValida("../fuera"), "contenido: «..» no");
+            comprobar(!AV::rutaDeContenidoValida("sub/../../etc"),
+                      "contenido: «..» en medio tampoco");
+        }
+
+        {
             // El subdirectorio, comprobado ANTES de abrir la tubería y no después, como
             // hacía el daemon: para cuando él lo miraba, el tar ya estaba corriendo.
             comprobar(AV::subdirectorioRelativoValido(""),

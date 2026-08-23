@@ -57,6 +57,11 @@ Two rules disambiguate a relative path:
 
 To descend into a child named like a connection, use `./name`.
 
+**Several paths at once.** Inside `#content` brace notation is accepted:
+`zfsm://conn1/pool1/ds1#content/{photos,docs}` names both subtrees. Today `rsync` uses
+it, copying each one into the same destination. They do not nest and do not combine
+with anything else.
+
 ## Abbreviating commands
 
 Typing the first few letters is enough as long as no two commands start the same way. `pw`

@@ -4058,49 +4058,186 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_uso_rsync", "uso: rsync <destino> [--delete] [--check]\n"), stderr);
         return false;
     }
+    // **`#content` restringe el subárbol, y `{a,b}` nombra varios.**
+    //
+    // `rsync` trabaja sobre FICHEROS, no sobre datasets: el dataset solo dice dónde empieza
+    // el árbol. Por eso la sección que admite es `content` —la que nombra ese árbol— y lo
+    // que va detrás acota la parte que se sincroniza:
+    //
+    //     zfsm://c/pool/ds#content/sub          solo «sub»
+    //     zfsm://c/pool/ds#content/{a,b,dir}    esos tres, al mismo destino
+    //
+    // Las otras secciones no nombran ficheros y se rechazan en vez de ignorarse, que es lo
+    // que se hacía: una URL con `#properties` sincronizaba el dataset entero sin decir nada.
+    const auto seccionValida = [](const ZfsmUrl& u, const char* cual) {
+        if (u.section.empty() || B::toLowerAscii(u.section) == B::zfsmSection::kContent) {
+            return true;
+        }
+        std::fprintf(stderr,
+                     TC("t_rsync_seccion",
+                        "rsync trabaja sobre ficheros: «#%s» no nombra ninguno (%s)\n"),
+                     u.section.c_str(), cual);
+        return false;
+    };
+    if (!seccionValida(origen, TC("t_rsync_origen", "origen"))) {
+        return false;
+    }
     ZfsmUrl destino;
     std::string err;
     if (!resuelve(e, pet.uno("destino"), destino, err)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         return false;
     }
+    if (!seccionValida(destino, TC("t_rsync_destino", "destino"))) {
+        return false;
+    }
     if (!exigeDataset(destino)) {
         return false;
     }
-    // Los dos extremos en la MISMA máquina: entre máquinas distintas la interfaz usa `tar`
-    // sobre SSH, que no está portado aquí. Se dice, en vez de sincronizar contra un
-    // directorio local que casualmente exista con el mismo nombre.
-    if (B::toLowerAscii(origen.connection) != B::toLowerAscii(destino.connection)) {
-        std::fputs(TC("t_rsync_dos_maquinas",
-                      "rsync solo funciona dentro de una misma máquina; entre máquinas use copy\n"),
-                   stderr);
-        return false;
-    }
-    if (origen.zfsName() == destino.zfsName()) {
+    const bool mismaMaquina =
+        B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
+    if (mismaMaquina && origen.zfsName() == destino.zfsName() && origen.detail == destino.detail) {
         std::fputs(TC("t_rsync_mismo", "el origen y el destino son el mismo dataset\n"), stderr);
         return false;
     }
-    std::string rutaOrigen;
-    std::string rutaDestino;
-    if (!montajeDe(e, origen, rutaOrigen) || !montajeDe(e, destino, rutaDestino)) {
+    std::string baseOrigen;
+    std::string baseDestino;
+    if (!montajeDe(e, origen, baseOrigen) || !montajeDe(e, destino, baseDestino)) {
         return false;
     }
     const bool borra = pet.tiene("--delete");
     const bool simula = pet.tiene("--check");
+
+    // Los subárboles del origen. Con `#content/{a,b}` son varios; sin sección, uno solo que
+    // es el árbol entero.
+    // `detail` viene ya troceado por «/»; se rejunta para volver a tener la ruta relativa
+    // tal y como se escribió, que es sobre la que actúan las llaves.
+    const auto rutaDe = [](const ZfsmUrl& u) { return B::join(u.detail, "/"); };
+    const std::vector<std::string> relativas = AV::rutasDeContenido(rutaDe(origen));
+    if (relativas.empty()) {
+        std::fprintf(stderr,
+                     TC("t_rsync_llaves_mal",
+                        "«%s» no se entiende: las llaves se escriben «{a,b,c}», sin anidar y "
+                        "sin piezas vacías\n"),
+                     rutaDe(origen).c_str());
+        return false;
+    }
+    const auto dentroDelArbol = [](const std::string& rel, const char* cual) {
+        if (AV::rutaDeContenidoValida(rel)) {
+            return true;
+        }
+        std::fprintf(stderr,
+                     TC("t_rsync_ruta_fuera",
+                        "«%s» sale del árbol del dataset (%s): las rutas de «#content» son "
+                        "relativas y sin «..»\n"),
+                     rel.c_str(), cual);
+        return false;
+    };
+    for (const std::string& rel : relativas) {
+        if (!dentroDelArbol(rel, TC("t_rsync_origen", "origen"))) {
+            return false;
+        }
+    }
+    if (!dentroDelArbol(rutaDe(destino), TC("t_rsync_destino", "destino"))) {
+        return false;
+    }
+
+    // **`--delete` con varios orígenes está roto de partida**, y por eso se rechaza.
+    //
+    // La carga son PARES (origen, destino) y el daemon lanza un rsync por par: con `{a,b}`
+    // la segunda pasada borraría en el destino lo que acaba de dejar la primera. Aceptarlo
+    // sería prometer una sincronización y entregar la última carpeta a secas.
+    if (borra && relativas.size() > 1) {
+        std::fputs(TC("t_rsync_borrar_varios",
+                      "«--delete» no se puede usar con varios orígenes: cada uno borraría lo "
+                      "que dejó el anterior\n"),
+                   stderr);
+        return false;
+    }
+
+    const auto unir = [](const std::string& base, const std::string& rel) {
+        if (rel.empty()) {
+            return base;
+        }
+        return base + (base.empty() || base.back() == '/' ? "" : "/") + rel;
+    };
+    const std::string rutaDestino = unir(baseDestino, rutaDe(destino));
+    std::vector<std::pair<std::string, std::string>> pares;
+    for (const std::string& rel : relativas) {
+        pares.emplace_back(unir(baseOrigen, rel), rutaDestino);
+    }
     // Confirmación solo si va a BORRAR: sin `--delete` esto añade y actualiza, y no hay
     // nada que perder. Con `--delete` el destino acaba idéntico al origen, borrado incluido.
     if (borra && !simula
         && !confirma(e, B::format(T("t_conf_rsync",
                                     "%1 va a quedar IDÉNTICO a %2, borrando lo que sobre. ¿Continuar?"),
-                                  {destino.zfsName(), origen.zfsName()}))) {
+                                  {rutaDestino, pares.front().first}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
     // La carga la arma la capa base. Estaba escrita aquí, otra vez en la ventana principal
     // y una tercera en el servidor web: tres copias del mismo orden de campos, que es un
     // contrato del daemon y no de ninguno de los tres.
-    const std::string carga =
-        SY::cargaRsync({{rutaOrigen, rutaDestino}}, borra, simula, std::string(), std::string());
+    // ── Entre máquinas: el árbol entre daemons ───────────────────────────────────
+    //
+    // `--mutate-rsync-local` es local por definición, así que aquí no sirve. El transporte
+    // es el mismo que usa «Desde Dir»: el destino escucha y el origen le manda el árbol
+    // directamente, sin pasar por esta máquina.
+    //
+    // **Entre máquinas no es rsync**, aunque la orden se llame así: es la copia propia del
+    // agente. Hace delta igual —compara tamaño y fecha—, y admite borrado y pasada en seco,
+    // que es lo que esta orden promete.
+    if (!mismaMaquina) {
+        std::string errSrc;
+        std::string errDst;
+        const auto* pSrc = perfilDe(e, origen, errSrc);
+        const auto* pDst = perfilDe(e, destino, errDst);
+        if (!pSrc || !pDst) {
+            std::fprintf(stderr, "%s\n", (pSrc ? errDst : errSrc).c_str());
+            return false;
+        }
+        const B::ConnectionProfile src = conSudo(e, *pSrc);
+        const B::ConnectionProfile dst = conSudo(e, *pDst);
+        const auto llama = [&e](const B::ConnectionProfile& maquina,
+                                const std::vector<std::string>& args, int timeoutMs,
+                                std::string& salida, std::string& err, int& rc) {
+            return ejecutarAgente(*e.ses, maquina, args, salida, err, rc, nullptr, timeoutMs);
+        };
+        bool todoBien = true;
+        for (const auto& par : pares) {
+            // El directorio de destino tiene que EXISTIR: el receptor del árbol lo exige.
+            // `--mutate-advanced-fromdir-prepare` lo monta, lo resuelve y lo crea.
+            std::string prepOut;
+            std::string prepErr;
+            int prepRc = -1;
+            const std::vector<std::string> prep =
+                AV::argvDesdeDirPreparar(destino.zfsName(), rutaDe(destino));
+            if (prep.empty()
+                || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
+                || prepRc != 0) {
+                std::fprintf(stderr, TC("t_rsync_destino_no", "no se pudo preparar el destino\n"));
+                return false;
+            }
+            std::string salidaEnvio;
+            const auto hecho = TR::lanzaTrabajoDeArbol(
+                e.ses->transporte, llama, src, dst, par.first, B::trim(AV::rutaPreparada(prepOut)),
+                /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
+                &salidaEnvio);
+            if (hecho.fallo != TR::FalloTrabajo::Ninguno) {
+                std::fprintf(stderr, "%s: %s\n", TR::etiquetaDe(hecho.fallo).c_str(),
+                             hecho.detalle.c_str());
+                todoBien = false;
+                break;
+            }
+            std::fputs(salidaEnvio.c_str(), stdout);
+        }
+        if (!todoBien) {
+            e.ultimoRc = 1;
+        }
+        return todoBien;
+    }
+
+    const std::string carga = SY::cargaRsync(pares, borra, simula, std::string(), std::string());
     if (carga.empty()) {
         std::fputs(TC("t_rsync_rutas_mal",
                       "las rutas de origen y destino tienen que ser absolutas\n"),

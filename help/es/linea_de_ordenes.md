@@ -57,6 +57,10 @@ Dos reglas quitan la ambigüedad a una ruta relativa:
 
 Para bajar a un hijo que se llame igual que una conexión, `./nombre`.
 
+**Varias rutas de una vez.** Dentro de `#content` se admite la notación de llaves:
+`zfsm://conn1/pool1/ds1#content/{fotos,docs}` nombra los dos subárboles. Hoy la usa
+`rsync`, que copia cada uno al mismo destino. No se anidan ni se combinan con nada más.
+
 ## Abreviar las órdenes
 
 Basta con escribir las primeras letras mientras no haya dos órdenes que empiecen igual.

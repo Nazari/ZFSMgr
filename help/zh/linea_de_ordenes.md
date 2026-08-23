@@ -51,6 +51,10 @@ zfsm://oldlau/winpool/sa@yesterday> ls #content
 
 若要进入一个与连接同名的子节点，请使用 `./名称`。
 
+**一次指定多条路径。** `#content` 内部支持花括号写法：
+`zfsm://conn1/pool1/ds1#content/{photos,docs}` 同时指定这两棵子树。目前由 `rsync` 使用，
+它会把每一棵都复制到同一个目标。花括号不能嵌套，也不能与其他写法组合。
+
 ## 缩写命令
 
 只要没有两个命令以相同字母开头，输入前几个字母就够了。`pw` 就是 `pwd`，`inf` 就是 `info`，

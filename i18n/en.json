@@ -749,12 +749,12 @@
     "t_rsync_check_q": "Simulates and shows what it would do, touching nothing.",
     "t_rsync_del": "--delete",
     "t_rsync_del_q": "Deletes at the destination whatever is no longer at the source.",
-    "t_rsync_det": "It copies FILES, not snapshots: both ends must be mounted. To send a snapshot there is `copy`.",
+    "t_rsync_det": "Copies FILES, not snapshots: it makes no difference whether what lies underneath are datasets or plain directories, as long as it is mounted. To send a snapshot there is `send`.",
     "t_rsync_det2": "Without `--delete` it only adds and updates; whatever is left over at the destination stays. With `--delete` the destination ends up identical to the source, and that INCLUDES deleting.",
-    "t_rsync_det3": "Both ends must be on the same machine: between different machines the interface uses `tar` over SSH, which is not ported here.",
+    "t_rsync_det3": "Works between different machines too: the tree travels from agent to agent, with no `tar` and no shell in between.",
     "t_rsync_dos_maquinas": "rsync only works within one machine; between machines use copy\n",
     "t_rsync_mismo": "the source and the destination are the same dataset\n",
-    "t_rsync_res": "Syncs this dataset's CONTENTS with another one (the interface's «Sincronizar»).",
+    "t_rsync_res": "Syncs FILES from one mounted tree to another (the interface’s “Sync”).",
     "t_rsync_uso": "<destination> [--delete] [--check] [--wait]",
     "t_ruta_relat_fb879d": "Relative path, absolute (/OldLau/winpool), full URL, «..», «.» or «-» (the previous location).",
     "t_s_en_s_35a806": "%s on %s\n",
@@ -1050,6 +1050,7 @@
     "t_web_volver_a_e70d48": "Back to ",
     "t_web_zfs_acepto_la_127c02": "ZFS accepted the command but the permission is still there",
     "t_ya_existe__484f91": "a connection «%s» already exists\n",
-    "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lists the commands and «help <command>» explains one.\nTab completes commands and URLs; the arrows walk the history.\n"
+    "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lists the commands and «help <command>» explains one.\nTab completes commands and URLs; the arrows walk the history.\n",
+    "t_rsync_det4": "`#content/<subpath>` narrows the source to that subtree, and `#content/{a,b}` copies several at once. With more than one source `--delete` is refused: each one would erase what the previous just left."
   }
 }

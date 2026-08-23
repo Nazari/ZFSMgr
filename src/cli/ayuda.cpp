@@ -511,16 +511,19 @@ const std::vector<Orden> kOrdenes = {
 
     // --- Acciones
     {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},
-     {"t_rsync_res", "Sincroniza el CONTENIDO de este dataset con otro («Sincronizar» de la interfaz)."},
+     {"t_rsync_res", "Sincroniza FICHEROS de un árbol montado con otro («Sincronizar» de la interfaz)."},
      {{{"t_rsync_del", "--delete"}, {"t_rsync_del_q", "Borra en el destino lo que ya no está en el origen."}},
       {{"t_rsync_check", "--check"}, {"t_rsync_check_q", "Simula y enseña qué haría, sin tocar nada."}},
       {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
-     {{"t_rsync_det", "Copia FICHEROS, no instantáneas: los dos extremos tienen que estar montados. Para "
-      "mandar una instantánea está `copy`."},
+     {{"t_rsync_det", "Copia FICHEROS, no instantáneas: da igual si lo que hay debajo son datasets o "
+      "directorios corrientes, mientras esté montado. Para mandar una instantánea está `send`."},
       {"t_rsync_det2", "Sin `--delete` solo añade y actualiza; lo que sobre en el destino se queda. Con "
       "`--delete` el destino acaba idéntico al origen, y eso INCLUYE borrar."},
-      {"t_rsync_det3", "Los dos extremos han de estar en la misma máquina: entre máquinas distintas la "
-      "interfaz usa `tar` sobre SSH, que no está portado aquí."}},
+      {"t_rsync_det3", "Vale entre máquinas distintas: el árbol va de agente a agente, sin `tar` ni "
+      "shell de por medio."},
+      {"t_rsync_det4", "`#content/<subruta>` acota el origen a ese subárbol, y `#content/{a,b}` copia "
+      "varios de una vez. Con varios orígenes se rechaza `--delete`: cada uno borraría lo que acaba "
+      "de dejar el anterior."}},
      Objetivo::Dataset,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
     {"breakdown", {"t_acciones_79bd0e", "Acciones"},

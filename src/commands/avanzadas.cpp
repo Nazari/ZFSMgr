@@ -251,4 +251,52 @@ bool puedeIrPorElArbol(bool origenTieneDaemon, bool destinoTieneDaemon) {
     return origenTieneDaemon && destinoTieneDaemon;
 }
 
+std::vector<std::string> rutasDeContenido(const std::string& ruta) {
+    const std::string r = zfsmgr::base::trim(ruta);
+    const std::size_t ab = r.find('{');
+    if (ab == std::string::npos) {
+        if (r.find('}') != std::string::npos) {
+            return {};  // cierre sin apertura
+        }
+        return {r};
+    }
+    const std::size_t ce = r.find('}', ab);
+    if (ce == std::string::npos) {
+        return {};  // sin cerrar
+    }
+    const std::string dentro = r.substr(ab + 1, ce - ab - 1);
+    if (dentro.find('{') != std::string::npos || dentro.find('}') != std::string::npos) {
+        return {};  // anidadas: no
+    }
+    if (r.find('{', ce) != std::string::npos) {
+        return {};  // más de un grupo: tampoco
+    }
+    const std::string antes = r.substr(0, ab);
+    const std::string despues = r.substr(ce + 1);
+    std::vector<std::string> salida;
+    for (const std::string& pieza : zfsmgr::base::split(dentro, ",", false)) {
+        const std::string t = zfsmgr::base::trim(pieza);
+        if (t.empty()) {
+            return {};  // «{a,,b}» o «{}»
+        }
+        salida.push_back(antes + t + despues);
+    }
+    return salida;
+}
+
+bool rutaDeContenidoValida(const std::string& ruta) {
+    const std::string r = zfsmgr::base::trim(ruta);
+    if (r.empty()) {
+        return true;
+    }
+    if (r.front() == '/' || r.front() == '\\') {
+        return false;
+    }
+    if (r.find("..") != std::string::npos) {
+        return false;
+    }
+    return r.find('\n') == std::string::npos && r.find('\r') == std::string::npos
+           && r.find('\t') == std::string::npos;
+}
+
 }  // namespace zfsmgr::commands::avanzadas
