@@ -709,7 +709,11 @@ if(BUILD_TESTING)
     # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
     # sale en el commit que lo introduce, no meses después.
     add_executable(zfsmgr_base_test ../tests/base_test.cpp)
-    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands OpenSSL::Crypto)
+    # Sin repetir `OpenSSL::Crypto`: ya viene de `zfsmgr_base`, y allí `ws2_32` va DETRÁS.
+    # Nombrarlo otra vez aquí lo pone al final del todo, después de `ws2_32`, y el enlazador
+    # de MinGW —que resuelve en un solo pase— deja sin resolver los símbolos de sockets que
+    # usa libcrypto: cientos de «undefined reference to `__imp_WSAGetLastError`».
+    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands)
     add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
     # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite

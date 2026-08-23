@@ -2699,8 +2699,15 @@ int main() {
                 pid = c.pid();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
+#ifdef _WIN32
+            // `kill(pid, 0)` es POSIX. En Windows el destructor mata al hijo por otro
+            // camino —TerminateProcess—, y comprobarlo pide la API de procesos de allí;
+            // lo que se puede afirmar aquí sin ella es que hubo hijo.
+            comprobar(pid > 0, "ChildProcess: hubo hijo");
+#else
             comprobar(pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0,
                       "ChildProcess: el destructor mata al hijo");
+#endif
         }
     }
 

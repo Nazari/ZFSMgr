@@ -87,11 +87,21 @@ private Q_SLOTS:
                  "un 'Tools' anidado NO debe excluirse");
     }
 
-#ifndef _WIN32
+    // **Las ranuras se declaran SIEMPRE y el salto va DENTRO.**
+    //
+    // Estaban tras un «#ifndef _WIN32», y moc no evalúa esa guarda: genera las
+    // referencias a las cuatro ranuras y el compilador, que sí la evalúa, no las tiene.
+    // El CI de Windows moría en el .moc con «preservesHardLinks: is not a member of
+    // CopyTreeTest», señalando un fichero generado. Con QSKIP la lista de pruebas es la
+    // misma en las tres plataformas y en Windows se lee «skipped», que es la verdad.
+
     // La diferencia principal con robocopy, y la razón de implementarlo en vez de
     // llamarlo: dos rutas al mismo fichero deben seguir siéndolo en el destino, no
     // convertirse en dos copias que ocupan el doble.
     void preservesHardLinks() {
+#ifdef _WIN32
+        QSKIP("enlaces duros, symlinks, permisos y huecos son de POSIX: en Windows la copia no los replica y la prueba no significaría nada");
+#else
         writeFile(src_ / "uno.txt", "compartido");
         QCOMPARE(::link((src_ / "uno.txt").c_str(), (src_ / "dos.txt").c_str()), 0);
 
@@ -105,9 +115,13 @@ private Q_SLOTS:
         QCOMPARE(::stat((dst_ / "dos.txt").c_str(), &b), 0);
         QVERIFY2(a.st_ino == b.st_ino, "el destino debe conservar el enlace duro");
         QCOMPARE(readFile(dst_ / "dos.txt"), std::string("compartido"));
+#endif
     }
 
     void preservesSymlinksAsLinks() {
+#ifdef _WIN32
+        QSKIP("enlaces duros, symlinks, permisos y huecos son de POSIX: en Windows la copia no los replica y la prueba no significaría nada");
+#else
         writeFile(src_ / "real.txt", "contenido");
         fs::create_symlink("real.txt", src_ / "enlace.txt");
 
@@ -116,9 +130,13 @@ private Q_SLOTS:
         QVERIFY2(fs::is_symlink(fs::symlink_status(dst_ / "enlace.txt")),
                  "debe copiarse como enlace, no como el fichero al que apunta");
         QCOMPARE(fs::read_symlink(dst_ / "enlace.txt").string(), std::string("real.txt"));
+#endif
     }
 
     void preservesPermissions() {
+#ifdef _WIN32
+        QSKIP("enlaces duros, symlinks, permisos y huecos son de POSIX: en Windows la copia no los replica y la prueba no significaría nada");
+#else
         writeFile(src_ / "script.sh", "#!/bin/sh\n");
         QCOMPARE(::chmod((src_ / "script.sh").c_str(), 0755), 0);
 
@@ -127,11 +145,15 @@ private Q_SLOTS:
         struct stat st {};
         QCOMPARE(::stat((dst_ / "script.sh").c_str(), &st), 0);
         QCOMPARE(st.st_mode & 07777, static_cast<mode_t>(0755));
+#endif
     }
 
     // Un fichero mayormente vacío no debe llegar ocupando su tamaño aparente: una imagen
     // de disco de 100 GB con 2 GB usados arruinaría el destino.
     void keepsSparseFilesSparse() {
+#ifdef _WIN32
+        QSKIP("enlaces duros, symlinks, permisos y huecos son de POSIX: en Windows la copia no los replica y la prueba no significaría nada");
+#else
         const fs::path big = src_ / "disperso.img";
         {
             std::ofstream out(big, std::ios::binary);
@@ -149,10 +171,11 @@ private Q_SLOTS:
         // 8 MiB aparentes; si se hubieran escrito los ceros ocuparía ~16384 bloques.
         QVERIFY2(st.st_blocks < 1024,
                  "el destino no debe materializar los huecos como ceros en disco");
-    }
 #endif
+    }
 
-#if defined(__linux__)
+
+
     // Los atributos extendidos, y con ellos las ACL POSIX de Linux, que viven en
     // `system.posix_acl_access`.
     //
@@ -160,6 +183,9 @@ private Q_SLOTS:
     // las ACL, y la comparación que hice entonces no las incluía. `rsync -A` conservaba
     // el permiso y esta copia lo dejaba fuera.
     void preservesExtendedAttributes() {
+#ifndef __linux__
+        QSKIP("los atributos extendidos de esta forma son de Linux");
+#else
         writeFile(src_ / "conattr.txt", "x");
         const std::string path = (src_ / "conattr.txt").string();
         if (::lsetxattr(path.c_str(), "user.zfsmgr_prueba", "valor", 5, 0) != 0) {
@@ -172,8 +198,9 @@ private Q_SLOTS:
         const ssize_t n = ::lgetxattr(dstPath.c_str(), "user.zfsmgr_prueba", buf, sizeof(buf));
         QVERIFY2(n == 5, "el atributo extendido debe llegar al destino");
         QCOMPARE(std::string(buf, 5), std::string("valor"));
-    }
 #endif
+    }
+
 
     // Un fichero ENTERAMENTE disperso: todo huecos, sin un solo byte de datos.
     //
@@ -181,6 +208,9 @@ private Q_SLOTS:
     // tamaño aparente coincidía, pero el nativo ocupaba 4 KiB donde rsync dejaba 0,
     // porque fijaba el tamaño escribiendo un byte al final en vez de con truncate.
     void fullySparseFileAllocatesNothing() {
+#ifdef _WIN32
+        QSKIP("enlaces duros, symlinks, permisos y huecos son de POSIX: en Windows la copia no los replica y la prueba no significaría nada");
+#else
         const fs::path big = src_ / "vacio.img";
         {
             std::ofstream out(big, std::ios::binary);
@@ -193,6 +223,7 @@ private Q_SLOTS:
         struct stat st {};
         QCOMPARE(::stat((dst_ / "vacio.img").c_str(), &st), 0);
         QVERIFY2(st.st_blocks == 0, "un fichero todo huecos no debe asignar ni un bloque");
+#endif
     }
 
     // Lo que ya está igual no se reescribe. Es el comportamiento por omisión de rsync,
