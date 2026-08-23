@@ -30,7 +30,7 @@ zfsm://oldlau/winpool> cd sa@yesterday
 zfsm://oldlau/winpool/sa@yesterday> ls #content
 ```
 
-`help` 列出所有命令，`help <命令>` 解释其中一个。Tab 键补全命令与 URL，方向键浏览历史。
+`help` 列出所有命令，`help <命令>` 解释其中一个，条目末尾**每个选项都配有一个示例**。Tab 键补全命令与 URL，方向键浏览历史。
 
 ## 位置就是一个 URL
 

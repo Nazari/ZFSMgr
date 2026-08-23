@@ -33,7 +33,8 @@ zfsm://oldlau/winpool> cd sa@yesterday
 zfsm://oldlau/winpool/sa@yesterday> ls #content
 ```
 
-`help` lists the commands and `help <command>` explains one. Tab completes commands and
+`help` lists the commands and `help <command>` explains one, with **one example per
+option** at the end of its entry. Tab completes commands and
 URLs; the arrows walk the history.
 
 ## The location is a URL

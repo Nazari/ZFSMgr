@@ -130,7 +130,7 @@ extern int zfsmclidebug;
     V_RELEASE = 317,               /* V_RELEASE  */
     V_CLONE = 318,                 /* V_CLONE  */
     V_DIFF = 319,                  /* V_DIFF  */
-    V_COPY = 320,                  /* V_COPY  */
+    V_SEND = 320,                  /* V_SEND  */
     V_ALLOW = 321,                 /* V_ALLOW  */
     V_UNALLOW = 322,               /* V_UNALLOW  */
     V_BREAKDOWN = 323,             /* V_BREAKDOWN  */

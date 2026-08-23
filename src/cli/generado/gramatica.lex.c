@@ -926,7 +926,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"log", V_LOG}, {"peers", V_PEERS}, {"repair-mounts", V_REPAIR_MOUNTS},
     {"authorize-key", V_AUTHORIZE_KEY}, {"export-trust", V_EXPORT_TRUST},
     {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},
-    {"clone", V_CLONE}, {"diff", V_DIFF}, {"copy", V_COPY},
+    {"clone", V_CLONE}, {"diff", V_DIFF}, {"send", V_SEND},
     {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
     {"breakdown", V_BREAKDOWN}, {"assemble", V_ASSEMBLE},
     {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC},
@@ -941,6 +941,47 @@ static int tokenDeVerbo(const char* v) {
         }
     }
     return V_DESCONOCIDO;
+}
+
+/* El nombre COMPLETO de la orden que `v` identifica, o NULL si no identifica ninguna.
+ *
+ * Basta con escribir las primeras letras mientras no haya dos órdenes que empiecen igual.
+ * Dos reglas que no son obvias:
+ *
+ *  - **Lo exacto gana siempre.** «job» es una orden y «jobs» es otra: sin esta regla, «job»
+ *    sería ambiguo y no habría forma de escribirlo. Pasa igual con hold/holds,
+ *    schedule/schedules y export/export-trust.
+ *  - **Dos nombres del MISMO verbo no compiten.** «exit» y «quit» devuelven el mismo token,
+ *    así que un prefijo que los alcanzara a los dos no sería ambiguo. Hoy no comparten
+ *    ninguno, pero la regla evita que añadir un sinónimo rompa una abreviatura.
+ *
+ * Se devuelve el nombre canónico, no lo tecleado: aguas abajo la orden se busca por su
+ * nombre en el catálogo, y la ayuda y los mensajes de error hablan de él.
+ */
+static const char* verboCanonico(const char* v) {
+    size_t largo = strlen(v);
+    const char* unico = 0;
+    int tokenUnico = 0;
+    int cuantos = 0;
+    int i;
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strcmp(kVerbos[i].nombre, v) == 0) {
+            return kVerbos[i].nombre;
+        }
+    }
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strncmp(kVerbos[i].nombre, v, largo) != 0) {
+            continue;
+        }
+        if (cuantos == 0) {
+            unico = kVerbos[i].nombre;
+            tokenUnico = kVerbos[i].token;
+            cuantos = 1;
+        } else if (kVerbos[i].token != tokenUnico) {
+            return 0;  /* ambiguo */
+        }
+    }
+    return cuantos == 1 ? unico : 0;
 }
 
 typedef struct {
@@ -973,7 +1014,7 @@ static char* sinComillas(const char* s, int n) {
     p[j] = 0;
     return p;
 }
-#line 977 "generado/gramatica.lex.c"
+#line 1018 "generado/gramatica.lex.c"
 /* `nounistd`: sin él, el analizador generado incluye <unistd.h>, y en MinGW ese arrastra
  * un <process.h> del sistema que choca con el `process.h` de la capa base —el cruce a
  * Windows fallaba con «cstdint: No such file or directory» dentro de unistd.h—. */
@@ -984,7 +1025,7 @@ static char* sinComillas(const char* s, int n) {
 
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
  * `@` o `#`, o ser uno de los tres atajos de navegación. */
-#line 988 "generado/gramatica.lex.c"
+#line 1029 "generado/gramatica.lex.c"
 
 #define INITIAL 0
 #define VERBO 1
@@ -1274,11 +1315,11 @@ YY_DECL
 		}
 
 	{
-#line 121 "gramatica.l"
+#line 162 "gramatica.l"
 
 
 
-#line 125 "gramatica.l"
+#line 166 "gramatica.l"
     /* Se empieza esperando el VERBO, y una sola vez.
      *
      * Con una marca explícita y no mirando `yy_start`: `INITIAL` vale 1, así que la
@@ -1293,7 +1334,7 @@ YY_DECL
     }
 
 
-#line 1297 "generado/gramatica.lex.c"
+#line 1338 "generado/gramatica.lex.c"
 
 	while ( /*CONSTCOND*/1 )		/* loops until end-of-file is reached */
 		{
@@ -1375,21 +1416,25 @@ do_action:	/* This label is used only to access EOF actions. */
 	{ /* beginning of action switch */
 case 1:
 YY_RULE_SETUP
-#line 139 "gramatica.l"
+#line 180 "gramatica.l"
 { /* separador delante del verbo */ }
 	YY_BREAK
 case 2:
 /* rule 2 can match eol */
 YY_RULE_SETUP
-#line 140 "gramatica.l"
+#line 181 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
-                        yylval->texto = copia(yytext, yyleng);
-                        if (cx) {
-                            snprintf(cx->verbo, sizeof(cx->verbo), "%s", yylval->texto);
+                        {
+                            const char* canonico = verboCanonico(yytext);
+                            const char* usar = canonico ? canonico : yytext;
+                            yylval->texto = copia(usar, (int)strlen(usar));
+                            if (cx) {
+                                snprintf(cx->verbo, sizeof(cx->verbo), "%s", yylval->texto);
+                            }
+                            return canonico ? tokenDeVerbo(canonico) : V_DESCONOCIDO;
                         }
-                        return tokenDeVerbo(yylval->texto);
                     }
 	YY_BREAK
 /* El valor de la opción anterior. No llega a la gramática: se anota y se sigue.
@@ -1401,13 +1446,13 @@ YY_RULE_SETUP
    * corrientes antes de que se les quitaran las comillas. */
 case 3:
 YY_RULE_SETUP
-#line 157 "gramatica.l"
+#line 202 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 4:
 /* rule 4 can match eol */
 YY_RULE_SETUP
-#line 158 "gramatica.l"
+#line 203 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1418,7 +1463,7 @@ YY_RULE_SETUP
 case 5:
 /* rule 5 can match eol */
 YY_RULE_SETUP
-#line 164 "gramatica.l"
+#line 209 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1428,13 +1473,13 @@ YY_RULE_SETUP
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 170 "gramatica.l"
+#line 215 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 7:
 /* rule 7 can match eol */
 YY_RULE_SETUP
-#line 171 "gramatica.l"
+#line 216 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1446,7 +1491,7 @@ YY_RULE_SETUP
 case 8:
 /* rule 8 can match eol */
 YY_RULE_SETUP
-#line 178 "gramatica.l"
+#line 223 "gramatica.l"
 {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
@@ -1457,32 +1502,32 @@ YY_RULE_SETUP
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 186 "gramatica.l"
+#line 231 "gramatica.l"
 { /* separador */ }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 188 "gramatica.l"
+#line 233 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_START; }
 	YY_BREAK
 case 11:
 YY_RULE_SETUP
-#line 189 "gramatica.l"
+#line 234 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_STOP; }
 	YY_BREAK
 case 12:
 YY_RULE_SETUP
-#line 190 "gramatica.l"
+#line 235 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_CANCEL; }
 	YY_BREAK
 case 13:
 YY_RULE_SETUP
-#line 191 "gramatica.l"
+#line 236 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_PAUSE; }
 	YY_BREAK
 case 14:
 YY_RULE_SETUP
-#line 192 "gramatica.l"
+#line 237 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return FASE_SUSPEND; }
 	YY_BREAK
 /* Las OPCIONES no pasan por la gramática: se anotan aquí. Su posición no significa nada
@@ -1491,7 +1536,7 @@ YY_RULE_SETUP
    * snapshot` no se analizaba. */
 case 15:
 YY_RULE_SETUP
-#line 198 "gramatica.l"
+#line 243 "gramatica.l"
 {
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext + 2, yyleng - 2);
@@ -1507,7 +1552,7 @@ YY_RULE_SETUP
 case 16:
 /* rule 16 can match eol */
 YY_RULE_SETUP
-#line 209 "gramatica.l"
+#line 254 "gramatica.l"
 {
                     /* `-o ashift=12`: opción corta CON valor, repetible. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
@@ -1517,7 +1562,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 215 "gramatica.l"
+#line 260 "gramatica.l"
 {
                     /* Una bandera corta también puede llevar valor —`import -d /dev`,
                      * `trim -r 100M`—: lo dicen las banderas nativas declaradas para ese
@@ -1540,44 +1585,44 @@ YY_RULE_SETUP
 case 18:
 /* rule 18 can match eol */
 YY_RULE_SETUP
-#line 233 "gramatica.l"
+#line 278 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 19:
 /* rule 19 can match eol */
 YY_RULE_SETUP
-#line 234 "gramatica.l"
+#line 279 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 20:
 /* rule 20 can match eol */
 YY_RULE_SETUP
-#line 236 "gramatica.l"
+#line 281 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 21:
 /* rule 21 can match eol */
 YY_RULE_SETUP
-#line 237 "gramatica.l"
+#line 282 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 22:
 /* rule 22 can match eol */
 YY_RULE_SETUP
-#line 239 "gramatica.l"
+#line 284 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 23:
 YY_RULE_SETUP
-#line 241 "gramatica.l"
+#line 286 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 24:
 YY_RULE_SETUP
-#line 243 "gramatica.l"
+#line 288 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 1581 "generado/gramatica.lex.c"
+#line 1626 "generado/gramatica.lex.c"
 			case YY_STATE_EOF(INITIAL):
 			case YY_STATE_EOF(VERBO):
 			case YY_STATE_EOF(VALOR):
@@ -2696,6 +2741,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 243 "gramatica.l"
+#line 288 "gramatica.l"
 
 

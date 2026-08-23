@@ -63,7 +63,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_GET V_SET V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
 %token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS V_REPAIR_MOUNTS
 %token <texto> V_AUTHORIZE_KEY V_EXPORT_TRUST
-%token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_COPY
+%token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_SEND
 %token <texto> V_ALLOW V_UNALLOW
 %token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
 %token <texto> V_DESCONOCIDO
@@ -112,6 +112,11 @@ orden
     | V_JOBS destino_opt                { astVerbo(res, $1); }
 /* En estas dos la palabra ya es la ranura, así que la conexión va por URL o por `--on`. */
     | V_JOB url_opt palabra              { astVerbo(res, $1); astRanura(res, "texto", $3); }
+/* Dos palabras: «job cancel <id>». Estaba en la línea de sintaxis y en `cmdJob` —que lee
+ * `lista("texto")[1]`— y no en la gramática, así que la orden no se podía teclear. Se
+ * escribe aparte y no con `textos` para no admitir una URL donde va un id. */
+    | V_JOB url_opt palabra palabra      { astVerbo(res, $1); astRanura(res, "texto", $3);
+                                           astRanura(res, "texto", $4); }
     | V_IMPORT url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
 
 /* --- Pools --------------------------------------------------------------------------- */
@@ -143,11 +148,20 @@ orden
     | V_PEERS destino_opt                    { astVerbo(res, $1); }
     | V_REPAIR_MOUNTS destino_opt            { astVerbo(res, $1); }
 /* Las dos llevan la OTRA máquina como palabra: «authorize-key oldlau» estando en unibody.
- * Por eso su destino propio va por `--on`, como en `copy`: si no, no habría forma de saber
+ * Por eso su destino propio va por `--on`, como en `send`: si no, no habría forma de saber
  * cuál de los dos nombres es cuál. */
     | V_AUTHORIZE_KEY palabra                { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_EXPORT_TRUST palabra                 { astVerbo(res, $1); astRanura(res, "texto", $2); }
-    | V_RENAME url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
+/* Las tres formas ESCRITAS APARTE, sin `url_opt`. El nombre nuevo puede llevar barra
+ * —«rename tank/archivo» cuelga el dataset de otro padre, y `argvRenombrar` lo soporta
+ * desde siempre—, pero con barra lexa como URL, y una URL detrás de `url_opt` obliga a
+ * decidir si es el destino o el nombre: eso es un conflicto desplazamiento/reducción, y
+ * bison los trata como error. Enumerando las formas no hay nada que decidir a ciegas. */
+    | V_RENAME palabra                   { astVerbo(res, $1); astRanura(res, "texto", $2); }
+    | V_RENAME URL palabra               { astVerbo(res, $1); astObjetivo(res, $2);
+                                           astRanura(res, "texto", $3); }
+    | V_RENAME URL URL                   { astVerbo(res, $1); astObjetivo(res, $2);
+                                           astRanura(res, "texto", $3); }
     | V_GET url_opt                      { astVerbo(res, $1); }
     | V_GET url_opt palabra              { astVerbo(res, $1); astRanura(res, "propiedad", $3); }
     | V_SET destino_opt asignaciones         { astVerbo(res, $1); }
@@ -165,7 +179,7 @@ orden
 /* --- Acciones sobre los DATOS --------------------------------------------------------
  * Llevan una URL o una ruta como argumento, así que el origen va por `--on`/`--from` y no
  * posicionalmente: si no, no habría forma de saber cuál de las dos URL es cuál. */
-    | V_COPY URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
+    | V_SEND URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
     | V_RSYNC URL                        { astVerbo(res, $1); astRanura(res, "destino", $2); }
     | V_DIFF URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
     | V_TODIR ruta                       { astVerbo(res, $1); }

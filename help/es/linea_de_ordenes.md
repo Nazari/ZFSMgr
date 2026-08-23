@@ -33,7 +33,8 @@ zfsm://oldlau/winpool> cd sa@ayer
 zfsm://oldlau/winpool/sa@ayer> ls #content
 ```
 
-`help` enumera las órdenes y `help <orden>` explica una. El tabulador completa órdenes
+`help` enumera las órdenes y `help <orden>` explica una, con un **ejemplo por cada
+opción** al final de su ficha. El tabulador completa órdenes
 y URLs, y las flechas recorren el historial.
 
 ## La posición es una URL

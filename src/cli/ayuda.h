@@ -87,6 +87,21 @@ struct Nativa {
     Texto que{"", ""};
 };
 
+// Una línea de ejemplo: lo que se teclea y qué enseña.
+//
+// **La orden NO se traduce y el porqué sí.** Lo de la izquierda es sintaxis —se copia, se
+// pega y se ejecuta—, así que traducirla la rompería; lo de la derecha es prosa y tiene que
+// leerse en el idioma de quien mira.
+//
+// Que haya un ejemplo POR OPCIÓN no es una aspiración escrita en un comentario: lo
+// comprueba `ayuda_test`, que recorre el catálogo y falla si una opción declarada no
+// aparece en ningún ejemplo de su orden. Sin esa prueba, la lista se quedaría en las
+// órdenes que existían el día que se escribió.
+struct Ejemplo {
+    const char* orden;
+    Texto que;
+};
+
 struct Orden {
     const char* nombre;  // el VERBO: no se traduce, es lo que se teclea
     Texto grupo;
@@ -108,6 +123,12 @@ struct Orden {
     // Las banderas del mandato original que esta orden pasa tal cual. Ver Nativa.
     std::vector<Nativa> nativas;
 };
+
+// Los ejemplos de una orden, o vacío. Viven en una tabla aparte y no dentro de `Orden`
+// porque así se leen JUNTOS —«¿tiene cada opción el suyo?» se contesta de un vistazo— y
+// porque el catálogo se inicializa por posición: meter un campo en medio obligaría a tocar
+// las 61 entradas. La prueba de cobertura es lo que impide que las dos listas se separen.
+const std::vector<Ejemplo>& ejemplosDe(const std::string& orden);
 
 // Todas, en el orden en que se enseñan.
 const std::vector<Orden>& ordenes();

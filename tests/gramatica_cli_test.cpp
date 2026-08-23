@@ -11,6 +11,7 @@
 //     compilación: rompería al teclear la orden.
 #include "ayuda.h"
 #include "gramatica_cli.h"
+#include "strutil.h"
 
 #include <cctype>
 #include <cstdio>
@@ -56,6 +57,47 @@ static std::string rellenoDe(const zfsmgr::cli::Orden& o) {
 int main() {
     using zfsmgr::cli::analizaLinea;
 
+    // --- Abreviaturas: basta con las primeras letras si no hay dos órdenes que empiecen
+    // igual. El léxico devuelve el nombre CANÓNICO, no lo tecleado, porque aguas abajo la
+    // orden se busca por su nombre en el catálogo.
+    {
+        const auto a = analizaLinea("pw");
+        igual(a.verbo, "pwd", "«pw» es «pwd»");
+        comprueba(!a.verboDesconocido, "y no queda como desconocida");
+    }
+    {
+        const auto a = analizaLinea("inf");
+        igual(a.verbo, "info", "«inf» es «info»");
+    }
+    {
+        // **Lo exacto gana siempre.** «job» es una orden y «jobs» es otra: sin esta regla
+        // «job» sería ambiguo y no habría forma de escribirlo. Pasa igual con hold/holds,
+        // schedule/schedules y export/export-trust.
+        igual(analizaLinea("job x").verbo, "job", "«job» exacto no lo gana «jobs»");
+        igual(analizaLinea("jobs").verbo, "jobs", "«jobs» exacto");
+        igual(analizaLinea("hold x").verbo, "hold", "«hold» exacto no lo gana «holds»");
+        igual(analizaLinea("holds").verbo, "holds", "«holds» exacto");
+    }
+    {
+        // Ambigua NO es lo mismo que desconocida, y quien lo lea tiene que poder
+        // distinguirlo: «j» son «job» y «jobs», y «l» son «load-key», «log» y «ls».
+        const auto a = analizaLinea("j");
+        comprueba(a.verboDesconocido, "«j» no se resuelve: hay dos órdenes con esa letra");
+        const auto b = analizaLinea("l");
+        comprueba(b.verboDesconocido, "«l» tampoco: son tres");
+        // Y el catálogo lo confirma, que es de donde sale la lista que se le enseña.
+        comprueba(zfsmgr::cli::nombresQueEmpiezanPor("j").size() == 2,
+                  "el catálogo ve las dos de «j»");
+        comprueba(zfsmgr::cli::nombresQueEmpiezanPor("l").size() == 3,
+                  "y las tres de «l»");
+    }
+    {
+        // Una letra que no empieza ninguna orden sigue siendo desconocida a secas.
+        comprueba(analizaLinea("xyz").verboDesconocido, "«xyz» es desconocida");
+        comprueba(zfsmgr::cli::nombresQueEmpiezanPor("xyz").empty(),
+                  "y no hay ninguna candidata");
+    }
+
     // --- El destino frente a la ranura: los casos que rompían antes.
     {
         const auto a = analizaLinea("scrub stop");
@@ -88,10 +130,10 @@ int main() {
         comprueba(a.lista("props").size() == 2, "«set a=b c=d»: dos propiedades");
     }
     {
-        const auto a = analizaLinea("copy /oldlau/winpool/sa --base @ayer --wait");
-        igual(a.uno("destino"), "/oldlau/winpool/sa", "«copy»: el destino es la URL");
-        igual(a.opciones.at("base"), "@ayer", "«copy --base»: lleva valor");
-        comprueba(a.tiene("wait"), "«copy --wait»: es una bandera");
+        const auto a = analizaLinea("send /oldlau/winpool/sa --base @ayer --wait");
+        igual(a.uno("destino"), "/oldlau/winpool/sa", "«send»: el destino es la URL");
+        igual(a.opciones.at("base"), "@ayer", "«send --base»: lleva valor");
+        comprueba(a.tiene("wait"), "«send --wait»: es una bandera");
     }
     {
         const auto a = analizaLinea("install-daemon oldlau");
@@ -147,12 +189,12 @@ int main() {
 
     // --- Cada orden con ranura tiene que emitirla con SU nombre.
     //
-    // Es el fallo que aparece al migrar: la gramática llama «destino» a la URL de `copy` y
+    // Es el fallo que aparece al migrar: la gramática llama «destino» a la URL de `send` y
     // la orden la buscaba como «texto», así que el mensaje salía vacío y el argumento se
     // perdía. Aquí se fija el contrato: qué nombre emite cada una.
     {
         struct { const char* linea; const char* ranura; const char* valor; } casos[] = {
-            {"copy /a/b/c", "destino", "/a/b/c"},
+            {"send /a/b/c", "destino", "/a/b/c"},
             {"rsync /a/b/c", "destino", "/a/b/c"},
             {"diff /a/b/c", "destino", "/a/b/c"},
             {"todir /mnt/x", "ruta", "/mnt/x"},
@@ -200,18 +242,18 @@ int main() {
     // grupo con una que sí lo lleva —`trim -rd`, donde `-r` quiere un ritmo— se deja
     // entero, porque dónde va el valor no se puede adivinar sin inventar.
     {
-        const auto a = analizaLinea("copy /otra/x -wLec");
+        const auto a = analizaLinea("send /otra/x -wLec");
         int hay = 0;
         for (const char* f : {"-w", "-L", "-e", "-c"}) {
             hay += a.tiene(f) ? 1 : 0;
         }
-        comprueba(hay == 4, "«copy -wLec»: se reparte en cuatro banderas");
-        comprueba(!a.tiene("-wLec"), "«copy -wLec»: y el grupo ya no está entero");
+        comprueba(hay == 4, "«send -wLec»: se reparte en cuatro banderas");
+        comprueba(!a.tiene("-wLec"), "«send -wLec»: y el grupo ya no está entero");
         // Control: una letra que no existe deja el grupo SIN repartir, para que el error
         // hable de lo que el usuario escribió y no de una letra suelta que él no puso.
-        const auto b = analizaLinea("copy /otra/x -wLZ");
-        comprueba(b.tiene("-wLZ"), "«copy -wLZ»: con una letra ajena el grupo se deja entero");
-        comprueba(!b.tiene("-w"), "«copy -wLZ»: y no se reparte a medias");
+        const auto b = analizaLinea("send /otra/x -wLZ");
+        comprueba(b.tiene("-wLZ"), "«send -wLZ»: con una letra ajena el grupo se deja entero");
+        comprueba(!b.tiene("-w"), "«send -wLZ»: y no se reparte a medias");
         // Control: con una que lleva valor tampoco se reparte.
         const auto c = analizaLinea("trim -rd");
         comprueba(c.tiene("-rd"), "«trim -rd»: -r lleva valor, así que el grupo no se parte");
@@ -358,6 +400,62 @@ int main() {
                 }
                 comprueba(a.tiene(nombre),
                           std::string("«") + linea + "»: la opción documentada no se reconoce");
+            }
+        }
+    }
+
+    // 3. Los EJEMPLOS de la ayuda se analizan de verdad.
+    //
+    // Un ejemplo escrito a mano es una promesa: «esto se puede copiar y ejecutar». Nadie
+    // la comprueba al escribirlo, y envejece sola —la orden gana una ranura obligatoria, o
+    // se le cambia el nombre a una opción, y el ejemplo sigue ahí—. Aquí se pasan los 186
+    // por el mismo analizador que usa el intérprete.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        for (const zfsmgr::cli::Ejemplo& e : zfsmgr::cli::ejemplosDe(o.nombre)) {
+            const auto a = analizaLinea(e.orden);
+            igual(a.error, std::string(),
+                  std::string("el ejemplo «") + e.orden + "» no se analiza");
+            comprueba(!a.verboDesconocido,
+                      std::string("el ejemplo «") + e.orden + "» empieza por un verbo que no existe");
+            if (a.error.empty()) {
+                igual(a.verbo, std::string(o.nombre),
+                      std::string("el ejemplo «") + e.orden + "» no es de la orden que lo aloja");
+            }
+        }
+    }
+
+    // 4. Cada opción documentada tiene su ejemplo.
+    //
+    // Esto es lo que impide que la tabla de ejemplos se quede en las órdenes que existían
+    // el día que se escribió: añadir una opción al catálogo y no ilustrarla rompe la
+    // compilación de las pruebas, no la lectura de alguien meses después.
+    //
+    // `--on` y `--from` quedan fuera a propósito: no se declaran por orden, se GENERAN en
+    // las 50 que actúan sobre un sitio, así que exigir su ejemplo en cada una llenaría la
+    // ayuda de 50 líneas iguales. Se ilustran donde aportan algo.
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        const auto& ejs = zfsmgr::cli::ejemplosDe(o.nombre);
+        const bool pideAlgo = !o.params.empty() || !o.ranuras.empty();
+        comprueba(!pideAlgo || !ejs.empty(),
+                  std::string("«") + o.nombre + "» acepta argumentos y no tiene ni un ejemplo");
+        for (const zfsmgr::cli::Parametro& par : o.params) {
+            const std::string forma = par.forma.es;
+            for (const std::string& trozo : zfsmgr::base::split(forma, " ", true)) {
+                if (trozo.size() < 2 || (trozo[0] != '-' && trozo[0] != '#')) {
+                    continue;
+                }
+                // «#content[/ruta]» se ilustra con «#content» o con «#content/loquesea»:
+                // la parte entre corchetes es opcional y no tiene por qué salir literal.
+                std::string nucleo = trozo.substr(0, trozo.find('['));
+                if (nucleo == "--on" || nucleo == "--from") {
+                    continue;
+                }
+                bool ilustrada = false;
+                for (const zfsmgr::cli::Ejemplo& e : ejs) {
+                    ilustrada = ilustrada || std::string(e.orden).find(nucleo) != std::string::npos;
+                }
+                comprueba(ilustrada, std::string("«") + o.nombre + " " + nucleo
+                                         + "»: opción documentada sin ningún ejemplo");
             }
         }
     }

@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <map>
 
 namespace zfsmgr::cli {
 namespace {
@@ -166,6 +167,33 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
                 std::fprintf(stderr, "  %s\n", t.c_str());
             }
         }
+        // Los ejemplos van los ÚLTIMOS, y a propósito: quien ya sabe qué hace la orden baja
+        // hasta aquí y copia una línea; quien no, ha leído antes el porqué. Al revés, el
+        // detalle quedaría detrás de un bloque que invita a dejar de leer.
+        const std::vector<Ejemplo>& ejs = ejemplosDe(o.nombre);
+        if (!ejs.empty()) {
+            std::fprintf(stderr, "\n  %s\n", TC("t_ejemplos_cab", "Ejemplos:"));
+            // El formato se decide POR ORDEN y no por línea. En dos columnas mientras
+            // quepan todas; si UNA se sale, van todas a dos renglones. Mezclar los dos
+            // formatos dentro de una misma orden —que es lo que sale de decidirlo línea a
+            // línea— deja un bloque en escalera donde no se ve cuál explica a cuál:
+            // `rsync` tiene siete ejemplos y seis se pasan.
+            bool cabenTodas = true;
+            for (const Ejemplo& e : ejs) {
+                cabenTodas = cabenTodas && anchoVisible(e.orden) < static_cast<std::size_t>(kColumna - 4);
+            }
+            for (const Ejemplo& e : ejs) {
+                if (cabenTodas) {
+                    fila(e.orden, T(e.que.clave, e.que.es), 4, ancho);
+                    continue;
+                }
+                std::fprintf(stderr, "    %s\n", e.orden);
+                for (const std::string& t : parte(T(e.que.clave, e.que.es),
+                                                  static_cast<std::size_t>(ancho > 32 ? ancho - 8 : 52))) {
+                    std::fprintf(stderr, "        %s\n", t.c_str());
+                }
+            }
+        }
     }
 }
 
@@ -181,6 +209,569 @@ std::vector<Nativa> nativasDeSend() {
     }
     return out;
 }
+
+// Los ejemplos, uno por opción. Ver `Ejemplo` en la cabecera para el porqué del
+// reparto —la orden sin traducir, el comentario traducido— y de la prueba que los ata
+// al catálogo.
+const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
+    {"cd",
+     {
+      {"cd tank/datos",
+       {"t_ej_cd_1", "baja a un hijo por ruta relativa"}},
+      {"cd ..",
+       {"t_ej_cd_2", "sube un nivel"}},
+      {"cd -",
+       {"t_ej_cd_3", "vuelve al sitio anterior"}},
+      {"cd /unibody/sback",
+       {"t_ej_cd_4", "absoluta: el primer tramo nombra una conexión"}},
+      {"cd ./unibody",
+       {"t_ej_cd_5", "un hijo que se llama como una conexión"}},
+     }},
+    {"pwd",
+     {
+      {"pwd",
+       {"t_ej_pwd_1", "la URL de donde se está"}},
+     }},
+    {"ls",
+     {
+      {"ls",
+       {"t_ej_ls_1", "lo que cuelga de aquí"}},
+      {"ls tank/datos",
+       {"t_ej_ls_2", "otro sitio, sin moverse"}},
+      {"ls #content",
+       {"t_ej_ls_3", "los ficheros de dentro"}},
+      {"ls #content/fotos/2024",
+       {"t_ej_ls_4", "solo ese subárbol"}},
+      {"ls #properties",
+       {"t_ej_ls_5", "todas las propiedades"}},
+      {"ls #properties/compression",
+       {"t_ej_ls_6", "una sola propiedad"}},
+      {"ls #permissions",
+       {"t_ej_ls_7", "los permisos delegados"}},
+      {"ls --on zfsm://unibody/sback",
+       {"t_ej_ls_8", "el listado de otra máquina"}},
+     }},
+    {"info",
+     {
+      {"info",
+       {"t_ej_info_1", "qué hay aquí y cómo está su daemon"}},
+      {"info --on zfsm://oldlau",
+       {"t_ej_info_2", "el estado de otra máquina"}},
+     }},
+    {"create",
+     {
+      {"create datos",
+       {"t_ej_create_1", "un dataset hijo, estando en un pool"}},
+      {"create datos compression=zstd atime=off",
+       {"t_ej_create_2", "el hijo, ya con sus propiedades"}},
+      {"create @ayer",
+       {"t_ej_create_3", "una instantánea del dataset actual"}},
+      {"create @ayer -r",
+       {"t_ej_create_4", "y de todos sus descendientes"}},
+      {"create tank sda sdb",
+       {"t_ej_create_5", "un pool sobre dos discos"}},
+      {"create tank mirror sda sdb -o ashift=12 -O compression=zstd",
+       {"t_ej_create_6", "en espejo, con propiedades del pool y de su raíz"}},
+      {"create tank sda --mountpoint /mnt/tank",
+       {"t_ej_create_7", "el pool montado donde uno diga"}},
+      {"create tank sda -f",
+       {"t_ej_create_8", "aunque el disco parezca en uso"}},
+      {"create unib --name Unibody --type SSH --host unib.local --port 22 --user linarese --key ~/.ssh/id_ed25519 --os linux",
+       {"t_ej_create_9", "todo lo que define una conexión SSH"}},
+      {"create mmela --type SSH --host mmela.local --user linarese --sudo --password-fd 3",
+       {"t_ej_create_10", "la que necesita elevar; la contraseña por descriptor"}},
+      {"create casa --type LOCAL",
+       {"t_ej_create_11", "esta misma máquina"}},
+     }},
+    {"destroy",
+     {
+      {"destroy tank/pruebas",
+       {"t_ej_destroy_1", "el dataset, preguntando antes"}},
+      {"destroy @ayer",
+       {"t_ej_destroy_2", "solo esa instantánea"}},
+      {"destroy tank/pruebas -r",
+       {"t_ej_destroy_3", "con sus descendientes"}},
+      {"destroy tank/pruebas -R",
+       {"t_ej_destroy_4", "y además los clones que dependan de ellos"}},
+      {"destroy tank/pruebas -f",
+       {"t_ej_destroy_5", "aunque esté montado"}},
+     }},
+    {"devices",
+     {
+      {"devices",
+       {"t_ej_devices_1", "todos los discos, con la columna OCUPADO"}},
+      {"devices --free",
+       {"t_ej_devices_2", "solo los que no están en uso"}},
+      {"devices --on zfsm://mmela",
+       {"t_ej_devices_3", "los de otra máquina"}},
+     }},
+    {"edit",
+     {
+      {"edit --name Unibody",
+       {"t_ej_edit_1", "cambia el nombre visible"}},
+      {"edit --host 192.168.1.20 --port 2222",
+       {"t_ej_edit_2", "cómo se llega a la máquina"}},
+      {"edit --user linarese --key ~/.ssh/id_ed25519",
+       {"t_ej_edit_3", "el usuario y la clave SSH"}},
+      {"edit --type SSH --os linux",
+       {"t_ej_edit_4", "el tipo de conexión y su sistema"}},
+      {"edit --sudo",
+       {"t_ej_edit_5", "marca que la máquina necesita elevar"}},
+      {"edit --no-sudo",
+       {"t_ej_edit_6", "y lo quita"}},
+      {"edit casa --user linarese --password",
+       {"t_ej_edit_7", "las credenciales de sudo de esta máquina"}},
+      {"edit mmela --password-fd 3",
+       {"t_ej_edit_8", "la contraseña por descriptor"}},
+     }},
+    {"connect",
+     {
+      {"connect oldlau",
+       {"t_ej_connect_1", "vuelve a usar esa conexión"}},
+      {"connect",
+       {"t_ej_connect_2", "la del sitio actual"}},
+     }},
+    {"disconnect",
+     {
+      {"disconnect oldlau",
+       {"t_ej_disconnect_1", "la aparta sin borrarla"}},
+     }},
+    {"refresh",
+     {
+      {"refresh",
+       {"t_ej_refresh_1", "suelta túnel, TLS y castigos de aquí"}},
+      {"refresh --on zfsm://unibody",
+       {"t_ej_refresh_2", "los de otra máquina"}},
+     }},
+    {"rename",
+     {
+      {"rename archivo",
+       {"t_ej_rename_1", "el dataset pasa a llamarse así, en su mismo padre"}},
+      {"rename datos2 --on zfsm://casa/tank/datos",
+       {"t_ej_rename_2", "sin moverse de sitio"}},
+      {"rename zfsm://casa/tank/datos tank/archivo",
+       {"t_ej_rename_3", "a otro padre: con barra, el dataset se nombra delante"}},
+     }},
+    {"mount",
+     {
+      {"mount",
+       {"t_ej_mount_1", "monta el dataset actual"}},
+      {"mount -f",
+       {"t_ej_mount_2", "aunque el punto de montaje no esté vacío"}},
+     }},
+    {"unmount",
+     {
+      {"unmount",
+       {"t_ej_unmount_1", "lo desmonta"}},
+      {"unmount -f",
+       {"t_ej_unmount_2", "aunque haya algo abierto dentro"}},
+     }},
+    {"promote",
+     {
+      {"promote",
+       {"t_ej_promote_1", "el clon actual deja de depender de su origen"}},
+      {"promote --on zfsm://casa/tank/copia",
+       {"t_ej_promote_2", "sobre otro clon"}},
+     }},
+    {"get",
+     {
+      {"get",
+       {"t_ej_get_1", "todas las propiedades"}},
+      {"get compression",
+       {"t_ej_get_2", "una sola"}},
+      {"get quota --on zfsm://unibody/sback/docs",
+       {"t_ej_get_3", "la de otro dataset, sin moverse"}},
+     }},
+    {"set",
+     {
+      {"set compression=zstd",
+       {"t_ej_set_1", "una propiedad"}},
+      {"set quota=100G reservation=10G",
+       {"t_ej_set_2", "varias de una vez"}},
+      {"set mountpoint=/mnt/datos",
+       {"t_ej_set_3", "dónde se monta"}},
+     }},
+    {"load-key",
+     {
+      {"load-key",
+       {"t_ej_load_key_1", "pide la frase y carga la clave"}},
+     }},
+    {"unload-key",
+     {
+      {"unload-key",
+       {"t_ej_unload_key_1", "descarga la clave: el dataset queda bloqueado"}},
+     }},
+    {"schedule",
+     {
+      {"schedule --daily 7",
+       {"t_ej_schedule_1", "guarda siete diarias"}},
+      {"schedule --hourly 24 --daily 7 --weekly 4 --monthly 12 --yearly 2",
+       {"t_ej_schedule_2", "todas las cadencias a la vez"}},
+      {"schedule --daily 7 --recursive",
+       {"t_ej_schedule_3", "también a los descendientes"}},
+      {"schedule --no-recursive",
+       {"t_ej_schedule_4", "solo a este dataset"}},
+      {"schedule --daily 7 --to unibody::sback/copia",
+       {"t_ej_schedule_5", "y nivela contra otra máquina"}},
+      {"schedule --level",
+       {"t_ej_schedule_6", "nivelar tras cada instantánea"}},
+      {"schedule --no-level",
+       {"t_ej_schedule_7", "y dejar de hacerlo"}},
+      {"schedule --off",
+       {"t_ej_schedule_8", "la apaga conservando lo puesto"}},
+      {"schedule --clear",
+       {"t_ej_schedule_9", "la borra: como si nunca la hubiera habido"}},
+     }},
+    {"schedules",
+     {
+      {"schedules",
+       {"t_ej_schedules_1", "lo programado en esta máquina"}},
+      {"schedules --all",
+       {"t_ej_schedules_2", "en todas las conexiones"}},
+     }},
+    {"change-key",
+     {
+      {"change-key",
+       {"t_ej_change_key_1", "pide la frase nueva sin eco"}},
+      {"change-key --password-fd 3",
+       {"t_ej_change_key_2", "la frase nueva por descriptor"}},
+     }},
+    {"rollback",
+     {
+      {"rollback @ayer",
+       {"t_ej_rollback_1", "vuelve el dataset a esa instantánea"}},
+      {"rollback @ayer -r",
+       {"t_ej_rollback_2", "descartando las posteriores"}},
+      {"rollback",
+       {"t_ej_rollback_3", "estando ya en la instantánea"}},
+     }},
+    {"clone",
+     {
+      {"clone recuperado",
+       {"t_ej_clone_1", "cuelga del dataset de la instantánea actual"}},
+      {"clone tank/recuperado",
+       {"t_ej_clone_2", "con nombre completo, en otro sitio del pool"}},
+      {"clone tank/recuperado --from /casa/tank/datos@ayer",
+       {"t_ej_clone_3", "desde cualquier sitio"}},
+     }},
+    {"holds",
+     {
+      {"holds",
+       {"t_ej_holds_1", "las retenciones de la instantánea actual"}},
+      {"holds tank/datos@ayer",
+       {"t_ej_holds_2", "las de otra"}},
+     }},
+    {"hold",
+     {
+      {"hold antes-de-migrar",
+       {"t_ej_hold_1", "impide borrarla hasta soltarla"}},
+      {"hold antes-de-migrar -r",
+       {"t_ej_hold_2", "también en los descendientes"}},
+     }},
+    {"release",
+     {
+      {"release antes-de-migrar",
+       {"t_ej_release_1", "quita la retención"}},
+      {"release antes-de-migrar -r",
+       {"t_ej_release_2", "y la de los descendientes"}},
+     }},
+    {"diff",
+     {
+      {"diff @hoy",
+       {"t_ej_diff_1", "qué cambió entre el sitio actual y esa"}},
+      {"diff @hoy --from @ayer",
+       {"t_ej_diff_2", "entre dos instantáneas concretas"}},
+     }},
+    {"status",
+     {
+      {"status",
+       {"t_ej_status_1", "el pool donde se está"}},
+      {"status tank",
+       {"t_ej_status_2", "un pool por su nombre"}},
+     }},
+    {"history",
+     {
+      {"history tank",
+       {"t_ej_history_1", "qué se le ha hecho al pool y cuándo"}},
+     }},
+    {"scrub",
+     {
+      {"scrub tank",
+       {"t_ej_scrub_1", "arranca la verificación"}},
+      {"scrub tank pause",
+       {"t_ej_scrub_2", "la pausa"}},
+      {"scrub tank stop",
+       {"t_ej_scrub_3", "la detiene"}},
+     }},
+    {"trim",
+     {
+      {"trim --on tank",
+       {"t_ej_trim_1", "el pool entero"}},
+      {"trim sda --on tank",
+       {"t_ej_trim_2", "solo ese vdev"}},
+      {"trim pause --on tank",
+       {"t_ej_trim_3", "lo pausa"}},
+      {"trim stop --on tank",
+       {"t_ej_trim_4", "lo detiene"}},
+     }},
+    {"initialize",
+     {
+      {"initialize --on tank",
+       {"t_ej_initialize_1", "el pool entero"}},
+      {"initialize sda --on tank",
+       {"t_ej_initialize_2", "solo ese vdev"}},
+      {"initialize pause --on tank",
+       {"t_ej_initialize_3", "lo pausa"}},
+      {"initialize stop --on tank",
+       {"t_ej_initialize_4", "lo detiene"}},
+     }},
+    {"clear",
+     {
+      {"clear tank",
+       {"t_ej_clear_1", "pone a cero los errores del pool"}},
+      {"clear sda --on tank",
+       {"t_ej_clear_2", "solo los de ese vdev"}},
+     }},
+    {"flush",
+     {
+      {"flush tank",
+       {"t_ej_flush_1", "fuerza la escritura de lo pendiente"}},
+     }},
+    {"upgrade",
+     {
+      {"upgrade tank",
+       {"t_ej_upgrade_1", "sube la versión del pool; no se puede deshacer"}},
+     }},
+    {"reguid",
+     {
+      {"reguid tank",
+       {"t_ej_reguid_1", "cambia el identificador único del pool"}},
+     }},
+    {"export",
+     {
+      {"export tank",
+       {"t_ej_export_1", "lo desmonta y lo suelta"}},
+      {"export tank -f",
+       {"t_ej_export_2", "aunque algo lo tenga ocupado"}},
+     }},
+    {"import",
+     {
+      {"import tank",
+       {"t_ej_import_1", "lo importa con su nombre"}},
+      {"import tank --as tank2",
+       {"t_ej_import_2", "con otro nombre"}},
+      {"import tank -f",
+       {"t_ej_import_3", "aunque diga que está en uso en otra máquina"}},
+     }},
+    {"allow",
+     {
+      {"allow --user ana snapshot,mount",
+       {"t_ej_allow_1", "permisos a un usuario"}},
+      {"allow --group equipo send,receive",
+       {"t_ej_allow_2", "a un grupo"}},
+      {"allow --everyone snapshot",
+       {"t_ej_allow_3", "a todos"}},
+      {"allow --set @basicos snapshot,mount",
+       {"t_ej_allow_4", "a un conjunto con nombre"}},
+      {"allow --user ana clone --local",
+       {"t_ej_allow_5", "solo en este dataset"}},
+      {"allow --user ana clone --descend",
+       {"t_ej_allow_6", "solo en los descendientes"}},
+      {"allow --user ana clone --create",
+       {"t_ej_allow_7", "solo en los que se creen a partir de ahora"}},
+     }},
+    {"unallow",
+     {
+      {"unallow --user ana",
+       {"t_ej_unallow_1", "le quita TODOS sus permisos"}},
+      {"unallow --user ana snapshot",
+       {"t_ej_unallow_2", "solo ese"}},
+      {"unallow --user ana -r",
+       {"t_ej_unallow_3", "también en los descendientes"}},
+     }},
+    {"rsync",
+     {
+      {"rsync zfsm://casa/tank/copia",
+       {"t_ej_rsync_1", "sincroniza el árbol montado"}},
+      {"rsync zfsm://unibody/sback/copia",
+       {"t_ej_rsync_2", "entre máquinas, de agente a agente"}},
+      {"rsync zfsm://casa/tank/copia --check",
+       {"t_ej_rsync_3", "enseña qué haría, sin tocar nada"}},
+      {"rsync zfsm://casa/tank/copia --delete",
+       {"t_ej_rsync_4", "el destino acaba idéntico, y eso INCLUYE borrar"}},
+      {"rsync zfsm://casa/tank/copia --wait",
+       {"t_ej_rsync_5", "espera aquí en vez de devolver el trabajo"}},
+      {"rsync zfsm://casa/tank/copia --on zfsm://casa/tank/datos#content/fotos",
+       {"t_ej_rsync_6", "solo ese subárbol del origen"}},
+      {"rsync zfsm://casa/tank/copia --on zfsm://casa/tank/datos#content/{fotos,docs}",
+       {"t_ej_rsync_7", "dos subárboles al mismo destino"}},
+     }},
+    {"breakdown",
+     {
+      {"breakdown fotos fotos",
+       {"t_ej_breakdown_1", "el directorio «fotos» pasa a ser un dataset"}},
+      {"breakdown fotos fotos videos videos",
+       {"t_ej_breakdown_2", "varios pares de una vez"}},
+      {"breakdown a/b/c a:b:c",
+       {"t_ej_breakdown_3", "el de tres niveles, sin convertir «a» ni «b»"}},
+      {"breakdown fotos fotos --wait",
+       {"t_ej_breakdown_4", "espera aquí en vez de devolver el trabajo"}},
+     }},
+    {"assemble",
+     {
+      {"assemble fotos",
+       {"t_ej_assemble_1", "el dataset hijo vuelve a ser un directorio"}},
+      {"assemble fotos videos",
+       {"t_ej_assemble_2", "varios de una vez"}},
+      {"assemble fotos --wait",
+       {"t_ej_assemble_3", "espera aquí en vez de devolver el trabajo"}},
+     }},
+    {"todir",
+     {
+      {"todir /mnt/salida",
+       {"t_ej_todir_1", "vuelca el contenido del dataset a un directorio"}},
+      {"todir /mnt/salida --delete-source",
+       {"t_ej_todir_2", "y destruye el dataset al terminar"}},
+      {"todir /mnt/salida --wait",
+       {"t_ej_todir_3", "espera aquí en vez de devolver el trabajo"}},
+     }},
+    {"fromdir",
+     {
+      {"fromdir /mnt/entrada",
+       {"t_ej_fromdir_1", "mete ese directorio en el dataset"}},
+      {"fromdir /mnt/entrada --from zfsm://unibody",
+       {"t_ej_fromdir_2", "el directorio sale de otra máquina"}},
+      {"fromdir /mnt/entrada --subdir importado/2024",
+       {"t_ej_fromdir_3", "dónde dejarlo dentro del dataset"}},
+     }},
+    {"send",
+     {
+      {"send zfsm://casa/tank/copia",
+       {"t_ej_send_1", "manda la instantánea actual a otro dataset"}},
+      {"send zfsm://unibody/sback/copia",
+       {"t_ej_send_2", "a otra máquina"}},
+      {"send zfsm://casa/tank/copia --from @ayer",
+       {"t_ej_send_3", "elige cuál se manda"}},
+      {"send zfsm://unibody/sback/copia --base @ayer",
+       {"t_ej_send_4", "solo lo que cambió desde ahí: nivelar"}},
+      {"send zfsm://casa/tank/copia --wait",
+       {"t_ej_send_5", "espera aquí en vez de devolver el trabajo"}},
+      {"send zfsm://unibody/sback/copia -R -w",
+       {"t_ej_send_6", "replicación, y lo cifrado viaja en crudo"}},
+     }},
+    {"jobs",
+     {
+      {"jobs",
+       {"t_ej_jobs_1", "los que corren o esperan turno"}},
+      {"jobs --all",
+       {"t_ej_jobs_2", "todos, incluidos los terminados"}},
+      {"jobs --running",
+       {"t_ej_jobs_3", "solo los que corren ahora"}},
+      {"jobs --queued",
+       {"t_ej_jobs_4", "solo los que esperan turno"}},
+      {"jobs --done --failed",
+       {"t_ej_jobs_5", "los que acabaron, bien o mal"}},
+      {"jobs --cancelled",
+       {"t_ej_jobs_6", "los que alguien canceló"}},
+     }},
+    {"job",
+     {
+      {"job c077a9bbd923c4ab",
+       {"t_ej_job_1", "el estado de un trabajo"}},
+      {"job cancel c077a9bbd923c4ab",
+       {"t_ej_job_2", "lo cancela; no deshace lo ya hecho"}},
+     }},
+    {"repair-mounts",
+     {
+      {"repair-mounts",
+       {"t_ej_repair_mounts_1", "enseña los que se quedaron en un punto temporal"}},
+      {"repair-mounts --apply",
+       {"t_ej_repair_mounts_2", "los devuelve a su sitio"}},
+     }},
+    {"authorize-key",
+     {
+      {"authorize-key unibody",
+       {"t_ej_authorize_key_1", "desde aquí se entrará allí sin contraseña"}},
+     }},
+    {"export-trust",
+     {
+      {"export-trust unibody",
+       {"t_ej_export_trust_1", "lleva el almacén de confianza a esa máquina"}},
+     }},
+    {"peers",
+     {
+      {"peers",
+       {"t_ej_peers_1", "qué máquinas sabe alcanzar el daemon de aquí"}},
+      {"peers --push",
+       {"t_ej_peers_2", "le entrega las credenciales de las demás"}},
+      {"peers --listen 0.0.0.0",
+       {"t_ej_peers_3", "para que pueda RECIBIR una nivelación"}},
+      {"peers --listen 127.0.0.1",
+       {"t_ej_peers_4", "vuelve a atender solo por el túnel"}},
+     }},
+    {"log",
+     {
+      {"log",
+       {"t_ej_log_1", "las últimas 200 líneas"}},
+      {"log --lines 2000",
+       {"t_ej_log_2", "más historia"}},
+      {"log --on zfsm://unibody",
+       {"t_ej_log_3", "el de otra máquina"}},
+     }},
+    {"install-daemon",
+     {
+      {"install-daemon",
+       {"t_ej_install_daemon_1", "instala o actualiza el de esta máquina"}},
+      {"install-daemon --on zfsm://mmela",
+       {"t_ej_install_daemon_2", "el de otra"}},
+     }},
+    {"format",
+     {
+      {"format",
+       {"t_ej_format_1", "dice cuál está puesto"}},
+      {"format text",
+       {"t_ej_format_2", "columnas alineadas, para leer"}},
+      {"format tsv",
+       {"t_ej_format_3", "tabuladores, para guiones"}},
+      {"format json",
+       {"t_ej_format_4", "con tipos: los números son números"}},
+     }},
+    {"cls",
+     {
+      {"cls",
+       {"t_ej_cls_1", "limpia la pantalla; «clear» es la del pool"}},
+     }},
+    {"master-password",
+     {
+      {"master-password",
+       {"t_ej_master_password_1", "pide la vieja y la nueva, sin eco"}},
+      {"master-password --old-fd 3 --new-fd 4",
+       {"t_ej_master_password_2", "las dos por descriptor"}},
+     }},
+    {"yes",
+     {
+      {"yes",
+       {"t_ej_yes_1", "dice si está puesto"}},
+      {"yes on",
+       {"t_ej_yes_2", "deja de preguntar antes de lo destructivo"}},
+      {"yes off",
+       {"t_ej_yes_3", "vuelve a preguntar"}},
+     }},
+    {"help",
+     {
+      {"help",
+       {"t_ej_help_1", "todas las órdenes"}},
+      {"help rsync",
+       {"t_ej_help_2", "el detalle de una"}},
+      {"help rs",
+       {"t_ej_help_3", "vale la abreviatura"}},
+     }},
+    {"exit",
+     {
+      {"exit",
+       {"t_ej_exit_1", "cierra la sesión; también «quit» y Ctrl-D"}},
+     }},
+};
 
 const std::vector<Orden> kOrdenes = {
     // --- Navegación
@@ -312,7 +903,12 @@ const std::vector<Orden> kOrdenes = {
      {}},
 
     // --- Dataset
-    {"rename", {"t_dataset_105268", "Datasets"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {}, {},
+    {"rename", {"t_dataset_105268", "Datasets"}, {"t_nuevo_dcceab", "<nuevo>"}, {"t_renombra_e_e71b10", "Renombra el dataset."}, {},
+     {{"t_rename_barra", "Sin barra, el nombre nuevo cuelga del MISMO padre: «rename archivo» sobre "
+      "`tank/datos` deja `tank/archivo`."},
+      {"t_rename_barra2", "Con barra se cambia de padre, y entonces hay que nombrar los dos: «rename "
+      "zfsm://casa/tank/datos tank/archivo». Suelto no vale —un nombre con barra se lee igual que "
+      "una ruta, y no habría forma de saber cuál de los dos es—."}},
      Objetivo::DatasetOInstantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-f", false, {"t_nat_rename_f", "Fuerza el desmontaje del destino si hace falta."}}, {"-p", false, {"t_nat_rename_p", "Crea los padres que falten en el nombre nuevo."}}, {"-u", false, {"t_nat_rename_u", "No vuelve a montarlo después."}}, {"-r", false, {"t_nat_rename_r", "Renombra la instantánea en todos los descendientes."}}}},
@@ -607,7 +1203,11 @@ const std::vector<Orden> kOrdenes = {
      {},
      {{"t_cancelar_n_391b27", "Cancelar no deshace lo que ya se hizo."}},
      Objetivo::Conexion,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+     // UnaOMas y no Una: la forma de cancelar son DOS palabras —«cancel» y el id— y
+     // `cmdJob` las lee así (`lista("texto")[1]`). Declarada como Una, la gramática
+     // rechazaba «job cancel <id>» antes de llegar al manejador: la orden estaba escrita
+     // en la ayuda, implementada, y no se podía teclear. Lo cazó la prueba de los ejemplos.
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
 
     // --- Daemon
     {"repair-mounts", {"t_conexiones_3785cd", "Conexiones"}, {"t_rm_uso", "[--apply]"},
@@ -728,6 +1328,12 @@ const std::vector<Orden> kOrdenes = {
 }  // namespace
 
 const std::vector<Orden>& ordenes() { return kOrdenes; }
+
+const std::vector<Ejemplo>& ejemplosDe(const std::string& orden) {
+    static const std::vector<Ejemplo> vacio;
+    const auto it = kEjemplos.find(B::toLowerAscii(B::trim(orden)));
+    return it == kEjemplos.end() ? vacio : it->second;
+}
 
 const Orden* ordenPorNombre(const std::string& nombre) {
     const std::string n = B::toLowerAscii(B::trim(nombre));
