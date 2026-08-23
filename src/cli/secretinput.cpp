@@ -71,7 +71,7 @@ bool leerSecretoDeDescriptor(int fd, std::string& out, std::string& error) {
             break;
         }
     }
-    // Solo el retorno de carro de un fichero con finales de línea de Windows. NADA más se
+    // Only el retorno de carro de un fichero con finales de línea de Windows. NADA más se
     // recorta: una contraseña puede llevar espacios en los extremos.
     if (!out.empty() && out.back() == '\r') {
         out.pop_back();

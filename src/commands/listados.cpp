@@ -44,14 +44,14 @@ bool pools(const std::string& salida, std::vector<Pool>& out, std::string& error
     return true;
 }
 
-std::vector<Entrada> entradas(const std::string& salidaTsv) {
-    std::vector<Entrada> out;
+std::vector<Entry> entradas(const std::string& salidaTsv) {
+    std::vector<Entry> out;
     for (const std::string& linea : split(salidaTsv, "\n", true)) {
         const std::vector<std::string> c = split(linea, "\t", false);
         if (c.size() < 10) {
             continue;
         }
-        Entrada e;
+        Entry e;
         e.nombre = c[0];
         e.guid = c[1];
         e.usado = c[2];

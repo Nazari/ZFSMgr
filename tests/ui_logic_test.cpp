@@ -96,7 +96,7 @@ private Q_SLOTS:
         e.localDescendantGrants << grant("everyone", "", {"snapshot"});
         const QStringList l = lineas(permissionChangeCommands(e, QStringLiteral("tank/d")));
         QVERIFY(l.contains(QStringLiteral("allow -l -g staff mount tank/d")));
-        // «Todos» no nombra a nadie: el destinatario ES la bandera.
+        // «Everyone» no nombra a nadie: el destinatario ES la bandera.
         QVERIFY(l.contains(QStringLiteral("allow -e snapshot tank/d")));
     }
 

@@ -90,7 +90,7 @@ struct TransportSession {
         // en silencio porque nadie ha conectado el traductor sería peor.
         if (sink) {
             sink(n, connId,
-                 std::string(transport::etiquetaDe(a.aviso))
+                 std::string(transport::labelOf(a.aviso))
                      + (a.detalle.empty() ? std::string() : ": " + a.detalle));
         }
     }
@@ -102,7 +102,7 @@ struct TransportSession {
     // para las tres cosas que hacía el bucle de Qt —repintar, contar lo que queda y mirar
     // si el usuario canceló—.
     //
-    // **Devolver false CANCELA** la espera en curso. Quien no tenga interfaz no lo pone, y
+    // **Devolver false CANCELA** la espera en curso. Who no tenga interfaz no lo pone, y
     // entonces la espera simplemente duerme.
     //
     // **El parámetro NO es un detalle.** Distingue los dos contextos que la versión con Qt

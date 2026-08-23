@@ -26,7 +26,7 @@
 #include "listados.h"
 #include "peticiones.h"
 #include "pools.h"
-#include "instantaneas.h"
+#include "snapshots.h"
 #include "datasets.h"
 #include "transportcmd.h"
 #include "transporttunnel.h"
@@ -65,7 +65,7 @@ namespace AV = zfsmgr::commands::avanzadas;
 namespace PL = zfsmgr::commands::pools;
 // `INST` y no `IN`: en Windows `IN` es un MACRO de `windows.h`, y
 // `namespace IN = …` no compila allí. Lo cazó el cruce de MinGW.
-namespace INST = zfsmgr::commands::instantaneas;
+namespace INST = zfsmgr::commands::snapshots;
 namespace DS = zfsmgr::commands::datasets;
 namespace TR = zfsmgr::base::transferencia;
 namespace L = zfsmgr::base::listados;
@@ -819,7 +819,7 @@ bool confirma(const Estado& e, const std::string& que) {
 // única orden que responde al instante y sin hablar con nadie, y que con una máquina
 // apagada cada una cuesta su plazo de espera. Se retiró porque el argumento se cae por su
 // propio peso: la versión del agente es la razón por la que uno mira ese listado, y una
-// columna que hay que pedir aparte es una columna que no se mira. Quien no quiera esperar
+// columna que hay que pedir aparte es una columna que no se mira. Who no quiera esperar
 // tiene la conexión desconectada, que sigue sin sondearse.
 //
 // El plazo por máquina es de 8 s y el resultado se recuerda durante la sesión —el fallo
@@ -1064,7 +1064,7 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         }
         const std::size_t arroba = nombre.find('@');
         const bool esSnap = arroba != std::string::npos;
-        // Solo los hijos DIRECTOS y las instantáneas propias: `list-all` es recursivo, y
+        // Only los hijos DIRECTOS y las instantáneas propias: `list-all` es recursivo, y
         // volcar el árbol entero convierte un `ls` en un listado de miles de líneas.
         if (esSnap) {
             if (nombre.substr(0, arroba) != destino.dataset) {
@@ -1122,7 +1122,7 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
 // Los permisos delegados: `#permissions`, o la orden `allow` sin argumentos.
 //
 // `zfs allow` NO tiene salida tabulada: escribe un bloque para leer, con secciones y
-// entradas indentadas. Se analiza aquí para poder darlo en las tres formas, que es lo que
+// entradas indentadas. Se parse aquí para poder darlo en las tres formas, que es lo que
 // permite que un guion compruebe quién tiene qué sin leer prosa.
 //
 //     ---- Permissions on fc16/work ----
@@ -1151,14 +1151,14 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
     // línea, así que una copia que se despiste concede a los descendientes lo que se quería
     // conceder solo aquí. Una sola copia, con pruebas sobre salida real.
     namespace ZA = zfsmgr::base::zfsallow;
-    for (const ZA::Entrada& en : ZA::analiza(out)) {
-        const std::string quien = en.nombre.empty() ? std::string(ZA::tokenZfs(en.quien))
-                                                    : en.nombre;
+    for (const ZA::Entry& en : ZA::parse(out)) {
+        const std::string quien = en.name.empty() ? std::string(ZA::zfsToken(en.who))
+                                                    : en.name;
         // Con los TEXTOS DE ZFS y no con los legibles: esta salida la leen guiones, y ya
         // decía «Local+Descendent permissions» y «user». Cambiarlos por algo más bonito
         // rompería un guion sin avisar.
-        t.filas.push_back({ZA::seccionZfs(en.alcance), ZA::tokenZfs(en.quien), quien,
-                           B::join(en.permisos, ",")});
+        t.filas.push_back({ZA::zfsSectionTitle(en.scope), ZA::zfsToken(en.who), quien,
+                           B::join(en.permissions, ",")});
     }
     t.imprime(e.formato);
     return true;
@@ -1581,7 +1581,7 @@ bool creaInstantanea(Estado& e, const Peticion& pet, const ZfsmUrl& destinoEntra
     }
     std::string out;
     if (!agente(e, destino,
-                INST::argvCrearInstantanea(destino.dataset, nombre, recursivo),
+                INST::argvCreateSnapshot(destino.dataset, nombre, recursivo),
                 out)) {
         return false;
     }
@@ -1657,10 +1657,10 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     }
     std::string out;
     if (!agente(e, destino,
-                INST::argvDestruir(objetivo, pet.tiene("-f"),
-                                   pet.tiene("-R")   ? INST::Alcance::Dependientes
-                                   : pet.tiene("-r") ? INST::Alcance::Descendientes
-                                                     : INST::Alcance::Solo),
+                INST::argvDestroy(objetivo, pet.tiene("-f"),
+                                   pet.tiene("-R")   ? INST::Scope::Dependents
+                                   : pet.tiene("-r") ? INST::Scope::Descendants
+                                                     : INST::Scope::Only),
                 out)) {
         return false;
     }
@@ -1690,9 +1690,9 @@ bool cmdRollback(Estado& e, const LineaAnalizada& linea) {
     std::string out;
     if (!agente(e, destino,
                 INST::argvRollback(destino.zfsName(), pet.tiene("-f"),
-                                   pet.tiene("-R")   ? INST::Alcance::Dependientes
-                                   : pet.tiene("-r") ? INST::Alcance::Descendientes
-                                                     : INST::Alcance::Solo),
+                                   pet.tiene("-R")   ? INST::Scope::Dependents
+                                   : pet.tiene("-r") ? INST::Scope::Descendants
+                                                     : INST::Scope::Only),
                 out)) {
         return false;
     }
@@ -1722,7 +1722,7 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
     const std::string nuevo =
         nombre.find('/') == std::string::npos ? origen.dataset + "/" + nombre : nombre;
     std::string out;
-    if (!agente(e, origen, INST::argvClonar(origen.zfsName(), nuevo), out)) {
+    if (!agente(e, origen, INST::argvClone(origen.zfsName(), nuevo), out)) {
         return false;
     }
     std::fprintf(stderr, "clonado %s -> %s\n", origen.zfsName().c_str(), nuevo.c_str());
@@ -1800,7 +1800,7 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     }
 
     // La contraseña. Por descriptor si se dio, y si no por el terminal con el eco apagado.
-    // Solo hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
+    // Only hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
     //
     // **Se comprueba ANTES si hay dónde cifrarla.** Guardar una contraseña de acceso en
     // claro no se hace, así que sin contraseña maestra la creación fracasaría — y hacerla
@@ -2003,7 +2003,7 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
                                                                 : CR::Nivel::Dataset;
     const CR::Decision d = CR::queSeCrea(nivel, pet.uno("texto"));
     if (!d.ruta.empty()) {
-        // Solo hay ruta que resolver cuando el nombre traía delante el tramo de la
+        // Only hay ruta que resolver cuando el nombre traía delante el tramo de la
         // máquina. Se resuelve con la MISMA función que `cd`, para que «la conexión no
         // existe» se diga igual en las dos.
         ZfsmUrl base;
@@ -2072,7 +2072,7 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea) {
     // La regla —sin barra se conserva el padre— vive en `commands::datasets`, compartida con
     // el servidor web, que no la tenía.
     const std::vector<std::string> argvRen =
-        DS::argvRenombrar(destino.dataset, pet.uno("texto"));
+        DS::argvRename(destino.dataset, pet.uno("texto"));
     if (argvRen.empty()) {
         std::fputs(TC("t_rename_invalido", "ese nombre no sirve para renombrar\n"), stderr);
         return false;
@@ -2183,7 +2183,7 @@ std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::s
 
 // Lo programado bajo un dataset o un pool, ya convertido a estructuras.
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
-                       std::vector<B::gsa::Entrada>& out) {
+                       std::vector<B::gsa::Entry>& out) {
     std::string crudo;
     if (!agente(e, destino, PET::gsaDeDataset(raiz), crudo, 30000)) {
         return false;
@@ -2203,7 +2203,7 @@ bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& rai
     return true;
 }
 
-Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entrada>>& filas) {
+Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entry>>& filas) {
     Tabla t;
     t.nombreJson = "schedules";
     t.cabecerasTexto = {T("t_cab_maquina", "MÁQUINA"), T("t_cab_dataset", "DATASET"),
@@ -2474,7 +2474,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         if (!agente(e, destino, PET::pares(), out, 20000)) {
             return false;
         }
-        const PR::Vista vista = PR::analiza(out);
+        const PR::Vista vista = PR::parse(out);
         // Quién cree ser esa máquina va PRIMERO, y se dice también cuando falta.
         //
         // Su ausencia no rompe nada visible: rompe la nivelación GSA contra un dataset de la
@@ -2516,7 +2516,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     const PR::Entrega entrega =
         PR::componeEntrega(e.conns.perfiles, destino.connection);
     if (!entrega.sePuede()) {
-        std::fprintf(stderr, "%s\n", PR::etiquetaDe(entrega.fallo).c_str());
+        std::fprintf(stderr, "%s\n", PR::labelOf(entrega.fallo).c_str());
         return false;
     }
     const std::vector<std::string>& nombres = entrega.nombres;
@@ -2583,7 +2583,7 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    std::vector<std::pair<std::string, B::gsa::Entrada>> filas;
+    std::vector<std::pair<std::string, B::gsa::Entry>> filas;
     std::vector<std::string> maquinas;
     if (pet.tiene("--all")) {
         for (const auto& p : e.conns.perfiles) {
@@ -2609,11 +2609,11 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
             continue;
         }
         for (const auto& kv : raiz["pools"].toObject()) {
-            std::vector<B::gsa::Entrada> deEstePool;
+            std::vector<B::gsa::Entry> deEstePool;
             if (!leeProgramaciones(e, u, kv.first, deEstePool)) {
                 continue;
             }
-            for (const B::gsa::Entrada& en : deEstePool) {
+            for (const B::gsa::Entry& en : deEstePool) {
                 filas.push_back({id, en});
             }
         }
@@ -2633,12 +2633,12 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
     // Lo que hay puesto AHORA. Se lee siempre, también para escribir: fijar `--daily` no
     // debe borrar el resto de la programación.
-    std::vector<B::gsa::Entrada> aqui;
+    std::vector<B::gsa::Entry> aqui;
     if (!leeProgramaciones(e, destino, destino.dataset, aqui)) {
         return false;
     }
     B::gsa::Programacion actual;
-    for (const B::gsa::Entrada& en : aqui) {
+    for (const B::gsa::Entry& en : aqui) {
         if (en.dataset == destino.dataset) {
             actual = en.prog;
         }
@@ -2672,9 +2672,9 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         }
     }
     if (!cambia) {
-        std::vector<std::pair<std::string, B::gsa::Entrada>> filas;
+        std::vector<std::pair<std::string, B::gsa::Entry>> filas;
         if (!aqui.empty()) {
-            for (const B::gsa::Entrada& en : aqui) {
+            for (const B::gsa::Entry& en : aqui) {
                 filas.push_back({destino.connection, en});
             }
         }
@@ -2725,7 +2725,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     B::gsa::Motivo motivo;
     if (!B::gsa::valida(destino.dataset, nueva, conexionExiste, motivo)) {
         std::fprintf(stderr, "%s: %s\n", destino.dataset.c_str(),
-                     B::gsa::etiquetaDe(motivo.fallo).c_str());
+                     B::gsa::labelOf(motivo.fallo).c_str());
         if (!motivo.detalle.empty()) {
             std::fprintf(stderr, "  %s\n", motivo.detalle.c_str());
         }
@@ -2733,12 +2733,12 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
     // Y después el conjunto: dos activadas del mismo pool no pueden solaparse si una es
     // recursiva. Hace falta lo que ya hay programado en el POOL, no solo aquí debajo.
-    std::vector<B::gsa::Entrada> delPool;
+    std::vector<B::gsa::Entry> delPool;
     ZfsmUrl raizPool = destino;
     raizPool.dataset = destino.pool;
     if (leeProgramaciones(e, destino, destino.pool, delPool)) {
         bool sustituido = false;
-        for (B::gsa::Entrada& en : delPool) {
+        for (B::gsa::Entry& en : delPool) {
             if (en.dataset == destino.dataset) {
                 en.prog = nueva;
                 sustituido = true;
@@ -2749,7 +2749,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         }
         if (!B::gsa::validaConjunto(delPool, motivo)) {
             std::fprintf(stderr, "%s: %s (%s)\n", motivo.dataset.c_str(),
-                         B::gsa::etiquetaDe(motivo.fallo).c_str(), motivo.detalle.c_str());
+                         B::gsa::labelOf(motivo.fallo).c_str(), motivo.detalle.c_str());
             return false;
         }
     }
@@ -3067,7 +3067,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
             std::fprintf(stderr,
                          TC("t_fromdir_arbol_no", "el árbol entre daemons no pudo (%s); se sigue "
                                                   "por la tubería\n"),
-                         TR::etiquetaDe(hecho.fallo).c_str());
+                         TR::labelOf(hecho.fallo).c_str());
         }
     }
 
@@ -3234,7 +3234,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                          e.ses->verboso);
     if (!trabajo.ok()) {
         const std::string detalle = B::trim(trabajo.detalle);
-        std::fprintf(stderr, "%s%s%s\n", TR::etiquetaDe(trabajo.fallo).c_str(),
+        std::fprintf(stderr, "%s%s%s\n", TR::labelOf(trabajo.fallo).c_str(),
                      detalle.empty() ? "" : ": ", detalle.c_str());
         e.ultimoRc = 1;
         return false;
@@ -3418,7 +3418,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
                Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
-    // Cada línea es «JOB={…json…}», que se analiza con el JSON de la capa base.
+    // Cada línea es «JOB={…json…}», que se parse con el JSON de la capa base.
     for (const std::string& linea : B::split(out, "\n", true)) {
         if (!B::startsWith(linea, "JOB=")) {
             continue;
@@ -3584,16 +3584,16 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
     // el orden de los argumentos viven en `commands::pools`, compartidos con el servidor web.
     // Aquí solo se decide QUÉ operación y con qué palabras la pidió el usuario.
     const std::string fase = B::toLowerAscii(pet.uno("fase"));
-    PL::Fase faseOp = PL::Fase::Arrancar;
+    PL::Phase faseOp = PL::Phase::Start;
     if (fase == "stop" || fase == "cancel") {
-        faseOp = PL::Fase::Parar;
+        faseOp = PL::Phase::Stop;
     } else if (fase == "pause" || fase == "suspend") {
-        faseOp = PL::Fase::Pausar;
+        faseOp = PL::Phase::Pause;
     }
     const std::string sub(op);
-    const PL::Operacion opPool = sub == "scrub"      ? PL::Operacion::Scrub
-                                 : sub == "trim"     ? PL::Operacion::Trim
-                                                     : PL::Operacion::Initialize;
+    const PL::Operation opPool = sub == "scrub"      ? PL::Operation::Scrub
+                                 : sub == "trim"     ? PL::Operation::Trim
+                                                     : PL::Operation::Initialize;
     std::vector<std::string> argv = PL::argv(opPool, destino.pool, faseOp, pet.nativas(),
                                              pet.lista("disco"));
     if (argv.empty()) {
@@ -3797,7 +3797,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 
 // --- Editar una conexión ya dada de alta.
 //
-// Solo cambia lo que se pasa. Con terminal se ofrece el valor actual entre corchetes, de
+// Only cambia lo que se pasa. Con terminal se ofrece el valor actual entre corchetes, de
 // modo que pulsar Intro lo conserva: es lo que uno espera de «editar», frente a tener que
 // volver a teclear todo.
 bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino);
@@ -3949,12 +3949,12 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    // El orden —etiqueta primero— y la validación viven en `commands::instantaneas`,
+    // El orden —etiqueta primero— y la validación viven en `commands::snapshots`,
     // compartidos con el servidor web. Se usa la forma de argv de `zfs` y no el verbo tipado
     // porque el intérprete admite `-r`, y el tipado NO: ese lee exactamente dos parámetros.
     const std::vector<std::string> argv =
-        poner ? INST::argvZfsRetener(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"))
-              : INST::argvZfsSoltar(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"));
+        poner ? INST::argvZfsHold(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"))
+              : INST::argvZfsRelease(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"));
     if (argv.empty()) {
         std::fputs(TC("t_retencion_invalida",
                       "la etiqueta no puede llevar espacios, arrobas ni barras, y hay que "
@@ -4062,7 +4062,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     return true;
 }
 
-// El punto de montaje de un dataset. Solo Unix: en Windows la ruta no es la que dice
+// El punto de montaje de un dataset. Only Unix: en Windows la ruta no es la que dice
 // `mountpoint` —el pool se monta en una letra de unidad— y ahí la sincronización va por
 // otro camino, que no está portado al intérprete.
 bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
@@ -4260,7 +4260,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
                 &salidaEnvio);
             if (hecho.fallo != TR::FalloTrabajo::Ninguno) {
-                std::fprintf(stderr, "%s: %s\n", TR::etiquetaDe(hecho.fallo).c_str(),
+                std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.fallo).c_str(),
                              hecho.detalle.c_str());
                 todoBien = false;
                 break;
@@ -4449,7 +4449,7 @@ const std::vector<std::string>& propiedadesDe(Estado& e, const ZfsmUrl& donde) {
 
 // Los nombres que hay dentro de `#content[/ruta]`, para el tabulador.
 //
-// Solo NOMBRES: `ls -lA` trae permisos, dueño y fechas que aquí no pintan nada, y habría
+// Only NOMBRES: `ls -lA` trae permisos, dueño y fechas que aquí no pintan nada, y habría
 // que volver a partirlos. Los directorios salen con la barra puesta, que es lo que uno va
 // a escribir a continuación.
 std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
@@ -4498,7 +4498,7 @@ std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
 std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
                                     std::size_t& desde, bool& puedeSeguir) {
     // Por omisión, lo completado se cierra: una orden, una opción, un valor de propiedad.
-    // Solo lo que admite «/» detrás dice lo contrario, y lo dice donde se sabe.
+    // Only lo que admite «/» detrás dice lo contrario, y lo dice donde se sabe.
     puedeSeguir = false;
     // El trozo que se está escribiendo: desde el último espacio antes del cursor.
     desde = linea.rfind(' ', cursor == 0 ? 0 : cursor - 1);
@@ -4529,7 +4529,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     // ofrecería propiedades que ese pool no tiene.
     //
     // Los VALORES salen del catálogo de la capa base, que es el mismo que usa el
-    // desplegable de la interfaz. Solo las de lista cerrada: para `quota` o `mountpoint` no
+    // desplegable de la interfaz. Only las de lista cerrada: para `quota` o `mountpoint` no
     // se ofrece nada, que es mejor que inventar.
     if (orden == "get" || orden == "set") {
         const std::size_t igual = parcial.find('=');
@@ -4570,7 +4570,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         }
         const std::size_t barra = resto.find('/');
         if (barra == std::string::npos) {
-            // Todavía se está escribiendo el nombre de la sección. Solo se ofrecen donde
+            // Todavía se está escribiendo el nombre de la sección. Only se ofrecen donde
             // significan algo: en una conexión o en la raíz no hay contenido ni propiedades.
             std::vector<std::string> out;
             const Nodo n = nodoDe(sitio);
@@ -4880,7 +4880,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             std::string copia;
             B::store::Aviso aviso;
             if (!B::store::rotaClaveMaestra(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
-                std::fprintf(stderr, "%s\n", B::store::etiquetaDe(aviso).c_str());
+                std::fprintf(stderr, "%s\n", B::store::labelOf(aviso).c_str());
                 e.ultimoRc = 1;
                 continue;
             }

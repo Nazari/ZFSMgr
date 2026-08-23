@@ -967,7 +967,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     const bool deleteSourceDir = deleteSourceDirChk->isChecked();
-    // Solo Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
+    // Only Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
     // La variante de shell para Unix —`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create`—
     // se ha borrado, no desactivado: dejarla ahí era invitar a volver a usarla.
     const QString createCmd = buildZfsCreateCmd(opt);
@@ -1398,7 +1398,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     QStringLiteral("Desde Dir falló en %1: %2\n%3")
                         .arg(ruta,
                              QString::fromStdString(
-                                 zfsmgr::base::transferencia::etiquetaDe(lanzado.fallo)),
+                                 zfsmgr::base::transferencia::labelOf(lanzado.fallo)),
                              QString::fromStdString(lanzado.detalle)));
                 return;
             }

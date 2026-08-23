@@ -50,44 +50,44 @@ std::vector<std::string> deQt(const QStringList& v) {
     return out;
 }
 
-ZA::Quien quienDe(const QString& targetType) {
+ZA::Who quienDe(const QString& targetType) {
     const QString t = targetType.trimmed().toLower();
     if (t == QStringLiteral("user")) {
-        return ZA::Quien::Usuario;
+        return ZA::Who::User;
     }
     if (t == QStringLiteral("group")) {
-        return ZA::Quien::Grupo;
+        return ZA::Who::Group;
     }
-    return ZA::Quien::Todos;
+    return ZA::Who::Everyone;
 }
 
 // La clave que identifica a un destinatario dentro de un alcance. Si dos entradas tienen la
 // misma, son la MISMA concesión y lo que cambió son sus permisos.
-QString claveDe(const DatasetPermissionGrant& g) {
+QString keyOf(const DatasetPermissionGrant& g) {
     return g.targetType.trimmed().toLower() + QLatin1Char('\x1f') + g.targetName.trimmed();
 }
 
-ZA::Entrada entradaDe(const DatasetPermissionGrant& g, ZA::Alcance alcance,
+ZA::Entry entradaDe(const DatasetPermissionGrant& g, ZA::Scope alcance,
                       const QStringList& permisos) {
-    ZA::Entrada e;
-    e.alcance = alcance;
-    e.quien = quienDe(g.targetType);
-    e.nombre = g.targetName.trimmed().toStdString();
-    e.permisos = deQt(permisos);
+    ZA::Entry e;
+    e.scope = alcance;
+    e.who = quienDe(g.targetType);
+    e.name = g.targetName.trimmed().toStdString();
+    e.permissions = deQt(permisos);
     return e;
 }
 
 // El diff de un alcance: qué se retira y qué se concede para pasar de `antes` a `ahora`.
 void comparaAlcance(const QVector<DatasetPermissionGrant>& antes,
-                    const QVector<DatasetPermissionGrant>& ahora, ZA::Alcance alcance,
+                    const QVector<DatasetPermissionGrant>& ahora, ZA::Scope alcance,
                     const std::string& dataset, QList<QStringList>& salida) {
     QMap<QString, DatasetPermissionGrant> mapaAntes;
     QMap<QString, DatasetPermissionGrant> mapaAhora;
     for (const DatasetPermissionGrant& g : antes) {
-        mapaAntes.insert(claveDe(g), g);
+        mapaAntes.insert(keyOf(g), g);
     }
     for (const DatasetPermissionGrant& g : ahora) {
-        mapaAhora.insert(claveDe(g), g);
+        mapaAhora.insert(keyOf(g), g);
     }
     QStringList claves;
     for (auto it = mapaAntes.cbegin(); it != mapaAntes.cend(); ++it) {
@@ -107,14 +107,14 @@ void comparaAlcance(const QVector<DatasetPermissionGrant>& antes,
 
         // Se quita: estaba y ya no, o sigue pero sin ningún permiso —que es lo mismo—.
         if (estaba && (!esta || permisosAhora.isEmpty())) {
-            salida << aQt(ZA::argvRetirar(
+            salida << aQt(ZA::argvUnallow(
                 entradaDe(mapaAntes.value(clave), alcance, permisosAntes), dataset));
             continue;
         }
         // Se añade.
         if (!estaba && esta) {
             if (!permisosAhora.isEmpty()) {
-                salida << aQt(ZA::argvConceder(
+                salida << aQt(ZA::argvAllow(
                     entradaDe(mapaAhora.value(clave), alcance, permisosAhora), dataset));
             }
             continue;
@@ -125,10 +125,10 @@ void comparaAlcance(const QVector<DatasetPermissionGrant>& antes,
         // exige un `unallow` primero. Y no se hace nada si la lista es la misma, que es el
         // cuarto estado y el más frecuente.
         if (estaba && esta && permisosAntes != permisosAhora) {
-            salida << aQt(ZA::argvRetirar(
+            salida << aQt(ZA::argvUnallow(
                 entradaDe(mapaAntes.value(clave), alcance, permisosAntes), dataset));
             if (!permisosAhora.isEmpty()) {
-                salida << aQt(ZA::argvConceder(
+                salida << aQt(ZA::argvAllow(
                     entradaDe(mapaAhora.value(clave), alcance, permisosAhora), dataset));
             }
         }
@@ -144,11 +144,11 @@ QList<QStringList> permissionChangeCommands(const DatasetPermissionsCacheEntry& 
     if (ds.empty()) {
         return salida;
     }
-    comparaAlcance(entry.originalLocalGrants, entry.localGrants, ZA::Alcance::Local, ds, salida);
+    comparaAlcance(entry.originalLocalGrants, entry.localGrants, ZA::Scope::Local, ds, salida);
     comparaAlcance(entry.originalDescendantGrants, entry.descendantGrants,
-                   ZA::Alcance::Descendientes, ds, salida);
+                   ZA::Scope::Descendants, ds, salida);
     comparaAlcance(entry.originalLocalDescendantGrants, entry.localDescendantGrants,
-                   ZA::Alcance::LocalYDescendientes, ds, salida);
+                   ZA::Scope::LocalAndDescendants, ds, salida);
 
     // «Al crear» (`-c`) no nombra destinatario: es para quien cree un descendiente. Por eso
     // no es una lista de concesiones sino una sola, y el diff es entre dos listas de
@@ -156,20 +156,20 @@ QList<QStringList> permissionChangeCommands(const DatasetPermissionsCacheEntry& 
     const QStringList crearAntes = normalizaPermisos(entry.originalCreatePermissions);
     const QStringList crearAhora = normalizaPermisos(entry.createPermissions);
     if (crearAntes != crearAhora) {
-        ZA::Entrada e;
-        e.alcance = ZA::Alcance::AlCrear;
-        e.permisos = deQt(crearAntes);
-        salida << aQt(ZA::argvRetirar(e, ds));
+        ZA::Entry e;
+        e.scope = ZA::Scope::OnCreate;
+        e.permissions = deQt(crearAntes);
+        salida << aQt(ZA::argvUnallow(e, ds));
         if (!crearAhora.isEmpty()) {
-            ZA::Entrada n;
-            n.alcance = ZA::Alcance::AlCrear;
-            n.permisos = deQt(crearAhora);
-            salida << aQt(ZA::argvConceder(n, ds));
+            ZA::Entry n;
+            n.scope = ZA::Scope::OnCreate;
+            n.permissions = deQt(crearAhora);
+            salida << aQt(ZA::argvAllow(n, ds));
         }
     }
 
     // Los conjuntos con nombre (`-s @nombre`). Su «destinatario» es el propio nombre del
-    // conjunto, con su arroba, y por eso `Quien::Conjunto` no añade ninguna bandera.
+    // conjunto, con su arroba, y por eso `Who::Set` no añade ninguna bandera.
     QMap<QString, QStringList> conjAntes;
     QMap<QString, QStringList> conjAhora;
     for (const DatasetPermissionSet& s : entry.originalPermissionSets) {
@@ -197,17 +197,17 @@ QList<QStringList> permissionChangeCommands(const DatasetPermissionsCacheEntry& 
         if (antes == ahora) {
             continue;
         }
-        ZA::Entrada e;
-        e.alcance = ZA::Alcance::Conjunto;
-        e.quien = ZA::Quien::Conjunto;
-        e.nombre = nombre.toStdString();
+        ZA::Entry e;
+        e.scope = ZA::Scope::Set;
+        e.who = ZA::Who::Set;
+        e.name = nombre.toStdString();
         if (!antes.isEmpty()) {
-            e.permisos = deQt(antes);
-            salida << aQt(ZA::argvRetirar(e, ds));
+            e.permissions = deQt(antes);
+            salida << aQt(ZA::argvUnallow(e, ds));
         }
         if (!ahora.isEmpty()) {
-            e.permisos = deQt(ahora);
-            salida << aQt(ZA::argvConceder(e, ds));
+            e.permissions = deQt(ahora);
+            salida << aQt(ZA::argvAllow(e, ds));
         }
     }
     return salida;

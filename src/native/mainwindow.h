@@ -226,7 +226,7 @@ private:
         QString targetName;
     };
 
-    // Entrada del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
+    // Entry del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
     //
     // Las otras tres acciones re-editables no necesitan esto: su entrada ES la orden
     // tipada que ya se guarda (`datasetActionArgv`). La de Desde Dir no se puede
@@ -298,7 +298,7 @@ private:
         QString uid;
         QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
         bool active{true};  // ¿entra en «Aplicar cambios»?
-        // Solo en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
+        // Only en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
         // para volver a abrir su diálogo.
         FromDirInput fromDirInput;
     };

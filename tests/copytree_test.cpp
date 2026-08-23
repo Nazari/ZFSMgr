@@ -352,7 +352,7 @@ private Q_SLOTS:
 
     void recorreDistingueLosCuatroTipos() {
         namedirs();
-        std::vector<AR::Entrada> e;
+        std::vector<AR::Entry> e;
         std::string err;
         QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
         std::map<std::string, AR::Tipo> porRuta;
@@ -383,7 +383,7 @@ private Q_SLOTS:
         // Pero uno del usuario con el mismo nombre MAS ABAJO si es suyo.
         fs::create_directories(src_ / "mio" / "$RECYCLE.BIN");
         writeFile(src_ / "mio" / "$RECYCLE.BIN" / "dato.txt", "mio");
-        std::vector<AR::Entrada> e;
+        std::vector<AR::Entry> e;
         std::string err;
         QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
         for (const auto& x : e) {
@@ -399,7 +399,7 @@ private Q_SLOTS:
 
     void lasRutasVanSiempreConBarras() {
         namedirs();
-        std::vector<AR::Entrada> e;
+        std::vector<AR::Entry> e;
         std::string err;
         QVERIFY(AR::recorre(src_.string(), e, err));
         for (const auto& x : e) {
@@ -410,10 +410,10 @@ private Q_SLOTS:
 
     void elManifiestoSobreviveAlViajeDeIdaYVuelta() {
         namedirs();
-        std::vector<AR::Entrada> e;
+        std::vector<AR::Entry> e;
         std::string err;
         QVERIFY(AR::recorre(src_.string(), e, err));
-        std::vector<AR::Entrada> vuelta;
+        std::vector<AR::Entry> vuelta;
         QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), e.size());
         for (size_t i = 0; i < e.size(); ++i) {
@@ -426,11 +426,11 @@ private Q_SLOTS:
     void unNombreConSaltoDeLineaNoRompeElManifiesto() {
         // Las longitudes van explicitas justo por esto: un nombre puede llevar dentro un
         // salto de linea, y partir por lineas dejaria el manifiesto descolocado.
-        std::vector<AR::Entrada> e(1);
+        std::vector<AR::Entry> e(1);
         e[0].ruta = "raro\ncon salto.txt";
         e[0].tipo = AR::Tipo::Fichero;
         e[0].tamano = 7;
-        std::vector<AR::Entrada> vuelta;
+        std::vector<AR::Entry> vuelta;
         std::string err;
         QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), size_t(1));
@@ -438,7 +438,7 @@ private Q_SLOTS:
     }
 
     void elPlanSaltaLoQueYaEstaIgual() {
-        std::vector<AR::Entrada> o(1), d(1);
+        std::vector<AR::Entry> o(1), d(1);
         o[0].ruta = d[0].ruta = "a.txt";
         o[0].tamano = d[0].tamano = 10;
         o[0].fecha = d[0].fecha = 1000;
@@ -449,7 +449,7 @@ private Q_SLOTS:
     }
 
     void unaFechaDistintaLoVuelveACopiar() {
-        std::vector<AR::Entrada> o(1), d(1);
+        std::vector<AR::Entry> o(1), d(1);
         o[0].ruta = d[0].ruta = "a.txt";
         o[0].tamano = d[0].tamano = 10;
         o[0].fecha = 1001;
@@ -461,8 +461,8 @@ private Q_SLOTS:
     }
 
     void sinBorradoNoSeBorraNada() {
-        std::vector<AR::Entrada> o;
-        std::vector<AR::Entrada> d(1);
+        std::vector<AR::Entry> o;
+        std::vector<AR::Entry> d(1);
         d[0].ruta = "sobra.txt";
         QCOMPARE(AR::planea(o, d, false).operaciones.size(), size_t(0));
     }
@@ -470,8 +470,8 @@ private Q_SLOTS:
     void conBorradoSeVaDeDentroHaciaFuera() {
         // Un directorio se borra DESPUES de lo que tiene dentro. Al reves, el borrado
         // falla y el motivo no explica por que.
-        std::vector<AR::Entrada> o;
-        std::vector<AR::Entrada> d(2);
+        std::vector<AR::Entry> o;
+        std::vector<AR::Entry> d(2);
         d[0].ruta = "dir";
         d[0].tipo = AR::Tipo::Directorio;
         d[1].ruta = "dir/dentro.txt";
@@ -483,7 +483,7 @@ private Q_SLOTS:
     }
 
     void unEnlaceQueCambiaDeDestinoSeRehace() {
-        std::vector<AR::Entrada> o(1), d(1);
+        std::vector<AR::Entry> o(1), d(1);
         o[0].ruta = d[0].ruta = "l";
         o[0].tipo = d[0].tipo = AR::Tipo::Enlace;
         o[0].destino = "a.txt";
@@ -494,14 +494,14 @@ private Q_SLOTS:
     }
 
     void laCabeceraSobreviveAlViajeDeIdaYVuelta() {
-        AR::Operacion o;
+        AR::Operation o;
         o.accion = AR::Accion::Copiar;
         o.entrada.ruta = "sub/a.txt";
         o.entrada.destino = "";
         o.entrada.modo = 0644;
         o.entrada.fecha = 1700000000;
         o.entrada.tamano = 12345;
-        AR::Operacion vuelta;
+        AR::Operation vuelta;
         size_t lr = 0, ld = 0;
         std::string err;
         QVERIFY2(AR::analizaCabecera(AR::cabeceraDe(o), vuelta, lr, ld, err), err.c_str());

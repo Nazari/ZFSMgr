@@ -662,7 +662,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     if (sugiereRevivirDaemon(motivo.fallo)) {
         if (tryReviveRemoteDaemonService(p)) {
             ses.log(Nivel::Info, "daemon-rpc revive requested on " + p.name + " after failure: "
-                                     + etiquetaDe(motivo.fallo));
+                                     + labelOf(motivo.fallo));
         }
     }
     if (intento(true)) {

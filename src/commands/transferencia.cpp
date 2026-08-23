@@ -6,7 +6,7 @@
 
 namespace zfsmgr::base::transferencia {
 
-const char* claveDe(Camino c) {
+const char* keyOf(Camino c) {
     switch (c) {
         case Camino::TrabajoAsincrono: return "trabajo";
         case Camino::DaemonADaemon:    return "daemon-a-daemon";
@@ -16,7 +16,7 @@ const char* claveDe(Camino c) {
     return "ninguno";
 }
 
-const char* claveDe(Fallo f) {
+const char* keyOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:               return "";
         case Fallo::ElMismoObjeto:         return "mismo-objeto";
@@ -29,7 +29,7 @@ const char* claveDe(Fallo f) {
     return "";
 }
 
-std::string etiquetaDe(Camino c) {
+std::string labelOf(Camino c) {
     switch (c) {
         case Camino::TrabajoAsincrono: return "como trabajo en el daemon";
         case Camino::DaemonADaemon:    return "de daemon a daemon";
@@ -39,7 +39,7 @@ std::string etiquetaDe(Camino c) {
     return {};
 }
 
-std::string etiquetaDe(Fallo f) {
+std::string labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:
             return {};
@@ -120,11 +120,11 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) 
         p.fallo = Fallo::ElMismoObjeto;
         return p;
     }
-    if (!origen.esInstantanea()) {
+    if (!origen.isSnapshot()) {
         p.fallo = Fallo::OrigenNoEsInstantanea;
         return p;
     }
-    if (destino.esInstantanea()) {
+    if (destino.isSnapshot()) {
         p.fallo = Fallo::DestinoNoEsDataset;
         return p;
     }
@@ -280,7 +280,7 @@ Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino
         return trim(out);
     };
 
-    // Se compone el mismo TSV que analiza la regla, para que la decisión esté escrita una
+    // Se compone el mismo TSV que parse la regla, para que la decisión esté escrita una
     // sola vez y probada aparte.
     std::string tsv = diana + "\t" + testigoDe(diana) + "\n";
     std::string hijos;
@@ -361,7 +361,7 @@ std::string leeIdentificadorDeTrabajo(const std::string& salida) {
     return {};
 }
 
-std::string etiquetaDe(FalloTrabajo f) {
+std::string labelOf(FalloTrabajo f) {
     switch (f) {
         case FalloTrabajo::Ninguno:
             return {};
@@ -552,7 +552,7 @@ Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
     return t;
 }
 
-std::string etiquetaDe(FalloNivelar f) {
+std::string labelOf(FalloNivelar f) {
     switch (f) {
         case FalloNivelar::Ninguno:
             return {};

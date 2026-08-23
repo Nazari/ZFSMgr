@@ -57,7 +57,7 @@ public:
                 SetConsoleMode(m_h, base);
             }
         }
-        // **Entrada en BINARIO mientras se edita, y esta es la parte que no es obvia.**
+        // **Entry en BINARIO mientras se edita, y esta es la parte que no es obvia.**
         //
         // En modo texto, la biblioteca de C traduce CRLF a LF, y para saber si un `\r` va
         // seguido de `\n` tiene que MIRAR EL SIGUIENTE CARÁCTER. Al pulsar Intro la consola

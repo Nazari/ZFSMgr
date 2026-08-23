@@ -103,7 +103,7 @@ struct NotaDeAviso {
 
 // La etiqueta ASCII estable de un aviso. Se usa como RESPALDO cuando nadie ha puesto
 // traductor: es fea, pero perder un aviso en silencio es peor.
-const char* etiquetaDe(Aviso a);
+const char* labelOf(Aviso a);
 
 // El motivo con lo que lo acompaña. Ver `store::Aviso`: campo con nombre y no una lista de
 // argumentos, para que el sitio que lo construye se lea solo.
@@ -136,6 +136,6 @@ bool mereceCastigo(Fallo f);
 // Una etiqueta ASCII estable para el REGISTRO. No es texto para leer: es lo que se busca
 // con grep en un log que puede venir de una máquina en otro idioma. El texto para personas
 // lo pone quien tiene interfaz.
-const char* etiquetaDe(Fallo f);
+const char* labelOf(Fallo f);
 
 }  // namespace zfsmgr::base::transport

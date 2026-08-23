@@ -150,7 +150,7 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     } else {
         // Al registro va la ETIQUETA estable del fallo, no una frase: este log se lee con
         // grep y puede venir de una máquina configurada en otro idioma.
-        const std::string porQue = std::string(BT::etiquetaDe(diag.failure.fallo))
+        const std::string porQue = std::string(BT::labelOf(diag.failure.fallo))
                                    + (diag.failure.detalle.empty() ? std::string()
                                                                    : ": " + diag.failure.detalle);
         qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FALLÓ en %lld ms: %s", qPrintable(cmd),
@@ -1380,9 +1380,9 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         // para el servidor web: una línea con menos de diez columnas se salta en vez de
         // rellenar con vacíos, porque un punto de montaje con un tabulador dentro
         // correría los campos y enseñaría un montaje donde va el nombre.
-        const std::vector<zfsmgr::base::listados::Entrada> entradas =
+        const std::vector<zfsmgr::base::listados::Entry> entradas =
             zfsmgr::base::listados::entradas(out.toStdString());
-        for (const zfsmgr::base::listados::Entrada& e : entradas) {
+        for (const zfsmgr::base::listados::Entry& e : entradas) {
             const QString name = QString::fromStdString(e.nombre).trimmed();
             if (name.isEmpty()) {
                 continue;
@@ -1400,7 +1400,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             if (!rec.guid.trimmed().isEmpty() && rec.guid.trimmed() != QStringLiteral("-")) {
                 cache.objectGuidByName.insert(name, rec.guid.trimmed());
             }
-            if (e.esInstantanea()) {
+            if (e.isSnapshot()) {
                 const QString ds = name.section('@', 0, 0);
                 const QString snap = name.section('@', 1);
                 if (!ds.isEmpty() && !snap.isEmpty()) {

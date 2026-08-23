@@ -2,7 +2,7 @@
 
 /* El resultado del análisis: verbo, objetivo, ranuras y opciones.
  *
- * En C liso porque lo rellenan las acciones del yacc. Quien lo consume desde C++ lo copia a
+ * En C liso porque lo rellenan las acciones del yacc. Who lo consume desde C++ lo copia a
  * sus propias estructuras en la frontera, igual que se hace con el transporte.
  */
 #ifdef __cplusplus

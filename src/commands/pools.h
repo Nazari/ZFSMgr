@@ -3,34 +3,33 @@
 #include <string>
 #include <vector>
 
-// Las operaciones de mantenimiento de un pool: `zpool <op> [banderas] <pool> [discos]`.
+// Pool maintenance operations: `zpool <op> [flags] <pool> [disks]`.
 //
-// **Lo que se guarda aquí no es el argv —eso es trivial— sino tres reglas que se han
-// aprendido viéndolas fallar.**
+// **What is kept here is not the argv —that part is trivial— but three rules learned by
+// watching them fail.**
 //
-// 1. `parar` y `pausar` NO son la misma letra en todas. En `scrub` son `-s` y `-p`; en
-//    `trim` e `initialize` son `-c` y `-s`. O sea que **`-s` significa «parar» en scrub y
-//    «suspender» en initialize**. Un cliente que use la misma letra para las tres pone un
-//    botón que dice una cosa y hace otra —pasó: «Parar initialize» mandaba `-s`, que
-//    suspende—.
-// 2. El orden que pide zpool es BANDERAS, luego el pool, luego los discos. Las dos mitades
-//    vienen de verlo fallar: con los discos delante, `trim <pool> <disco>` respondía
-//    «invalid character '/' in pool name»; con las banderas detrás del pool, zpool las
-//    ignora EN SILENCIO —`trim -r noesunritmo` decía «en marcha» y el historial registraba
-//    `zpool trim <pool>` a secas—. Aceptada y no aplicada es la peor de las dos formas de
-//    fallar.
-// 3. Cuáles hay que confirmar, y no es solo «las que destruyen»: `clear` no borra datos pero
-//    borra la CUENTA DE ERRORES del pool, y se teclea queriendo limpiar el terminal —pasó
-//    dos veces en una misma sesión de pruebas—. Perder eso sin haberlo pedido es perder
-//    justo lo que uno estaba mirando.
+// 1. `stop` and `pause` are NOT the same letter for all of them. On `scrub` they are `-s`
+//    and `-p`; on `trim` and `initialize` they are `-c` and `-s`. Which means **`-s` means
+//    «stop» on scrub and «suspend» on initialize**. A client that uses the same letter for
+//    all three ends up with a button that says one thing and does another —it happened:
+//    «Stop initialize» sent `-s`, which suspends—.
+// 2. The order zpool wants is FLAGS, then the pool, then the disks. Both halves come from
+//    seeing it fail: with the disks first, `trim <pool> <disk>` answered «invalid character
+//    '/' in pool name»; with the flags after the pool, zpool ignores them SILENTLY —`trim
+//    -r notarate` said «started» and the history recorded a bare `zpool trim <pool>`—.
+//    Accepted-and-not-applied is the worse of the two ways to fail.
+// 3. Which ones need confirming, and it is not just «the ones that destroy»: `clear` erases
+//    no data but it does erase the pool's ERROR COUNTS, and it gets typed by someone meaning
+//    to clear the terminal —which happened twice in a single testing session—. Losing that
+//    without asking for it is losing exactly what one was looking at.
 namespace zfsmgr::commands::pools {
 
-enum class Operacion {
+enum class Operation {
     Scrub,
     Trim,
     Initialize,
     Clear,
-    Sync,       // `zpool sync`, lo que la interfaz llama «Flush»
+    Sync,       // `zpool sync`, what the interface calls «Flush»
     Export,
     Import,
     Destroy,
@@ -38,40 +37,40 @@ enum class Operacion {
     Reguid,
 };
 
-enum class Fase {
-    Arrancar,
-    Parar,     // scrub: -s   trim/initialize: -c
-    Pausar,    // scrub: -p   trim/initialize: -s
+enum class Phase {
+    Start,
+    Stop,     // scrub: -s   trim/initialize: -c
+    Pause,    // scrub: -p   trim/initialize: -s
 };
 
-// El subcomando tal y como lo espera `zpool`.
-const char* subcomando(Operacion op);
+// The subcommand exactly as `zpool` expects it.
+const char* subcommand(Operation op);
 
-// ¿Admite parar y pausar? Solo las tres que son procesos largos.
-bool admiteFase(Operacion op);
+// Does it take stop and pause? Only the three that are long-running processes.
+bool acceptsPhase(Operation op);
 
-// ¿Hay que preguntar antes? Ver la regla 3 de arriba.
-bool pideConfirmacion(Operacion op);
+// Must it be confirmed first? See rule 3 above.
+bool needsConfirmation(Operation op);
 
-// ¿No se puede deshacer? Es un subconjunto de las que se confirman, y sirve para que quien
-// pregunte pueda decirlo con las palabras adecuadas en vez de con un «¿seguro?» genérico.
-bool esIrreversible(Operacion op);
+// Can it not be undone? A subset of the ones that get confirmed, and it exists so whoever
+// asks can use the right words instead of a generic «are you sure?».
+bool isIrreversible(Operation op);
 
-// `zpool <sub> [fase] [banderas] <pool> [discos]`, en ese orden y por el motivo de la
-// regla 2.
+// `zpool <sub> [phase] [flags] <pool> [disks]`, in that order and for the reason in rule 2.
 //
-// Devuelve vacío si el pool no sirve, o si se pide una fase a una operación que no la
-// admite: `zpool export -s` no es «parar la exportación», es un error de sintaxis, y vale
-// más no mandarlo que traducir el mensaje de zpool.
-std::vector<std::string> argv(Operacion op, const std::string& pool, Fase fase = Fase::Arrancar,
-                              const std::vector<std::string>& banderas = {},
-                              const std::vector<std::string>& discos = {});
+// Empty when the pool name is unusable, or when a phase is asked of an operation that does
+// not take one: `zpool export -s` is not «stop the export», it is a syntax error, and it is
+// worth more not to send it than to translate zpool's message afterwards.
+std::vector<std::string> argv(Operation op, const std::string& pool, Phase phase = Phase::Start,
+                              const std::vector<std::string>& flags = {},
+                              const std::vector<std::string>& disks = {});
 
-// `zpool import <viejo> <nuevo>`: importar cambiando el nombre.
+// `zpool import <old> <new>`: import under a different name.
 //
-// Va aparte porque es la única que lleva DOS nombres de pool, y porque el nuevo hay que
-// validarlo: ZFS admite letras, dígitos y `_-.:`, y tiene que empezar por letra.
-std::vector<std::string> argvImportarComo(const std::string& pool, const std::string& nombreNuevo);
-bool nombreDePoolValido(const std::string& nombre);
+// Kept apart because it is the only one carrying TWO pool names, and because the new one
+// has to be validated: ZFS accepts letters, digits and `_-.:`, and it must start with a
+// letter.
+std::vector<std::string> argvImportAs(const std::string& pool, const std::string& newName);
+bool isValidPoolName(const std::string& name);
 
 }  // namespace zfsmgr::commands::pools

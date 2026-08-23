@@ -1,29 +1,29 @@
-#include "instantaneas.h"
+#include "snapshots.h"
 
 #include "strutil.h"
 
-namespace zfsmgr::commands::instantaneas {
+namespace zfsmgr::commands::snapshots {
 
 namespace B = zfsmgr::base;
 
-std::string letraDeAlcance(Alcance a) {
+std::string scopeFlag(Scope a) {
     switch (a) {
-        case Alcance::Solo:          return {};
-        case Alcance::Descendientes: return "r";
-        case Alcance::Dependientes:  return "R";
+        case Scope::Only:          return {};
+        case Scope::Descendants: return "r";
+        case Scope::Dependents:  return "R";
     }
     return {};
 }
 
-bool arrastraOtros(Alcance a) {
-    return a != Alcance::Solo;
+bool reachesBeyondTarget(Scope a) {
+    return a != Scope::Only;
 }
 
-bool esInstantanea(const std::string& objeto) {
+bool isSnapshot(const std::string& objeto) {
     return objeto.find('@') != std::string::npos;
 }
 
-std::string nombreDeInstantanea(const std::string& dataset, const std::string& nombre) {
+std::string snapshotName(const std::string& dataset, const std::string& nombre) {
     const std::string n = B::trim(nombre);
     if (n.empty()) {
         return {};
@@ -38,53 +38,53 @@ std::string nombreDeInstantanea(const std::string& dataset, const std::string& n
     return ds + "@" + n;
 }
 
-std::vector<std::string> argvCrearInstantanea(const std::string& dataset,
+std::vector<std::string> argvCreateSnapshot(const std::string& dataset,
                                               const std::string& nombre, bool recursiva) {
-    const std::string completo = nombreDeInstantanea(dataset, nombre);
+    const std::string completo = snapshotName(dataset, nombre);
     if (completo.empty()) {
         return {};
     }
     return {"--mutate-zfs-snapshot", completo, recursiva ? "1" : "0"};
 }
 
-std::vector<std::string> argvDestruir(const std::string& objeto, bool forzar, Alcance alcance) {
+std::vector<std::string> argvDestroy(const std::string& objeto, bool forzar, Scope alcance) {
     const std::string o = B::trim(objeto);
     if (o.empty()) {
         return {};
     }
-    return {"--mutate-zfs-destroy", o, forzar ? "1" : "0", letraDeAlcance(alcance)};
+    return {"--mutate-zfs-destroy", o, forzar ? "1" : "0", scopeFlag(alcance)};
 }
 
 std::vector<std::string> argvRollback(const std::string& instantanea, bool forzar,
-                                      Alcance alcance) {
+                                      Scope alcance) {
     const std::string s = B::trim(instantanea);
     // Sin arroba no es una instantánea, y volver atrás a un dataset no significa nada.
-    if (s.empty() || !esInstantanea(s)) {
+    if (s.empty() || !isSnapshot(s)) {
         return {};
     }
-    return {"--mutate-zfs-rollback", s, forzar ? "1" : "0", letraDeAlcance(alcance)};
+    return {"--mutate-zfs-rollback", s, forzar ? "1" : "0", scopeFlag(alcance)};
 }
 
-std::vector<std::string> argvClonar(const std::string& instantaneaOrigen,
+std::vector<std::string> argvClone(const std::string& instantaneaOrigen,
                                     const std::string& datasetNuevo) {
     const std::string o = B::trim(instantaneaOrigen);
     const std::string n = B::trim(datasetNuevo);
-    if (o.empty() || n.empty() || !esInstantanea(o)) {
+    if (o.empty() || n.empty() || !isSnapshot(o)) {
         return {};
     }
     // Y el destino NO puede llevar arroba: sería clonar sobre una instantánea, que no existe.
-    if (esInstantanea(n)) {
+    if (isSnapshot(n)) {
         return {};
     }
     return {"--mutate-zfs-clone", o, n};
 }
 
-std::vector<std::string> argvZfsClonar(const std::string& instantaneaOrigen,
+std::vector<std::string> argvZfsClone(const std::string& instantaneaOrigen,
                                        const std::string& datasetNuevo,
                                        const std::vector<std::string>& banderas) {
     const std::string o = B::trim(instantaneaOrigen);
     const std::string n = B::trim(datasetNuevo);
-    if (o.empty() || n.empty() || !esInstantanea(o) || esInstantanea(n)) {
+    if (o.empty() || n.empty() || !isSnapshot(o) || isSnapshot(n)) {
         return {};
     }
     std::vector<std::string> out{"clone"};
@@ -99,7 +99,7 @@ std::vector<std::string> argvZfsClonar(const std::string& instantaneaOrigen,
     return out;
 }
 
-bool etiquetaValida(const std::string& etiqueta) {
+bool isValidTag(const std::string& etiqueta) {
     const std::string t = B::trim(etiqueta);
     if (t.empty()) {
         return false;
@@ -112,13 +112,13 @@ namespace {
 
 // Comprueba el par y devuelve false si no sirve. Se comparte entre las cuatro formas.
 bool parValido(const std::string& etiqueta, const std::string& instantanea) {
-    return etiquetaValida(etiqueta) && !B::trim(instantanea).empty()
-           && esInstantanea(B::trim(instantanea));
+    return isValidTag(etiqueta) && !B::trim(instantanea).empty()
+           && isSnapshot(B::trim(instantanea));
 }
 
 }  // namespace
 
-std::vector<std::string> argvRetener(const std::string& etiqueta,
+std::vector<std::string> argvHold(const std::string& etiqueta,
                                      const std::string& instantanea) {
     if (!parValido(etiqueta, instantanea)) {
         return {};
@@ -126,7 +126,7 @@ std::vector<std::string> argvRetener(const std::string& etiqueta,
     return {"--mutate-zfs-hold", B::trim(etiqueta), B::trim(instantanea)};
 }
 
-std::vector<std::string> argvSoltar(const std::string& etiqueta,
+std::vector<std::string> argvRelease(const std::string& etiqueta,
                                     const std::string& instantanea) {
     if (!parValido(etiqueta, instantanea)) {
         return {};
@@ -152,14 +152,14 @@ std::vector<std::string> argvZfsRetencion(const char* sub, const std::string& et
 
 }  // namespace
 
-std::vector<std::string> argvZfsRetener(const std::string& etiqueta,
+std::vector<std::string> argvZfsHold(const std::string& etiqueta,
                                         const std::string& instantanea, bool recursivo) {
     return argvZfsRetencion("hold", etiqueta, instantanea, recursivo);
 }
 
-std::vector<std::string> argvZfsSoltar(const std::string& etiqueta,
+std::vector<std::string> argvZfsRelease(const std::string& etiqueta,
                                        const std::string& instantanea, bool recursivo) {
     return argvZfsRetencion("release", etiqueta, instantanea, recursivo);
 }
 
-}  // namespace zfsmgr::commands::instantaneas
+}  // namespace zfsmgr::commands::snapshots

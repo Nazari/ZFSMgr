@@ -9,7 +9,7 @@
 // Las instantáneas PROGRAMADAS (GSA): qué son y qué es válido.
 //
 // La programación de un dataset no vive en un fichero del programa: son PROPIEDADES DE
-// USUARIO del propio dataset, con prefijo `org.fc16.gsa:`. Quien las ejecuta es otro
+// USUARIO del propio dataset, con prefijo `org.fc16.gsa:`. Who las ejecuta es otro
 // agente —`/usr/local/libexec/zfsmgr-gsa.sh`, con su temporizador— y ni la interfaz ni el
 // intérprete intervienen en eso: los dos se limitan a leer y escribir propiedades.
 //
@@ -81,17 +81,17 @@ bool valida(const std::string& dataset, const Programacion& p,
 
 // El conjunto: dos programaciones ACTIVADAS del mismo pool no pueden solaparse si una es
 // recursiva. Se comprueba aparte porque no es una propiedad de ninguna de las dos.
-struct Entrada {
+struct Entry {
     std::string dataset;
     Programacion prog;
 };
-bool validaConjunto(const std::vector<Entrada>& delMismoPool, Motivo& porQue);
+bool validaConjunto(const std::vector<Entry>& delMismoPool, Motivo& porQue);
 
 // ¿`dataset` es `ancestro` o cuelga de él?
 bool esMismoODescendiente(const std::string& dataset, const std::string& ancestro);
 
 // El castellano de reserva del motivo, para quien no tenga catálogo propio.
-std::string etiquetaDe(Fallo f);
+std::string labelOf(Fallo f);
 
 // A qué CLASE pertenece una instantánea por su nombre: «hourly», «daily», «weekly»,
 // «monthly», «yearly» —o lo que ponga, que las clases no son un conjunto cerrado—. Vacío

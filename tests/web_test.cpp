@@ -33,7 +33,7 @@ int main() {
 
     // --- Lo que se acepta.
     {
-        const auto p = H::analiza("GET /?s=abc HTTP/1.1\r\nHost: x\r\nCookie: a=1; zfsmgr_sesion=zzz\r\n\r\n");
+        const auto p = H::parse("GET /?s=abc HTTP/1.1\r\nHost: x\r\nCookie: a=1; zfsmgr_sesion=zzz\r\n\r\n");
         comprobar(p.valida, "una peticion normal se analiza");
         igual(p.metodo, "GET", "el metodo");
         igual(p.ruta, "/", "la ruta, sin la consulta");
@@ -43,22 +43,22 @@ int main() {
         igual(p.cookie("no-esta"), "", "y una que no esta sale vacia");
     }
     {
-        const auto p = H::analiza("POST /salir HTTP/1.1\r\nContent-Length: 11\r\n\r\ntestigo=abc");
+        const auto p = H::parse("POST /salir HTTP/1.1\r\nContent-Length: 11\r\n\r\ntestigo=abc");
         comprobar(p.valida, "un POST con cuerpo se analiza");
         igual(p.campo("testigo"), "abc", "y su campo se lee");
         igual(p.campo("otro"), "", "un campo que no esta sale vacio");
     }
 
     // --- Lo que se RECHAZA, que es el punto.
-    comprobar(!H::analiza("GET / HTTP/1.1\r\n").valida, "sin el final de cabeceras no vale");
-    comprobar(!H::analiza("\r\n\r\n").valida, "sin linea de peticion no vale");
-    comprobar(!H::analiza("GET /\r\n\r\n").valida, "sin version no vale");
-    comprobar(!H::analiza("GET / SPDY/1\r\n\r\n").valida, "una version que no es HTTP no vale");
-    comprobar(!H::analiza("POST / HTTP/1.1\r\nContent-Length: diez\r\n\r\n").valida,
+    comprobar(!H::parse("GET / HTTP/1.1\r\n").valida, "sin el final de cabeceras no vale");
+    comprobar(!H::parse("\r\n\r\n").valida, "sin linea de peticion no vale");
+    comprobar(!H::parse("GET /\r\n\r\n").valida, "sin version no vale");
+    comprobar(!H::parse("GET / SPDY/1\r\n\r\n").valida, "una version que no es HTTP no vale");
+    comprobar(!H::parse("POST / HTTP/1.1\r\nContent-Length: diez\r\n\r\n").valida,
               "un Content-Length que no es numero no vale");
     // Este es el importante: si el cuerpo llega corto y se aceptara, se leerian campos a
     // medias — o los de la peticion siguiente, si alguien encadena.
-    comprobar(!H::analiza("POST / HTTP/1.1\r\nContent-Length: 50\r\n\r\ncorto").valida,
+    comprobar(!H::parse("POST / HTTP/1.1\r\nContent-Length: 50\r\n\r\ncorto").valida,
               "un cuerpo mas corto de lo anunciado no vale");
 
     // --- Escapado: lo que impide que un nombre de dataset acabe ejecutandose.
@@ -167,7 +167,7 @@ int main() {
         }
         // El control negativo: SIN codificar, «a&b» se parte en dos parametros. Esto es lo
         // que pasaba antes y por lo que la funcion existe.
-        const auto p = H::analiza(
+        const auto p = H::parse(
             "GET /c/local/pool?sel=a&b&v=props HTTP/1.1\r\nHost: x\r\n\r\n");
         comprobar(p.consulta.find("sel=a&b") != std::string::npos,
                   "url: sin codificar, el nombre se parte (por eso hay que codificar)");

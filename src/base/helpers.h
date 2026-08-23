@@ -147,7 +147,7 @@ bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
 // Verbos que solo existen en la línea de comandos del agente, nunca por RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 
-// Trocea como lo haría un shell POSIX. Solo sobrevive como oráculo de los tests del
+// Trocea como lo haría un shell POSIX. Only sobrevive como oráculo de los tests del
 // renderizado a cadena.
 std::vector<std::string> posixShellSplitArgs(const std::string& s);
 
@@ -242,7 +242,7 @@ std::string argvParaAgente(const std::vector<std::string>& argv);
 // descriptor o por terminal, nunca por argumento ni por variable de entorno (`-e` de
 // sshpass tampoco vale: el entorno se lee en /proc/<pid>/environ).
 //
-// **Un pipe se lee UNA sola vez.** Quien reintente un lanzamiento tiene que construir otro
+// **Un pipe se lee UNA sola vez.** Who reintente un lanzamiento tiene que construir otro
 // objeto; por eso esto es de vida corta y se crea justo antes de cada `exec`, no una vez
 // por conexión. Con el segundo intento leyendo de un pipe ya vaciado, la autenticación
 // fallaría sin decir por qué.

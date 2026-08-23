@@ -29,7 +29,7 @@ enum class Tipo {
     EnlaceDuro,  // otra ruta del MISMO fichero, ya enviada antes
 };
 
-struct Entrada {
+struct Entry {
     // Relativa a la raíz, y SIEMPRE con «/». Windows usa «\» en disco, pero el cable no:
     // si cada extremo mandara su separador, ninguna comparación casaría.
     std::string ruta;
@@ -54,12 +54,12 @@ struct Entrada {
 // apuntando a la primera ruta que los trajo. En Windows NO se detectan y van como ficheros
 // sueltos: la API existe pero es cara, y allí son raros. Se dice aquí para que quien lea el
 // resultado no crea que se han preservado.
-bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string& error,
+bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
              bool unSoloSistema = false);
 
 // El manifiesto: qué tiene ya el destino. Una línea por entrada.
-std::string serializaManifiesto(const std::vector<Entrada>& entradas);
-bool analizaManifiesto(const std::string& texto, std::vector<Entrada>& salida,
+std::string serializaManifiesto(const std::vector<Entry>& entradas);
+bool analizaManifiesto(const std::string& texto, std::vector<Entry>& salida,
                        std::string& error);
 
 enum class Accion {
@@ -70,13 +70,13 @@ enum class Accion {
     Borrar,
 };
 
-struct Operacion {
+struct Operation {
     Accion accion{Accion::Copiar};
-    Entrada entrada;
+    Entry entrada;
 };
 
 struct Plan {
-    std::vector<Operacion> operaciones;
+    std::vector<Operation> operaciones;
     std::uint64_t bytes{0};      // lo que habría que transferir
     std::uint64_t iguales{0};    // lo que ya estaba bien y no se toca
 };
@@ -86,12 +86,12 @@ struct Plan {
 // El borrado va AL FINAL y de más hondo a menos hondo, para que un directorio se borre
 // después de su contenido. Si se hiciera al revés, borrar un directorio con cosas dentro
 // falla y el error no explica por qué.
-Plan planea(const std::vector<Entrada>& origen, const std::vector<Entrada>& destino,
+Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
             bool borraLoQueSobra);
 
 // Una línea legible por operación, al estilo de `rsync -i`. Es lo que ve quien pide la
 // pasada en seco, así que dice QUÉ y sobre qué, no cuántos.
-std::string describe(const Operacion& o);
+std::string describe(const Operation& o);
 
 // La cabecera de una operación en el cable: una línea de texto y, si es un fichero, sus
 // bytes en crudo detrás.
@@ -99,8 +99,8 @@ std::string describe(const Operacion& o);
 // Formato: `<letra> <modo> <fecha> <tamaño> <largoRuta> <largoDestino>\n` y a continuación
 // la ruta y el destino pegados, sin separador. Las longitudes van explícitas porque un
 // nombre de fichero puede llevar dentro saltos de línea y espacios.
-std::string cabeceraDe(const Operacion& o);
-bool analizaCabecera(const std::string& linea, Operacion& salida, std::size_t& largoRuta,
+std::string cabeceraDe(const Operation& o);
+bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& largoRuta,
                      std::size_t& largoDestino, std::string& error);
 
 // ---------------------------------------------------------------------------

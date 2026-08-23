@@ -1805,7 +1805,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
         updateConnContentPropertyValues(draftToken, obj, displayValues);
     }
-    // Solo limpiar nodos existentes cuando ya tenemos valores para reconstruirlos,
+    // Only limpiar nodos existentes cuando ya tenemos valores para reconstruirlos,
     // evitando dejar "Properties" vacío por retornos tempranos.
     clearPropRowsRec(clearPropRowsRec, sel);
     const DatasetPropsDraft objectDraftValue =

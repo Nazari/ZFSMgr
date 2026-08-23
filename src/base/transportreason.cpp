@@ -99,7 +99,7 @@ bool mereceCastigo(Fallo f) {
     return true;
 }
 
-const char* etiquetaDe(Fallo f) {
+const char* labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno: return "";
         case Fallo::TunelOcupado: return "tunel-ocupado";
@@ -125,7 +125,7 @@ const char* etiquetaDe(Fallo f) {
 }
 
 
-const char* etiquetaDe(Aviso a) {
+const char* labelOf(Aviso a) {
     switch (a) {
         case Aviso::Ninguno: return "";
         case Aviso::TlsLocalNoLegible: return "tls-local-no-legible";

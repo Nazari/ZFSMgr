@@ -35,7 +35,7 @@ struct Options {
 
     // Borrar del destino lo que no está en el origen (el `--delete` de rsync).
     //
-    // Solo tiene sentido al sincronizar. Lo excluido NO se borra, igual que en rsync:
+    // Only tiene sentido al sincronizar. Lo excluido NO se borra, igual que en rsync:
     // dejarlo fuera de la copia a propósito y que el borrado se lo lleve sería lo peor
     // de los dos mundos.
     bool deleteExtraneous = false;

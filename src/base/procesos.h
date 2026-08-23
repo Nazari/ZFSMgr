@@ -59,7 +59,7 @@ struct StreamCallbacks {
     // el proceso se termina y el resultado sale con el código correspondiente.
     //
     // Un solo punto de enganche para las tres cosas que hacía el bucle de Qt: dejar
-    // respirar a la interfaz, contar cuánto queda, y mirar si el usuario canceló. Quien
+    // respirar a la interfaz, contar cuánto queda, y mirar si el usuario canceló. Who
     // no tenga interfaz simplemente no lo pone.
     std::function<bool(int msTranscurridos)> onTick;
 };

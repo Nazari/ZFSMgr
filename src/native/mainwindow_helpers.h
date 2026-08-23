@@ -97,19 +97,19 @@ QString cadenaDeArgv(const QString& programa, const QStringList& argv);
 
 // Puente a `commands::pools`: el argv de una operación de mantenimiento, con su fase
 // traducida a la letra que cada una usa.
-// Puentes a `commands::datasets` y `commands::instantaneas`. Como los demás: aquí solo se
+// Puentes a `commands::datasets` y `commands::snapshots`. Como los demás: aquí solo se
 // convierte entre QString y std::string; las reglas están del otro lado, con sus pruebas.
 QStringList argvRenombrarDataset(const QString& actual, const QString& nuevo);
-QStringList argvDestruir(const QString& objeto, bool forzar, bool recursivo);
+QStringList argvDestroy(const QString& objeto, bool forzar, bool recursivo);
 QStringList argvRollback(const QString& instantanea, bool forzar, bool recursivo);
-QStringList argvClonar(const QString& instantaneaOrigen, const QString& datasetNuevo);
-QStringList argvZfsClonar(const QString& instantaneaOrigen, const QString& datasetNuevo,
+QStringList argvClone(const QString& instantaneaOrigen, const QString& datasetNuevo);
+QStringList argvZfsClone(const QString& instantaneaOrigen, const QString& datasetNuevo,
                           const QStringList& banderas);
 QStringList argvCrearDataset(const QString& dataset, const QStringList& propiedades, bool padres);
 
-QStringList argvPool(zfsmgr::commands::pools::Operacion op, const QString& pool,
+QStringList argvPool(zfsmgr::commands::pools::Operation op, const QString& pool,
                      const QStringList& banderas = {}, const QStringList& discos = {},
-                     zfsmgr::commands::pools::Fase fase = zfsmgr::commands::pools::Fase::Arrancar);
+                     zfsmgr::commands::pools::Phase fase = zfsmgr::commands::pools::Phase::Start);
 QString oneLine(const QString& v, int maxLen = 220);
 QString sshHostKeyProblemHint(const QString& sshStderr);
 QString shSingleQuote(const QString& s);
@@ -189,7 +189,7 @@ QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringLi
 // Verbos que solo existen en la línea de comandos del agente, nunca por RPC. La lista
 // la fija el marcador de esquema de resources/CMakeLists.txt con el prefijo "cli-only:".
 bool isCliOnlyAgentCommand(const QString& verb);
-// Solo sobrevive como oráculo de los tests del renderizado a cadena.
+// Only sobrevive como oráculo de los tests del renderizado a cadena.
 QStringList posixShellSplitArgs(const QString& s);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 // Codifica un texto como escapes octales para `printf '%b'`: cada byte UTF-8 pasa a
@@ -221,7 +221,7 @@ struct StorableSecret {
 // octal que produce shPrintfOctalEscaped —la de withSudoCommand— y la literal.
 //
 // Si al terminar alguna contraseña sigue presente, devuelve cadena vacía y pone *okOut a
-// false. Quien llama DEBE respetarlo y no guardar nada: es la última comprobación antes
+// false. Who llama DEBE respetarlo y no guardar nada: es la última comprobación antes
 // de que un secreto acabe en un fichero de texto.
 QString redactSecretsForStorage(const QString& command,
                                 const QVector<StorableSecret>& secrets,

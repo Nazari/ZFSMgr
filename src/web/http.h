@@ -40,7 +40,7 @@ struct Peticion {
 // **Rechaza lo que no entiende en vez de adivinar**: sin línea de petición, sin versión,
 // con un `Content-Length` que no es un número o con un cuerpo más corto de lo anunciado.
 // Adivinar en un analizador que mira lo que manda un navegador es cómo se cuelan cosas.
-Peticion analiza(const std::string& crudo);
+Peticion parse(const std::string& crudo);
 
 // Descodifica `%XX` y `+`. Un `%` mal formado se deja tal cual: perder el dato es peor que
 // enseñarlo raro.

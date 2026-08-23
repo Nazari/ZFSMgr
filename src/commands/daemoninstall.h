@@ -29,7 +29,7 @@ enum class Fallo {
     LaInstalacionFallo,   // el guion corrió y devolvió algo distinto de 0
 };
 
-std::string etiquetaDe(Fallo f);
+std::string labelOf(Fallo f);
 
 struct Resultado {
     Fallo fallo{Fallo::Ninguno};

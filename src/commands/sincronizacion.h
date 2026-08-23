@@ -66,7 +66,7 @@ Fallo compruebo(const Extremo& origen, const Extremo& destino);
 // exista.
 Plan planea(const Extremo& origen, const Extremo& destino);
 
-std::string etiquetaDe(Fallo f);
+std::string labelOf(Fallo f);
 
 // ¿Sirve esta ruta para sincronizar?
 //

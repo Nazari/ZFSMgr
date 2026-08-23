@@ -264,7 +264,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     // Y SOLO en el hilo de la ventana: bombear el bucle de eventos desde un hilo de
     // refresco no refresca nada y toca lo que no debe.
     m_transport.pump = [this](bool permitirEntradaDeUsuario) -> bool {
-        // Solo en el hilo de la ventana: bombear desde un hilo de refresco no refresca nada
+        // Only en el hilo de la ventana: bombear desde un hilo de refresco no refresca nada
         // y toca lo que no debe.
         if (QThread::currentThread() != this->thread()) {
             return true;
@@ -925,7 +925,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    // Solo por argv al agente: el respaldo por shell se retiró y la orden que se
+    // Only por argv al agente: el respaldo por shell se retiró y la orden que se
     // construía aquí no la usaba nadie. Era, además, la que justificaba la rama TSV de
     // más abajo, que se comía las propiedades en Windows.
     const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesDeDataset(trimmedObject.toStdString()));
@@ -1040,7 +1040,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
-    // Solo por argv al agente: el respaldo por shell se retiró.
+    // Only por argv al agente: el respaldo por shell se retiró.
     if (!daemonReadApiOk) {
         requireDaemonForRead(connIdx, QStringLiteral("leer las propiedades de un dataset"));
     }
@@ -1407,7 +1407,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             QString out;
             QString err;
             int rc = -1;
-            // Solo por argv al agente, igual que en las propiedades de dataset.
+            // Only por argv al agente, igual que en las propiedades de dataset.
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
             const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesDePool(trimmedPool.toStdString()));
             bool propsOk = daemonReadApiOk
@@ -2108,7 +2108,7 @@ QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
 // corta a 132 KiB, y además ese respaldo nunca borraba lo que sobraba, así que no
 // sincronizaba, copiaba.
 //
-// Solo para la misma máquina. Entre máquinas distintas rsync manda solo las
+// Only para la misma máquina. Entre máquinas distintas rsync manda solo las
 // diferencias por la red, y sustituirlo por esto sería un retroceso.
 QStringList MainWindow::daemonizeCopyTreeSyncArgs(int connIdx,
                                                   const QString& srcPath,

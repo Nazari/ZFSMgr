@@ -314,7 +314,7 @@ using zfsmgr::base::runExecCapture;
 using zfsmgr::base::runExecCaptureWithStdin;
 using zfsmgr::base::runExecStreaming;
 #ifdef _WIN32
-// Solo existe en Windows, igual que sus llamantes.
+// Only existe en Windows, igual que sus llamantes.
 using zfsmgr::base::winBuildCommandLine;
 #endif
 
@@ -1061,7 +1061,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
     }
 
-    // ---- Fase 1: copiar cada directorio a su dataset temporal ----
+    // ---- Phase 1: copiar cada directorio a su dataset temporal ----
     for (std::size_t i = 0; i < rels.size(); ++i) {
         const std::string& rel = rels[i];
         const fs::path srcPath = fs::path(mountpoint) / fs::path(rel);
@@ -1201,7 +1201,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                           + std::to_string(rels.size()) + ": " + rel);
     }
 
-    // ---- Fase 2: todo verificado; ahora sí se borra y se renombra ----
+    // ---- Phase 2: todo verificado; ahora sí se borra y se renombra ----
     // Borrado de los originales primero, de más profundo a menos, para que el punto de
     // montaje definitivo esté libre cuando se renombre.
     // No constante: el bucle de borrado anota en cada uno los permisos del directorio
@@ -1331,7 +1331,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
 #endif
         if (setMp.rc != 0) {
             // Igual que arriba: el dataset ya tiene su nombre bueno y contiene los
-            // únicos datos. Solo le falta el punto de montaje.
+            // únicos datos. Only le falta el punto de montaje.
             cleanup.armed = false;
             setMp.err += "\nEl dataset " + child + " tiene los datos; falta fijarle "
                          "mountpoint=" + srcPath.string() + "\n";
@@ -1531,7 +1531,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
             return r;
         }
-        // La escala se borra pase lo que pase. Solo se limpiaba en el camino bueno, así
+        // La escala se borra pase lo que pase. Only se limpiaba en el camino bueno, así
         // que cada Ensamblar fallido dejaba un `.zfsmgr-assemble-XXXX` dentro del pool.
         // No es solo basura: un Hacia Dir posterior los copia fielmente al directorio
         // resultante, y aparecen como ficheros de más que no estaban en el origen.
@@ -1545,7 +1545,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 }
             }
         } stagingCleanup{tmp};
-        // Descendientes DIRECTOS que son datasets: se conservan en vez de destruirlos.
+        // Descendants DIRECTOS que son datasets: se conservan en vez de destruirlos.
         //
         // Antes se hacía `zfs destroy -r`, que se llevaba todo el subárbol: ensamblar
         // un dataset borraba de paso los que colgaban de él. Los datos no se perdían
@@ -1565,7 +1565,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 if (ds.size() <= prefix.size() || ds.compare(0, prefix.size(), prefix) != 0) {
                     continue;
                 }
-                // Solo los directos: renombrar uno arrastra su propio subárbol.
+                // Only los directos: renombrar uno arrastra su propio subárbol.
                 if (ds.find('/', prefix.size()) == std::string::npos) {
                     directChildren.push_back(ds);
                 }
@@ -2541,7 +2541,7 @@ struct AltMountGuard {
         active = true;  // from here on the dataset must be restored
         // `zfs set mountpoint=` YA remonta el dataset si estaba montado, así que montarlo
         // otra vez falla con "filesystem already mounted" —y eso abortaba la operación
-        // entera por algo que en realidad había salido bien—. Solo se monta si hace falta.
+        // entera por algo que en realidad había salido bien—. Only se monta si hace falta.
         if (!datasetIsMounted(ds)) {
             const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
             if (mountRes.rc != 0) {
@@ -4865,15 +4865,15 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
         } else {
             targetExists = true;
             const std::string prefijo = dstDataset + "@";
-            std::vector<std::string> instantaneas;
+            std::vector<std::string> snapshots;
             for (const std::string& l : splitLines(salida)) {
                 const std::string nombre = trim(l.substr(0, l.find('\t')));
                 if (nombre.rfind(prefijo, 0) == 0) {
-                    instantaneas.push_back(nombre);
+                    snapshots.push_back(nombre);
                 }
             }
-            if (!instantaneas.empty()) {
-                baseSnap = instantaneas.back().substr(dstDataset.size() + 1);
+            if (!snapshots.empty()) {
+                baseSnap = snapshots.back().substr(dstDataset.size() + 1);
             }
         }
     }
@@ -5830,7 +5830,7 @@ static bool leeLinea(TransferSocket s, std::string& salida, std::size_t tope = 4
 }
 
 // El manifiesto entero, que termina en una línea «E».
-static bool leeManifiesto(TransferSocket s, std::vector<AR::Entrada>& salida,
+static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
                           std::string& error) {
     std::string acumulado;
     for (;;) {
@@ -5894,7 +5894,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         return;
     }
 
-    std::vector<AR::Entrada> mias;
+    std::vector<AR::Entry> mias;
     std::string err;
     if (!AR::recorre(raiz, mias, err)) {
         daemonLog("ERROR", "tree-recv: no se pudo recorrer «" + raiz + "»: " + err);
@@ -6121,7 +6121,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             }
             continue;
         }
-        AR::Operacion op;
+        AR::Operation op;
         std::size_t lr = 0;
         std::size_t ld = 0;
         if (!AR::analizaCabecera(linea, op, lr, ld, fallo)) {
@@ -6318,7 +6318,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         else if (params[i] == "--dry-run") { enSeco = true; }
     }
 
-    std::vector<AR::Entrada> mias;
+    std::vector<AR::Entry> mias;
     std::string err;
     if (!AR::recorre(raiz, mias, err)) {
         r.rc = 2;
@@ -6340,7 +6340,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         return r;
     }
 
-    std::vector<AR::Entrada> suyas;
+    std::vector<AR::Entry> suyas;
     if (!leeManifiesto(sock, suyas, err)) {
         closeTransferSocket(sock);
         r.rc = 1;
@@ -6353,13 +6353,13 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     // ¿De qué ficheros compensa pedir firmas? Los que el destino YA TIENE y son grandes.
     // De los que no tiene no hay nada contra qué comparar, y de los pequeños las firmas y
     // la vuelta de red cuestan más que mandarlos enteros.
-    std::map<std::string, const AR::Entrada*> suyasPorRuta;
-    for (const AR::Entrada& e : suyas) {
+    std::map<std::string, const AR::Entry*> suyasPorRuta;
+    for (const AR::Entry& e : suyas) {
         suyasPorRuta.emplace(e.ruta, &e);
     }
     std::vector<std::string> pidoFirmas;
     if (!enSeco) {
-        for (const AR::Operacion& o : plan.operaciones) {
+        for (const AR::Operation& o : plan.operaciones) {
             if (o.accion != AR::Accion::Copiar || o.entrada.tamano < AR::kMinimoParaDelta) {
                 continue;
             }
@@ -6432,7 +6432,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     }
 
     std::string informe;
-    for (const AR::Operacion& o : plan.operaciones) {
+    for (const AR::Operation& o : plan.operaciones) {
         informe += AR::describe(o);
         informe += '\n';
     }
@@ -6452,7 +6452,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     bool bien = true;
     std::uint64_t bytesLiteralesTotal = 0;
     std::uint64_t bytesAhorrados = 0;
-    for (const AR::Operacion& o : plan.operaciones) {
+    for (const AR::Operation& o : plan.operaciones) {
         // ¿Hay firmas de este fichero? Entonces va como PARCHE y no entero.
         const auto itF = (o.accion == AR::Accion::Copiar)
                              ? firmas.find(o.entrada.ruta)
@@ -6471,7 +6471,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
                 bytesLiteralesTotal += literales;
                 bytesAhorrados += (o.entrada.tamano > literales) ? (o.entrada.tamano - literales)
                                                                  : 0;
-                AR::Operacion parche = o;
+                AR::Operation parche = o;
                 std::string cab = "P " + std::to_string(o.entrada.modo) + " "
                                   + std::to_string(o.entrada.fecha) + " "
                                   + std::to_string(o.entrada.tamano) + " "
@@ -6830,7 +6830,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
 //   {"devices":[{"path":…,"size":<bytes>,"fstype":…,"mountpoint":…,"type":…,"inuse":bool}]}
 //
 // `inuse` es una comodidad, no un veredicto: dice que el dispositivo o alguno de sus hijos
-// tiene sistema de ficheros o está montado. Quien vaya a escribir en él decide.
+// tiene sistema de ficheros o está montado. Who vaya a escribir en él decide.
 static ExecResult runDumpBlockDevicesCapture() {
     ExecResult r;
 #if defined(__linux__)
@@ -7789,7 +7789,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // reciba una nivelación: por omisión solo atiende en 127.0.0.1, y ahí solo llega el
     // cliente porque abre un túnel SSH — de madrugada no hay quien lo abra.
     //
-    // Solo se admite un COMODÍN. La aplicación llega al daemon por un túnel contra
+    // Only se admite un COMODÍN. La aplicación llega al daemon por un túnel contra
     // 127.0.0.1, así que atarlo a una sola dirección de la LAN le cortaría el acceso a la
     // máquina entera; y este servidor abre un socket, no una lista.
     //
@@ -7999,7 +7999,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             if (a == "--one-file-system") {
                 opt.oneFileSystem = true;
             } else if (a == "--delete") {
-                // Borra del destino lo que no está en el origen. Solo para sincronizar.
+                // Borra del destino lo que no está en el origen. Only para sincronizar.
                 opt.deleteExtraneous = true;
             } else if (a == "--dry-run") {
                 opt.dryRun = true;
@@ -8203,7 +8203,7 @@ static void loadPersistedJobsAtStartup() {
     const std::string raw((std::istreambuf_iterator<char>(f)),
                           std::istreambuf_iterator<char>());
 
-    // Se analiza con el JSON de la capa base, que el agente ya enlaza.
+    // Se parse con el JSON de la capa base, que el agente ya enlaza.
     //
     // Antes había aquí un analizador a mano con dos fallos que se sumaban:
     //
@@ -9279,7 +9279,7 @@ int main(int argc, char* argv[]) {
     if (cmd == "--dump-refresh-basics") {
         return runDumpRefreshBasics();
     }
-    // Solo CLI a propósito: es lo que se ejecuta ANTES de que exista el canal TLS,
+    // Only CLI a propósito: es lo que se ejecuta ANTES de que exista el canal TLS,
     // así que servirlo por RPC no tendría sentido.
     if (cmd == "--ensure-tls") {
         const ExecResult e = runEnsureTlsCapture();

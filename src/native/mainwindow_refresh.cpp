@@ -791,7 +791,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             // Tomarlo por «no está en marcha» declaraba parado un daemon sano y, peor,
             // bloqueaba el listado de pools detrás: «no se puede listar los pools porque el
             // agente no está en marcha», con el agente respondiendo STATUS=OK dos líneas
-            // más arriba. Quien sabe si el servicio corre es el gestor de servicios, y eso
+            // más arriba. Who sabe si el servicio corre es el gestor de servicios, y eso
             // ya lo trae la sonda en ACTIVE.
             if (!statusOk) {
                 daemonReadApiOk = false;
@@ -909,7 +909,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
     // Windows entra aquí desde que su daemon sirve --dump-zpool-guid-status-batch
     // (comprobado por RPC contra un Windows 11 real). Sin esto se quedaba sin GUID ni
     // estado de pool, que es de lo que dependen la identificación de pools entre
-    // conexiones y el aviso de pool degradado. Solo se excluye el camino clásico, que
+    // conexiones y el aviso de pool degradado. Only se excluye el camino clásico, que
     // sigue siendo un bucle de shell Unix.
     if (!isWinConn || daemonReadApiOk) {
         QString bout;

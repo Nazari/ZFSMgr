@@ -49,10 +49,10 @@ enum class Fallo {
     ZfsDemasiadoViejo,       // por debajo de 2.3.3 no se transfiere
 };
 
-const char* claveDe(Camino c);
-const char* claveDe(Fallo f);
-std::string etiquetaDe(Camino c);
-std::string etiquetaDe(Fallo f);
+const char* keyOf(Camino c);
+const char* keyOf(Fallo f);
+std::string labelOf(Camino c);
+std::string labelOf(Fallo f);
 
 // Lo que hay que saber de un extremo para decidir. No se consulta nada desde aquí: lo trae
 // quien llama, que es el que tiene la sesión de transporte.
@@ -64,7 +64,7 @@ struct Extremo {
     bool admiteTrabajos{false};  // `JOBS_SUPPORT=1` en su `--health`
     std::string versionZfs;      // «2.3.3», «2.2.99-1», … vacía si no se sabe
 
-    bool esInstantanea() const { return objeto.find('@') != std::string::npos; }
+    bool isSnapshot() const { return objeto.find('@') != std::string::npos; }
     std::string dataset() const {
         const std::size_t i = objeto.find('@');
         return i == std::string::npos ? objeto : objeto.substr(0, i);
@@ -127,7 +127,7 @@ struct Reanudacion {
 
 // La REGLA de cuál gana, separada de ir a buscarlos.
 //
-// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Quien las junta es
+// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Who las junta es
 // `buscaTestigo`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
 Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string& salidaTsv);
 
@@ -199,7 +199,7 @@ enum class FalloTrabajo {
     SinIdentificador,
 };
 
-std::string etiquetaDe(FalloTrabajo f);
+std::string labelOf(FalloTrabajo f);
 
 struct Trabajo {
     std::string id;
@@ -340,6 +340,6 @@ PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
                           const std::vector<Instantanea>& destino,
                           const std::string& objetivo);
 
-std::string etiquetaDe(FalloNivelar f);
+std::string labelOf(FalloNivelar f);
 
 }  // namespace zfsmgr::base::transferencia

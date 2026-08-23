@@ -11,7 +11,7 @@
 #include "avanzadas.h"
 #include "peticiones.h"
 #include "pools.h"
-#include "instantaneas.h"
+#include "snapshots.h"
 #include "datasets.h"
 #include "transferencia.h"
 #include "zfsallow.h"
@@ -440,7 +440,7 @@ int main() {
         igual(visto, "tunel-espera-agotada: 5000", "y el detalle se conserva");
         ses.avisoSink = [&visto](TransportSession::Nivel, const std::string&,
                                  const BTr::NotaDeAviso& a) {
-            visto = std::string("traducido:") + BTr::etiquetaDe(a.aviso);
+            visto = std::string("traducido:") + BTr::labelOf(a.aviso);
         };
         ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Aviso::SinSshpass, {}, {}});
         igual(visto, "traducido:sin-sshpass", "con traductor puesto, manda el traductor");
@@ -842,8 +842,8 @@ int main() {
         igual(es.at(0).nombre, "fc16/dockvols", "listados: el nombre");
         igual(es.at(0).puntoMontaje, "/var/lib/docker/volumes", "listados: el punto de montaje");
         igual(es.at(0).cifrado, "aes-256-gcm", "listados: el cifrado");
-        comprobar(!es.at(0).esInstantanea(), "listados: un dataset no es instantanea");
-        comprobar(es.at(2).esInstantanea(), "listados: y una con @ si");
+        comprobar(!es.at(0).isSnapshot(), "listados: un dataset no es instantanea");
+        comprobar(es.at(2).isSnapshot(), "listados: y una con @ si");
 
         // Una linea con columnas de menos se SALTA: rellenar corrido enseñaria el punto de
         // montaje donde va el guid.
@@ -967,7 +967,7 @@ int main() {
 
     // --- por dónde van los bytes, y desde dónde se reanuda
     //
-    // Fase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transferencia,
+    // Phase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transferencia,
     // que se pueden probar sin mover un byte. Lo que se fija son los NOES y su orden, porque
     // el orden es lo que hace que el motivo sea util: decir «no hay daemon» cuando el
     // problema es que un extremo es Windows manda a instalar algo que no arregla nada.
@@ -1038,8 +1038,8 @@ int main() {
         for (const TR::Fallo f : {TR::Fallo::ElMismoObjeto, TR::Fallo::OrigenNoEsInstantanea,
                                   TR::Fallo::DestinoNoEsDataset, TR::Fallo::ExtremoWindows,
                                   TR::Fallo::SinTrabajos}) {
-            comprobar(!TR::etiquetaDe(f).empty(), "transferencia: el motivo tiene texto");
-            textos.insert(TR::etiquetaDe(f));
+            comprobar(!TR::labelOf(f).empty(), "transferencia: el motivo tiene texto");
+            textos.insert(TR::labelOf(f));
         }
         comprobar(textos.size() == 5, "transferencia: y los cinco son distintos");
 
@@ -1106,8 +1106,8 @@ int main() {
                  {TR::FalloTrabajo::ReceptorNoEscucha, TR::FalloTrabajo::RespuestaDeEscuchaNoVale,
                   TR::FalloTrabajo::SinDireccionDeVuelta, TR::FalloTrabajo::EmisorNoArranco,
                   TR::FalloTrabajo::SinIdentificador}) {
-                comprobar(!TR::etiquetaDe(f).empty(), "trabajo: el fallo tiene texto");
-                ft.insert(TR::etiquetaDe(f));
+                comprobar(!TR::labelOf(f).empty(), "trabajo: el fallo tiene texto");
+                ft.insert(TR::labelOf(f));
             }
             comprobar(ft.size() == 5, "trabajo: y los cinco son distintos");
         }
@@ -1244,47 +1244,47 @@ int main() {
             "\tuser root @basico\n"
             "\tuser linarese create,mount,snapshot\n"
             "\teveryone mount\n";
-        const auto es = ZA::analiza(real);
+        const auto es = ZA::parse(real);
         comprobar(es.size() == 5, "zfsallow: las cinco entradas");
 
-        comprobar(es[0].alcance == ZA::Alcance::Conjunto && es[0].quien == ZA::Quien::Conjunto,
+        comprobar(es[0].scope == ZA::Scope::Set && es[0].who == ZA::Who::Set,
                   "zfsallow: el conjunto");
-        igual(es[0].nombre, "@basico", "zfsallow: con su nombre y su arroba");
-        comprobar(es[0].permisos.size() == 2, "zfsallow: y sus dos permisos");
+        igual(es[0].name, "@basico", "zfsallow: con su nombre y su arroba");
+        comprobar(es[0].permissions.size() == 2, "zfsallow: y sus dos permisos");
 
         // ESTA es la que importa: la linea dice «user linarese destroy» y no dice nada del
         // alcance. Sale del titulo de encima.
-        comprobar(es[1].alcance == ZA::Alcance::Descendientes,
+        comprobar(es[1].scope == ZA::Scope::Descendants,
                   "zfsallow: el alcance sale del TITULO de la seccion");
-        igual(es[1].nombre, "linarese", "zfsallow: y el usuario de la linea");
+        igual(es[1].name, "linarese", "zfsallow: y el usuario de la linea");
 
-        comprobar(es[2].alcance == ZA::Alcance::LocalYDescendientes,
+        comprobar(es[2].scope == ZA::Scope::LocalAndDescendants,
                   "zfsallow: la seccion siguiente cambia el alcance");
-        igual(es[2].permisos.at(0), "@basico",
+        igual(es[2].permissions.at(0), "@basico",
               "zfsallow: un conjunto se concede como si fuera un permiso");
-        comprobar(es[4].quien == ZA::Quien::Todos && es[4].nombre.empty(),
+        comprobar(es[4].who == ZA::Who::Everyone && es[4].name.empty(),
                   "zfsallow: «everyone» no nombra a nadie");
 
         // Y el camino de vuelta: el argv que hay que ejecutar.
-        const auto conceder = ZA::argvConceder(es[1], "wperm/d");
+        const auto conceder = ZA::argvAllow(es[1], "wperm/d");
         igual(conceder.at(0), "allow", "zfsallow: la orden");
         comprobar(std::find(conceder.begin(), conceder.end(), "-d") != conceder.end(),
                   "zfsallow: «solo descendientes» lleva -d");
         comprobar(std::find(conceder.begin(), conceder.end(), "-u") != conceder.end(),
                   "zfsallow: y a un usuario, -u");
         igual(conceder.back(), "wperm/d", "zfsallow: el dataset al final");
-        igual(ZA::argvRetirar(es[1], "wperm/d").at(0), "unallow",
+        igual(ZA::argvUnallow(es[1], "wperm/d").at(0), "unallow",
               "zfsallow: retirar es la misma forma con otra orden");
 
         // «aqui y en los descendientes» va SIN bandera de alcance: es lo que hace `zfs
         // allow` por omision, y ponerle una lo estrecharia.
-        const auto ambos = ZA::argvConceder(es[2], "wperm/d");
+        const auto ambos = ZA::argvAllow(es[2], "wperm/d");
         comprobar(std::find(ambos.begin(), ambos.end(), "-l") == ambos.end()
                       && std::find(ambos.begin(), ambos.end(), "-d") == ambos.end(),
                   "zfsallow: el alcance de los dos no lleva bandera");
 
         // «everyone» no lleva nombre en el argv: el destinatario ES la bandera.
-        const auto todos = ZA::argvConceder(es[4], "wperm/d");
+        const auto todos = ZA::argvAllow(es[4], "wperm/d");
         comprobar(std::find(todos.begin(), todos.end(), "-e") != todos.end(),
                   "zfsallow: everyone lleva -e");
         comprobar(std::find(todos.begin(), todos.end(), "everyone") == todos.end(),
@@ -1293,39 +1293,39 @@ int main() {
         // «Create time permissions» no nombra a nadie: su linea es SOLO la lista de
         // permisos. Sin ese caso se saltaba entera, y esos permisos —los que hereda quien
         // cree un descendiente— no salian por ninguna parte.
-        const auto crear = ZA::analiza("Create time permissions:\n\trollback,mount\n");
+        const auto crear = ZA::parse("Create time permissions:\n\trollback,mount\n");
         comprobar(crear.size() == 1, "zfsallow: «al crear» se lee aunque no nombre a nadie");
-        comprobar(crear.at(0).alcance == ZA::Alcance::AlCrear, "zfsallow: con su alcance");
-        comprobar(crear.at(0).permisos.size() == 2, "zfsallow: y sus dos permisos");
-        const auto argvCrear = ZA::argvConceder(crear.at(0), "p/d");
-        comprobar(std::find(argvCrear.begin(), argvCrear.end(), "-c") != argvCrear.end(),
+        comprobar(crear.at(0).scope == ZA::Scope::OnCreate, "zfsallow: con su alcance");
+        comprobar(crear.at(0).permissions.size() == 2, "zfsallow: y sus dos permisos");
+        const auto argvCreate = ZA::argvAllow(crear.at(0), "p/d");
+        comprobar(std::find(argvCreate.begin(), argvCreate.end(), "-c") != argvCreate.end(),
                   "zfsallow: y se concede con -c");
-        comprobar(argvCrear.size() == 4, "zfsallow: sin destinatario: allow -c <perms> <ds>");
+        comprobar(argvCreate.size() == 4, "zfsallow: sin destinatario: allow -c <perms> <ds>");
 
         // Los textos de ZFS, que son CONTRATO: el tsv y el json del interprete los llevan y
         // un guion puede estar comparandolos. Cambiarlos por algo mas legible lo romperia
         // sin avisar, asi que se fijan aqui.
-        igual(ZA::seccionZfs(ZA::Alcance::LocalYDescendientes), "Local+Descendent permissions",
+        igual(ZA::zfsSectionTitle(ZA::Scope::LocalAndDescendants), "Local+Descendent permissions",
               "zfsallow: el titulo exacto de la seccion");
-        igual(ZA::seccionZfs(ZA::Alcance::AlCrear), "Create time permissions",
+        igual(ZA::zfsSectionTitle(ZA::Scope::OnCreate), "Create time permissions",
               "zfsallow: y el de «al crear»");
-        igual(ZA::tokenZfs(ZA::Quien::Usuario), "user", "zfsallow: la palabra de zfs");
-        igual(ZA::tokenZfs(ZA::Quien::Todos), "everyone", "zfsallow: y la de everyone");
+        igual(ZA::zfsToken(ZA::Who::User), "user", "zfsallow: la palabra de zfs");
+        igual(ZA::zfsToken(ZA::Who::Everyone), "everyone", "zfsallow: y la de everyone");
         // Y la vuelta y vuelta: lo que se lee de una seccion se vuelve a nombrar igual.
-        for (const ZA::Alcance a : {ZA::Alcance::Local, ZA::Alcance::Descendientes,
-                                    ZA::Alcance::LocalYDescendientes, ZA::Alcance::AlCrear,
-                                    ZA::Alcance::Conjunto}) {
-            const auto ida = ZA::analiza(std::string(ZA::seccionZfs(a)) + ":\n\tuser x lee\n");
-            comprobar(!ida.empty() && ida.at(0).alcance == a,
-                      std::string("zfsallow: la seccion «") + ZA::seccionZfs(a) + "» se reconoce");
+        for (const ZA::Scope a : {ZA::Scope::Local, ZA::Scope::Descendants,
+                                    ZA::Scope::LocalAndDescendants, ZA::Scope::OnCreate,
+                                    ZA::Scope::Set}) {
+            const auto ida = ZA::parse(std::string(ZA::zfsSectionTitle(a)) + ":\n\tuser x lee\n");
+            comprobar(!ida.empty() && ida.at(0).scope == a,
+                      std::string("zfsallow: la seccion «") + ZA::zfsSectionTitle(a) + "» se reconoce");
         }
 
         // Un dataset sin nada delegado devuelve la lista vacia, y eso no es un error.
-        comprobar(ZA::analiza("").empty(), "zfsallow: sin permisos, lista vacia");
-        comprobar(ZA::analiza("---- Permissions on x ----\n").empty(),
+        comprobar(ZA::parse("").empty(), "zfsallow: sin permisos, lista vacia");
+        comprobar(ZA::parse("---- Permissions on x ----\n").empty(),
                   "zfsallow: solo la cabecera tampoco es una entrada");
         // Y una linea que no se entiende se salta en vez de inventarse una entrada.
-        comprobar(ZA::analiza("Local permissions:\n\tvete a saber\n").empty(),
+        comprobar(ZA::parse("Local permissions:\n\tvete a saber\n").empty(),
                   "zfsallow: lo que no se entiende no se inventa");
     }
 
@@ -1371,9 +1371,9 @@ int main() {
         // Sin origen, ninguna. Y el mismo objeto en los dos extremos tampoco.
         for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar}) {
             comprobar(DX::compruebo(a, nada, ds) == DX::NoAplica::SinOrigen,
-                      std::string("dosextremos: sin origen no aplica ") + DX::claveDe(a));
+                      std::string("dosextremos: sin origen no aplica ") + DX::keyOf(a));
             comprobar(DX::compruebo(a, ds, ds) == DX::NoAplica::ElMismoObjeto,
-                      std::string("dosextremos: el mismo objeto no aplica ") + DX::claveDe(a));
+                      std::string("dosextremos: el mismo objeto no aplica ") + DX::keyOf(a));
         }
 
         // Sincronizar NO es zfs send: compara FICHEROS sobre los puntos de montaje, y por
@@ -1488,7 +1488,7 @@ int main() {
             comprobar(impostor.fallo == TRN::FalloNivelar::BaseNoEstaEnOrigen,
                       "nivelar: un nombre igual con otro guid NO es base comun");
 
-            // Sin instantaneas en el destino no hay desde donde seguir.
+            // Sin snapshots en el destino no hay desde donde seguir.
             comprobar(TRN::planeaNivelar(orig, {}, "jueves").fallo
                           == TRN::FalloNivelar::DestinoSinInstantaneas,
                       "nivelar: destino vacio no se nivela, se copia");
@@ -1517,7 +1517,7 @@ int main() {
                 TRN::FalloNivelar::DestinoMasNuevo,
                 TRN::FalloNivelar::YaNivelado};
             for (const TRN::FalloNivelar f : fallos) {
-                const std::string t = TRN::etiquetaDe(f);
+                const std::string t = TRN::labelOf(f);
                 comprobar(!t.empty(), "nivelar: el motivo tiene texto");
                 textosN.insert(t);
             }
@@ -1526,7 +1526,7 @@ int main() {
         }
 
         // Mover NO es copiar y destruir: es un `zfs rename`, y por eso no sale de su pool
-        // ni acepta instantaneas. El documento de diseno decia lo contrario; estas
+        // ni acepta snapshots. El documento de diseno decia lo contrario; estas
         // aserciones son las que fijan la version buena.
         const DX::Extremo otroPool{"local", "worg/sitio"};
         const DX::Extremo hijo{"local", "fc16/user/dentro"};
@@ -1557,7 +1557,7 @@ int main() {
         for (const DX::Accion a : {DX::Accion::Copiar, DX::Accion::Sincronizar,
                                    DX::Accion::Nivelar}) {
             comprobar(DX::compruebo(a, snap, otroDs) == DX::NoAplica::TodaviaNoEstaEnLaWeb,
-                      std::string("dosextremos: ") + DX::claveDe(a) + " dice que aun no esta");
+                      std::string("dosextremos: ") + DX::keyOf(a) + " dice que aun no esta");
         }
 
         // Cada motivo tiene su texto, y ninguno se confunde con otro: es lo que se pinta.
@@ -1573,7 +1573,7 @@ int main() {
                                                    DX::NoAplica::DestinoDentroDelOrigen,
                                                    DX::NoAplica::TodaviaNoEstaEnLaWeb};
         for (const DX::NoAplica n : motivos) {
-            const std::string t = DX::etiquetaDe(n);
+            const std::string t = DX::labelOf(n);
             comprobar(!t.empty(), "dosextremos: el motivo tiene texto");
             textos.insert(t);
         }
@@ -1582,7 +1582,7 @@ int main() {
         // comprueba, que es que NINGUN motivo se confunda con otro.
         comprobar(textos.size() == motivos.size(),
                   "dosextremos: y ningun motivo se confunde con otro");
-        igual(DX::etiquetaDe(DX::NoAplica::Ninguna), "",
+        igual(DX::labelOf(DX::NoAplica::Ninguna), "",
               "dosextremos: «si aplica» no tiene motivo que enseñar");
     }
 
@@ -1599,7 +1599,7 @@ int main() {
     // respuesta, asi que la accion se hacia y se contaba como error.
     //
     // Aqui se monta un servidor TLS de verdad que tarda A PROPOSITO mas que el plazo de
-    // conexion. Solo lo pasa un cliente que distinga los dos plazos.
+    // conexion. Only lo pasa un cliente que distinga los dos plazos.
     {
         namespace TS = zfsmgr::base::tlsserver;
         namespace TC = zfsmgr::base;
@@ -1858,8 +1858,8 @@ int main() {
 
         // El fallo es un TIPO y cada valor tiene su texto: un `bool` obligaba a adivinar
         // entre «no hay binario» —que se arregla compilando— y «la maquina lo rechazo».
-        comprobar(DI::etiquetaDe(DI::Fallo::BinarioIlegible)
-                      != DI::etiquetaDe(DI::Fallo::LaInstalacionFallo),
+        comprobar(DI::labelOf(DI::Fallo::BinarioIlegible)
+                      != DI::labelOf(DI::Fallo::LaInstalacionFallo),
                   "daemoninstall: los motivos de fallo no se confunden");
 
         // Y un binario que no existe se para ANTES de tocar la maquina.
@@ -2228,7 +2228,7 @@ int main() {
             comprobar(ps.size() == 2, "dos pools");
             comprobar(ps.at("p1").guid == "123", "el guid del primero");
             // La sangria INTERIOR se conserva: es parte de lo que ve el usuario en
-            // `zpool status`. Solo se recorta el bloque entero por los extremos.
+            // `zpool status`. Only se recorta el bloque entero por los extremos.
             comprobar(contains(ps.at("p1").status, "  otra"),
                       "la sangria de las lineas de estado se conserva");
             comprobar(ps.at("p2").status.empty(), "un pool sin bloque de estado queda vacio");
@@ -2261,7 +2261,7 @@ int main() {
     //
     // Estos casos NO son ceremonia: es la pieza que sustituye a QProcess, y sus fallos
     // —tuberías que se llenan, hijos que no mueren, líneas que no salen hasta el final—
-    // no se ven leyendo el código. Solo se ven ejecutándolo.
+    // no se ven leyendo el código. Only se ven ejecutándolo.
     //
     // POSIX solamente: en Windows haría falta cmd.exe y otras rutas, y una prueba que
     // solo corre en una plataforma es peor que declararlo.
@@ -2302,7 +2302,7 @@ int main() {
             auto r = runExecStream("/bin/sh", {"-c", "echo salida; echo error >&2"}, "", 5000, cb);
             comprobar2(o == "salida" && e == "error", "stdout y stderr separados");
         }
-        // 4) Entrada estándar: hay que CERRARLA o el otro espera para siempre
+        // 4) Entry estándar: hay que CERRARLA o el otro espera para siempre
         {
             StreamCallbacks cb;
             std::string o;
@@ -2311,7 +2311,7 @@ int main() {
             comprobar2(r.rc == 0, "cat termina (la entrada se cierra)");
             comprobar2(o == "hola mundo", "cat devuelve lo que se le dio");
         }
-        // 5) Entrada GRANDE: la tubería se llena y hay que alternar escritura y lectura
+        // 5) Entry GRANDE: la tubería se llena y hay que alternar escritura y lectura
         {
             StreamCallbacks cb;
             const std::string grande(4 * 1024 * 1024, 'x');
@@ -2483,7 +2483,7 @@ int main() {
         }
     }
 
-    // --- transportcmd: la parte del transporte que decide y analiza texto.
+    // --- transportcmd: la parte del transporte que decide y parse texto.
     //
     // Estos valores esperados NO estan inventados: salen de contrastar la traduccion
     // contra la version con Qt sobre 9.279 casos, con control negativo para comprobar
@@ -2936,7 +2936,7 @@ int main() {
 
         // Y el conjunto.
         G::Programacion rec = base; rec.recursivo = true;
-        std::vector<G::Entrada> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
+        std::vector<G::Entry> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
         comprobar(!G::validaConjunto(juego, m), "gsa: un hijo bajo una recursiva choca");
         comprobar(m.fallo == G::Fallo::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
                       && m.detalle == "tank/datos",
@@ -3075,7 +3075,7 @@ int main() {
 
         // El listado. La línea SELF es la que faltaba, y su ausencia es un fallo mudo: sin
         // ella la nivelación GSA contra un dataset de la propia máquina no se ejecuta nunca.
-        const PE::Vista v = PE::analiza("SELF\tlocal\n"
+        const PE::Vista v = PE::parse("SELF\tlocal\n"
                                         "unibody\tunib.local\t47653\n"
                                         "oldlau\toldlau.local\t47653\n");
         igual(v.self, "local", "peers: quién dice ser la máquina");
@@ -3085,11 +3085,11 @@ int main() {
 
         // Un daemon anterior a este cambio NO emite la línea SELF. Tiene que leerse igual, con
         // el self vacío, en vez de descuadrar la tabla.
-        const PE::Vista vieja = PE::analiza("unibody\tunib.local\t47653\n");
+        const PE::Vista vieja = PE::parse("unibody\tunib.local\t47653\n");
         comprobar(vieja.self.empty(), "peers: sin SELF, vacío y no un par inventado");
         comprobar(vieja.pares.size() == 1, "peers: y el par se lee igual");
 
-        comprobar(PE::analiza("").pares.empty(), "peers: salida vacía, ningún par");
+        comprobar(PE::parse("").pares.empty(), "peers: salida vacía, ningún par");
 
         // La composición de la entrega.
         auto perfil = [](const std::string& id, bool conTls) {
@@ -3127,11 +3127,11 @@ int main() {
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».
         const std::vector<zfsmgr::base::ConnectionProfile> sinTls = {perfil("local", true),
                                                                     perfil("unibody", false)};
-        igual(PE::etiquetaDe(PE::componeEntrega(sinTls, "local").fallo),
-              PE::etiquetaDe(PE::Fallo::SinMaterialTls),
+        igual(PE::labelOf(PE::componeEntrega(sinTls, "local").fallo),
+              PE::labelOf(PE::Fallo::SinMaterialTls),
               "peers: las hay pero sin certificados");
-        igual(PE::etiquetaDe(PE::componeEntrega({perfil("local", true)}, "local").fallo),
-              PE::etiquetaDe(PE::Fallo::SinOtrasConexiones),
+        igual(PE::labelOf(PE::componeEntrega({perfil("local", true)}, "local").fallo),
+              PE::labelOf(PE::Fallo::SinOtrasConexiones),
               "peers: no hay ninguna otra");
 
         // Las direcciones de escucha son tres y no más: el cliente llega por un túnel contra
@@ -3297,7 +3297,7 @@ int main() {
             comprobar(AV::rutasDeContenido("{a,b}/{c,d}").empty(),
                       "contenido: dos grupos, nada");
 
-            // Y lo que no puede salir del árbol. Quien lo ejecuta corre como root, y el
+            // Y lo que no puede salir del árbol. Who lo ejecuta corre como root, y el
             // daemon NO lo comprueba para rsync: solo exige que la ruta sea absoluta.
             comprobar(AV::rutaDeContenidoValida(""), "contenido: la raíz vale");
             comprobar(AV::rutaDeContenidoValida("a/b"), "contenido: una relativa vale");
@@ -3423,127 +3423,127 @@ int main() {
     {
         // Mantenimiento de pools.
         namespace PL = zfsmgr::commands::pools;
-        using Op = PL::Operacion;
-        using Fase = PL::Fase;
+        using Op = PL::Operation;
+        using Phase = PL::Phase;
 
         // **La regla que más cuesta ver**: «parar» y «pausar» NO son la misma letra.
         // `-s` significa PARAR en scrub y SUSPENDER en initialize. Un cliente que use la
         // misma para las tres pone un botón que dice una cosa y hace otra; pasó.
-        comprobar(PL::argv(Op::Scrub, "tank", Fase::Parar)
+        comprobar(PL::argv(Op::Scrub, "tank", Phase::Stop)
                       == std::vector<std::string>{"scrub", "-s", "tank"},
                   "pools: parar un scrub es -s");
-        comprobar(PL::argv(Op::Scrub, "tank", Fase::Pausar)
+        comprobar(PL::argv(Op::Scrub, "tank", Phase::Pause)
                       == std::vector<std::string>{"scrub", "-p", "tank"},
                   "pools: pausar un scrub es -p");
-        comprobar(PL::argv(Op::Initialize, "tank", Fase::Parar)
+        comprobar(PL::argv(Op::Initialize, "tank", Phase::Stop)
                       == std::vector<std::string>{"initialize", "-c", "tank"},
                   "pools: parar un initialize es -c, NO -s");
-        comprobar(PL::argv(Op::Initialize, "tank", Fase::Pausar)
+        comprobar(PL::argv(Op::Initialize, "tank", Phase::Pause)
                       == std::vector<std::string>{"initialize", "-s", "tank"},
                   "pools: y suspenderlo sí es -s");
-        comprobar(PL::argv(Op::Trim, "tank", Fase::Parar)
+        comprobar(PL::argv(Op::Trim, "tank", Phase::Stop)
                       == std::vector<std::string>{"trim", "-c", "tank"},
                   "pools: trim se comporta como initialize, no como scrub");
 
         // El orden: banderas, pool, discos. Las dos mitades vienen de verlo fallar.
-        comprobar(PL::argv(Op::Trim, "tank", Fase::Arrancar, {"-r", "100M"}, {"sda", "sdb"})
+        comprobar(PL::argv(Op::Trim, "tank", Phase::Start, {"-r", "100M"}, {"sda", "sdb"})
                       == std::vector<std::string>{"trim", "-r", "100M", "tank", "sda", "sdb"},
                   "pools: banderas antes del pool y discos después");
 
         // Pedir una fase a algo que no la admite no se manda: `zpool export -s` es un error
         // de sintaxis, y vale más no mandarlo que traducir la queja de zpool.
-        comprobar(PL::argv(Op::Export, "tank", Fase::Parar).empty(),
+        comprobar(PL::argv(Op::Export, "tank", Phase::Stop).empty(),
                   "pools: export no admite fase, así que no se manda nada");
         comprobar(PL::argv(Op::Scrub, "").empty(), "pools: sin pool no hay orden");
 
         // Qué se confirma, y por qué no es solo «lo que destruye».
-        comprobar(PL::esIrreversible(Op::Destroy), "pools: destroy no se deshace");
-        comprobar(PL::esIrreversible(Op::Upgrade), "pools: upgrade tampoco");
-        comprobar(PL::esIrreversible(Op::Reguid), "pools: ni reguid");
-        comprobar(!PL::esIrreversible(Op::Clear), "pools: clear sí se deshace… pero");
-        comprobar(PL::pideConfirmacion(Op::Clear),
+        comprobar(PL::isIrreversible(Op::Destroy), "pools: destroy no se deshace");
+        comprobar(PL::isIrreversible(Op::Upgrade), "pools: upgrade tampoco");
+        comprobar(PL::isIrreversible(Op::Reguid), "pools: ni reguid");
+        comprobar(!PL::isIrreversible(Op::Clear), "pools: clear sí se deshace… pero");
+        comprobar(PL::needsConfirmation(Op::Clear),
                   "pools: …se pregunta igual: borra la cuenta de errores y se teclea sin querer");
-        comprobar(PL::pideConfirmacion(Op::Export),
+        comprobar(PL::needsConfirmation(Op::Export),
                   "pools: y export, porque el pool desaparece de esa máquina");
-        comprobar(!PL::pideConfirmacion(Op::Scrub), "pools: un scrub no necesita permiso");
+        comprobar(!PL::needsConfirmation(Op::Scrub), "pools: un scrub no necesita permiso");
 
         // Importar con otro nombre.
-        comprobar(PL::argvImportarComo("viejo", "nuevo")
+        comprobar(PL::argvImportAs("viejo", "nuevo")
                       == std::vector<std::string>{"import", "viejo", "nuevo"},
                   "pools: importar renombrando");
-        comprobar(PL::nombreDePoolValido("tank2"), "pools: nombre válido");
-        comprobar(!PL::nombreDePoolValido("9tank"), "pools: no puede empezar por dígito");
-        comprobar(!PL::nombreDePoolValido("con/barra"), "pools: la barra haría un dataset");
-        comprobar(!PL::nombreDePoolValido("con espacio"), "pools: ni espacios");
-        comprobar(PL::argvImportarComo("viejo", "9malo").empty(),
+        comprobar(PL::isValidPoolName("tank2"), "pools: nombre válido");
+        comprobar(!PL::isValidPoolName("9tank"), "pools: no puede empezar por dígito");
+        comprobar(!PL::isValidPoolName("con/barra"), "pools: la barra haría un dataset");
+        comprobar(!PL::isValidPoolName("con espacio"), "pools: ni espacios");
+        comprobar(PL::argvImportAs("viejo", "9malo").empty(),
                   "pools: con un nombre inválido no se manda nada");
     }
 
     {
         // Instantáneas.
-        namespace IN = zfsmgr::commands::instantaneas;
-        using Al = IN::Alcance;
+        namespace IN = zfsmgr::commands::snapshots;
+        using Al = IN::Scope;
 
-        comprobar(IN::esInstantanea("tank/d@ayer"), "inst: con arroba lo es");
-        comprobar(!IN::esInstantanea("tank/d"), "inst: sin arroba no");
-        igual(IN::nombreDeInstantanea("tank/d", "ayer"), "tank/d@ayer", "inst: se compone");
-        igual(IN::nombreDeInstantanea("tank/d", "otro@ayer"), "otro@ayer",
+        comprobar(IN::isSnapshot("tank/d@ayer"), "inst: con arroba lo es");
+        comprobar(!IN::isSnapshot("tank/d"), "inst: sin arroba no");
+        igual(IN::snapshotName("tank/d", "ayer"), "tank/d@ayer", "inst: se compone");
+        igual(IN::snapshotName("tank/d", "otro@ayer"), "otro@ayer",
               "inst: si ya trae arroba, se respeta");
 
         // El alcance, con nombres en vez de letras sueltas.
-        igual(IN::letraDeAlcance(Al::Solo), "", "inst: solo, sin letra");
-        igual(IN::letraDeAlcance(Al::Descendientes), "r", "inst: descendientes es r");
-        igual(IN::letraDeAlcance(Al::Dependientes), "R", "inst: dependientes es R");
-        comprobar(!IN::arrastraOtros(Al::Solo), "inst: solo no arrastra");
-        comprobar(IN::arrastraOtros(Al::Dependientes), "inst: dependientes sí");
+        igual(IN::scopeFlag(Al::Only), "", "inst: solo, sin letra");
+        igual(IN::scopeFlag(Al::Descendants), "r", "inst: descendientes es r");
+        igual(IN::scopeFlag(Al::Dependents), "R", "inst: dependientes es R");
+        comprobar(!IN::reachesBeyondTarget(Al::Only), "inst: solo no arrastra");
+        comprobar(IN::reachesBeyondTarget(Al::Dependents), "inst: dependientes sí");
 
-        comprobar(IN::argvDestruir("tank/d@ayer", false)
+        comprobar(IN::argvDestroy("tank/d@ayer", false)
                       == std::vector<std::string>{"--mutate-zfs-destroy", "tank/d@ayer", "0", ""},
                   "inst: destruir una instantánea");
-        comprobar(IN::argvDestruir("tank/d", true, Al::Dependientes)
+        comprobar(IN::argvDestroy("tank/d", true, Al::Dependents)
                       == std::vector<std::string>{"--mutate-zfs-destroy", "tank/d", "1", "R"},
                   "inst: destruir un dataset con todo lo que dependa");
-        comprobar(IN::argvDestruir("", false).empty(), "inst: sin objeto no hay orden");
+        comprobar(IN::argvDestroy("", false).empty(), "inst: sin objeto no hay orden");
 
         // Rollback exige instantánea: volver atrás a un dataset no significa nada.
-        comprobar(IN::argvRollback("tank/d@ayer", false, Al::Descendientes)
+        comprobar(IN::argvRollback("tank/d@ayer", false, Al::Descendants)
                       == std::vector<std::string>{"--mutate-zfs-rollback", "tank/d@ayer", "0", "r"},
                   "inst: rollback con descendientes");
         comprobar(IN::argvRollback("tank/d", false).empty(),
                   "inst: rollback sobre un dataset no se manda");
 
-        comprobar(IN::argvClonar("tank/d@ayer", "tank/copia")
+        comprobar(IN::argvClone("tank/d@ayer", "tank/copia")
                       == std::vector<std::string>{"--mutate-zfs-clone", "tank/d@ayer", "tank/copia"},
                   "inst: clonar");
-        comprobar(IN::argvClonar("tank/d", "tank/copia").empty(),
+        comprobar(IN::argvClone("tank/d", "tank/copia").empty(),
                   "inst: clonar exige que el origen sea instantánea");
-        comprobar(IN::argvClonar("tank/d@ayer", "tank/copia@x").empty(),
+        comprobar(IN::argvClone("tank/d@ayer", "tank/copia@x").empty(),
                   "inst: y que el destino NO lo sea");
 
         // **La etiqueta va primero.** Invertirlos no da error: `zfs hold` acepta dos cadenas
         // cualesquiera y falla luego diciendo que no encuentra la instantánea «micopia».
-        comprobar(IN::argvRetener("micopia", "tank/d@ayer")
+        comprobar(IN::argvHold("micopia", "tank/d@ayer")
                       == std::vector<std::string>{"--mutate-zfs-hold", "micopia", "tank/d@ayer"},
                   "inst: retener, etiqueta primero");
-        comprobar(IN::argvSoltar("micopia", "tank/d@ayer")
+        comprobar(IN::argvRelease("micopia", "tank/d@ayer")
                       == std::vector<std::string>{"--mutate-zfs-release", "micopia", "tank/d@ayer"},
                   "inst: soltar, igual");
         // El verbo tipado NO admite -r; para eso está la forma genérica.
-        comprobar(IN::argvZfsRetener("micopia", "tank/d@ayer", true)
+        comprobar(IN::argvZfsHold("micopia", "tank/d@ayer", true)
                       == std::vector<std::string>{"hold", "-r", "micopia", "tank/d@ayer"},
                   "inst: retener recursivo va por el verbo genérico de zfs");
-        comprobar(IN::argvZfsRetener("micopia", "tank/d@ayer", false)
+        comprobar(IN::argvZfsHold("micopia", "tank/d@ayer", false)
                       == std::vector<std::string>{"hold", "micopia", "tank/d@ayer"},
                   "inst: y sin -r cuando no se pide");
 
-        comprobar(!IN::etiquetaValida("con espacio"), "inst: la etiqueta no lleva espacios");
-        comprobar(!IN::etiquetaValida("con@arroba"), "inst: ni arrobas");
-        comprobar(!IN::etiquetaValida("con/barra"), "inst: ni barras");
-        comprobar(!IN::etiquetaValida(""), "inst: ni vacía");
-        comprobar(IN::etiquetaValida("mi-copia_2024.1"), "inst: guiones y puntos sí");
-        comprobar(IN::argvRetener("mal etiqueta", "tank/d@ayer").empty(),
+        comprobar(!IN::isValidTag("con espacio"), "inst: la etiqueta no lleva espacios");
+        comprobar(!IN::isValidTag("con@arroba"), "inst: ni arrobas");
+        comprobar(!IN::isValidTag("con/barra"), "inst: ni barras");
+        comprobar(!IN::isValidTag(""), "inst: ni vacía");
+        comprobar(IN::isValidTag("mi-copia_2024.1"), "inst: guiones y puntos sí");
+        comprobar(IN::argvHold("mal etiqueta", "tank/d@ayer").empty(),
                   "inst: con etiqueta inválida no se manda nada");
-        comprobar(IN::argvRetener("ok", "tank/d").empty(),
+        comprobar(IN::argvHold("ok", "tank/d").empty(),
                   "inst: ni sobre algo que no es instantánea");
     }
 
@@ -3555,61 +3555,61 @@ int main() {
         // nombre SIN barra cambia la hoja y deja el dataset donde está. Sin ella, teclear
         // «fotos» manda `zfs rename tank/media/cine fotos` y ZFS responde «cannot create
         // 'fotos': missing dataset name», que no dice qué hay que hacer. Comprobado en vivo.
-        igual(DS::nombreDeRenombrado("tank/media/cine", "fotos"), "tank/media/fotos",
+        igual(DS::renamedName("tank/media/cine", "fotos"), "tank/media/fotos",
               "ds: sin barra, se conserva el padre");
-        igual(DS::nombreDeRenombrado("tank/media/cine", "tank/otro/fotos"), "tank/otro/fotos",
+        igual(DS::renamedName("tank/media/cine", "tank/otro/fotos"), "tank/otro/fotos",
               "ds: con barra, se mueve donde diga");
-        igual(DS::nombreDeRenombrado("tank", "otro"), "otro",
+        igual(DS::renamedName("tank", "otro"), "otro",
               "ds: un pool raíz no tiene padre que anteponer");
 
-        comprobar(DS::argvRenombrar("tank/d", "e")
+        comprobar(DS::argvRename("tank/d", "e")
                       == std::vector<std::string>{"rename", "tank/d", "tank/e"},
                   "ds: renombrar dentro del mismo padre");
-        comprobar(DS::argvRenombrar("tank/d", "d").empty(),
+        comprobar(DS::argvRename("tank/d", "d").empty(),
                   "ds: renombrar a lo mismo no es una orden");
-        comprobar(DS::argvRenombrar("tank/d", "con@arroba").empty(),
+        comprobar(DS::argvRename("tank/d", "con@arroba").empty(),
                   "ds: la arroba haría una instantánea");
 
-        comprobar(DS::nombreValido("tank/d_1-2.3:x"), "ds: nombre corriente");
-        comprobar(!DS::nombreValido("tank/"), "ds: no puede acabar en barra");
-        comprobar(!DS::nombreValido("/tank"), "ds: ni empezar");
-        comprobar(!DS::nombreValido("tank//d"), "ds: ni llevar barra doble");
-        comprobar(!DS::nombreValido("con espacio"), "ds: ni espacios");
+        comprobar(DS::isValidName("tank/d_1-2.3:x"), "ds: nombre corriente");
+        comprobar(!DS::isValidName("tank/"), "ds: no puede acabar en barra");
+        comprobar(!DS::isValidName("/tank"), "ds: ni empezar");
+        comprobar(!DS::isValidName("tank//d"), "ds: ni llevar barra doble");
+        comprobar(!DS::isValidName("con espacio"), "ds: ni espacios");
 
-        igual(DS::nombreDeHijo("tank/d", "sub"), "tank/d/sub", "ds: hijo");
-        igual(DS::nombreDeHijo("tank/d", "otro/sub"), "otro/sub", "ds: con barra se respeta");
+        igual(DS::childName("tank/d", "sub"), "tank/d/sub", "ds: hijo");
+        igual(DS::childName("tank/d", "otro/sub"), "otro/sub", "ds: con barra se respeta");
 
-        comprobar(DS::argvCrear("tank/d") == std::vector<std::string>{"create", "tank/d"},
+        comprobar(DS::argvCreate("tank/d") == std::vector<std::string>{"create", "tank/d"},
                   "ds: crear a secas");
-        comprobar(DS::argvCrear("tank/a/b/c", {}, true)
+        comprobar(DS::argvCreate("tank/a/b/c", {}, true)
                       == std::vector<std::string>{"create", "-p", "tank/a/b/c"},
                   "ds: con -p se crean los intermedios");
-        comprobar(DS::argvCrear("tank/d", {"compression=lz4", "atime=off"})
+        comprobar(DS::argvCreate("tank/d", {"compression=lz4", "atime=off"})
                       == std::vector<std::string>{"create", "-o", "compression=lz4", "-o",
                                                   "atime=off", "tank/d"},
                   "ds: cada propiedad con su -o");
         // Sin «=» no es una propiedad: zfs la leería como el nombre del dataset.
-        comprobar(DS::argvCrear("tank/d", {"basura"})
+        comprobar(DS::argvCreate("tank/d", {"basura"})
                       == std::vector<std::string>{"create", "tank/d"},
                   "ds: lo que no es prop=valor se descarta");
 
-        comprobar(DS::argvMontar("tank/d", true)
+        comprobar(DS::argvMount("tank/d", true)
                       == std::vector<std::string>{"mount", "-f", "tank/d"}, "ds: montar forzando");
-        comprobar(DS::argvDesmontar("tank/d")
+        comprobar(DS::argvUnmount("tank/d")
                       == std::vector<std::string>{"unmount", "tank/d"}, "ds: desmontar");
-        comprobar(DS::argvPromover("tank/d") == std::vector<std::string>{"promote", "tank/d"},
+        comprobar(DS::argvPromote("tank/d") == std::vector<std::string>{"promote", "tank/d"},
                   "ds: promover");
 
-        comprobar(DS::argvPonerPropiedad("tank/d", "atime", "off")
+        comprobar(DS::argvSetProperty("tank/d", "atime", "off")
                       == std::vector<std::string>{"set", "atime=off", "tank/d"},
                   "ds: poner una propiedad");
         // Un valor vacío es legítimo; una propiedad con «=» dentro no.
-        comprobar(DS::argvPonerPropiedad("tank/d", "org.x:nota", "")
+        comprobar(DS::argvSetProperty("tank/d", "org.x:nota", "")
                       == std::vector<std::string>{"set", "org.x:nota=", "tank/d"},
                   "ds: el valor sí puede ir vacío");
-        comprobar(DS::argvPonerPropiedad("tank/d", "a=b", "c").empty(),
+        comprobar(DS::argvSetProperty("tank/d", "a=b", "c").empty(),
                   "ds: la propiedad no puede llevar «=» dentro");
-        comprobar(DS::argvHeredarPropiedad("tank/d", "atime")
+        comprobar(DS::argvInheritProperty("tank/d", "atime")
                       == std::vector<std::string>{"inherit", "atime", "tank/d"},
                   "ds: heredar");
     }

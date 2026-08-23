@@ -787,13 +787,13 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         recursiveMode = QStringLiteral("r");
     }
     const bool recursive = recursiveCb->isChecked() || recursiveDestroyCb->isChecked();
-    // El argv sale de `commands::instantaneas`, que además pone bien el ALCANCE.
+    // El argv sale de `commands::snapshots`, que además pone bien el ALCANCE.
     //
     // Aquí se pasaba la cadena «none» cuando no había recursividad, y funcionaba por
     // casualidad: el daemon solo mira si el valor es «r» o «R», así que cualquier otra cosa
     // significa «ninguno». El módulo devuelve la cadena vacía, que es lo que el verbo espera.
-    const QStringList argvDestruir =
-        mwhelpers::argvDestruir(target, force, recursiveDestroyCb->isChecked()
+    const QStringList argvDestroy =
+        mwhelpers::argvDestroy(target, force, recursiveDestroyCb->isChecked()
                                                    ? true
                                                    : recursiveCb->isChecked());
     const QString cmd = mwhelpers::cadenaDeArgv(
@@ -810,8 +810,8 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     if (!requireDaemonForMutation(ctx.connIdx, QStringLiteral("borrar"))) {
         return;
     }
-    // **Un DATASET no pasaba nunca por verbo tipado.** `argvDestruir` sale de
-    // `commands::instantaneas` y solo compone el verbo de instantáneas, así que la condición
+    // **Un DATASET no pasaba nunca por verbo tipado.** `argvDestroy` sale de
+    // `commands::snapshots` y solo compone el verbo de instantáneas, así que la condición
     // `target.contains('@')` mandaba a shell todo borrado de dataset —con `-R`, que arrastra
     // clones y descendientes—. Ahora va por `--mutate-zfs-generic destroy`, que el daemon
     // ejecuta con execvp: mismo camino, mismas banderas, sin intérprete.
@@ -819,8 +819,8 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     const QStringList argvGenerico =
         QStringList{QStringLiteral("destroy")} + flags + QStringList{target};
     const QStringList daemonArgv =
-        (target.contains(QLatin1Char('@')) && !argvDestruir.isEmpty())
-            ? argvDestruir
+        (target.contains(QLatin1Char('@')) && !argvDestroy.isEmpty())
+            ? argvDestroy
             : daemonizeZfsMutationArgs(ctx.connIdx, argvGenerico);
     if (!daemonArgv.isEmpty()) {
         // Renderizado a cadena porque este camino lo mete dentro de una orden de shell que

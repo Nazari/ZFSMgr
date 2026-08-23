@@ -66,6 +66,6 @@ using Avisos = std::vector<Aviso>;
 // El castellano de reserva de un aviso, con sus datos ya puestos, para quien no tenga
 // catálogo propio. La interfaz y el intérprete tienen el suyo y lo redactan a su manera;
 // esto evita que un motivo nuevo salga como un número o, peor, en silencio.
-std::string etiquetaDe(const Aviso& a);
+std::string labelOf(const Aviso& a);
 
 }  // namespace zfsmgr::base::store

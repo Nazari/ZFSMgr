@@ -30,7 +30,7 @@ std::string leeFicheroEntero(const std::string& ruta) {
 
 }  // namespace
 
-std::string etiquetaDe(Fallo f) {
+std::string labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:
             return "sin fallo";

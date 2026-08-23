@@ -2,7 +2,7 @@
 
 namespace zfsmgr::base::dosextremos {
 
-const char* claveDe(Accion a) {
+const char* keyOf(Accion a) {
     switch (a) {
         case Accion::Diff:        return "diff";
         case Accion::Clonar:      return "clonar";
@@ -14,7 +14,7 @@ const char* claveDe(Accion a) {
     return "";
 }
 
-std::string etiquetaDe(Accion a) {
+std::string labelOf(Accion a) {
     switch (a) {
         case Accion::Diff:        return "Comparar";
         case Accion::Clonar:      return "Clonar aquí";
@@ -26,7 +26,7 @@ std::string etiquetaDe(Accion a) {
     return {};
 }
 
-std::string etiquetaDe(NoAplica n) {
+std::string labelOf(NoAplica n) {
     switch (n) {
         case NoAplica::Ninguna:
             return {};
@@ -70,7 +70,7 @@ NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
             if (origen.conexion != destino.conexion) {
                 return NoAplica::DistintaMaquina;
             }
-            if (!origen.esInstantanea()) {
+            if (!origen.isSnapshot()) {
                 return NoAplica::OrigenNoEsInstantanea;
             }
             if (origen.dataset() != destino.dataset()) {
@@ -84,10 +84,10 @@ NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
             if (origen.conexion != destino.conexion) {
                 return NoAplica::DistintaMaquina;
             }
-            if (!origen.esInstantanea()) {
+            if (!origen.isSnapshot()) {
                 return NoAplica::OrigenNoEsInstantanea;
             }
-            if (destino.esInstantanea()) {
+            if (destino.isSnapshot()) {
                 return NoAplica::DestinoNoEsDataset;
             }
             return NoAplica::Ninguna;
@@ -104,10 +104,10 @@ NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
             if (origen.conexion != destino.conexion) {
                 return NoAplica::DistintaMaquina;
             }
-            if (origen.esInstantanea()) {
+            if (origen.isSnapshot()) {
                 return NoAplica::OrigenNoEsDataset;
             }
-            if (destino.esInstantanea()) {
+            if (destino.isSnapshot()) {
                 return NoAplica::DestinoNoEsDataset;
             }
             if (origen.pool() != destino.pool()) {

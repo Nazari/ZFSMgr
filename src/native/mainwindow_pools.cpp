@@ -431,7 +431,7 @@ void MainWindow::exportPoolFromRow(int row) {
             // `zpool export -a`: sin pool. No pasa por el módulo, que exige uno.
             argvPool << QStringLiteral("export") << banderas;
         } else {
-            argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Export, objetivo,
+            argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Export, objetivo,
                                            banderas);
         }
         if (argvPool.isEmpty()) {
@@ -1022,7 +1022,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         // Importar RENOMBRANDO: `zpool import <origen> <nuevo>`. El nombre nuevo se valida
         // con la misma regla que usan el intérprete y el servidor web —empieza por letra y
         // solo lleva letras, dígitos y `_-.:`—, que vive en `commands::pools`.
-        if (!zfsmgr::commands::pools::nombreDePoolValido(
+        if (!zfsmgr::commands::pools::isValidPoolName(
                 newNameEd->text().trimmed().toStdString())) {
             return QString();
         }
@@ -1268,7 +1268,7 @@ void MainWindow::scrubPoolFromRow(int row) {
         banderas << extraEd->text().trimmed();
     }
     const QStringList argvPool =
-        mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Scrub, poolName, banderas);
+        mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Scrub, poolName, banderas);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"), QStringLiteral("Scrub: argumentos no válidos para %1").arg(poolName));
         return;
@@ -1410,7 +1410,7 @@ void MainWindow::upgradePoolFromRow(int row) {
         if (!extraEd->text().trimmed().isEmpty()) {
             banderas << extraEd->text().trimmed();
         }
-        argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Upgrade, poolName,
+        argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Upgrade, poolName,
                                        banderas);
         if (argvPool.isEmpty()) {
             appLog(QStringLiteral("WARN"),
@@ -1535,7 +1535,7 @@ void MainWindow::reguidPoolFromRow(int row) {
         banderas << extraEd->text().trimmed();
     }
     const QStringList argvPool =
-        mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Reguid, poolName, banderas);
+        mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Reguid, poolName, banderas);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"), QStringLiteral("Reguid: argumentos no válidos para %1").arg(poolName));
         return;
@@ -1670,7 +1670,7 @@ void MainWindow::clearPoolFromRow(int row) {
         discos << dev;
     }
     const QStringList argvPool = mwhelpers::argvPool(
-        zfsmgr::commands::pools::Operacion::Clear, poolName, banderas, discos);
+        zfsmgr::commands::pools::Operation::Clear, poolName, banderas, discos);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Clear: argumentos no válidos para %1").arg(poolName));
@@ -1826,7 +1826,7 @@ void MainWindow::destroyPoolFromRow(int row) {
         banderas << extraEd->text().trimmed();
     }
     const QStringList argvPool =
-        mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Destroy, poolName, banderas);
+        mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Destroy, poolName, banderas);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"), QStringLiteral("Destroy: argumentos no válidos para %1").arg(poolName));
         return;
@@ -1970,7 +1970,7 @@ void MainWindow::syncPoolFromRow(int row) {
         if (objetivo.isEmpty()) {
             argvPool << QStringLiteral("sync") << banderas;
         } else {
-            argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operacion::Sync, objetivo,
+            argvPool = mwhelpers::argvPool(zfsmgr::commands::pools::Operation::Sync, objetivo,
                                            banderas);
         }
         if (argvPool.isEmpty()) {
@@ -2159,7 +2159,7 @@ void MainWindow::trimPoolFromRow(int row) {
         discos << dev;
     }
     const QStringList argvPool = mwhelpers::argvPool(
-        zfsmgr::commands::pools::Operacion::Trim, poolName, banderas, discos);
+        zfsmgr::commands::pools::Operation::Trim, poolName, banderas, discos);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Trim: argumentos no válidos para %1").arg(poolName));
@@ -2322,7 +2322,7 @@ void MainWindow::initializePoolFromRow(int row) {
         discos << dev;
     }
     const QStringList argvPool = mwhelpers::argvPool(
-        zfsmgr::commands::pools::Operacion::Initialize, poolName, banderas, discos);
+        zfsmgr::commands::pools::Operation::Initialize, poolName, banderas, discos);
     if (argvPool.isEmpty()) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Initialize: argumentos no válidos para %1").arg(poolName));

@@ -9,7 +9,7 @@ std::string con(const std::string& base, const std::string& detalle) {
 
 }  // namespace
 
-std::string etiquetaDe(const Aviso& a) {
+std::string labelOf(const Aviso& a) {
     switch (a.motivo) {
         case Motivo::Ninguno:
             return {};

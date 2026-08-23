@@ -74,7 +74,7 @@ std::vector<std::string> Peticion::campos(const std::string& nombre) const {
     return out;
 }
 
-Peticion analiza(const std::string& crudo) {
+Peticion parse(const std::string& crudo) {
     Peticion p;
     const std::size_t finCabeceras = crudo.find("\r\n\r\n");
     if (finCabeceras == std::string::npos) {

@@ -39,7 +39,7 @@ struct Vista {
 // Interpreta la salida de `--dump-peers`: una línea `SELF\t<id>` y luego
 // `<id>\t<host>\t<puerto>` por par. Tolera que no venga la de SELF, porque un daemon
 // anterior a este cambio no la emite.
-Vista analiza(const std::string& salida);
+Vista parse(const std::string& salida);
 
 enum class Fallo {
     Ninguno,
@@ -66,7 +66,7 @@ struct Entrega {
 Entrega componeEntrega(const std::vector<ConnectionProfile>& perfiles,
                        const std::string& destino);
 
-std::string etiquetaDe(Fallo f);
+std::string labelOf(Fallo f);
 
 // Las tres direcciones que el daemon admite para escuchar.
 //

@@ -116,7 +116,7 @@ std::string versionEnBinario(const std::string& ruta) {
             ++i;
         }
         const std::string tramo = blob.substr(ini, i - ini);
-        // Solo la forma completa: «may.men.par.sufijo». Tres números son la versión de la
+        // Only la forma completa: «may.men.par.sufijo». Tres números son la versión de la
         // aplicación, no la del agente, y confundirlas daría un aviso falso.
         if (tramo == esperada) {
             return tramo;

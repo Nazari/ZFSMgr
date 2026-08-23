@@ -39,7 +39,7 @@ struct Pool {
 // hay ningún pool.
 bool pools(const std::string& salida, std::vector<Pool>& out, std::string& error);
 
-struct Entrada {
+struct Entry {
     std::string nombre;
     std::string guid;
     std::string usado;
@@ -51,7 +51,7 @@ struct Entrada {
     std::string puntoMontaje;
     std::string canmount;
 
-    bool esInstantanea() const { return nombre.find('@') != std::string::npos; }
+    bool isSnapshot() const { return nombre.find('@') != std::string::npos; }
 };
 
 // De `--dump-zfs-list-all`: TSV con diez columnas en este orden —name, guid, used,
@@ -60,7 +60,7 @@ struct Entrada {
 // Una línea con menos de diez columnas se SALTA en vez de rellenar con vacíos: un punto de
 // montaje con un tabulador dentro rompería el reparto, y preferimos perder la fila a
 // enseñar los campos corridos.
-std::vector<Entrada> entradas(const std::string& salidaTsv);
+std::vector<Entry> entradas(const std::string& salidaTsv);
 
 struct Propiedad {
     std::string nombre;

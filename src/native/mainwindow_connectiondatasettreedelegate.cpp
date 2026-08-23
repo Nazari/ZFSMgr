@@ -3063,7 +3063,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 rollbackFlags.push_back(QStringLiteral("-r"));
                 rollbackRecursiveMode = QStringLiteral("r");
             }
-            // La orden se compone desde `commands::instantaneas`, que además comprueba que
+            // La orden se compone desde `commands::snapshots`, que además comprueba que
             // el objetivo SEA una instantánea —volver atrás a un dataset no significa nada—.
             //
             // Y de paso desaparece un entrecomillado a mano: aquí se ponían los apóstrofos

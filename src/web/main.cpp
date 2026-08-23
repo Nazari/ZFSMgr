@@ -18,7 +18,7 @@
 #include "peers.h"
 #include "avanzadas.h"
 #include "pools.h"
-#include "instantaneas.h"
+#include "snapshots.h"
 #include "datasets.h"
 #include "gsa.h"
 #include "i18n.h"
@@ -67,7 +67,7 @@ namespace AV = zfsmgr::commands::avanzadas;
 namespace PL = zfsmgr::commands::pools;
 // `INST` y no `IN`: en Windows `IN` es un MACRO de `windows.h`, y
 // `namespace IN = …` no compila allí. Lo cazó el cruce de MinGW.
-namespace INST = zfsmgr::commands::instantaneas;
+namespace INST = zfsmgr::commands::snapshots;
 namespace DS = zfsmgr::commands::datasets;
 
 namespace D = zfsmgr::web::dav;
@@ -175,8 +175,8 @@ details > summary::before { content: "\25B8"; color: var(--tenue); display: inli
                             width: 1em; transition: transform .12s; }
 details[open] > summary::before { transform: rotate(90deg); }
 div.rama { margin-left: 1.1rem; padding-left: .6rem; border-left: 1px solid var(--borde); }
-ul.instantaneas { list-style: none; margin: .1rem 0 .3rem; padding: 0; font-size: .88rem; }
-ul.instantaneas li { padding: .1rem 0; color: var(--tenue); }
+ul.snapshots { list-style: none; margin: .1rem 0 .3rem; padding: 0; font-size: .88rem; }
+ul.snapshots li { padding: .1rem 0; color: var(--tenue); }
 details.menu { display: inline-block; margin: .1rem 0 .35rem; }
 details.menu > summary { font-size: .82rem; color: var(--tenue); }
 div.dos { display: grid; grid-template-columns: minmax(230px, 26%) 1fr; gap: 0 1.5rem;
@@ -413,7 +413,7 @@ std::string tabla(const std::vector<std::string>& cabeceras,
         h += "<tr>";
         for (const std::string& c : f) {
             // OJO: las celdas llegan YA compuestas —algunas traen un enlace—, así que aquí
-            // no se escapa. Quien las compone es responsable de escapar lo que venga de
+            // no se escapa. Who las compone es responsable de escapar lo que venga de
             // fuera, y por eso `enlace()` escapa sus dos partes.
             h += "<td>" + c + "</td>";
         }
@@ -560,7 +560,7 @@ bool montajeDeDataset(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perf
         || rc != 0) {
         return false;
     }
-    for (const L::Entrada& e : L::entradas(salida)) {
+    for (const L::Entry& e : L::entradas(salida)) {
         if (e.nombre == ds) {
             montado = (e.montado == "yes");
             punto = e.puntoMontaje;
@@ -1078,16 +1078,16 @@ Vista vistaDesde(const std::string& s) {
 // El listado, ordenado por parentesco. Se construye una vez por petición y lo consultan
 // tanto el árbol como el panel.
 struct Arbol {
-    std::map<std::string, std::vector<L::Entrada>> hijos;
-    std::map<std::string, std::vector<L::Entrada>> instantaneas;
-    std::map<std::string, L::Entrada> porNombre;
+    std::map<std::string, std::vector<L::Entry>> hijos;
+    std::map<std::string, std::vector<L::Entry>> snapshots;
+    std::map<std::string, L::Entry> porNombre;
 };
 
-Arbol construyeArbol(const std::vector<L::Entrada>& entradas, const std::string& raiz) {
+Arbol construyeArbol(const std::vector<L::Entry>& entradas, const std::string& raiz) {
     Arbol a;
-    for (const L::Entrada& e : entradas) {
-        if (e.esInstantanea()) {
-            a.instantaneas[e.nombre.substr(0, e.nombre.find('@'))].push_back(e);
+    for (const L::Entry& e : entradas) {
+        if (e.isSnapshot()) {
+            a.snapshots[e.nombre.substr(0, e.nombre.find('@'))].push_back(e);
             continue;
         }
         a.porNombre[e.nombre] = e;
@@ -1180,8 +1180,8 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
         if (itE->second.montado != "yes") {
             h += " · sin montar";
         }
-        const auto itS = arbol.instantaneas.find(nodo);
-        if (itS != arbol.instantaneas.end() && !itS->second.empty()) {
+        const auto itS = arbol.snapshots.find(nodo);
+        if (itS != arbol.snapshots.end() && !itS->second.empty()) {
             h += " · " + std::to_string(itS->second.size()) + "@";
         }
         h += "</span>";
@@ -1190,7 +1190,7 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
         return h + "</div>";
     }
     h += "</summary><div class=\"rama\">";
-    for (const L::Entrada& hijo : itH->second) {
+    for (const L::Entry& hijo : itH->second) {
         h += ramaDelArbol(conn, raiz, hijo.nombre, arbol, sel, profundidad + 1);
     }
     h += "</div></details>";
@@ -1245,7 +1245,7 @@ std::string panelArbol(const std::vector<B::ConnectionProfile>& perfiles,
                     // repetir un nodo «fc16» dentro de otro nodo «fc16».
                     const auto itR = arbol.hijos.find(raiz);
                     if (itR != arbol.hijos.end()) {
-                        for (const L::Entrada& hijo : itR->second) {
+                        for (const L::Entry& hijo : itR->second) {
                             h += ramaDelArbol(conn, raiz, hijo.nombre, arbol, sel, 1);
                         }
                     }
@@ -1420,7 +1420,7 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
     for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar,
                                DX::Accion::Mover, DX::Accion::Sincronizar, DX::Accion::Nivelar}) {
         const DX::NoAplica porQue = DX::compruebo(a, origen, destino);
-        const std::string etiqueta = DX::etiquetaDe(a);
+        const std::string etiqueta = DX::labelOf(a);
         // Copiar y Nivelar SÍ se pueden, si el plan de transferencia lo dice. El motivo de
         // que no —un extremo Windows, un ZFS viejo, un daemon sin trabajos— sale del plan,
         // que es quien lo sabe, y no de una lista escrita aquí.
@@ -1440,7 +1440,7 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                      + H::escapaHtml(sel) + "</span></div>";
             } else {
                 h += "<div class=\"engris\">" + H::escapaHtml(etiqueta)
-                     + " <span class=\"tenue\">— " + H::escapaHtml(SY::etiquetaDe(falloSync))
+                     + " <span class=\"tenue\">— " + H::escapaHtml(SY::labelOf(falloSync))
                      + "</span></div>";
             }
             continue;
@@ -1475,12 +1475,12 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                 continue;
             }
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
-                 + H::escapaHtml(TR::etiquetaDe(plan.fallo)) + "</span></div>";
+                 + H::escapaHtml(TR::labelOf(plan.fallo)) + "</span></div>";
             continue;
         }
         if (porQue != DX::NoAplica::Ninguna) {
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
-                 + H::escapaHtml(DX::etiquetaDe(porQue)) + "</span></div>";
+                 + H::escapaHtml(DX::labelOf(porQue)) + "</span></div>";
             continue;
         }
         if (a == DX::Accion::Diff) {
@@ -1523,7 +1523,7 @@ std::vector<std::string> hijosDirectosDe(const Arbol& arbol, const std::string& 
     if (it == arbol.hijos.end()) {
         return out;
     }
-    for (const L::Entrada& hijo : it->second) {
+    for (const L::Entry& hijo : it->second) {
         const std::size_t barra = hijo.nombre.rfind('/');
         out.push_back(barra == std::string::npos ? hijo.nombre : hijo.nombre.substr(barra + 1));
     }
@@ -1531,7 +1531,7 @@ std::vector<std::string> hijosDirectosDe(const Arbol& arbol, const std::string& 
 }
 
 std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
-                              const std::string& ds, const L::Entrada* e,
+                              const std::string& ds, const L::Entry* e,
                               const DX::Extremo& origen, const TR::Plan& plan,
                               SY::Fallo falloSync, const std::string& testigo,
                               const std::vector<std::string>& hijos, bool esWindows,
@@ -1654,7 +1654,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
         h += grupoDeAcciones(T("t_web_as_grupo", "Ensamblar"), en);
     }
 
-    // Hacia Dir: vuelca el dataset a un directorio corriente. Solo en Unix — el verbo del
+    // Hacia Dir: vuelca el dataset a un directorio corriente. Only en Unix — el verbo del
     // daemon está entre `#ifndef _WIN32` porque usa el montaje alternativo, que allí no
     // existe. Decirlo vale más que ofrecerlo y que falle.
     if (esWindows) {
@@ -1802,11 +1802,11 @@ std::string accionesDePool(const std::string& conn, const std::string& pool,
 // sale gratis y aquello cuesta una llamada.
 std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
     const auto it = arbol.porNombre.find(objeto);
-    const L::Entrada* e = it != arbol.porNombre.end() ? &it->second : nullptr;
+    const L::Entry* e = it != arbol.porNombre.end() ? &it->second : nullptr;
     if (e == nullptr && objeto.find('@') != std::string::npos) {
-        const auto its = arbol.instantaneas.find(objeto.substr(0, objeto.find('@')));
-        if (its != arbol.instantaneas.end()) {
-            for (const L::Entrada& s : its->second) {
+        const auto its = arbol.snapshots.find(objeto.substr(0, objeto.find('@')));
+        if (its != arbol.snapshots.end()) {
+            for (const L::Entry& s : its->second) {
                 if (s.nombre == objeto) {
                     e = &s;
                     break;
@@ -1826,16 +1826,16 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
         {"Cifrado", e->cifrado},
         {T("t_web_creacion_4e62d9", "Creación"), fechaLegible(e->creacion)},
     };
-    if (!e->esInstantanea()) {
+    if (!e->isSnapshot()) {
         datos.push_back({"Montado", e->montado});
         datos.push_back({T("t_web_punto_de_monta_70570c", "Punto de montaje"), e->puntoMontaje});
         datos.push_back({"canmount", e->canmount});
         const auto ith = arbol.hijos.find(e->nombre);
         datos.push_back({"Datasets hijos",
                          std::to_string(ith == arbol.hijos.end() ? 0 : ith->second.size())});
-        const auto its = arbol.instantaneas.find(e->nombre);
+        const auto its = arbol.snapshots.find(e->nombre);
         datos.push_back({"Instantáneas",
-                         std::to_string(its == arbol.instantaneas.end() ? 0 : its->second.size())});
+                         std::to_string(its == arbol.snapshots.end() ? 0 : its->second.size())});
     }
     return fichaDeDatos(datos);
 }
@@ -1893,7 +1893,7 @@ std::string paginaTrabajoLanzado(const std::string& conn, const std::string& ori
                            T("t_jobs_tab_001", "Transferencias"))
                   + "</p>";
     } else {
-        cuerpo += "<p>" + H::escapaHtml(TR::etiquetaDe(t.fallo)) + "</p>";
+        cuerpo += "<p>" + H::escapaHtml(TR::labelOf(t.fallo)) + "</p>";
         if (!t.detalle.empty()) {
             cuerpo += "<pre>" + H::escapaHtml(t.detalle) + "</pre>";
         }
@@ -1967,12 +1967,12 @@ std::string paginaColeccionDav(const std::string& ruta, const std::vector<D::Rec
 std::string panelPermisos(const std::string& conn, const std::string& raiz,
                           const std::string& ds, const std::string& salida,
                           const std::string& testigo) {
-    const auto entradas = ZA::analiza(salida);
+    const auto entradas = ZA::parse(salida);
     std::vector<std::vector<std::string>> filas;
     for (std::size_t i = 0; i < entradas.size(); ++i) {
-        const ZA::Entrada& e = entradas[i];
+        const ZA::Entry& e = entradas[i];
         std::string permisos;
-        for (const std::string& p : e.permisos) {
+        for (const std::string& p : e.permissions) {
             if (!permisos.empty()) {
                 permisos += ", ";
             }
@@ -1981,10 +1981,10 @@ std::string panelPermisos(const std::string& conn, const std::string& raiz,
         // Para retirar hace falta decir EXACTAMENTE la misma entrada, así que se manda su
         // índice y el servidor la vuelve a leer. Mandar los campos sueltos por el
         // formulario dejaría que una recarga vieja retirara algo que ya no es lo mismo.
-        filas.push_back({H::escapaHtml(ZA::etiquetaDe(e.quien)),
-                         H::escapaHtml(e.nombre.empty() ? std::string("—") : e.nombre),
+        filas.push_back({H::escapaHtml(ZA::labelOf(e.who)),
+                         H::escapaHtml(e.name.empty() ? std::string("—") : e.name),
                          permisos,
-                         H::escapaHtml(ZA::etiquetaDe(e.alcance)),
+                         H::escapaHtml(ZA::labelOf(e.scope)),
                          boton(conn, ds, raiz, "quitar-permiso", T("t_web_quitar", "Quitar"),
                                testigo,
                                "<input type=\"hidden\" name=\"idx\" value=\"" + std::to_string(i)
@@ -2008,19 +2008,19 @@ std::string panelPermisos(const std::string& conn, const std::string& raiz,
     std::string f = "<div class=\"fila\">";
     f += "<label class=\"campo\">" + H::escapaHtml(T("t_web_a_quien", "A quién"))
          + " <select name=\"quien\">";
-    for (const ZA::Quien q : {ZA::Quien::Usuario, ZA::Quien::Grupo, ZA::Quien::Todos}) {
-        f += "<option value=\"" + std::string(ZA::claveDe(q)) + "\">"
-             + H::escapaHtml(ZA::etiquetaDe(q)) + "</option>";
+    for (const ZA::Who q : {ZA::Who::User, ZA::Who::Group, ZA::Who::Everyone}) {
+        f += "<option value=\"" + std::string(ZA::keyOf(q)) + "\">"
+             + H::escapaHtml(ZA::labelOf(q)) + "</option>";
     }
     f += "</select></label>";
     f += "<label class=\"campo\">" + H::escapaHtml(T("t_poolcrt_auto004", "Nombre"))
          + " <input name=\"nombre\" placeholder=\"linarese\"></label>";
     f += "<label class=\"campo\">" + H::escapaHtml(T("t_web_alcance", "Alcance"))
          + " <select name=\"alcance\">";
-    for (const ZA::Alcance a : {ZA::Alcance::LocalYDescendientes, ZA::Alcance::Local,
-                                ZA::Alcance::Descendientes, ZA::Alcance::AlCrear}) {
-        f += "<option value=\"" + std::string(ZA::claveDe(a)) + "\">"
-             + H::escapaHtml(ZA::etiquetaDe(a)) + "</option>";
+    for (const ZA::Scope a : {ZA::Scope::LocalAndDescendants, ZA::Scope::Local,
+                                ZA::Scope::Descendants, ZA::Scope::OnCreate}) {
+        f += "<option value=\"" + std::string(ZA::keyOf(a)) + "\">"
+             + H::escapaHtml(ZA::labelOf(a)) + "</option>";
     }
     f += "</select></label></div>";
     f += "<div class=\"fila\"><label class=\"campo\">"
@@ -2143,13 +2143,13 @@ std::string panelDiff(const std::string& salida, const std::string& desde,
 std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const Arbol& arbol,
                               const std::string& salidaHolds, const std::string& testigo) {
-    const auto itS = arbol.instantaneas.find(ds);
-    if (itS == arbol.instantaneas.end() || itS->second.empty()) {
+    const auto itS = arbol.snapshots.find(ds);
+    if (itS == arbol.snapshots.end() || itS->second.empty()) {
         return "<p class=\"vacio\">(este dataset no tiene instantáneas)</p>";
     }
     std::vector<std::string> cortos;
-    std::map<std::string, const L::Entrada*> porCorto;
-    for (const L::Entrada& e : itS->second) {
+    std::map<std::string, const L::Entry*> porCorto;
+    for (const L::Entry& e : itS->second) {
         const std::string corto = e.nombre.substr(e.nombre.find('@') + 1);
         cortos.push_back(corto);
         porCorto[corto] = &e;
@@ -2256,7 +2256,7 @@ std::string panelRegistroDaemon(const std::string& crudo, std::size_t cuantas) {
 // par uno mismo. Pasó de verdad en esta instalación.
 std::string panelPares(const std::string& crudo, const std::string& conn,
                        const std::string& testigo, bool daemonVivo) {
-    const PR::Vista v = PR::analiza(crudo);
+    const PR::Vista v = PR::parse(crudo);
     std::string h;
     if (v.self.empty()) {
         // Dos causas y no se distinguen desde aquí: que no lo tenga puesto, o que su daemon
@@ -2327,7 +2327,7 @@ std::string panelTrabajos(const std::string& crudo, const std::string& conn,
             continue;
         }
         const std::string estado = j["state"].toString();
-        // Solo se ofrece cancelar lo que puede cancelarse.
+        // Only se ofrece cancelar lo que puede cancelarse.
         //
         // Un trabajo terminado, fallado o ya cancelado no tiene nada que parar, y un botón
         // que no hace nada es peor que ninguno: quien lo pulsa cree que ha pasado algo. El
@@ -2849,7 +2849,7 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
         perfilOrigen, perfilDestino, plan.rutaOrigen, plan.rutaDestino, mismaConexion, verboso,
         /*comoTrabajo=*/!enSeco, borrar, enSeco, &salidaEnvio);
     if (hecho.fallo != TR::FalloTrabajo::Ninguno) {
-        err = TR::etiquetaDe(hecho.fallo)
+        err = TR::labelOf(hecho.fallo)
               + (hecho.detalle.empty() ? std::string() : ": " + hecho.detalle);
         return false;
     }
@@ -3150,7 +3150,7 @@ std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::R
         cuerpo += "<p>Daemon instalado en «" + H::escapaHtml(conn) + "», versión "
                   + H::escapaHtml(res.version) + ".</p>";
     } else {
-        cuerpo += "<p>No se pudo: " + H::escapaHtml(B::daemoninstall::etiquetaDe(res.fallo));
+        cuerpo += "<p>No se pudo: " + H::escapaHtml(B::daemoninstall::labelOf(res.fallo));
         if (res.rc != 0) {
             cuerpo += " (código " + std::to_string(res.rc) + ")";
         }
@@ -3280,7 +3280,7 @@ int main(int argc, char** argv) {
         if (!ST::maestraAbreTodo(op.dirConfig, maestra, aviso)) {
             std::fprintf(stderr, TC("t_web_maestra_mal",
                                 "la contraseña maestra no abre la configuración: %s\n"),
-                         ST::etiquetaDe(aviso).c_str());
+                         ST::labelOf(aviso).c_str());
             return 2;
         }
     }
@@ -3420,7 +3420,7 @@ int main(int argc, char** argv) {
 
     const auto atiende = [&](const std::string& crudo, std::string& respuesta) {
         ficheroPedido = FicheroPedido{};
-        const H::Peticion p = H::analiza(crudo);
+        const H::Peticion p = H::parse(crudo);
         // El idioma de ESTA petición. Se pone en cada una porque el catálogo es global al
         // proceso y el servidor atiende de una en una: dejarlo puesto de la anterior
         // serviría la página en el idioma de otro navegador.
@@ -3451,7 +3451,7 @@ int main(int argc, char** argv) {
                     quiere = H::desdeUrl(par.substr(i + 1));
                 }
             }
-            // Solo los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
+            // Only los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
             // guardarse: una cookie con basura dentro dejaría la página en castellano sin
             // que se entienda por qué.
             if (quiere != "es" && quiere != "en" && quiere != "zh") {
@@ -3546,7 +3546,7 @@ int main(int argc, char** argv) {
         // --- WebDAV. La misma escucha y la misma sesión: lo que monta el explorador de
         // archivos es este mismo servidor, no otro.
         //
-        // Solo LECTURA: OPTIONS, PROPFIND, GET y HEAD. Sin LOCK ni PUT — montar esto en
+        // Only LECTURA: OPTIONS, PROPFIND, GET y HEAD. Sin LOCK ni PUT — montar esto en
         // escritura es otra conversación.
         if (p.ruta == "/dav" || p.ruta.rfind("/dav/", 0) == 0) {
             if (p.metodo == "OPTIONS") {
@@ -3660,7 +3660,7 @@ int main(int argc, char** argv) {
                     // Los hijos DIRECTOS: `--dump-zfs-list-all` es recursivo, y meter los
                     // nietos aquí haría que el explorador enseñara el árbol entero aplanado.
                     std::string puntoMontaje;
-                    for (const L::Entrada& e : L::entradas(salidaD)) {
+                    for (const L::Entry& e : L::entradas(salidaD)) {
                         if (e.nombre == dataset) {
                             if (e.montado == "yes") {
                                 puntoMontaje = e.puntoMontaje;
@@ -3669,7 +3669,7 @@ int main(int argc, char** argv) {
                         }
                         // Los sub-datasets solo cuelgan del propio dataset, no de un
                         // directorio de dentro.
-                        if (e.esInstantanea() || !dentro.empty()) {
+                        if (e.isSnapshot() || !dentro.empty()) {
                             continue;
                         }
                         const std::string resto = e.nombre.substr(dataset.size() + 1);
@@ -3959,7 +3959,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = INST::argvCrearInstantanea(objeto, nombre, p.campo("rec") == "1");
+                verbo = INST::argvCreateSnapshot(objeto, nombre, p.campo("rec") == "1");
             } else if (que == "borrar-instantanea") {
                 if (objeto.find('@') == std::string::npos) {
                     r.codigo = 400;
@@ -3968,10 +3968,10 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = INST::argvDestruir(objeto, false, INST::Alcance::Solo);
+                verbo = INST::argvDestroy(objeto, false, INST::Scope::Only);
             } else if (que == "montar" || que == "desmontar") {
                 verbo = PET::zfsGenerico(argvEnBase64(
-                    que == "montar" ? DS::argvMontar(objeto) : DS::argvDesmontar(objeto)));
+                    que == "montar" ? DS::argvMount(objeto) : DS::argvUnmount(objeto)));
             } else if (que == "crear-dataset") {
                 const std::string nombre = B::trim(p.campo("nombre"));
                 if (nombre.empty() || nombre.find('@') != std::string::npos
@@ -3984,7 +3984,7 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 verbo = PET::zfsGenerico(
-                    argvEnBase64(DS::argvCrear(DS::nombreDeHijo(objeto, nombre))));
+                    argvEnBase64(DS::argvCreate(DS::childName(objeto, nombre))));
             } else if (que == "renombrar") {
                 const std::string nombre = B::trim(p.campo("nombre"));
                 if (nombre.empty() || nombre.find('@') != std::string::npos
@@ -3999,7 +3999,7 @@ int main(int argc, char** argv) {
                 // conserva el padre, que es lo que el intérprete ya hacía y aquí no. Antes,
                 // teclear solo la hoja daba «missing dataset name» y nada explicaba por qué.
                 {
-                    const std::vector<std::string> a = DS::argvRenombrar(objeto, nombre);
+                    const std::vector<std::string> a = DS::argvRename(objeto, nombre);
                     if (a.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(
@@ -4022,8 +4022,8 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 // El argv y las dos comprobaciones —origen instantánea, destino no— salen
-                // de `commands::instantaneas`, compartidas con el intérprete.
-                verbo = INST::argvClonar(objeto, nombre);
+                // de `commands::snapshots`, compartidas con el intérprete.
+                verbo = INST::argvClone(objeto, nombre);
             } else if (que == "borrar-dataset") {
                 if (objeto.find('@') != std::string::npos) {
                     r.codigo = 400;
@@ -4032,9 +4032,9 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = INST::argvDestruir(objeto, false,
-                                         p.campo("alcance") == "r" ? INST::Alcance::Descendientes
-                                                                   : INST::Alcance::Solo);
+                verbo = INST::argvDestroy(objeto, false,
+                                         p.campo("alcance") == "r" ? INST::Scope::Descendants
+                                                                   : INST::Scope::Only);
             } else if (que == "rollback") {
                 if (objeto.find('@') == std::string::npos) {
                     r.codigo = 400;
@@ -4043,8 +4043,8 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 verbo = INST::argvRollback(objeto, false,
-                                         p.campo("alcance") == "r" ? INST::Alcance::Descendientes
-                                                                   : INST::Alcance::Solo);
+                                         p.campo("alcance") == "r" ? INST::Scope::Descendants
+                                                                   : INST::Scope::Only);
             } else if (que == "cargar-clave" || que == "descargar-clave") {
                 if (que == "descargar-clave") {
                     verbo = PET::zfsGenerico(argvEnBase64({"unload-key", objeto}));
@@ -4161,7 +4161,7 @@ int main(int argc, char** argv) {
                 if (!B::gsa::valida(objeto, prog, existe, porQue)) {
                     r.codigo = 400;
                     r.cuerpo = paginaError("no se puede guardar: "
-                                               + B::gsa::etiquetaDe(porQue.fallo)
+                                               + B::gsa::labelOf(porQue.fallo)
                                                + (porQue.detalle.empty()
                                                       ? std::string()
                                                       : " («" + porQue.detalle + "»)"),
@@ -4211,7 +4211,7 @@ int main(int argc, char** argv) {
                 const TR::Plan plan = TR::planea(eO, eD, /*exigeAsincrono=*/true);
                 if (!plan.sePuede()) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError(TR::etiquetaDe(plan.fallo), sesion.testigo());
+                    r.cuerpo = paginaError(TR::labelOf(plan.fallo), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
@@ -4244,7 +4244,7 @@ int main(int argc, char** argv) {
                             || rcL != 0) {
                             return false;
                         }
-                        for (const L::Entrada& e : L::entradas(sal)) {
+                        for (const L::Entry& e : L::entradas(sal)) {
                             const std::size_t i = e.nombre.find('@');
                             if (i == std::string::npos || e.nombre.substr(0, i) != ds) {
                                 continue;
@@ -4272,7 +4272,7 @@ int main(int argc, char** argv) {
                     if (!pn.sePuede()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_nivelar", "no se puede nivelar: ")
-                                                   + TR::etiquetaDe(pn.fallo),
+                                                   + TR::labelOf(pn.fallo),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -4336,7 +4336,7 @@ int main(int argc, char** argv) {
                 if (!planS.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
-                                               + SY::etiquetaDe(planS.fallo),
+                                               + SY::labelOf(planS.fallo),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -4369,7 +4369,7 @@ int main(int argc, char** argv) {
                 if (porQue != DX::NoAplica::Ninguna) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_mover", "no se puede mover: ")
-                                               + DX::etiquetaDe(porQue),
+                                               + DX::labelOf(porQue),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -4379,7 +4379,7 @@ int main(int argc, char** argv) {
                 std::string errL;
                 int rcL = 0;
                 const bool ok = llamaAgente(*sesionZfs, *perfil,
-                                            DS::argvRenombrar(origen.dataset(), aDonde),
+                                            DS::argvRename(origen.dataset(), aDonde),
                                             salida, errL, rcL, nullptr, 120000)
                                 && rcL == 0;
                 if (!ok) {
@@ -4410,7 +4410,7 @@ int main(int argc, char** argv) {
                 // navegador. Validar solo donde se pinta no valida nada.
                 if (porQue != DX::NoAplica::Ninguna) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError("no se puede clonar: " + DX::etiquetaDe(porQue),
+                    r.cuerpo = paginaError("no se puede clonar: " + DX::labelOf(porQue),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -4425,7 +4425,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = INST::argvClonar(origen.objeto, objeto + "/" + nombre);
+                verbo = INST::argvClone(origen.objeto, objeto + "/" + nombre);
             } else if (que == "dar-permiso" || que == "quitar-permiso") {
                 if (objeto.find('@') != std::string::npos) {
                     r.codigo = 400;
@@ -4435,7 +4435,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                ZA::Entrada entrada;
+                ZA::Entry entrada;
                 if (que == "quitar-permiso") {
                     // Se RELEE la lista y se coge la entrada por su índice, en vez de
                     // fiarse de unos campos ocultos. Entre que se pintó la página y se
@@ -4453,7 +4453,7 @@ int main(int argc, char** argv) {
                         respuesta = H::componer(r);
                         return true;
                     }
-                    const auto lista = ZA::analiza(sal);
+                    const auto lista = ZA::parse(sal);
                     const long idx = std::atol(p.campo("idx").c_str());
                     if (idx < 0 || static_cast<std::size_t>(idx) >= lista.size()) {
                         r.codigo = 409;
@@ -4465,9 +4465,9 @@ int main(int argc, char** argv) {
                     }
                     entrada = lista[static_cast<std::size_t>(idx)];
                 } else {
-                    entrada.quien = ZA::quienDesde(p.campo("quien"));
-                    entrada.alcance = ZA::alcanceDesde(p.campo("alcance"));
-                    entrada.nombre = B::trim(p.campo("nombre"));
+                    entrada.who = ZA::whoFrom(p.campo("quien"));
+                    entrada.scope = ZA::scopeFrom(p.campo("alcance"));
+                    entrada.name = B::trim(p.campo("nombre"));
                     for (const std::string& t : B::split(p.campo("permisos"), ",", true)) {
                         const std::string perm = B::trim(t);
                         // Un permiso viaja hasta un argv de `zfs`: se comprueba que es lo
@@ -4480,9 +4480,9 @@ int main(int argc, char** argv) {
                             respuesta = H::componer(r);
                             return true;
                         }
-                        entrada.permisos.push_back(perm);
+                        entrada.permissions.push_back(perm);
                     }
-                    if (entrada.permisos.empty()) {
+                    if (entrada.permissions.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_hay_que_decir_0b8a38", "hay que decir qué permisos se delegan"),
                                                sesion.testigo());
@@ -4492,11 +4492,11 @@ int main(int argc, char** argv) {
                     // Un nombre hace falta salvo para «todos» y para «al crear», que no
                     // nombran a nadie. Sin esta comprobación, `zfs` recibiría la lista de
                     // permisos en el sitio del destinatario.
-                    const bool nombraAAlguien = entrada.quien != ZA::Quien::Todos
-                                                && entrada.alcance != ZA::Alcance::AlCrear;
+                    const bool nombraAAlguien = entrada.who != ZA::Who::Everyone
+                                                && entrada.scope != ZA::Scope::OnCreate;
                     if (nombraAAlguien
-                        && (entrada.nombre.empty()
-                            || entrada.nombre.find(' ') != std::string::npos)) {
+                        && (entrada.name.empty()
+                            || entrada.name.find(' ') != std::string::npos)) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_falta_a_quien_22ffab", "falta a quién se le delega, o el nombre no vale"),
                                                sesion.testigo());
@@ -4505,8 +4505,8 @@ int main(int argc, char** argv) {
                     }
                 }
                 const std::vector<std::string> argv =
-                    que == "dar-permiso" ? ZA::argvConceder(entrada, objeto)
-                                         : ZA::argvRetirar(entrada, objeto);
+                    que == "dar-permiso" ? ZA::argvAllow(entrada, objeto)
+                                         : ZA::argvUnallow(entrada, objeto);
                 // Por el verbo de LOTE aunque sea una sola: es el que el daemon expone para
                 // esto, y admite varias en una orden el día que se editen en bloque.
                 // El lote es una lista de cadenas —cada una, un argv ya empaquetado—,
@@ -4533,7 +4533,7 @@ int main(int argc, char** argv) {
                 // del código de salida hacía que la web dijera «hecho» y no hubiera pasado
                 // nada, que es la peor forma de fallar.
                 //
-                // Solo un permiso inventado da rc distinto de cero. Todo lo demás hay que
+                // Only un permiso inventado da rc distinto de cero. Todo lo demás hay que
                 // mirarlo releyendo.
                 std::string salV;
                 std::string errV;
@@ -4542,15 +4542,15 @@ int main(int argc, char** argv) {
                                 rcV, nullptr, 30000)
                     && rcV == 0) {
                     bool esta = false;
-                    for (const ZA::Entrada& hay : ZA::analiza(salV)) {
-                        if (hay.quien != entrada.quien || hay.alcance != entrada.alcance
-                            || hay.nombre != entrada.nombre) {
+                    for (const ZA::Entry& hay : ZA::parse(salV)) {
+                        if (hay.who != entrada.who || hay.scope != entrada.scope
+                            || hay.name != entrada.name) {
                             continue;
                         }
-                        for (const std::string& p1 : entrada.permisos) {
+                        for (const std::string& p1 : entrada.permissions) {
                             esta = esta
-                                   || std::find(hay.permisos.begin(), hay.permisos.end(), p1)
-                                          != hay.permisos.end();
+                                   || std::find(hay.permissions.begin(), hay.permissions.end(), p1)
+                                          != hay.permissions.end();
                         }
                     }
                     if (que == "dar-permiso" && !esta) {
@@ -4558,7 +4558,7 @@ int main(int argc, char** argv) {
                         r.cuerpo = paginaError(
                             "ZFS aceptó la orden pero no delegó nada. Lo normal es que ese "
                             "usuario o grupo no exista en «" + conn + "»: compruébelo con "
-                            "«id " + entrada.nombre + "» en esa máquina.",
+                            "«id " + entrada.name + "» en esa máquina.",
                             sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -4584,7 +4584,7 @@ int main(int argc, char** argv) {
                 const std::string etiqueta = B::trim(p.campo("etiqueta"));
                 // La etiqueta viaja hasta un argv de `zfs`: un espacio o una arroba dentro
                 // convertirían la orden en otra. La comprobación vive en el módulo.
-                if (!INST::etiquetaValida(etiqueta)) {
+                if (!INST::isValidTag(etiqueta)) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(B::format(T("t_web_e_netiq", "etiqueta no válida: «%1»"), {etiqueta}),
                                            sesion.testigo());
@@ -4598,17 +4598,17 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                // La etiqueta va primero, y eso lo decide `commands::instantaneas`: aquí
+                // La etiqueta va primero, y eso lo decide `commands::snapshots`: aquí
                 // estaba escrito en el orden correcto por costumbre, no por regla.
-                verbo = que == "poner-hold" ? INST::argvRetener(etiqueta, objeto)
-                                            : INST::argvSoltar(etiqueta, objeto);
+                verbo = que == "poner-hold" ? INST::argvHold(etiqueta, objeto)
+                                            : INST::argvRelease(etiqueta, objeto);
             } else if (que == "entregar-pares") {
                 // La carga la compone la capa base, la misma que usa el intérprete. Aquí solo
                 // se decide a quién y se comprueba que haya algo que entregar.
                 const PR::Entrega entrega = PR::componeEntrega(conns.perfiles, conn);
                 if (!entrega.sePuede()) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError(PR::etiquetaDe(entrega.fallo), sesion.testigo());
+                    r.cuerpo = paginaError(PR::labelOf(entrega.fallo), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
@@ -4664,18 +4664,18 @@ int main(int argc, char** argv) {
                 // El argv y la traducción de la fase salen de `commands::pools`, que es de
                 // donde salen también los del intérprete.
                 //
-                // **Aquí había un fallo**: «Parar initialize» mandaba `-s`, que en
+                // **Aquí había un fallo**: «Stop initialize» mandaba `-s`, que en
                 // `zpool initialize` no es parar sino SUSPENDER —parar es `-c`—. El botón
                 // decía una cosa y hacía otra. La letra no es la misma para las tres
                 // operaciones y por eso no puede escribirse a mano en cada cliente.
-                using Op = PL::Operacion;
-                using Fase = PL::Fase;
+                using Op = PL::Operation;
+                using Phase = PL::Phase;
                 if (op == "scrub")                 { argv = PL::argv(Op::Scrub, objeto); }
-                else if (op == "scrub-parar")      { argv = PL::argv(Op::Scrub, objeto, Fase::Parar); }
+                else if (op == "scrub-parar")      { argv = PL::argv(Op::Scrub, objeto, Phase::Stop); }
                 else if (op == "trim")             { argv = PL::argv(Op::Trim, objeto); }
-                else if (op == "trim-parar")       { argv = PL::argv(Op::Trim, objeto, Fase::Parar); }
+                else if (op == "trim-parar")       { argv = PL::argv(Op::Trim, objeto, Phase::Stop); }
                 else if (op == "initialize")       { argv = PL::argv(Op::Initialize, objeto); }
-                else if (op == "initialize-parar") { argv = PL::argv(Op::Initialize, objeto, Fase::Parar); }
+                else if (op == "initialize-parar") { argv = PL::argv(Op::Initialize, objeto, Phase::Stop); }
                 else if (op == "export")           { argv = PL::argv(Op::Export, objeto); }
                 else if (op == "destroy")          { argv = PL::argv(Op::Destroy, objeto); }
                 // Al importar, el «objeto» es el nombre del pool que la sonda encontró.
@@ -4691,7 +4691,7 @@ int main(int argc, char** argv) {
                 else if (op == "import-como") {
                     // `zpool import <viejo> <nuevo>`. La validación del nombre vive en
                     // `commands::pools`, con la del intérprete y la de la interfaz.
-                    argv = PL::argvImportarComo(objeto, B::trim(p.campo("nuevo")));
+                    argv = PL::argvImportAs(objeto, B::trim(p.campo("nuevo")));
                     if (argv.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(
@@ -4875,7 +4875,7 @@ int main(int argc, char** argv) {
                 }
                 verbo = PET::zpoolGenerico(argvEnBase64(argv));
             } else if (que == "promover") {
-                verbo = PET::zfsGenerico(argvEnBase64(DS::argvPromover(objeto)));
+                verbo = PET::zfsGenerico(argvEnBase64(DS::argvPromote(objeto)));
             } else if (que == "set") {
                 const std::string prop = B::trim(p.campo("prop"));
                 const std::string valor = p.campo("valor");
@@ -5043,7 +5043,7 @@ int main(int argc, char** argv) {
         // `/c/<conexión>[/<pool>[/<dataset>]]`. Se trocea a mano y no con una tabla de
         // rutas porque son tres formas y una tabla aquí sería más código que el reparto.
         // La confirmación de algo destructivo: es un GET porque NO hace nada todavía;
-        // solo cuenta lo que pasaría. Quien ejecuta es el POST de después.
+        // solo cuenta lo que pasaría. Who ejecuta es el POST de después.
         if (p.ruta == "/confirmar") {
             const auto campoConsulta = [&p](const std::string& nombre) {
                 for (const std::string& par : B::split(p.consulta, "&", true)) {
@@ -5096,7 +5096,7 @@ int main(int argc, char** argv) {
                 if (!planS.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
-                                               + SY::etiquetaDe(planS.fallo),
+                                               + SY::labelOf(planS.fallo),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -5388,13 +5388,13 @@ int main(int argc, char** argv) {
         const std::string izq = panelArbol(conns.perfiles, conn, objeto, poolsDeLaMaquina, arbol,
                                            sel, true);
         const auto itSel = arbol.porNombre.find(sel);
-        const L::Entrada* entradaSel =
+        const L::Entry* entradaSel =
             itSel != arbol.porNombre.end() ? &itSel->second : nullptr;
 
         // ¿Se puede transferir del origen marcado a lo que se está mirando?
         //
         // `exigeAsincrono` va en TRUE siempre desde aquí: este servidor atiende de una en
-        // una y una petición HTTP no puede durar las horas que dura una copia. Solo vale el
+        // una y una petición HTTP no puede durar las horas que dura una copia. Only vale el
         // camino que sostiene el daemon.
         TR::Plan planTransfer;
         // Sin origen marcado no hay nada que sincronizar; «el mismo objeto» es el motivo
@@ -5468,13 +5468,13 @@ int main(int argc, char** argv) {
         std::vector<Pestana> delObjeto = {{Vista::Resumen, T("t_web_ficha_58dc18", "Ficha")},
                                           {Vista::Props, T("t_props_tab_001", "Propiedades")}};
         if (selEsInstantanea) {
-            // Solo en instantáneas: `zfs holds` no admite un dataset —contesta «is not a
+            // Only en instantáneas: `zfs holds` no admite un dataset —contesta «is not a
             // snapshot», comprobado— así que una pestaña ahí no tendría qué enseñar.
             delObjeto.push_back({Vista::Holds, T("t_web_holds_tab", "Retenciones")});
         }
         if (!selEsInstantanea) {
-            const auto itS = arbol.instantaneas.find(sel);
-            const std::size_t cuantas = itS == arbol.instantaneas.end() ? 0 : itS->second.size();
+            const auto itS = arbol.snapshots.find(sel);
+            const std::size_t cuantas = itS == arbol.snapshots.end() ? 0 : itS->second.size();
             delObjeto.push_back({Vista::Permisos, T("t_permissions_node_001", "Permisos")});
             delObjeto.push_back({Vista::Contenido, T("t_content_node_001", "Contenido")});
             delObjeto.push_back({Vista::Programacion, T("t_web_programacion_cca584", "Programación")});
@@ -5491,7 +5491,7 @@ int main(int argc, char** argv) {
         // pestaña que al pulsarla dice «no aplica» es una pestaña de más.
         if (DX::compruebo(DX::Accion::Diff, origenMarcado, DX::Extremo{conn, sel})
             == DX::NoAplica::Ninguna) {
-            delObjeto.push_back({Vista::Diff, DX::etiquetaDe(DX::Accion::Diff)});
+            delObjeto.push_back({Vista::Diff, DX::labelOf(DX::Accion::Diff)});
         }
         delObjeto.push_back({Vista::Acciones, T("t_help_actions_001", "Acciones")});
         grupos.push_back({esNodoDePool ? T("t_web_dataset_105268", "Dataset") : std::string(),
@@ -5515,7 +5515,7 @@ int main(int argc, char** argv) {
         // multiplicados por el número de datasets; aquí el que no se abre no cuesta nada, y
         // el que se abre cuesta UNA consulta.
         //
-        // Solo se consulta la vista que pide la URL. Llegar a un dataset no dispara cinco
+        // Only se consulta la vista que pide la URL. Llegar a un dataset no dispara cinco
         // preguntas de las que se van a mirar cero o una.
         std::string der;
         std::string loCargado;   // el cuerpo del marco activo, si lo hay
@@ -5561,10 +5561,10 @@ int main(int argc, char** argv) {
                 // UNA consulta con todas las instantáneas del dataset dentro. `zfs holds`
                 // admite una lista, así que saber cuáles están retenidas cuesta una llamada
                 // y no una por instantánea.
-                const auto itS = arbol.instantaneas.find(sel);
-                if (itS != arbol.instantaneas.end() && !itS->second.empty()) {
+                const auto itS = arbol.snapshots.find(sel);
+                if (itS != arbol.snapshots.end() && !itS->second.empty()) {
                     std::vector<std::string> objetos;
-                    for (const L::Entrada& e : itS->second) {
+                    for (const L::Entry& e : itS->second) {
                         objetos.push_back(e.nombre);
                     }
                     const std::vector<std::string> args = PET::holdsDe(objetos);
@@ -5726,7 +5726,7 @@ int main(int argc, char** argv) {
             return respuestaCorta.empty() ? false : escribe(respuestaCorta.data(),
                                                             respuestaCorta.size());
         }
-        const H::Peticion p = H::analiza(crudo);
+        const H::Peticion p = H::parse(crudo);
         const long long total = ficheroPedido.tamano;
 
         // `Range: bytes=a-b`. Se atiende porque es lo que usan los gestores de descarga y

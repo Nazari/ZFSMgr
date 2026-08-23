@@ -5,7 +5,7 @@
 
 namespace zfsmgr::base::sincronizacion {
 
-std::string etiquetaDe(Fallo f) {
+std::string labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:
             return {};

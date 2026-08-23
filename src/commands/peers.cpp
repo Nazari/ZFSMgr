@@ -6,7 +6,7 @@
 
 namespace zfsmgr::base::peers {
 
-Vista analiza(const std::string& salida) {
+Vista parse(const std::string& salida) {
     Vista v;
     for (const std::string& linea : split(salida, "\n", true)) {
         const std::vector<std::string> c = split(linea, "\t", false);
@@ -34,7 +34,7 @@ Vista analiza(const std::string& salida) {
     return v;
 }
 
-std::string etiquetaDe(Fallo f) {
+std::string labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:
             return {};

@@ -40,9 +40,9 @@ enum class NoAplica {
     TodaviaNoEstaEnLaWeb,
 };
 
-const char* claveDe(Accion a);
-std::string etiquetaDe(Accion a);
-std::string etiquetaDe(NoAplica n);
+const char* keyOf(Accion a);
+std::string labelOf(Accion a);
+std::string labelOf(NoAplica n);
 
 // Un extremo: en qué máquina y qué objeto.
 struct Extremo {
@@ -50,7 +50,7 @@ struct Extremo {
     std::string objeto;
 
     bool vacio() const { return conexion.empty() || objeto.empty(); }
-    bool esInstantanea() const { return objeto.find('@') != std::string::npos; }
+    bool isSnapshot() const { return objeto.find('@') != std::string::npos; }
     // El dataset al que pertenece: lo mismo si no es instantánea, y lo de delante de la
     // «@» si lo es.
     std::string dataset() const {

@@ -384,7 +384,7 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m,
                                QString::fromUtf8(c.en), QString::fromUtf8(c.zh)).arg(dataset);
                 }
             }
-            return QString::fromStdString(zfsmgr::base::gsa::etiquetaDe(m.fallo));
+            return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.fallo));
         }
         case F::ActivadaSinRetencion:
             return trk(QStringLiteral("t_gsa_requires_retention_001"),
@@ -416,7 +416,7 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m,
         case F::Ninguno:
             break;
     }
-    return QString::fromStdString(zfsmgr::base::gsa::etiquetaDe(m.fallo));
+    return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.fallo));
 }
 
 bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
@@ -574,7 +574,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
         porPool[QStringLiteral("%1|%2").arg(s.connIdx).arg(s.poolName.toLower())].push_back(i);
     }
     for (auto it = porPool.cbegin(); it != porPool.cend(); ++it) {
-        std::vector<zfsmgr::base::gsa::Entrada> juego;
+        std::vector<zfsmgr::base::gsa::Entry> juego;
         for (int idx : it.value()) {
             const GsaState& s = enabledStates.at(idx);
             zfsmgr::base::gsa::Programacion prog;

@@ -420,7 +420,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // El descubrimiento de discos, por RPC tipado.
     //
     // Aquí había TRES guiones —`lsblk` en Linux, `diskutil` en macOS, `Get-Partition` en
-    // Windows— que producían un formato común de columnas que se analiza más abajo. El
+    // Windows— que producían un formato común de columnas que se parse más abajo. El
     // agente ya sabe hacerlo en las tres plataformas y contesta JSON, así que lo único que
     // queda aquí es traducir su respuesta a esas mismas columnas: el análisis de abajo
     // —alias `by-id`, rutas resueltas, deduplicado— no se toca.
@@ -1679,7 +1679,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // Limpiar la etiqueta de un pool que NO está importado. Un disco puede quedar
     // marcado como ocupado por los restos de un pool destruido —etiqueta que sobrevive
     // al destroy— y hasta ahora la única salida era irse a un terminal a ejecutar
-    // `zpool labelclear`. Solo se ofrece si el pool no está importado: si lo está, el
+    // `zpool labelclear`. Only se ofrece si el pool no está importado: si lo está, el
     // disco se está usando de verdad y limpiarlo sería destruir datos vivos.
     devicesTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(devicesTree, &QTreeWidget::customContextMenuRequested, &dlg,

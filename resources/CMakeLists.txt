@@ -188,8 +188,8 @@ add_library(zfsmgr_base STATIC
 add_library(zfsmgr_commands STATIC
     ../src/commands/datasets.cpp
     ../src/commands/datasets.h
-    ../src/commands/instantaneas.cpp
-    ../src/commands/instantaneas.h
+    ../src/commands/snapshots.cpp
+    ../src/commands/snapshots.h
     ../src/commands/pools.cpp
     ../src/commands/pools.h
     ../src/commands/avanzadas.cpp

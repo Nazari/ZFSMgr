@@ -159,7 +159,7 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     // Los avisos tipificados, redactados aquí: el primero basta para la línea de arranque,
     // que es donde se enseñan.
     if (c.aviso.empty() && !avisos.empty()) {
-        c.aviso = ST::etiquetaDe(avisos.front());
+        c.aviso = ST::labelOf(avisos.front());
     }
     return c;
 }
@@ -295,7 +295,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                 *errorOut = aviso.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar
                                 ? T("t_tls_sin_maestra",
                                     "sin contraseña maestra no se guarda el material TLS en claro")
-                                : ST::etiquetaDe(aviso);
+                                : ST::labelOf(aviso);
             }
             return false;
         }
@@ -537,7 +537,7 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
     // interfaz. Aquí se queda lo que es de este lado: la guardia de --no-secrets.
     ST::Aviso aviso;
     if (!ST::guardaPerfil(s.dirConfig, p, s.maestra, aviso)) {
-        error = ST::etiquetaDe(aviso);
+        error = ST::labelOf(aviso);
         return false;
     }
     return true;
@@ -553,7 +553,7 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
     if (!ST::borraPerfil(s.dirConfig, id, aviso)) {
         error = aviso.motivo == ST::Motivo::NoSeGuardaConexion
                     ? B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id})
-                    : ST::etiquetaDe(aviso);
+                    : ST::labelOf(aviso);
         return false;
     }
     return true;

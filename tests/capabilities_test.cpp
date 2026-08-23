@@ -119,7 +119,7 @@ private Q_SLOTS:
     void missingToolDisablesTheFeaturesThatNeedIt() {
         Platform p = unixReady();
         p.missingTools.insert(QStringLiteral("rsync"));
-        // Solo Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
+        // Only Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
         // el agente, y su caso lo cubre dirOperationsNoLongerNeedRsync.
         const Availability a = featureAvailability(Feature::RsyncSync, p);
         QVERIFY2(!a.available, "sin rsync no hay con qué sincronizar");

@@ -2,7 +2,7 @@
 
 #include "avanzadas.h"
 #include "datasets.h"
-#include "instantaneas.h"
+#include "snapshots.h"
 
 #include "daemonpayload.h"
 
@@ -599,34 +599,34 @@ QStringList aLista(const std::vector<std::string>& v) {
 }  // namespace
 
 QStringList argvRenombrarDataset(const QString& actual, const QString& nuevo) {
-    return aLista(zfsmgr::commands::datasets::argvRenombrar(actual.toStdString(),
+    return aLista(zfsmgr::commands::datasets::argvRename(actual.toStdString(),
                                                             nuevo.toStdString()));
 }
 
-QStringList argvDestruir(const QString& objeto, bool forzar, bool recursivo) {
-    namespace I = zfsmgr::commands::instantaneas;
-    return aLista(I::argvDestruir(objeto.toStdString(), forzar,
-                                  recursivo ? I::Alcance::Descendientes : I::Alcance::Solo));
+QStringList argvDestroy(const QString& objeto, bool forzar, bool recursivo) {
+    namespace I = zfsmgr::commands::snapshots;
+    return aLista(I::argvDestroy(objeto.toStdString(), forzar,
+                                  recursivo ? I::Scope::Descendants : I::Scope::Only));
 }
 
 QStringList argvRollback(const QString& instantanea, bool forzar, bool recursivo) {
-    namespace I = zfsmgr::commands::instantaneas;
+    namespace I = zfsmgr::commands::snapshots;
     return aLista(I::argvRollback(instantanea.toStdString(), forzar,
-                                  recursivo ? I::Alcance::Descendientes : I::Alcance::Solo));
+                                  recursivo ? I::Scope::Descendants : I::Scope::Only));
 }
 
-QStringList argvClonar(const QString& instantaneaOrigen, const QString& datasetNuevo) {
-    return aLista(zfsmgr::commands::instantaneas::argvClonar(instantaneaOrigen.toStdString(),
+QStringList argvClone(const QString& instantaneaOrigen, const QString& datasetNuevo) {
+    return aLista(zfsmgr::commands::snapshots::argvClone(instantaneaOrigen.toStdString(),
                                                              datasetNuevo.toStdString()));
 }
 
-QStringList argvZfsClonar(const QString& instantaneaOrigen, const QString& datasetNuevo,
+QStringList argvZfsClone(const QString& instantaneaOrigen, const QString& datasetNuevo,
                           const QStringList& banderas) {
     std::vector<std::string> b;
     for (const QString& x : banderas) {
         b.push_back(x.toStdString());
     }
-    return aLista(zfsmgr::commands::instantaneas::argvZfsClonar(instantaneaOrigen.toStdString(),
+    return aLista(zfsmgr::commands::snapshots::argvZfsClone(instantaneaOrigen.toStdString(),
                                                                 datasetNuevo.toStdString(), b));
 }
 
@@ -635,12 +635,12 @@ QStringList argvCrearDataset(const QString& dataset, const QStringList& propieda
     for (const QString& x : propiedades) {
         props.push_back(x.toStdString());
     }
-    return aLista(zfsmgr::commands::datasets::argvCrear(dataset.toStdString(), props, padres));
+    return aLista(zfsmgr::commands::datasets::argvCreate(dataset.toStdString(), props, padres));
 }
 
-QStringList argvPool(zfsmgr::commands::pools::Operacion op, const QString& pool,
+QStringList argvPool(zfsmgr::commands::pools::Operation op, const QString& pool,
                      const QStringList& banderas, const QStringList& discos,
-                     zfsmgr::commands::pools::Fase fase) {
+                     zfsmgr::commands::pools::Phase fase) {
     std::vector<std::string> b;
     for (const QString& x : banderas) {
         b.push_back(x.toStdString());

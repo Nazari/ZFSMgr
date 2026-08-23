@@ -20,7 +20,7 @@
 // alcanza igual que una remota.
 //
 // Las mutaciones con reglas propias NO están aquí: viven donde vive su regla —`pools`,
-// `instantaneas`, `datasets`, `avanzadas`, `zfsallow`—, porque componer su argv exige saber
+// `snapshots`, `datasets`, `avanzadas`, `zfsallow`—, porque componer su argv exige saber
 // qué significa cada bandera. Esto es para lo que no tiene más regla que su nombre.
 namespace zfsmgr::commands::peticiones {
 
@@ -41,7 +41,7 @@ std::vector<std::string> sondaDeImportables();
 
 // El árbol entero bajo un objeto, en TSV de diez columnas. Ver `listados::entradas`.
 std::vector<std::string> listaDeDatasets(const std::string& objeto);
-// Solo los nombres, recursivo.
+// Only los nombres, recursivo.
 std::vector<std::string> nombresDeDescendientes(const std::string& objeto);
 // Los directorios que Desglosar puede convertir en datasets. Contesta «__MP__=<punto>» y
 // luego una ruta relativa por línea. Vale en las dos plataformas: resuelve el punto de
@@ -70,7 +70,7 @@ std::vector<std::string> montajes();
 // letras duplicadas. Comprobado contra OldLau: «winpool Z: local», «winpool/sa z: temporary».
 //
 // Fuera de Windows el verbo existe pero `zfs` contesta que la propiedad no existe —en macOS,
-// «invalid property 'driveletter'», comprobado— y devuelve un código distinto de cero. Quien
+// «invalid property 'driveletter'», comprobado— y devuelve un código distinto de cero. Who
 // llama lo lee como «no hay letras», que es la verdad.
 
 std::vector<std::string> letrasDeUnidad(const std::string& pool);
@@ -110,7 +110,7 @@ std::vector<std::string> pares();
 // ── Mutaciones sin más regla que su forma ────────────────────────────────────
 //
 // Las que SÍ tienen regla —qué bandera significa qué, qué alcance es cuál— se componen en su
-// módulo: `pools`, `instantaneas`, `datasets`, `avanzadas`, `zfsallow`. Aquí solo están las
+// módulo: `pools`, `snapshots`, `datasets`, `avanzadas`, `zfsallow`. Aquí solo están las
 // que se limitan a envolver un argv o a pasar unos argumentos.
 
 // Un `zfs <op> …` cualquiera, con el argv codificado. El daemon lo ejecuta con execvp y
@@ -124,7 +124,7 @@ std::vector<std::string> creaDataset(const std::string& argvCodificado);
 
 // **Estas dos llevan sus argumentos en base64, y no por capricho.** Una frase de paso en
 // argv la ve cualquiera con un `ps` en la máquina; codificada viaja dentro de la carga del
-// RPC, que va cifrada. Quien llama pasa el texto en claro y aquí se codifica: dejarlo en
+// RPC, que va cifrada. Who llama pasa el texto en claro y aquí se codifica: dejarlo en
 // manos del llamante era invitar a que uno se olvidara.
 std::vector<std::string> cargaClave(const std::string& dataset, const std::string& frase);
 // `nueva` vacía significa quitar la clave.

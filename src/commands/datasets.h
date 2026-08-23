@@ -3,64 +3,65 @@
 #include <string>
 #include <vector>
 
-// Los datasets: crear, renombrar, montar, promover y poner propiedades.
+// Datasets: create, rename, mount, promote and set properties.
 //
-// Todo esto viaja por `--mutate-zfs-generic`, así que lo que se compone aquí es el argv de
-// `zfs` sin el nombre del programa: `{"rename", viejo, nuevo}`.
+// All of this travels over `--mutate-zfs-generic`, so what is composed here is the argv for
+// `zfs` WITHOUT the program name: `{"rename", old, new}`.
 namespace zfsmgr::commands::datasets {
 
-// ¿Sirve este nombre para un dataset?
+// Is this a usable dataset name?
 //
-// ZFS admite letras, dígitos y `_-.:/ `; la arroba NO —eso haría una instantánea— y el
-// espacio tampoco. La comprobación estaba escrita a mano y distinta en cada cliente.
-bool nombreValido(const std::string& nombre);
+// ZFS accepts letters, digits and `_-.:/ `; an at sign is NOT allowed —that would make a
+// snapshot— and neither is a space. This check used to be hand-written, and differently, in
+// every client.
+bool isValidName(const std::string& name);
 
-// El nombre completo al que renombrar, a partir de lo que haya escrito quien llama.
+// The full name to rename to, derived from whatever the caller typed.
 //
-// **La regla**: un nombre SIN barra se entiende como «cámbiale la hoja, déjalo donde está»,
-// así que se le antepone el padre del actual. Con barra se toma tal cual, que es como se
-// mueve un dataset de sitio.
+// **The rule**: a name WITHOUT a slash means «change its leaf, leave it where it is», so the
+// current parent is prepended. A name with a slash is taken as-is, which is how a dataset is
+// moved elsewhere.
 //
-// Sin esto, teclear «fotos» para renombrar `tank/media/cine` manda `zfs rename
-// tank/media/cine fotos`, y ZFS responde «cannot create 'fotos': missing dataset name» —un
-// mensaje que no dice lo que hay que hacer—. El intérprete ya aplicaba la regla; el servidor
-// web no, así que el mismo producto se comportaba distinto según por dónde se entrara.
-std::string nombreDeRenombrado(const std::string& actual, const std::string& nuevo);
+// Without this, typing «photos» to rename `tank/media/movies` sends `zfs rename
+// tank/media/movies photos`, and ZFS answers «cannot create 'photos': missing dataset name»
+// —a message that does not say what to do about it—. The shell already applied the rule; the
+// web server did not, so the same product behaved differently depending on the way in.
+std::string renamedName(const std::string& current, const std::string& wanted);
 
-// `zfs rename <actual> <nuevo-completo>`
-std::vector<std::string> argvRenombrar(const std::string& actual, const std::string& nuevo);
+// `zfs rename <current> <full-new-name>`
+std::vector<std::string> argvRename(const std::string& current, const std::string& wanted);
 
 // `zfs create [-p] [-o p=v...] <dataset>`
 //
-// `padres` añade `-p`: crea los intermedios que falten. Sin él, `zfs create a/b/c` falla si
-// `a/b` no existe.
-std::vector<std::string> argvCrear(const std::string& dataset,
-                                   const std::vector<std::string>& propiedades = {},
-                                   bool padres = false);
+// `parents` adds `-p`: create the missing intermediate datasets. Without it, `zfs create
+// a/b/c` fails when `a/b` does not exist.
+std::vector<std::string> argvCreate(const std::string& dataset,
+                                   const std::vector<std::string>& properties = {},
+                                   bool parents = false);
 
-// El nombre de un hijo: `<padre>/<hoja>`. Si la hoja ya trae barra, se respeta.
-std::string nombreDeHijo(const std::string& padre, const std::string& hoja);
+// The name of a child: `<parent>/<leaf>`. If the leaf already carries a slash, it is honoured.
+std::string childName(const std::string& parent, const std::string& leaf);
 
 // `zfs promote <dataset>`
 //
-// Solo hace algo si el dataset es un CLON: promoverlo invierte la relación con su origen.
-// Sobre uno que no lo es, ZFS responde «not a cloned filesystem» —correcto, pero el cliente
-// puede decirlo antes y mejor—.
-std::vector<std::string> argvPromover(const std::string& dataset);
+// Only does something when the dataset is a CLONE: promoting it flips the relationship with
+// its origin. On one that is not, ZFS answers «not a cloned filesystem» —correct, but the
+// client can say it sooner and better—.
+std::vector<std::string> argvPromote(const std::string& dataset);
 
-// `zfs mount [-f] <dataset>` y `zfs unmount [-f] <dataset>`
-std::vector<std::string> argvMontar(const std::string& dataset, bool forzar = false);
-std::vector<std::string> argvDesmontar(const std::string& dataset, bool forzar = false);
+// `zfs mount [-f] <dataset>` and `zfs unmount [-f] <dataset>`
+std::vector<std::string> argvMount(const std::string& dataset, bool force = false);
+std::vector<std::string> argvUnmount(const std::string& dataset, bool force = false);
 
-// `zfs set <prop>=<valor> <dataset>`
+// `zfs set <prop>=<value> <dataset>`
 //
-// Vacío si la propiedad no tiene nombre. El valor SÍ puede ser vacío: hay propiedades que se
-// ponen en blanco a propósito.
-std::vector<std::string> argvPonerPropiedad(const std::string& dataset, const std::string& propiedad,
-                                            const std::string& valor);
+// Empty when the property has no name. The VALUE may well be empty: some properties are
+// deliberately blanked out.
+std::vector<std::string> argvSetProperty(const std::string& dataset, const std::string& property,
+                                            const std::string& value);
 
-// `zfs inherit <prop> <dataset>`: devolver una propiedad a lo que herede del padre.
-std::vector<std::string> argvHeredarPropiedad(const std::string& dataset,
-                                              const std::string& propiedad);
+// `zfs inherit <prop> <dataset>`: hand a property back to whatever it inherits from its parent.
+std::vector<std::string> argvInheritProperty(const std::string& dataset,
+                                              const std::string& property);
 
 }  // namespace zfsmgr::commands::datasets

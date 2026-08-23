@@ -149,20 +149,20 @@ bool esMismoODescendiente(const std::string& dataset, const std::string& ancestr
     return d == a || startsWith(d, a + "/");
 }
 
-bool validaConjunto(const std::vector<Entrada>& delMismoPool, Motivo& porQue) {
+bool validaConjunto(const std::vector<Entry>& delMismoPool, Motivo& porQue) {
     porQue = Motivo{};
-    // Solo las ACTIVADAS chocan: una programación apagada no hace instantáneas, así que
+    // Only las ACTIVADAS chocan: una programación apagada no hace instantáneas, así que
     // solaparse con ella no significa nada.
-    std::vector<const Entrada*> vivas;
-    for (const Entrada& e : delMismoPool) {
+    std::vector<const Entry*> vivas;
+    for (const Entry& e : delMismoPool) {
         if (e.prog.activado) {
             vivas.push_back(&e);
         }
     }
     for (std::size_t i = 0; i < vivas.size(); ++i) {
         for (std::size_t j = i + 1; j < vivas.size(); ++j) {
-            const Entrada& a = *vivas[i];
-            const Entrada& b = *vivas[j];
+            const Entry& a = *vivas[i];
+            const Entry& b = *vivas[j];
             if (trim(a.dataset) == trim(b.dataset)) {
                 continue;
             }
@@ -183,7 +183,7 @@ bool validaConjunto(const std::vector<Entrada>& delMismoPool, Motivo& porQue) {
     return true;
 }
 
-std::string etiquetaDe(Fallo f) {
+std::string labelOf(Fallo f) {
     switch (f) {
         case Fallo::Ninguno:
             return "sin fallo";

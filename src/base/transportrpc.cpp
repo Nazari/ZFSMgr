@@ -605,7 +605,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     // Para el REGISTRO: etiqueta estable más el detalle técnico, que ya viene en inglés de
     // OpenSSL o del sistema. El texto para personas lo pone quien tiene interfaz.
     const std::string motivoLog =
-        std::string(etiquetaDe(motivo.fallo))
+        std::string(labelOf(motivo.fallo))
         + (motivo.detalle.empty() ? std::string() : ": " + motivo.detalle);
 
     if (sePuedeIntentar && ordenPudoLlegar && isMutatingAgentCommand(agentArgs)) {
@@ -639,7 +639,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     } else if (!motivoSuprimido.vacio()) {
         ses.logConn(Nivel::Info, p.id,
                     quien + " $ [daemon-rpc:skip] " + queOrden + " -> "
-                        + etiquetaDe(motivoSuprimido.fallo) + " " + motivoSuprimido.detalle + "s");
+                        + labelOf(motivoSuprimido.fallo) + " " + motivoSuprimido.detalle + "s");
     }
     return false;
 }
@@ -832,7 +832,7 @@ bool runSsh(TransportSession& ses,
         rc = res.rc;
         // El ruido con forma de XML que escupe PowerShell, también en la conexión LOCAL.
         //
-        // Solo se limpiaba en la rama de SSH, y una máquina Windows que se gestiona a sí
+        // Only se limpiaba en la rama de SSH, y una máquina Windows que se gestiona a sí
         // misma entra por AQUÍ: la orden se envuelve igualmente en PowerShell, así que un
         // fallo llegaba con doscientas líneas de CLIXML por delante del motivo. Venía de
         // antes de sacar el transporte de Qt; se arregla aquí porque es donde toca.
@@ -975,7 +975,7 @@ bool runSsh(TransportSession& ses,
         return true;
     };
 
-    // A qué se resolvió el nombre, UNA vez por conexión. Solo para los `*.local` —que van
+    // A qué se resolvió el nombre, UNA vez por conexión. Only para los `*.local` —que van
     // por mDNS— y para quien haya forzado familia: son los casos cuyos fallos se
     // diagnostican mal, porque parecen «la máquina no responde».
     const std::string hostLower = toLowerAscii(trim(p.host));

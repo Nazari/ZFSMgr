@@ -135,7 +135,7 @@ std::size_t hondura(const std::string& ruta) {
 
 }  // namespace
 
-bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string& error,
+bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
              bool unSoloSistema) {
     salida.clear();
     error.clear();
@@ -172,7 +172,7 @@ bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string&
         // «a.txt», o sea con el nombre de su destino. Resultado medido: el enlace pisaba al
         // fichero real en la lista y el fichero acababa marcado como enlace duro de sí
         // mismo. Sincronizar así habría destrozado cualquier árbol con enlaces dentro.
-        Entrada en;
+        Entry en;
         en.ruta = conBarras(p.lexically_relative(base).generic_string());
         if (en.ruta.empty() || en.ruta == ".") {
             continue;
@@ -251,7 +251,7 @@ bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string&
     }
 
     std::sort(salida.begin(), salida.end(),
-              [](const Entrada& a, const Entrada& b) { return a.ruta < b.ruta; });
+              [](const Entry& a, const Entry& b) { return a.ruta < b.ruta; });
 
 #ifndef _WIN32
     // Los enlaces duros se resuelven AHORA, sobre la lista ya ordenada, no durante el
@@ -264,7 +264,7 @@ bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string&
     // Con la lista ordenada, el original es siempre el primero por orden alfabético, y eso
     // sí coincide en los dos lados.
     std::map<std::pair<std::uint64_t, std::uint64_t>, std::string> primero;
-    for (Entrada& e : salida) {
+    for (Entry& e : salida) {
         const auto it = identidad.find(e.ruta);
         if (it == identidad.end()) {
             continue;
@@ -282,9 +282,9 @@ bool recorre(const std::string& raiz, std::vector<Entrada>& salida, std::string&
     return true;
 }
 
-std::string serializaManifiesto(const std::vector<Entrada>& entradas) {
+std::string serializaManifiesto(const std::vector<Entry>& entradas) {
     std::string out;
-    for (const Entrada& e : entradas) {
+    for (const Entry& e : entradas) {
         out += letraDe(e.tipo);
         out += ' ';
         out += std::to_string(e.tamano);
@@ -304,7 +304,7 @@ std::string serializaManifiesto(const std::vector<Entrada>& entradas) {
     return out;
 }
 
-bool analizaManifiesto(const std::string& texto, std::vector<Entrada>& salida,
+bool analizaManifiesto(const std::string& texto, std::vector<Entry>& salida,
                        std::string& error) {
     salida.clear();
     error.clear();
@@ -331,7 +331,7 @@ bool analizaManifiesto(const std::string& texto, std::vector<Entrada>& salida,
             error = "línea de manifiesto ilegible: " + linea;
             return false;
         }
-        Entrada e;
+        Entry e;
         if (!tipoDe(letra, e.tipo)) {
             error = "tipo desconocido en el manifiesto: " + std::string(1, letra);
             return false;
@@ -352,20 +352,20 @@ bool analizaManifiesto(const std::string& texto, std::vector<Entrada>& salida,
     return false;
 }
 
-Plan planea(const std::vector<Entrada>& origen, const std::vector<Entrada>& destino,
+Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
             bool borraLoQueSobra) {
     Plan plan;
-    std::map<std::string, const Entrada*> enDestino;
-    for (const Entrada& e : destino) {
+    std::map<std::string, const Entry*> enDestino;
+    for (const Entry& e : destino) {
         enDestino.emplace(e.ruta, &e);
     }
 
     std::vector<std::string> vistas;
     vistas.reserve(origen.size());
-    for (const Entrada& e : origen) {
+    for (const Entry& e : origen) {
         vistas.push_back(e.ruta);
         const auto it = enDestino.find(e.ruta);
-        const Entrada* alli = (it == enDestino.end()) ? nullptr : it->second;
+        const Entry* alli = (it == enDestino.end()) ? nullptr : it->second;
 
         switch (e.tipo) {
             case Tipo::Directorio:
@@ -396,7 +396,7 @@ Plan planea(const std::vector<Entrada>& origen, const std::vector<Entrada>& dest
             case Tipo::Fichero:
                 // La misma regla que `copytree` en local: tamaño y fecha. La fecha va en
                 // segundos enteros porque es lo único que dos sistemas de ficheros
-                // distintos pueden comparar; ver el comentario de `Entrada::fecha`.
+                // distintos pueden comparar; ver el comentario de `Entry::fecha`.
                 if (alli != nullptr && alli->tipo == Tipo::Fichero && alli->tamano == e.tamano
                     && alli->fecha == e.fecha) {
                     ++plan.iguales;
@@ -415,14 +415,14 @@ Plan planea(const std::vector<Entrada>& origen, const std::vector<Entrada>& dest
     for (const std::string& r : vistas) {
         enOrigen.emplace(r, true);
     }
-    std::vector<Entrada> sobran;
-    for (const Entrada& e : destino) {
+    std::vector<Entry> sobran;
+    for (const Entry& e : destino) {
         if (enOrigen.find(e.ruta) == enOrigen.end()) {
             sobran.push_back(e);
         }
     }
     // De más hondo a menos hondo: un directorio se borra DESPUÉS de lo que tiene dentro.
-    std::sort(sobran.begin(), sobran.end(), [](const Entrada& a, const Entrada& b) {
+    std::sort(sobran.begin(), sobran.end(), [](const Entry& a, const Entry& b) {
         const std::size_t ha = hondura(a.ruta);
         const std::size_t hb = hondura(b.ruta);
         if (ha != hb) {
@@ -430,13 +430,13 @@ Plan planea(const std::vector<Entrada>& origen, const std::vector<Entrada>& dest
         }
         return a.ruta > b.ruta;
     });
-    for (const Entrada& e : sobran) {
+    for (const Entry& e : sobran) {
         plan.operaciones.push_back({Accion::Borrar, e});
     }
     return plan;
 }
 
-std::string describe(const Operacion& o) {
+std::string describe(const Operation& o) {
     switch (o.accion) {
         case Accion::CrearDirectorio: return "cd+++++++++ " + o.entrada.ruta + "/";
         case Accion::Copiar:          return ">f+++++++++ " + o.entrada.ruta;
@@ -449,7 +449,7 @@ std::string describe(const Operacion& o) {
     return {};
 }
 
-std::string cabeceraDe(const Operacion& o) {
+std::string cabeceraDe(const Operation& o) {
     std::string h;
     h += letraDe(o.accion);
     h += ' ';
@@ -466,7 +466,7 @@ std::string cabeceraDe(const Operacion& o) {
     return h;
 }
 
-bool analizaCabecera(const std::string& linea, Operacion& salida, std::size_t& largoRuta,
+bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& largoRuta,
                      std::size_t& largoDestino, std::string& error) {
     error.clear();
     std::istringstream iss(linea);
@@ -484,7 +484,7 @@ bool analizaCabecera(const std::string& linea, Operacion& salida, std::size_t& l
         error = "acción desconocida: " + std::string(1, letra);
         return false;
     }
-    salida.entrada = Entrada{};
+    salida.entrada = Entry{};
     salida.entrada.modo = modo;
     salida.entrada.fecha = fecha;
     salida.entrada.tamano = tam;

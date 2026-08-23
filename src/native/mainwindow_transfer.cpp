@@ -766,9 +766,9 @@ void MainWindow::actionCloneSnapshot() {
         banderas << QStringLiteral("-o") << prop;
     }
     // El argv y sus dos comprobaciones —origen instantánea, destino no— salen de
-    // `commands::instantaneas`. Aquí no había ninguna: se mandaba a ZFS y se leía su queja,
+    // `commands::snapshots`. Aquí no había ninguna: se mandaba a ZFS y se leía su queja,
     // que además habla de otra cosa cuando el origen no es una instantánea.
-    const QStringList argvClon = mwhelpers::argvZfsClonar(sourceSnapshot, targetDataset, banderas);
+    const QStringList argvClon = mwhelpers::argvZfsClone(sourceSnapshot, targetDataset, banderas);
     if (argvClon.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_clone_origen_malo001"),
@@ -2094,7 +2094,7 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Job async: %1 (%2) — fallback síncrono")
                    .arg(QString::fromStdString(
-                            zfsmgr::base::transferencia::etiquetaDe(lanzado.fallo)),
+                            zfsmgr::base::transferencia::labelOf(lanzado.fallo)),
                         QString::fromStdString(lanzado.detalle)));
         return false;
     }

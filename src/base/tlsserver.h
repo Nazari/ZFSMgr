@@ -6,7 +6,7 @@
 // Un servidor TLS mínimo, sin Qt: acepta conexiones y entrega bytes.
 //
 // No sabe de HTTP ni del protocolo del daemon: lee, deja que quien llame conteste, y
-// cierra. Quien decide qué significan esos bytes es el llamante.
+// cierra. Who decide qué significan esos bytes es el llamante.
 //
 // Vive en la capa base porque lo necesitan dos artefactos —el agente ya emitía sus propios
 // certificados, y ahora el servidor web necesita los suyos— y porque emitirlos con OpenSSL

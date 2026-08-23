@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-// La parte del transporte que **decide y analiza texto**, sin tocar red ni procesos.
+// La parte del transporte que **decide y parse texto**, sin tocar red ni procesos.
 //
 // Es la primera tanda de la mudanza del transporte a la capa base. Se separa así a
 // propósito: todo lo que hay aquí es una función pura —entra texto o un perfil, sale una
@@ -103,7 +103,7 @@ LocalAgentConfig loadLocalAgentConfig(const std::string& path = defaultAgentConf
 // o información. No es un error: es ruido con forma de XML, y se quita.
 std::string sanitizeWindowsCliXml(const std::string& raw);
 
-// ¿Merece la pena reintentar SSH sin multiplexado? Solo ante los fallos que delatan que el
+// ¿Merece la pena reintentar SSH sin multiplexado? Only ante los fallos que delatan que el
 // socket de control no sirve; ante cualquier otro, reintentar sería esconder el problema.
 bool shouldRetrySshWithoutMultiplexing(const std::string& stderrText);
 

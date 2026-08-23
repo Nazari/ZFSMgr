@@ -6,7 +6,7 @@ namespace zfsmgr::commands::datasets {
 
 namespace B = zfsmgr::base;
 
-bool nombreValido(const std::string& nombre) {
+bool isValidName(const std::string& nombre) {
     const std::string n = B::trim(nombre);
     if (n.empty()) {
         return false;
@@ -23,7 +23,7 @@ bool nombreValido(const std::string& nombre) {
     return n.find("//") == std::string::npos;
 }
 
-std::string nombreDeRenombrado(const std::string& actual, const std::string& nuevo) {
+std::string renamedName(const std::string& actual, const std::string& nuevo) {
     const std::string a = B::trim(actual);
     const std::string n = B::trim(nuevo);
     if (n.empty()) {
@@ -40,10 +40,10 @@ std::string nombreDeRenombrado(const std::string& actual, const std::string& nue
     return a.substr(0, barra + 1) + n;
 }
 
-std::vector<std::string> argvRenombrar(const std::string& actual, const std::string& nuevo) {
+std::vector<std::string> argvRename(const std::string& actual, const std::string& nuevo) {
     const std::string a = B::trim(actual);
-    const std::string destino = nombreDeRenombrado(a, nuevo);
-    if (a.empty() || destino.empty() || !nombreValido(a) || !nombreValido(destino)) {
+    const std::string destino = renamedName(a, nuevo);
+    if (a.empty() || destino.empty() || !isValidName(a) || !isValidName(destino)) {
         return {};
     }
     if (a == destino) {
@@ -52,7 +52,7 @@ std::vector<std::string> argvRenombrar(const std::string& actual, const std::str
     return {"rename", a, destino};
 }
 
-std::string nombreDeHijo(const std::string& padre, const std::string& hoja) {
+std::string childName(const std::string& padre, const std::string& hoja) {
     const std::string h = B::trim(hoja);
     if (h.empty()) {
         return {};
@@ -67,10 +67,10 @@ std::string nombreDeHijo(const std::string& padre, const std::string& hoja) {
     return p + "/" + h;
 }
 
-std::vector<std::string> argvCrear(const std::string& dataset,
+std::vector<std::string> argvCreate(const std::string& dataset,
                                    const std::vector<std::string>& propiedades, bool padres) {
     const std::string ds = B::trim(dataset);
-    if (!nombreValido(ds)) {
+    if (!isValidName(ds)) {
         return {};
     }
     std::vector<std::string> out{"create"};
@@ -91,9 +91,9 @@ std::vector<std::string> argvCrear(const std::string& dataset,
     return out;
 }
 
-std::vector<std::string> argvPromover(const std::string& dataset) {
+std::vector<std::string> argvPromote(const std::string& dataset) {
     const std::string ds = B::trim(dataset);
-    if (!nombreValido(ds)) {
+    if (!isValidName(ds)) {
         return {};
     }
     return {"promote", ds};
@@ -103,7 +103,7 @@ namespace {
 
 std::vector<std::string> argvMontaje(const char* sub, const std::string& dataset, bool forzar) {
     const std::string ds = B::trim(dataset);
-    if (!nombreValido(ds)) {
+    if (!isValidName(ds)) {
         return {};
     }
     std::vector<std::string> out{sub};
@@ -116,15 +116,15 @@ std::vector<std::string> argvMontaje(const char* sub, const std::string& dataset
 
 }  // namespace
 
-std::vector<std::string> argvMontar(const std::string& dataset, bool forzar) {
+std::vector<std::string> argvMount(const std::string& dataset, bool forzar) {
     return argvMontaje("mount", dataset, forzar);
 }
 
-std::vector<std::string> argvDesmontar(const std::string& dataset, bool forzar) {
+std::vector<std::string> argvUnmount(const std::string& dataset, bool forzar) {
     return argvMontaje("unmount", dataset, forzar);
 }
 
-std::vector<std::string> argvPonerPropiedad(const std::string& dataset,
+std::vector<std::string> argvSetProperty(const std::string& dataset,
                                             const std::string& propiedad,
                                             const std::string& valor) {
     const std::string ds = B::trim(dataset);
@@ -135,7 +135,7 @@ std::vector<std::string> argvPonerPropiedad(const std::string& dataset,
     return {"set", p + "=" + valor, ds};
 }
 
-std::vector<std::string> argvHeredarPropiedad(const std::string& dataset,
+std::vector<std::string> argvInheritProperty(const std::string& dataset,
                                               const std::string& propiedad) {
     const std::string ds = B::trim(dataset);
     const std::string p = B::trim(propiedad);
