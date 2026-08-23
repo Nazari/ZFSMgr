@@ -197,13 +197,12 @@ Comprobación:
    spctl -a -vv "/ruta/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr.app"
 
-El intérprete (zfsmgr-cli) y el servidor web (zfsmgr-web) viajan DENTRO del .app,
+El intérprete (zfsmgr-cli) viaja DENTRO del .app,
 porque en macOS no hay instalador. Para tenerlos en el PATH, un enlace cada uno:
    sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
-Comprobación:  zfsmgr-cli --help   /   zfsmgr-web --help
+Comprobación:  zfsmgr-cli --help
 Al desinstalar (borrar el .app) los enlaces quedan colgando; se quitan con:
-   sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web
+   sudo rm /usr/local/bin/zfsmgr-cli
 
 [EN]
 These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
@@ -227,13 +226,12 @@ Verification:
    spctl -a -vv "/path/ZFSMgr.app"
    codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr.app"
 
-The shell tool (zfsmgr-cli) and the local web server (zfsmgr-web) ship INSIDE the
+The shell tool (zfsmgr-cli) ships INSIDE the
 .app, since macOS has no installer. To get them on your PATH, symlink each:
    sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
-Check with:  zfsmgr-cli --help   /   zfsmgr-web --help
+Check with:  zfsmgr-cli --help
 Deleting the .app leaves the symlinks dangling; remove them with:
-   sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web
+   sudo rm /usr/local/bin/zfsmgr-cli
 
 [ZH]
 这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
@@ -497,12 +495,9 @@ package_freebsd_with_agent_bundle() {
   # así que los lee del disco, y `share/zfsmgr/i18n` es una de las rutas que ya busca a
   # partir de su propio ejecutable.
   cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-cli"
-  # Y el servidor web, por lo mismo: es el otro cliente sin Qt, y este paquete se arma a
-  # mano. El .deb de Linux SÍ lo cogió solo, porque ese sale de `cmake --install`; aquí
-  # había que nombrarlo. Es exactamente la trampa que ya se pisó con el intérprete.
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-web" "${payload}/usr/local/bin/zfsmgr-web"
+  # El servidor web ya NO viaja: abandonado desde 0.99.2 y fuera de la compilación.
   chmod 0755 "${payload}/usr/local/bin/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr_agent" \
-             "${payload}/usr/local/bin/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-web" || true
+             "${payload}/usr/local/bin/zfsmgr-cli" || true
   cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"
   cp -f "${PROJECT_ROOT}"/i18n/*.json "${payload}/usr/local/share/zfsmgr/i18n/"
 

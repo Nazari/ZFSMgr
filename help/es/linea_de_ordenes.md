@@ -10,9 +10,9 @@ llama por su nombre desde `cmd` o PowerShell. En Linux y macOS **se instala junt
 aplicación**, en `bin`, así que también se llama por su nombre. Antes no era así y no salía
 en ningún paquete de Unix.
 
-Hay además un **servidor web**, `zfsmgr-web`: enseña lo mismo en un navegador, sin
-JavaScript, y se llega a él por un túnel SSH. Los tres —ventana, intérprete y servidor—
-hablan con el mismo agente y comparten las mismas reglas.
+Hubo además un **servidor web**, `zfsmgr-web`, que enseñaba lo mismo en un navegador.
+Está **abandonado desde la 0.99.2** y ya no se compila ni se distribuye. Los dos que
+quedan —ventana e intérprete— hablan con el mismo agente y comparten las mismas reglas.
 
 ## Dos formas de usarla
 

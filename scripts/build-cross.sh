@@ -277,7 +277,10 @@ mete_cli_en_bundle_macos() {
     rm -f "${viejo}"
   done
   local cliente
-  for cliente in zfsmgr-cli zfsmgr-web; do
+  # Solo el intérprete: el servidor web está ABANDONADO desde 0.99.2 y ya no se compila
+  # —ver la opción ZFSMGR_BUILD_WEB en resources/CMakeLists.txt—, así que exigirlo aquí
+  # haría fallar el empaquetado por un binario que nadie genera.
+  for cliente in zfsmgr-cli; do
     if [[ ! -f "${build_dir}/${cliente}" ]]; then
       echo "Error: no se encontró ${build_dir}/${cliente} para meter en el bundle." >&2
       echo "       Sin él, el .app de macOS sale incompleto." >&2

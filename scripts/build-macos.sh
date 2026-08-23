@@ -832,7 +832,10 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # Antes de firmar, como los agentes.
   # El servidor web viaja igual y por el mismo motivo: los dos son clientes sin Qt y en
   # macOS no hay instalador que los ponga en el PATH.
-  for cliente in zfsmgr-cli zfsmgr-web; do
+  # Solo el intérprete: el servidor web está ABANDONADO desde 0.99.2 y ya no se compila
+  # —ver la opción ZFSMGR_BUILD_WEB en resources/CMakeLists.txt—, así que exigirlo aquí
+  # haría fallar el empaquetado por un binario que nadie genera.
+  for cliente in zfsmgr-cli; do
     if [[ ! -f "${BUILD_DIR}/${cliente}" ]]; then
       echo "Error: no se encontró ${BUILD_DIR}/${cliente} para meter en el bundle." >&2
       echo "       Sin él, el .app de macOS sale incompleto." >&2

@@ -434,9 +434,20 @@ target_compile_definitions(zfsmgr-cli PRIVATE
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
-# El servidor web: un CLIENTE más, hermano del intérprete. Enlaza SOLO la capa base — el
-# mismo contrato que zfsmgr-cli: si algún día deja de compilar por un símbolo de Qt, es que
-# se ha metido interfaz donde no toca. Ver docs/diseno_tecnico_servidor_web.md.
+# --- El servidor web: ABANDONADO el 2026-08-23. No se compila ni se distribuye.
+#
+# **Por qué se apaga y no se borra.** El código está entero y funciona dentro del
+# navegador; lo que no cumple es la promesa que lo justificaba —montarlo desde el
+# explorador de archivos— y esa no es una corrección, es otro diseño: `/dav/` solo admite
+# la cookie de la sesión, así que Finder, que monta con usuario y contraseña, no tiene
+# forma de identificarse; y el certificado autofirmado se rehace en cada arranque.
+# Comprobado contra mmela. Ver docs/diseno_tecnico_servidor_web.md.
+#
+# Se queda en el árbol porque hay dos cosas que merece la pena no perder: la prueba de que
+# la capa base sirve para un cliente entero SIN Qt, y la implementación de WebDAV. Para
+# volver a compilarlo: `cmake -DZFSMGR_BUILD_WEB=ON`.
+option(ZFSMGR_BUILD_WEB "Compilar el servidor web, ABANDONADO desde 0.99.2" OFF)
+if(ZFSMGR_BUILD_WEB)
 add_executable(zfsmgr-web
     ../src/web/main.cpp
     ../src/web/http.cpp
@@ -469,6 +480,7 @@ add_executable(zfsmgr_web_test
 target_include_directories(zfsmgr_web_test PRIVATE ../src ../src/web ../src/base ../src/commands)
 target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_commands)
 add_test(NAME zfsmgr_web_test COMMAND zfsmgr_web_test)
+endif()
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
@@ -617,15 +629,15 @@ install(TARGETS zfsmgr-cli
     RUNTIME DESTINATION bin
 )
 
-# Y el servidor web, al lado. Es un cliente más —corre como el usuario, no como root— así
-# que va a `bin/` y no a `libexec/`, que es donde vive el agente.
-#
-# No lleva unidad de systemd ni nada que lo arranque solo, y es deliberado: escuchar en un
-# puerto con la clave maestra en memoria es algo que se hace a sabiendas y cuando uno
-# quiere, no algo que quede encendido porque se instaló un paquete.
-install(TARGETS zfsmgr-web
-    RUNTIME DESTINATION bin
-)
+# El servidor web ya NO se instala: está abandonado desde 0.99.2 y solo se compila con
+# `-DZFSMGR_BUILD_WEB=ON`. Se instala únicamente si se pidió compilarlo, para que quien lo
+# encienda a propósito lo tenga donde estaba —en `bin/`, que es un cliente y corre como el
+# usuario, no como root—.
+if(ZFSMGR_BUILD_WEB)
+    install(TARGETS zfsmgr-web
+        RUNTIME DESTINATION bin
+    )
+endif()
 
 # Y sus catálogos, que NO puede llevar dentro.
 #

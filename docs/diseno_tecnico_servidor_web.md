@@ -1,5 +1,11 @@
 # Servidor web: la interfaz sin Qt
 
+> **ABANDONADO el 2026-08-23, a partir de la 0.99.2.** No se compila ni se distribuye;
+> se enciende con `cmake -DZFSMGR_BUILD_WEB=ON`. El motivo —WebDAV no se puede montar
+> desde un explorador de archivos, y por qué— está en `src/web/ABANDONADO.md`. Lo que
+> sigue describe lo que se PRETENDÍA, incluida la tabla de exploradores, que nunca
+> llegó a cumplirse.
+
 ## Por qué
 
 La interfaz de Qt son **50.945 líneas**, `zfsmgr-gui` pesa **9,3 MB** y el `.app` de macOS

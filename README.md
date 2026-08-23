@@ -92,19 +92,18 @@ Software you compile locally is never quarantined, so it just runs:
 Requires Xcode command line tools and Qt 6. See `docs/cross-compiling-linux.md` for
 the toolchain details.
 
-## Installing the command-line tool and the web server
+## Installing the command-line tool
 
-Two clients ship next to the window, and both are installed the same way because they
-are the same kind of thing: a client that links no Qt at all and talks to the daemon
-over the same tunnel.
+One client ships next to the window: a client that links no Qt at all and talks to the
+daemon over the same tunnel.
 
 - **`zfsmgr-cli`** — the shell: the same operations as the window, driven from a
   terminal, with a `zfsm://` URL as the current location.
-- **`zfsmgr-web`** — a local HTTPS server that serves the same tree to a browser. It
-  runs **as you**, not as root, and listens on `127.0.0.1` unless told otherwise.
-  Nothing starts it for you: no service, no unit file. Listening on a port with the
-  master password in memory is something you do on purpose. See
-  `docs/diseno_tecnico_servidor_web.md`.
+
+There used to be a second one, **`zfsmgr-web`**, a local HTTPS server that served the
+same tree to a browser. It is **abandoned as of 0.99.2**: it is no longer built and no
+longer ships. The source is still in the tree and builds with
+`cmake -DZFSMGR_BUILD_WEB=ON`; `src/web/ABANDONADO.md` explains why it was dropped.
 
 Where they land depends on how the platform installs software:
 
@@ -119,13 +118,11 @@ macOS has no installer, so the links are yours to make:
 
 ```bash
 sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-web /usr/local/bin/zfsmgr-web
 zfsmgr-cli --help
-zfsmgr-web --help
 ```
 
 Deleting the `.app` leaves those symlinks dangling; remove them with
-`sudo rm /usr/local/bin/zfsmgr-cli /usr/local/bin/zfsmgr-web`.
+`sudo rm /usr/local/bin/zfsmgr-cli`.
 
 The AppImage is the graphical application only. It is a single self-contained file, so
 nothing inside it is on your `PATH`; use the `.deb` if you want the shell.

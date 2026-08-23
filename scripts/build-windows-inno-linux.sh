@@ -24,7 +24,10 @@ INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
 APP_EXE="zfsmgr-gui.exe"
 CLI_EXE="zfsmgr-cli.exe"
-WEB_EXE="zfsmgr-web.exe"
+# Vacío: el servidor web está ABANDONADO desde 0.99.2 y ya no se compila. La opción
+# `--web` sigue existiendo por si alguien lo enciende con -DZFSMGR_BUILD_WEB=ON y quiere
+# meterlo en su instalador; por omisión no viaja.
+WEB_EXE=""
 APP_VERSION=""
 QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
 MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
@@ -41,7 +44,7 @@ Opciones:
   --version <v>         Versión del instalador (si no, se lee de CMakeLists)
   --exe <name.exe>      Ejecutable principal (default: zfsmgr-gui.exe)
   --cli <name.exe>      Herramienta de línea de órdenes (default: zfsmgr-cli.exe).
-  --web <name.exe>      Servidor web local (default: zfsmgr-web.exe).
+  --web <name.exe>      Servidor web local. ABANDONADO: por omisión no se incluye.
                         Si no está en --input-dir se omite y el instalador se genera
                         igual: la aplicación gráfica no depende de ella.
   --qt-prefix <dir>     Prefijo Qt6 para Windows (bin/Qt6*.dll y plugins/). Por defecto
@@ -379,13 +382,13 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 ; que va a gestionar en remoto, pero VISIBLE y desmarcable: levantar un servidor SSH
 ; cambia la exposición del equipo en la red y eso no se hace en silencio.
 Name: "opensshserver"; Description: "Enable OpenSSH Server (required to manage this machine remotely from another ZFSMgr)"; GroupDescription: "Remote access:"
-; Poner {app}\\bin en el PATH de la máquina: ahí están zfsmgr-cli y zfsmgr-web.
+; Poner {app}\\bin en el PATH de la máquina: ahí está zfsmgr-cli.
 ;
 ; Marcada por omisión porque es a lo que viene quien quiere la herramienta de línea de
 ; órdenes, pero VISIBLE y desmarcable por el mismo motivo que la de OpenSSH: tocar el
 ; PATH del sistema cambia lo que ejecuta cualquier consola del equipo, y eso no se hace
 ; en silencio.
-Name: "addtopath"; Description: "Add zfsmgr-cli and zfsmgr-web to the system PATH"; GroupDescription: "Command line:"
+Name: "addtopath"; Description: "Add zfsmgr-cli to the system PATH"; GroupDescription: "Command line:"
 
 [Registry]
 ; expandsz y NO string: el Path del sistema suele traer %SystemRoot% dentro, y

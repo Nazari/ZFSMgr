@@ -10,9 +10,9 @@ call it by name from `cmd` or PowerShell. On Linux and macOS it **is installed
 alongside the application**, in `bin`, so it is also called by name. That was not the case
 before, and it did not ship in any Unix package.
 
-There is also a **web server**, `zfsmgr-web`: it shows the same thing in a browser, without
-JavaScript, reached over an SSH tunnel. All three — window, shell and server — talk to the
-same agent and share the same rules.
+There was also a **web server**, `zfsmgr-web`, showing the same thing in a browser. It is
+**abandoned as of 0.99.2** and is no longer built or shipped. The two that remain — window
+and shell — talk to the same agent and share the same rules.
 
 ## Two ways to use it
 
