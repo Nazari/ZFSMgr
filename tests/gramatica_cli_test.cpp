@@ -11,10 +11,12 @@
 //     compilación: rompería al teclear la orden.
 #include "ayuda.h"
 #include "gramatica_cli.h"
+#include "session.h"
 #include "strutil.h"
 
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -54,7 +56,8 @@ static std::string rellenoDe(const zfsmgr::cli::Orden& o) {
     return relleno;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    const std::string argv0 = argc > 0 ? argv[0] : std::string();
     using zfsmgr::cli::analizaLinea;
 
     // --- Abreviaturas: basta con las primeras letras si no hay dos órdenes que empiecen
@@ -458,6 +461,30 @@ int main() {
                                          + "»: opción documentada sin ningún ejemplo");
             }
         }
+    }
+
+    // 5. `dirDelEjecutable` devuelve el directorio DE ESTE BINARIO.
+    //
+    // Parece una perogrullada y no lo era: fuera de Linux devolvía «.», el directorio de
+    // trabajo, porque macOS y FreeBSD no tienen /proc/self/exe. Toda la búsqueda del
+    // agente en `rutaDelAgente` cuelga de aquí, así que en un `.app` de macOS los cinco
+    // agentes que lleva DENTRO eran inalcanzables y `install-daemon` decía que no había
+    // binario para esta plataforma. Se descubrió usándolo, no leyéndolo.
+    //
+    // La prueba vale en las tres: compara contra la ruta real de este ejecutable.
+    {
+        const std::string dir = zfsmgr::cli::dirDelEjecutable();
+        comprueba(dir != "." && !dir.empty(),
+                  "dirDelEjecutable no puede ser el directorio de trabajo");
+        std::error_code ec;
+        const auto suyo = std::filesystem::canonical(dir, ec);
+        const auto mio = std::filesystem::canonical(
+            std::filesystem::path(argv0).parent_path().empty()
+                ? std::filesystem::current_path()
+                : std::filesystem::path(argv0).parent_path(), ec);
+        comprueba(!ec && suyo == mio,
+                  std::string("dirDelEjecutable dice «") + dir + "» y este binario está en «"
+                      + mio.string() + "»");
     }
 
     std::printf(fallos ? "FALLOS: %d\n" : "gramatica_cli_test OK\n", fallos);

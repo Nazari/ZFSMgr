@@ -743,6 +743,8 @@ if(BUILD_TESTING)
         ../src/cli/generado/gramatica.tab.c
         ../src/cli/generado/gramatica.lex.c
         ../src/cli/ayuda.cpp
+        ../src/cli/session.cpp
+        ../src/cli/secretinput.cpp
     )
     target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_commands)

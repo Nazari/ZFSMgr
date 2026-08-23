@@ -11,6 +11,7 @@
 #include "tr.h"
 
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -18,6 +19,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 #include <mutex>
 
@@ -417,13 +425,50 @@ std::string dirDelEjecutable() {
         return ".";
     }
     std::string ruta(buf, n);
+#elif defined(__APPLE__)
+    // **Aquí NO vale el cwd, y creerlo costó una función entera.** Con `"."` toda la
+    // búsqueda de `rutaDelAgente` pasa a ser relativa al directorio desde el que se
+    // teclea, así que `Contents/Resources/agents/` —donde el `.app` lleva los cinco
+    // agentes— solo se encontraba por casualidad. Efecto: `install-daemon` decía «no se
+    // encontró el binario del daemon para macos/arm64 en este equipo» con el binario
+    // dentro del propio bundle que estaba ejecutando. Comprobado en vivo contra mmela: la
+    // MISMA orden falla desde $HOME y funciona desde Contents/MacOS.
+    std::string ruta;
+    {
+        std::uint32_t n = 0;
+        _NSGetExecutablePath(nullptr, &n);   // primero pregunta cuánto ocupa
+        std::string buf(n ? n : 4096u, '\0');
+        if (_NSGetExecutablePath(&buf[0], &n) == 0) {
+            buf.resize(std::strlen(buf.c_str()));
+            // Devuelve la ruta con la que se INVOCÓ, que puede llevar enlaces —el
+            // /usr/local/bin/zfsmgr-cli que instala el .pkg apunta dentro del bundle—.
+            std::error_code ec;
+            const auto real = std::filesystem::canonical(buf, ec);
+            ruta = ec ? buf : real.string();
+        }
+    }
+    if (ruta.empty()) {
+        return ".";
+    }
+#elif defined(__FreeBSD__)
+    // El equivalente de /proc/self/exe en FreeBSD, que tampoco lo tiene montado siempre.
+    std::string ruta;
+    {
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+        char buf[4096] = {0};
+        std::size_t n = sizeof(buf);
+        if (sysctl(mib, 4, buf, &n, nullptr, 0) == 0 && n > 0) {
+            ruta.assign(buf, std::strlen(buf));
+        }
+    }
+    if (ruta.empty()) {
+        return ".";
+    }
 #else
     std::error_code ec;
     const auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
     std::string ruta = ec ? std::string() : p.string();
     if (ruta.empty()) {
-        // macOS y FreeBSD no tienen /proc/self/exe. Con el cwd basta para el caso que
-        // importa: el árbol de compilación.
         return ".";
     }
 #endif
