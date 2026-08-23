@@ -11,9 +11,14 @@
 #include <iostream>
 
 #ifdef _WIN32
-#include <windows.h>
+// **Winsock2 ANTES que windows.h, y no es cosmética.** `windows.h` arrastra `winsock.h`
+// —la API 1.1—, así que incluirlo primero hace que `winsock2.h` redefina `sockaddr`,
+// `fd_set`, `timeval` y una docena más. MinGW lo tolera y MSVC no, de modo que el cruce
+// local salía en verde y el CI de Windows moría con veinte «type redefinition» dentro de
+// ws2def.h, señalando ficheros del SDK que nadie había tocado.
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>

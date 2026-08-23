@@ -298,6 +298,26 @@ codesign_bundle_contents() {
     done < <(find "${plugins_dir}" -type f \( -name "*.dylib" -o -perm -111 \) -print0)
   fi
 
+  # Los DEMÁS ejecutables de Contents/MacOS, que son `zfsmgr-cli` y `zfsmgr-web`.
+  #
+  # Se firmaban marcos, plugins, el binario principal y el bundle, y estos dos quedaban
+  # fuera; `codesign --verify --deep --strict` los ve como subcomponentes sin firmar y
+  # aborta con «code object is not signed at all / In subcomponent: …/zfsmgr-cli». Es lo
+  # que llevaba el CI de macOS rojo desde que el intérprete y el servidor web entraron en
+  # el bundle: la compilación NATIVA firma con esta función, mientras que la cruzada usa
+  # `rcodesign`, que recorre el bundle entero y sí los firmaba. De ahí que el cruce local
+  # saliera en verde y el CI no.
+  #
+  # Van ANTES que el binario principal y que el bundle: la firma de fuera cubre lo de
+  # dentro, así que firmar el contenedor primero la invalidaría.
+  local macos_dir="${app_bundle}/Contents/MacOS"
+  if [[ -d "${macos_dir}" ]]; then
+    while IFS= read -r -d '' file; do
+      [[ "${file}" -ef "${main_bin}" ]] && continue
+      codesign_path "${file}" "${cert_name}"
+    done < <(find "${macos_dir}" -type f -perm -111 -print0)
+  fi
+
   codesign_path "${main_bin}" "${cert_name}"
   codesign_path "${app_bundle}" "${cert_name}"
 }

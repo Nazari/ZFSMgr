@@ -226,7 +226,14 @@ target_compile_definitions(zfsmgr_base PRIVATE
 )
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
-target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+# Threads en PUBLIC, no en cada consumidor.
+#
+# La capa base usa hilos —el transporte, las esperas— y en Linux eso enlaza igual sin
+# pedir nada: desde glibc 2.34 pthread vive dentro de libc. En FreeBSD no, y allí el CI se
+# caía al enlazar `zfsmgr_base_test` con «undefined symbol: pthread_create». Ponerlo aquí
+# y en PUBLIC lo arregla para TODOS los que enlazan la base —cli, web, agente y las cuatro
+# pruebas— en vez de ir añadiéndolo de uno en uno según se vayan cayendo.
+target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_include_directories(zfsmgr_commands PUBLIC ../src ../src/base ../src/commands)
 target_link_libraries(zfsmgr_commands PUBLIC zfsmgr_base)
 if(WIN32)
