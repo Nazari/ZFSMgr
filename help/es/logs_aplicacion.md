@@ -32,7 +32,7 @@ Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pes
 
 ## Pestaña Transferencias
 
-- Muestra una fila por cada trabajo en marcha: `Copiar` y `Nivelar` entre daemons, y también
+- Muestra una fila por cada trabajo en marcha: `Enviar` y `Nivelar` entre daemons, y también
   `Desde Dir` cuando va por el árbol entre daemons.
 - En esa misma zona están los botones `Aplicar cambios` y `Deshacer cambios`, que sirven
   **solo** a los borradores de propiedades y de permisos: las acciones ya no se encolan.

@@ -13,7 +13,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   the `Combined log`.
 
 
-The `Actions` box with its six buttons is gone: `Copy`, `Move`, `Clone`, `Sync`, `Level`
+The `Actions` box with its six buttons is gone: `Send`, `Move`, `Clone`, `Sync`, `Level`
 and `Diff` are requested from the target node's context menu (see `Context menus`).
 `Transfers` is the first tab at the bottom.
 

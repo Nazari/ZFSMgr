@@ -338,7 +338,7 @@ private:
             bool enabled{false};
             QString reason;   // por qué no, cuando enabled es false
         };
-        Entry copy;
+        Entry send;
         Entry clone;
         Entry move;
         Entry level;
@@ -828,7 +828,7 @@ private:
     bool connDirectoryDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     QString connContentTokenForTree(const QTreeWidget* tree) const;
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
-    void actionCopySnapshot();
+    void actionSendSnapshot();
     void actionCloneSnapshot();
     void actionDiffSnapshot();
     void actionLevelSnapshot();

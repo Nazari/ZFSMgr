@@ -2335,8 +2335,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             const MainWindow::TransferActionAvailability::Entry* entry;
         };
         const QVector<Spec> specs = {
-            {QStringLiteral("copy"),  QStringLiteral("Copiar aquí desde %1"),
-             QStringLiteral("Copy here from %1"),      QStringLiteral("从 %1 复制到此"),      &avail.copy},
+            {QStringLiteral("send"),  QStringLiteral("Enviar aquí desde %1"),
+             QStringLiteral("Send here from %1"),      QStringLiteral("从 %1 发送到此"),      &avail.send},
             {QStringLiteral("move"),  QStringLiteral("Mover aquí desde %1"),
              QStringLiteral("Move here from %1"),      QStringLiteral("从 %1 移动到此"),      &avail.move},
             {QStringLiteral("clone"), QStringLiteral("Clonar aquí desde %1"),

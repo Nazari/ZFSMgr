@@ -666,7 +666,7 @@
     "t_rsync_det": "Copia FICHEROS, no instantáneas: da igual si lo que hay debajo son datasets o directorios corrientes, mientras esté montado. Para mandar una instantánea está `send`.",
     "t_rsync_det2": "Sin `--delete` solo añade y actualiza; lo que sobre en el destino se queda. Con `--delete` el destino acaba idéntico al origen, y eso INCLUYE borrar.",
     "t_rsync_det3": "Vale entre máquinas distintas: el árbol va de agente a agente, sin `tar` ni shell de por medio.",
-    "t_rsync_dos_maquinas": "rsync solo funciona dentro de una misma máquina; entre máquinas use copy\n",
+    "t_rsync_dos_maquinas": "rsync solo funciona dentro de una misma máquina; entre máquinas use send\n",
     "t_rsync_mismo": "el origen y el destino son el mismo dataset\n",
     "t_rsync_res": "Sincroniza FICHEROS de un árbol montado con otro («Sincronizar» de la interfaz).",
     "t_rsync_uso": "<destino> [--delete] [--check] [--wait]",
@@ -768,7 +768,7 @@
     "t_uso_assemb_8aa75c": "uso: assemble <hijo> [<hijo>...]\n  Deshace lo de breakdown: devuelve cada dataset hijo a directorio.\n",
     "t_uso_breakd_14be27": "uso: breakdown <directorio> <nombre-hijo> [<directorio> <nombre-hijo>...]\n  Convierte cada directorio del dataset en un dataset hijo.\n",
     "t_uso_clone__ea5ed7": "uso: clone <nuevo-dataset> [--from <@instantánea>]\n",
-    "t_uso_copy_d_f6efbc": "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n          [banderas de zfs send] [--wait]\n  El destino es una URL: puede estar en OTRA máquina.\n  Sin --from se usa el sitio actual como origen.\n  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n  llama «Nivelar»).\n",
+    "t_uso_copy_d_f6efbc": "uso: send <destino> [--from <@instantánea>] [--base <@instantánea>]\n          [banderas de zfs send] [--wait]\n  El destino es una URL: puede estar en OTRA máquina.\n  Sin --from se usa el sitio actual como origen.\n  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n  llama «Nivelar»).\n",
     "t_uso_create_63b88e": "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n            [-o prop=valor] [-O prop-fs=valor] [--mountpoint <ruta>]\n  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n",
     "t_uso_create_ac2703": "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n            [--host <h>] [--port <p>] [--user <u>] [--key <ruta>]\n            [--sudo] [--password-fd <n>]\n  Da de alta una conexión. Lo que no se dé por opciones se pregunta.\n",
     "t_uso_create_c8fa17": "uso: create <nombre> [prop=valor...]\n",
@@ -960,6 +960,7 @@
     "t_web_zfs_acepto_la_127c02": "ZFS aceptó la orden pero el permiso sigue ahí",
     "t_ya_existe__484f91": "ya existe una conexión «%s»\n",
     "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\nEl tabulador completa órdenes y URL; las flechas recorren el historial.\n",
+    "t_send_action_001": "Enviar",
     "t_rsync_det4": "`#content/<subruta>` acota el origen a ese subárbol, y `#content/{a,b}` copia varios de una vez. Con varios orígenes se rechaza `--delete`: cada uno borraría lo que acaba de dejar el anterior."
   }
 }

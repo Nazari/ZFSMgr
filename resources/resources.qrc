@@ -33,7 +33,7 @@
     <file alias="i18n/legacy_keys.json">../i18n/legacy_keys.json</file>
     <file alias="help/es/manual_rapido.md">../help/es/manual_rapido.md</file>
     <file alias="help/es/atajos_estados.md">../help/es/atajos_estados.md</file>
-    <file alias="help/es/accion_copiar.md">../help/es/accion_copiar.md</file>
+    <file alias="help/es/accion_enviar.md">../help/es/accion_enviar.md</file>
     <file alias="help/es/accion_clonar.md">../help/es/accion_clonar.md</file>
     <file alias="help/es/accion_diff.md">../help/es/accion_diff.md</file>
     <file alias="help/es/accion_sincronizar.md">../help/es/accion_sincronizar.md</file>
@@ -50,7 +50,7 @@
     <file alias="help/es/linea_de_ordenes.md">../help/es/linea_de_ordenes.md</file>
     <file alias="help/en/manual_rapido.md">../help/en/manual_rapido.md</file>
     <file alias="help/en/atajos_estados.md">../help/en/atajos_estados.md</file>
-    <file alias="help/en/accion_copiar.md">../help/en/accion_copiar.md</file>
+    <file alias="help/en/accion_enviar.md">../help/en/accion_enviar.md</file>
     <file alias="help/en/accion_clonar.md">../help/en/accion_clonar.md</file>
     <file alias="help/en/accion_sincronizar.md">../help/en/accion_sincronizar.md</file>
     <file alias="help/en/accion_nivelar.md">../help/en/accion_nivelar.md</file>
@@ -67,7 +67,7 @@
     <file alias="help/en/conexiones_windows.md">../help/en/conexiones_windows.md</file>
     <file alias="help/zh/manual_rapido.md">../help/zh/manual_rapido.md</file>
     <file alias="help/zh/atajos_estados.md">../help/zh/atajos_estados.md</file>
-    <file alias="help/zh/accion_copiar.md">../help/zh/accion_copiar.md</file>
+    <file alias="help/zh/accion_enviar.md">../help/zh/accion_enviar.md</file>
     <file alias="help/zh/accion_clonar.md">../help/zh/accion_clonar.md</file>
     <file alias="help/zh/accion_sincronizar.md">../help/zh/accion_sincronizar.md</file>
     <file alias="help/zh/accion_nivelar.md">../help/zh/accion_nivelar.md</file>

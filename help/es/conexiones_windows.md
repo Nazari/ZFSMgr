@@ -58,7 +58,7 @@ lista bajo *Funciones no disponibles*.
 - Instantáneas automáticas programadas: se apoyan en ZED, y OpenZFS on Windows no lo trae.
 
 Lo que sí funciona: leer y modificar datasets y pools, instantáneas, clonar, permisos
-ZFS, *Ensamblar*, **Copiar y Nivelar instantáneas entre máquinas**, los **trabajos en
+ZFS, *Ensamblar*, **Enviar y Nivelar instantáneas entre máquinas**, los **trabajos en
 segundo plano**, y el registro y el latido del agente.
 
 **Desglosar no está disponible en Windows**, y *Hacia Dir* tampoco. Los motivos están más
@@ -141,7 +141,7 @@ Importar, leer, montar y trabajar con el pool sí funcionan.
 
 ## Traer un snapshot a Windows
 
-Desde la versión 0.90.18 esto lo hace la propia aplicación: `Copiar aquí desde...` y
+Desde la versión 0.90.18 esto lo hace la propia aplicación: `Enviar aquí desde...` y
 `Nivelar con...` funcionan con un extremo en Windows, en los dos sentidos, y si la
 transferencia se corta se ofrece continuarla donde se quedó.
 

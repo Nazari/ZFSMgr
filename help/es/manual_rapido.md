@@ -12,7 +12,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
   `Transferencias`). `Terminal` y `Daemon` no están aquí: son sub-pestañas **de cada
   conexión**, dentro del `Log combinado`.
 
-La caja `Acciones` con sus seis botones ya no existe: `Copiar`, `Mover`, `Clonar`,
+La caja `Acciones` con sus seis botones ya no existe: `Enviar`, `Mover`, `Clonar`,
 `Sincronizar`, `Nivelar` y `Diff` se piden desde el menú contextual del nodo destino
 (ver `Menús contextuales`). `Transferencias` es la primera pestaña de abajo.
 

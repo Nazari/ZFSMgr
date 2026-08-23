@@ -15,7 +15,7 @@
   - misma conexión
   - mismo pool
 - Los snapshots se seleccionan desde el nodo `@` (ya no hay menú `Seleccionar snapshot`).
-- Si origen o destino usan OpenZFS `< 2.3.3`, `Copiar`, `Nivelar` y `Sincronizar` se bloquean.
+- Si origen o destino usan OpenZFS `< 2.3.3`, `Enviar`, `Nivelar` y `Sincronizar` se bloquean.
 - `Aplicar cambios` solo se activa si hay borradores reales de propiedades o de permisos.
   Esos dos SÍ se editan en lote y se aplican con un botón; las acciones no: se ejecutan al
   pulsarlas.

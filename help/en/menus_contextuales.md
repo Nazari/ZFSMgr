@@ -96,7 +96,7 @@ A daemon-rpc TLS backoff marks the connection as needing attention but does **no
 
 ## The six source-and-target actions
 
-`Copy`, `Move`, `Clone`, `Sync`, `Level` and `Diff` need **two** endpoints. They no longer
+`Send`, `Move`, `Clone`, `Sync`, `Level` and `Diff` need **two** endpoints. They no longer
 have buttons: you request them from the context menu, following the copy-and-paste model.
 
 1. Right-click the starting dataset or snapshot → `Mark as source`.
@@ -105,7 +105,7 @@ have buttons: you request them from the context menu, following the copy-and-pas
 
 ```
 With source datos@lunes ▸
-   Copy here from datos@lunes
+   Send here from datos@lunes
    Move here from datos@lunes
    Clone here from datos@lunes
    Sync here from datos@lunes
@@ -117,7 +117,7 @@ With source datos@lunes ▸
 and the data stays where it is, so it is instantaneous and there is no original left to
 delete. That is why it only works **within the same pool and the same machine**, with
 datasets on both ends — never snapshots. To take something to another pool or another
-machine, use `Copy`. What does change is the mountpoint of that dataset and of everything
+machine, use `Send`. What does change is the mountpoint of that dataset and of everything
 beneath it.
 
 There is no target to mark: it is the node you click on. The `Source:` line at the top

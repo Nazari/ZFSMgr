@@ -7,7 +7,7 @@ The bottom area uses tabs:
   now run when you press them.
 - `Settings`: log options and action confirmation.
 - `Combined log`: main application log.
-- `Transfers`: list of background daemon transfer jobs (Copy/Level daemon-to-daemon).
+- `Transfers`: list of background daemon transfer jobs (Send/Level daemon-to-daemon).
 
 Inside the `Combined log`, **each connection** also has its own sub-tabs:
 
@@ -32,7 +32,7 @@ Inside the `Combined log`, **each connection** also has its own sub-tabs:
 
 ## Transfers tab
 
-- Shows one row per background transfer job (daemon-to-daemon Copy or Level).
+- Shows one row per background transfer job (daemon-to-daemon Send or Level).
 - Each row shows: state, source/target datasets, bytes transferred, speed, elapsed time.
 - Possible states: `running`, `done`, `failed`, `cancelled`.
 - `Refrescar` forces an immediate status query to the daemons.

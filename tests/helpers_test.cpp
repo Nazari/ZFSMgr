@@ -347,7 +347,7 @@ int main() {
         in.srcDatasetMounted = true;
         in.dstDatasetMounted = true;
         const TransferButtonState st = computeTransferButtonState(in);
-        if (!st.copyEnabled || !st.levelEnabled || st.syncEnabled) {
+        if (!st.sendEnabled || !st.levelEnabled || st.syncEnabled) {
             return fail("computeTransferButtonState snapshot copy/level mismatch");
         }
     }
@@ -365,7 +365,7 @@ int main() {
         in.srcDatasetMounted = true;
         in.dstDatasetMounted = true;
         const TransferButtonState st = computeTransferButtonState(in);
-        if (st.copyEnabled || !st.levelEnabled || !st.syncEnabled) {
+        if (st.sendEnabled || !st.levelEnabled || !st.syncEnabled) {
             return fail("computeTransferButtonState dataset sync mismatch");
         }
     }

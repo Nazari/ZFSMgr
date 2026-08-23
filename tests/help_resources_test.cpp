@@ -8,7 +8,7 @@
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const QStringList temas = {
-        "accion_clonar", "accion_copiar", "accion_desde_dir", "accion_desglosar",
+        "accion_clonar", "accion_enviar", "accion_desde_dir", "accion_desglosar",
         "accion_diff", "accion_ensamblar", "accion_hacia_dir", "accion_nivelar",
         "accion_sincronizar", "atajos_estados", "conexiones_windows",
         "configuracion_archivos", "linea_de_ordenes", "logs_aplicacion", "manual_rapido",

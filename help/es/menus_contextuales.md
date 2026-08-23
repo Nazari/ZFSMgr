@@ -96,7 +96,7 @@ Un backoff TLS de daemon-rpc marca la conexión para atención pero **no** dispa
 
 ## Las seis acciones de origen y destino
 
-`Copiar`, `Mover`, `Clonar`, `Sincronizar`, `Nivelar` y `Diff` necesitan **dos** extremos.
+`Enviar`, `Mover`, `Clonar`, `Sincronizar`, `Nivelar` y `Diff` necesitan **dos** extremos.
 Ya no tienen botones: se piden desde el menú contextual, siguiendo el modelo de
 copiar y pegar.
 
@@ -106,7 +106,7 @@ copiar y pegar.
 
 ```
 Con el origen datos@lunes ▸
-   Copiar aquí desde datos@lunes
+   Enviar aquí desde datos@lunes
    Mover aquí desde datos@lunes
    Clonar aquí desde datos@lunes
    Sincronizar aquí desde datos@lunes
@@ -124,7 +124,7 @@ que las versiones de OpenZFS no son compatibles para transferir.
 **`Mover` no copia nada.** Es un `zfs rename`: el dataset cambia de sitio en el árbol y
 los datos se quedan donde están, así que es instantáneo y no queda un original que borrar.
 Por eso solo funciona **dentro del mismo pool y la misma máquina**, y con datasets a los
-dos lados —nunca snapshots—. Para llevar algo a otro pool o a otra máquina es `Copiar`.
+dos lados —nunca snapshots—. Para llevar algo a otro pool o a otra máquina es `Enviar`.
 Lo que sí cambia es la ruta de montaje de ese dataset y la de todo lo que cuelgue de él.
 - En holds:
   - `Release`

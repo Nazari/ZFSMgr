@@ -744,7 +744,7 @@ TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
     TransferButtonState out;
     const bool sameSelection = !in.srcSelectionKey.empty()
                             && (in.srcSelectionKey == in.dstSelectionKey);
-    out.copyEnabled = in.srcDatasetSelected && in.srcSnapshotSelected && in.dstDatasetSelected
+    out.sendEnabled = in.srcDatasetSelected && in.srcSnapshotSelected && in.dstDatasetSelected
                    && !in.dstSnapshotSelected;
     out.levelEnabled = in.srcDatasetSelected && in.dstDatasetSelected && !in.dstSnapshotSelected
                     && !sameSelection;

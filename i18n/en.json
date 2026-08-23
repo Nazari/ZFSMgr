@@ -752,7 +752,7 @@
     "t_rsync_det": "Copies FILES, not snapshots: it makes no difference whether what lies underneath are datasets or plain directories, as long as it is mounted. To send a snapshot there is `send`.",
     "t_rsync_det2": "Without `--delete` it only adds and updates; whatever is left over at the destination stays. With `--delete` the destination ends up identical to the source, and that INCLUDES deleting.",
     "t_rsync_det3": "Works between different machines too: the tree travels from agent to agent, with no `tar` and no shell in between.",
-    "t_rsync_dos_maquinas": "rsync only works within one machine; between machines use copy\n",
+    "t_rsync_dos_maquinas": "rsync only works within one machine; between machines use send\n",
     "t_rsync_mismo": "the source and the destination are the same dataset\n",
     "t_rsync_res": "Syncs FILES from one mounted tree to another (the interface’s “Sync”).",
     "t_rsync_uso": "<destination> [--delete] [--check] [--wait]",
@@ -859,7 +859,7 @@
     "t_uso_assemb_8aa75c": "usage: assemble <child> [<child>...]\n  Undoes breakdown: turns each child dataset back into a directory.\n",
     "t_uso_breakd_14be27": "usage: breakdown <directory> <child-name> [<directory> <child-name>...]\n  Turns each directory of the dataset into a child dataset.\n",
     "t_uso_clone__ea5ed7": "usage: clone <new-dataset> [--from <@instantánea>]\n",
-    "t_uso_copy_d_f6efbc": "usage: copy <destination> [--from <@instantánea>] [--base <@instantánea>]\n          [--flags <zfs send flags>] [--wait]\n  The destination is a URL: it may be on ANOTHER machine.\n  Without --from the current location is the source.\n  With --base only what changed since then travels (what the GUI\n  calls «Level»).\n",
+    "t_uso_copy_d_f6efbc": "usage: send <destination> [--from <@instantánea>] [--base <@instantánea>]\n          [--flags <zfs send flags>] [--wait]\n  The destination is a URL: it may be on ANOTHER machine.\n  Without --from the current location is the source.\n  With --base only what changed since then travels (what the GUI\n  calls «Level»).\n",
     "t_uso_create_63b88e": "usage: create <pool> <device> [<device>...] [-f]\n            [-o prop=value] [-O fs-prop=value] [--mountpoint <path>]\n  The devices are WRITTEN TO: whatever was on them is lost.\n",
     "t_uso_create_ac2703": "usage: create <id> [--name <n>] [--type LOCAL|SSH] [--os <os>]\n            [--host <h>] [--port <p>] [--user <u>] [--key <path>]\n            [--sudo] [--password-fd <n>]\n  Registers a connection. Whatever is not given as an option is asked for.\n",
     "t_uso_create_c8fa17": "usage: create <name> [prop=value...]\n",
@@ -1051,6 +1051,7 @@
     "t_web_zfs_acepto_la_127c02": "ZFS accepted the command but the permission is still there",
     "t_ya_existe__484f91": "a connection «%s» already exists\n",
     "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lists the commands and «help <command>» explains one.\nTab completes commands and URLs; the arrows walk the history.\n",
+    "t_send_action_001": "Send",
     "t_rsync_det4": "`#content/<subpath>` narrows the source to that subtree, and `#content/{a,b}` copies several at once. With more than one source `--delete` is refused: each one would erase what the previous just left."
   }
 }

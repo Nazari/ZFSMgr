@@ -1500,7 +1500,11 @@ void MainWindow::buildUi() {
         QString es;
     };
     const QVector<HelpTopicItem> helpActions = {
-        {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar")},
+        // **Clave propia, no `t_copy_001`.** Esa la comparte el botón «Copiar» del registro, que
+        // copia al portapapeles y sigue llamándose así. Con una sola clave, traducir la acción
+        // como «Enviar» habría renombrado también aquel botón.
+        {QStringLiteral("accion_enviar"), QStringLiteral("t_send_action_001"),
+         QStringLiteral("Enviar")},
         {QStringLiteral("accion_clonar"), QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")},
         {QStringLiteral("accion_diff"), QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")},
         {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar")},
@@ -1671,7 +1675,7 @@ void MainWindow::buildUi() {
     m_btnDiscardPendingChanges->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnDiscardPendingChanges->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    // Aquí vivía una rejilla 3x2 con Sincronizar, Copiar, Clonar, Mover, Nivelar y Diff.
+    // Aquí vivía una rejilla 3x2 con Sincronizar, Enviar, Clonar, Mover, Nivelar y Diff.
     // Las seis pasaron al menú contextual del destino, así que la caja se queda solo con
     // la etiqueta del origen y pierde la altura mínima de tres filas de botones: ese es
     // el espacio que se recupera.

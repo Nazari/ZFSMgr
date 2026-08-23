@@ -15,7 +15,7 @@ Comportamiento:
 - Puede marcar **varios directorios, incluso de conexiones distintas**. Si marca un directorio que ya contiene a otro marcado, se descarta el descendiente. La jerarquía relativa de cada directorio se reproduce dentro del dataset destino.
 - Crea el dataset, fuerza `canmount=on` y lo monta en su punto de montaje definitivo.
 - **Los datos van de máquina a máquina, no por la suya.** Cuando las dos puntas tienen el
-  agente, el destino se pone a escuchar y el origen le manda el árbol directamente. Copiar
+  agente, el destino se pone a escuchar y el origen le manda el árbol directamente. Enviar
   100 GB de una máquina a otra ya no mueve 200 GB por el equipo desde el que usted manda.
 - Es un **trabajo del daemon**: hay progreso, se puede cancelar, y sigue si cierra la ventana.
 - La copia es **incremental**: una segunda pasada solo mueve lo que cambió.

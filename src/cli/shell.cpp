@@ -3101,12 +3101,12 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 //
 // Con `--base` es INCREMENTAL: solo viaja lo que cambió desde esa instantánea, que es lo
 // que la interfaz llama «Nivelar». Sin ella va el flujo completo.
-bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
+bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    // Las banderas de `zfs send` se escriben SUELTAS: `copy /otra/x -w -L`.
+    // Las banderas de `zfs send` se escriben SUELTAS: `send /otra/x -w -L`.
     //
     // Hubo una opción `--flags "-w -L"` que envolvía lo mismo en una cadena, y sobraba: el
     // léxico ya sabe cuáles son banderas de esta orden porque están declaradas, así que
@@ -3122,7 +3122,7 @@ bool cmdCopy(Estado& e, const LineaAnalizada& linea) {
         banderasSend += (banderasSend.empty() ? "" : " ") + n;
     }
     if (pet.lista("destino").empty() && pet.valor("to").empty()) {
-        std::fputs(TC("t_uso_copy_d_f6efbc", "uso: copy <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
+        std::fputs(TC("t_uso_copy_d_f6efbc", "uso: send <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
                      "          [banderas de zfs send] [--wait]\n"
                      "  El destino es una URL: puede estar en OTRA máquina.\n"
                      "  Sin --from se usa el sitio actual como origen.\n"
@@ -3474,7 +3474,7 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
 // Las cuatro órdenes que mueven datos de verdad se comportan IGUAL: van al daemon como
 // trabajo, y `--wait` es lo que pide esperar aquí a que terminen.
 //
-// Antes no era así: `copy` iba como trabajo y se esperaba con `--wait`, mientras que
+// Antes no era así: `send` iba como trabajo y se esperaba con `--wait`, mientras que
 // `breakdown`, `assemble` y `todir` eran síncronas y `--job` las mandaba al daemon. Dos
 // banderas para la misma idea, con el valor por omisión INVERTIDO entre ellas: había que
 // recordar cuál era cuál para cada orden.
@@ -4707,7 +4707,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"jobs", cmdJobs},
         {"job", cmdJob},
         {"install-daemon", cmdInstalarDaemon},
-        {"copy", cmdCopy},
+        {"send", cmdSend},
         {"history", cmdHistory},
         {"allow", [](Estado& s, const LineaAnalizada& l) { return cmdPermisos(s, l, true); }},
         {"unallow", [](Estado& s, const LineaAnalizada& l) { return cmdPermisos(s, l, false); }},

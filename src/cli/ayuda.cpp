@@ -576,7 +576,7 @@ const std::vector<Orden> kOrdenes = {
      {{"ruta", Ranura::Tipo::Ruta, Ranura::Cuantas::Una}}},
 
     // --- Transferencias
-    {"copy", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, {"t_destino_bb3347", "<destino>"},
+    {"send", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, {"t_destino_bb3347", "<destino>"},
      {"t_manda_una__2d0418", "Manda una instantánea a otro dataset, aquí o en otra máquina."},
      {{{"t_from_insta_ce64b3", "--from <@instantánea>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
       {{"t_base_insta_074a40", "--base <@instantánea>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
@@ -584,8 +584,7 @@ const std::vector<Orden> kOrdenes = {
      {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
       "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
-      {"t_ninguno_de_0490e5", "Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado "
-      "allí. Para eso están todir y fromdir."}},
+      {"t_send_windows_ok", "Funciona también con un extremo Windows: su agente emite y recibe el flujo desde la fase 2, comprobado contra una máquina real."}},
      Objetivo::Instantanea,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}},
      nativasDeSend()},

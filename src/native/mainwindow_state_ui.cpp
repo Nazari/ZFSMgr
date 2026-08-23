@@ -146,7 +146,7 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
 
     auto deny = [&out](const QString& why) {
         for (TransferActionAvailability::Entry* e :
-             {&out.copy, &out.clone, &out.move, &out.level, &out.sync, &out.diff}) {
+             {&out.send, &out.clone, &out.move, &out.level, &out.sync, &out.diff}) {
             e->enabled = false;
             e->reason = why;
         }
@@ -180,7 +180,7 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
     QString versionReason;
     const bool versionOk = isTransferVersionAllowed(src, dst, &versionReason);
 
-    // Copiar y Nivelar encadenan "zfs send | zfs recv" por una tubería, y el agente de
+    // Enviar y Nivelar encadenan "zfs send | zfs recv" por una tubería, y el agente de
     // Windows todavía no lo implementa. La tabla de capacidades ya lo sabía, pero solo se
     // consultaba AL EJECUTAR (requireNonWindowsStreamingEndpoints): la entrada salía
     // habilitada y el rechazo llegaba después de pulsar. La regla de la casa es la
@@ -239,21 +239,21 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
         QStringLiteral("Source and target must be in the same pool."),
         QStringLiteral("源和目标必须位于同一存储池。"));
 
-    // Copiar
-    out.copy.enabled = st.copyEnabled && versionOk && streamingOk;
-    if (!out.copy.enabled) {
-        out.copy.reason = !versionOk ? versionReason.trimmed()
+    // Enviar
+    out.send.enabled = st.sendEnabled && versionOk && streamingOk;
+    if (!out.send.enabled) {
+        out.send.reason = !versionOk ? versionReason.trimmed()
                         : !streamingOk
                               ? streamingUnavailableReason(
                                     trk(QStringLiteral("t_avail_lbl_copy001"),
-                                        QStringLiteral("Copiar snapshot"),
-                                        QStringLiteral("Copy snapshot"),
-                                        QStringLiteral("复制快照")))
+                                        QStringLiteral("Enviar snapshot"),
+                                        QStringLiteral("Send snapshot"),
+                                        QStringLiteral("发送快照")))
                         : !srcSnap   ? needsSnapshotSrc
                         : dstSnap    ? needsDatasetDst
                                      : trk(QStringLiteral("t_avail_copy_generic001"),
-                                           QStringLiteral("Copiar necesita un snapshot en el origen y un dataset en el destino."),
-                                           QStringLiteral("Copy needs a snapshot as source and a dataset as target."),
+                                           QStringLiteral("Enviar necesita un snapshot en el origen y un dataset en el destino."),
+                                           QStringLiteral("Send needs a snapshot as source and a dataset as target."),
                                            QStringLiteral("复制需要以快照为源、以数据集为目标。"));
     }
 
@@ -498,8 +498,8 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     m_transferSelectionOverrideOrigin = src;
     m_transferSelectionOverrideDest = dst;
 
-    if (action == QStringLiteral("copy")) {
-        actionCopySnapshot();
+    if (action == QStringLiteral("send")) {
+        actionSendSnapshot();
     } else if (action == QStringLiteral("clone")) {
         actionCloneSnapshot();
     } else if (action == QStringLiteral("diff")) {

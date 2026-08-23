@@ -33,7 +33,7 @@ struct TransferButtonInputs {
 };
 
 struct TransferButtonState {
-    bool copyEnabled{false};
+    bool sendEnabled{false};
     bool levelEnabled{false};
     bool syncEnabled{false};
 };

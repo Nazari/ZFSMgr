@@ -324,7 +324,7 @@ bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
     return false;
 }
 
-void MainWindow::actionCopySnapshot() {
+void MainWindow::actionSendSnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
@@ -338,20 +338,20 @@ void MainWindow::actionCopySnapshot() {
     }
     ConnectionProfile sp = m_conns.profiles[src.connIdx];
     ConnectionProfile dp = m_conns.profiles[dst.connIdx];
-    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Copiar snapshot"))) {
+    if (!requireNonWindowsStreamingEndpoints(src.connIdx, dst.connIdx, QStringLiteral("Enviar snapshot"))) {
         return;
     }
     if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
         sp.useSudo = true;
         if (!ensureLocalSudoCredentials(sp)) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Copiar cancelada: faltan credenciales sudo locales"));
+            appLog(QStringLiteral("INFO"), QStringLiteral("Enviar cancelada: faltan credenciales sudo locales"));
             return;
         }
     }
     if (isLocalConnection(dp) && !isWindowsConnection(dp)) {
         dp.useSudo = true;
         if (!ensureLocalSudoCredentials(dp)) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Copiar cancelada: faltan credenciales sudo locales"));
+            appLog(QStringLiteral("INFO"), QStringLiteral("Enviar cancelada: faltan credenciales sudo locales"));
             return;
         }
     }
@@ -377,8 +377,8 @@ void MainWindow::actionCopySnapshot() {
     // es el dataset sobre el que se pulsa, porque se le añade el nombre del origen.
     appLog(QStringLiteral("INFO"),
            resumeToken.isEmpty()
-               ? QStringLiteral("Copiar: sin transferencia a medias bajo %1").arg(recvTarget)
-               : QStringLiteral("Copiar: transferencia a medias en %1 (destino %2)")
+               ? QStringLiteral("Enviar: sin transferencia a medias bajo %1").arg(recvTarget)
+               : QStringLiteral("Enviar: transferencia a medias en %1 (destino %2)")
                      .arg(resumeHolder, recvTarget));
     bool resumeRequested = false;
     if (!resumeToken.isEmpty()) {
@@ -424,7 +424,7 @@ void MainWindow::actionCopySnapshot() {
         }
         resumeRequested = true;
         appLog(QStringLiteral("INFO"),
-               QStringLiteral("Copiar: reanudando transferencia a medias en %1").arg(recvTarget));
+               QStringLiteral("Enviar: reanudando transferencia a medias en %1").arg(recvTarget));
     }
 
     ZfsSendOptions sendOpts;
@@ -445,7 +445,7 @@ void MainWindow::actionCopySnapshot() {
 
     QString pipeline;
     // Aquí había dos lambdas —`buildSourceExecutionCommand` e `isDaemonReady`— que **no
-    // llamaba nadie**: restos de cuando Copiar y Nivelar tenían respaldo por shell. Se
+    // llamaba nadie**: restos de cuando Enviar y Nivelar tenían respaldo por shell. Se
     // retiraron los respaldos y ellas se quedaron, con su `withSudo` a la vista, pareciendo
     // que este camino todavía sabía caer a shell. No sabía.
     // Prefer async daemon job: no GUI blocking, survives GUI close.
@@ -504,7 +504,7 @@ void MainWindow::actionCopySnapshot() {
                                "在 Windows 上，机器间复制始终通过代理进行，而该路径无法建立。"
                                "请在两个连接的卡片中确认代理已安装、正在运行，且 API 版本一致。")));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Copiar cancelada: cliente Windows sin camino por agente. El "
+               QStringLiteral("Enviar cancelada: cliente Windows sin camino por agente. El "
                               "camino por shell no es utilizable desde aquí."));
         return;
     }
@@ -534,7 +534,7 @@ void MainWindow::actionCopySnapshot() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_copy_needs_jobs001"),
                 QStringLiteral("No se pudo preparar la copia entre %1 y %2.\n\n"
-                               "Copiar entre máquinas se hace con un trabajo del agente en "
+                               "Enviar entre máquinas se hace con un trabajo del agente en "
                                "ambos extremos, y ese camino no se pudo montar. Compruebe en la "
                                "ficha de las dos conexiones que el agente está instalado, "
                                "activo y con la versión de API al día.")
@@ -550,7 +550,7 @@ void MainWindow::actionCopySnapshot() {
                                "请在两个连接的卡片中确认代理已安装、正在运行且 API 版本为最新。")
                     .arg(sp.name, dp.name)));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Copiar cancelada: sin camino por trabajo entre %1 y %2. Los "
+               QStringLiteral("Enviar cancelada: sin camino por trabajo entre %1 y %2. Los "
                               "respaldos por shell se retiraron.")
                    .arg(sp.name, dp.name));
         return;
@@ -560,7 +560,7 @@ void MainWindow::actionCopySnapshot() {
     // por dentro con execvp. Si ese verbo no está, tampoco se cae a shell.
     appLog(QStringLiteral("INFO"),
            trk(QStringLiteral("t_copiar_mod_b1d73e"),
-               QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
+               QStringLiteral("Enviar: modo local remoto (origen y destino en la misma conexión)"),
                QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
     const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
@@ -569,7 +569,7 @@ void MainWindow::actionCopySnapshot() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_copy_needs_pipe001"),
                 QStringLiteral("No se pudo preparar la copia en %1.\n\n"
-                               "Copiar dentro de una misma máquina la hace el agente. "
+                               "Enviar dentro de una misma máquina la hace el agente. "
                                "Compruebe que está instalado, activo y al día.")
                     .arg(sp.name),
                 QStringLiteral("Could not prepare the copy on %1.\n\n"
@@ -580,13 +580,13 @@ void MainWindow::actionCopySnapshot() {
                                "同一台机器内的复制由代理完成。请确认其已安装、正在运行且为最新版本。")
                     .arg(sp.name)));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Copiar cancelada en %1: sin --zfs-pipe-local.").arg(sp.name));
+               QStringLiteral("Enviar cancelada en %1: sin --zfs-pipe-local.").arg(sp.name));
         return;
     }
     pipeline = sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, typedPipe));
 
     QString pendingCommand = pipeline;
-    QString displayLabel = QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget);
+    QString displayLabel = QStringLiteral("Enviar snapshot %1 -> %2").arg(srcSnap, recvTarget);
     // El respaldo por TAR solo entra si NO se pudo montar el camino daemon-a-daemon.
     //
     // Antes se metía siempre que hubiera un extremo Windows, DESCARTANDO el pipeline que
@@ -608,7 +608,7 @@ void MainWindow::actionCopySnapshot() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_copy_win_nodaemon001"),
                 QStringLiteral("No se pudo preparar la copia con %1.\n\n"
-                               "Copiar entre máquinas necesita el agente en ambos extremos, "
+                               "Enviar entre máquinas necesita el agente en ambos extremos, "
                                "y no se pudo hablar con el del destino. Compruebe en la ficha "
                                "de la conexión que está instalado y activo; si viene de una "
                                "versión anterior, reinstálelo desde el menú contextual."),
@@ -623,7 +623,7 @@ void MainWindow::actionCopySnapshot() {
                                "重新安装。"))
                 .arg(isWindowsConnection(dp) ? dp.name : sp.name));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Copiar cancelada: sin camino daemon-a-daemon y un extremo es "
+               QStringLiteral("Enviar cancelada: sin camino daemon-a-daemon y un extremo es "
                               "Windows, donde el respaldo por shell no puede ejecutarse"));
         return;
     }
@@ -1291,7 +1291,7 @@ void MainWindow::actionLevelSnapshot() {
 
     QString pipeline;
     // Aquí había dos lambdas —`buildSourceExecutionCommand` e `isDaemonReady`— que **no
-    // llamaba nadie**: restos de cuando Copiar y Nivelar tenían respaldo por shell. Se
+    // llamaba nadie**: restos de cuando Enviar y Nivelar tenían respaldo por shell. Se
     // retiraron los respaldos y ellas se quedaron, con su `withSudo` a la vista, pareciendo
     // que este camino todavía sabía caer a shell. No sabía.
     // Prefer async daemon job (survives GUI close) when both daemons support JOBS_SUPPORT.
@@ -1308,8 +1308,8 @@ void MainWindow::actionLevelSnapshot() {
         }
     }
 
-    // Los mismos tres respaldos por shell que se retiraron de Copiar, por los mismos
-    // motivos: ver el comentario largo de `actionCopySnapshot`. Nivelar los tenía copiados
+    // Los mismos tres respaldos por shell que se retiraron de Enviar, por los mismos
+    // motivos: ver el comentario largo de `actionSendSnapshot`. Nivelar los tenía copiados
     // uno a uno, así que arreglar allí y no aquí habría dejado la mitad del problema.
     if (!sameConnection) {
         QMessageBox::warning(

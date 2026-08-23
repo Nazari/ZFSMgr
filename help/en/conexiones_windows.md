@@ -58,7 +58,7 @@ them under *Unavailable features*.
 - Scheduled automatic snapshots: they rely on ZED, and OpenZFS on Windows does not ship it.
 
 What does work: reading and modifying datasets and pools, snapshots, cloning, ZFS
-permissions, *Assemble*, **Copy and Level snapshots between machines**, **background
+permissions, *Assemble*, **Send and Level snapshots between machines**, **background
 jobs**, and the agent log and heartbeat.
 
 **Breakdown is not available on Windows**, and neither is *To dir*. The reasons are below.
@@ -136,7 +136,7 @@ Importing, reading, mounting and working with the pool do work.
 
 ## Bringing a snapshot to Windows
 
-Since version 0.90.18 the application does this itself: *Copy here from...* and *Level
+Since version 0.90.18 the application does this itself: *Send here from...* and *Level
 with...* work with a Windows end, in both directions, and if the transfer is cut short
 you are offered to continue from where it stopped.
 

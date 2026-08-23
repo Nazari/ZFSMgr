@@ -14,7 +14,7 @@
   - same connection
   - same pool
 - Snapshots are selected from the `@` node (there is no `Select snapshot` menu anymore).
-- If source or target runs OpenZFS `< 2.3.3`, `Copy`, `Level`, and `Sync` are blocked.
+- If source or target runs OpenZFS `< 2.3.3`, `Send`, `Level`, and `Sync` are blocked.
 - `Apply changes` is enabled only when there are real property or permission drafts. Those
   two ARE edited in batches and applied with a button; actions are not: they run when you
   press them.

@@ -167,7 +167,7 @@ TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
     bi.dstDatasetMounted = in.dstDatasetMounted;
     const B::TransferButtonState bs = B::computeTransferButtonState(bi);
     TransferButtonState out;
-    out.copyEnabled = bs.copyEnabled;
+    out.sendEnabled = bs.sendEnabled;
     out.levelEnabled = bs.levelEnabled;
     out.syncEnabled = bs.syncEnabled;
     return out;
