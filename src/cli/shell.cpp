@@ -45,6 +45,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <array>
 #include <set>
 #include <chrono>
 #include <sstream>
@@ -890,15 +891,84 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
         std::fprintf(stderr, TC("t_respuesta__74ad0d", "respuesta ilegible de zpool list: %s\n"), err.c_str());
         return false;
     }
+    // **Un pool es también un dataset: el raíz.** Por eso esta tabla lleva las dos mitades,
+    // las columnas de POOL —estado, tamaño, libre, uso, salud, importado— y las de DATASET
+    // —tipo, usado, compresión, montado, punto de montaje—.
+    //
+    // Antes solo llevaba las primeras, y las segundas se enseñaban añadiendo la fila del
+    // propio pool DENTRO de su listado, al hacer `cd`. Eso confundía: al entrar en un pool
+    // aparecía él mismo junto a sus hijos, y no era obvio si esa fila era el pool o un
+    // dataset con el mismo nombre. Los datos son los mismos; el sitio, no.
     Tabla t;
     t.nombreJson = "pools";
     t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"),   T("t_cab_estado", "ESTADO"),
                         T("t_cab_tamano", "TAMAÑO"),   T("t_cab_libre", "LIBRE"),
                         T("t_cab_uso", "USO"),         T("t_cab_salud", "SALUD"),
-                        T("t_cab_importado", "IMPORTADO")};
-    t.campos = {"name", "state", "size", "free", "capacity", "health", "imported"};
+                        T("t_cab_importado", "IMPORTADO"),
+                        T("t_cab_tipo", "TIPO"),       T("t_cab_usado", "USADO"),
+                        T("t_cab_compr", "COMPR"),     T("t_cab_montado", "MONTADO"),
+                        T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
+    t.campos = {"name", "state", "size", "free", "capacity", "health", "imported",
+                "type", "used", "compressratio", "mounted", "mountpoint"};
+    // USADO va como CADENA, no como `Tipo::Bytes`, y no es un descuido.
+    //
+    // `Tipo::Bytes` promete que el valor de dentro está en bytes: el texto lo formatea y el
+    // tsv y el json emiten el número. La fuente de esta columna es `zfs get`, que da «336K»
+    // ya formateado, y el agente no sirve esa propiedad en crudo. Declararla `Bytes` hacía
+    // que el json emitiera `336` —`atoll("336K")`— y perdiera la unidad.
+    //
+    // Reconvertir «336K» a bytes aquí sería inventarse una precisión que la fuente no dio.
+    // La consecuencia, que conviene saber: en el listado de DATASETS esta columna sí va en
+    // bytes, porque allí la fuente es `zfs list -p`. Igualarlas pide un verbo de propiedades
+    // en crudo en el agente.
     t.tipos = {Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Cadena,   Tipo::Booleano};
+               Tipo::Cadena, Tipo::Cadena,   Tipo::Booleano,
+               Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+
+    // Los campos de dataset del pool raíz, uno por pool.
+    //
+    // Es una consulta por pool, no recursiva: `--dump-zfs-get-json` con las cinco propiedades
+    // que hacen falta. Pedir el árbol entero —`--dump-zfs-list-all`— traería todos los
+    // descendientes para quedarse con la primera fila.
+    //
+    // Si un pool no contesta, sus celdas van vacías y el resto de la tabla se enseña igual:
+    // que falte el «usado» no es motivo para no enseñar el estado.
+    const auto camposDeDataset = [&](const std::string& pool) {
+        std::array<std::string, 5> v{};
+        std::string salidaProps;
+        if (!agente(e, destino,
+                    PET::propiedadesConcretas(
+                        {"type", "used", "compressratio", "mounted", "mountpoint"}, pool),
+                    salidaProps, 15000)) {
+            return v;
+        }
+        std::vector<L::Propiedad> props;
+        std::string errProps;
+        if (!L::propiedades(salidaProps, props, errProps)) {
+            return v;
+        }
+        for (const L::Propiedad& pr : props) {
+            if (pr.nombre == "type") {
+                // La MISMA palabra que usa el listado de datasets. `zfs` dice «filesystem» y
+                // allí se escribe «dataset»: dos tablas con la columna TIPO que no significan
+                // lo mismo se leen peor que una columna menos.
+                v[0] = pr.valor == "snapshot" ? "snapshot" : "dataset";
+            } else if (pr.nombre == "used") {
+                v[1] = pr.valor;
+            } else if (pr.nombre == "compressratio") {
+                // Sin la «x» final: `zfs get` la pone y `zfs list -p` no, y esta columna sale
+                // en las dos tablas.
+                v[2] = (!pr.valor.empty() && pr.valor.back() == 'x')
+                           ? pr.valor.substr(0, pr.valor.size() - 1)
+                           : pr.valor;
+            } else if (pr.nombre == "mounted") {
+                v[3] = pr.valor;
+            } else if (pr.nombre == "mountpoint") {
+                v[4] = pr.valor;
+            }
+        }
+        return v;
+    };
     const auto prop = [](const B::json::Value& p, const char* k) {
         return p["properties"][k]["value"].toString();
     };
@@ -907,8 +977,10 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
         const auto& p = kv.second;
         const std::string nombre = p["name"].toString(kv.first);
         yaEstan.insert(nombre);
+        const auto ds = camposDeDataset(nombre);
         t.filas.push_back({nombre, p["state"].toString(), prop(p, "size"), prop(p, "free"),
-                           prop(p, "capacity"), prop(p, "health"), "true"});
+                           prop(p, "capacity"), prop(p, "health"), "true", ds[0], ds[1], ds[2],
+                           ds[3], ds[4]});
     }
 
     // Los que están AHÍ pero sin importar. `zpool list` no los ve —solo enumera los
@@ -944,7 +1016,10 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
             }
             // Sin tamaño ni uso: eso solo se sabe una vez importado, y rellenarlo con ceros
             // diría que el pool está vacío.
-            t.filas.push_back({imp.pool, imp.state, "", "", "", imp.state, "false"});
+            // Un pool sin importar no tiene campos de dataset que enseñar: sus datasets no
+            // están montados ni se pueden consultar hasta importarlo.
+            t.filas.push_back({imp.pool, imp.state, "", "", "", imp.state, "false", "", "", "",
+                               "", ""});
         }
     }
     t.imprime(e.formato);
@@ -967,21 +1042,14 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
     t.campos = {"name", "type", "used", "compressratio", "mounted", "mountpoint"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
-    // Un POOL es también un dataset: el raíz. Y es el ÚNICO que no se ve en ningún sitio.
+    // Aquí se añadía la fila del PROPIO pool cuando lo listado era un pool, para que sus
+    // campos de dataset se vieran en alguna parte. Confundía: al entrar en un pool aparecía
+    // él mismo junto a sus hijos, y no había forma de saber si esa fila era el pool o un
+    // dataset con su mismo nombre.
     //
-    // Todo dataset aparece con sus campos —usado, compresión, montaje— en el listado de su
-    // padre. El raíz de un pool no tiene padre dataset: su nivel de arriba es la conexión, y
-    // allí las filas llevan campos de POOL (estado, tamaño, capacidad, salud), que hablan del
-    // almacenamiento, no del sistema de ficheros. Así que `/wls/f.txt` vivía en un dataset
-    // que el intérprete no enseñaba por ninguna parte.
-    //
-    // Se añade como PRIMERA fila y solo cuando lo listado es un pool, no cualquier dataset:
-    // en `ls tanque/media` sus propios campos ya se vieron al listar `tanque`, y repetirlos
-    // en cada nivel sería ruido. Aquí no se repite nada, se rellena un hueco.
-    //
-    // El nombre va tal cual —«wls», no «.»— porque es el nombre real del dataset y con él se
-    // puede copiar y pegar a otra orden.
-    const bool esRaizDePool = destino.dataset.find('/') == std::string::npos;
+    // Esos campos están ahora donde corresponde: en el listado de POOLS, que lleva las dos
+    // mitades —las columnas de pool y las de dataset— porque un pool es también el dataset
+    // raíz. Aquí solo salen los hijos.
     const std::string prefijo = destino.dataset + "/";
     for (const std::string& linea : B::split(out, "\n", true)) {
         const std::vector<std::string> c = B::split(linea, "\t", false);
@@ -990,10 +1058,7 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         }
         const std::string& nombre = c[0];
         if (nombre == destino.dataset) {
-            if (esRaizDePool) {
-                t.filas.push_back({nombre, "dataset", c[2], c[3], c[7], c[8]});
-            }
-            continue;  // fuera de ese caso, el propio dataset no es hijo suyo
+            continue;  // uno no es hijo de sí mismo
         }
         const std::size_t arroba = nombre.find('@');
         const bool esSnap = arroba != std::string::npos;
