@@ -1,7 +1,7 @@
 #pragma once
 
 #include "connectionprofile.h"
-#include "process.h"
+#include "procesos.h"
 #include "transportreason.h"
 
 #include <chrono>

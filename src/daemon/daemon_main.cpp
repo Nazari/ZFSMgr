@@ -58,7 +58,7 @@ typedef int pid_t;
 #include "arbolremoto.h"
 #include "copytree.h"
 #include "json.h"
-#include "base/process.h"
+#include "base/procesos.h"
 #include "base/sistemaoperativo.h"
 #include "commands/gsa.h"
 #include "base/strutil.h"

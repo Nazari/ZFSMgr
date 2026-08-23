@@ -23,7 +23,7 @@
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
-#include "process.h"
+#include "procesos.h"
 #include "refreshparse.h"
 #include "agentversion.h"
 #include "connectionjson.h"

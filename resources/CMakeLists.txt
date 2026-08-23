@@ -122,8 +122,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/sistemaoperativo.h
     ../src/base/tlsclient.cpp
     ../src/base/tlsclient.h
-    ../src/base/process.cpp
-    ../src/base/process.h
+    ../src/base/procesos.cpp
+    ../src/base/procesos.h
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp
@@ -240,6 +240,11 @@ if(WIN32)
     # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
     # y no con quien la use: si no, cada consumidor tendría que acordarse.
     target_link_libraries(zfsmgr_base PUBLIC ws2_32 crypt32)
+    # NOMINMAX en PUBLIC: `windows.h` define `max` y `min` como MACROS, y entonces
+    # `std::max(a, b)` se expande a `std::(a) > (b) ? …` — el compilador de Microsoft lo
+    # cuenta como «C2589: '(': illegal token on right side of '::'», que no se parece en
+    # nada al problema. MinGW no las define, así que el cruce local nunca lo vio.
+    target_compile_definitions(zfsmgr_base PUBLIC NOMINMAX)
 endif()
 
 # La capa base se define ANTES del modo solo-agente, y no después.

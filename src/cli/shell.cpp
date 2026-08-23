@@ -16,7 +16,7 @@
 #include "helpers.h"
 #include "linea.h"
 #include "json.h"
-#include "process.h"
+#include "procesos.h"
 #include "secretinput.h"
 #include "strutil.h"
 #include "tr.h"

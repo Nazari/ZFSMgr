@@ -1,5 +1,5 @@
 #include "mainwindow.h"
-#include "base/process.h"
+#include "base/procesos.h"
 
 #include <QApplication>
 #include <QCoreApplication>
