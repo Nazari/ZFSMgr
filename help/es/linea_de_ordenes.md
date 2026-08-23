@@ -57,6 +57,34 @@ Dos reglas quitan la ambigüedad a una ruta relativa:
 
 Para bajar a un hijo que se llame igual que una conexión, `./nombre`.
 
+## Abreviar las órdenes
+
+Basta con escribir las primeras letras mientras no haya dos órdenes que empiecen igual.
+`pw` es `pwd`, `inf` es `info`, `ro` es `rollback`. Cuatro se quedan en una sola letra:
+`b`, `g`, `q` e `y`.
+
+**No hace falta memorizar cuántas letras.** Escriba las que le parezcan y, si no bastan, el
+intérprete enumera entre cuáles está dudando:
+
+```
+> j
+«j» es ambigua: job, jobs
+
+> cl
+«cl» es ambigua: clear, clone, cls
+```
+
+Eso es distinto de una orden que no existe, que sigue diciendo «orden desconocida». La
+misma lista es la que ofrece el TABULADOR, así que completar y abreviar nunca discrepan.
+
+**Lo exacto gana siempre.** `job` es una orden y `jobs` es otra: escribir `job` ejecuta
+`job`, aunque `jobs` también empiece por ahí. Sin esa regla no habría forma de escribir la
+corta. Pasa lo mismo con `hold` y `holds`, `schedule` y `schedules`, y `export` y
+`export-trust`.
+
+La abreviatura vale **solo para la orden**, que es la primera palabra. Lo que va detrás
+—destinos, opciones, valores— se escribe entero.
+
 ## Los tres formatos de salida
 
 - `text` (por omisión) es para leer: columnas alineadas, cabeceras traducidas, tamaños

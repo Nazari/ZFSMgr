@@ -4751,6 +4751,29 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
 
         const auto it = ordenes.find(orden);
         if (it == ordenes.end()) {
+            // Basta con las primeras letras de una orden mientras no haya dos que empiecen
+            // igual. Cuando las hay, decir «desconocida» es mentir: la orden existe, lo que
+            // pasa es que hay varias. Se enumeran, que es lo que hace falta para elegir.
+            // Del CATÁLOGO, no del mapa de este bucle: hay órdenes que se atienden antes de
+            // llegar a él —`cls`, `format`, `yes`, `exit`— y no estarían en la lista. Es
+            // además la misma función que usa el TABULADOR, así que lo que se ofrece al
+            // completar y lo que se enumera al abreviar no pueden discrepar.
+            std::vector<std::string> candidatas = nombresQueEmpiezanPor(orden);
+            if (candidatas.size() > 1) {
+                std::sort(candidatas.begin(), candidatas.end());
+                std::string lista;
+                for (const std::string& c : candidatas) {
+                    if (!lista.empty()) {
+                        lista += ", ";
+                    }
+                    lista += c;
+                }
+                std::fprintf(stderr,
+                             TC("t_orden_ambigua", "«%s» es ambigua: %s\n"),
+                             orden.c_str(), lista.c_str());
+                e.ultimoRc = 127;
+                continue;
+            }
             std::fprintf(stderr, TC("t_orden_desc_b05fd4", "orden desconocida: %s (pruebe «help»)\n"), orden.c_str());
             e.ultimoRc = 127;
             continue;

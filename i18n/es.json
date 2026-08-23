@@ -751,7 +751,7 @@
     "t_tipo_6cc619": "Tipo",
     "t_tipo_de_co_e73161": "Tipo de conexión no soportado aún en cppqt",
     "t_tls_sin_maestra": "sin contraseña maestra no se guarda el material TLS en claro",
-    "t_todas_las__c1ee0e": "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\nactuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n«help <orden>» da el detalle de una. El tabulador completa órdenes y URL.",
+    "t_todas_las__c1ee0e": "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\nactuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n«help <orden>» da el detalle de una. El tabulador completa órdenes y URL.\nBasta con las primeras letras de una orden si ninguna otra empieza igual;\nsi varias lo hacen, se enumeran.",
     "t_trabajos_e_ae8ad9": "Trabajos en segundo plano",
     "t_tramo_malo": "tramo mal codificado: %1",
     "t_transferen_07aa2e": "transferencia en marcha como trabajo %s en %s\n",

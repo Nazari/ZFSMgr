@@ -750,7 +750,9 @@ void imprimeAyuda(int ancho) {
                  TC("t_todas_las__c1ee0e",
                     "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\n"
                     "actuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n"
-                    "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL."));
+                    "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL.\n"
+                    "Basta con las primeras letras de una orden si ninguna otra empieza igual;\n"
+                    "si varias lo hacen, se enumeran."));
 }
 
 

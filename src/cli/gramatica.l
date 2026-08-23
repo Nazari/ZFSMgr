@@ -49,7 +49,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"log", V_LOG}, {"peers", V_PEERS}, {"repair-mounts", V_REPAIR_MOUNTS},
     {"authorize-key", V_AUTHORIZE_KEY}, {"export-trust", V_EXPORT_TRUST},
     {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},
-    {"clone", V_CLONE}, {"diff", V_DIFF}, {"copy", V_COPY},
+    {"clone", V_CLONE}, {"diff", V_DIFF}, {"send", V_SEND},
     {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
     {"breakdown", V_BREAKDOWN}, {"assemble", V_ASSEMBLE},
     {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC},
@@ -64,6 +64,47 @@ static int tokenDeVerbo(const char* v) {
         }
     }
     return V_DESCONOCIDO;
+}
+
+/* El nombre COMPLETO de la orden que `v` identifica, o NULL si no identifica ninguna.
+ *
+ * Basta con escribir las primeras letras mientras no haya dos órdenes que empiecen igual.
+ * Dos reglas que no son obvias:
+ *
+ *  - **Lo exacto gana siempre.** «job» es una orden y «jobs» es otra: sin esta regla, «job»
+ *    sería ambiguo y no habría forma de escribirlo. Pasa igual con hold/holds,
+ *    schedule/schedules y export/export-trust.
+ *  - **Dos nombres del MISMO verbo no compiten.** «exit» y «quit» devuelven el mismo token,
+ *    así que un prefijo que los alcanzara a los dos no sería ambiguo. Hoy no comparten
+ *    ninguno, pero la regla evita que añadir un sinónimo rompa una abreviatura.
+ *
+ * Se devuelve el nombre canónico, no lo tecleado: aguas abajo la orden se busca por su
+ * nombre en el catálogo, y la ayuda y los mensajes de error hablan de él.
+ */
+static const char* verboCanonico(const char* v) {
+    size_t largo = strlen(v);
+    const char* unico = 0;
+    int tokenUnico = 0;
+    int cuantos = 0;
+    int i;
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strcmp(kVerbos[i].nombre, v) == 0) {
+            return kVerbos[i].nombre;
+        }
+    }
+    for (i = 0; kVerbos[i].nombre; ++i) {
+        if (strncmp(kVerbos[i].nombre, v, largo) != 0) {
+            continue;
+        }
+        if (cuantos == 0) {
+            unico = kVerbos[i].nombre;
+            tokenUnico = kVerbos[i].token;
+            cuantos = 1;
+        } else if (kVerbos[i].token != tokenUnico) {
+            return 0;  /* ambiguo */
+        }
+    }
+    return cuantos == 1 ? unico : 0;
 }
 
 typedef struct {
@@ -139,11 +180,15 @@ PALABRA     [^ \t=][^ \t]*
 <VERBO>[^ \t]+      {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
-                        yylval->texto = copia(yytext, yyleng);
-                        if (cx) {
-                            snprintf(cx->verbo, sizeof(cx->verbo), "%s", yylval->texto);
+                        {
+                            const char* canonico = verboCanonico(yytext);
+                            const char* usar = canonico ? canonico : yytext;
+                            yylval->texto = copia(usar, (int)strlen(usar));
+                            if (cx) {
+                                snprintf(cx->verbo, sizeof(cx->verbo), "%s", yylval->texto);
+                            }
+                            return canonico ? tokenDeVerbo(canonico) : V_DESCONOCIDO;
                         }
-                        return tokenDeVerbo(yylval->texto);
                     }
 
   /* El valor de la opción anterior. No llega a la gramática: se anota y se sigue.

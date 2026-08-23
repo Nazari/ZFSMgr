@@ -91,6 +91,23 @@ std::string primeraPalabra(const std::string& linea) {
     return linea.substr(i, j == std::string::npos ? std::string::npos : j - i);
 }
 
+// El nombre completo de la orden que `palabra` identifica, con la misma regla que el
+// léxico: lo exacto gana, y si no, vale un prefijo que no alcance a ninguna otra.
+//
+// Está escrita otra vez aquí y no compartida con el léxico porque aquél es C y vive en el
+// fichero que genera flex; lo que las mantiene de acuerdo es `gramatica_cli_test`, que
+// comprueba que una abreviatura produce el mismo mensaje que la orden entera.
+std::string nombreCompletoDeOrden(const std::string& palabra) {
+    if (palabra.empty()) {
+        return palabra;
+    }
+    if (ordenPorNombre(palabra) != nullptr) {
+        return palabra;
+    }
+    const std::vector<std::string> candidatas = nombresQueEmpiezanPor(palabra);
+    return candidatas.size() == 1 ? candidatas.front() : palabra;
+}
+
 }  // namespace
 
 LineaAnalizada analizaLinea(const std::string& linea) {
@@ -104,7 +121,10 @@ LineaAnalizada analizaLinea(const std::string& linea) {
         // línea de sintaxis —que ya está en el catálogo— y, si lo que falta es una ranura
         // obligatoria, cuál es. Antes cada orden llevaba su propio texto de «uso:» escrito
         // a mano, y por eso unas lo tenían y otras no.
-        const Orden* o = ordenPorNombre(primeraPalabra(linea));
+        // Por su nombre COMPLETO: lo tecleado puede ser una abreviatura —«sen» por «send»—
+        // y entonces el catálogo no la encontraba y se caía al «syntax error» pelado. La
+        // misma orden daba dos mensajes distintos según cuántas letras se hubieran escrito.
+        const Orden* o = ordenPorNombre(nombreCompletoDeOrden(primeraPalabra(linea)));
         out.error = a.error;
         if (o) {
             for (const Ranura& r : o->ranuras) {

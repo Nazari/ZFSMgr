@@ -57,6 +57,34 @@ Two rules disambiguate a relative path:
 
 To descend into a child named like a connection, use `./name`.
 
+## Abbreviating commands
+
+Typing the first few letters is enough as long as no two commands start the same way. `pw`
+is `pwd`, `inf` is `info`, `ro` is `rollback`. Four are down to a single letter: `b`, `g`,
+`q` and `y`.
+
+**You do not have to memorise how many letters.** Type what seems right and, if it is not
+enough, the shell lists what it is hesitating between:
+
+```
+> j
+«j» is ambiguous: job, jobs
+
+> cl
+«cl» is ambiguous: clear, clone, cls
+```
+
+That is different from a command that does not exist, which still says "unknown command".
+The same list is what TAB completion offers, so completing and abbreviating never disagree.
+
+**An exact match always wins.** `job` is one command and `jobs` is another: typing `job`
+runs `job`, even though `jobs` also starts that way. Without that rule there would be no way
+to type the short one. The same goes for `hold` and `holds`, `schedule` and `schedules`, and
+`export` and `export-trust`.
+
+Abbreviation applies **only to the command**, which is the first word. What follows —
+locations, options, values — is typed in full.
+
 ## The three output formats
 
 - `text` (the default) is for reading: aligned columns, translated headers, human-sized

@@ -841,7 +841,7 @@
     "t_tipo_de_co_e73161": "Connection type not supported yet in cppqt",
     "t_tls_sin_maestra": "without a master password the TLS material is not stored in the clear",
     "t_to_dir_btn_001": "To Dir",
-    "t_todas_las__c1ee0e": "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\nactuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n«help <command>» da el detalle de una. El tabulador completa órdenes y URL.",
+    "t_todas_las__c1ee0e": "Every command takes --on <url> (or --from, same thing) to act on another\nlocation without moving. Without it, the current location is used.\n«help <command>» gives the detail of one. TAB completes commands and URLs.\nThe first letters of a command are enough if no other starts the same way;\nif several do, they are listed.",
     "t_trabajos_e_ae8ad9": "Background jobs",
     "t_tramo_malo": "badly encoded path segment: %1",
     "t_transferen_07aa2e": "transfer under way as job %s on %s\n",
