@@ -95,17 +95,41 @@ std::string guionDeInstalacion(const std::string& plataforma, const std::string&
                + "chmod 600 " + confPath + "; chmod 644 " + DP::macPlistPath() + "; "
                + "chown root:wheel " + bin + " " + confPath + " " + DP::macPlistPath() + "; "
                + "chown root:wheel " + tlsFiles + "; "
-                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                 "launchctl bootstrap system "
-               + DP::macPlistPath() + " >/dev/null 2>&1 || true; "
+               // **`bootout` no es inmediato, y de ahí salía una instalación que decía que
+               // sí y dejaba la máquina sin daemon.** El trabajo sigue en el dominio unos
+               // instantes después de sacarlo; `bootstrap` lanzado ahí falla —«Bootstrap
+               // failed: 5»— y el `|| true` se lo tragaba; y la comprobación se conformaba
+               // con que `print` encontrara ALGO con esa etiqueta, que era justo el
+               // cadáver del servicio anterior. Salía «daemon instalado» y un minuto
+               // después no había ni proceso ni puerto. Comprobado en mmela el 2026-08-23.
+               //
+               // Tres cambios, uno por cada eslabón: esperar a que el viejo se vaya de
+               // verdad, reintentar el `bootstrap` GUARDANDO su motivo, y exigir un PID
+               // —que el trabajo esté declarado no es que esté corriendo—.
+               + "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                 "i=0; "
+                 "while [ \"$i\" -lt 20 ]; do "
+                 "  launchctl print system/org.zfsmgr.agent >/dev/null 2>&1 || break; "
+                 "  i=$((i+1)); sleep 1; "
+                 "done; "
+                 "err=''; i=0; "
+                 "while [ \"$i\" -lt 10 ]; do "
+                 "  err=\"$(launchctl bootstrap system "
+               + DP::macPlistPath() + " 2>&1)\" && break; "
+                 "  i=$((i+1)); sleep 1; "
+                 "done; "
                  "launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                 "ok=0; i=0; "
+                 "pid=''; i=0; "
                  "while [ \"$i\" -lt 30 ]; do "
-                 "  if launchctl print system/org.zfsmgr.agent >/dev/null 2>&1; then ok=1; break; fi; "
+                 "  pid=\"$(launchctl print system/org.zfsmgr.agent 2>/dev/null | "
+                 "         sed -n 's/^[[:space:]]*pid = \\([0-9][0-9]*\\).*/\\1/p' | head -1)\"; "
+                 "  [ -n \"$pid\" ] && break; "
                  "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
                  "  i=$((i+1)); sleep 1; "
                  "done; "
-                 "if [ \"$ok\" -ne 1 ]; then echo 'launchd agent not active after install' >&2; exit 1; fi";
+                 "if [ -z \"$pid\" ]; then "
+                 "  echo \"launchd no dejo el agente corriendo tras instalar; bootstrap dijo: $err\" >&2; "
+                 "  exit 1; fi";
     }
     if (plataforma == "freebsd") {
         return "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; " + despliegue

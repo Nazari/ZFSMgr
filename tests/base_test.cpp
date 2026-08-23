@@ -1829,7 +1829,7 @@ int main() {
         // el servicio muere y el cliente cree que la maquina esta atendida.
         comprobar(lin.find("systemctl enable") != std::string::npos,
                   "daemoninstall: linux lo deja habilitado para el proximo arranque");
-        comprobar(mac.find("launchd agent not active after install") != std::string::npos,
+        comprobar(mac.find("launchd no dejo el agente corriendo tras instalar") != std::string::npos,
                   "daemoninstall: macos falla si launchd no lo deja activo");
         comprobar(bsd.find("no permanece activo tras el arranque") != std::string::npos,
                   "daemoninstall: freebsd falla si no permanece activo");
@@ -3605,6 +3605,39 @@ int main() {
         comprobar(DS::argvHeredarPropiedad("tank/d", "atime")
                       == std::vector<std::string>{"inherit", "atime", "tank/d"},
                   "ds: heredar");
+    }
+
+    {
+        // El guion de instalación de macOS: las tres condiciones que faltaban el día que
+        // una instalación dijo «daemon instalado» y dejó la máquina sin daemon.
+        //
+        // No se comprueba «que instale» —eso pide un Mac—, sino que el TEXTO conserve los
+        // tres eslabones. Cada uno se rompió por su cuenta y ninguno lo notaba nadie: la
+        // instalación seguía saliendo en verde.
+        namespace DI = zfsmgr::base::daemoninstall;
+        const std::string mac = DI::guionDeInstalacion("macos", "1.2.3", "3");
+        comprobar(mac.find("launchctl bootstrap system") != std::string::npos,
+                  "macos: el guion arranca el servicio");
+        comprobar(mac.find("bootstrap system /Library/LaunchDaemons/org.zfsmgr.agent.plist "
+                           ">/dev/null 2>&1 || true")
+                      == std::string::npos,
+                  "macos: el fallo de «bootstrap» NO se silencia con «|| true»");
+        comprobar(mac.find("pid = ") != std::string::npos && mac.find("[ -z \"$pid\" ]") != std::string::npos,
+                  "macos: se exige un PID, no solo que el trabajo esté declarado");
+        // Entre sacar el viejo y meter el nuevo tiene que haber una espera: `bootout` no es
+        // inmediato y `bootstrap` lanzado encima falla.
+        const std::size_t bo = mac.find("launchctl bootout");
+        const std::size_t bs = mac.find("launchctl bootstrap");
+        comprobar(bo != std::string::npos && bs != std::string::npos && bo < bs,
+                  "macos: primero sacar, luego meter");
+        comprobar(mac.find("|| break", bo) < bs,
+                  "macos: se espera a que el trabajo viejo salga del dominio");
+
+        // Una plataforma que no se reconoce cae al guion de systemd A PROPÓSITO —y ese
+        // comprueba `systemctl` antes de nada—, así que NO se espera vacío.
+        comprobar(DI::guionDeInstalacion("plan9", "1.2.3", "3").find("systemctl")
+                      != std::string::npos,
+                  "una plataforma desconocida cae al guion de systemd, que se planta solo");
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
