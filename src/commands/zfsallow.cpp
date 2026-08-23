@@ -221,7 +221,7 @@ std::string juntaPermisos(const Entry& e) {
 std::vector<std::string> argvDe(const char* orden, const Entry& e, const std::string& dataset) {
     std::vector<std::string> argv = {orden};
     ponBanderas(e, argv);
-    // «Everyone» y «al crear» no nombran a nadie: el destinatario es la bandera.
+    // «Todos» y «al crear» no nombran a nadie: el destinatario es la bandera.
     if (e.who != Who::Everyone && e.scope != Scope::OnCreate && !e.name.empty()) {
         argv.push_back(e.name);
     }

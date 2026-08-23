@@ -72,7 +72,7 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
     return BT::isMutatingAgentCommand(a);
 }
 
-// Route HEREDADO: recupera los argumentos parseando una cadena de shell.
+// Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
 //
 // Existe solo para los sitios que todavía construyen la orden como cadena. Los que ya
 // pasan por runAgentCommand no lo tocan, y cuando migren los últimos esta función y las
@@ -451,7 +451,7 @@ bool MainWindow::cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p,
         if (errorOut) {
             *errorOut = transportFailureText(fetchReason);
             if (errorOut->isEmpty()) {
-                *errorOut = transportFailureText({BT::Fallo::MaterialNoSeLee, {}});
+                *errorOut = transportFailureText({BT::Failure::MaterialNoSeLee, {}});
             }
         }
         return false;
@@ -753,7 +753,7 @@ QString MainWindow::transportNoticeText(const BT::NotaDeAviso& a) const {
     const QString ruta = QString::fromStdString(a.ruta);
     const QString detalle = QString::fromStdString(a.detalle);
     switch (a.aviso) {
-        case A::Ninguno:
+        case A::None_:
             return QString();
         case A::TlsLocalNoLegible:
             return trk(QStringLiteral("t_notice_tls_unreadable"),
@@ -824,7 +824,7 @@ QString MainWindow::transportNoticeText(const BT::NotaDeAviso& a) const {
 }
 
 QString MainWindow::transportFailureText(const BT::MotivoFallo& m) const {
-    using F = BT::Fallo;
+    using F = BT::Failure;
     const QString detalle = QString::fromStdString(m.detalle).trimmed();
     // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene
     // del sistema, ya en su idioma, y reescribirlo perdería justo lo que sirve para
@@ -833,7 +833,7 @@ QString MainWindow::transportFailureText(const BT::MotivoFallo& m) const {
         return detalle.isEmpty() ? texto : QStringLiteral("%1: %2").arg(texto, detalle);
     };
     switch (m.fallo) {
-        case F::Ninguno:
+        case F::None_:
             return QString();
         case F::TunelOcupado:
             return trk(QStringLiteral("t_rpcfail_busy"),

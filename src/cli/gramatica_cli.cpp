@@ -157,7 +157,7 @@ LineaAnalizada analizaLinea(const std::string& linea) {
     // Las banderas cortas AGRUPADAS se reparten aquí: `-wLecR` son cinco.
     //
     // Es como se escriben de verdad —`zfs send -wLecR`—, y getopt las acepta desde
-    // siempre. Who las teclea así no está usando una abreviatura del programa: está
+    // siempre. Quien las teclea así no está usando una abreviatura del programa: está
     // usando la sintaxis del mandato que hay debajo, y rechazarla obligaba a escribirlas
     // de una forma distinta a la del manual de OpenZFS.
     //

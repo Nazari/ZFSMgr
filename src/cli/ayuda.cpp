@@ -144,7 +144,7 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
             yaLaDice = true;
         }
     }
-    if (conDetalle && !yaLaDice && o.objetivo != Objetivo::Ninguno) {
+    if (conDetalle && !yaLaDice && o.objetivo != Objetivo::None_) {
         fila(T("t_on_url_generado", "--on <url>"),
              T("t_on_url_generado_q", "Sobre QUÉ actúa. Sin ella, el sitio actual. «--from» es "
                "lo mismo."),
@@ -204,8 +204,8 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
 // así que el usuario vería aceptada una bandera que luego muere al otro lado.
 std::vector<Nativa> nativasDeSend() {
     std::vector<Nativa> out;
-    for (const auto& b : zfsmgr::base::zfsprops::banderasDeSend()) {
-        out.push_back({b.forma, b.valor, {b.clave, b.que}});
+    for (const auto& b : zfsmgr::base::zfsprops::sendFlagCatalog()) {
+        out.push_back({b.form, b.value, {b.key, b.what}});
     }
     return out;
 }
@@ -1031,20 +1031,20 @@ const std::vector<Orden> kOrdenes = {
      {}},
     {"scrub", {"t_pools_2fd96d", "Pools"}, {"t_pool_stop_pause", "[<pool>] [stop|pause]"}, {"t_verifica_t_9c1250", "Verifica todo el contenido del pool."}, {}, {},
      Objetivo::Pool,
-     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
+     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::None_,
        {"start", "stop", "cancel", "pause", "suspend"}}},
      {{"-e", false, {"t_nat_scrub_e", "Solo los ficheros con errores ya conocidos."}}, {"-s", false, {"t_nat_scrub_s", "Para el que esté en marcha."}}, {"-p", false, {"t_nat_scrub_p", "Lo pausa; se reanuda volviendo a lanzarlo."}}, {"-C", false, {"t_nat_scrub_Cmay", "Continúa desde el último punto guardado."}}, {"-E", true, {"t_nat_scrub_Emay", "Hasta esa fecha («AAAA-MM-DD [HH:MM]»)."}}, {"-S", true, {"t_nat_scrub_Smay", "Desde esa fecha («AAAA-MM-DD [HH:MM]»)."}}, {"-w", false, {"t_nat_scrub_w", "Espera aquí a que termine."}}, {"-a", false, {"t_nat_scrub_a", "En todos los pools de la máquina."}}}},
     {"trim", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_avisa_a_lo_5d27bd", "Avisa a los discos de qué bloques sobran."},
      {}, {},
      Objetivo::Pool,
-     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
+     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::None_,
        {"start", "stop", "cancel", "pause", "suspend"}},
       {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
      {{"-d", false, {"t_nat_trim_d", "Borrado SEGURO: pide al disco que borre de verdad."}}, {"-w", false, {"t_nat_trim_w", "Espera aquí a que termine."}}, {"-r", true, {"t_nat_trim_r", "Ritmo máximo, en bytes por segundo."}}, {"-c", false, {"t_nat_trim_c", "Cancela el que esté en marcha."}}, {"-s", false, {"t_nat_trim_s", "Lo suspende."}}, {"-a", false, {"t_nat_trim_a", "En todos los pools de la máquina."}}}},
     {"initialize", {"t_pools_2fd96d", "Pools"}, {"t_stop_vdev_on", "[stop|pause] [<vdev>] [--on <pool>]"}, {"t_escribe_en_8e9d25", "Escribe en el espacio no usado."}, {},
      {},
      Objetivo::Pool,
-     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::Ninguno,
+     {{"fase", Ranura::Tipo::Palabra, Ranura::Cuantas::Opcional, Objetivo::None_,
        {"start", "stop", "cancel", "pause", "suspend"}},
       {"disco", Ranura::Tipo::Vdev, Ranura::Cuantas::Opcional}},
      {{"-c", false, {"t_nat_initialize_c", "Cancela la que esté en marcha."}}, {"-s", false, {"t_nat_initialize_s", "La suspende."}}, {"-u", false, {"t_nat_initialize_u", "Deshace la marca de inicializado."}}, {"-w", false, {"t_nat_initialize_w", "Espera aquí a que termine."}}, {"-a", false, {"t_nat_initialize_a", "En todos los pools de la máquina."}}}},
@@ -1316,7 +1316,7 @@ const std::vector<Orden> kOrdenes = {
        "disco no serviría ni con una clave ni con la otra."},
       {"t_mp_det2", "Ninguna de las dos viaja por argumento: se teclean sin eco o se pasan por "
        "descriptor. Al terminar, la sesión sigue abierta con la nueva."}},
-     Objetivo::Ninguno,
+     Objetivo::None_,
      {}},
     {"yes", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_on_off_14009f", "[on|off]"},
      {"t_deja_de_pr_b69a39", "Deja de preguntar antes de lo destructivo, o vuelve a hacerlo."}, {}, {}},

@@ -456,7 +456,7 @@ private Q_SLOTS:
         d[0].fecha = 1000;
         const AR::Plan p = AR::makePlan(o, d, false);
         QCOMPARE(p.operaciones.size(), size_t(1));
-        QVERIFY(p.operaciones[0].accion == AR::Action::Copiar);
+        QVERIFY(p.operaciones[0].accion == AR::Action::Send);
         QCOMPARE(p.bytes, uint64_t(10));
     }
 
@@ -495,7 +495,7 @@ private Q_SLOTS:
 
     void laCabeceraSobreviveAlViajeDeIdaYVuelta() {
         AR::Operation o;
-        o.accion = AR::Action::Copiar;
+        o.accion = AR::Action::Send;
         o.entrada.ruta = "sub/a.txt";
         o.entrada.destino = "";
         o.entrada.modo = 0644;
@@ -505,7 +505,7 @@ private Q_SLOTS:
         size_t lr = 0, ld = 0;
         std::string err;
         QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, err), err.c_str());
-        QVERIFY(vuelta.accion == AR::Action::Copiar);
+        QVERIFY(vuelta.accion == AR::Action::Send);
         QCOMPARE(vuelta.entrada.tamano, uint64_t(12345));
         QCOMPARE(vuelta.entrada.fecha, int64_t(1700000000));
         QCOMPARE(lr, o.entrada.ruta.size());
@@ -549,7 +549,7 @@ private Q_SLOTS:
         QCOMPARE(literales, uint64_t(0));
         // Y en UNA sola instruccion: los bloques seguidos se juntan.
         QCOMPARE(ins.size(), size_t(1));
-        QVERIFY(ins[0].tipo == AR::InstructionKind::Copiar);
+        QVERIFY(ins[0].tipo == AR::InstructionKind::Send);
     }
 
     void unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones() {

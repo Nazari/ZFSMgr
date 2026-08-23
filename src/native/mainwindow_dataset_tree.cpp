@@ -1649,7 +1649,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     for (int col = 4; col < tree->columnCount(); ++col) {
         tree->header()->setSectionResizeMode(col, QHeaderView::Interactive);
     }
-    // En Contenido de Pool, Snapshot/Montado/Mountpoint se gestionan dentro de "Prop.".
+    // En Contenido de Pool, Instantanea/Montado/Mountpoint se gestionan dentro de "Prop.".
     tree->setColumnHidden(0, false);
     if (tree->columnCount() > 1) tree->setColumnHidden(1, true);
     if (tree->columnCount() > 2) tree->setColumnHidden(2, true);
@@ -1805,7 +1805,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
         updateConnContentPropertyValues(draftToken, obj, displayValues);
     }
-    // Only limpiar nodos existentes cuando ya tenemos valores para reconstruirlos,
+    // Solo limpiar nodos existentes cuando ya tenemos valores para reconstruirlos,
     // evitando dejar "Properties" vacío por retornos tempranos.
     clearPropRowsRec(clearPropRowsRec, sel);
     const DatasetPropsDraft objectDraftValue =

@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
     // Con ranuras OBLIGATORIAS, la orden sola tiene que FALLAR —`create` sin nombre no es
     // una orden— y además decir qué falta. Sin ellas, tiene que analizarse.
     for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
-        if (o.objetivo == zfsmgr::cli::Objetivo::Ninguno && o.ranuras.empty()) {
+        if (o.objetivo == zfsmgr::cli::Objetivo::None_ && o.ranuras.empty()) {
             continue;  // sin firma declarada todavía
         }
         bool obligatoria = false;
@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
     // 6. `create` reparte por la FORMA del nombre, no solo por dónde se está.
     //
     // El caso que lo motivó: desde la raíz, `create unibody/sback/tmp` daba de alta una
-    // CONEXIÓN llamada «unibody/sback/tmp». Ninguna de estas doce combinaciones se había
+    // CONEXIÓN llamada «unibody/sback/tmp». None_ de estas doce combinaciones se había
     // ejecutado nunca a propósito porque la regla vivía dentro de `cmdCreate`.
     {
         namespace CR = zfsmgr::cli::creacion;

@@ -4,74 +4,74 @@
 #include <string>
 #include <vector>
 
-// El catálogo de propiedades de ZFS que este programa conoce.
+// The catalogue of ZFS properties this program knows about.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md: aquí no hay Qt, así que lo usan por igual la
-// interfaz y el intérprete.
+// See docs/diseno_tecnico_capa_base_sin_qt.md: there is no Qt here, so the interface and the
+// shell use it alike.
 namespace zfsmgr::base::zfsprops {
 
-// Las propiedades cuyo valor sale de una lista CERRADA, y esa lista. Vacío para las que no
-// la tienen —`quota`, `mountpoint`—, que no es lo mismo que «no existe la propiedad».
-const std::map<std::string, std::vector<std::string>>& propiedadesConValores();
+// The properties whose value comes from a CLOSED list, and that list. Empty for the ones
+// that have none —`quota`, `mountpoint`—, which is not the same as «no such property».
+const std::map<std::string, std::vector<std::string>>& propertiesWithValues();
 
-// Los valores posibles de una propiedad, o vacío si no tiene lista cerrada.
-const std::vector<std::string>& valoresDe(const std::string& propiedad);
+// The possible values of a property, or empty when it has no closed list.
+const std::vector<std::string>& valuesOf(const std::string& property);
 
-// La familia de sistema de la máquina donde vive el dataset. Importa porque hay
-// propiedades que solo existen en una: `jailed` es de FreeBSD, `zoned` de Linux.
+// The OS family of the machine the dataset lives on. It matters because there are
+// properties that exist on one only: `jailed` is FreeBSD's, `zoned` is Linux's.
 enum class Platform {
     Linux,
     MacOs,
     FreeBsd,
     Windows,
-    Otra,
+    Other,
 };
 
-// De lo que se sabe de la máquina —el tipo declarado en el perfil y la línea de `uname`—
-// a una familia. Mira las dos juntas: el perfil puede venir sin rellenar.
+// From what is known about the machine —the type declared in the profile and the `uname`
+// line— to a family. It looks at both together: the profile may come in unfilled.
 Platform platformOf(const std::string& osType, const std::string& osLine);
 
-// Las propiedades del usuario llevan «:» en el nombre. Siempre se pueden escribir: ZFS no
-// las interpreta, y este programa guarda ahí su programación (`org.fc16.gsa:*`).
+// User properties carry a «:» in the name. They can always be written: ZFS does not
+// interpret them, and this program keeps its schedule in there (`org.fc16.gsa:*`).
 bool isUserProperty(const std::string& prop);
 
-// ¿Existe esa propiedad en esa plataforma? Ofrecer `jailed` en Linux es ofrecer un error.
+// Does that property exist on that platform? Offering `jailed` on Linux is offering an error.
 bool isSupportedOn(const std::string& prop, Platform p);
 
-// ¿Se puede cambiar el valor de esa propiedad ESCRIBIÉNDOLO encima?
+// Can that property's value be changed by TYPING OVER it?
 //
-// Hace falta más que el nombre: `origen` distingue una propiedad de verdad de una
-// calculada —el «-» las marca—, `readonly` es lo que dice el propio ZFS, y el tipo separa
-// un sistema de ficheros de un volumen; a una instantánea no se le cambia nada.
+// It takes more than the name: `source` tells a real property from a computed one —the «-»
+// marks those—, `readonly` is what ZFS itself says, and the type separates a filesystem
+// from a volume; nothing is changed on a snapshot.
 //
-// **Estaba duplicada LETRA POR LETRA en `mainwindow_dataset_props.cpp` y en
-// `mainwindow_dataset_tree.cpp`**, las dos con Qt dentro. No es una regla de interfaz: es
-// lo que ZFS deja hacer, y el servidor web necesita exactamente la misma para saber qué
-// celda pinta con una caja de edición y cuál no.
-bool isInlineEditable(const std::string& prop, const std::string& tipoDataset,
-                     const std::string& origen, const std::string& readonly, Platform p);
+// **This was duplicated LETTER FOR LETTER in `mainwindow_dataset_props.cpp` and in
+// `mainwindow_dataset_tree.cpp`**, both with Qt inside. It is not an interface rule: it is
+// what ZFS allows, and any other client needs exactly the same one to know which cell to
+// paint with an edit box and which not.
+bool isInlineEditable(const std::string& prop, const std::string& datasetType,
+                     const std::string& source, const std::string& readonly, Platform p);
 
-// Una bandera de `zfs send`, tal y como la escribe el usuario.
+// One `zfs send` flag, exactly as the user writes it.
 struct SendFlag {
-    const char* forma;   // "-w"
-    bool valor{false};   // ¿lleva un valor detrás? («-X <dataset>»)
-    const char* clave{""};  // la clave de traducción de `que`
-    const char* que{""};    // qué hace, en una línea, para la ayuda
+    const char* form;       // "-w"
+    bool value{false};      // does it carry a value behind it? («-X <dataset>»)
+    const char* key{""};    // the translation key for `what`
+    const char* what{""};   // what it does, in one line, for the help
 };
 
-// Las banderas de `zfs send` que se dejan llegar hasta el mandato.
+// The `zfs send` flags that are allowed to reach the command.
 //
-// La lista vive AQUÍ y no en el intérprete porque el que tiene que hacerla cumplir es el
-// daemon: es él quien construye el argv de `zfs send` y lo ejecuta con privilegios. El
-// intérprete es un cliente más, y validar solo en el cliente no valida nada.
+// The list lives HERE and not in the shell because the one that has to enforce it is the
+// daemon: it is the daemon that builds the `zfs send` argv and runs it with privileges. The
+// shell is just another client, and validating only in the client validates nothing.
 //
-// Fuera a propósito: `-i` e `-I`, que las pone el programa a partir de `--base`, y `-t`,
-// que es el testigo de reanudación. Si el usuario pudiera escribirlas, podría además
-// nombrar OTRO dataset en su valor y sacar por el socket algo que nunca pidió.
-const std::vector<SendFlag>& banderasDeSend();
+// Deliberately out: `-i` and `-I`, which the program sets from `--base`, and `-t`, the
+// resume token. If the user could write those, they could also name ANOTHER dataset in the
+// value and pull something out over the socket that nobody asked for.
+const std::vector<SendFlag>& sendFlagCatalog();
 
-// Comprueba una cadena entera de banderas —«-w -L»— contra esa lista. Si algo no está,
-// devuelve false y deja en `mala` el componente culpable.
-bool areValidSendFlags(const std::string& cadena, std::string& mala);
+// Checks a whole string of flags —«-w -L»— against that list. When something is not there,
+// it returns false and leaves the offending token in `bad`.
+bool areValidSendFlags(const std::string& text, std::string& bad);
 
 }  // namespace zfsmgr::base::zfsprops

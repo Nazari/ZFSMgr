@@ -326,7 +326,7 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
 //
 // Durante mucho tiempo esto fue POSIX puro y en Windows no existía en absoluto: sus
 // llamantes estaban dentro de un `#ifndef _WIN32` que devolvía "not supported". Por eso
-// `zfs load-key` y `zfs change-key` no funcionaban allí, y por eso Copiar y Nivelar no
+// `zfs load-key` y `zfs change-key` no funcionaban allí, y por eso Send y Nivelar no
 // tenían por dónde empezar: sin forma de escribir en la entrada de un proceso, no hay
 // forma de darle un flujo a `zfs recv`.
 ExecResult runExecCaptureWithStdin(const std::string& program,
@@ -401,7 +401,7 @@ ExecResult runExecCaptureWithStdin(const std::string& program,
     // 1. Al hijo se le da SIEMPRE una tubería anónima nuestra, nunca un socket. Medido
     //    contra OpenZFS on Windows: `zfs recv` alimentado por el stdio que entrega sshd
     //    muere con "I/O error" a los 132 KiB, mientras que por una tubería local recibe
-    //    el flujo entero con las sumas intactas. Who porte el receptor por socket debe
+    //    el flujo entero con las sumas intactas. Quien porte el receptor por socket debe
     //    bombear del socket a una tubería, no entregarle el descriptor al proceso.
     // 2. La salida se drena en hilos MIENTRAS se escribe la entrada. Escribir todo y
     //    leer después funciona con una contraseña y se abraza a muerte con un flujo: el

@@ -49,7 +49,7 @@ std::string wrapRemoteCommand(const ConnectionProfile& p, const std::string& rem
 // un `--job-submit` lanza la misma transfer dos veces sobre los mismos datos.
 bool isMutatingAgentCommand(const std::vector<std::string>& agentArgs);
 
-// --- Route HEREDADO: recuperar los argumentos de una cadena de shell.
+// --- Camino HEREDADO: recuperar los argumentos de una cadena de shell.
 //
 // Existe solo para los sitios que todavía construyen la orden como cadena. **No añadir
 // sitios nuevos por aquí**: el corte por separador, la lista blanca por prefijo y el
@@ -103,7 +103,7 @@ LocalAgentConfig loadLocalAgentConfig(const std::string& path = defaultAgentConf
 // o información. No es un error: es ruido con forma de XML, y se quita.
 std::string sanitizeWindowsCliXml(const std::string& raw);
 
-// ¿Merece la pena reintentar SSH sin multiplexado? Only ante los fallos que delatan que el
+// ¿Merece la pena reintentar SSH sin multiplexado? Solo ante los fallos que delatan que el
 // socket de control no sirve; ante cualquier otro, reintentar sería esconder el problema.
 bool shouldRetrySshWithoutMultiplexing(const std::string& stderrText);
 

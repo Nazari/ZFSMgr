@@ -40,7 +40,7 @@ struct Parametro {
 //
 // Ver docs/gramatica_cli.md.
 enum class Objetivo {
-    Ninguno,     // la orden no actúa sobre un nodo (help, exit, format…)
+    None_,     // la orden no actúa sobre un nodo (help, exit, format…)
     Cualquiera,  // vale donde sea, incluida la raíz (info, ls, cd)
     Conexion,    // la máquina
     Pool,        // la raíz de un pool
@@ -64,7 +64,7 @@ struct Ranura {
     const char* nombre;
     Tipo tipo{Tipo::Texto};
     Cuantas cuantas{Cuantas::Una};
-    Objetivo nodo{Objetivo::Ninguno};             // solo si tipo == Url
+    Objetivo nodo{Objetivo::None_};             // solo si tipo == Url
     std::vector<const char*> palabras;            // solo si tipo == Palabra
 };
 
@@ -117,7 +117,7 @@ struct Orden {
     // Con ella, un único preámbulo resuelve el destino y reparte los argumentos, y **lo
     // que sobra es un error**. Esa regla es la que mata de golpe la familia de fallos de
     // «acepta un argumento y no le hace caso».
-    Objetivo objetivo{Objetivo::Ninguno};
+    Objetivo objetivo{Objetivo::None_};
     std::vector<Ranura> ranuras;
 
     // Las banderas del mandato original que esta orden pasa tal cual. Ver Nativa.

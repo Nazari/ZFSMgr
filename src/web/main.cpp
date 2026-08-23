@@ -413,7 +413,7 @@ std::string tabla(const std::vector<std::string>& cabeceras,
         h += "<tr>";
         for (const std::string& c : f) {
             // OJO: las celdas llegan YA compuestas —algunas traen un enlace—, así que aquí
-            // no se escapa. Who las compone es responsable de escapar lo que venga de
+            // no se escapa. Quien las compone es responsable de escapar lo que venga de
             // fuera, y por eso `enlace()` escapa sus dos partes.
             h += "<td>" + c + "</td>";
         }
@@ -992,7 +992,7 @@ std::string accionesDeMaquina(const std::string& conn, const B::ConnectionProfil
 // Qué se está mirando en el panel derecho. Un TIPO y no una cadena: así el compilador
 // obliga a contestar en los dos sitios que reparten por vista —el título y el contenido—
 // cuando se añada una, que es como se evita la vista que existe en el menú y no se pinta.
-enum class Vista {
+enum class View {
     Resumen,
     Props,
     Permisos,
@@ -1015,64 +1015,64 @@ enum class Vista {
     Pares,
 };
 
-const char* claveDeVista(Vista v) {
+const char* claveDeVista(View v) {
     switch (v) {
-        case Vista::Resumen:      return "resumen";
-        case Vista::Props:        return "props";
-        case Vista::Permisos:     return "permisos";
-        case Vista::Contenido:    return "contenido";
-        case Vista::Estado:       return "estado";
-        case Vista::PropsPool:    return "poolprops";
-        case Vista::Capacidades:  return "caps";
-        case Vista::Historial:    return "historial";
-        case Vista::Schedule: return "gsa";
-        case Vista::Instantaneas: return "instantaneas";
-        case Vista::Acciones:     return "acciones";
-        case Vista::AccionesPool: return "acciones-pool";
-        case Vista::Diff:         return "diff";
-        case Vista::Holds:        return "holds";
-        case Vista::Pares:        return "pares";
+        case View::Resumen:      return "resumen";
+        case View::Props:        return "props";
+        case View::Permisos:     return "permisos";
+        case View::Contenido:    return "contenido";
+        case View::Estado:       return "estado";
+        case View::PropsPool:    return "poolprops";
+        case View::Capacidades:  return "caps";
+        case View::Historial:    return "historial";
+        case View::Schedule: return "gsa";
+        case View::Instantaneas: return "instantaneas";
+        case View::Acciones:     return "acciones";
+        case View::AccionesPool: return "acciones-pool";
+        case View::Diff:         return "diff";
+        case View::Holds:        return "holds";
+        case View::Pares:        return "pares";
     }
     return "";
 }
 
-std::string tituloDeVista(Vista v, const std::string& objeto) {
+std::string tituloDeVista(View v, const std::string& objeto) {
     switch (v) {
-        case Vista::Resumen:      return objeto;
-        case Vista::Props:        return B::format(T("t_web_t_props", "Propiedades de %1"), {objeto});
-        case Vista::Permisos:     return B::format(T("t_web_t_perms", "Permisos de %1"), {objeto});
-        case Vista::Contenido:    return B::format(T("t_web_t_cont", "Contenido de %1"), {objeto});
-        case Vista::Estado:       return B::format(T("t_web_t_estado", "Estado de %1"), {objeto});
-        case Vista::PropsPool:    return B::format(T("t_web_t_ppool", "Propiedades del pool %1"), {objeto});
-        case Vista::Capacidades:  return B::format(T("t_web_t_caps", "Capacidades de %1"), {objeto});
-        case Vista::Pares:        return B::format(T("t_web_t_pares", "Pares de %1"), {objeto});
-        case Vista::Historial:    return B::format(T("t_web_t_hist", "Historial de %1"), {objeto});
-        case Vista::Schedule: return B::format(T("t_web_t_gsa", "Instantáneas programadas de %1"), {objeto});
-        case Vista::Instantaneas: return B::format(T("t_web_t_snaps", "Instantáneas de %1"), {objeto});
-        case Vista::Acciones:     return B::format(T("t_web_t_acc", "Acciones sobre %1"), {objeto});
-        case Vista::AccionesPool: return B::format(T("t_web_t_accpool", "Acciones sobre el pool %1"), {objeto});
-        case Vista::Diff:         return B::format(T("t_web_t_diff", "Comparar con %1"), {objeto});
-        case Vista::Holds:        return B::format(T("t_web_t_holds", "Retenciones de %1"), {objeto});
+        case View::Resumen:      return objeto;
+        case View::Props:        return B::format(T("t_web_t_props", "Propiedades de %1"), {objeto});
+        case View::Permisos:     return B::format(T("t_web_t_perms", "Permisos de %1"), {objeto});
+        case View::Contenido:    return B::format(T("t_web_t_cont", "Contenido de %1"), {objeto});
+        case View::Estado:       return B::format(T("t_web_t_estado", "Estado de %1"), {objeto});
+        case View::PropsPool:    return B::format(T("t_web_t_ppool", "Propiedades del pool %1"), {objeto});
+        case View::Capacidades:  return B::format(T("t_web_t_caps", "Capacidades de %1"), {objeto});
+        case View::Pares:        return B::format(T("t_web_t_pares", "Pares de %1"), {objeto});
+        case View::Historial:    return B::format(T("t_web_t_hist", "Historial de %1"), {objeto});
+        case View::Schedule: return B::format(T("t_web_t_gsa", "Instantáneas programadas de %1"), {objeto});
+        case View::Instantaneas: return B::format(T("t_web_t_snaps", "Instantáneas de %1"), {objeto});
+        case View::Acciones:     return B::format(T("t_web_t_acc", "Acciones sobre %1"), {objeto});
+        case View::AccionesPool: return B::format(T("t_web_t_accpool", "Acciones sobre el pool %1"), {objeto});
+        case View::Diff:         return B::format(T("t_web_t_diff", "Comparar con %1"), {objeto});
+        case View::Holds:        return B::format(T("t_web_t_holds", "Retenciones de %1"), {objeto});
     }
     return objeto;
 }
 
-Vista vistaDesde(const std::string& s) {
-    static const Vista todas[] = {
-        Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
-        Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
-        Vista::Pares,
-        Vista::Schedule, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
-        Vista::Diff, Vista::Holds,
+View vistaDesde(const std::string& s) {
+    static const View todas[] = {
+        View::Resumen,   View::Props,      View::Permisos,  View::Contenido,
+        View::Estado,    View::PropsPool,  View::Capacidades, View::Historial,
+        View::Pares,
+        View::Schedule, View::Instantaneas, View::Acciones, View::AccionesPool,
+        View::Diff, View::Holds,
     };
-    for (const Vista v : todas) {
+    for (const View v : todas) {
         if (s == claveDeVista(v)) {
             return v;
         }
     }
     // Lo que no se reconoce —y la ausencia— es la FICHA. Es lo que se ve al llegar a un
     // nodo, y no cuesta ninguna consulta: sus datos ya vinieron con el listado del árbol.
-    return Vista::Resumen;
+    return View::Resumen;
 }
 
 // El listado, ordenado por parentesco. Se construye una vez por petición y lo consultan
@@ -1103,7 +1103,7 @@ Arbol construyeArbol(const std::vector<L::Entry>& entradas, const std::string& r
 // dice de qué pool es el árbol: así una recarga reconstruye el mismo árbol con el mismo
 // nodo elegido, y el enlace se puede guardar en marcadores.
 std::string urlDe(const std::string& conn, const std::string& raiz, const std::string& sel,
-                  Vista v) {
+                  View v) {
     if (conn.empty()) {
         return "/";
     }
@@ -1114,7 +1114,7 @@ std::string urlDe(const std::string& conn, const std::string& raiz, const std::s
                              + "?sel=" + H::haciaUrl(sel);
     // La vista de fábrica no se escribe: un enlace del árbol no tiene por qué llevar
     // «&v=resumen» colgando, y sin él la URL dice lo mismo.
-    return v == Vista::Resumen ? base : base + "&v=" + claveDeVista(v);
+    return v == View::Resumen ? base : base + "&v=" + claveDeVista(v);
 }
 
 std::string enlaceDeNodo(const std::string& destino, const std::string& texto, bool elegido) {
@@ -1174,7 +1174,7 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
         // pinta como hoja, con la misma sangría que si lo tuviera.
         h += "<div class=\"hoja hojads\">";
     }
-    h += enlaceDeNodo(urlDe(conn, raiz, nodo, Vista::Resumen), corto, sel == nodo);
+    h += enlaceDeNodo(urlDe(conn, raiz, nodo, View::Resumen), corto, sel == nodo);
     if (itE != arbol.porNombre.end()) {
         h += " <span class=\"tenue\">" + H::escapaHtml(bytesLegibles(itE->second.usado));
         if (itE->second.montado != "yes") {
@@ -1338,7 +1338,7 @@ std::string marco(const std::string& titulo, const std::string& cuerpo, bool abi
 //
 // El coste no cambia: se consulta la pestaña activa y ninguna más.
 struct Pestana {
-    Vista vista;
+    View vista;
     std::string texto;
 };
 
@@ -1347,7 +1347,7 @@ struct Pestana {
 // cuál es de cuál.
 std::string barraDePestanas(const std::vector<std::pair<std::string, std::vector<Pestana>>>& grupos,
                             const std::string& conn, const std::string& raiz,
-                            const std::string& sel, Vista activa) {
+                            const std::string& sel, View activa) {
     std::string h;
     for (const auto& grupo : grupos) {
         if (grupo.second.empty()) {
@@ -1413,15 +1413,15 @@ std::string avisoDeOrigen(const DX::Endpoint& origen) {
 // existen; enseñarlas sin decir por qué no se pueden deja al usuario probando.
 std::string accionesDeDosExtremos(const std::string& conn, const std::string& raiz,
                                   const std::string& sel, const DX::Endpoint& origen,
-                                  const TR::Plan& plan, SY::Fallo falloSync,
+                                  const TR::Plan& plan, SY::Failure falloSync,
                                   const std::string& testigo) {
     const DX::Endpoint destino{conn, sel};
     std::string h;
-    for (const DX::Action a : {DX::Action::Diff, DX::Action::Clonar, DX::Action::Copiar,
-                               DX::Action::Mover, DX::Action::Sincronizar, DX::Action::Nivelar}) {
+    for (const DX::Action a : {DX::Action::Diff, DX::Action::Clone, DX::Action::Send,
+                               DX::Action::Move, DX::Action::Sync, DX::Action::Level}) {
         const DX::NotApplicable porQue = DX::check(a, origen, destino);
         const std::string etiqueta = DX::labelOf(a);
-        // Copiar y Nivelar SÍ se pueden, si el plan de transfer lo dice. El motivo de
+        // Send y Nivelar SÍ se pueden, si el plan de transfer lo dice. El motivo de
         // que no —un extremo Windows, un ZFS viejo, un daemon sin trabajos— sale del plan,
         // que es quien lo sabe, y no de una lista escrita aquí.
         // Sincronizar ya está, pero NO es una transfer: compara ficheros sobre los
@@ -1430,8 +1430,8 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
         //
         // Lo que se mira aquí es solo lo barato —misma máquina, datasets, nada de Windows,
         // daemon en pie—; los montajes cuestan una consulta y se comprueban al pulsar.
-        if (a == DX::Action::Sincronizar) {
-            if (falloSync == SY::Fallo::Ninguno) {
+        if (a == DX::Action::Sync) {
+            if (falloSync == SY::Failure::None_) {
                 h += "<div>"
                      + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
                                   + "&raiz=" + H::haciaUrl(raiz) + "&que=sincronizar-desde-origen",
@@ -1448,7 +1448,7 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
         // Mover ya está: es un `zfs rename` dentro del pool, no una transfer. Va por
         // la página de confirmación porque cambia de sitio un dataset entero y con él la
         // ruta de montaje de todo lo que cuelgue.
-        if (a == DX::Action::Mover && porQue == DX::NotApplicable::Ninguna) {
+        if (a == DX::Action::Move && porQue == DX::NotApplicable::None_) {
             h += "<div>"
                  + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
                               + "&raiz=" + H::haciaUrl(raiz) + "&que=mover-desde-origen",
@@ -1457,12 +1457,12 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                  + H::escapaHtml(DX::moveDestination(origen, destino)) + "</span></div>";
             continue;
         }
-        const bool esDeTransferencia = (a == DX::Action::Copiar || a == DX::Action::Nivelar);
-        if (esDeTransferencia && porQue == DX::NotApplicable::TodaviaNoEstaEnLaWeb) {
+        const bool esDeTransferencia = (a == DX::Action::Send || a == DX::Action::Level);
+        if (esDeTransferencia && porQue == DX::NotApplicable::NotInTheWebYet) {
             if (plan.sePuede()) {
                 h += "<div>"
                      + boton(conn, sel, raiz,
-                             a == DX::Action::Copiar ? "copiar-desde-origen"
+                             a == DX::Action::Send ? "copiar-desde-origen"
                                                      : "nivelar-desde-origen",
                              etiqueta, testigo,
                              "<label class=\"campo\"><input type=\"checkbox\" name=\"rec\" "
@@ -1478,18 +1478,18 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                  + H::escapaHtml(TR::labelOf(plan.fallo)) + "</span></div>";
             continue;
         }
-        if (porQue != DX::NotApplicable::Ninguna) {
+        if (porQue != DX::NotApplicable::None_) {
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
                  + H::escapaHtml(DX::labelOf(porQue)) + "</span></div>";
             continue;
         }
         if (a == DX::Action::Diff) {
-            h += "<div>" + enlace(urlDe(conn, raiz, sel, Vista::Diff), etiqueta)
+            h += "<div>" + enlace(urlDe(conn, raiz, sel, View::Diff), etiqueta)
                  + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
                  + H::escapaHtml(sel) + "</span></div>";
             continue;
         }
-        if (a == DX::Action::Clonar) {
+        if (a == DX::Action::Clone) {
             h += "<div>"
                  + boton(conn, sel, raiz, "clonar-desde-origen", etiqueta, testigo,
                          "<label class=\"campo\">"
@@ -1533,7 +1533,7 @@ std::vector<std::string> hijosDirectosDe(const Arbol& arbol, const std::string& 
 std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const L::Entry* e,
                               const DX::Endpoint& origen, const TR::Plan& plan,
-                              SY::Fallo falloSync, const std::string& testigo,
+                              SY::Failure falloSync, const std::string& testigo,
                               const std::vector<std::string>& hijos, bool esWindows,
                               const std::vector<std::string>& maquinas) {
     const bool montado = e != nullptr && e->montado == "yes";
@@ -1654,7 +1654,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
         h += grupoDeAcciones(T("t_web_as_grupo", "Ensamblar"), en);
     }
 
-    // Hacia Dir: vuelca el dataset a un directorio corriente. Only en Unix — el verbo del
+    // Hacia Dir: vuelca el dataset a un directorio corriente. Solo en Unix — el verbo del
     // daemon está entre `#ifndef _WIN32` porque usa el montaje alternativo, que allí no
     // existe. Decirlo vale más que ofrecerlo y que falle.
     if (esWindows) {
@@ -1719,7 +1719,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
 // un segundo extremo.
 std::string accionesDeInstantanea(const std::string& conn, const std::string& raiz,
                                   const std::string& snap, const DX::Endpoint& origen,
-                                  const TR::Plan& plan, SY::Fallo falloSync,
+                                  const TR::Plan& plan, SY::Failure falloSync,
                                   const std::string& testigo) {
     std::string h;
     std::string g;
@@ -1847,7 +1847,7 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
 // De qué trabajo se está informando. Era un booleano «esNivelar», y en cuanto apareció el
 // tercer caso —sincronizar— dejó de dar: un booleano solo sabe contar hasta dos, y lo que
 // salía era una página que decía «Copia lanzada» después de sincronizar.
-enum class QueTrabajo { Copiar, Nivelar, Sincronizar };
+enum class QueTrabajo { Send, Level, Sync };
 
 std::string paginaTrabajoLanzado(const std::string& conn, const std::string& origen,
                                  const std::string& destino, const TR::Job& t,
@@ -1860,17 +1860,17 @@ std::string paginaTrabajoLanzado(const std::string& conn, const std::string& ori
         // fiarse de que dice lo que ha pasado.
         std::string plantilla;
         switch (cual) {
-            case QueTrabajo::Nivelar:
+            case QueTrabajo::Level:
                 plantilla = T("t_web_job_ok_niv",
                               "Nivelado lanzado: %1 → %2. Lo hace el daemon, así que sigue "
                               "aunque cierre esta página.");
                 break;
-            case QueTrabajo::Sincronizar:
+            case QueTrabajo::Sync:
                 plantilla = T("t_web_job_ok_sync",
                               "Sincronización lanzada: %1 → %2. La hace el daemon, así que "
                               "sigue aunque cierre esta página.");
                 break;
-            case QueTrabajo::Copiar:
+            case QueTrabajo::Send:
                 plantilla = T("t_web_job_ok",
                               "Copia lanzada: %1 → %2. La hace el daemon, "
                               "así que sigue aunque cierre esta página.");
@@ -1902,9 +1902,9 @@ std::string paginaTrabajoLanzado(const std::string& conn, const std::string& ori
               + "</p>";
     std::string titulo = T("t_web_copiar_t", "Copiar");
     switch (cual) {
-        case QueTrabajo::Nivelar:     titulo = T("t_web_nivelar_t", "Nivelar"); break;
-        case QueTrabajo::Sincronizar: titulo = T("t_web_sincronizar_t", "Sincronizar"); break;
-        case QueTrabajo::Copiar:      break;
+        case QueTrabajo::Level:     titulo = T("t_web_nivelar_t", "Nivelar"); break;
+        case QueTrabajo::Sync: titulo = T("t_web_sincronizar_t", "Sincronizar"); break;
+        case QueTrabajo::Send:      break;
     }
     return envuelve(titulo, enlace("/", "ZFSMgr"), cuerpo, testigo);
 }
@@ -2178,7 +2178,7 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
                 retenida = "<span class=\"malo\">" + retenida + "</span>";
             }
             filas.push_back(
-                {enlace(urlDe(conn, raiz, entera, Vista::Resumen), corto),
+                {enlace(urlDe(conn, raiz, entera, View::Resumen), corto),
                  it == porCorto.end() ? std::string()
                                       : H::escapaHtml(bytesLegibles(it->second->usado)),
                  it == porCorto.end() ? std::string()
@@ -2195,7 +2195,7 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
                                         + H::haciaUrl(entera) + "&que=borrar-instantanea&raiz="
                                         + H::haciaUrl(raiz),
                                     T("t_web_borrar_6b5f63", "Borrar…"))
-                     : enlace(urlDe(conn, raiz, entera, Vista::Holds),
+                     : enlace(urlDe(conn, raiz, entera, View::Holds),
                               T("t_web_ver_holds", "Ver sus retenciones…"))});
         }
         h += tabla({T("t_poolcrt_auto004", "Nombre"), T("t_web_usado_7f0217", "Usado"),
@@ -2256,7 +2256,7 @@ std::string panelRegistroDaemon(const std::string& crudo, std::size_t cuantas) {
 // par uno mismo. Pasó de verdad en esta instalación.
 std::string panelPares(const std::string& crudo, const std::string& conn,
                        const std::string& testigo, bool daemonVivo) {
-    const PR::Vista v = PR::parse(crudo);
+    const PR::View v = PR::parse(crudo);
     std::string h;
     if (v.self.empty()) {
         // Dos causas y no se distinguen desde aquí: que no lo tenga puesto, o que su daemon
@@ -2279,7 +2279,7 @@ std::string panelPares(const std::string& crudo, const std::string& conn,
              + "</p>";
     } else {
         std::vector<std::vector<std::string>> filas;
-        for (const PR::Par& par : v.pares) {
+        for (const PR::Peer& par : v.pares) {
             filas.push_back({H::escapaHtml(par.id), H::escapaHtml(par.host),
                              std::to_string(par.puerto)});
         }
@@ -2327,7 +2327,7 @@ std::string panelTrabajos(const std::string& crudo, const std::string& conn,
             continue;
         }
         const std::string estado = j["state"].toString();
-        // Only se ofrece cancelar lo que puede cancelarse.
+        // Solo se ofrece cancelar lo que puede cancelarse.
         //
         // Un trabajo terminado, fallado o ya cancelado no tiene nada que parar, y un botón
         // que no hace nada es peor que ninguno: quien lo pulsa cree que ha pasado algo. El
@@ -2521,7 +2521,7 @@ std::string envuelveDosPaneles(const std::string& titulo, const std::string& mig
 
 // Las propiedades, con las MODIFICABLES editables en su propia fila.
 //
-// Antes había abajo dos cajas sueltas —«Property» y «Valor»— donde había que teclear el
+// Antes había abajo dos cajas sueltas —«Propiedad» y «Valor»— donde había que teclear el
 // nombre a mano. Eso obliga a copiarlo de la tabla de arriba, y un nombre mal escrito no da
 // error: `zfs set` crea una propiedad de usuario nueva si lleva dos puntos, y si no, falla
 // con un mensaje que no dice cuál de las dos cajas estaba mal.
@@ -2579,7 +2579,7 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
                  + "<input type=\"hidden\" name=\"prop\" value=\"" + H::escapaHtml(pr.nombre) + "\">";
             // Con lista cerrada, un desplegable; sin ella, un campo. Un desplegable no
             // deja escribir «lz4x» donde solo cabe «lz4», y de paso enseña qué hay.
-            const std::vector<std::string>& valores = ZP::valoresDe(pr.nombre);
+            const std::vector<std::string>& valores = ZP::valuesOf(pr.nombre);
             if (!valores.empty()) {
                 h += "<select name=\"valor\">";
                 bool estaElActual = false;
@@ -2759,7 +2759,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
             continue;
         }
         const B::gsa::Schedule& p = kv.second.prog;
-        filas.push_back({enlace(urlDe(conn, raiz, kv.first, Vista::Schedule), kv.first),
+        filas.push_back({enlace(urlDe(conn, raiz, kv.first, View::Schedule), kv.first),
                          p.activado ? "sí" : "no", p.recursivo ? "sí" : "no",
                          std::to_string(p.horario), std::to_string(p.diario),
                          std::to_string(p.semanal), std::to_string(p.mensual),
@@ -2848,7 +2848,7 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
         },
         perfilOrigen, perfilDestino, plan.rutaOrigen, plan.rutaDestino, mismaConexion, verboso,
         /*comoTrabajo=*/!enSeco, borrar, enSeco, &salidaEnvio);
-    if (hecho.fallo != TR::JobFailure::Ninguno) {
+    if (hecho.fallo != TR::JobFailure::None_) {
         err = TR::labelOf(hecho.fallo)
               + (hecho.detalle.empty() ? std::string() : ": " + hecho.detalle);
         return false;
@@ -3130,7 +3130,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
     const std::string padre = objeto.find('@') != std::string::npos
                                   ? objeto.substr(0, objeto.find('@'))
                                   : objeto;
-    cuerpo += "<p>" + enlace(urlDe(conn, raiz.empty() ? padre : raiz, padre, Vista::Resumen),
+    cuerpo += "<p>" + enlace(urlDe(conn, raiz.empty() ? padre : raiz, padre, View::Resumen),
                              "No, volver")
               + "</p>";
     return envuelve(T("t_web_confirmar_81b4b6", "Confirmar"), enlace("/", "ZFSMgr"), cuerpo, testigo);
@@ -3366,7 +3366,7 @@ int main(int argc, char** argv) {
         // `std::string` que copiaba de ahí traía un tamaño de basura y el servidor moría
         // con `std::bad_alloc` a mitad de la descarga.
         //
-        // Copiar un perfil por fichero servido no cuesta nada, y quita de en medio la
+        // Send un perfil por fichero servido no cuesta nada, y quita de en medio la
         // pregunta de quién vive más que quién.
         B::ConnectionProfile perfil;
         bool hay{false};
@@ -3451,7 +3451,7 @@ int main(int argc, char** argv) {
                     quiere = H::desdeUrl(par.substr(i + 1));
                 }
             }
-            // Only los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
+            // Solo los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
             // guardarse: una cookie con basura dentro dejaría la página en castellano sin
             // que se entienda por qué.
             if (quiere != "es" && quiere != "en" && quiere != "zh") {
@@ -3498,7 +3498,7 @@ int main(int argc, char** argv) {
                     "Location: " + urlDe(c, o.substr(0, o.find('/') == std::string::npos
                                                             ? o.size()
                                                             : o.find('/')),
-                                         o, Vista::Acciones));
+                                         o, View::Acciones));
             }
             r.cuerpo = "";
             respuesta = H::componer(r);
@@ -3546,7 +3546,7 @@ int main(int argc, char** argv) {
         // --- WebDAV. La misma escucha y la misma sesión: lo que monta el explorador de
         // archivos es este mismo servidor, no otro.
         //
-        // Only LECTURA: OPTIONS, PROPFIND, GET y HEAD. Sin LOCK ni PUT — montar esto en
+        // Solo LECTURA: OPTIONS, PROPFIND, GET y HEAD. Sin LOCK ni PUT — montar esto en
         // escritura es otra conversación.
         if (p.ruta == "/dav" || p.ruta.rfind("/dav/", 0) == 0) {
             if (p.metodo == "OPTIONS") {
@@ -4112,7 +4112,7 @@ int main(int argc, char** argv) {
                         "Location: " + urlDe(conn, B::trim(p.campo("raiz")).empty()
                                                        ? objeto
                                                        : B::trim(p.campo("raiz")),
-                                             objeto, Vista::Schedule));
+                                             objeto, View::Schedule));
                     r.cuerpo = "";
                     respuesta = H::componer(r);
                     return true;
@@ -4216,7 +4216,7 @@ int main(int argc, char** argv) {
                     return true;
                 }
 
-                // **Copiar y nivelar NO reciben en el mismo sitio.** Copiar crea el
+                // **Send y nivelar NO reciben en el mismo sitio.** Send crea el
                 // dataset debajo del destino —«<destino>/<hoja del origen>»—; nivelar pone
                 // al día el dataset destino EN SÍ. La web usaba la ruta de copiar para las
                 // dos, así que «Nivelar» creaba un hijo en vez de nivelar nada. Sale de
@@ -4298,8 +4298,8 @@ int main(int argc, char** argv) {
                     origen.conexion == conn, op.verboso);
                 r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, destino, lanzado, reanuda,
                                                 sesion.testigo(),
-                                                esNivelar ? QueTrabajo::Nivelar
-                                                          : QueTrabajo::Copiar);
+                                                esNivelar ? QueTrabajo::Level
+                                                          : QueTrabajo::Send);
                 r.codigo = lanzado.ok() ? 200 : 502;
                 respuesta = H::componer(r);
                 return true;
@@ -4355,7 +4355,7 @@ int main(int argc, char** argv) {
                     t.detalle = B::trim(errS).empty() ? B::trim(salS) : B::trim(errS);
                 }
                 r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, objeto, t, TR::Resume{},
-                                                sesion.testigo(), QueTrabajo::Sincronizar);
+                                                sesion.testigo(), QueTrabajo::Sync);
                 r.codigo = okS ? 200 : 502;
                 respuesta = H::componer(r);
                 return true;
@@ -4365,8 +4365,8 @@ int main(int argc, char** argv) {
                 // Se vuelve a comprobar AQUÍ, no solo al pintar el enlace: entre que se
                 // dibujó la página y se confirmó, el origen pudo cambiar en otra pestaña.
                 // Validar solo donde se pinta no valida nada.
-                const DX::NotApplicable porQue = DX::check(DX::Action::Mover, origen, destino);
-                if (porQue != DX::NotApplicable::Ninguna) {
+                const DX::NotApplicable porQue = DX::check(DX::Action::Move, origen, destino);
+                if (porQue != DX::NotApplicable::None_) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_mover", "no se puede mover: ")
                                                + DX::labelOf(porQue),
@@ -4404,11 +4404,11 @@ int main(int argc, char** argv) {
             } else if (que == "clonar-desde-origen") {
                 const DX::Endpoint origen = origenDe(p);
                 const DX::Endpoint destino{conn, objeto};
-                const DX::NotApplicable porQue = DX::check(DX::Action::Clonar, origen, destino);
+                const DX::NotApplicable porQue = DX::check(DX::Action::Clone, origen, destino);
                 // Se vuelve a comprobar AQUÍ y no solo al pintar el botón: entre que se
                 // dibujó la página y se pulsó, el origen pudo cambiar en otra pestaña del
                 // navegador. Validar solo donde se pinta no valida nada.
-                if (porQue != DX::NotApplicable::Ninguna) {
+                if (porQue != DX::NotApplicable::None_) {
                     r.codigo = 400;
                     r.cuerpo = paginaError("no se puede clonar: " + DX::labelOf(porQue),
                                            sesion.testigo());
@@ -4533,7 +4533,7 @@ int main(int argc, char** argv) {
                 // del código de salida hacía que la web dijera «hecho» y no hubiera pasado
                 // nada, que es la peor forma de fallar.
                 //
-                // Only un permiso inventado da rc distinto de cero. Todo lo demás hay que
+                // Solo un permiso inventado da rc distinto de cero. Todo lo demás hay que
                 // mirarlo releyendo.
                 std::string salV;
                 std::string errV;
@@ -4576,7 +4576,7 @@ int main(int argc, char** argv) {
                     "Location: " + urlDe(conn, B::trim(p.campo("raiz")).empty()
                                                    ? objeto
                                                    : B::trim(p.campo("raiz")),
-                                         objeto, Vista::Permisos));
+                                         objeto, View::Permisos));
                 r.cuerpo = "";
                 respuesta = H::componer(r);
                 return true;
@@ -4664,7 +4664,7 @@ int main(int argc, char** argv) {
                 // El argv y la traducción de la fase salen de `commands::pools`, que es de
                 // donde salen también los del intérprete.
                 //
-                // **Aquí había un fallo**: «Stop initialize» mandaba `-s`, que en
+                // **Aquí había un fallo**: «Parar initialize» mandaba `-s`, que en
                 // `zpool initialize` no es parar sino SUSPENDER —parar es `-c`—. El botón
                 // decía una cosa y hacía otra. La letra no es la misma para las tres
                 // operaciones y por eso no puede escribirse a mano en cada cliente.
@@ -4757,7 +4757,7 @@ int main(int argc, char** argv) {
                     t.detalle = B::trim(errF).empty() ? B::trim(salF) : B::trim(errF);
                 }
                 r.cuerpo = paginaTrabajoLanzado(conn, dirOrigen, objeto, t, TR::Resume{},
-                                                sesion.testigo(), QueTrabajo::Sincronizar);
+                                                sesion.testigo(), QueTrabajo::Sync);
                 r.codigo = okF ? 200 : 502;
                 respuesta = H::componer(r);
                 return true;
@@ -4838,7 +4838,7 @@ int main(int argc, char** argv) {
                     t.detalle = B::trim(errT).empty() ? B::trim(salT) : B::trim(errT);
                 }
                 r.cuerpo = paginaTrabajoLanzado(conn, objeto, objeto, t, TR::Resume{},
-                                                sesion.testigo(), QueTrabajo::Copiar);
+                                                sesion.testigo(), QueTrabajo::Send);
                 r.codigo = idT.empty() ? 502 : 200;
                 respuesta = H::componer(r);
                 return true;
@@ -4932,7 +4932,7 @@ int main(int argc, char** argv) {
             // Y a la MISMA vista de la que se venía cuando se dice: cambiando propiedades
             // se cambian varias seguidas, y volver al resumen cada vez obliga a rehacer el
             // camino hasta la tabla.
-            const Vista vistaVuelta = vistaDesde(p.campo("volver"));
+            const View vistaVuelta = vistaDesde(p.campo("volver"));
             r.codigo = 302;
             r.cabecerasExtra.push_back(
                 "Location: " + urlDe(conn, raizV.empty() ? volverA : raizV, objeto, vistaVuelta));
@@ -5043,7 +5043,7 @@ int main(int argc, char** argv) {
         // `/c/<conexión>[/<pool>[/<dataset>]]`. Se trocea a mano y no con una tabla de
         // rutas porque son tres formas y una tabla aquí sería más código que el reparto.
         // La confirmación de algo destructivo: es un GET porque NO hace nada todavía;
-        // solo cuenta lo que pasaría. Who ejecuta es el POST de después.
+        // solo cuenta lo que pasaría. Quien ejecuta es el POST de después.
         if (p.ruta == "/confirmar") {
             const auto campoConsulta = [&p](const std::string& nombre) {
                 for (const std::string& par : B::split(p.consulta, "&", true)) {
@@ -5192,10 +5192,10 @@ int main(int argc, char** argv) {
             }
             // El marco que se pidió abrir, si se pidió alguno. Los tres cuestan una
             // consulta y por eso NO se hacen al entrar: se hacen al abrir el marco.
-            const Vista vistaMaquina = vistaDesde(campoDeConsulta("v"));
+            const View vistaMaquina = vistaDesde(campoDeConsulta("v"));
             std::string cargadoMaquina;
             switch (vistaMaquina) {
-                case Vista::Schedule:
+                case View::Schedule:
                     cargadoMaquina = pide(PET::gsaOfAllPools(), 30000)
                                          ? panelProgramacion(conn, std::string(),
                                                              std::string(), salida,
@@ -5220,16 +5220,16 @@ int main(int argc, char** argv) {
             // La programación sí, porque no está abajo y es de la máquina entera.
             const std::vector<std::pair<std::string, std::vector<Pestana>>> gruposC = {
                 {std::string(),
-                 {{Vista::Resumen, T("t_web_pools_2fd96d", "Pools")},
-                  {Vista::Schedule, T("t_web_programacion_cca584", "Programación")},
-                  {Vista::Pares, T("t_web_pares_tab", "Pares")},
-                  {Vista::Acciones, T("t_help_actions_001", "Acciones")}}}};
+                 {{View::Resumen, T("t_web_pools_2fd96d", "Pools")},
+                  {View::Schedule, T("t_web_programacion_cca584", "Programación")},
+                  {View::Pares, T("t_web_pares_tab", "Pares")},
+                  {View::Acciones, T("t_help_actions_001", "Acciones")}}}};
             std::string cuerpoC;
             switch (vistaMaquina) {
-                case Vista::Schedule:
+                case View::Schedule:
                     cuerpoC = cargadoMaquina;
                     break;
-                case Vista::Pares: {
+                case View::Pares: {
                     const B::ConnectionProfile* perfilP = zfsmgr::cli::buscarConexion(conns, conn);
                     std::string salP;
                     std::string erP;
@@ -5250,7 +5250,7 @@ int main(int argc, char** argv) {
                     }
                     break;
                 }
-                case Vista::Acciones: {
+                case View::Acciones: {
                     // La sonda de pools importables solo se lanza si la piden: recorre discos
                     // y puede tardar, y esta vista se abre a menudo para otras cosas.
                     std::vector<std::pair<std::string, std::string>> importables;
@@ -5302,8 +5302,8 @@ int main(int argc, char** argv) {
                     cuerpoC = panelPools(conn, pools);
                     break;
             }
-            const auto urlC = [&](Vista v) {
-                return v == Vista::Resumen ? "/c/" + H::haciaUrl(conn)
+            const auto urlC = [&](View v) {
+                return v == View::Resumen ? "/c/" + H::haciaUrl(conn)
                                            : "/c/" + H::haciaUrl(conn) + "?v=" + claveDeVista(v);
             };
             std::string derC;
@@ -5349,7 +5349,7 @@ int main(int argc, char** argv) {
             }
             return std::string();
         };
-        const Vista vista = vistaDesde(campoConsulta("v"));
+        const View vista = vistaDesde(campoConsulta("v"));
         std::string sel = B::trim(campoConsulta("sel"));
         if (sel.empty()) {
             sel = objeto;
@@ -5394,12 +5394,12 @@ int main(int argc, char** argv) {
         // ¿Se puede transferir del origen marcado a lo que se está mirando?
         //
         // `exigeAsincrono` va en TRUE siempre desde aquí: este servidor atiende de una en
-        // una y una petición HTTP no puede durar las horas que dura una copia. Only vale el
+        // una y una petición HTTP no puede durar las horas que dura una copia. Solo vale el
         // camino que sostiene el daemon.
         TR::Plan planTransfer;
         // Sin origen marcado no hay nada que sincronizar; «el mismo objeto» es el motivo
         // que ya se pinta para las demás en ese caso.
-        SY::Fallo falloSync = SY::Fallo::ElMismoObjeto;
+        SY::Failure falloSync = SY::Failure::SameObject;
         if (!origenMarcado.vacio()) {
             const B::ConnectionProfile* perfilOrigen =
                 zfsmgr::cli::buscarConexion(conns, origenMarcado.conexion);
@@ -5458,42 +5458,42 @@ int main(int argc, char** argv) {
         // se sabe cuál de los dos objetos toca cada pestaña.
         if (esNodoDePool) {
             grupos.push_back({T("t_tree_pool_prefix_001", "Pool"),
-                              {{Vista::Estado, T("t_web_estado_y_dis_70618f", "Estado y dispositivos")},
-                               {Vista::PropsPool, T("t_props_tab_001", "Propiedades")},
-                               {Vista::Capacidades, T("t_pool_caps_merged_001", "Capacidades")},
-                               {Vista::Historial, T("t_pool_history_t1", "Historial")},
-                               {Vista::AccionesPool, T("t_help_actions_001", "Acciones")}}});
+                              {{View::Estado, T("t_web_estado_y_dis_70618f", "Estado y dispositivos")},
+                               {View::PropsPool, T("t_props_tab_001", "Propiedades")},
+                               {View::Capacidades, T("t_pool_caps_merged_001", "Capacidades")},
+                               {View::Historial, T("t_pool_history_t1", "Historial")},
+                               {View::AccionesPool, T("t_help_actions_001", "Acciones")}}});
         }
 
-        std::vector<Pestana> delObjeto = {{Vista::Resumen, T("t_web_ficha_58dc18", "Ficha")},
-                                          {Vista::Props, T("t_props_tab_001", "Propiedades")}};
+        std::vector<Pestana> delObjeto = {{View::Resumen, T("t_web_ficha_58dc18", "Ficha")},
+                                          {View::Props, T("t_props_tab_001", "Propiedades")}};
         if (selEsInstantanea) {
             // Only en instantáneas: `zfs holds` no admite un dataset —contesta «is not a
             // snapshot», comprobado— así que una pestaña ahí no tendría qué enseñar.
-            delObjeto.push_back({Vista::Holds, T("t_web_holds_tab", "Retenciones")});
+            delObjeto.push_back({View::Holds, T("t_web_holds_tab", "Retenciones")});
         }
         if (!selEsInstantanea) {
             const auto itS = arbol.snapshots.find(sel);
             const std::size_t cuantas = itS == arbol.snapshots.end() ? 0 : itS->second.size();
-            delObjeto.push_back({Vista::Permisos, T("t_permissions_node_001", "Permisos")});
-            delObjeto.push_back({Vista::Contenido, T("t_content_node_001", "Contenido")});
-            delObjeto.push_back({Vista::Schedule, T("t_web_programacion_cca584", "Programación")});
+            delObjeto.push_back({View::Permisos, T("t_permissions_node_001", "Permisos")});
+            delObjeto.push_back({View::Contenido, T("t_content_node_001", "Contenido")});
+            delObjeto.push_back({View::Schedule, T("t_web_programacion_cca584", "Programación")});
             // Compuesta y no literal: se usa `format` con un hueco, que es como lo hace el
             // intérprete. Concatenar el número al texto deja la etiqueta a medio traducir,
             // y además obliga a que el número vaya siempre al final, cosa que no se puede
             // prometer de todos los idiomas.
             delObjeto.push_back(
-                {Vista::Instantaneas,
+                {View::Instantaneas,
                  B::format(T("t_web_instantaneas_n", "Instantáneas (%1)"),
                            {std::to_string(cuantas)})});
         }
         // «Comparar» solo sale cuando hay un origen que se puede comparar con esto: una
         // pestaña que al pulsarla dice «no aplica» es una pestaña de más.
         if (DX::check(DX::Action::Diff, origenMarcado, DX::Endpoint{conn, sel})
-            == DX::NotApplicable::Ninguna) {
-            delObjeto.push_back({Vista::Diff, DX::labelOf(DX::Action::Diff)});
+            == DX::NotApplicable::None_) {
+            delObjeto.push_back({View::Diff, DX::labelOf(DX::Action::Diff)});
         }
-        delObjeto.push_back({Vista::Acciones, T("t_help_actions_001", "Acciones")});
+        delObjeto.push_back({View::Acciones, T("t_help_actions_001", "Acciones")});
         grupos.push_back({esNodoDePool ? T("t_web_dataset_105268", "Dataset") : std::string(),
                           delObjeto});
 
@@ -5506,7 +5506,7 @@ int main(int argc, char** argv) {
                 laHay = laHay || (t.vista == vista);
             }
         }
-        const Vista vistaFinal = laHay ? vista : Vista::Resumen;
+        const View vistaFinal = laHay ? vista : View::Resumen;
 
         // El panel derecho: TODOS los marcos que le caben a este nodo, y todos PLEGADOS.
         //
@@ -5515,7 +5515,7 @@ int main(int argc, char** argv) {
         // multiplicados por el número de datasets; aquí el que no se abre no cuesta nada, y
         // el que se abre cuesta UNA consulta.
         //
-        // Only se consulta la vista que pide la URL. Llegar a un dataset no dispara cinco
+        // Solo se consulta la vista que pide la URL. Llegar a un dataset no dispara cinco
         // preguntas de las que se van a mirar cero o una.
         std::string der;
         std::string loCargado;   // el cuerpo del marco activo, si lo hay
@@ -5549,15 +5549,15 @@ int main(int argc, char** argv) {
         };
 
         switch (vistaFinal) {
-            case Vista::Resumen:
-            case Vista::Acciones:
-            case Vista::AccionesPool:
+            case View::Resumen:
+            case View::Acciones:
+            case View::AccionesPool:
             // «Pares» es de la CONEXIÓN, no de un pool ni de un dataset. Aquí no puede
             // llegar por una pestaña —no se ofrece— pero sí escribiendo la URL a mano, y el
             // `switch` tiene que ser exhaustivo de todos modos. No se consulta nada.
-            case Vista::Pares:
+            case View::Pares:
                 break;   // nada que consultar: sale del árbol, o es un formulario
-            case Vista::Instantaneas: {
+            case View::Instantaneas: {
                 // UNA consulta con todas las instantáneas del dataset dentro. `zfs holds`
                 // admite una lista, así que saber cuáles están retenidas cuesta una llamada
                 // y no una por instantánea.
@@ -5574,17 +5574,17 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
-            case Vista::Props:
+            case View::Props:
                 if (pideOFalla(PET::datasetProperties(sel), "las propiedades")) {
                     propsEn(false, false);
                 }
                 break;
-            case Vista::Permisos:
+            case View::Permisos:
                 if (pideOFalla(PET::permissionsOf(sel), "los permisos")) {
                     loCargado = panelPermisos(conn, objeto, sel, salida, sesion.testigo());
                 }
                 break;
-            case Vista::Contenido: {
+            case View::Contenido: {
                 const std::string punto =
                     entradaSel != nullptr ? B::trim(entradaSel->puntoMontaje) : std::string();
                 if (punto.empty() || punto == "none" || punto == "-") {
@@ -5595,38 +5595,38 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
-            case Vista::Estado:
+            case View::Estado:
                 if (pideOFalla(PET::poolStatus(objeto), "el estado del pool")) {
                     loCargado = panelTexto(salida);
                 }
                 break;
-            case Vista::PropsPool:
+            case View::PropsPool:
                 if (pideOFalla(PET::poolProperties(objeto), "las propiedades del pool")) {
                     propsEn(true, false);
                 }
                 break;
-            case Vista::Capacidades:
+            case View::Capacidades:
                 if (pideOFalla(PET::poolProperties(objeto), "las capacidades del pool")) {
                     propsEn(true, true);
                 }
                 break;
-            case Vista::Historial:
+            case View::Historial:
                 if (pideOFalla(PET::poolHistory(objeto), "el historial")) {
                     loCargado = panelTexto(salida);
                 }
                 break;
-            case Vista::Schedule:
+            case View::Schedule:
                 if (pideOFalla(PET::gsaOfDataset(sel), "la programación")) {
                     loCargado = panelProgramacion(conn, objeto, sel, salida,
                                                   sesion.testigo());
                 }
                 break;
-            case Vista::Holds:
+            case View::Holds:
                 if (pideOFalla(PET::holdsOf({sel}), "las retenciones")) {
                     loCargado = panelHolds(conn, objeto, sel, salida, sesion.testigo());
                 }
                 break;
-            case Vista::Diff:
+            case View::Diff:
                 // Los dos extremos en el orden que quiere `zfs diff`: primero el más
                 // antiguo. Va el ORIGEN marcado contra el destino elegido, que es
                 // exactamente lo que la regla acaba de dar por bueno.
@@ -5640,7 +5640,7 @@ int main(int argc, char** argv) {
 
         std::string cuerpo;
         switch (vistaFinal) {
-            case Vista::Pares:
+            case View::Pares:
                 // Se dice dónde vive en vez de dejar el panel en blanco: una página vacía
                 // parece un fallo, y quien ha escrito esta URL buscaba algo concreto.
                 cuerpo = "<p class=\"vacio\">"
@@ -5650,14 +5650,14 @@ int main(int argc, char** argv) {
                                         T("t_web_pares_ir", "verlos en la conexión"))
                          + "</p>";
                 break;
-            case Vista::Resumen:
+            case View::Resumen:
                 cuerpo = resumenDelNodo(sel, arbol);
                 break;
-            case Vista::Instantaneas:
+            case View::Instantaneas:
                 cuerpo = panelInstantaneas(conn, objeto, sel, arbol, loCargado,
                                            sesion.testigo());
                 break;
-            case Vista::Acciones:
+            case View::Acciones:
                 cuerpo = selEsInstantanea
                              ? accionesDeInstantanea(conn, objeto, sel, origenMarcado,
                                                      planTransfer, falloSync, sesion.testigo())
@@ -5666,19 +5666,19 @@ int main(int argc, char** argv) {
                                    falloSync, sesion.testigo(), hijosDirectosDe(arbol, sel),
                                    B::transport::isWindowsConnection(*perfil), nombresDe(conns));
                 break;
-            case Vista::AccionesPool:
+            case View::AccionesPool:
                 cuerpo = accionesDePool(conn, objeto, sesion.testigo());
                 break;
-            case Vista::Props:
-            case Vista::Permisos:
-            case Vista::Contenido:
-            case Vista::Estado:
-            case Vista::PropsPool:
-            case Vista::Capacidades:
-            case Vista::Historial:
-            case Vista::Schedule:
-            case Vista::Diff:
-            case Vista::Holds:
+            case View::Props:
+            case View::Permisos:
+            case View::Contenido:
+            case View::Estado:
+            case View::PropsPool:
+            case View::Capacidades:
+            case View::Historial:
+            case View::Schedule:
+            case View::Diff:
+            case View::Holds:
                 cuerpo = loCargado;
                 break;
         }
@@ -5687,7 +5687,7 @@ int main(int argc, char** argv) {
               + H::escapaHtml(tituloDeVista(vistaFinal, sel)) + "</h2>" + cuerpo + "</div>";
 
         const std::string migas = enlace("/", "ZFSMgr") + " / " + enlace("/c/" + H::haciaUrl(conn), conn)
-                                  + " / " + enlace(urlDe(conn, objeto, objeto, Vista::Resumen), objeto);
+                                  + " / " + enlace(urlDe(conn, objeto, objeto, View::Resumen), objeto);
         const std::string baseLog = "/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(objeto)
                                     + "?sel=" + H::haciaUrl(sel) + "&v=" + claveDeVista(vista)
                                     + "&";

@@ -694,7 +694,7 @@ namespace {
 // las pestañas que no tienen nada pendiente, o sea justo lo contrario de lo que se pide.
 //
 // Se reconoce por el propio contador: una pestaña está en negrita exactamente cuando
-// muestra «… (N)», que es cuando tiene algo pendiente. Ninguna otra lleva paréntesis.
+// muestra «… (N)», que es cuando tiene algo pendiente. None_ otra lleva paréntesis.
 class CountedTabStyle final : public QProxyStyle {
 public:
     explicit CountedTabStyle(QStyle* base) : QProxyStyle(base) {}
@@ -1500,7 +1500,7 @@ void MainWindow::buildUi() {
         QString es;
     };
     const QVector<HelpTopicItem> helpActions = {
-        // **Clave propia, no `t_copy_001`.** Esa la comparte el botón «Copiar» del registro, que
+        // **Clave propia, no `t_copy_001`.** Esa la comparte el botón «Send» del registro, que
         // copia al portapapeles y sigue llamándose así. Con una sola clave, traducir la acción
         // como «Enviar» habría renombrado también aquel botón.
         {QStringLiteral("accion_enviar"), QStringLiteral("t_send_action_001"),

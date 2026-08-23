@@ -147,7 +147,7 @@ bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
 // Verbos que solo existen en la línea de comandos del agente, nunca por RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 
-// Trocea como lo haría un shell POSIX. Only sobrevive como oráculo de los tests del
+// Trocea como lo haría un shell POSIX. Solo sobrevive como oráculo de los tests del
 // renderizado a cadena.
 std::vector<std::string> posixShellSplitArgs(const std::string& s);
 
@@ -233,7 +233,7 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // cambie, y ninguno de los tres clientes tiene por qué saber cómo se serializa.
 std::string argvParaAgente(const std::vector<std::string>& argv);
 
-// Handover un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
+// Entrega un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
 //
 // `sshpass -p <contraseña>` deja la contraseña en el argv, y el argv de cualquier proceso
 // lo lee todo el mundo con `ps`. sshpass la borra nada más arrancar —por eso en `ps` se
@@ -242,7 +242,7 @@ std::string argvParaAgente(const std::vector<std::string>& argv);
 // descriptor o por terminal, nunca por argumento ni por variable de entorno (`-e` de
 // sshpass tampoco vale: el entorno se lee en /proc/<pid>/environ).
 //
-// **Un pipe se lee UNA sola vez.** Who reintente un lanzamiento tiene que construir otro
+// **Un pipe se lee UNA sola vez.** Quien reintente un lanzamiento tiene que construir otro
 // objeto; por eso esto es de vida corta y se crea justo antes de cada `exec`, no una vez
 // por conexión. Con el segundo intento leyendo de un pipe ya vaciado, la autenticación
 // fallaría sin decir por qué.

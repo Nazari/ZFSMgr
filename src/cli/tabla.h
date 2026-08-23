@@ -36,7 +36,7 @@ namespace B = zfsmgr::base;
 // añadiría nada sobre tsv salvo comillas y una dependencia más de quien lo lea.
 enum class Formato { Texto, Tsv, Json };
 
-// De qué tipo es una columna. Only lo usa JSON: texto y tsv lo sacan todo como texto,
+// De qué tipo es una columna. Solo lo usa JSON: texto y tsv lo sacan todo como texto,
 // que es lo que son.
 enum class Tipo { Cadena, Booleano, Entero, Bytes };
 

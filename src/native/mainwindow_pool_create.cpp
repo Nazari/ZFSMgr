@@ -1679,7 +1679,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // Limpiar la etiqueta de un pool que NO está importado. Un disco puede quedar
     // marcado como ocupado por los restos de un pool destruido —etiqueta que sobrevive
     // al destroy— y hasta ahora la única salida era irse a un terminal a ejecutar
-    // `zpool labelclear`. Only se ofrece si el pool no está importado: si lo está, el
+    // `zpool labelclear`. Solo se ofrece si el pool no está importado: si lo está, el
     // disco se está usando de verdad y limpiarlo sería destruir datos vivos.
     devicesTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(devicesTree, &QTreeWidget::customContextMenuRequested, &dlg,

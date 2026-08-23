@@ -41,7 +41,7 @@ std::vector<std::string> importableProbe();
 
 // El árbol entero bajo un objeto, en TSV de diez columnas. Ver `listings::entries`.
 std::vector<std::string> datasetList(const std::string& objeto);
-// Only los nombres, recursivo.
+// Solo los nombres, recursivo.
 std::vector<std::string> descendantNames(const std::string& objeto);
 // Los directorios que Desglosar puede convertir en datasets. Contesta «__MP__=<punto>» y
 // luego una ruta relativa por línea. Vale en las dos plataformas: resuelve el punto de
@@ -70,7 +70,7 @@ std::vector<std::string> mounts();
 // letras duplicadas. Comprobado contra OldLau: «winpool Z: local», «winpool/sa z: temporary».
 //
 // Fuera de Windows el verbo existe pero `zfs` contesta que la propiedad no existe —en macOS,
-// «invalid property 'driveletter'», comprobado— y devuelve un código distinto de cero. Who
+// «invalid property 'driveletter'», comprobado— y devuelve un código distinto de cero. Quien
 // llama lo lee como «no hay letras», que es la verdad.
 
 std::vector<std::string> driveLetters(const std::string& pool);
@@ -124,7 +124,7 @@ std::vector<std::string> createDataset(const std::string& argvCodificado);
 
 // **Estas dos llevan sus argumentos en base64, y no por capricho.** Una frase de paso en
 // argv la ve cualquiera con un `ps` en la máquina; codificada viaja dentro de la carga del
-// RPC, que va cifrada. Who llama pasa el texto en claro y aquí se codifica: dejarlo en
+// RPC, que va cifrada. Quien llama pasa el texto en claro y aquí se codifica: dejarlo en
 // manos del llamante era invitar a que uno se olvidara.
 std::vector<std::string> loadKey(const std::string& dataset, const std::string& frase);
 // `nueva` vacía significa quitar la clave.

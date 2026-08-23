@@ -82,7 +82,7 @@ bool fromProperties(const std::map<std::string, std::string>& props, Schedule& o
     };
     for (const auto& r : retenciones) {
         if (!enteroNoNegativo(valorDe(props, r.first), *r.second)) {
-            porQue.fallo = Fallo::RetencionNoEntera;
+            porQue.fallo = Failure::RetencionNoEntera;
             porQue.detalle = r.first;
             return false;
         }
@@ -115,19 +115,19 @@ bool isValid(const std::string& dataset, const Schedule& p,
     // apagada no molesta a nadie.
     const bool hayQueMirarDestino = p.nivelar || (p.activado && !p.destino.empty());
     if (p.nivelar && p.destino.empty()) {
-        porQue.fallo = Fallo::NivelarSinDestino;
+        porQue.fallo = Failure::NivelarSinDestino;
         return false;
     }
     if (hayQueMirarDestino) {
         const std::size_t dosPuntos = p.destino.find("::");
         if (dosPuntos == std::string::npos) {
-            porQue.fallo = Fallo::DestinoMalFormado;
+            porQue.fallo = Failure::DestinoMalFormado;
             porQue.detalle = p.destino;
             return false;
         }
         const std::string conexion = trim(p.destino.substr(0, dosPuntos));
         if (conexionExiste && !conexionExiste(conexion)) {
-            porQue.fallo = Fallo::DestinoSinConexion;
+            porQue.fallo = Failure::DestinoSinConexion;
             porQue.detalle = conexion;
             return false;
         }
@@ -136,7 +136,7 @@ bool isValid(const std::string& dataset, const Schedule& p,
     // instantánea y la borra. Casi siempre es un olvido, y callarlo deja al usuario
     // creyendo que tiene copias.
     if (p.activado && p.sinRetenciones()) {
-        porQue.fallo = Fallo::ActivadaSinRetencion;
+        porQue.fallo = Failure::ActivadaSinRetencion;
         return false;
     }
     porQue.dataset.clear();
@@ -151,7 +151,7 @@ bool isSameOrDescendant(const std::string& dataset, const std::string& ancestro)
 
 bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
     porQue = Reason{};
-    // Only las ACTIVADAS chocan: una programación apagada no hace instantáneas, así que
+    // Solo las ACTIVADAS chocan: una programación apagada no hace instantáneas, así que
     // solaparse con ella no significa nada.
     std::vector<const Entry*> vivas;
     for (const Entry& e : delMismoPool) {
@@ -167,13 +167,13 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
                 continue;
             }
             if (a.prog.recursivo && isSameOrDescendant(b.dataset, a.dataset)) {
-                porQue.fallo = Fallo::ChocaConRecursiva;
+                porQue.fallo = Failure::ChocaConRecursiva;
                 porQue.dataset = b.dataset;
                 porQue.detalle = a.dataset;
                 return false;
             }
             if (b.prog.recursivo && isSameOrDescendant(a.dataset, b.dataset)) {
-                porQue.fallo = Fallo::ChocaConRecursiva;
+                porQue.fallo = Failure::ChocaConRecursiva;
                 porQue.dataset = a.dataset;
                 porQue.detalle = b.dataset;
                 return false;
@@ -183,21 +183,21 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
     return true;
 }
 
-std::string labelOf(Fallo f) {
+std::string labelOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:
+        case Failure::None_:
             return "sin fallo";
-        case Fallo::RetencionNoEntera:
+        case Failure::RetencionNoEntera:
             return "la retención no es un entero mayor o igual que 0";
-        case Fallo::ActivadaSinRetencion:
+        case Failure::ActivadaSinRetencion:
             return "la programación está activada y no guarda ninguna instantánea";
-        case Fallo::NivelarSinDestino:
+        case Failure::NivelarSinDestino:
             return "nivelar está puesto y no hay destino";
-        case Fallo::DestinoMalFormado:
+        case Failure::DestinoMalFormado:
             return "el destino tiene que ser «Conexión::Pool/Dataset»";
-        case Fallo::DestinoSinConexion:
+        case Failure::DestinoSinConexion:
             return "el destino nombra una conexión que no existe";
-        case Fallo::ChocaConRecursiva:
+        case Failure::ChocaConRecursiva:
             return "ya hay una programación recursiva que lo cubre";
     }
     return "sin fallo";

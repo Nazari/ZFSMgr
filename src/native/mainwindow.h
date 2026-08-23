@@ -226,7 +226,7 @@ private:
         QString targetName;
     };
 
-    // Entry del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
+    // Entrada del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
     //
     // Las otras tres acciones re-editables no necesitan esto: su entrada ES la orden
     // tipada que ya se guarda (`datasetActionArgv`). La de Desde Dir no se puede
@@ -298,7 +298,7 @@ private:
         QString uid;
         QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
         bool active{true};  // ¿entra en «Aplicar cambios»?
-        // Only en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
+        // Solo en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
         // para volver a abrir su diálogo.
         FromDirInput fromDirInput;
     };
@@ -1013,7 +1013,7 @@ private:
     bool requireFeature(int connIdx, zfsmgr::caps::Feature f);
     QString capabilityReasonText(zfsmgr::caps::Reason r) const;
 
-    // Reason único de que Copiar/Nivelar no estén disponibles con un extremo Windows: lo
+    // Motivo único de que Send/Nivelar no estén disponibles con un extremo Windows: lo
     // usan el menú (para deshabilitar con explicación) y la comprobación de ejecución.
     QString streamingUnavailableReason(const QString& actionLabel) const;
     bool requireNonWindowsStreamingEndpoints(int srcConnIdx,

@@ -86,7 +86,7 @@ bool tipoDe(char c, EntryKind& out) {
 char letraDe(Action a) {
     switch (a) {
         case Action::CrearDirectorio: return 'D';
-        case Action::Copiar:          return 'F';
+        case Action::Send:          return 'F';
         case Action::Enlazar:         return 'L';
         case Action::EnlazarDuro:     return 'H';
         case Action::Borrar:          return 'X';
@@ -97,7 +97,7 @@ char letraDe(Action a) {
 bool accionDe(char c, Action& out) {
     switch (c) {
         case 'D': out = Action::CrearDirectorio; return true;
-        case 'F': out = Action::Copiar;          return true;
+        case 'F': out = Action::Send;          return true;
         case 'L': out = Action::Enlazar;         return true;
         case 'H': out = Action::EnlazarDuro;     return true;
         case 'X': out = Action::Borrar;          return true;
@@ -169,7 +169,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
         //
         // `fs::relative` canonicaliza, y canonicalizar SIGUE LOS ENLACES SIMBÓLICOS: un
         // enlace llamado «enlace» que apunta a «a.txt» salía del recorrido con la ruta
-        // «a.txt», o sea con el nombre de su destino. Result medido: el enlace pisaba al
+        // «a.txt», o sea con el nombre de su destino. Resultado medido: el enlace pisaba al
         // fichero real en la lista y el fichero acababa marcado como enlace duro de sí
         // mismo. Sincronizar así habría destrozado cualquier árbol con enlaces dentro.
         Entry en;
@@ -401,7 +401,7 @@ Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destin
                     && alli->fecha == e.fecha) {
                     ++plan.iguales;
                 } else {
-                    plan.operaciones.push_back({Action::Copiar, e});
+                    plan.operaciones.push_back({Action::Send, e});
                     plan.bytes += e.tamano;
                 }
                 break;
@@ -439,7 +439,7 @@ Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destin
 std::string describe(const Operation& o) {
     switch (o.accion) {
         case Action::CrearDirectorio: return "cd+++++++++ " + o.entrada.ruta + "/";
-        case Action::Copiar:          return ">f+++++++++ " + o.entrada.ruta;
+        case Action::Send:          return ">f+++++++++ " + o.entrada.ruta;
         case Action::Enlazar:         return "cL+++++++++ " + o.entrada.ruta + " -> "
                                              + o.entrada.destino;
         case Action::EnlazarDuro:     return "hf+++++++++ " + o.entrada.ruta + " => "
@@ -723,7 +723,7 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
             // una para todos. Medido: 300 KB de un solo byte repetido daban 37
             // instrucciones; con esto, una.
             std::vector<std::size_t> candidatos = it->second;
-            if (!salida.empty() && salida.back().tipo == InstructionKind::Copiar) {
+            if (!salida.empty() && salida.back().tipo == InstructionKind::Send) {
                 const std::size_t siguiente =
                     static_cast<std::size_t>(salida.back().bloque + salida.back().cuantos);
                 for (std::size_t k = 0; k < candidatos.size(); ++k) {
@@ -740,12 +740,12 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
                 sueltaLiteral();
                 // Bloques seguidos se juntan en una sola instrucción: un fichero que no ha
                 // cambiado nada se resuelve con UNA, no con una por bloque.
-                if (!salida.empty() && salida.back().tipo == InstructionKind::Copiar
+                if (!salida.empty() && salida.back().tipo == InstructionKind::Send
                     && salida.back().bloque + salida.back().cuantos == idx) {
                     ++salida.back().cuantos;
                 } else {
                     Instruction in;
-                    in.tipo = InstructionKind::Copiar;
+                    in.tipo = InstructionKind::Send;
                     in.bloque = idx;
                     in.cuantos = 1;
                     salida.push_back(in);

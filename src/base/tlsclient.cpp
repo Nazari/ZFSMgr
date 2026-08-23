@@ -111,7 +111,7 @@ SockT conecta(const std::string& host, unsigned short port, int timeoutMs, std::
     return s;
 }
 
-// Lee un certificado en PEM. Only el PRIMERO: el material del daemon lleva uno.
+// Lee un certificado en PEM. Solo el PRIMERO: el material del daemon lleva uno.
 X509* leeCertificado(const std::string& pem) {
     BIO* bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
     if (!bio) {

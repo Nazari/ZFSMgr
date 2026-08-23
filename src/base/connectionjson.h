@@ -82,7 +82,7 @@ std::string decodeHexAsciiIfUuid(const std::string& raw);
 // `uidLocal` es el identificador de ESTA máquina. Se pasa como argumento en vez de
 // consultarlo aquí porque averiguarlo cuesta entre 400 y 600 ms —lanza `ioreg` en macOS
 // o lee el registro en Windows— y eso es justo lo que no puede vivir en la capa base.
-// Only se usa como respaldo para el perfil local cuando no hay nada guardado.
+// Solo se usa como respaldo para el perfil local cuando no hay nada guardado.
 std::string normalizeMachineUidForStorage(const ConnectionProfile& p,
                                           std::string raw,
                                           const std::string& uidLocal);

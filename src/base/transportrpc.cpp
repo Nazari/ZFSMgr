@@ -181,7 +181,7 @@ bool runSshRaw(const ConnectionProfile& p,
     // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
     // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
     // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-    // autenticación por contraseña. Result: cualquier conexión que dependiera de
+    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
     // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
     // a la vista en ninguna parte.
     //
@@ -324,7 +324,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!tlsRequestLine(tls, json::toCompact(req), respuesta, errorTls)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = {Fallo::HandshakeFallido, errorTls};
+            diag->failure = {Failure::HandshakeFallido, errorTls};
         }
         return false;
     }
@@ -333,7 +333,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!json::parse(respuesta, resp, &errJson)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = {Fallo::RespuestaNoValida, errJson};
+            diag->failure = {Failure::RespuestaNoValida, errJson};
         }
         return false;
     }
@@ -538,7 +538,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
             const long long quedanMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            it->second - Reloj::now())
                                            .count();
-            motivoSuprimido = {Fallo::EnEspera, std::to_string((quedanMs + 999) / 1000)};
+            motivoSuprimido = {Failure::EnEspera, std::to_string((quedanMs + 999) / 1000)};
         }
     }
 
@@ -569,7 +569,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         // provoca el bombeo de eventos— lo correcto sigue siendo caer al otro camino.
         constexpr int kEsperasMax = 20;      // 20 × 100 ms = 2 s, de sobra para montar uno
         for (int intento = 0;
-             !intentoOk && motivoFallo.fallo == Fallo::TunelOcupado && !ses.puedeMontarTuneles()
+             !intentoOk && motivoFallo.fallo == Failure::TunelOcupado && !ses.puedeMontarTuneles()
              && intento < kEsperasMax;
              ++intento) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -601,7 +601,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     }
 
     const MotivoFallo motivo =
-        motivoFallo.vacio() ? MotivoFallo{Fallo::NoEspecificado, {}} : motivoFallo;
+        motivoFallo.vacio() ? MotivoFallo{Failure::NoEspecificado, {}} : motivoFallo;
     // Para el REGISTRO: etiqueta estable más el detalle técnico, que ya viene en inglés de
     // OpenSSL o del sistema. El texto para personas lo pone quien tiene interfaz.
     const std::string motivoLog =
@@ -832,7 +832,7 @@ bool runSsh(TransportSession& ses,
         rc = res.rc;
         // El ruido con forma de XML que escupe PowerShell, también en la conexión LOCAL.
         //
-        // Only se limpiaba en la rama de SSH, y una máquina Windows que se gestiona a sí
+        // Solo se limpiaba en la rama de SSH, y una máquina Windows que se gestiona a sí
         // misma entra por AQUÍ: la orden se envuelve igualmente en PowerShell, así que un
         // fallo llegaba con doscientas líneas de CLIXML por delante del motivo. Venía de
         // antes de sacar el transporte de Qt; se arregla aquí porque es donde toca.
@@ -857,7 +857,7 @@ bool runSsh(TransportSession& ses,
     // --- Por SSH. Windows entra por RPC como cualquier otro sistema: el daemon nativo sirve
     // TLS por el mismo túnel, verificado contra un Windows 11 real ejecutando ZFS.
     //
-    // Route HEREDADO: los argumentos se recuperan analizando la cadena. runAgentCommand los
+    // Camino HEREDADO: los argumentos se recuperan analizando la cadena. runAgentCommand los
     // pasa ya hechos y no pasa por aquí. Este análisis desaparece cuando migren todos los
     // sitios; hasta entonces convive con el nuevo.
     if (allowAgentRpc && stdinPayload.empty()) {
@@ -923,7 +923,7 @@ bool runSsh(TransportSession& ses,
     // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
     // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
     // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-    // autenticación por contraseña. Result: cualquier conexión que dependiera de
+    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
     // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
     // a la vista en ninguna parte.
     //
@@ -975,7 +975,7 @@ bool runSsh(TransportSession& ses,
         return true;
     };
 
-    // A qué se resolvió el nombre, UNA vez por conexión. Only para los `*.local` —que van
+    // A qué se resolvió el nombre, UNA vez por conexión. Solo para los `*.local` —que van
     // por mDNS— y para quien haya forzado familia: son los casos cuyos fallos se
     // diagnostican mal, porque parecen «la máquina no responde».
     const std::string hostLower = toLowerAscii(trim(p.host));

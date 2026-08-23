@@ -4,29 +4,29 @@
 #include <string>
 #include <vector>
 
-// Análisis de las respuestas que da el agente al refrescar una conexión, sin Qt.
+// Parsing of the answers the agent gives when a connection is refreshed. No Qt.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::refresh {
 
-// Las herramientas que la aplicación comprueba en el host remoto.
+// The tools the application checks for on the remote host.
 //
-// La lista es corta a propósito. Antes se sondeaban también awk, grep, sort, find,
-// mktemp, printf, cat, gzip, pv y sudo: las necesitaban las tuberías de shell que la
-// aplicación enviaba, y de las que el daemon no usa ninguna. Eran residuo del modelo
-// anterior, y sondearlas solo servía para mostrar una lista de «faltantes» que no
-// afectaba a nada.
+// The list is deliberately short. It used to probe awk, grep, sort, find, mktemp, printf,
+// cat, gzip, pv and sudo as well: those were needed by the shell pipelines the application
+// used to send, and the daemon uses none of them. They were left over from the previous
+// model, and probing them only served to show a list of «missing» tools that affected
+// nothing.
 std::vector<std::string> zfsmgrUnixCommandSet();
 
-// Minúsculas y sin las llaves que pone el registro de Windows.
+// Lowercase, and without the braces the Windows registry puts around it.
 std::string normalizeMachineUuid(std::string s);
 
-// Saca un identificador de máquina de una salida en texto libre: primero con guiones,
-// luego los 32 dígitos seguidos, y si no hay ninguno se queda con la primera línea.
+// Pulls a machine id out of free-form output: first the hyphenated form, then 32 straight
+// digits, and if neither is there it settles for the first line.
 std::string extractMachineUuid(const std::string& text);
 
-// «CLAVE=valor» por línea. La clave se pasa a MAYÚSCULAS; el valor se conserva tal cual
-// tras recortarlo, porque puede llevar cualquier cosa —incluido un '='—.
+// «KEY=value», one per line. The key is upper-cased; the value is kept as-is after
+// trimming, because it can carry anything —an '=' included—.
 std::map<std::string, std::string> parseKeyValueOutput(const std::string& text);
 
 struct PoolGuidStatus {
@@ -34,9 +34,9 @@ struct PoolGuidStatus {
     std::string status;
 };
 
-// Trocea la respuesta por lotes del estado de los pools, delimitada por marcadores
-// `__ZFSMGR_*__`. Las líneas de estado se conservan SIN recortar cada una: la sangría de
-// `zpool status` es parte de lo que se muestra.
+// Splits the batched pool-status answer, delimited by `__ZFSMGR_*__` markers. The status
+// lines are kept WITHOUT trimming each one: the indentation of `zpool status` is part of
+// what gets shown.
 std::map<std::string, PoolGuidStatus> parsePoolGuidStatusBatch(const std::string& text);
 
 }  // namespace zfsmgr::base::refresh

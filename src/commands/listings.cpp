@@ -201,7 +201,7 @@ bool mounted(const std::string& salidaJson,
     if (!zfsmgr::base::json::parse(salidaJson, raiz, &error)) {
         return false;
     }
-    // Ninguno montado NO es un error: es una respuesta legítima.
+    // None_ montado NO es un error: es una respuesta legítima.
     for (const auto& par : raiz["datasets"].toObject()) {
         const std::string punto = par.second["mountpoint"].toString();
         if (!par.first.empty()) {

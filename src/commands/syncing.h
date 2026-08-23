@@ -4,89 +4,89 @@
 #include <utility>
 #include <vector>
 
-// Sincronizar dos datasets.
+// Syncing two datasets.
 //
-// **No tiene nada que ver con `zfs send`.** Sincronizar trabaja a nivel de FICHEROS, sobre
-// los puntos de montaje de los dos extremos: compara, copia lo que cambió y —si se le
-// pide— borra en el destino lo que ya no está en el origen. Por eso necesita que los dos
-// estén montados, y por eso puede destruir trabajo en el destino, cosa que copiar o
-// nivelar no hacen nunca.
+// **This has nothing to do with `zfs send`.** Syncing works at the FILE level, over the
+// mountpoints of the two endpoints: it compares, copies what changed and —when asked to—
+// deletes at the target whatever is no longer at the source. That is why it needs both to
+// be mounted, and why it can destroy work at the target, which sending or levelling never
+// do.
 //
-// El documento de diseño la agrupaba con las demás como si compartiera camino. No lo
-// comparte: `zfs send` manda bloques de una historia común, y esto compara árboles de
-// directorios. Es la razón de que sea «la que menos comparte».
+// The design document grouped it with the others as if it shared their path. It does not:
+// `zfs send` ships blocks of a shared history, and this compares directory trees. That is
+// why it is «the one that shares the least».
 //
-// Lo que hay aquí es la REGLA —cuándo se puede y por qué no— y la carga tipada del verbo
-// `--mutate-rsync-local`, que estaba dentro de la ventana principal
-// (`mainwindow.cpp:1963`) y que el servidor web necesita igual.
+// What lives here is the RULE —when it can be done and why not— and the typed payload of
+// the `--mutate-rsync-local` verb, which used to sit inside the main window
+// (`mainwindow.cpp:1963`) and which any other client needs just the same.
 namespace zfsmgr::base::syncing {
 
-enum class Fallo {
-    Ninguno,
-    ElMismoObjeto,
-    OrigenNoEsDataset,
-    DestinoNoEsDataset,
-    ExtremoWindows,
-    DistintaMaquina,
-    OrigenNoMontado,
-    DestinoNoMontado,
-    RutaNoUsable,
-    SinDaemon,
+enum class Failure {
+    None_,
+    SameObject,
+    SourceIsNotDataset,
+    TargetIsNotDataset,
+    WindowsEndpoint,
+    DifferentMachine,
+    SourceNotMounted,
+    TargetNotMounted,
+    UnusablePath,
+    NoDaemon,
 };
 
 struct Endpoint {
-    std::string conexion;
-    std::string objeto;         // el dataset; con «@» dentro no vale
-    bool montado{false};
-    std::string puntoMontaje;
-    bool esWindows{false};
-    bool tieneDaemon{false};
+    std::string connection;
+    std::string object;         // the dataset; one with an «@» in it is not valid
+    bool mounted{false};
+    std::string mountpoint;
+    bool isWindows{false};
+    bool hasDaemon{false};
 };
 
 struct Plan {
-    std::string rutaOrigen;
-    std::string rutaDestino;
-    Fallo fallo{Fallo::Ninguno};
-    bool sePuede() const { return fallo == Fallo::Ninguno; }
+    std::string sourcePath;
+    std::string targetPath;
+    Failure failure{Failure::None_};
+    bool ok() const { return failure == Failure::None_; }
 };
 
-// Lo que se puede decidir SIN preguntar a nadie: misma máquina, los dos datasets, ningún
-// extremo Windows, daemon en pie.
+// What can be decided WITHOUT asking anyone: same machine, both are datasets, no Windows
+// endpoint, daemon up.
 //
-// Está separado de `makePlan` porque el punto de montaje del origen cuesta una consulta al
-// agente, y quien pinta el menú de acciones lo pinta para cada dataset que se mire. Con una
-// sola función, ofrecer la acción costaba una consulta por dibujo; así el dibujo es gratis
-// y la consulta se hace una vez, al pulsar.
-Fallo check(const Endpoint& origen, const Endpoint& destino);
+// It is kept apart from `makePlan` because the source's mountpoint costs a call to the
+// agent, and whoever paints the actions menu paints it for every dataset that gets looked
+// at. With a single function, offering the action cost one call per repaint; this way the
+// repaint is free and the call happens once, on click.
+Failure check(const Endpoint& source, const Endpoint& target);
 
-// La comprobación entera, ya con los montajes. Devuelve las dos rutas.
+// The whole check, mountpoints included. Returns both paths.
 //
-// Los montajes son EL dato: sin ellos no hay nada que comparar. Un dataset con
-// `canmount=off`, o montado donde no hay ruta absoluta, no se sincroniza por aquí aunque
-// exista.
-Plan makePlan(const Endpoint& origen, const Endpoint& destino);
+// The mountpoints are THE fact: without them there is nothing to compare. A dataset with
+// `canmount=off`, or mounted where there is no absolute path, is not synced through here
+// even though it exists.
+Plan makePlan(const Endpoint& source, const Endpoint& target);
 
-std::string labelOf(Fallo f);
+std::string labelOf(Failure f);
 
-// ¿Sirve esta ruta para sincronizar?
+// Is this path usable for syncing?
 //
-// En Unix, una ruta absoluta. **En Windows, una con letra de unidad** —«Z:/sa/»—, que es lo
-// que de verdad se puede abrir allí: la propiedad `mountpoint` de un dataset en Windows dice
-// «/winpool/sa», y esa ruta NO EXISTE para el sistema. Comprobado en vivo: `Test-Path` la da
-// por falsa, y la buena sale de `zfs mount`.
+// On Unix, an absolute path. **On Windows, one with a drive letter** —«Z:/sa/»—, which is
+// what can actually be opened there: the `mountpoint` property of a dataset on Windows says
+// «/winpool/sa», and that path DOES NOT EXIST as far as the system is concerned. Verified
+// live: `Test-Path` calls it false, and the good one comes from `zfs mount`.
 //
-// Está aparte porque es la misma comprobación que hace la interfaz de Qt
-// (`isUsableMountPath`) y tenerla dos veces es tenerla mal en una de las dos.
-bool isUsablePath(const std::string& ruta, bool esWindows = false);
+// It is kept apart because it is the same check the Qt interface makes
+// (`isUsableMountPath`), and having it twice means having it wrong in one of the two.
+bool isUsablePath(const std::string& path, bool isWindows = false);
 
-// La carga de `--mutate-rsync-local`: base64 de un JSON
-// `[borrar, enSeco, rsh, hostDestino, origen1, destino1, ...]`.
+// The payload of `--mutate-rsync-local`: base64 of a JSON
+// `[delete, dryRun, rsh, targetHost, source1, target1, ...]`.
 //
-// Devuelve vacío si algún par no sirve. Las rutas tienen que ser absolutas: el daemon
-// rechaza las que no empiezan por barra, así que dejarlas pasar aquí solo cambia dónde
-// falla.
-std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pares,
-                       bool borrar, bool enSeco,
-                       const std::string& rsh, const std::string& hostDestino);
+// Empty when any pair is unusable. The paths have to be absolute: the daemon rejects the
+// ones that do not start with a slash, so letting them through here only changes where it
+// fails.
+std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pairs,
+                       bool remove, bool dryRun,
+                       const std::string& rsh, const std::string& targetHost);
 
 }  // namespace zfsmgr::base::syncing

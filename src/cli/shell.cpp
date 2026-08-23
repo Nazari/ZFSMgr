@@ -573,7 +573,7 @@ bool pide(const std::string& etiqueta, const std::string& porOmision, std::strin
 // ¿Encaja este nodo en lo que la orden pide?
 bool encaja(const ZfsmUrl& u, Objetivo pedido) {
     switch (pedido) {
-        case Objetivo::Ninguno:
+        case Objetivo::None_:
         case Objetivo::Cualquiera:
             return true;
         case Objetivo::Conexion:
@@ -600,7 +600,7 @@ bool encaja(const ZfsmUrl& u, Objetivo pedido) {
 // es una vida útil.
 std::string nombreDe(Objetivo pedido) {
     switch (pedido) {
-        case Objetivo::Ninguno: return {};
+        case Objetivo::None_: return {};
         case Objetivo::Cualquiera: return {};
         case Objetivo::Conexion: return T("t_obj_conexion", "una conexión");
         case Objetivo::Pool: return T("t_obj_pool", "un pool");
@@ -649,7 +649,7 @@ ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo pedido) {
                 r.kind = ZfsmKind::Dataset;
             }
             return r;
-        case Objetivo::Ninguno:
+        case Objetivo::None_:
         case Objetivo::Cualquiera:
         case Objetivo::Snapshot:
         case Objetivo::DatasetOInstantanea:
@@ -774,7 +774,7 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         }
     }
 
-    if (orden->objetivo != Objetivo::Ninguno && !encaja(p.objetivo, orden->objetivo)) {
+    if (orden->objetivo != Objetivo::None_ && !encaja(p.objetivo, orden->objetivo)) {
         // Si el destino vino ESCRITO, se dice qué es lo que no encaja; si es el sitio
         // actual, se dice qué falta. Son dos errores distintos para quien los lee.
         if (!explicito.empty()) {
@@ -819,7 +819,7 @@ bool confirma(const Estado& e, const std::string& que) {
 // única orden que responde al instante y sin hablar con nadie, y que con una máquina
 // apagada cada una cuesta su plazo de espera. Se retiró porque el argumento se cae por su
 // propio peso: la versión del agente es la razón por la que uno mira ese listado, y una
-// columna que hay que pedir aparte es una columna que no se mira. Who no quiera esperar
+// columna que hay que pedir aparte es una columna que no se mira. Quien no quiera esperar
 // tiene la conexión desconectada, que sigue sin sondearse.
 //
 // El plazo por máquina es de 8 s y el resultado se recuerda durante la sesión —el fallo
@@ -1064,7 +1064,7 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         }
         const std::size_t arroba = nombre.find('@');
         const bool esSnap = arroba != std::string::npos;
-        // Only los hijos DIRECTOS y las instantáneas propias: `list-all` es recursivo, y
+        // Solo los hijos DIRECTOS y las instantáneas propias: `list-all` es recursivo, y
         // volcar el árbol entero convierte un `ls` en un listado de miles de líneas.
         if (esSnap) {
             if (nombre.substr(0, arroba) != destino.dataset) {
@@ -1800,7 +1800,7 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     }
 
     // La contraseña. Por descriptor si se dio, y si no por el terminal con el eco apagado.
-    // Only hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
+    // Solo hace falta si no hay clave SSH, o si la máquina va a necesitar sudo.
     //
     // **Se comprueba ANTES si hay dónde cifrarla.** Guardar una contraseña de acceso en
     // claro no se hace, así que sin contraseña maestra la creación fracasaría — y hacerla
@@ -2003,7 +2003,7 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
                                                                 : CR::Nivel::Dataset;
     const CR::Decision d = CR::queSeCrea(nivel, pet.uno("texto"));
     if (!d.ruta.empty()) {
-        // Only hay ruta que resolver cuando el nombre traía delante el tramo de la
+        // Solo hay ruta que resolver cuando el nombre traía delante el tramo de la
         // máquina. Se resuelve con la MISMA función que `cd`, para que «la conexión no
         // existe» se diga igual en las dos.
         ZfsmUrl base;
@@ -2125,7 +2125,7 @@ bool cmdSet(Estado& e, const LineaAnalizada& linea) {
     const std::string objetivo = destino.zfsName();
     std::vector<std::string> argv{"set"};
     // La firma ya ha exigido que sean `prop=valor` y que haya al menos una: la ranura es
-    // de tipo Property y de cardinalidad UnaOMas.
+    // de tipo Propiedad y de cardinalidad UnaOMas.
     for (const auto& asig : pet.lista("props")) {
         argv.push_back(asig);
     }
@@ -2474,7 +2474,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         if (!agente(e, destino, PET::peerList(), out, 20000)) {
             return false;
         }
-        const PR::Vista vista = PR::parse(out);
+        const PR::View vista = PR::parse(out);
         // Quién cree ser esa máquina va PRIMERO, y se dice también cuando falta.
         //
         // Su ausencia no rompe nada visible: rompe la nivelación GSA contra un dataset de la
@@ -2504,7 +2504,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
                             T("t_cab_puerto", "PUERTO")};
         t.campos = {"id", "host", "port"};
         t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero};
-        for (const PR::Par& par : vista.pares) {
+        for (const PR::Peer& par : vista.pares) {
             t.filas.push_back({par.id, par.host, std::to_string(par.puerto)});
         }
         t.imprime(e.formato);
@@ -2515,11 +2515,11 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     // exactamente lo mismo, y esto estaba solo aquí.
     const PR::Handover entrega =
         PR::composeHandover(e.conns.perfiles, destino.connection);
-    if (!entrega.sePuede()) {
-        std::fprintf(stderr, "%s\n", PR::labelOf(entrega.fallo).c_str());
+    if (!entrega.ok()) {
+        std::fprintf(stderr, "%s\n", PR::labelOf(entrega.failure).c_str());
         return false;
     }
-    const std::vector<std::string>& nombres = entrega.nombres;
+    const std::vector<std::string>& nombres = entrega.names;
     if (!confirma(e, B::format(T("t_conf_peers", "Se van a entregar a %1 las credenciales de: %2.\n"
                                  "Con ellas, esa máquina puede hablar con las otras como si fuera "
                                  "usted. ¿Continuar?"),
@@ -2528,7 +2528,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::setPeers(entrega.cargaB64), out, 30000)) {
+    if (!agente(e, destino, PET::setPeers(entrega.payloadB64), out, 30000)) {
         return false;
     }
     std::fprintf(stderr, TC("t_peers_puestos", "entregadas %zu credenciales a %s\n"),
@@ -3057,7 +3057,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                 /*comoTrabajo=*/false, /*borrarEnDestino=*/false, /*enSeco=*/false,
                 &salidaEnvio);
             // `fallo` y no `ok()`: sin encolar no hay identificador, y `ok()` exige uno.
-            if (hecho.fallo == TR::JobFailure::Ninguno) {
+            if (hecho.fallo == TR::JobFailure::None_) {
                 std::fputs(salidaEnvio.c_str(), stdout);
                 return true;
             }
@@ -3130,7 +3130,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 // Que sea un trabajo y no una espera es lo que permite mandar terabytes y cerrar la
 // sesión. Con `--wait` se espera aquí, sondeando.
 
-// Copiar una instantánea a otro dataset, en esta máquina o en otra.
+// Send una instantánea a otro dataset, en esta máquina o en otra.
 //
 // Con `--base` es INCREMENTAL: solo viaja lo que cambió desde esa instantánea, que es lo
 // que la interfaz llama «Nivelar». Sin ella va el flujo completo.
@@ -3188,7 +3188,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    // Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado
+    // None_ de los dos extremos puede ser Windows: el flujo por socket no está portado
     // allí. Decirlo AQUÍ evita un fallo a mitad de transfer que no se entiende.
     if (T::isWindowsConnection(*pOrigen) || T::isWindowsConnection(*pDestino)) {
         std::fputs(TC("t_la_transfe_6f9799", "la transferencia por socket no está disponible en Windows.\n"
@@ -3217,7 +3217,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     //
     // Aquí había una copia entera de esa secuencia, y YA HABÍA DIVERGIDO: resolvía la
     // dirección del destino como «el host del perfil», que cuando el destino es la conexión
-    // **Local** vale «localhost» y desde una máquina remota apunta al propio origen. Copiar
+    // **Local** vale «localhost» y desde una máquina remota apunta al propio origen. Send
     // de una máquina remota a Local dejaba al emisor conectándose consigo mismo. La capa
     // base pregunta al origen con qué dirección nos ve, que es la única que le sirve para
     // volver, y ese caso es justo el que se perdía al tener dos copias.
@@ -3327,7 +3327,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         e.ses->transporte, perfil, binario,
         [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, e.ses->verboso);
 
-    if (r.versionAtrasada) {
+    if (r.versionBehind) {
         std::fprintf(stderr,
                      TC("t_agente_empaquetado_viejo",
                         "aviso: el agente empaquetado para %s es %s y este cliente espera %s; "
@@ -3335,13 +3335,13 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                      plataforma.c_str(), r.version.c_str(), B::agentversion::laEsperada().c_str());
     }
     if (!r.ok()) {
-        if (r.fallo == DI::Fallo::BinarioIlegible) {
+        if (r.fallo == DI::Failure::UnreadableBinary) {
             std::fprintf(stderr, TC("t_el_binario_ce2086", "el binario del daemon está vacío: %s\n"),
-                         r.detalle.c_str());
+                         r.detail.c_str());
             return false;
         }
         std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"),
-                     r.rc, r.detalle.c_str());
+                     r.rc, r.detail.c_str());
         e.ultimoRc = r.rc == 0 ? 1 : r.rc;
         return false;
     }
@@ -3351,7 +3351,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     // ningún pool para importar. Todo parece bien salvo el resultado, que es la peor forma
     // de fallar; por eso se dice aquí, al instalar, y no cuando la lista salga vacía. La
     // interfaz gráfica ya lo avisa —`mainwindow_connections.cpp`—, y el intérprete callaba.
-    if (r.esMac) {
+    if (r.isMac) {
         std::fputs(TC("t_mac_acceso_disco", "\nEn macOS hace falta concederle «Acceso total al disco» al agente, o no verá\n"
                      "los discos y no encontrará pools que importar:\n"
                      "  Configuración del Sistema → Privacidad y Seguridad → Acceso total al\n"
@@ -3797,7 +3797,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 
 // --- Editar una conexión ya dada de alta.
 //
-// Only cambia lo que se pasa. Con terminal se ofrece el valor actual entre corchetes, de
+// Solo cambia lo que se pasa. Con terminal se ofrece el valor actual entre corchetes, de
 // modo que pulsar Intro lo conserva: es lo que uno espera de «editar», frente a tener que
 // volver a teclear todo.
 bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino);
@@ -4062,7 +4062,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     return true;
 }
 
-// El punto de montaje de un dataset. Only Unix: en Windows la ruta no es la que dice
+// El punto de montaje de un dataset. Solo Unix: en Windows la ruta no es la que dice
 // `mountpoint` —el pool se monta en una letra de unidad— y ahí la sincronización va por
 // otro camino, que no está portado al intérprete.
 bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
@@ -4259,7 +4259,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 e.ses->transporte, llama, src, dst, par.first, B::trim(AV::preparedPath(prepOut)),
                 /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
                 &salidaEnvio);
-            if (hecho.fallo != TR::JobFailure::Ninguno) {
+            if (hecho.fallo != TR::JobFailure::None_) {
                 std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.fallo).c_str(),
                              hecho.detalle.c_str());
                 todoBien = false;
@@ -4498,7 +4498,7 @@ std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
 std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::size_t cursor,
                                     std::size_t& desde, bool& puedeSeguir) {
     // Por omisión, lo completado se cierra: una orden, una opción, un valor de propiedad.
-    // Only lo que admite «/» detrás dice lo contrario, y lo dice donde se sabe.
+    // Solo lo que admite «/» detrás dice lo contrario, y lo dice donde se sabe.
     puedeSeguir = false;
     // El trozo que se está escribiendo: desde el último espacio antes del cursor.
     desde = linea.rfind(' ', cursor == 0 ? 0 : cursor - 1);
@@ -4529,7 +4529,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     // ofrecería propiedades que ese pool no tiene.
     //
     // Los VALORES salen del catálogo de la capa base, que es el mismo que usa el
-    // desplegable de la interfaz. Only las de lista cerrada: para `quota` o `mountpoint` no
+    // desplegable de la interfaz. Solo las de lista cerrada: para `quota` o `mountpoint` no
     // se ofrece nada, que es mejor que inventar.
     if (orden == "get" || orden == "set") {
         const std::size_t igual = parcial.find('=');
@@ -4537,7 +4537,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
             const std::string prop = parcial.substr(0, igual);
             const std::string escrito = parcial.substr(igual + 1);
             std::vector<std::string> out;
-            for (const std::string& v : B::zfsprops::valoresDe(prop)) {
+            for (const std::string& v : B::zfsprops::valuesOf(prop)) {
                 if (B::startsWith(v, escrito)) {
                     out.push_back(prop + "=" + v);
                 }
@@ -4570,7 +4570,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         }
         const std::size_t barra = resto.find('/');
         if (barra == std::string::npos) {
-            // Todavía se está escribiendo el nombre de la sección. Only se ofrecen donde
+            // Todavía se está escribiendo el nombre de la sección. Solo se ofrecen donde
             // significan algo: en una conexión o en la raíz no hay contenido ni propiedades.
             std::vector<std::string> out;
             const Nodo n = nodoDe(sitio);

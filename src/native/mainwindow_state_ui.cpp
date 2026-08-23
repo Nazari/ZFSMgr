@@ -257,7 +257,7 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                                            QStringLiteral("复制需要以快照为源、以数据集为目标。"));
     }
 
-    // Clonar
+    // Clone
     out.clone.enabled = srcSnap && dstDs && !dstSnap && samePool && versionOk;
     if (!out.clone.enabled) {
         out.clone.reason = !versionOk ? versionReason.trimmed()
@@ -267,7 +267,7 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                                       : QString();
     }
 
-    // Mover
+    // Move
     const bool srcDatasetOnly = srcDs && !srcSnap;
     const bool dstDatasetOnly = dstDs && !dstSnap;
     const QString moveTargetName = (srcDatasetOnly && dstDatasetOnly)

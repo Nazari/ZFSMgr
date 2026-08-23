@@ -17,7 +17,7 @@ namespace zfsmgr::base::zfsprops {
 // No están TODAS las propiedades: solo las de valor cerrado. Un `quota` o un
 // `mountpoint` no tienen lista que ofrecer, y fingir que sí sería peor que no ofrecer
 // nada.
-const std::map<std::string, std::vector<std::string>>& propiedadesConValores() {
+const std::map<std::string, std::vector<std::string>>& propertiesWithValues() {
     static const std::map<std::string, std::vector<std::string>> kTabla = {
         {"atime", {"on", "off"}},
         {"relatime", {"on", "off"}},
@@ -47,9 +47,9 @@ const std::map<std::string, std::vector<std::string>>& propiedadesConValores() {
     return kTabla;
 }
 
-const std::vector<std::string>& valoresDe(const std::string& propiedad) {
+const std::vector<std::string>& valuesOf(const std::string& propiedad) {
     static const std::vector<std::string> vacio;
-    const auto& t = propiedadesConValores();
+    const auto& t = propertiesWithValues();
     const auto it = t.find(propiedad);
     return it == t.end() ? vacio : it->second;
 }
@@ -60,7 +60,7 @@ const std::vector<std::string>& valoresDe(const std::string& propiedad) {
 // Es la lista literal del mandato menos las tres que pone el programa. Copiarla entera y
 // no «las que hacen falta» es lo que hace que valga como criterio: cualquier otra cosa se
 // rechaza, y ahí entra tanto una bandera inventada como un nombre de dataset suelto.
-const std::vector<SendFlag>& banderasDeSend() {
+const std::vector<SendFlag>& sendFlagCatalog() {
     static const std::vector<SendFlag> kTabla = {
         {"-D", false, "t_nat_send_D", "Deduplicado (obsoleto; el mandato aún lo acepta)."},
         {"-L", false, "t_nat_send_L", "Permite bloques grandes en el flujo."},
@@ -83,8 +83,8 @@ const std::vector<SendFlag>& banderasDeSend() {
 
 // ¿Está declarada esta forma, tal cual?
 const SendFlag* buscaBanderaSend(const std::string& forma) {
-    for (const SendFlag& b : banderasDeSend()) {
-        if (forma == b.forma) {
+    for (const SendFlag& b : sendFlagCatalog()) {
+        if (forma == b.form) {
             return &b;
         }
     }
@@ -107,7 +107,7 @@ bool areValidSendFlags(const std::string& cadena, std::string& mala) {
             bool todas = true;
             for (std::size_t i = 1; i < tok.size(); ++i) {
                 const SendFlag* una = buscaBanderaSend(std::string("-") + tok[i]);
-                if (!una || una->valor) {
+                if (!una || una->value) {
                     todas = false;
                     break;
                 }
@@ -122,8 +122,8 @@ bool areValidSendFlags(const std::string& cadena, std::string& mala) {
         }
         // El valor de `-X` se consume aquí: si no, se leería como un componente suelto y
         // se rechazaría el dataset que la propia bandera pide.
-        if (encontrada->valor && !(iss >> tok)) {
-            mala = encontrada->forma;
+        if (encontrada->value && !(iss >> tok)) {
+            mala = encontrada->form;
             return false;
         }
     }
@@ -195,7 +195,7 @@ Platform platformOf(const std::string& osType, const std::string& osLine) {
     if (contains(junto, "linux")) {
         return Platform::Linux;
     }
-    return Platform::Otra;
+    return Platform::Other;
 }
 
 bool isUserProperty(const std::string& prop) {

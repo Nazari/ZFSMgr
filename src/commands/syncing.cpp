@@ -5,29 +5,29 @@
 
 namespace zfsmgr::base::syncing {
 
-std::string labelOf(Fallo f) {
+std::string labelOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:
+        case Failure::None_:
             return {};
-        case Fallo::ElMismoObjeto:
+        case Failure::SameObject:
             return "el origen y el destino son el mismo";
-        case Fallo::OrigenNoEsDataset:
+        case Failure::SourceIsNotDataset:
             return "el origen tiene que ser un dataset, no una instantánea";
-        case Fallo::DestinoNoEsDataset:
+        case Failure::TargetIsNotDataset:
             return "el destino tiene que ser un dataset, no una instantánea";
-        case Fallo::ExtremoWindows:
+        case Failure::WindowsEndpoint:
             // Ya no lo devuelve nadie: se queda para no romper a quien lo lea de un dato
             // guardado, y porque el `switch` tiene que ser exhaustivo.
             return "un extremo Windows por este camino";
-        case Fallo::DistintaMaquina:
+        case Failure::DifferentMachine:
             return "los dos extremos tienen que estar en la misma máquina";
-        case Fallo::OrigenNoMontado:
+        case Failure::SourceNotMounted:
             return "el origen no está montado, y sincronizar compara ficheros";
-        case Fallo::DestinoNoMontado:
+        case Failure::TargetNotMounted:
             return "el destino no está montado, y sincronizar compara ficheros";
-        case Fallo::RutaNoUsable:
+        case Failure::UnusablePath:
             return "alguno de los dos no tiene un punto de montaje utilizable";
-        case Fallo::SinDaemon:
+        case Failure::NoDaemon:
             return "hace falta el daemon en esa máquina";
     }
     return {};
@@ -47,15 +47,15 @@ bool isUsablePath(const std::string& ruta, bool esWindows) {
     return r[0] == '/';
 }
 
-Fallo check(const Endpoint& origen, const Endpoint& destino) {
-    if (origen.conexion == destino.conexion && origen.objeto == destino.objeto) {
-        return Fallo::ElMismoObjeto;
+Failure check(const Endpoint& origen, const Endpoint& destino) {
+    if (origen.connection == destino.connection && origen.object == destino.object) {
+        return Failure::SameObject;
     }
-    if (origen.objeto.find('@') != std::string::npos) {
-        return Fallo::OrigenNoEsDataset;
+    if (origen.object.find('@') != std::string::npos) {
+        return Failure::SourceIsNotDataset;
     }
-    if (destino.objeto.find('@') != std::string::npos) {
-        return Fallo::DestinoNoEsDataset;
+    if (destino.object.find('@') != std::string::npos) {
+        return Failure::TargetIsNotDataset;
     }
     // Windows ya no estorba en ningún caso.
     //
@@ -66,33 +66,33 @@ Fallo check(const Endpoint& origen, const Endpoint& destino) {
     // probar la mitad de las veces.
     // Entre máquinas ya se puede: va por el árbol por el socket entre daemons, que no
     // necesita rsync en ninguno de los dos lados. Por eso aquí ya no se rechaza.
-    if (!origen.tieneDaemon || !destino.tieneDaemon) {
-        return Fallo::SinDaemon;
+    if (!origen.hasDaemon || !destino.hasDaemon) {
+        return Failure::NoDaemon;
     }
-    return Fallo::Ninguno;
+    return Failure::None_;
 }
 
 Plan makePlan(const Endpoint& origen, const Endpoint& destino) {
     Plan plan;
-    plan.fallo = check(origen, destino);
-    if (plan.fallo != Fallo::Ninguno) {
+    plan.failure = check(origen, destino);
+    if (plan.failure != Failure::None_) {
         return plan;
     }
-    if (!origen.montado) {
-        plan.fallo = Fallo::OrigenNoMontado;
+    if (!origen.mounted) {
+        plan.failure = Failure::SourceNotMounted;
         return plan;
     }
-    if (!destino.montado) {
-        plan.fallo = Fallo::DestinoNoMontado;
+    if (!destino.mounted) {
+        plan.failure = Failure::TargetNotMounted;
         return plan;
     }
-    if (!isUsablePath(origen.puntoMontaje, origen.esWindows)
-        || !isUsablePath(destino.puntoMontaje, destino.esWindows)) {
-        plan.fallo = Fallo::RutaNoUsable;
+    if (!isUsablePath(origen.mountpoint, origen.isWindows)
+        || !isUsablePath(destino.mountpoint, destino.isWindows)) {
+        plan.failure = Failure::UnusablePath;
         return plan;
     }
-    plan.rutaOrigen = trim(origen.puntoMontaje);
-    plan.rutaDestino = trim(destino.puntoMontaje);
+    plan.sourcePath = trim(origen.mountpoint);
+    plan.targetPath = trim(destino.mountpoint);
     return plan;
 }
 

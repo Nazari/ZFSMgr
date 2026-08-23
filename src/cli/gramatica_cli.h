@@ -40,7 +40,7 @@ struct LineaAnalizada {
     }
     // Se acepta con guiones y sin ellos. El léxico guarda las opciones largas SIN los dos
     // guiones —`--wait` se almacena como «wait»— y las banderas cortas CON el suyo, así que
-    // preguntar `tiene("--wait")` devolvía siempre false. Ninguna opción larga funcionaba, y
+    // preguntar `tiene("--wait")` devolvía siempre false. None_ opción larga funcionaba, y
     // no fallaba nada: la orden seguía adelante como si no se hubiera escrito.
     bool tiene(const std::string& bandera) const {
         std::string limpia = bandera;

@@ -448,14 +448,14 @@ int main() {
     // Y las decisiones tipificadas sobre los fallos: lo que antes se leia de una frase.
     {
         namespace BTr = zfsmgr::base::transport;
-        comprobar(BTr::sugiereRevivirDaemon(BTr::Fallo::HandshakeFallido),
+        comprobar(BTr::sugiereRevivirDaemon(BTr::Failure::HandshakeFallido),
                   "un saludo TLS fallido invita a levantar el daemon");
-        comprobar(!BTr::sugiereRevivirDaemon(BTr::Fallo::CertificadosInvalidos),
+        comprobar(!BTr::sugiereRevivirDaemon(BTr::Failure::CertificadosInvalidos),
                   "unos certificados malos NO se arreglan levantando el daemon");
-        comprobar(!BTr::mereceCastigo(BTr::Fallo::TunelOcupado),
+        comprobar(!BTr::mereceCastigo(BTr::Failure::TunelOcupado),
                   "ocupado no es roto: no se castiga la conexion");
-        comprobar(BTr::esDeTls(BTr::Fallo::CertificadoNoCoincide) &&
-                      !BTr::esDeTls(BTr::Fallo::TunelNoSeMonta),
+        comprobar(BTr::esDeTls(BTr::Failure::CertificadoNoCoincide) &&
+                      !BTr::esDeTls(BTr::Failure::TunelNoSeMonta),
                   "de TLS es lo de TLS, no lo de red");
     }
 
@@ -967,7 +967,7 @@ int main() {
 
     // --- por dónde van los bytes, y desde dónde se reanuda
     //
-    // Phase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transfer,
+    // Fase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transfer,
     // que se pueden probar sin mover un byte. Lo que se fija son los NOES y su orden, porque
     // el orden es lo que hace que el motivo sea util: decir «no hay daemon» cuando el
     // problema es que un extremo es Windows manda a instalar algo que no arregla nada.
@@ -1009,7 +1009,7 @@ int main() {
 
         // Y para quien NO puede esperar, los otros dos no son un respaldo: son otra cosa
         // que no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
-        comprobar(TR::makePlan(snapOk, sinJobs, true).fallo == TR::Fallo::SinTrabajos,
+        comprobar(TR::makePlan(snapOk, sinJobs, true).fallo == TR::Failure::SinTrabajos,
                   "transferencia: quien no puede esperar solo tiene el asincrono");
         comprobar(TR::makePlan(snapOk, sinJobs, true).caminos.empty(),
                   "transferencia: y no se le ofrece ninguno");
@@ -1019,25 +1019,25 @@ int main() {
         // EL ORDEN de los noes. Windows corta TODO, no solo un camino: los dos primeros
         // necesitan tuberia y el tercero es un guion POSIX que alli no se ejecuta.
         const TR::Endpoint win = ext("oldlau", "wp/d", true, true, true);
-        comprobar(TR::makePlan(snapOk, win, false).fallo == TR::Fallo::ExtremoWindows,
+        comprobar(TR::makePlan(snapOk, win, false).fallo == TR::Failure::WindowsEndpoint,
                   "transferencia: Windows corta aunque tenga daemon y trabajos");
         comprobar(TR::makePlan(snapOk, win, false).caminos.empty(),
                   "transferencia: y no deja ningun camino que probar");
         // Y lo que no depende del camino corta antes que Windows.
         comprobar(TR::makePlan(ext("local", "p/d", false, true, true), win, false).fallo
-                      == TR::Fallo::OrigenNoEsInstantanea,
+                      == TR::Failure::SourceIsNotSnapshot,
                   "transferencia: «el origen no es instantanea» manda sobre Windows");
-        comprobar(TR::makePlan(snapOk, snapOk, false).fallo == TR::Fallo::ElMismoObjeto,
+        comprobar(TR::makePlan(snapOk, snapOk, false).fallo == TR::Failure::SameObject,
                   "transferencia: el mismo objeto, lo primero de todo");
         comprobar(TR::makePlan(snapOk, ext("unibody", "t/c@ya", false, true, true), false).fallo
-                      == TR::Fallo::DestinoNoEsDataset,
+                      == TR::Failure::TargetIsNotDataset,
                   "transferencia: no se recibe SOBRE una instantanea");
 
         // Cada motivo con su texto, y ninguno repetido: es lo que se enseña.
         std::set<std::string> textos;
-        for (const TR::Fallo f : {TR::Fallo::ElMismoObjeto, TR::Fallo::OrigenNoEsInstantanea,
-                                  TR::Fallo::DestinoNoEsDataset, TR::Fallo::ExtremoWindows,
-                                  TR::Fallo::SinTrabajos}) {
+        for (const TR::Failure f : {TR::Failure::SameObject, TR::Failure::SourceIsNotSnapshot,
+                                  TR::Failure::TargetIsNotDataset, TR::Failure::WindowsEndpoint,
+                                  TR::Failure::SinTrabajos}) {
             comprobar(!TR::labelOf(f).empty(), "transferencia: el motivo tiene texto");
             textos.insert(TR::labelOf(f));
         }
@@ -1174,7 +1174,7 @@ int main() {
         // formato del flujo no se entiende en el otro lado.
         TR::Endpoint viejo = ext("unibody", "t/copias", false, true, true);
         viejo.versionZfs = "2.2.7";
-        comprobar(TR::makePlan(snapOk, viejo, false).fallo == TR::Fallo::ZfsDemasiadoViejo,
+        comprobar(TR::makePlan(snapOk, viejo, false).fallo == TR::Failure::ZfsDemasiadoViejo,
                   "transferencia: un extremo con ZFS viejo corta el plan");
         comprobar(TR::makePlan(snapOk, viejo, false).caminos.empty(),
                   "transferencia: y no deja ningun camino");
@@ -1346,33 +1346,33 @@ int main() {
         // Comparar: dos puntos de la MISMA historia. Es lo que la gente espera mal la
         // primera vez —cree que compara dos datasets cualesquiera— y por eso el motivo
         // tiene que salir escrito.
-        comprobar(DX::check(DX::Action::Diff, snap, snap2) == DX::NotApplicable::Ninguna,
+        comprobar(DX::check(DX::Action::Diff, snap, snap2) == DX::NotApplicable::None_,
                   "dosextremos: comparar dos instantaneas del mismo dataset");
-        comprobar(DX::check(DX::Action::Diff, snap, ds) == DX::NotApplicable::Ninguna,
+        comprobar(DX::check(DX::Action::Diff, snap, ds) == DX::NotApplicable::None_,
                   "dosextremos: y una instantanea contra su dataset vivo");
-        comprobar(DX::check(DX::Action::Diff, snap, otroDs) == DX::NotApplicable::DistintoDataset,
+        comprobar(DX::check(DX::Action::Diff, snap, otroDs) == DX::NotApplicable::DifferentDataset,
                   "dosextremos: pero NO contra otro dataset");
         comprobar(DX::check(DX::Action::Diff, ds, otroDs)
-                      == DX::NotApplicable::OrigenNoEsInstantanea,
+                      == DX::NotApplicable::SourceIsNotSnapshot,
                   "dosextremos: ni con un dataset de origen");
-        comprobar(DX::check(DX::Action::Diff, snap, otraMaq) == DX::NotApplicable::DistintaMaquina,
+        comprobar(DX::check(DX::Action::Diff, snap, otraMaq) == DX::NotApplicable::DifferentMachine,
                   "dosextremos: ni entre maquinas distintas");
 
         // Clonar: de una instantanea a un sitio, y ese sitio es un dataset.
-        comprobar(DX::check(DX::Action::Clonar, snap, otroDs) == DX::NotApplicable::Ninguna,
+        comprobar(DX::check(DX::Action::Clone, snap, otroDs) == DX::NotApplicable::None_,
                   "dosextremos: clonar de una instantanea a un dataset");
-        comprobar(DX::check(DX::Action::Clonar, snap, snap2)
-                      == DX::NotApplicable::DestinoNoEsDataset,
+        comprobar(DX::check(DX::Action::Clone, snap, snap2)
+                      == DX::NotApplicable::TargetIsNotDataset,
                   "dosextremos: no se clona SOBRE una instantanea");
-        comprobar(DX::check(DX::Action::Clonar, ds, otroDs)
-                      == DX::NotApplicable::OrigenNoEsInstantanea,
+        comprobar(DX::check(DX::Action::Clone, ds, otroDs)
+                      == DX::NotApplicable::SourceIsNotSnapshot,
                   "dosextremos: ni desde un dataset");
 
         // Sin origen, ninguna. Y el mismo objeto en los dos extremos tampoco.
-        for (const DX::Action a : {DX::Action::Diff, DX::Action::Clonar, DX::Action::Copiar}) {
-            comprobar(DX::check(a, nada, ds) == DX::NotApplicable::SinOrigen,
+        for (const DX::Action a : {DX::Action::Diff, DX::Action::Clone, DX::Action::Send}) {
+            comprobar(DX::check(a, nada, ds) == DX::NotApplicable::NoSource,
                       std::string("dosextremos: sin origen no aplica ") + DX::keyOf(a));
-            comprobar(DX::check(a, ds, ds) == DX::NotApplicable::ElMismoObjeto,
+            comprobar(DX::check(a, ds, ds) == DX::NotApplicable::SameObject,
                       std::string("dosextremos: el mismo objeto no aplica ") + DX::keyOf(a));
         }
 
@@ -1382,35 +1382,35 @@ int main() {
         {
             namespace SY = zfsmgr::base::syncing;
             SY::Endpoint o;
-            o.conexion = "local"; o.objeto = "wa/uno";
-            o.montado = true; o.puntoMontaje = "/wa/uno"; o.tieneDaemon = true;
+            o.connection = "local"; o.object = "wa/uno";
+            o.mounted = true; o.mountpoint = "/wa/uno"; o.hasDaemon = true;
             SY::Endpoint d = o;
-            d.objeto = "wa/dos"; d.puntoMontaje = "/wa/dos";
+            d.object = "wa/dos"; d.mountpoint = "/wa/dos";
 
             const SY::Plan ok = SY::makePlan(o, d);
-            comprobar(ok.sePuede(), "sincronizar: dos datasets montados en la misma maquina");
-            comprobar(ok.rutaOrigen == "/wa/uno" && ok.rutaDestino == "/wa/dos",
+            comprobar(ok.ok(), "sincronizar: dos datasets montados en la misma maquina");
+            comprobar(ok.sourcePath == "/wa/uno" && ok.targetPath == "/wa/dos",
                       "sincronizar: y devuelve las dos rutas");
 
             // Entre maquinas SI se puede: va por el arbol por el socket entre daemons, que
             // no necesita rsync en ninguno de los dos lados.
-            SY::Endpoint otraMaq = d; otraMaq.conexion = "unibody";
-            comprobar(SY::makePlan(o, otraMaq).sePuede(),
+            SY::Endpoint otraMaq = d; otraMaq.connection = "unibody";
+            comprobar(SY::makePlan(o, otraMaq).ok(),
                       "sincronizar: entre maquinas si, por el arbol");
             // Y con un extremo Windows tambien, que es justo lo que ese mecanismo vino a
             // arreglar: por tar no habia ni borrado ni simulacion.
             SY::Endpoint winRemoto = d;
-            winRemoto.conexion = "oldlau";
-            winRemoto.esWindows = true;
+            winRemoto.connection = "oldlau";
+            winRemoto.isWindows = true;
             // Con la ruta que de verdad se puede abrir en Windows. Comprobado en vivo: la
             // propiedad `mountpoint` de un dataset alli dice «/winpool/sa», y esa ruta NO
             // EXISTE para el sistema; la buena, con letra de unidad, sale de `zfs mount`.
-            winRemoto.puntoMontaje = "Z:/sa";
-            comprobar(SY::makePlan(o, winRemoto).sePuede(),
+            winRemoto.mountpoint = "Z:/sa";
+            comprobar(SY::makePlan(o, winRemoto).ok(),
                       "sincronizar: con un extremo Windows entre maquinas, tambien");
             SY::Endpoint winMal = winRemoto;
-            winMal.puntoMontaje = "/winpool/sa";
-            comprobar(SY::makePlan(o, winMal).fallo == SY::Fallo::RutaNoUsable,
+            winMal.mountpoint = "/winpool/sa";
+            comprobar(SY::makePlan(o, winMal).failure == SY::Failure::UnusablePath,
                       "sincronizar: una ruta POSIX en Windows no vale, aunque lo diga zfs list");
             comprobar(SY::isUsablePath("Z:/sa", true) && !SY::isUsablePath("Z:/sa", false),
                       "sincronizar: la letra de unidad solo vale en Windows");
@@ -1419,30 +1419,30 @@ int main() {
             // caminos segun la plataforma dejaba uno de los dos sin probar la mitad de las
             // veces.
             SY::Endpoint win = d;
-            win.esWindows = true;
-            win.puntoMontaje = "Z:/dos";
+            win.isWindows = true;
+            win.mountpoint = "Z:/dos";
             SY::Endpoint winO = o;
-            winO.esWindows = true;
-            winO.puntoMontaje = "Z:/uno";
-            comprobar(SY::makePlan(winO, win).sePuede(),
+            winO.isWindows = true;
+            winO.mountpoint = "Z:/uno";
+            comprobar(SY::makePlan(winO, win).ok(),
                       "sincronizar: dentro de una misma maquina Windows, por el arbol");
-            SY::Endpoint sinMontar = d; sinMontar.montado = false;
-            comprobar(SY::makePlan(o, sinMontar).fallo == SY::Fallo::DestinoNoMontado,
+            SY::Endpoint sinMontar = d; sinMontar.mounted = false;
+            comprobar(SY::makePlan(o, sinMontar).failure == SY::Failure::TargetNotMounted,
                       "sincronizar: sin montar no hay nada que comparar");
-            SY::Endpoint sinRuta = d; sinRuta.puntoMontaje = "none";
-            comprobar(SY::makePlan(o, sinRuta).fallo == SY::Fallo::RutaNoUsable,
+            SY::Endpoint sinRuta = d; sinRuta.mountpoint = "none";
+            comprobar(SY::makePlan(o, sinRuta).failure == SY::Failure::UnusablePath,
                       "sincronizar: «none» no es una ruta");
-            SY::Endpoint instant = d; instant.objeto = "wa/dos@lunes";
-            comprobar(SY::makePlan(o, instant).fallo == SY::Fallo::DestinoNoEsDataset,
+            SY::Endpoint instant = d; instant.object = "wa/dos@lunes";
+            comprobar(SY::makePlan(o, instant).failure == SY::Failure::TargetIsNotDataset,
                       "sincronizar: no se sincroniza contra una instantanea");
-            SY::Endpoint sinD = d; sinD.tieneDaemon = false;
-            comprobar(SY::makePlan(o, sinD).fallo == SY::Fallo::SinDaemon,
+            SY::Endpoint sinD = d; sinD.hasDaemon = false;
+            comprobar(SY::makePlan(o, sinD).failure == SY::Failure::NoDaemon,
                       "sincronizar: hace falta el daemon");
 
             // La comprobacion barata NO mira montajes: es la que se usa al pintar, y mirar
             // montajes ahi costaba una consulta por dataset dibujado.
-            SY::Endpoint desmontado = d; desmontado.montado = false;
-            comprobar(SY::check(o, desmontado) == SY::Fallo::Ninguno,
+            SY::Endpoint desmontado = d; desmontado.mounted = false;
+            comprobar(SY::check(o, desmontado) == SY::Failure::None_,
                       "sincronizar: la comprobacion barata no consulta montajes");
 
             comprobar(!SY::isUsablePath("none") && !SY::isUsablePath("legacy")
@@ -1530,48 +1530,48 @@ int main() {
         // aserciones son las que fijan la version buena.
         const DX::Endpoint otroPool{"local", "worg/sitio"};
         const DX::Endpoint hijo{"local", "fc16/user/dentro"};
-        comprobar(DX::check(DX::Action::Mover, ds, otroDs) == DX::NotApplicable::Ninguna,
+        comprobar(DX::check(DX::Action::Move, ds, otroDs) == DX::NotApplicable::None_,
                   "dosextremos: mover un dataset bajo otro del mismo pool");
-        comprobar(DX::check(DX::Action::Mover, ds, otroPool) == DX::NotApplicable::DistintoPool,
+        comprobar(DX::check(DX::Action::Move, ds, otroPool) == DX::NotApplicable::DifferentPool,
                   "dosextremos: pero NO a otro pool, que eso es copiar");
-        comprobar(DX::check(DX::Action::Mover, snap, otroDs)
-                      == DX::NotApplicable::OrigenNoEsDataset,
+        comprobar(DX::check(DX::Action::Move, snap, otroDs)
+                      == DX::NotApplicable::SourceIsNotDataset,
                   "dosextremos: ni una instantanea de origen");
-        comprobar(DX::check(DX::Action::Mover, ds, snap2)
-                      == DX::NotApplicable::DestinoNoEsDataset,
+        comprobar(DX::check(DX::Action::Move, ds, snap2)
+                      == DX::NotApplicable::TargetIsNotDataset,
                   "dosextremos: ni sobre una instantanea");
-        comprobar(DX::check(DX::Action::Mover, ds, otraMaq) == DX::NotApplicable::DistintaMaquina,
+        comprobar(DX::check(DX::Action::Move, ds, otraMaq) == DX::NotApplicable::DifferentMachine,
                   "dosextremos: ni entre maquinas");
-        comprobar(DX::check(DX::Action::Mover, ds, hijo)
-                      == DX::NotApplicable::DestinoDentroDelOrigen,
+        comprobar(DX::check(DX::Action::Move, ds, hijo)
+                      == DX::NotApplicable::TargetInsideSource,
                   "dosextremos: ni dentro de si mismo");
         // «fc16/user» NO es padre de «fc16/user2»: la comparacion lleva la barra puesta.
         const DX::Endpoint casiHijo{"local", "fc16/user2"};
-        comprobar(DX::check(DX::Action::Mover, ds, casiHijo) == DX::NotApplicable::Ninguna,
+        comprobar(DX::check(DX::Action::Move, ds, casiHijo) == DX::NotApplicable::None_,
                   "dosextremos: y user2 no es descendiente de user");
         comprobar(DX::moveDestination(ds, otroDs) == "fc16/work/user",
                   "dosextremos: al mover conserva su ultimo nombre");
 
         // Las tres de transfer que faltan se ofrecen y se dicen: esconderlas haria
         // creer que no existen, y el motivo es distinto de «no aplica aqui».
-        for (const DX::Action a : {DX::Action::Copiar, DX::Action::Sincronizar,
-                                   DX::Action::Nivelar}) {
-            comprobar(DX::check(a, snap, otroDs) == DX::NotApplicable::TodaviaNoEstaEnLaWeb,
+        for (const DX::Action a : {DX::Action::Send, DX::Action::Sync,
+                                   DX::Action::Level}) {
+            comprobar(DX::check(a, snap, otroDs) == DX::NotApplicable::NotInTheWebYet,
                       std::string("dosextremos: ") + DX::keyOf(a) + " dice que aun no esta");
         }
 
         // Cada motivo tiene su texto, y ninguno se confunde con otro: es lo que se pinta.
         std::set<std::string> textos;
-        const std::vector<DX::NotApplicable> motivos = {DX::NotApplicable::SinOrigen,
-                                                   DX::NotApplicable::ElMismoObjeto,
-                                                   DX::NotApplicable::OrigenNoEsInstantanea,
-                                                   DX::NotApplicable::DestinoNoEsDataset,
-                                                   DX::NotApplicable::DistintoDataset,
-                                                   DX::NotApplicable::DistintaMaquina,
-                                                   DX::NotApplicable::DistintoPool,
-                                                   DX::NotApplicable::OrigenNoEsDataset,
-                                                   DX::NotApplicable::DestinoDentroDelOrigen,
-                                                   DX::NotApplicable::TodaviaNoEstaEnLaWeb};
+        const std::vector<DX::NotApplicable> motivos = {DX::NotApplicable::NoSource,
+                                                   DX::NotApplicable::SameObject,
+                                                   DX::NotApplicable::SourceIsNotSnapshot,
+                                                   DX::NotApplicable::TargetIsNotDataset,
+                                                   DX::NotApplicable::DifferentDataset,
+                                                   DX::NotApplicable::DifferentMachine,
+                                                   DX::NotApplicable::DifferentPool,
+                                                   DX::NotApplicable::SourceIsNotDataset,
+                                                   DX::NotApplicable::TargetInsideSource,
+                                                   DX::NotApplicable::NotInTheWebYet};
         for (const DX::NotApplicable n : motivos) {
             const std::string t = DX::labelOf(n);
             comprobar(!t.empty(), "dosextremos: el motivo tiene texto");
@@ -1582,7 +1582,7 @@ int main() {
         // comprueba, que es que NINGUN motivo se confunda con otro.
         comprobar(textos.size() == motivos.size(),
                   "dosextremos: y ningun motivo se confunde con otro");
-        igual(DX::labelOf(DX::NotApplicable::Ninguna), "",
+        igual(DX::labelOf(DX::NotApplicable::None_), "",
               "dosextremos: «si aplica» no tiene motivo que enseñar");
     }
 
@@ -1599,7 +1599,7 @@ int main() {
     // respuesta, asi que la accion se hacia y se contaba como error.
     //
     // Aqui se monta un servidor TLS de verdad que tarda A PROPOSITO mas que el plazo de
-    // conexion. Only lo pasa un cliente que distinga los dos plazos.
+    // conexion. Solo lo pasa un cliente que distinga los dos plazos.
     {
         namespace TS = zfsmgr::base::tlsserver;
         namespace TC = zfsmgr::base;
@@ -1718,7 +1718,7 @@ int main() {
               std::to_string(static_cast<int>(ZP::Platform::MacOs)),
               "zfsprops: la linea de uname vale cuando el perfil no dice nada");
         igual(std::to_string(static_cast<int>(ZP::platformOf("", ""))),
-              std::to_string(static_cast<int>(ZP::Platform::Otra)),
+              std::to_string(static_cast<int>(ZP::Platform::Other)),
               "zfsprops: sin datos, no se inventa una");
 
         // Lo que solo existe en un sistema. Ofrecerlo en otro es ofrecer un error.
@@ -1858,8 +1858,8 @@ int main() {
 
         // El fallo es un TIPO y cada valor tiene su texto: un `bool` obligaba a adivinar
         // entre «no hay binario» —que se arregla compilando— y «la maquina lo rechazo».
-        comprobar(DI::labelOf(DI::Fallo::BinarioIlegible)
-                      != DI::labelOf(DI::Fallo::LaInstalacionFallo),
+        comprobar(DI::labelOf(DI::Failure::UnreadableBinary)
+                      != DI::labelOf(DI::Failure::InstallFailed),
                   "daemoninstall: los motivos de fallo no se confunden");
 
         // Y un binario que no existe se para ANTES de tocar la maquina.
@@ -1868,7 +1868,7 @@ int main() {
         local.name = "Local";
         const DI::Result sinBin =
             DI::install(sesionVacia, local, "/no/existe/este/agente", {}, false);
-        comprobar(sinBin.fallo == DI::Fallo::BinarioIlegible,
+        comprobar(sinBin.fallo == DI::Failure::UnreadableBinary,
                   "daemoninstall: sin binario no se toca la maquina");
     }
 
@@ -2228,7 +2228,7 @@ int main() {
             comprobar(ps.size() == 2, "dos pools");
             comprobar(ps.at("p1").guid == "123", "el guid del primero");
             // La sangria INTERIOR se conserva: es parte de lo que ve el usuario en
-            // `zpool status`. Only se recorta el bloque entero por los extremos.
+            // `zpool status`. Solo se recorta el bloque entero por los extremos.
             comprobar(contains(ps.at("p1").status, "  otra"),
                       "la sangria de las lineas de estado se conserva");
             comprobar(ps.at("p2").status.empty(), "un pool sin bloque de estado queda vacio");
@@ -2261,7 +2261,7 @@ int main() {
     //
     // Estos casos NO son ceremonia: es la pieza que sustituye a QProcess, y sus fallos
     // —tuberías que se llenan, hijos que no mueren, líneas que no salen hasta el final—
-    // no se ven leyendo el código. Only se ven ejecutándolo.
+    // no se ven leyendo el código. Solo se ven ejecutándolo.
     //
     // POSIX solamente: en Windows haría falta cmd.exe y otras rutas, y una prueba que
     // solo corre en una plataforma es peor que declararlo.
@@ -2302,7 +2302,7 @@ int main() {
             auto r = runExecStream("/bin/sh", {"-c", "echo salida; echo error >&2"}, "", 5000, cb);
             comprobar2(o == "salida" && e == "error", "stdout y stderr separados");
         }
-        // 4) Entry estándar: hay que CERRARLA o el otro espera para siempre
+        // 4) Entrada estándar: hay que CERRARLA o el otro espera para siempre
         {
             StreamCallbacks cb;
             std::string o;
@@ -2311,7 +2311,7 @@ int main() {
             comprobar2(r.rc == 0, "cat termina (la entrada se cierra)");
             comprobar2(o == "hola mundo", "cat devuelve lo que se le dio");
         }
-        // 5) Entry GRANDE: la tubería se llena y hay que alternar escritura y lectura
+        // 5) Entrada GRANDE: la tubería se llena y hay que alternar escritura y lectura
         {
             StreamCallbacks cb;
             const std::string grande(4 * 1024 * 1024, 'x');
@@ -2886,7 +2886,7 @@ int main() {
                   "gsa: un booleano que no se entiende es «off», que es lo conservador");
         comprobar(!G::fromProperties({{"org.fc16.gsa:diario", "7d"}}, p, m),
                   "gsa: «7d» NO es una retención");
-        comprobar(m.fallo == G::Fallo::RetencionNoEntera && m.detalle == "org.fc16.gsa:diario",
+        comprobar(m.fallo == G::Failure::RetencionNoEntera && m.detalle == "org.fc16.gsa:diario",
                   "gsa: y se dice cuál de las cinco");
         comprobar(!G::fromProperties({{"org.fc16.gsa:anual", "-1"}}, p, m),
                   "gsa: una retención negativa tampoco");
@@ -2909,7 +2909,7 @@ int main() {
         G::Schedule sinRet = base; sinRet.diario = 0;
         comprobar(!G::isValid("tank/datos", sinRet, siempreExiste, m),
                   "gsa: activada y sin retenciones NO vale");
-        comprobar(m.fallo == G::Fallo::ActivadaSinRetencion && m.dataset == "tank/datos",
+        comprobar(m.fallo == G::Failure::ActivadaSinRetencion && m.dataset == "tank/datos",
                   "gsa: con su motivo y su dataset");
 
         G::Schedule apagadaSinRet = sinRet; apagadaSinRet.activado = false;
@@ -2919,26 +2919,26 @@ int main() {
         G::Schedule nivelar = base; nivelar.nivelar = true;
         comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: nivelar sin destino NO vale");
-        comprobar(m.fallo == G::Fallo::NivelarSinDestino, "gsa: y lo dice");
+        comprobar(m.fallo == G::Failure::NivelarSinDestino, "gsa: y lo dice");
 
         nivelar.destino = "tank/copias";
         comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: un destino sin «::» NO vale");
-        comprobar(m.fallo == G::Fallo::DestinoMalFormado, "gsa: y lo dice");
+        comprobar(m.fallo == G::Failure::DestinoMalFormado, "gsa: y lo dice");
 
         nivelar.destino = "oldlau::tank/copias";
         comprobar(G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: con conexión que existe, vale");
         comprobar(!G::isValid("tank/datos", nivelar, nuncaExiste, m),
                   "gsa: si la conexión no existe, NO vale");
-        comprobar(m.fallo == G::Fallo::DestinoSinConexion && m.detalle == "oldlau",
+        comprobar(m.fallo == G::Failure::DestinoSinConexion && m.detalle == "oldlau",
                   "gsa: y se nombra la conexión que falta");
 
         // Y el conjunto.
         G::Schedule rec = base; rec.recursivo = true;
         std::vector<G::Entry> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
         comprobar(!G::isValidSet(juego, m), "gsa: un hijo bajo una recursiva choca");
-        comprobar(m.fallo == G::Fallo::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
+        comprobar(m.fallo == G::Failure::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
                       && m.detalle == "tank/datos",
                   "gsa: y se dice quién con quién");
         comprobar(G::isValidSet({{"tank/datos", base}, {"tank/datos/hijo", base}}, m),
@@ -3075,7 +3075,7 @@ int main() {
 
         // El listado. La línea SELF es la que faltaba, y su ausencia es un fallo mudo: sin
         // ella la nivelación GSA contra un dataset de la propia máquina no se ejecuta nunca.
-        const PE::Vista v = PE::parse("SELF\tlocal\n"
+        const PE::View v = PE::parse("SELF\tlocal\n"
                                         "unibody\tunib.local\t47653\n"
                                         "oldlau\toldlau.local\t47653\n");
         igual(v.self, "local", "peers: quién dice ser la máquina");
@@ -3085,7 +3085,7 @@ int main() {
 
         // Un daemon anterior a este cambio NO emite la línea SELF. Tiene que leerse igual, con
         // el self vacío, en vez de descuadrar la tabla.
-        const PE::Vista vieja = PE::parse("unibody\tunib.local\t47653\n");
+        const PE::View vieja = PE::parse("unibody\tunib.local\t47653\n");
         comprobar(vieja.self.empty(), "peers: sin SELF, vacío y no un par inventado");
         comprobar(vieja.pares.size() == 1, "peers: y el par se lee igual");
 
@@ -3109,14 +3109,14 @@ int main() {
             perfil("local", true), perfil("unibody", true), perfil("oldlau", true)};
 
         const PE::Handover e1 = PE::composeHandover(tres, "local");
-        comprobar(e1.sePuede(), "peers: se puede entregar");
-        comprobar(e1.nombres.size() == 2, "peers: van las OTRAS dos, no la de destino");
-        comprobar(!e1.cargaB64.empty(), "peers: hay carga");
+        comprobar(e1.ok(), "peers: se puede entregar");
+        comprobar(e1.names.size() == 2, "peers: van las OTRAS dos, no la de destino");
+        comprobar(!e1.payloadB64.empty(), "peers: hay carga");
         {
             // La carga tiene que llevar `self` con el nombre del DESTINO: es lo único que esa
             // máquina no puede averiguar por su cuenta.
             std::string json;
-            comprobar(zfsmgr::base::base64Decode(e1.cargaB64, json), "peers: la carga es base64");
+            comprobar(zfsmgr::base::base64Decode(e1.payloadB64, json), "peers: la carga es base64");
             comprobar(json.find("\"self\"") != std::string::npos, "peers: la carga trae self");
             comprobar(json.find("local") != std::string::npos, "peers: y es el destino");
             comprobar(json.find("\"local\",\"") == std::string::npos
@@ -3127,11 +3127,11 @@ int main() {
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».
         const std::vector<zfsmgr::base::ConnectionProfile> sinTls = {perfil("local", true),
                                                                     perfil("unibody", false)};
-        igual(PE::labelOf(PE::composeHandover(sinTls, "local").fallo),
-              PE::labelOf(PE::Fallo::SinMaterialTls),
+        igual(PE::labelOf(PE::composeHandover(sinTls, "local").failure),
+              PE::labelOf(PE::Failure::NoTlsMaterial),
               "peers: las hay pero sin certificados");
-        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local").fallo),
-              PE::labelOf(PE::Fallo::SinOtrasConexiones),
+        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local").failure),
+              PE::labelOf(PE::Failure::NoOtherConnections),
               "peers: no hay ninguna otra");
 
         // Las direcciones de escucha son tres y no más: el cliente llega por un túnel contra
@@ -3297,7 +3297,7 @@ int main() {
             comprobar(AV::contentPaths("{a,b}/{c,d}").empty(),
                       "contenido: dos grupos, nada");
 
-            // Y lo que no puede salir del árbol. Who lo ejecuta corre como root, y el
+            // Y lo que no puede salir del árbol. Quien lo ejecuta corre como root, y el
             // daemon NO lo comprueba para rsync: solo exige que la ruta sea absoluta.
             comprobar(AV::isValidContentPath(""), "contenido: la raíz vale");
             comprobar(AV::isValidContentPath("a/b"), "contenido: una relativa vale");

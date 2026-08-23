@@ -1296,7 +1296,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Borrar"),
             QStringLiteral("Delete"),
             QStringLiteral("删除")));
-    // Only para Local: es la única conexión que no se puede editar, así que sin esto
+    // Solo para Local: es la única conexión que no se puede editar, así que sin esto
     // una contraseña de sudo mal introducida se quedaba guardada para siempre —el
     // arranque solo la pide cuando el campo está vacío— y no había forma de corregirla.
     QAction* aLocalSudoCreds = menu.addAction(
@@ -4085,14 +4085,14 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     }
     const auto entrega =
         zfsmgr::base::peers::composeHandover(perfiles, nombreDestino.toStdString());
-    if (!entrega.sePuede()) {
+    if (!entrega.ok()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  QString::fromStdString(
-                                     zfsmgr::base::peers::labelOf(entrega.fallo)));
+                                     zfsmgr::base::peers::labelOf(entrega.failure)));
         return;
     }
     QStringList nombres;
-    for (const std::string& n : entrega.nombres) {
+    for (const std::string& n : entrega.names) {
         nombres << QString::fromStdString(n);
     }
     const auto choice = QMessageBox::question(
@@ -4117,7 +4117,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
         return;
     }
     const QStringList argv =
-        mwhelpers::argvQt(zfsmgr::commands::requests::setPeers(entrega.cargaB64));
+        mwhelpers::argvQt(zfsmgr::commands::requests::setPeers(entrega.payloadB64));
     QString out;
     QString err;
     int rc = -1;

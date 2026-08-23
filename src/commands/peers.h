@@ -5,75 +5,77 @@
 
 #include "connectionprofile.h"
 
-// Con qué OTRAS máquinas puede hablar el daemon de una máquina.
+// Which OTHER machines a machine's daemon can talk to.
 //
-// El daemon de un extremo necesita a veces llamar al de otro por su cuenta, sin cliente de
-// por medio: la nivelación GSA contra otra máquina es el caso. Para eso guarda en
-// `/etc/zfsmgr/peers.json` las credenciales mTLS de esos pares, y **quién es él mismo**.
+// A daemon on one end sometimes needs to call the one on another by itself, with no client
+// in between: GSA levelling against another machine is the case. For that it keeps the mTLS
+// credentials of those peers in `/etc/zfsmgr/peers.json`, and **who it is itself**.
 //
-// **La clave `self` es la que se olvida y la que más duele.** Sin ella, el daemon no
-// reconoce como propio un destino que apunta a su propia máquina: se va por el camino
-// remoto, no encuentra credenciales para sí mismo y registra «no hay credenciales del par»,
-// que es un mensaje desconcertante cuando el par es uno mismo. La rama de nivelación local
-// no llega a ejecutarse nunca. Visto en vivo el 2026-08-21 sobre un `peers.json` escrito por
-// una versión anterior del cliente, que no la ponía.
+// **The `self` key is the one that gets forgotten and the one that hurts most.** Without
+// it, the daemon does not recognise a target pointing at its own machine as its own: it
+// takes the remote path, finds no credentials for itself and logs «no credentials for the
+// peer», which is a baffling message when the peer is you. The local levelling branch never
+// runs at all. Seen live on 2026-08-21 against a `peers.json` written by an earlier version
+// of the client, which did not write it.
 //
-// Esto vivía dentro de `cli/shell.cpp` y por eso ni la interfaz de Qt ni el servidor web
-// podían entregar credenciales ni decir qué tenía puesto una máquina. Aquí está lo que se
-// puede hacer sin tocar la red: componer la carga y leer lo que el daemon responde.
+// This used to live inside `cli/shell.cpp`, and that is why no other client could hand over
+// credentials or say what a machine had configured. What is here is everything that can be
+// done without touching the network: composing the payload and reading what the daemon
+// answers.
 namespace zfsmgr::base::peers {
 
-// Una línea de `--dump-peers`.
-struct Par {
+// One line of `--dump-peers`.
+struct Peer {
     std::string id;
     std::string host;
     int puerto{0};
 };
 
-// Lo que el daemon sabe de sí mismo y de los demás.
-struct Vista {
-    std::string self;          // con quién se identifica; vacío es el fallo silencioso de arriba
-    std::vector<Par> pares;
+// What the daemon knows about itself and about the others.
+struct View {
+    std::string self;          // who it identifies as; empty is the silent failure above
+    std::vector<Peer> pares;
 };
 
-// Interpreta la salida de `--dump-peers`: una línea `SELF\t<id>` y luego
-// `<id>\t<host>\t<puerto>` por par. Tolera que no venga la de SELF, porque un daemon
-// anterior a este cambio no la emite.
-Vista parse(const std::string& salida);
+// Reads the output of `--dump-peers`: one `SELF\t<id>` line and then `<id>\t<host>\t<port>`
+// per peer. It tolerates the SELF line being absent, because a daemon older than this
+// change does not emit it.
+View parse(const std::string& output);
 
-enum class Fallo {
-    Ninguno,
-    SinOtrasConexiones,   // no hay ninguna otra que entregar
-    SinMaterialTls,       // las hay, pero ninguna tiene certificados
+enum class Failure {
+    None_,
+    NoOtherConnections,   // there is no other one to hand over
+    NoTlsMaterial,        // there are, but none of them has certificates
 };
 
 struct Handover {
-    std::string cargaB64;              // para `--mutate-set-peers`
-    std::vector<std::string> nombres;  // qué se entrega, para poder preguntarlo antes
-    Fallo fallo{Fallo::Ninguno};
-    bool sePuede() const { return fallo == Fallo::Ninguno; }
+    std::string payloadB64;          // for `--mutate-set-peers`
+    std::vector<std::string> names;  // what is handed over, so it can be asked about first
+    Failure failure{Failure::None_};
+    bool ok() const { return failure == Failure::None_; }
 };
 
-// Compone lo que hay que entregarle a `destino`: TODAS las demás conexiones con material
-// TLS, más `self` = el nombre con el que el cliente llama a esa máquina.
+// Composes what has to be handed to `target`: ALL the other connections that have TLS
+// material, plus `self` = the name by which the client calls that machine.
 //
-// La propia conexión de destino se excluye a propósito: sería decirle cómo hablar consigo
-// misma, y para eso está `self`.
+// The target's own connection is excluded on purpose: it would be telling it how to talk to
+// itself, and that is what `self` is for.
 //
-// **`self` lo sabe el cliente y solo el cliente.** La máquina de destino no puede
-// deducirlo: no hay forma de que sepa con qué nombre la tiene apuntada quien le habla, y ese
-// nombre es justo el que aparecerá en el destino de una nivelación.
-Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
-                       const std::string& destino);
+// **`self` is known by the client and only by the client.** The target machine cannot work
+// it out: there is no way for it to know under which name whoever is talking to it has it
+// written down, and that name is exactly the one that will appear as the target of a
+// levelling.
+Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
+                       const std::string& target);
 
-std::string labelOf(Fallo f);
+std::string labelOf(Failure f);
 
-// Las tres direcciones que el daemon admite para escuchar.
+// The three addresses the daemon accepts to listen on.
 //
-// No es una lista arbitraria: el cliente llega por un túnel contra 127.0.0.1, así que una
-// dirección suelta le cortaría el acceso. El daemon rechaza el resto, y tener aquí la misma
-// lista permite ofrecer solo lo válido en vez de dejar fallar la llamada.
-bool isValidBindAddress(const std::string& dir);
+// Not an arbitrary list: the client arrives through a tunnel against 127.0.0.1, so binding
+// to a single address would cut it off. The daemon rejects the rest, and having the same
+// list here means only the valid ones get offered, instead of letting the call fail.
+bool isValidBindAddress(const std::string& address);
 std::vector<std::string> bindAddresses();
 
 }  // namespace zfsmgr::base::peers

@@ -16,7 +16,7 @@
 namespace zfsmgr::base::store {
 
 enum class Reason {
-    Ninguno = 0,
+    None_ = 0,
 
     // --- Ficheros
     ConfigNoSeAbre,
@@ -53,12 +53,12 @@ enum class Reason {
 // El motivo con sus datos. Campos con nombre, no una lista de argumentos: así el sitio
 // que lo construye se lee solo y quien traduce no puede intercambiarlos de orden.
 struct Aviso {
-    Reason motivo{Reason::Ninguno};
+    Reason motivo{Reason::None_};
     std::string conexion;  // nombre de la conexión, o su id si no tiene nombre
     std::string campo;     // el campo afectado, cuando el motivo distingue uno
     std::string detalle;   // el error subyacente, cuando lo hay
 
-    bool vacio() const { return motivo == Reason::Ninguno; }
+    bool vacio() const { return motivo == Reason::None_; }
 };
 
 using Avisos = std::vector<Aviso>;

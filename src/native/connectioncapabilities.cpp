@@ -25,7 +25,7 @@ bool windowsAgentPending(Feature f) {
     // las rompía era otra cosa —la ruta se deducía de la propiedad `mountpoint`, que en
     // Windows vale «/pool/ds» y allí no existe— y encima fallaba en silencio, saltándose
     // todos los directorios y diciendo que había terminado bien.
-    // Only Sincronizar ENTRE MÁQUINAS, que es donde rsync manda por la red únicamente
+    // Solo Sincronizar ENTRE MÁQUINAS, que es donde rsync manda por la red únicamente
     // las diferencias. rsync no viaja con el agente y en Windows no existe.
     //
     // Sincronizar entre dos datasets de la MISMA máquina sí funciona allí: va por la
@@ -116,7 +116,7 @@ QString featureAgentVerb(Feature f) {
 
 QString featureRequiredTool(Feature f) {
     switch (f) {
-    // Only Sincronizar sigue necesitando rsync. Desglosar, Ensamblar y Hacia Dir ya no:
+    // Solo Sincronizar sigue necesitando rsync. Desglosar, Ensamblar y Hacia Dir ya no:
     // copian y verifican con la implementación propia del agente, que además es la que
     // permite hacerlo en Windows, donde rsync no existe. Ver
     // docs/diseno_tecnico_copia_nativa_sin_rsync.md.

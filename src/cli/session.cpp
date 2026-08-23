@@ -322,7 +322,7 @@ std::string clavePersistencia(const std::string& idONombre) {
 std::string textoDeAviso(const B::transport::NotaDeAviso& a) {
     using A = B::transport::Aviso;
     switch (a.aviso) {
-        case A::Ninguno:
+        case A::None_:
             return {};
         case A::TlsLocalNoLegible:
             return B::format(T("t_av_tls_no_legible",
@@ -364,7 +364,7 @@ std::string textoDeAviso(const B::transport::NotaDeAviso& a) {
 }
 
 std::string textoDeFallo(const B::transport::MotivoFallo& m) {
-    using F = B::transport::Fallo;
+    using F = B::transport::Failure;
     // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene
     // del sistema, ya en su idioma, y reescribirlo perdería justo lo que sirve para
     // diagnosticar. Se pega detrás del texto que sí es nuestro.
@@ -372,7 +372,7 @@ std::string textoDeFallo(const B::transport::MotivoFallo& m) {
         return m.detalle.empty() ? texto : texto + ": " + m.detalle;
     };
     switch (m.fallo) {
-        case F::Ninguno:
+        case F::None_:
             return {};
         case F::TunelOcupado:
             return T("t_f_tunel_ocupado", "el túnel se está montando para esta conexión");

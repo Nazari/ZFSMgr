@@ -353,7 +353,7 @@ QString gsaComparableValue(const QString& propName, const QString& rawValue) {
 // reglas, no los mensajes, y cambiarlos de paso habría mezclado dos cosas en un cambio.
 QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
                                        const QString& dataset) const {
-    using F = zfsmgr::base::gsa::Fallo;
+    using F = zfsmgr::base::gsa::Failure;
     switch (m.fallo) {
         case F::RetencionNoEntera: {
             struct { const char* prop; const char* clave; const char* es; const char* en; const char* zh; } kCuales[] = {
@@ -413,7 +413,7 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
                        QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."),
                        QStringLiteral("无法为 %1 设置计划，因为 %2 已经有递归 GSA 计划。"))
                 .arg(dataset, QString::fromStdString(m.detalle));
-        case F::Ninguno:
+        case F::None_:
             break;
     }
     return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.fallo));
@@ -969,7 +969,7 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
     // para completar con el tabulador. Tenerla aquí dentro impedía que el CLI la ofreciera,
     // y copiarla habría sido garantizar que las dos se separen.
     QMap<QString, QStringList> enumValues;
-    for (const auto& kv : zfsmgr::base::zfsprops::propiedadesConValores()) {
+    for (const auto& kv : zfsmgr::base::zfsprops::propertiesWithValues()) {
         QStringList vals;
         for (const std::string& v : kv.second) {
             vals << QString::fromStdString(v);

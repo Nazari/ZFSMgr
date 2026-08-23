@@ -11,7 +11,7 @@ std::string con(const std::string& base, const std::string& detalle) {
 
 std::string labelOf(const Aviso& a) {
     switch (a.motivo) {
-        case Reason::Ninguno:
+        case Reason::None_:
             return {};
         case Reason::ConfigNoSeAbre:
             return "no se pudo abrir config.json";

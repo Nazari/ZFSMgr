@@ -223,7 +223,7 @@ QString ConnectionStore::traduce(const BS::Aviso& a) const {
     const QString campo = QString::fromStdString(a.campo);
     const QString detalle = QString::fromStdString(a.detalle);
     switch (a.motivo) {
-        case M::Ninguno:
+        case M::None_:
             return QString();
         case M::ConfigNoSeAbre:
             return trk(QStringLiteral("t_cfg_json_read_open_err"),

@@ -11,20 +11,20 @@ const char* keyOf(Route c) {
         case Route::TrabajoAsincrono: return "trabajo";
         case Route::DaemonADaemon:    return "daemon-a-daemon";
         case Route::TuberiaSsh:       return "tuberia-ssh";
-        case Route::Ninguno:          return "ninguno";
+        case Route::None_:          return "ninguno";
     }
     return "ninguno";
 }
 
-const char* keyOf(Fallo f) {
+const char* keyOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:               return "";
-        case Fallo::ElMismoObjeto:         return "mismo-objeto";
-        case Fallo::OrigenNoEsInstantanea: return "origen-no-instantanea";
-        case Fallo::DestinoNoEsDataset:    return "destino-no-dataset";
-        case Fallo::ExtremoWindows:        return "extremo-windows";
-        case Fallo::SinTrabajos:           return "sin-trabajos";
-        case Fallo::ZfsDemasiadoViejo:     return "zfs-viejo";
+        case Failure::None_:               return "";
+        case Failure::SameObject:         return "mismo-objeto";
+        case Failure::SourceIsNotSnapshot: return "origen-no-instantanea";
+        case Failure::TargetIsNotDataset:    return "destino-no-dataset";
+        case Failure::WindowsEndpoint:        return "extremo-windows";
+        case Failure::SinTrabajos:           return "sin-trabajos";
+        case Failure::ZfsDemasiadoViejo:     return "zfs-viejo";
     }
     return "";
 }
@@ -34,28 +34,28 @@ std::string labelOf(Route c) {
         case Route::TrabajoAsincrono: return "como trabajo en el daemon";
         case Route::DaemonADaemon:    return "de daemon a daemon";
         case Route::TuberiaSsh:       return "por una tubería SSH";
-        case Route::Ninguno:          return "ninguno";
+        case Route::None_:          return "ninguno";
     }
     return {};
 }
 
-std::string labelOf(Fallo f) {
+std::string labelOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:
+        case Failure::None_:
             return {};
-        case Fallo::ElMismoObjeto:
+        case Failure::SameObject:
             return "el origen y el destino son el mismo";
-        case Fallo::OrigenNoEsInstantanea:
+        case Failure::SourceIsNotSnapshot:
             return "el origen tiene que ser una instantánea";
-        case Fallo::DestinoNoEsDataset:
+        case Failure::TargetIsNotDataset:
             return "el destino tiene que ser un dataset, no una instantánea";
-        case Fallo::ExtremoWindows:
+        case Failure::WindowsEndpoint:
             return "no está disponible cuando algún extremo es Windows: hace falta "
                    "transmitir por una tubería, y el agente de Windows todavía no lo hace";
-        case Fallo::SinTrabajos:
+        case Failure::SinTrabajos:
             return "hace falta que los dos daemons admitan trabajos en segundo plano, "
                    "porque quien lo pide no puede esperar a que termine";
-        case Fallo::ZfsDemasiadoViejo:
+        case Failure::ZfsDemasiadoViejo:
             return "alguno de los extremos usa un OpenZFS anterior al 2.3.3";
     }
     return {};
@@ -117,15 +117,15 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
     // Lo que no depende del camino va primero: no tiene sentido hablar de daemons cuando el
     // problema es que se está copiando algo sobre sí mismo.
     if (origen.conexion == destino.conexion && origen.objeto == destino.objeto) {
-        p.fallo = Fallo::ElMismoObjeto;
+        p.fallo = Failure::SameObject;
         return p;
     }
     if (!origen.isSnapshot()) {
-        p.fallo = Fallo::OrigenNoEsInstantanea;
+        p.fallo = Failure::SourceIsNotSnapshot;
         return p;
     }
     if (destino.isSnapshot()) {
-        p.fallo = Fallo::DestinoNoEsDataset;
+        p.fallo = Failure::TargetIsNotDataset;
         return p;
     }
 
@@ -133,7 +133,7 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
     // formato del flujo no se entiende en el otro lado.
     if (!versionSupportsTransfer(origen.versionZfs)
         || !versionSupportsTransfer(destino.versionZfs)) {
-        p.fallo = Fallo::ZfsDemasiadoViejo;
+        p.fallo = Failure::ZfsDemasiadoViejo;
         return p;
     }
 
@@ -145,7 +145,7 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
     // en XML y el usuario viera un «<Objs Version="1.1.0.1">…» que no guarda ninguna
     // relación aparente con la copia que había pedido.
     if (origen.esWindows || destino.esWindows) {
-        p.fallo = Fallo::ExtremoWindows;
+        p.fallo = Failure::WindowsEndpoint;
         return p;
     }
 
@@ -159,7 +159,7 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
         // Para quien no puede esperar, los otros dos no son un respaldo: son otra cosa que
         // no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
         if (p.caminos.empty()) {
-            p.fallo = Fallo::SinTrabajos;
+            p.fallo = Failure::SinTrabajos;
         }
         return p;
     }
@@ -363,7 +363,7 @@ std::string readJobId(const std::string& salida) {
 
 std::string labelOf(JobFailure f) {
     switch (f) {
-        case JobFailure::Ninguno:
+        case JobFailure::None_:
             return {};
         case JobFailure::ReceptorNoEscucha:
             return "el daemon del destino no pudo ponerse a escuchar";
@@ -554,7 +554,7 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
 
 std::string labelOf(LevelFailure f) {
     switch (f) {
-        case LevelFailure::Ninguno:
+        case LevelFailure::None_:
             return {};
         case LevelFailure::ObjetivoNoEstaEnOrigen:
             return "la instantánea de origen ya no está en su dataset";

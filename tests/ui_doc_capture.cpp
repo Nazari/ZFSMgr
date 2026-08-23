@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
     // y en la ayuda se quedaban las de la vez anterior — que es como acabaron siendo de hace
     // meses sin que nadie se enterara.
     //
-    // Only se pone esta: `setShowPoolInfoNodeForTest` y `setShowInlineGsaNodeForTest` están
+    // Solo se pone esta: `setShowPoolInfoNodeForTest` y `setShowInlineGsaNodeForTest` están
     // DECLARADAS en mainwindow.h y no implementadas en ninguna parte, así que usarlas no
     // falla al compilar sino al enlazar. Se deja dicho aquí para que quien las busque no
     // pierda el rato.

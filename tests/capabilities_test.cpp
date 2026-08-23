@@ -52,7 +52,7 @@ private Q_SLOTS:
         QVERIFY(a.available);
     }
 
-    // Copiar y Nivelar snapshot SÍ están en Windows desde que el agente sabe recibir y
+    // Send y Nivelar snapshot SÍ están en Windows desde que el agente sabe recibir y
     // emitir por su cuenta. Se comprueba aparte, y no solo quitándolo de la lista de
     // arriba, porque es la única función que ha pasado de pendiente a disponible: si
     // alguien la devolviera a la lista por descuido, esto lo caza.
@@ -119,7 +119,7 @@ private Q_SLOTS:
     void missingToolDisablesTheFeaturesThatNeedIt() {
         Platform p = unixReady();
         p.missingTools.insert(QStringLiteral("rsync"));
-        // Only Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
+        // Solo Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
         // el agente, y su caso lo cubre dirOperationsNoLongerNeedRsync.
         const Availability a = featureAvailability(Feature::RsyncSync, p);
         QVERIFY2(!a.available, "sin rsync no hay con qué sincronizar");

@@ -591,7 +591,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             // nada. Y ItemIsAutoTristate, encima, recalcula el estado del padre a partir
             // de sus hijos: un directorio con contenido volvía solo a Unchecked.
             //
-            // Ninguna de las dos hace falta aquí: la recogida ya se queda con el marcado
+            // None_ de las dos hace falta aquí: la recogida ya se queda con el marcado
             // más alto de cada rama (chooseThis = checked && !parentChecked), porque tar
             // copia el directorio entero.
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
@@ -967,7 +967,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     const bool deleteSourceDir = deleteSourceDirChk->isChecked();
-    // Only Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
+    // Solo Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
     // La variante de shell para Unix —`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create`—
     // se ha borrado, no desactivado: dejarla ahí era invitar a volver a usarla.
     const QString createCmd = buildZfsCreateCmd(opt);

@@ -23,8 +23,8 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::transport {
 
-enum class Fallo {
-    Ninguno = 0,
+enum class Failure {
+    None_ = 0,
 
     // --- Antes de llegar a intentarlo
     // Ocupado NO es roto: el túnel se está montando en un marco anterior de la pila. Esta
@@ -71,7 +71,7 @@ enum class Fallo {
 // `[daemon-rpc:fallback]`, las direcciones resueltas—. Eso no es prosa, es el rastro
 // técnico que se lee con grep, y traducirlo estorbaría en vez de ayudar.
 enum class Aviso {
-    Ninguno = 0,
+    None_ = 0,
 
     // --- Material TLS del daemon de ESTA máquina
     TlsLocalNoLegible,  // ruta: dónde se esperaba encontrarlo
@@ -94,11 +94,11 @@ enum class Aviso {
 
 // Un aviso con lo que lo acompaña. Campos con nombre, como en `store::Aviso`.
 struct NotaDeAviso {
-    Aviso aviso{Aviso::Ninguno};
+    Aviso aviso{Aviso::None_};
     std::string ruta;
     std::string detalle;
 
-    bool vacio() const { return aviso == Aviso::Ninguno; }
+    bool vacio() const { return aviso == Aviso::None_; }
 };
 
 // La etiqueta ASCII estable de un aviso. Se usa como RESPALDO cuando nadie ha puesto
@@ -108,10 +108,10 @@ const char* labelOf(Aviso a);
 // El motivo con lo que lo acompaña. Ver `store::Aviso`: campo con nombre y no una lista de
 // argumentos, para que el sitio que lo construye se lea solo.
 struct MotivoFallo {
-    Fallo fallo{Fallo::Ninguno};
+    Failure fallo{Failure::None_};
     std::string detalle;
 
-    bool vacio() const { return fallo == Fallo::Ninguno; }
+    bool vacio() const { return fallo == Failure::None_; }
 };
 
 // --- Las decisiones que antes se tomaban leyendo la frase.
@@ -123,19 +123,19 @@ struct MotivoFallo {
 // ¿Este fallo pinta a daemon caído, y por tanto merece intentar levantarlo antes de
 // reintentar? Los de certificado NO: si el material está mal, revivir el servicio no
 // arregla nada y encima gasta una conexión SSH.
-bool sugiereRevivirDaemon(Fallo f);
+bool sugiereRevivirDaemon(Failure f);
 
 // ¿Es cosa del material TLS o del saludo? Lo usa la interfaz para decidir si enseña el
 // castigo como «TLS en espera» o se lo calla.
-bool esDeTls(Fallo f);
+bool esDeTls(Failure f);
 
 // ¿Merece castigar a la conexión 30 s? Ocupado y «fuera del hilo» no: no dicen nada sobre
 // si el daemon está vivo.
-bool mereceCastigo(Fallo f);
+bool mereceCastigo(Failure f);
 
 // Una etiqueta ASCII estable para el REGISTRO. No es texto para leer: es lo que se busca
 // con grep en un log que puede venir de una máquina en otro idioma. El texto para personas
 // lo pone quien tiene interfaz.
-const char* labelOf(Fallo f);
+const char* labelOf(Failure f);
 
 }  // namespace zfsmgr::base::transport

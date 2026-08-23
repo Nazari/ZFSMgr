@@ -9,7 +9,7 @@
 // Las instantáneas PROGRAMADAS (GSA): qué son y qué es válido.
 //
 // La programación de un dataset no vive en un fichero del programa: son PROPIEDADES DE
-// USUARIO del propio dataset, con prefijo `org.fc16.gsa:`. Who las ejecuta es otro
+// USUARIO del propio dataset, con prefijo `org.fc16.gsa:`. Quien las ejecuta es otro
 // agente —`/usr/local/libexec/zfsmgr-gsa.sh`, con su temporizador— y ni la interfaz ni el
 // intérprete intervienen en eso: los dos se limitan a leer y escribir propiedades.
 //
@@ -47,8 +47,8 @@ struct Schedule {
     }
 };
 
-enum class Fallo {
-    Ninguno,
+enum class Failure {
+    None_,
     RetencionNoEntera,      // detalle: la propiedad culpable
     ActivadaSinRetencion,
     NivelarSinDestino,
@@ -58,7 +58,7 @@ enum class Fallo {
 };
 
 struct Reason {
-    Fallo fallo{Fallo::Ninguno};
+    Failure fallo{Failure::None_};
     std::string dataset;   // a quién le pasa
     std::string detalle;   // la propiedad, la conexión ausente o el otro dataset
 };
@@ -91,7 +91,7 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue);
 bool isSameOrDescendant(const std::string& dataset, const std::string& ancestro);
 
 // El castellano de reserva del motivo, para quien no tenga catálogo propio.
-std::string labelOf(Fallo f);
+std::string labelOf(Failure f);
 
 // A qué CLASE pertenece una instantánea por su nombre: «hourly», «daily», «weekly»,
 // «monthly», «yearly» —o lo que ponga, que las clases no son un conjunto cerrado—. Vacío

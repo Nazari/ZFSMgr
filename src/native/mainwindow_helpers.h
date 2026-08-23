@@ -189,7 +189,7 @@ QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringLi
 // Verbos que solo existen en la línea de comandos del agente, nunca por RPC. La lista
 // la fija el marcador de esquema de resources/CMakeLists.txt con el prefijo "cli-only:".
 bool isCliOnlyAgentCommand(const QString& verb);
-// Only sobrevive como oráculo de los tests del renderizado a cadena.
+// Solo sobrevive como oráculo de los tests del renderizado a cadena.
 QStringList posixShellSplitArgs(const QString& s);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 // Codifica un texto como escapes octales para `printf '%b'`: cada byte UTF-8 pasa a
@@ -207,7 +207,7 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 // POSIX, así que vale igual en macOS, Linux y FreeBSD.
 QString shPrintfOctalEscaped(const QString& s);
 
-// Reason reservado: el túnel RPC de esa conexión se está montando en un marco anterior
+// Motivo reservado: el túnel RPC de esa conexión se está montando en un marco anterior
 // de la pila. NO es un fallo, y quien lo reciba no debe penalizar la conexión.
 
 // Una contraseña de perfil y la clave con la que se la vuelve a encontrar al restaurar.
@@ -221,7 +221,7 @@ struct StorableSecret {
 // octal que produce shPrintfOctalEscaped —la de withSudoCommand— y la literal.
 //
 // Si al terminar alguna contraseña sigue presente, devuelve cadena vacía y pone *okOut a
-// false. Who llama DEBE respetarlo y no guardar nada: es la última comprobación antes
+// false. Quien llama DEBE respetarlo y no guardar nada: es la última comprobación antes
 // de que un secreto acabe en un fichero de texto.
 QString redactSecretsForStorage(const QString& command,
                                 const QVector<StorableSecret>& secrets,

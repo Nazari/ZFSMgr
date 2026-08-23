@@ -2,83 +2,84 @@
 
 #include <string>
 
-// Las acciones que necesitan DOS extremos: un origen y un destino.
+// The actions that need TWO endpoints: a source and a target.
 //
-// En la interfaz de Qt se piden marcando un origen y pulsando después sobre otro nodo, como
-// copiar y pegar; el submenú «Con el origen …» ofrece las seis y **deja en gris las que no
-// aplican, con el motivo**. Ese «qué aplica y por qué no» es una REGLA —qué deja hacer ZFS
-// entre dos objetos— y no una decisión de interfaz, así que vive aquí: la interfaz la tenía
-// dentro del menú contextual y el servidor web habría acabado con una segunda copia que se
-// desincroniza.
+// In the Qt interface they are asked for by marking a source and then clicking on another
+// node, like copy and paste; the «With the source …» submenu offers all six and **greys out
+// the ones that do not apply, with the reason**. That «what applies and why not» is a RULE
+// —what ZFS lets you do between two objects— and not an interface decision, so it lives
+// here: the interface used to keep it inside the context menu, and any second client would
+// have ended up with a second copy that drifts out of step.
 //
-// Ver help/es/menus_contextuales.md, «Las seis acciones de origen y destino».
+// See help/en/menus_contextuales.md, «The six source-and-target actions».
 namespace zfsmgr::base::endpoints {
 
 enum class Action {
     Diff,
-    Clonar,
-    Copiar,
-    Mover,
-    Sincronizar,
-    Nivelar,
+    Clone,
+    Send,
+    Move,
+    Sync,
+    Level,
 };
 
-// Por qué NO se puede, tipificado. Un booleano obligaba a que quien pinta el menú
-// adivinara el motivo, y el motivo es justo lo que hay que enseñar: «no aplica» sin decir
-// por qué deja al usuario probando combinaciones.
+// Why it can NOT be done, typed. A boolean forced whoever paints the menu to guess the
+// reason, and the reason is exactly what has to be shown: «does not apply» without saying
+// why leaves the user trying combinations.
 enum class NotApplicable {
-    Ninguna,                 // sí aplica
-    SinOrigen,
-    ElMismoObjeto,
-    OrigenNoEsInstantanea,
-    DestinoNoEsDataset,
-    DistintoDataset,         // `zfs diff` compara dos puntos del MISMO dataset
-    DistintaMaquina,
-    DistintoPool,            // `zfs rename` no cruza pools
-    OrigenNoEsDataset,
-    DestinoDentroDelOrigen,  // meter un dataset dentro de sí mismo
-    TodaviaNoEstaEnLaWeb,
+    None_,                  // it does apply
+    NoSource,
+    SameObject,
+    SourceIsNotSnapshot,
+    TargetIsNotDataset,
+    DifferentDataset,       // `zfs diff` compares two points of the SAME dataset
+    DifferentMachine,
+    DifferentPool,          // `zfs rename` does not cross pools
+    SourceIsNotDataset,
+    TargetInsideSource,     // putting a dataset inside itself
+    NotInTheWebYet,
 };
 
 const char* keyOf(Action a);
 std::string labelOf(Action a);
 std::string labelOf(NotApplicable n);
 
-// Un extremo: en qué máquina y qué objeto.
+// One endpoint: on which machine, and which object.
 struct Endpoint {
-    std::string conexion;
-    std::string objeto;
+    std::string connection;
+    std::string object;
 
-    bool vacio() const { return conexion.empty() || objeto.empty(); }
-    bool isSnapshot() const { return objeto.find('@') != std::string::npos; }
-    // El dataset al que pertenece: lo mismo si no es instantánea, y lo de delante de la
-    // «@» si lo es.
+    bool empty() const { return connection.empty() || object.empty(); }
+    bool isSnapshot() const { return object.find('@') != std::string::npos; }
+    // The dataset it belongs to: itself when it is not a snapshot, and whatever comes
+    // before the «@» when it is.
     std::string dataset() const {
-        const std::size_t i = objeto.find('@');
-        return i == std::string::npos ? objeto : objeto.substr(0, i);
+        const std::size_t i = object.find('@');
+        return i == std::string::npos ? object : object.substr(0, i);
     }
-    // El pool: lo de delante de la primera barra. Hace falta porque `zfs rename` NO cruza
-    // pools —para eso está copiar— y el motivo hay que poder decirlo.
+    // The pool: whatever comes before the first slash. Needed because `zfs rename` does NOT
+    // cross pools —that is what send is for— and the reason has to be sayable.
     std::string pool() const {
         const std::string d = dataset();
         const std::size_t i = d.find('/');
         return i == std::string::npos ? d : d.substr(0, i);
     }
-    // El último componente del nombre, que es el que conserva al moverlo.
-    std::string hoja() const {
+    // The last component of the name, which is the one it keeps when moved.
+    std::string leaf() const {
         const std::string d = dataset();
         const std::size_t i = d.rfind('/');
         return i == std::string::npos ? d : d.substr(i + 1);
     }
 };
 
-// A dónde queda un dataset movido bajo otro: «destino/hoja del origen».
+// Where a dataset moved under another one ends up: «target/leaf of the source».
 //
-// Vive aquí y no en quien pinta el menú porque es la MISMA cuenta que hace la interfaz de
-// Qt al encolar el renombrado, y tenerla dos veces es tenerla mal una de las dos.
-std::string moveDestination(const Endpoint& origen, const Endpoint& destino);
+// It lives here and not in whoever paints the menu because it is the SAME arithmetic the Qt
+// interface does when it queues the rename, and having it twice means having it wrong in
+// one of the two places.
+std::string moveDestination(const Endpoint& source, const Endpoint& target);
 
-// ¿Se puede hacer `a` desde `origen` hasta `destino`? `NotApplicable::Ninguna` es que sí.
-NotApplicable check(Action a, const Endpoint& origen, const Endpoint& destino);
+// Can `a` be done from `source` to `target`? `NotApplicable::None_` means yes.
+NotApplicable check(Action a, const Endpoint& source, const Endpoint& target);
 
 }  // namespace zfsmgr::base::endpoints

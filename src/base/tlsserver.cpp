@@ -29,7 +29,7 @@ using SocketT = int;
 namespace zfsmgr::base::tlsserver {
 namespace {
 
-// Los sockets NO se heredan. Who pide algo por aquí acaba provocando que se lance un
+// Los sockets NO se heredan. Quien pide algo por aquí acaba provocando que se lance un
 // proceso —`zfs`, casi siempre—, y todo descriptor abierto en ese momento se lo lleva el
 // hijo. Un hijo que se quede con la conexión del cliente la mantiene viva aunque el
 // servidor la cierre, así que el otro extremo no ve nunca el final.

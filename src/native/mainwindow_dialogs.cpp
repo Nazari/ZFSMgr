@@ -813,7 +813,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                nameColumn->header});
         tree->setHeaderHidden(false);
         if (nameColumn->editable) {
-            // Only la columna del nombre es editable. Las banderas de QTreeWidgetItem
+            // Solo la columna del nombre es editable. Las banderas de QTreeWidgetItem
             // valen para toda la fila, así que el filtro tiene que ir en el delegado.
             tree->setItemDelegate(new SingleColumnEditableDelegate(nameCol, tree));
             tree->setEditTriggers(QAbstractItemView::DoubleClicked
@@ -1072,7 +1072,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     };
     // Doble clic en un directorio: arrastra a TODOS sus descendientes. Marcar rama a
     // rama un árbol de miles de nodos no es viable, y "Seleccionar todo" es demasiado
-    // grueso. Only en la columna del nombre del directorio: en la del dataset el doble
+    // grueso. Solo en la columna del nombre del directorio: en la del dataset el doble
     // clic abre el editor, y hacer las dos cosas a la vez sería una trampa.
     QObject::connect(tree, &QTreeWidget::itemDoubleClicked, tree,
                      [&](QTreeWidgetItem* item, int column) {

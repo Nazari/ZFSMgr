@@ -370,7 +370,7 @@ struct Walker {
     Options opt;
     Result res;
     std::uint64_t rootVolume = 0;
-    // Identidad → primera ruta ya copiada en el destino. Only entran los ficheros con
+    // Identidad → primera ruta ya copiada en el destino. Solo entran los ficheros con
     // más de un enlace, así que la memoria es proporcional a esos y no al total.
     std::map<std::pair<std::uint64_t, std::uint64_t>, fs::path> hardLinks;
 

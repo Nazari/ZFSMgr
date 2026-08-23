@@ -43,7 +43,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
 // Vacía la caché en memoria del material TLS remoto. Hace falta cuando se reaprovisiona
 // una conexión: si no, se seguiría hablando con el certificado viejo hasta cinco minutos.
 void clearRemoteDaemonTlsCache();
-// Only la de una conexión, que es lo que hace falta al reaprovisionarla: vaciar la de
+// Solo la de una conexión, que es lo que hace falta al reaprovisionarla: vaciar la de
 // todas obligaría a las demás máquinas a una ida y vuelta por SSH sin motivo.
 void clearRemoteDaemonTlsCacheForConnection(const ConnectionProfile& p);
 

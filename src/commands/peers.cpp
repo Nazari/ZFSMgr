@@ -6,8 +6,8 @@
 
 namespace zfsmgr::base::peers {
 
-Vista parse(const std::string& salida) {
-    Vista v;
+View parse(const std::string& salida) {
+    View v;
     for (const std::string& linea : split(salida, "\n", true)) {
         const std::vector<std::string> c = split(linea, "\t", false);
         if (c.empty()) {
@@ -20,7 +20,7 @@ Vista parse(const std::string& salida) {
             continue;
         }
         if (c.size() >= 3) {
-            Par p;
+            Peer p;
             p.id = trim(c[0]);
             p.host = trim(c[1]);
             try {
@@ -34,13 +34,13 @@ Vista parse(const std::string& salida) {
     return v;
 }
 
-std::string labelOf(Fallo f) {
+std::string labelOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:
+        case Failure::None_:
             return {};
-        case Fallo::SinOtrasConexiones:
+        case Failure::NoOtherConnections:
             return "no hay ninguna otra conexión que entregar";
-        case Fallo::SinMaterialTls:
+        case Failure::NoTlsMaterial:
             return "ninguna de las otras conexiones tiene material TLS: instale su daemon "
                    "primero, que es quien lo genera";
     }
@@ -73,14 +73,14 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
         uno.set("client_cert_pem", json::Value(p.daemonTlsClientCertPem));
         uno.set("client_key_pem", json::Value(p.daemonTlsClientKeyPem));
         pares.push_back(uno);
-        e.nombres.push_back(id);
+        e.names.push_back(id);
     }
     if (!habiaOtras) {
-        e.fallo = Fallo::SinOtrasConexiones;
+        e.failure = Failure::NoOtherConnections;
         return e;
     }
     if (pares.empty()) {
-        e.fallo = Fallo::SinMaterialTls;
+        e.failure = Failure::NoTlsMaterial;
         return e;
     }
     json::Value raiz;
@@ -89,7 +89,7 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
     // «nivela contra otra» de «nivela contra un dataset mío».
     raiz.set("self", json::Value(destino));
     raiz.set("peers", json::Value(std::move(pares)));
-    e.cargaB64 = base64Encode(json::toCompact(raiz));
+    e.payloadB64 = base64Encode(json::toCompact(raiz));
     return e;
 }
 

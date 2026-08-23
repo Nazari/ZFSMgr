@@ -207,7 +207,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     }
     if (!ok) {
         if (failureReason) {
-            *failureReason = {Fallo::MaterialNoSeLee, trim(H::oneLine(errTexto))};
+            *failureReason = {Failure::MaterialNoSeLee, trim(H::oneLine(errTexto))};
         }
         return false;
     }
@@ -215,7 +215,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     RemoteTlsBundle paquete;
     if (!parseRemoteDaemonTlsBundle(texto, paquete)) {
         if (failureReason) {
-            *failureReason = {Fallo::MaterialIncompleto, {}};
+            *failureReason = {Failure::MaterialIncompleto, {}};
         }
         return false;
     }
@@ -229,7 +229,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     }
     if (out.clientKeyPem.empty()) {
         if (failureReason) {
-            *failureReason = {Fallo::ClaveClienteNoDisponible, {}};
+            *failureReason = {Failure::ClaveClienteNoDisponible, {}};
         }
         return false;
     }
@@ -293,7 +293,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     }
     if (!ses.puedeMontarTuneles()) {
         if (failureReason) {
-            *failureReason = {Fallo::FueraDelHiloDeTuneles, {}};
+            *failureReason = {Failure::FueraDelHiloDeTuneles, {}};
         }
         return false;
     }
@@ -303,13 +303,13 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     rc = -1;
     if (agentArgs.empty()) {
         if (failureReason) {
-            *failureReason = {Fallo::ArgumentosVacios, {}};
+            *failureReason = {Failure::ArgumentosVacios, {}};
         }
         return false;
     }
     if (toLowerAscii(p.connType) != "ssh") {
         if (failureReason) {
-            *failureReason = {Fallo::ConexionNoSsh, {}};
+            *failureReason = {Failure::ConexionNoSsh, {}};
         }
         return false;
     }
@@ -326,7 +326,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         std::lock_guard<std::mutex> lock(ses.mutex);
         if (ses.tunnelsBeingCreated.count(rpcConnKey) > 0) {
             if (failureReason) {
-                *failureReason = {Fallo::TunelOcupado, {}};
+                *failureReason = {Failure::TunelOcupado, {}};
             }
             return false;
         }
@@ -424,7 +424,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
         // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
         // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-        // autenticación por contraseña. Result: cualquier conexión que dependiera de
+        // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
         // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
         // a la vista en ninguna parte.
         //
@@ -526,17 +526,17 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // Se valida ANTES de montar el túnel: descubrirlo dentro del saludo costaría casi
         // un segundo y el fallo se leería como problema de red.
         if (!pemCertificateIsValid(mat.serverCertPem) || !pemCertificateIsValid(mat.clientCertPem)) {
-            motivo = {Fallo::CertificadosInvalidos, {}};
+            motivo = {Failure::CertificadosInvalidos, {}};
             return false;
         }
         if (!pemPrivateKeyIsValid(mat.clientKeyPem)) {
-            motivo = {Fallo::ClaveClienteInvalida, {}};
+            motivo = {Failure::ClaveClienteInvalida, {}};
             return false;
         }
 
         std::uint16_t localPort = 0;
         if (!aseguraTunel(mat.daemonPort, localPort) || localPort == 0) {
-            motivo = {Fallo::TunelNoSeMonta, {}};
+            motivo = {Failure::TunelNoSeMonta, {}};
             return false;
         }
 
@@ -601,24 +601,24 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                     // certificados y marca la conexión como «TLS desincronizado», que
                     // dispara un reaprovisionamiento incapaz de arreglar un problema de
                     // transporte.
-                    motivo = {Fallo::ConexionRechazada, errTls};
+                    motivo = {Failure::ConexionRechazada, errTls};
                     break;
                 case TlsFailure::Pinning:
-                    motivo = {Fallo::CertificadoNoCoincide, {}};
+                    motivo = {Failure::CertificadoNoCoincide, {}};
                     break;
                 case TlsFailure::Write:
-                    motivo = {Fallo::EnvioFallido, {}};
+                    motivo = {Failure::EnvioFallido, {}};
                     break;
                 case TlsFailure::Read:
-                    motivo = {Fallo::TunelCortadoEnEspera, {}};
+                    motivo = {Failure::TunelCortadoEnEspera, {}};
                     break;
                 default:
-                    motivo = {Fallo::HandshakeFallido, errTls};
+                    motivo = {Failure::HandshakeFallido, errTls};
                     break;
             }
             cierraTunel(ses, rpcConnKey);
             if (motivo.vacio()) {
-                motivo = {Fallo::RespuestaNoValida, {}};
+                motivo = {Failure::RespuestaNoValida, {}};
             }
             return false;
         }
@@ -626,7 +626,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         json::Value resp;
         std::string errJson;
         if (!json::parse(respuesta, resp, &errJson)) {
-            motivo = {Fallo::RespuestaNoValida, errJson};
+            motivo = {Failure::RespuestaNoValida, errJson};
             cierraTunel(ses, rpcConnKey);
             return false;
         }

@@ -344,7 +344,7 @@ private Q_SLOTS:
         // Los dos menús son EXCLUYENTES, y antes este test afirmaba lo contrario.
         //
         // Pedía que el pool ya importado ofreciera «Importar renombrando» y que el
-        // importable ofreciera «Reguid». Ninguna de las dos cosas ocurre en la aplicación:
+        // importable ofreciera «Reguid». None_ de las dos cosas ocurre en la aplicación:
         // en `buildPoolRootMenuState`, `canImport` exige acción «Importar», y Reguid
         // —como Scrub, Destroy y el resto— cuelga de `canExport`, que exige la contraria.
         // Un menú con Importar, Exportar y Reguid a la vez no existe.

@@ -22,7 +22,7 @@ namespace zfsmgr::base::transfer {
 //
 // **Esta lista salió de LEER el código, y corrigió el diseño**: allí se habían apuntado tres
 // caminos con el respaldo por tar dentro. No es así. El tar es cosa de Sincronizar —que
-// mueve FICHEROS con rsync y tar, no `zfs send`— y Copiar no lo tiene: cuando no hay
+// mueve FICHEROS con rsync y tar, no `zfs send`— y Send no lo tiene: cuando no hay
 // tubería que montar, se para y lo dice.
 enum class Route {
     // Lo lanza `--job-submit` y lo sostiene el daemon. Sobrevive a que se cierre el
@@ -34,25 +34,25 @@ enum class Route {
     // `ssh origen 'zfs send' | ssh destino 'zfs recv'`, en sus variantes. No necesita
     // daemon en ningún extremo: es lo que queda cuando no hay.
     TuberiaSsh,
-    Ninguno,
+    None_,
 };
 
 // Por qué no se puede. TIPIFICADO porque es lo que hay que enseñar: «no disponible» sin
 // decir cuál de los seis motivos es deja al usuario probando combinaciones.
-enum class Fallo {
-    Ninguno,
-    ElMismoObjeto,
-    OrigenNoEsInstantanea,
-    DestinoNoEsDataset,
-    ExtremoWindows,          // el agente de Windows no transmite por tubería todavía
+enum class Failure {
+    None_,
+    SameObject,
+    SourceIsNotSnapshot,
+    TargetIsNotDataset,
+    WindowsEndpoint,          // el agente de Windows no transmite por tubería todavía
     SinTrabajos,             // hace falta el camino asíncrono y algún extremo no lo admite
     ZfsDemasiadoViejo,       // por debajo de 2.3.3 no se transfiere
 };
 
 const char* keyOf(Route c);
-const char* keyOf(Fallo f);
+const char* keyOf(Failure f);
 std::string labelOf(Route c);
-std::string labelOf(Fallo f);
+std::string labelOf(Failure f);
 
 // Lo que hay que saber de un extremo para decidir. No se consulta nada desde aquí: lo trae
 // quien llama, que es el que tiene la sesión de transporte.
@@ -99,7 +99,7 @@ std::string sendFlags(const SendOptions& o);
 // aquí. Lo que se decide aquí es cuáles tiene sentido intentar.
 struct Plan {
     std::vector<Route> caminos;
-    Fallo fallo{Fallo::Ninguno};
+    Failure fallo{Failure::None_};
 
     bool sePuede() const { return !caminos.empty(); }
 };
@@ -127,7 +127,7 @@ struct Resume {
 
 // La REGLA de cuál gana, separada de ir a buscarlos.
 //
-// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Who las junta es
+// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Quien las junta es
 // `findResumeToken`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
 Resume resumeToken(const std::string& objetivo, const std::string& salidaTsv);
 
@@ -163,7 +163,7 @@ std::string receiveCommand(const std::string& destino);
 // Aquí vivían `Montaje` y `montajeDe`: cuál de las tres formas de juntar los dos lados
 // tocaba —tubería local, remoto a remoto directo, o pasando los bytes por este equipo—.
 //
-// Se retiraron cuando Copiar y Nivelar dejaron de tener respaldos por shell. Las tres
+// Se retiraron cuando Send y Nivelar dejaron de tener respaldos por shell. Las tres
 // formas eran formas de encadenar `ssh` y tuberías; con la transfer hecha por un
 // trabajo del daemon no hay nada que montar: el receptor abre un puerto y el emisor se
 // conecta. La regla no se ha perdido, ha dejado de existir.
@@ -191,7 +191,7 @@ std::string readJobId(const std::string& salida);
 // Por qué no arrancó el trabajo. Los cinco puntos donde puede romperse, separados, porque
 // cada uno lleva a un sitio distinto: uno es del receptor, otro de la red, otro del emisor.
 enum class JobFailure {
-    Ninguno,
+    None_,
     ReceptorNoEscucha,
     RespuestaDeEscuchaNoVale,
     SinDireccionDeVuelta,
@@ -203,10 +203,10 @@ std::string labelOf(JobFailure f);
 
 struct Job {
     std::string id;
-    JobFailure fallo{JobFailure::Ninguno};
+    JobFailure fallo{JobFailure::None_};
     std::string detalle;
 
-    bool ok() const { return fallo == JobFailure::Ninguno && !id.empty(); }
+    bool ok() const { return fallo == JobFailure::None_ && !id.empty(); }
 };
 
 // Cómo se le habla al agente de una máquina. **Lo pone quien llama, y no es un capricho.**
@@ -300,7 +300,7 @@ Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
 // ---------------------------------------------------------------------------
 // Nivelar: poner el destino al día del origen SIN volver a mandarlo todo.
 //
-// **No es copiar.** Copiar manda un flujo completo y recibe en «<destino>/<hoja>»; nivelar
+// **No es copiar.** Send manda un flujo completo y recibe en «<destino>/<hoja>»; nivelar
 // manda un INCREMENTAL —`zfs send -I <base> <objetivo>`— y recibe en el dataset destino
 // tal cual. Confundirlos no es un matiz: con el destino ya poblado, el flujo completo llega
 // con `zfs recv -Fus` y arrastra lo que el origen no tenga.
@@ -318,7 +318,7 @@ struct Snapshot {
 };
 
 enum class LevelFailure {
-    Ninguno,
+    None_,
     ObjetivoNoEstaEnOrigen,
     DestinoSinInstantaneas,
     BaseNoEstaEnOrigen,
@@ -329,8 +329,8 @@ enum class LevelFailure {
 struct LevelPlan {
     std::string base;       // desde dónde: el «-I» del envío
     std::string objetivo;   // hasta dónde
-    LevelFailure fallo{LevelFailure::Ninguno};
-    bool sePuede() const { return fallo == LevelFailure::Ninguno; }
+    LevelFailure fallo{LevelFailure::None_};
+    bool sePuede() const { return fallo == LevelFailure::None_; }
 };
 
 // Las dos listas van EN ORDEN DE CREACIÓN, que es como las da `zfs list -t snapshot`. El

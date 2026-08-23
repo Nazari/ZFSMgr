@@ -64,14 +64,14 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
 
 enum class Action {
     CrearDirectorio,
-    Copiar,
+    Send,
     Enlazar,
     EnlazarDuro,
     Borrar,
 };
 
 struct Operation {
-    Action accion{Action::Copiar};
+    Action accion{Action::Send};
     Entry entrada;
 };
 
@@ -151,12 +151,12 @@ bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Si
 std::string serializeSignatures(const std::vector<Signature>& f);
 bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, std::string& error);
 
-enum class InstructionKind { Copiar, Literal };
+enum class InstructionKind { Send, Literal };
 
 struct Instruction {
     InstructionKind tipo{InstructionKind::Literal};
-    std::uint64_t bloque{0};   // Copiar: primer bloque del destino
-    std::uint64_t cuantos{0};  // Copiar: cuántos bloques seguidos
+    std::uint64_t bloque{0};   // Send: primer bloque del destino
+    std::uint64_t cuantos{0};  // Send: cuántos bloques seguidos
     std::string datos;         // Literal: los bytes
 };
 

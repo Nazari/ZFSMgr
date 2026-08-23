@@ -1620,7 +1620,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
         //
         // La orden compuesta no llegaba entera: el planificador que la convierte en RPC
         // tipado parse UNA operación, veía `load-key`, emitía --mutate-zfs-load-key y
-        // se comía el `&& zfs mount` sin decir nada. Result medido: la clave quedaba
+        // se comía el `&& zfs mount` sin decir nada. Resultado medido: la clave quedaba
         // cargada y el dataset SIN montar, y la acción se daba por terminada con éxito.
         //
         // Peor todavía, tomaba como objetivo el ÚLTIMO token de la línea —que venía del

@@ -30,15 +30,15 @@ std::string leeFicheroEntero(const std::string& ruta) {
 
 }  // namespace
 
-std::string labelOf(Fallo f) {
+std::string labelOf(Failure f) {
     switch (f) {
-        case Fallo::Ninguno:
+        case Failure::None_:
             return "sin fallo";
-        case Fallo::BinarioIlegible:
+        case Failure::UnreadableBinary:
             return "el binario del daemon no se puede leer o está vacío";
-        case Fallo::NoSePudoSubir:
+        case Failure::UploadFailed:
             return "no se pudo copiar el binario a la máquina";
-        case Fallo::LaInstalacionFallo:
+        case Failure::InstallFailed:
             return "la instalación falló en la máquina";
     }
     return "sin fallo";
@@ -168,12 +168,12 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
                   const std::function<void(const std::string&)>& traza, bool verboso) {
     Result r;
     const std::string plataforma = platformOf(perfil);
-    r.esMac = (plataforma == "macos");
+    r.isMac = (plataforma == "macos");
 
     const std::string contenido = leeFicheroEntero(rutaBinario);
     if (contenido.empty()) {
-        r.fallo = Fallo::BinarioIlegible;
-        r.detalle = rutaBinario;
+        r.fallo = Failure::UnreadableBinary;
+        r.detail = rutaBinario;
         return r;
     }
 
@@ -188,7 +188,7 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     if (r.version.empty()) {
         r.version = agentversion::laEsperada();
     } else {
-        r.versionAtrasada = (r.version != agentversion::laEsperada());
+        r.versionBehind = (r.version != agentversion::laEsperada());
     }
     const std::string api = agentversion::apiEsperada();
 
@@ -205,8 +205,8 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
             std::filesystem::remove(subida, ec);
             std::filesystem::copy_file(rutaBinario, subida, ec);
             if (ec) {
-                r.fallo = Fallo::NoSePudoSubir;
-                r.detalle = subida + ": " + ec.message();
+                r.fallo = Failure::UploadFailed;
+                r.detail = subida + ": " + ec.message();
                 return r;
             }
         } else {
@@ -214,18 +214,18 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
             const ExecResult sr =
                 runExecStream(inv.program, inv.args, std::string(), 300000, StreamCallbacks{});
             if (sr.rc != 0) {
-                r.fallo = Fallo::NoSePudoSubir;
+                r.fallo = Failure::UploadFailed;
                 r.rc = sr.rc;
-                r.detalle = trim(sr.err);
+                r.detail = trim(sr.err);
                 return r;
             }
         }
         if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, DP::windowsNativeInstallCommand()),
                        300000, out, err, rc, traza, traza, {}, {}, false, verboso)
             || rc != 0) {
-            r.fallo = Fallo::LaInstalacionFallo;
+            r.fallo = Failure::InstallFailed;
             r.rc = rc;
-            r.detalle = trim(err.empty() ? out : err);
+            r.detail = trim(err.empty() ? out : err);
             return r;
         }
         return r;
@@ -237,9 +237,9 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     if (!T::runSsh(ses, perfil, H::withSudoStreamInputCommand(perfil, guion), 300000, out, err, rc,
                    traza, traza, {}, contenido, false, verboso)
         || rc != 0) {
-        r.fallo = Fallo::LaInstalacionFallo;
+        r.fallo = Failure::InstallFailed;
         r.rc = rc;
-        r.detalle = trim(err.empty() ? out : err);
+        r.detail = trim(err.empty() ? out : err);
         return r;
     }
 

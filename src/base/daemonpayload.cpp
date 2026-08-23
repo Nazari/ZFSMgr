@@ -55,7 +55,7 @@ std::string windowsNativeInstallCommand() {
     // el propio agente enlaza: en Windows no hay openssl en el PATH (solo aparece si
     // está Git instalado, que no es garantía).
     return format(std::string(
-        // SIN $ErrorActionPreference='Stop': con él, cualquier salida por stderr de un
+        // SIN $ErrorActionPreference='Parar': con él, cualquier salida por stderr de un
         // comando nativo se convierte en excepción, y schtasks /End y /Delete escriben
         // ahí cuando la tarea todavía no existe —que es el caso normal en la primera
         // instalación—. Se comprueban explícitamente los pasos que sí importan.
