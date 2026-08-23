@@ -416,7 +416,7 @@ private Q_SLOTS:
             QStringLiteral("--zfs-send-to-peer"),
             QStringLiteral("--zfs-recv-listen"),
             QStringLiteral("--repair-alt-mountpoints"),
-            // Reenviar este lanza la MISMA transferencia por segunda vez.
+            // Reenviar este lanza la MISMA transfer por segunda vez.
             QStringLiteral("--job-submit"),
             QStringLiteral("--job-cancel"),
         };

@@ -34,7 +34,7 @@ namespace {
 // hijo. Un hijo que se quede con la conexión del cliente la mantiene viva aunque el
 // servidor la cierre, así que el otro extremo no ve nunca el final.
 //
-// No es hipotético: el mismo descuido en los sockets de transferencia dejaba un
+// No es hipotético: el mismo descuido en los sockets de transfer dejaba un
 // `zfs send` sujetando el extremo del receptor y colgaba la copia para siempre.
 // Se marca AL CREAR y AL ACEPTAR, que es cuando puede hacerse de forma atómica: entre un
 // socket() y un fcntl() posterior cabe justo el fork de otro hilo, que es la carrera que

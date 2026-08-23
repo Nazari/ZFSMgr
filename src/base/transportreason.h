@@ -18,7 +18,7 @@
 // 30 s incluido.
 //
 // Ahora la capa base devuelve QUÉ pasó y quien tiene interfaz decide cómo se dice. Es el
-// mismo reparto que ya hacía `store::Motivo` con los avisos del almacén.
+// mismo reparto que ya hacía `store::Reason` con los avisos del almacén.
 //
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::transport {

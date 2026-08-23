@@ -2,7 +2,7 @@
 #include "commands/peers.h"
 #include "connectionstore.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
 #include "daemonpayload.h"
@@ -1160,7 +1160,7 @@ void MainWindow::openConnectivityMatrixDialog() {
     // Qué mide esta tabla, dicho arriba y no en la documentación.
     //
     // Las sondas se ejecutan como el usuario de SU sesión SSH, pero quien abre la
-    // conexión en una transferencia entre máquinas es el AGENTE, que corre como root o
+    // conexión en una transfer entre máquinas es el AGENTE, que corre como root o
     // como SYSTEM y con otras credenciales. Un verde aquí no garantiza que el agente
     // pueda salir, ni un rojo que no pueda. Sin decirlo, la tabla invita a confiar en
     // algo que no ha comprobado.
@@ -1803,7 +1803,7 @@ void MainWindow::pollDaemonZedAllConnections() {
 
     for (int idx : std::as_const(toCheck)) {
         const ConnectionProfile profile = m_conns.profiles[idx];
-        const QString healthCmd = mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::peticiones::salud()));
+        const QString healthCmd = mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::health()));
         const QString connId = profile.id;
 
         (void)QtConcurrent::run([this, idx, connId, profile, healthCmd]() {
@@ -4063,7 +4063,7 @@ void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
 // Entregarle a una máquina las credenciales de las demás, para que su daemon pueda
 // llamarlas por su cuenta.
 //
-// La carga la compone `base::peers::componeEntrega`, la MISMA que usa el intérprete: aquí
+// La carga la compone `base::peers::composeHandover`, la MISMA que usa el intérprete: aquí
 // no se arma ningún JSON. Eso importa porque lo que viaja incluye la clave `self`, y
 // componerla en dos sitios distintos era exactamente lo que dejó esta instalación sin
 // nivelación GSA local sin que nada lo dijera.
@@ -4084,7 +4084,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
         perfiles.push_back(toBaseProfile(p));
     }
     const auto entrega =
-        zfsmgr::base::peers::componeEntrega(perfiles, nombreDestino.toStdString());
+        zfsmgr::base::peers::composeHandover(perfiles, nombreDestino.toStdString());
     if (!entrega.sePuede()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  QString::fromStdString(
@@ -4117,7 +4117,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
         return;
     }
     const QStringList argv =
-        mwhelpers::argvQt(zfsmgr::commands::peticiones::fijaPares(entrega.cargaB64));
+        mwhelpers::argvQt(zfsmgr::commands::requests::setPeers(entrega.cargaB64));
     QString out;
     QString err;
     int rc = -1;

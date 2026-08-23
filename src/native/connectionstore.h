@@ -119,7 +119,7 @@ public:
     static bool migratePsrpProfileToSshForTest(ConnectionProfile& p);
 
 private:
-    QString aviso(zfsmgr::base::store::Motivo m,
+    QString aviso(zfsmgr::base::store::Reason m,
                   const QString& conexion = QString(),
                   const QString& campo = QString(),
                   const QString& detalle = QString()) const;

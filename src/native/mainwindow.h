@@ -494,7 +494,7 @@ private:
     void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
     // Redacta el motivo tipado que devuelve `zfsmgr::base::gsa`, en el idioma en curso.
-    QString gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m, const QString& dataset) const;
+    QString gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m, const QString& dataset) const;
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -619,7 +619,7 @@ private:
     QString sshExecFromLocal(const ConnectionProfile& p,
                              const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
-    // Testigo de reanudación del destino, o cadena vacía si no hay transferencia a
+    // Testigo de reanudación del destino, o cadena vacía si no hay transfer a
     // medias. Se lee con --dump-zfs-get-prop, que ya existía: no hace falta un verbo
     // nuevo, y por tanto tampoco cambiar la versión del esquema del agente.
     // Devuelve el testigo de reanudación del destino, o vacío. holderOut recibe el
@@ -1013,7 +1013,7 @@ private:
     bool requireFeature(int connIdx, zfsmgr::caps::Feature f);
     QString capabilityReasonText(zfsmgr::caps::Reason r) const;
 
-    // Motivo único de que Copiar/Nivelar no estén disponibles con un extremo Windows: lo
+    // Reason único de que Copiar/Nivelar no estén disponibles con un extremo Windows: lo
     // usan el menú (para deshabilitar con explicación) y la comprobación de ejecución.
     QString streamingUnavailableReason(const QString& actionLabel) const;
     bool requireNonWindowsStreamingEndpoints(int srcConnIdx,

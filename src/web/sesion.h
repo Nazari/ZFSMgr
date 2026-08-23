@@ -5,7 +5,7 @@
 // La sesión del navegador y el testigo anti-CSRF.
 //
 // **Por qué hace falta y en el intérprete no.** Un terminal solo hace lo que uno teclea; un
-// navegador manda peticiones que uno no ha pedido. Cualquier página abierta en otra pestaña
+// navegador manda requests que uno no ha pedido. Cualquier página abierta en otra pestaña
 // puede enviar un formulario a `https://127.0.0.1:…/destruir` y el navegador adjuntaría la
 // cookie de sesión por su cuenta. El testigo lo impide: va en el formulario, y una página
 // ajena no puede leerlo —para eso está la política del mismo origen—.
@@ -31,7 +31,7 @@ public:
     // La cabecera `Set-Cookie` de esta sesión.
     //
     // `HttpOnly` para que ningún script pueda leerla, `Secure` porque solo viaja por TLS,
-    // y `SameSite=Strict` para que el navegador no la adjunte a peticiones que vengan de
+    // y `SameSite=Strict` para que el navegador no la adjunte a requests que vengan de
     // otro sitio — que es la segunda mitad de la defensa contra CSRF.
     std::string cabeceraCookie() const;
 

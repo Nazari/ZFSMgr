@@ -1,6 +1,6 @@
 #include "mainwindow.h"
 
-#include "transferencia.h"
+#include "transfer.h"
 
 #include <QFontMetrics>
 #include "mainwindow_helpers.h"
@@ -410,8 +410,8 @@ void MainWindow::updateConnectionActionsState() {
 bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
                                           const DatasetSelectionContext& dst,
                                           QString* reasonOut) const {
-    // La REGLA —por debajo de 2.3.3 no se transfiere— vive en `base/transferencia`, junto
-    // al resto de las decisiones de una transferencia. Aquí queda mirar la versión de cada
+    // La REGLA —por debajo de 2.3.3 no se transfiere— vive en `base/transfer`, junto
+    // al resto de las decisiones de una transfer. Aquí queda mirar la versión de cada
     // extremo y componer el aviso, que es lo que sí es de la ventana.
     const auto demasiadoViejo = [this](const DatasetSelectionContext& ctx, QString* connOut,
                                        QString* verOut) {
@@ -420,7 +420,7 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
             return false;
         }
         const QString ver = m_conns.states[ctx.connIdx].zfsVersion.trimmed();
-        if (zfsmgr::base::transferencia::versionAdmiteTransferencia(ver.toStdString())) {
+        if (zfsmgr::base::transfer::versionSupportsTransfer(ver.toStdString())) {
             return false;
         }
         if (connOut) { *connOut = m_conns.profiles[ctx.connIdx].name; }

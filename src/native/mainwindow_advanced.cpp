@@ -1,7 +1,7 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "daemonpayload.h"
 
 #include <QtWidgets>
@@ -117,7 +117,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             return;
         }
         if (!runAgentCommand(p,
-                             mwhelpers::argvQt(zfsmgr::commands::peticiones::listaDeDesglose(
+                             mwhelpers::argvQt(zfsmgr::commands::requests::breakdownList(
                                  ds.toStdString())),
                              180000, listOut, listErr, listRc)
             || listRc != 0) {
@@ -259,7 +259,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         return;
     }
     const QString dsListCmd =
-        mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::nombresDeDescendientes(ds.toStdString())));
+        mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::descendantNames(ds.toStdString())));
     if (runSsh(p, dsListCmd, 180000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
         datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
         for (QString& n : datasetsDetected) {
@@ -489,7 +489,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         return;
     }
     {
-        // Los pares (subdirectorio, dataset nuevo) los empareja `commands::avanzadas`,
+        // Los pares (subdirectorio, dataset nuevo) los empareja `commands::advanced`,
         // que además descarta ENTERO el que venga a medias: el verbo los lee de dos en
         // dos, y uno incompleto desplazaría todos los siguientes.
         QStringList subdirs;
@@ -498,7 +498,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             subdirs << d;
             nombres << nameColumn.chosen.value(d, d);
         }
-        const QStringList argv = mwhelpers::argvDesglosar(ds, subdirs, nombres);
+        const QStringList argv = mwhelpers::argvBreakdown(ds, subdirs, nombres);
         if (argv.isEmpty()) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Desglosar: ningún par utilizable para %1").arg(ds));
@@ -656,7 +656,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         stopBusy();
         return;
     }
-    listCmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::nombresDeDescendientes(ds.toStdString())));
+    listCmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::descendantNames(ds.toStdString())));
     if (!runSsh(p, listCmd, 180000, listOut, listErr, listRc) || listRc != 0) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -753,12 +753,12 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     // la letra de unidad y movían los directorios a mano. `--mutate-advanced-assemble`
     // funciona en Windows —comprobado contra OldLau: los datasets vuelven a ser directorios
     // en su sitio, «Z:\\des\\fotos\\a.txt» donde tenía que estar— y el agente lo anuncia allí.
-    // El argv y la regla de los nombres completos salen de `commands::avanzadas`,
+    // El argv y la regla de los nombres completos salen de `commands::advanced`,
     // que es lo que usan también el intérprete y el servidor web. Aquí llegaban ya
     // completos por otro camino —un mapa del árbol—, así que la regla no se aplicaba
     // sino que se cumplía por casualidad: si ese mapa devolviera alguna vez un
     // relativo, la operación diría que sí y no haría nada.
-    const QStringList argv = mwhelpers::argvEnsamblar(ds, selectedChildren);
+    const QStringList argv = mwhelpers::argvAssemble(ds, selectedChildren);
     if (argv.isEmpty()) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Ensamblar: ningún hijo utilizable para %1").arg(ds));

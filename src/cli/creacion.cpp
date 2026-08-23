@@ -14,7 +14,7 @@ Decision queSeCrea(Nivel donde, const std::string& texto) {
     // El marcador `@` gana en cualquier nivel: es lo que distingue una instantánea en la
     // URL, así que no hay una regla nueva que recordar.
     if (!t.empty() && t.front() == '@') {
-        d.que = Objeto::Instantanea;
+        d.que = Objeto::Snapshot;
         return d;
     }
 

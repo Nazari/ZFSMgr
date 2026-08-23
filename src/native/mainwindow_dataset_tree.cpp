@@ -3,7 +3,7 @@
 #include "zfsprops.h"
 #include "commands/gsa.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "i18nmanager.h"
 #include "agentversion.h"
 
@@ -117,14 +117,14 @@ QString selectionSideString(DatasetTreeContext side) {
 // `base/zfsprops`, sin Qt. Estaban DUPLICADAS letra por letra en este fichero y en el
 // otro, y el servidor web necesita la misma regla para saber qué celda pinta con una caja
 // de edición. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
-using DatasetPlatformFamily = zfsmgr::base::zfsprops::Plataforma;
+using DatasetPlatformFamily = zfsmgr::base::zfsprops::Platform;
 
 DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
-    return zfsmgr::base::zfsprops::plataformaDe(osType.toStdString(), osLine.toStdString());
+    return zfsmgr::base::zfsprops::platformOf(osType.toStdString(), osLine.toStdString());
 }
 
 bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::soportadaEn(propName.toStdString(), platform);
+    return zfsmgr::base::zfsprops::isSupportedOn(propName.toStdString(), platform);
 }
 
 QStringList gsaUserProps() {
@@ -896,7 +896,7 @@ void restoreExpandedConnContentChildPaths(QTreeWidgetItem* datasetNode, const QS
 }
 
 bool isUserProperty(const QString& prop) {
-    return zfsmgr::base::zfsprops::esPropiedadDeUsuario(prop.toStdString());
+    return zfsmgr::base::zfsprops::isUserProperty(prop.toStdString());
 }
 
 bool isDatasetPropertyEditableInline(const QString& propName,
@@ -904,7 +904,7 @@ bool isDatasetPropertyEditableInline(const QString& propName,
                                      const QString& source,
                                      const QString& readonly,
                                      DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::editableEnLinea(propName.toStdString(),
+    return zfsmgr::base::zfsprops::isInlineEditable(propName.toStdString(),
                                                    datasetType.toStdString(),
                                                    source.toStdString(),
                                                    readonly.toStdString(), platform);
@@ -5407,7 +5407,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             QString err;
             int rc = -1;
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::guidDePool(trimmedPool.toStdString()));
+            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolGuid(trimmedPool.toStdString()));
             if (daemonReadApiOk) {
                 (void)runAgentCommand(p, cmdDaemonArgv, 12000, out, err, rc);
             }
@@ -5447,7 +5447,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             QString err;
             int rc = -1;
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::mapaDeGuids(trimmedPool.toStdString()));
+            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::guidMap(trimmedPool.toStdString()));
             if (daemonReadApiOk) {
                 (void)runAgentCommand(p, cmdDaemonArgv, 25000, out, err, rc);
             }
@@ -5807,7 +5807,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 }
                 return klass;   // una clase que no conocemos se enseña tal cual
             };
-            for (const auto& grupo : zfsmgr::base::gsa::agrupaInstantaneas(nombres)) {
+            for (const auto& grupo : zfsmgr::base::gsa::groupSnapshots(nombres)) {
                 const QString klass = QString::fromStdString(grupo.first);
                 if (klass.isEmpty()) {
                     for (const std::string& snapName : grupo.second) {

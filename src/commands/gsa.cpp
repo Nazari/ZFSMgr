@@ -65,10 +65,10 @@ const char* const kAnual = "org.fc16.gsa:anual";
 
 const char* const kPrefijo = "org.fc16.gsa:";
 
-bool desdePropiedades(const std::map<std::string, std::string>& props, Programacion& out,
-                      Motivo& porQue) {
-    porQue = Motivo{};
-    Programacion p;
+bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
+                      Reason& porQue) {
+    porQue = Reason{};
+    Schedule p;
     p.activado = esOn(valorDe(props, kActivado));
     p.recursivo = esOn(valorDe(props, kRecursivo));
     p.nivelar = esOn(valorDe(props, kNivelar));
@@ -91,7 +91,7 @@ bool desdePropiedades(const std::map<std::string, std::string>& props, Programac
     return true;
 }
 
-std::map<std::string, std::string> aPropiedades(const Programacion& p) {
+std::map<std::string, std::string> toProperties(const Schedule& p) {
     return {
         {kActivado, p.activado ? "on" : "off"},
         {kRecursivo, p.recursivo ? "on" : "off"},
@@ -105,9 +105,9 @@ std::map<std::string, std::string> aPropiedades(const Programacion& p) {
     };
 }
 
-bool valida(const std::string& dataset, const Programacion& p,
-            const std::function<bool(const std::string&)>& conexionExiste, Motivo& porQue) {
-    porQue = Motivo{};
+bool isValid(const std::string& dataset, const Schedule& p,
+            const std::function<bool(const std::string&)>& conexionExiste, Reason& porQue) {
+    porQue = Reason{};
     porQue.dataset = dataset;
 
     // El destino se comprueba si NIVELAR está puesto —que lo exige— o si hay destino
@@ -143,14 +143,14 @@ bool valida(const std::string& dataset, const Programacion& p,
     return true;
 }
 
-bool esMismoODescendiente(const std::string& dataset, const std::string& ancestro) {
+bool isSameOrDescendant(const std::string& dataset, const std::string& ancestro) {
     const std::string d = trim(dataset);
     const std::string a = trim(ancestro);
     return d == a || startsWith(d, a + "/");
 }
 
-bool validaConjunto(const std::vector<Entry>& delMismoPool, Motivo& porQue) {
-    porQue = Motivo{};
+bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
+    porQue = Reason{};
     // Only las ACTIVADAS chocan: una programación apagada no hace instantáneas, así que
     // solaparse con ella no significa nada.
     std::vector<const Entry*> vivas;
@@ -166,13 +166,13 @@ bool validaConjunto(const std::vector<Entry>& delMismoPool, Motivo& porQue) {
             if (trim(a.dataset) == trim(b.dataset)) {
                 continue;
             }
-            if (a.prog.recursivo && esMismoODescendiente(b.dataset, a.dataset)) {
+            if (a.prog.recursivo && isSameOrDescendant(b.dataset, a.dataset)) {
                 porQue.fallo = Fallo::ChocaConRecursiva;
                 porQue.dataset = b.dataset;
                 porQue.detalle = a.dataset;
                 return false;
             }
-            if (b.prog.recursivo && esMismoODescendiente(a.dataset, b.dataset)) {
+            if (b.prog.recursivo && isSameOrDescendant(a.dataset, b.dataset)) {
                 porQue.fallo = Fallo::ChocaConRecursiva;
                 porQue.dataset = a.dataset;
                 porQue.detalle = b.dataset;
@@ -203,7 +203,7 @@ std::string labelOf(Fallo f) {
     return "sin fallo";
 }
 
-std::string claseDeInstantanea(const std::string& nombre) {
+std::string snapshotClass(const std::string& nombre) {
     const std::string s = trim(nombre);
     if (s.size() < 4 || bajo(s.substr(0, 4)) != "gsa-") {
         return {};
@@ -216,7 +216,7 @@ std::string claseDeInstantanea(const std::string& nombre) {
     return bajo(s.substr(primero + 1, segundo - primero - 1));
 }
 
-std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas(
+std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
     const std::vector<std::string>& nombres) {
     std::vector<std::string> manuales;
     // Un vector de pares y no un mapa: el orden de las clases DESCONOCIDAS tiene que ser
@@ -227,7 +227,7 @@ std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas
         if (n.empty()) {
             continue;
         }
-        const std::string klass = claseDeInstantanea(n);
+        const std::string klass = snapshotClass(n);
         if (klass.empty()) {
             manuales.push_back(n);
             continue;
@@ -267,7 +267,7 @@ std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas
 
 namespace zfsmgr::base::gsa {
 
-std::string destinoComoUrl(const std::string& destino) {
+std::string destinationAsUrl(const std::string& destino) {
     const std::string t = trim(destino);
     const std::size_t sep = t.find("::");
     if (sep == std::string::npos || sep == 0 || sep + 2 >= t.size()) {
@@ -276,7 +276,7 @@ std::string destinoComoUrl(const std::string& destino) {
     return "zfsm://" + t.substr(0, sep) + "/" + t.substr(sep + 2);
 }
 
-std::string destinoDesdeUrl(const std::string& texto) {
+std::string destinationFromUrl(const std::string& texto) {
     std::string t = trim(texto);
     if (!startsWith(toLowerAscii(t), "zfsm://")) {
         return t;   // ya viene en el formato que se guarda, o es basura que validará otro

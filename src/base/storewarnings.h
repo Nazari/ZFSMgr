@@ -15,7 +15,7 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::store {
 
-enum class Motivo {
+enum class Reason {
     Ninguno = 0,
 
     // --- Ficheros
@@ -53,12 +53,12 @@ enum class Motivo {
 // El motivo con sus datos. Campos con nombre, no una lista de argumentos: así el sitio
 // que lo construye se lee solo y quien traduce no puede intercambiarlos de orden.
 struct Aviso {
-    Motivo motivo{Motivo::Ninguno};
+    Reason motivo{Reason::Ninguno};
     std::string conexion;  // nombre de la conexión, o su id si no tiene nombre
     std::string campo;     // el campo afectado, cuando el motivo distingue uno
     std::string detalle;   // el error subyacente, cuando lo hay
 
-    bool vacio() const { return motivo == Motivo::Ninguno; }
+    bool vacio() const { return motivo == Reason::Ninguno; }
 };
 
 using Avisos = std::vector<Aviso>;

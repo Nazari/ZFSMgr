@@ -54,8 +54,8 @@ typedef int pid_t;
 #include <openssl/pem.h>
 #include <openssl/rand.h>
 
-#include "peticiones.h"
-#include "arbolremoto.h"
+#include "requests.h"
+#include "remotetree.h"
 #include "copytree.h"
 #include "json.h"
 #include "base/procesos.h"
@@ -237,7 +237,7 @@ struct DaemonJob {
     std::string token;
     std::string baseSnap;
     std::string sendFlags;
-    // Testigo de reanudación. Cuando viene, `zfs send -t` continúa la transferencia
+    // Testigo de reanudación. Cuando viene, `zfs send -t` continúa la transfer
     // cortada en vez de mandarlo todo otra vez, y snap/baseSnap/sendFlags se ignoran.
     std::string resumeToken;
     std::string pipeCmd;       // base64-encoded shell command (pipe-local only)
@@ -1468,7 +1468,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         //
         // El directorio con el que acaba esta operación es la escala temporal renombrada, y
         // `makeTempDirIn` la crea con `mkdtemp`, que pone 0700 y el usuario del daemon —o
-        // sea root—. Resultado: un dataset que cualquiera podía leer se convertía en un
+        // sea root—. Result: un dataset que cualquiera podía leer se convertía en un
         // directorio `drwx------ root root`, y quien lo usaba se quedaba fuera de sus
         // propios datos sin que nada lo dijera. Comprobado en vivo: tras ensamblar,
         // `ls` sobre el directorio daba «Permiso denegado».
@@ -4462,7 +4462,7 @@ ExecResult listaDirectorio(const std::string& ruta) {
 //
 // En base64 porque la respuesta del RPC viaja como LÍNEAS recortadas: unos bytes crudos
 // llegarían mutilados. Y con tope porque esto se lee entero en memoria: lo que no quepa
-// tiene el camino de transferencia, que para eso existe.
+// tiene el camino de transfer, que para eso existe.
 // Un TROZO del fichero, o el fichero entero si no se pide trozo.
 //
 // El tope de 8 MiB seguía en pie y era el motivo de que WebDAV no sirviera para nada: una
@@ -4944,7 +4944,7 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
 
     // Y a otra máquina: se le pide al par que ESCUCHE, y se le manda el flujo al socket que
     // abre. Es el mismo camino que usa «copy» desde la aplicación, con su testigo de un
-    // solo uso, así que la transferencia se puede reanudar y no pasa por ningún intérprete.
+    // solo uso, así que la transfer se puede reanudar y no pasa por ningún intérprete.
     if (!peerListo) {
         log("GSA level skip for " + ds + ": el par no está resuelto");
         return;
@@ -5171,7 +5171,7 @@ static std::string generateTransferToken() {
 // Identificador de trabajo: 8 bytes en hexadecimal.
 //
 // Estaba escrito dos veces leyendo /dev/urandom, que en Windows no existe. Se unifica
-// aprovechando el generador de OpenSSL que ya usa el testigo de transferencia.
+// aprovechando el generador de OpenSSL que ya usa el testigo de transfer.
 static std::string generateJobId() {
     unsigned char buf[8] = {};
     if (RAND_bytes(buf, static_cast<int>(sizeof(buf))) != 1) {
@@ -5222,7 +5222,7 @@ static void closeTransferSocket(TransferSocket s) {
 }
 
 // ---------------------------------------------------------------------------
-// Descriptores de transferencia que NO se heredan.
+// Descriptores de transfer que NO se heredan.
 //
 // Esto arregla un cuelgue medido, y la causa no está donde parece. El daemon es
 // multihilo: mientras un hilo atiende una recepción, otro puede estar lanzando un
@@ -5280,9 +5280,9 @@ static TransferSocket aceptaTransferSocket(TransferSocket listenFd) {
 // Cuánto se espera a que el receptor lea antes de recuperar el control. No es un abandono:
 // al vencer se comprueba la cancelación y se reintenta el mismo envío.
 static const int kEsperaEnvioMs = 5000;
-// Cuánto se tolera SIN colocar un solo byte antes de dar la transferencia por muerta.
+// Cuánto se tolera SIN colocar un solo byte antes de dar la transfer por muerta.
 // Generoso a propósito: un receptor lento volcando a disco puede tardar, y cortar una
-// transferencia buena es peor que tardar en cortar una mala.
+// transfer buena es peor que tardar en cortar una mala.
 static const long kAtascoMaximoS = 600;
 
 static void ponPlazoDeEnvio(TransferSocket fd, int ms) {
@@ -5308,7 +5308,7 @@ static bool envioSoloAgotoElPlazo() {
 #endif
 }
 
-// Conecta con el otro extremo de una transferencia, sea lo que sea lo que vaya a viajar.
+// Conecta con el otro extremo de una transfer, sea lo que sea lo que vaya a viajar.
 //
 // Lo usan los DOS emisores —el del flujo de `zfs send` y el del árbol de ficheros— y era la
 // misma secuencia escrita dos veces: resolver con las dos familias, crear el socket sin
@@ -5687,7 +5687,7 @@ static void runTransferReceiveSession(TransferSocket listenFd,
 // el proceso terminaría en cuanto imprimiera el puerto y se llevaría por delante el hilo
 // que iba a recibir. Ahí se emiten PORT y TOKEN por la salida —para que el emisor pueda
 // leerlos y conectarse— y se atiende la sesión sin soltar el proceso.
-// Abre el puerto por el que va a entrar una transferencia, y dice cuál le tocó.
+// Abre el puerto por el que va a entrar una transfer, y dice cuál le tocó.
 //
 // Está aparte porque lo usan DOS receptores —el de `zfs recv` y el del árbol de ficheros— y
 // dentro hay dos decisiones que costaron encontrar: la doble pila (se escucha en IPv6 con
@@ -5779,7 +5779,7 @@ static bool abrePuertoDeTransferencia(TransferSocket& listenFd, int& puerto,
 // El reparto: el DESTINO manda primero su manifiesto —lo que ya tiene— y el ORIGEN decide.
 // Es una sola vuelta de red para todo el árbol, en vez de preguntar fichero a fichero.
 // ---------------------------------------------------------------------------
-namespace AR = zfsmgr::arbolremoto;
+namespace AR = zfsmgr::remotetree;
 
 // Escribe todo o falla. `send` puede colocar menos de lo que se le pide.
 static bool mandaTodo(TransferSocket s, const char* datos, std::size_t cuantos) {
@@ -5863,7 +5863,7 @@ static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
         }
         acumulado += nombres;
     }
-    return AR::analizaManifiesto(acumulado, salida, error);
+    return AR::parseManifest(acumulado, salida, error);
 }
 
 // El receptor: manda lo que tiene y aplica lo que le digan.
@@ -5896,13 +5896,13 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
 
     std::vector<AR::Entry> mias;
     std::string err;
-    if (!AR::recorre(raiz, mias, err)) {
+    if (!AR::walk(raiz, mias, err)) {
         daemonLog("ERROR", "tree-recv: no se pudo recorrer «" + raiz + "»: " + err);
         (void)mandaTodo(cliente, "E\n");
         closeTransferSocket(cliente);
         return;
     }
-    if (!mandaTodo(cliente, AR::serializaManifiesto(mias))) {
+    if (!mandaTodo(cliente, AR::serializeManifest(mias))) {
         closeTransferSocket(cliente);
         return;
     }
@@ -5940,13 +5940,13 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         if (ecT) {
             continue;  // ya no está: el emisor lo mandará entero
         }
-        const std::size_t tamBloque = AR::tamanoDeBloque(tam);
-        std::vector<AR::Firma> fs;
+        const std::size_t tamBloque = AR::blockSize(tam);
+        std::vector<AR::Signature> fs;
         std::string errF;
-        if (!AR::firmasDe(suya.string(), tamBloque, fs, errF)) {
+        if (!AR::signaturesOf(suya.string(), tamBloque, fs, errF)) {
             continue;
         }
-        const std::string crudas = AR::serializaFirmas(fs);
+        const std::string crudas = AR::serializeSignatures(fs);
         bloqueDe[ruta] = tamBloque;
         if (!mandaTodo(cliente, "G " + std::to_string(tamBloque) + " "
                                     + std::to_string(crudas.size()) + " "
@@ -6024,7 +6024,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 break;
             }
             const std::size_t tamBloque =
-                bloqueDe.count(rutaP) ? bloqueDe[rutaP] : AR::tamanoDeBloque(tamFinal);
+                bloqueDe.count(rutaP) ? bloqueDe[rutaP] : AR::blockSize(tamFinal);
             const std::filesystem::path temporal = vieja.string() + ".zfsmgr-parche";
             std::FILE* fv = std::fopen(vieja.string().c_str(), "rb");
             std::FILE* fn = std::fopen(temporal.string().c_str(), "wb");
@@ -6097,7 +6097,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             std::string hashSalido;
             std::string errH;
             std::error_code ecR;
-            if (bienP && AR::hashDeFichero(temporal.string(), hashSalido, errH)
+            if (bienP && AR::fileHash(temporal.string(), hashSalido, errH)
                 && hashSalido == hashEsperado) {
                 std::filesystem::rename(temporal, vieja, ecR);
                 if (ecR) {
@@ -6106,8 +6106,8 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                         primerMotivo = "no se pudo colocar «" + rutaP + "»: " + ecR.message();
                     }
                 } else {
-                    AR::ponModo(vieja.string(), modo);
-                    AR::ponFecha(vieja.string(), fecha);
+                    AR::setMode(vieja.string(), modo);
+                    AR::setMtime(vieja.string(), fecha);
                     ++hechas;
                 }
             } else {
@@ -6124,7 +6124,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         AR::Operation op;
         std::size_t lr = 0;
         std::size_t ld = 0;
-        if (!AR::analizaCabecera(linea, op, lr, ld, fallo)) {
+        if (!AR::parseHeader(linea, op, lr, ld, fallo)) {
             break;
         }
         std::string nombres(lr + ld, '\0');
@@ -6149,14 +6149,14 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         std::error_code ec;
         bool bienOp = true;
         switch (op.accion) {
-            case AR::Accion::CrearDirectorio:
+            case AR::Action::CrearDirectorio:
                 std::filesystem::create_directories(destino, ec);
                 // `create_directories` sobre uno que ya está no es un error, pero devuelve
                 // falso sin código: solo se mira el código.
                 bienOp = anota(ec, "crear el directorio", op.entrada.ruta);
-                AR::ponModo(destino.string(), op.entrada.modo);
+                AR::setMode(destino.string(), op.entrada.modo);
                 break;
-            case AR::Accion::Copiar: {
+            case AR::Action::Copiar: {
                 std::filesystem::create_directories(destino.parent_path(), ec);
                 std::FILE* f = std::fopen(destino.string().c_str(), "wb");
                 // Si no se puede escribir, los bytes SE LEEN IGUAL y se tiran.
@@ -6205,12 +6205,12 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 if (!bienOp) {
                     break;  // sale del `case`, no del bucle: la cuenta ya está hecha
                 }
-                AR::ponModo(destino.string(), op.entrada.modo);
+                AR::setMode(destino.string(), op.entrada.modo);
                 // La fecha, SIEMPRE. Sin ella la próxima pasada lo traería otra vez entero.
-                AR::ponFecha(destino.string(), op.entrada.fecha);
+                AR::setMtime(destino.string(), op.entrada.fecha);
                 break;
             }
-            case AR::Accion::Enlazar: {
+            case AR::Action::Enlazar: {
                 std::error_code borrado;
                 std::filesystem::remove(destino, borrado);
                 std::filesystem::create_symlink(op.entrada.destino, destino, ec);
@@ -6221,7 +6221,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 bienOp = anota(ec, "crear el enlace simbólico", op.entrada.ruta);
                 break;
             }
-            case AR::Accion::EnlazarDuro: {
+            case AR::Action::EnlazarDuro: {
                 const std::filesystem::path orig =
                     (base / std::filesystem::path(op.entrada.destino)).lexically_normal();
                 std::error_code borrado;
@@ -6230,7 +6230,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 bienOp = anota(ec, "crear el enlace duro", op.entrada.ruta);
                 break;
             }
-            case AR::Accion::Borrar:
+            case AR::Action::Borrar:
                 std::filesystem::remove_all(destino, ec);
                 bienOp = anota(ec, "borrar", op.entrada.ruta);
                 break;
@@ -6320,7 +6320,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
 
     std::vector<AR::Entry> mias;
     std::string err;
-    if (!AR::recorre(raiz, mias, err)) {
+    if (!AR::walk(raiz, mias, err)) {
         r.rc = 2;
         r.err = err + "\n";
         return r;
@@ -6348,7 +6348,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         return r;
     }
 
-    AR::Plan plan = AR::planea(mias, suyas, borra);
+    AR::Plan plan = AR::makePlan(mias, suyas, borra);
 
     // ¿De qué ficheros compensa pedir firmas? Los que el destino YA TIENE y son grandes.
     // De los que no tiene no hay nada contra qué comparar, y de los pequeños las firmas y
@@ -6360,11 +6360,11 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     std::vector<std::string> pidoFirmas;
     if (!enSeco) {
         for (const AR::Operation& o : plan.operaciones) {
-            if (o.accion != AR::Accion::Copiar || o.entrada.tamano < AR::kMinimoParaDelta) {
+            if (o.accion != AR::Action::Copiar || o.entrada.tamano < AR::kMinimoParaDelta) {
                 continue;
             }
             const auto it = suyasPorRuta.find(o.entrada.ruta);
-            if (it != suyasPorRuta.end() && it->second->tipo == AR::Tipo::Fichero
+            if (it != suyasPorRuta.end() && it->second->tipo == AR::EntryKind::Fichero
                 && it->second->tamano > 0) {
                 pidoFirmas.push_back(o.entrada.ruta);
             }
@@ -6387,7 +6387,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     }
 
     // Las firmas que conteste el destino, por ruta.
-    std::map<std::string, std::pair<std::size_t, std::vector<AR::Firma>>> firmas;
+    std::map<std::string, std::pair<std::size_t, std::vector<AR::Signature>>> firmas;
     for (;;) {
         std::string linea;
         if (!leeLinea(sock, linea)) {
@@ -6424,9 +6424,9 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             r.err = "se cortó leyendo unas firmas\n";
             return r;
         }
-        std::vector<AR::Firma> fs;
+        std::vector<AR::Signature> fs;
         std::string errF;
-        if (AR::analizaFirmas(crudas, fs, errF) && tamBloque > 0) {
+        if (AR::parseSignatures(crudas, fs, errF) && tamBloque > 0) {
             firmas.emplace(ruta, std::make_pair(tamBloque, std::move(fs)));
         }
     }
@@ -6454,12 +6454,12 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     std::uint64_t bytesAhorrados = 0;
     for (const AR::Operation& o : plan.operaciones) {
         // ¿Hay firmas de este fichero? Entonces va como PARCHE y no entero.
-        const auto itF = (o.accion == AR::Accion::Copiar)
+        const auto itF = (o.accion == AR::Action::Copiar)
                              ? firmas.find(o.entrada.ruta)
                              : firmas.end();
         if (itF != firmas.end()) {
             const std::size_t tamBloque = itF->second.first;
-            std::vector<AR::Instruccion> instrucciones;
+            std::vector<AR::Instruction> instrucciones;
             std::uint64_t literales = 0;
             std::string errD;
             std::string hashEntero;
@@ -6467,7 +6467,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
                 (std::filesystem::path(raiz) / std::filesystem::path(o.entrada.ruta)).string();
             if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales,
                           errD)
-                && AR::hashDeFichero(rutaLocal, hashEntero, errD)) {
+                && AR::fileHash(rutaLocal, hashEntero, errD)) {
                 bytesLiteralesTotal += literales;
                 bytesAhorrados += (o.entrada.tamano > literales) ? (o.entrada.tamano - literales)
                                                                  : 0;
@@ -6479,11 +6479,11 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
                                   + std::to_string(hashEntero.size()) + "\n";
                 bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entrada.ruta)
                        && mandaTodo(sock, hashEntero);
-                for (const AR::Instruccion& in : instrucciones) {
+                for (const AR::Instruction& in : instrucciones) {
                     if (!bien) {
                         break;
                     }
-                    if (in.tipo == AR::TipoInstruccion::Copiar) {
+                    if (in.tipo == AR::InstructionKind::Copiar) {
                         bien = mandaTodo(sock, "C " + std::to_string(in.bloque) + " "
                                                    + std::to_string(in.cuantos) + "\n");
                     } else {
@@ -6501,12 +6501,12 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             }
             // Si el delta no se pudo calcular, se manda entero: es lento, no es incorrecto.
         }
-        if (!mandaTodo(sock, AR::cabeceraDe(o)) || !mandaTodo(sock, o.entrada.ruta)
+        if (!mandaTodo(sock, AR::headerOf(o)) || !mandaTodo(sock, o.entrada.ruta)
             || !mandaTodo(sock, o.entrada.destino)) {
             bien = false;
             break;
         }
-        if (o.accion != AR::Accion::Copiar) {
+        if (o.accion != AR::Action::Copiar) {
             continue;
         }
         const std::string rutaLocal = (base / std::filesystem::path(o.entrada.ruta)).string();
@@ -6616,7 +6616,7 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 // al socket— en vez de colgar el socket de la salida del hijo, así que la estructura
 // vale tal cual; lo único que cambiaba era crear el proceso y leer de la tubería, y eso
 // vive ahora en spawnReadingStdout.
-// Devuelve false para pedir que la transferencia se interrumpa. Se llama en cada vuelta
+// Devuelve false para pedir que la transfer se interrumpa. Se llama en cada vuelta
 // del relé, igual que la comprobación de cancelación que hacía el camino asíncrono.
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
                                           const TransferProgressFn& onProgress = nullptr) {
@@ -6640,14 +6640,14 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     // suelto, por ejemplo— sacaría por el socket un dataset que nadie pidió.
     {
         std::string mala;
-        if (!zfsmgr::base::zfsprops::banderasDeSendValidas(flagsStr, mala)) {
+        if (!zfsmgr::base::zfsprops::areValidSendFlags(flagsStr, mala)) {
             r.rc = 2;
             r.err = "bandera de send no admitida: " + mala + "\n";
             return r;
         }
     }
     // Séptimo parámetro opcional: el testigo de reanudación que devuelve el receptor
-    // cuando una transferencia se cortó a medias. Con él se emite `zfs send -t`, que
+    // cuando una transfer se cortó a medias. Con él se emite `zfs send -t`, que
     // continúa desde donde se quedó en vez de mandarlo todo otra vez.
     //
     // Es un añadido al final a propósito: un agente anterior lo ignora y manda el flujo
@@ -7795,7 +7795,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     //
     // El puerto queda entonces alcanzable desde la red, protegido por mTLS con el
     // certificado de cliente FIJADO. No es una categoría nueva de exposición: el puerto de
-    // transferencia ya escucha en 0.0.0.0 con un testigo de un solo uso.
+    // transfer ya escucha en 0.0.0.0 con un testigo de un solo uso.
     if (cmd == "--mutate-set-bind") {
         if (params.size() < 1) {
             r.rc = 2;
@@ -8420,12 +8420,12 @@ std::string dumpClassForCommand(const std::string& cmd) {
 // with an actual answer (--job-status).
 // Qué mutaciones se pueden encolar como trabajo.
 //
-// La lista vive en `commands/peticiones` y NO se copia aquí: los clientes necesitan la misma
+// La lista vive en `commands/requests` y NO se copia aquí: los clientes necesitan la misma
 // respuesta para elegir camino antes de pedir nada, y dos listas iguales que alguien tiene
 // que acordarse de tocar a la vez son dos listas que acaban diciendo cosas distintas. El
 // daemon enlaza `zfsmgr_commands`, así que puede preguntar en vez de repetir.
 bool isAsyncSubmittableCommand(const std::string& cmd) {
-    return zfsmgr::commands::peticiones::sePuedeEncolar(cmd);
+    return zfsmgr::commands::requests::canEnqueue(cmd);
 }
 
 void runSubmittedMutationJob(const std::string& jobId,
@@ -8894,7 +8894,7 @@ int runServeLoop() {
                 // se acepta, devuelve un identificador de trabajo y el trabajo muere al
                 // instante. El error hay que darlo donde se pidió.
                 } else if (rpcArgs.size() > 5 &&
-                           !zfsmgr::base::zfsprops::banderasDeSendValidas(rpcArgs[5], malaBandera)) {
+                           !zfsmgr::base::zfsprops::areValidSendFlags(rpcArgs[5], malaBandera)) {
                     exec.rc = 2;
                     exec.err = "bandera de send no admitida: " + malaBandera + "\n";
                 } else {
@@ -9878,7 +9878,7 @@ int main(int argc, char* argv[]) {
         return pr.rc;
     }
     // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
-    // vuelve hasta que la transferencia termina: soltar el proceso mataría el hilo que
+    // vuelve hasta que la transfer termina: soltar el proceso mataría el hilo que
     // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
     if (cmd == "--tree-recv-listen") {
         if (args.size() < 3) {

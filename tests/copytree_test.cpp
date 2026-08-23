@@ -1,5 +1,5 @@
 #include "copytree.h"
-#include "arbolremoto.h"
+#include "remotetree.h"
 
 #include <QtTest/QtTest>
 
@@ -16,7 +16,7 @@
 #endif
 
 namespace fs = std::filesystem;
-namespace AR = zfsmgr::arbolremoto;
+namespace AR = zfsmgr::remotetree;
 using namespace zfsmgr::copytree;
 
 namespace {
@@ -354,18 +354,18 @@ private Q_SLOTS:
         namedirs();
         std::vector<AR::Entry> e;
         std::string err;
-        QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
-        std::map<std::string, AR::Tipo> porRuta;
+        QVERIFY2(AR::walk(src_.string(), e, err), err.c_str());
+        std::map<std::string, AR::EntryKind> porRuta;
         for (const auto& x : e) porRuta[x.ruta] = x.tipo;
         QCOMPARE(porRuta.count("sub"), size_t(1));
-        QVERIFY(porRuta["sub"] == AR::Tipo::Directorio);
-        QVERIFY(porRuta["a.txt"] == AR::Tipo::Fichero);
-        QVERIFY(porRuta["enlace"] == AR::Tipo::Enlace);
+        QVERIFY(porRuta["sub"] == AR::EntryKind::Directorio);
+        QVERIFY(porRuta["a.txt"] == AR::EntryKind::Fichero);
+        QVERIFY(porRuta["enlace"] == AR::EntryKind::Enlace);
         // El segundo nombre del mismo fichero llega como enlace duro, no como copia: es
         // la diferencia entre sincronizar un arbol y duplicarlo. Y cual de los dos es «el
         // fichero» NO depende del orden del directorio: es el primero por orden
         // alfabetico, para que los dos extremos describan el arbol igual.
-        QVERIFY(porRuta["duro.txt"] == AR::Tipo::EnlaceDuro);
+        QVERIFY(porRuta["duro.txt"] == AR::EntryKind::EnlaceDuro);
         for (const auto& x : e) {
             if (x.ruta == "duro.txt") {
                 QCOMPARE(QString::fromStdString(x.destino), QStringLiteral("a.txt"));
@@ -385,7 +385,7 @@ private Q_SLOTS:
         writeFile(src_ / "mio" / "$RECYCLE.BIN" / "dato.txt", "mio");
         std::vector<AR::Entry> e;
         std::string err;
-        QVERIFY2(AR::recorre(src_.string(), e, err), err.c_str());
+        QVERIFY2(AR::walk(src_.string(), e, err), err.c_str());
         for (const auto& x : e) {
             QVERIFY2(x.ruta.rfind("$RECYCLE.BIN", 0) != 0, x.ruta.c_str());
             QVERIFY2(x.ruta.rfind("System Volume Information", 0) != 0, x.ruta.c_str());
@@ -401,7 +401,7 @@ private Q_SLOTS:
         namedirs();
         std::vector<AR::Entry> e;
         std::string err;
-        QVERIFY(AR::recorre(src_.string(), e, err));
+        QVERIFY(AR::walk(src_.string(), e, err));
         for (const auto& x : e) {
             QVERIFY2(x.ruta.find('\\') == std::string::npos,
                      "una ruta con barra invertida no casaria en el otro extremo");
@@ -412,9 +412,9 @@ private Q_SLOTS:
         namedirs();
         std::vector<AR::Entry> e;
         std::string err;
-        QVERIFY(AR::recorre(src_.string(), e, err));
+        QVERIFY(AR::walk(src_.string(), e, err));
         std::vector<AR::Entry> vuelta;
-        QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
+        QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), e.size());
         for (size_t i = 0; i < e.size(); ++i) {
             QCOMPARE(QString::fromStdString(vuelta[i].ruta), QString::fromStdString(e[i].ruta));
@@ -428,11 +428,11 @@ private Q_SLOTS:
         // salto de linea, y partir por lineas dejaria el manifiesto descolocado.
         std::vector<AR::Entry> e(1);
         e[0].ruta = "raro\ncon salto.txt";
-        e[0].tipo = AR::Tipo::Fichero;
+        e[0].tipo = AR::EntryKind::Fichero;
         e[0].tamano = 7;
         std::vector<AR::Entry> vuelta;
         std::string err;
-        QVERIFY2(AR::analizaManifiesto(AR::serializaManifiesto(e), vuelta, err), err.c_str());
+        QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), size_t(1));
         QCOMPARE(QString::fromStdString(vuelta[0].ruta), QString::fromStdString(e[0].ruta));
     }
@@ -442,7 +442,7 @@ private Q_SLOTS:
         o[0].ruta = d[0].ruta = "a.txt";
         o[0].tamano = d[0].tamano = 10;
         o[0].fecha = d[0].fecha = 1000;
-        const AR::Plan p = AR::planea(o, d, false);
+        const AR::Plan p = AR::makePlan(o, d, false);
         QCOMPARE(p.operaciones.size(), size_t(0));
         QCOMPARE(p.iguales, uint64_t(1));
         QCOMPARE(p.bytes, uint64_t(0));
@@ -454,9 +454,9 @@ private Q_SLOTS:
         o[0].tamano = d[0].tamano = 10;
         o[0].fecha = 1001;
         d[0].fecha = 1000;
-        const AR::Plan p = AR::planea(o, d, false);
+        const AR::Plan p = AR::makePlan(o, d, false);
         QCOMPARE(p.operaciones.size(), size_t(1));
-        QVERIFY(p.operaciones[0].accion == AR::Accion::Copiar);
+        QVERIFY(p.operaciones[0].accion == AR::Action::Copiar);
         QCOMPARE(p.bytes, uint64_t(10));
     }
 
@@ -464,7 +464,7 @@ private Q_SLOTS:
         std::vector<AR::Entry> o;
         std::vector<AR::Entry> d(1);
         d[0].ruta = "sobra.txt";
-        QCOMPARE(AR::planea(o, d, false).operaciones.size(), size_t(0));
+        QCOMPARE(AR::makePlan(o, d, false).operaciones.size(), size_t(0));
     }
 
     void conBorradoSeVaDeDentroHaciaFuera() {
@@ -473,9 +473,9 @@ private Q_SLOTS:
         std::vector<AR::Entry> o;
         std::vector<AR::Entry> d(2);
         d[0].ruta = "dir";
-        d[0].tipo = AR::Tipo::Directorio;
+        d[0].tipo = AR::EntryKind::Directorio;
         d[1].ruta = "dir/dentro.txt";
-        const AR::Plan p = AR::planea(o, d, true);
+        const AR::Plan p = AR::makePlan(o, d, true);
         QCOMPARE(p.operaciones.size(), size_t(2));
         QCOMPARE(QString::fromStdString(p.operaciones[0].entrada.ruta),
                  QStringLiteral("dir/dentro.txt"));
@@ -485,17 +485,17 @@ private Q_SLOTS:
     void unEnlaceQueCambiaDeDestinoSeRehace() {
         std::vector<AR::Entry> o(1), d(1);
         o[0].ruta = d[0].ruta = "l";
-        o[0].tipo = d[0].tipo = AR::Tipo::Enlace;
+        o[0].tipo = d[0].tipo = AR::EntryKind::Enlace;
         o[0].destino = "a.txt";
         d[0].destino = "b.txt";
-        const AR::Plan p = AR::planea(o, d, false);
+        const AR::Plan p = AR::makePlan(o, d, false);
         QCOMPARE(p.operaciones.size(), size_t(1));
-        QVERIFY(p.operaciones[0].accion == AR::Accion::Enlazar);
+        QVERIFY(p.operaciones[0].accion == AR::Action::Enlazar);
     }
 
     void laCabeceraSobreviveAlViajeDeIdaYVuelta() {
         AR::Operation o;
-        o.accion = AR::Accion::Copiar;
+        o.accion = AR::Action::Copiar;
         o.entrada.ruta = "sub/a.txt";
         o.entrada.destino = "";
         o.entrada.modo = 0644;
@@ -504,8 +504,8 @@ private Q_SLOTS:
         AR::Operation vuelta;
         size_t lr = 0, ld = 0;
         std::string err;
-        QVERIFY2(AR::analizaCabecera(AR::cabeceraDe(o), vuelta, lr, ld, err), err.c_str());
-        QVERIFY(vuelta.accion == AR::Accion::Copiar);
+        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, err), err.c_str());
+        QVERIFY(vuelta.accion == AR::Action::Copiar);
         QCOMPARE(vuelta.entrada.tamano, uint64_t(12345));
         QCOMPARE(vuelta.entrada.fecha, int64_t(1700000000));
         QCOMPARE(lr, o.entrada.ruta.size());
@@ -521,7 +521,7 @@ private Q_SLOTS:
         std::string datos = "abcdefghijklmnopqrstuvwxyz0123456789";
         const size_t v = 8;
         const auto* p = reinterpret_cast<const unsigned char*>(datos.data());
-        uint32_t s = AR::sumaRodante(p, v);
+        uint32_t s = AR::rollingSum(p, v);
         for (size_t i = 0; i + v < datos.size(); ++i) {
             const unsigned char sale = p[i];
             const unsigned char entra = p[i + v];
@@ -529,7 +529,7 @@ private Q_SLOTS:
             a = (a - sale + entra) & 0xffff;
             b = (b - uint32_t(v) * sale + a) & 0xffff;
             s = a | (b << 16);
-            QCOMPARE(s, AR::sumaRodante(p + i + 1, v));
+            QCOMPARE(s, AR::rollingSum(p + i + 1, v));
         }
     }
 
@@ -539,17 +539,17 @@ private Q_SLOTS:
         std::string datos;
         for (size_t i = 0; i < 300000; ++i) datos.push_back(char('a' + (i * 13) % 26));
         writeFile(src_ / "g.bin", datos);
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
         const size_t tb = 8192;
-        QVERIFY2(AR::firmasDe((src_ / "g.bin").string(), tb, fi, err), err.c_str());
-        std::vector<AR::Instruccion> ins;
+        QVERIFY2(AR::signaturesOf((src_ / "g.bin").string(), tb, fi, err), err.c_str());
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY2(AR::delta((src_ / "g.bin").string(), fi, tb, ins, literales, err), err.c_str());
         QCOMPARE(literales, uint64_t(0));
         // Y en UNA sola instruccion: los bloques seguidos se juntan.
         QCOMPARE(ins.size(), size_t(1));
-        QVERIFY(ins[0].tipo == AR::TipoInstruccion::Copiar);
+        QVERIFY(ins[0].tipo == AR::InstructionKind::Copiar);
     }
 
     void unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones() {
@@ -557,11 +557,11 @@ private Q_SLOTS:
         // la misma firma. Cogiendo siempre el primer candidato salia una instruccion por
         // bloque; prefiriendo el siguiente al ultimo copiado, sale una para todos.
         writeFile(src_ / "r.bin", std::string(300000, 'x'));
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
         const size_t tb = 8192;
-        QVERIFY(AR::firmasDe((src_ / "r.bin").string(), tb, fi, err));
-        std::vector<AR::Instruccion> ins;
+        QVERIFY(AR::signaturesOf((src_ / "r.bin").string(), tb, fi, err));
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "r.bin").string(), fi, tb, ins, literales, err));
         QCOMPARE(literales, uint64_t(0));
@@ -576,11 +576,11 @@ private Q_SLOTS:
         std::string nuevo = base;
         nuevo.replace(150000, 10, "CAMBIADOxx");
         writeFile(src_ / "nuevo.bin", nuevo);
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
         const size_t tb = 8192;
-        QVERIFY(AR::firmasDe((dst_ / "viejo.bin").string(), tb, fi, err));
-        std::vector<AR::Instruccion> ins;
+        QVERIFY(AR::signaturesOf((dst_ / "viejo.bin").string(), tb, fi, err));
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "nuevo.bin").string(), fi, tb, ins, literales, err));
         // Un cambio de 10 bytes no puede costar 300 KB: como mucho el bloque que lo
@@ -598,11 +598,11 @@ private Q_SLOTS:
         for (size_t i = 0; i < base.size(); ++i) base[i] = char('a' + (i % 26));
         writeFile(dst_ / "b.bin", base);
         writeFile(src_ / "b.bin", std::string("Z") + base);
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
         const size_t tb = 8192;
-        QVERIFY(AR::firmasDe((dst_ / "b.bin").string(), tb, fi, err));
-        std::vector<AR::Instruccion> ins;
+        QVERIFY(AR::signaturesOf((dst_ / "b.bin").string(), tb, fi, err));
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "b.bin").string(), fi, tb, ins, literales, err));
         QVERIFY2(literales < 3 * tb,
@@ -621,17 +621,17 @@ private Q_SLOTS:
         nuevo += "cola que antes no estaba";
         writeFile(dst_ / "v.bin", viejo);
         writeFile(src_ / "n.bin", nuevo);
-        const size_t tb = AR::tamanoDeBloque(nuevo.size());
-        std::vector<AR::Firma> fi;
+        const size_t tb = AR::blockSize(nuevo.size());
+        std::vector<AR::Signature> fi;
         std::string err;
-        QVERIFY(AR::firmasDe((dst_ / "v.bin").string(), tb, fi, err));
-        std::vector<AR::Instruccion> ins;
+        QVERIFY(AR::signaturesOf((dst_ / "v.bin").string(), tb, fi, err));
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "n.bin").string(), fi, tb, ins, literales, err));
 
         std::string rehecho;
         for (const auto& in : ins) {
-            if (in.tipo == AR::TipoInstruccion::Literal) {
+            if (in.tipo == AR::InstructionKind::Literal) {
                 rehecho += in.datos;
             } else {
                 for (uint64_t k = 0; k < in.cuantos; ++k) {
@@ -656,16 +656,16 @@ private Q_SLOTS:
         cambiado.replace(2u * 1024 * 1024, 4, "ZZZZ");
         writeFile(src_ / "big.bin", cambiado);
         const size_t tb = 8192;
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
-        QVERIFY(AR::firmasDe((dst_ / "big.bin").string(), tb, fi, err));
-        std::vector<AR::Instruccion> ins;
+        QVERIFY(AR::signaturesOf((dst_ / "big.bin").string(), tb, fi, err));
+        std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "big.bin").string(), fi, tb, ins, literales, err));
 
         std::string rehecho;
         for (const auto& in : ins) {
-            if (in.tipo == AR::TipoInstruccion::Literal) {
+            if (in.tipo == AR::InstructionKind::Literal) {
                 rehecho += in.datos;
             } else {
                 for (uint64_t k = 0; k < in.cuantos; ++k) {
@@ -682,11 +682,11 @@ private Q_SLOTS:
 
     void lasFirmasSobrevivenAlViajeDeIdaYVuelta() {
         writeFile(src_ / "f.bin", std::string(100000, 'k'));
-        std::vector<AR::Firma> fi;
+        std::vector<AR::Signature> fi;
         std::string err;
-        QVERIFY(AR::firmasDe((src_ / "f.bin").string(), 8192, fi, err));
-        std::vector<AR::Firma> vuelta;
-        QVERIFY2(AR::analizaFirmas(AR::serializaFirmas(fi), vuelta, err), err.c_str());
+        QVERIFY(AR::signaturesOf((src_ / "f.bin").string(), 8192, fi, err));
+        std::vector<AR::Signature> vuelta;
+        QVERIFY2(AR::parseSignatures(AR::serializeSignatures(fi), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), fi.size());
         for (size_t i = 0; i < fi.size(); ++i) {
             QCOMPARE(vuelta[i].debil, fi[i].debil);

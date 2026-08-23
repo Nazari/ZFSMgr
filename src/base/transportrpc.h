@@ -114,7 +114,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
 // agente y solo cae a SSH en crudo si no se puede.
 //
 // **El plazo es de INACTIVIDAD, no total**: se reinicia con cada trozo que llega. Una
-// transferencia de horas no puede morir por durar; sí debe morir si se queda muda.
+// transfer de horas no puede morir por durar; sí debe morir si se queda muda.
 bool runSsh(TransportSession& ses,
             const ConnectionProfile& p,
             const std::string& remoteCmd,

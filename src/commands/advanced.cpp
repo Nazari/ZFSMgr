@@ -1,11 +1,11 @@
-#include "avanzadas.h"
+#include "advanced.h"
 
 #include <map>
 #include <set>
 
 #include "strutil.h"
 
-namespace zfsmgr::commands::avanzadas {
+namespace zfsmgr::commands::advanced {
 
 namespace {
 
@@ -16,14 +16,14 @@ bool utilizable(const std::string& s) {
 
 }  // namespace
 
-std::vector<std::string> argvDesglosar(const std::string& dataset,
-                                       const std::vector<Desglose>& pares) {
+std::vector<std::string> argvBreakdown(const std::string& dataset,
+                                       const std::vector<Breakdown>& pares) {
     const std::string ds = zfsmgr::base::trim(dataset);
     if (!utilizable(ds)) {
         return {};
     }
     std::vector<std::string> argv{"--mutate-advanced-breakdown", ds};
-    for (const Desglose& p : pares) {
+    for (const Breakdown& p : pares) {
         const std::string sub = zfsmgr::base::trim(p.subdirectorio);
         const std::string nuevo = zfsmgr::base::trim(p.datasetNuevo);
         // Los dos, o ninguno: el verbo los lee de dos en dos, así que un par a medias
@@ -41,7 +41,7 @@ std::vector<std::string> argvDesglosar(const std::string& dataset,
     return argv;
 }
 
-std::string hijoConNombreCompleto(const std::string& dataset, const std::string& hijo) {
+std::string childWithFullName(const std::string& dataset, const std::string& hijo) {
     const std::string h = zfsmgr::base::trim(hijo);
     if (h.empty()) {
         return {};
@@ -56,7 +56,7 @@ std::string hijoConNombreCompleto(const std::string& dataset, const std::string&
     return ds + "/" + h;
 }
 
-std::vector<std::string> argvEnsamblar(const std::string& dataset,
+std::vector<std::string> argvAssemble(const std::string& dataset,
                                        const std::vector<std::string>& hijos) {
     const std::string ds = zfsmgr::base::trim(dataset);
     if (!utilizable(ds)) {
@@ -64,7 +64,7 @@ std::vector<std::string> argvEnsamblar(const std::string& dataset,
     }
     std::vector<std::string> argv{"--mutate-advanced-assemble", ds};
     for (const std::string& hijo : hijos) {
-        const std::string completo = hijoConNombreCompleto(ds, hijo);
+        const std::string completo = childWithFullName(ds, hijo);
         if (!completo.empty()) {
             argv.push_back(completo);
         }
@@ -75,29 +75,29 @@ std::vector<std::string> argvEnsamblar(const std::string& dataset,
     return argv;
 }
 
-bool rutaDeDestinoValida(const std::string& directorio) {
+bool isValidDestinationPath(const std::string& directorio) {
     const std::string d = zfsmgr::base::trim(directorio);
     if (d.empty()) {
         return false;
     }
     // Unix: barra inicial. Windows: letra de unidad. Es la misma comprobación que hace
-    // `sincronizacion::rutaUsable`, y por el mismo motivo —una ruta que el otro extremo no
+    // `syncing::isUsablePath`, y por el mismo motivo —una ruta que el otro extremo no
     // pueda abrir no es un destino—, pero aquí no vale «none» ni «legacy»: eso son
     // respuestas de ZFS sobre un punto de montaje, y esto es un directorio llano.
     return d[0] == '/' || d.find(':') != std::string::npos;
 }
 
-std::vector<std::string> argvHaciaDir(const std::string& dataset, const std::string& directorio,
+std::vector<std::string> argvToDir(const std::string& dataset, const std::string& directorio,
                                       bool destruyeOrigen) {
     const std::string ds = zfsmgr::base::trim(dataset);
     const std::string dir = zfsmgr::base::trim(directorio);
-    if (!utilizable(ds) || !rutaDeDestinoValida(dir)) {
+    if (!utilizable(ds) || !isValidDestinationPath(dir)) {
         return {};
     }
     return {"--mutate-advanced-todir", ds, dir, destruyeOrigen ? "1" : "0"};
 }
 
-bool subdirectorioRelativoValido(const std::string& rel) {
+bool isValidRelativeSubdir(const std::string& rel) {
     const std::string r = zfsmgr::base::trim(rel);
     if (r.empty()) {
         return true;  // la raíz del dataset
@@ -114,10 +114,10 @@ bool subdirectorioRelativoValido(const std::string& rel) {
            && r.find('\t') == std::string::npos;
 }
 
-std::vector<std::string> argvDesdeDir(const std::string& dataset, const std::string& rel) {
+std::vector<std::string> argvFromDir(const std::string& dataset, const std::string& rel) {
     const std::string ds = zfsmgr::base::trim(dataset);
     const std::string r = zfsmgr::base::trim(rel);
-    if (!utilizable(ds) || !subdirectorioRelativoValido(r)) {
+    if (!utilizable(ds) || !isValidRelativeSubdir(r)) {
         return {};
     }
     std::vector<std::string> argv{"--mutate-advanced-fromdir", ds};
@@ -173,7 +173,7 @@ std::string nombreUsable(const std::string& bruto) {
 
 }  // namespace
 
-std::vector<std::string> subdirectoriosDeDestino(const std::vector<OrigenDesdeDir>& origenes) {
+std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& origenes) {
     std::vector<std::string> salida(origenes.size());
     if (origenes.empty()) {
         return salida;
@@ -221,11 +221,11 @@ std::vector<std::string> subdirectoriosDeDestino(const std::vector<OrigenDesdeDi
     return salida;
 }
 
-std::vector<std::string> argvDesdeDirPreparar(const std::string& dataset,
+std::vector<std::string> argvFromDirPrepare(const std::string& dataset,
                                               const std::string& rel) {
     const std::string ds = zfsmgr::base::trim(dataset);
     const std::string r = zfsmgr::base::trim(rel);
-    if (!utilizable(ds) || !subdirectorioRelativoValido(r)) {
+    if (!utilizable(ds) || !isValidRelativeSubdir(r)) {
         return {};
     }
     std::vector<std::string> argv{"--mutate-advanced-fromdir-prepare", ds};
@@ -235,7 +235,7 @@ std::vector<std::string> argvDesdeDirPreparar(const std::string& dataset,
     return argv;
 }
 
-std::string rutaPreparada(const std::string& salida) {
+std::string preparedPath(const std::string& salida) {
     // Se busca la línea, no el principio de la salida: por SSH puede venir precedida de un
     // aviso del propio shell, y quedarse con lo primero que llega daría una ruta que no es.
     for (const std::string& linea : zfsmgr::base::split(salida, "\n", true)) {
@@ -247,11 +247,11 @@ std::string rutaPreparada(const std::string& salida) {
     return {};
 }
 
-bool puedeIrPorElArbol(bool origenTieneDaemon, bool destinoTieneDaemon) {
+bool canUseTreeTransfer(bool origenTieneDaemon, bool destinoTieneDaemon) {
     return origenTieneDaemon && destinoTieneDaemon;
 }
 
-std::vector<std::string> rutasDeContenido(const std::string& ruta) {
+std::vector<std::string> contentPaths(const std::string& ruta) {
     const std::string r = zfsmgr::base::trim(ruta);
     const std::size_t ab = r.find('{');
     if (ab == std::string::npos) {
@@ -284,7 +284,7 @@ std::vector<std::string> rutasDeContenido(const std::string& ruta) {
     return salida;
 }
 
-bool rutaDeContenidoValida(const std::string& ruta) {
+bool isValidContentPath(const std::string& ruta) {
     const std::string r = zfsmgr::base::trim(ruta);
     if (r.empty()) {
         return true;
@@ -299,4 +299,4 @@ bool rutaDeContenidoValida(const std::string& ruta) {
            && r.find('\t') == std::string::npos;
 }
 
-}  // namespace zfsmgr::commands::avanzadas
+}  // namespace zfsmgr::commands::advanced

@@ -19,12 +19,12 @@
 // EJECUTANDO, después de que la operación dijera que había funcionado sin hacer nada, y
 // acabó escrita en un comentario del intérprete, otra vez en el del servidor, y resuelta de
 // una tercera manera en la interfaz. Un sitio donde ponerla es lo que faltaba.
-namespace zfsmgr::commands::avanzadas {
+namespace zfsmgr::commands::advanced {
 
 // --- Desglosar ---------------------------------------------------------------
 //
 // Cada par dice: QUÉ subdirectorio y QUÉ dataset hijo pasa a ocupar su sitio.
-struct Desglose {
+struct Breakdown {
     std::string subdirectorio;  // relativo al punto de montaje del dataset
     std::string datasetNuevo;   // relativo al dataset padre
 };
@@ -33,8 +33,8 @@ struct Desglose {
 //
 // Devuelve vacío si no hay ningún par utilizable: el verbo con solo el dataset detrás no
 // hace nada, y mandarlo sería pedirle al daemon que decida algo que aquí ya se sabe.
-std::vector<std::string> argvDesglosar(const std::string& dataset,
-                                       const std::vector<Desglose>& pares);
+std::vector<std::string> argvBreakdown(const std::string& dataset,
+                                       const std::vector<Breakdown>& pares);
 
 // --- Ensamblar ---------------------------------------------------------------
 
@@ -47,12 +47,12 @@ std::vector<std::string> argvDesglosar(const std::string& dataset,
 //
 // Un nombre que ya lleve barra se respeta tal cual: puede ser un nieto
 // («tank/datos/fotos/2024») y completarlo otra vez lo rompería.
-std::string hijoConNombreCompleto(const std::string& dataset, const std::string& hijo);
+std::string childWithFullName(const std::string& dataset, const std::string& hijo);
 
 // `--mutate-advanced-assemble <dataset> <hijo-completo> [<hijo-completo>...]`
 //
-// Los hijos pasan por `hijoConNombreCompleto`. Vacío si no queda ninguno.
-std::vector<std::string> argvEnsamblar(const std::string& dataset,
+// Los hijos pasan por `childWithFullName`. Vacío si no queda ninguno.
+std::vector<std::string> argvAssemble(const std::string& dataset,
                                        const std::vector<std::string>& hijos);
 
 // --- Hacia Dir ---------------------------------------------------------------
@@ -63,7 +63,7 @@ std::vector<std::string> argvEnsamblar(const std::string& dataset,
 // y no como bandera con nombre porque así lo lee el verbo; que sea un booleano en esta
 // interfaz y no una cadena es justo lo que evita que alguien mande «true» y destruya, o «no»
 // y también destruya.
-std::vector<std::string> argvHaciaDir(const std::string& dataset, const std::string& directorio,
+std::vector<std::string> argvToDir(const std::string& dataset, const std::string& directorio,
                                       bool destruyeOrigen);
 
 // ¿Sirve esta ruta como destino de «Hacia Dir»?
@@ -71,7 +71,7 @@ std::vector<std::string> argvHaciaDir(const std::string& dataset, const std::str
 // Tiene que ser absoluta. Una relativa la interpretaría el daemon desde SU directorio de
 // trabajo, que no es el de quien la escribió: el volcado acabaría en un sitio que nadie
 // eligió.
-bool rutaDeDestinoValida(const std::string& directorio);
+bool isValidDestinationPath(const std::string& directorio);
 
 // --- Desde Dir ---------------------------------------------------------------
 //
@@ -91,16 +91,16 @@ bool rutaDeDestinoValida(const std::string& directorio);
 // comprueba antes de abrir la tubería.
 //
 // Vacío SÍ vale: significa la raíz del dataset.
-bool subdirectorioRelativoValido(const std::string& rel);
+bool isValidRelativeSubdir(const std::string& rel);
 
 // `--mutate-advanced-fromdir <dataset> [<rel>]`
 //
 // El `rel` solo se pone si no está vacío: el verbo lo trata como opcional y mandarle una
 // cadena vacía detrás es pedirle que decida qué significa.
-std::vector<std::string> argvDesdeDir(const std::string& dataset, const std::string& rel);
+std::vector<std::string> argvFromDir(const std::string& dataset, const std::string& rel);
 
 // De dónde sale un contenido: el directorio y la máquina en la que está.
-struct OrigenDesdeDir {
+struct FromDirSource {
     std::string ruta;      // tal como lo dio quien llama
     std::string maquina;   // el nombre de la conexión de la que sale
     bool windows{false};   // si sus separadores son «\\»
@@ -123,7 +123,7 @@ struct OrigenDesdeDir {
 // nombre de conexión con una barra dentro habría creado un nivel de más, y un «..» habría
 // sacado el volcado fuera del dataset —lo habría parado el daemon, pero con el tar ya en
 // marcha—.
-std::vector<std::string> subdirectoriosDeDestino(const std::vector<OrigenDesdeDir>& origenes);
+std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& origenes);
 
 // `--mutate-advanced-fromdir-prepare <dataset> [<rel>]`
 //
@@ -135,10 +135,10 @@ std::vector<std::string> subdirectoriosDeDestino(const std::vector<OrigenDesdeDi
 // web solo sabe volcar a la raíz del dataset. Con esto delante, el árbol también sirve para
 // un subdirectorio, y entonces los datos van de máquina a máquina en vez de pasar por el
 // equipo de quien manda.
-std::vector<std::string> argvDesdeDirPreparar(const std::string& dataset, const std::string& rel);
+std::vector<std::string> argvFromDirPrepare(const std::string& dataset, const std::string& rel);
 
 // La ruta que contesta ese verbo: una línea «DST=<ruta absoluta>». Vacío si no la trae.
-std::string rutaPreparada(const std::string& salida);
+std::string preparedPath(const std::string& salida);
 
 // ¿Puede esta pareja hacer Desde Dir por el árbol entre daemons, sin tubería?
 //
@@ -149,7 +149,7 @@ std::string rutaPreparada(const std::string& salida);
 // La otra razón para conservar el respaldo no se ve desde aquí: el árbol abre un puerto
 // efímero en el destino y el origen conecta a él. Donde haya un cortafuegos entre las dos
 // máquinas, SSH pasa y esto no.
-bool puedeIrPorElArbol(bool origenTieneDaemon, bool destinoTieneDaemon);
+bool canUseTreeTransfer(bool origenTieneDaemon, bool destinoTieneDaemon);
 
 // ── Subárboles de ficheros ───────────────────────────────────────────────────
 
@@ -166,13 +166,13 @@ bool puedeIrPorElArbol(bool origenTieneDaemon, bool destinoTieneDaemon);
 //
 // Una llave vacía, sin cerrar o anidada devuelve la lista vacía: es un error de escritura y
 // adivinar qué se quiso decir es peor que decirlo.
-std::vector<std::string> rutasDeContenido(const std::string& ruta);
+std::vector<std::string> contentPaths(const std::string& ruta);
 
 // ¿Se queda esta ruta relativa DENTRO del árbol del que cuelga?
 //
 // Vacía sí: es la raíz. Absoluta no, y con `..` tampoco —ni al principio ni en medio—:
 // `sub/../../etc` sale del punto de montaje, y quien lo ejecuta es un proceso que corre
 // como root. El daemon no lo comprueba para rsync: solo exige que la ruta sea absoluta.
-bool rutaDeContenidoValida(const std::string& ruta);
+bool isValidContentPath(const std::string& ruta);
 
-}  // namespace zfsmgr::commands::avanzadas
+}  // namespace zfsmgr::commands::advanced

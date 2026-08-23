@@ -5,7 +5,7 @@
 
 namespace BR = zfsmgr::base::refresh;
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "daemonpayload.h"
 #include "helperinstallcatalog.h"
 #include "agentversion.h"
@@ -283,7 +283,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         QString bOut;
         QString bErr;
         int bRc = -1;
-        const QString basicsCmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::datosBasicosDelRefresco()));
+        const QString basicsCmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::refreshBasics()));
         if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {})
             && bRc == 0) {
             const QMap<QString, QString> kv = parseKeyValueOutput(bOut + QStringLiteral("\n") + bErr);
@@ -524,7 +524,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                 const QString payloadB64 = mwhelpers::argvParaAgente(wantedJson);
                 const QString probeCmd = mwhelpers::agentShellCommand(
                         p, mwhelpers::argvQt(
-                               zfsmgr::commands::peticiones::herramientasDisponibles())
+                               zfsmgr::commands::requests::availableTools())
                                << payloadB64);
                 commandsProbed = runSsh(p, probeCmd, 12000, dout, derr, drc) && drc == 0;
                 if (!commandsProbed) {
@@ -729,8 +729,8 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                     "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\"")
                     .arg(daemonpayload::unixBinPath()));
     }
-    const QString importProbeCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::sondaDeImportables()));
-    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::montajes()));
+    const QString importProbeCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::importableProbe()));
+    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::mounts()));
     QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000);
     {
         const AsyncSshResult agentRes = agentFuture.result();
@@ -842,13 +842,13 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             }
         }
     }
-    const QString zpoolListCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::listaDePools()));
-    const QString zpoolGuidStatusBatchCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::guidYEstadoDeLosPools()));
+    const QString zpoolListCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolList()));
+    const QString zpoolGuidStatusBatchCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolGuidsAndStates()));
     out.clear(); err.clear(); rc = -1;
     bool zpoolListOk = false;
     bool zpoolListViaDaemon = false;
     if (daemonReadApiOk) {
-        zpoolListOk = runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::listaDePools()), 18000, out, err, rc)
+        zpoolListOk = runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolList()), 18000, out, err, rc)
                       && rc == 0;
         zpoolListViaDaemon = zpoolListOk;
     } else {
@@ -918,7 +918,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         if (state.poolStatusByName.isEmpty() || state.poolGuidByName.isEmpty()) {
             const bool batchOk =
                 daemonReadApiOk
-                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::guidYEstadoDeLosPools()),
+                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolGuidsAndStates()),
                                    45000, bout, berr, brc)
                 && brc == 0;
             if (batchOk) {
@@ -951,7 +951,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             QString gerr;
             int grc = -1;
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList guidCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::guidDePool(poolName.toStdString()));
+            const QStringList guidCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolGuid(poolName.toStdString()));
             bool guidOk = daemonReadApiOk
                   && runAgentCommand(p, guidCmdDaemonArgv, 12000, gout, gerr, grc)
                   && grc == 0;
@@ -969,7 +969,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         err.clear();
         rc = -1;
         // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-        const QStringList stCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::estadoDePool(poolName.toStdString()));
+        const QStringList stCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolStatus(poolName.toStdString()));
         bool statusOk = daemonReadApiOk
               && runAgentCommand(p, stCmdDaemonArgv, 20000, out, err, rc)
               && rc == 0;
@@ -1062,7 +1062,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         if (propsByDataset.isEmpty()) {
             const bool gsaPropsOk =
                 daemonReadApiOk
-                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::gsaDeTodosLosPools()),
+                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfAllPools()),
                                    30000, gout, gerr, grc)
                 && grc == 0;
             if (gsaPropsOk) {

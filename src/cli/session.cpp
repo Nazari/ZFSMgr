@@ -292,7 +292,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         ST::Aviso aviso;
         if (!ST::guardaTlsEnAlmacen(raw->dirConfig, guardado, raw->maestra, aviso)) {
             if (errorOut) {
-                *errorOut = aviso.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar
+                *errorOut = aviso.motivo == ST::Reason::ClaveMaestraRequeridaParaCifrar
                                 ? T("t_tls_sin_maestra",
                                     "sin contraseña maestra no se guarda el material TLS en claro")
                                 : ST::labelOf(aviso);
@@ -551,7 +551,7 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
     // VOLVÍA a la lista en el siguiente arranque.
     ST::Aviso aviso;
     if (!ST::borraPerfil(s.dirConfig, id, aviso)) {
-        error = aviso.motivo == ST::Motivo::NoSeGuardaConexion
+        error = aviso.motivo == ST::Reason::NoSeGuardaConexion
                     ? B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id})
                     : ST::labelOf(aviso);
         return false;

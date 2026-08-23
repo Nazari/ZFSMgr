@@ -44,7 +44,7 @@ std::string labelOf(Fallo f) {
     return "sin fallo";
 }
 
-std::string plataformaDe(const ConnectionProfile& p) {
+std::string platformOf(const ConnectionProfile& p) {
     if (T::isWindowsConnection(p)) {
         return "windows";
     }
@@ -58,7 +58,7 @@ std::string plataformaDe(const ConnectionProfile& p) {
     return "linux";
 }
 
-std::string arquitecturaRemota(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
+std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
     if (T::isWindowsConnection(p)) {
         return "x86_64";
     }
@@ -72,7 +72,7 @@ std::string arquitecturaRemota(TransportSession& ses, const ConnectionProfile& p
     return {};
 }
 
-std::string guionDeInstalacion(const std::string& plataforma, const std::string& version,
+std::string installScript(const std::string& plataforma, const std::string& version,
                                const std::string& apiVersion) {
     // El binario entra por la ENTRADA ESTÁNDAR y el guion lo coloca con `install`. Así no
     // hay un segundo canal que pueda quedarse a medias ni un fichero suelto si esto muere.
@@ -133,7 +133,7 @@ std::string guionDeInstalacion(const std::string& plataforma, const std::string&
     }
     if (plataforma == "freebsd") {
         return "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; " + despliegue
-               // Sin OpenSSL el daemon se instala y no arranca, y el motivo real queda en
+               // Sin OpenSSL el daemon se install y no arranca, y el motivo real queda en
                // un error del cargador que no dice qué falta.
                + "ldd_missing=$(ldd " + bin + " 2>&1 | grep 'not found' || true); "
                  "if [ -n \"$ldd_missing\" ]; then "
@@ -163,11 +163,11 @@ std::string guionDeInstalacion(const std::string& plataforma, const std::string&
              "systemctl restart zfsmgr-agent.service";
 }
 
-Resultado instala(TransportSession& ses, const ConnectionProfile& perfil,
+Result install(TransportSession& ses, const ConnectionProfile& perfil,
                   const std::string& rutaBinario,
                   const std::function<void(const std::string&)>& traza, bool verboso) {
-    Resultado r;
-    const std::string plataforma = plataformaDe(perfil);
+    Result r;
+    const std::string plataforma = platformOf(perfil);
     r.esMac = (plataforma == "macos");
 
     const std::string contenido = leeFicheroEntero(rutaBinario);
@@ -233,7 +233,7 @@ Resultado instala(TransportSession& ses, const ConnectionProfile& perfil,
 
     // allowAgentRpc=false: se está INSTALANDO el agente; desviar esto al RPC del agente que
     // se quiere sustituir no tendría ningún sentido.
-    const std::string guion = guionDeInstalacion(plataforma, r.version, api);
+    const std::string guion = installScript(plataforma, r.version, api);
     if (!T::runSsh(ses, perfil, H::withSudoStreamInputCommand(perfil, guion), 300000, out, err, rc,
                    traza, traza, {}, contenido, false, verboso)
         || rc != 0) {

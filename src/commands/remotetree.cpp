@@ -1,4 +1,4 @@
-#include "arbolremoto.h"
+#include "remotetree.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-namespace zfsmgr::arbolremoto {
+namespace zfsmgr::remotetree {
 namespace {
 
 // La fecha, en segundos desde el epoch, leída del sistema y no de `std::filesystem`.
@@ -63,44 +63,44 @@ std::string conBarras(const std::string& s) {
     return r;
 }
 
-char letraDe(Tipo t) {
+char letraDe(EntryKind t) {
     switch (t) {
-        case Tipo::Directorio: return 'd';
-        case Tipo::Fichero:    return 'f';
-        case Tipo::Enlace:     return 'l';
-        case Tipo::EnlaceDuro: return 'h';
+        case EntryKind::Directorio: return 'd';
+        case EntryKind::Fichero:    return 'f';
+        case EntryKind::Enlace:     return 'l';
+        case EntryKind::EnlaceDuro: return 'h';
     }
     return 'f';
 }
 
-bool tipoDe(char c, Tipo& out) {
+bool tipoDe(char c, EntryKind& out) {
     switch (c) {
-        case 'd': out = Tipo::Directorio; return true;
-        case 'f': out = Tipo::Fichero;    return true;
-        case 'l': out = Tipo::Enlace;     return true;
-        case 'h': out = Tipo::EnlaceDuro; return true;
+        case 'd': out = EntryKind::Directorio; return true;
+        case 'f': out = EntryKind::Fichero;    return true;
+        case 'l': out = EntryKind::Enlace;     return true;
+        case 'h': out = EntryKind::EnlaceDuro; return true;
         default:  return false;
     }
 }
 
-char letraDe(Accion a) {
+char letraDe(Action a) {
     switch (a) {
-        case Accion::CrearDirectorio: return 'D';
-        case Accion::Copiar:          return 'F';
-        case Accion::Enlazar:         return 'L';
-        case Accion::EnlazarDuro:     return 'H';
-        case Accion::Borrar:          return 'X';
+        case Action::CrearDirectorio: return 'D';
+        case Action::Copiar:          return 'F';
+        case Action::Enlazar:         return 'L';
+        case Action::EnlazarDuro:     return 'H';
+        case Action::Borrar:          return 'X';
     }
     return 'F';
 }
 
-bool accionDe(char c, Accion& out) {
+bool accionDe(char c, Action& out) {
     switch (c) {
-        case 'D': out = Accion::CrearDirectorio; return true;
-        case 'F': out = Accion::Copiar;          return true;
-        case 'L': out = Accion::Enlazar;         return true;
-        case 'H': out = Accion::EnlazarDuro;     return true;
-        case 'X': out = Accion::Borrar;          return true;
+        case 'D': out = Action::CrearDirectorio; return true;
+        case 'F': out = Action::Copiar;          return true;
+        case 'L': out = Action::Enlazar;         return true;
+        case 'H': out = Action::EnlazarDuro;     return true;
+        case 'X': out = Action::Borrar;          return true;
         default:  return false;
     }
 }
@@ -135,7 +135,7 @@ std::size_t hondura(const std::string& ruta) {
 
 }  // namespace
 
-bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
+bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
              bool unSoloSistema) {
     salida.clear();
     error.clear();
@@ -169,7 +169,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
         //
         // `fs::relative` canonicaliza, y canonicalizar SIGUE LOS ENLACES SIMBÓLICOS: un
         // enlace llamado «enlace» que apunta a «a.txt» salía del recorrido con la ruta
-        // «a.txt», o sea con el nombre de su destino. Resultado medido: el enlace pisaba al
+        // «a.txt», o sea con el nombre de su destino. Result medido: el enlace pisaba al
         // fichero real en la lista y el fichero acababa marcado como enlace duro de sí
         // mismo. Sincronizar así habría destrozado cualquier árbol con enlaces dentro.
         Entry en;
@@ -188,7 +188,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
         std::error_code e3;
         const bool esEnlace = fs::is_symlink(p, e3);
         if (esEnlace) {
-            en.tipo = Tipo::Enlace;
+            en.tipo = EntryKind::Enlace;
             std::error_code e4;
             en.destino = conBarras(fs::read_symlink(p, e4).generic_string());
             salida.push_back(en);
@@ -201,7 +201,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
 
         std::error_code e5;
         if (fs::is_directory(p, e5)) {
-            en.tipo = Tipo::Directorio;
+            en.tipo = EntryKind::Directorio;
             bool okF = false;
             en.fecha = fechaDe(p, okF);
 #ifndef _WIN32
@@ -228,7 +228,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
             // `--devices`/`--specials`.
             continue;
         }
-        en.tipo = Tipo::Fichero;
+        en.tipo = EntryKind::Fichero;
         std::error_code e7;
         en.tamano = static_cast<std::uint64_t>(fs::file_size(p, e7));
         if (e7) {
@@ -274,7 +274,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
             primero.emplace(it->second, e.ruta);
             continue;
         }
-        e.tipo = Tipo::EnlaceDuro;
+        e.tipo = EntryKind::EnlaceDuro;
         e.destino = ya->second;
         e.tamano = 0;
     }
@@ -282,7 +282,7 @@ bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& e
     return true;
 }
 
-std::string serializaManifiesto(const std::vector<Entry>& entradas) {
+std::string serializeManifest(const std::vector<Entry>& entradas) {
     std::string out;
     for (const Entry& e : entradas) {
         out += letraDe(e.tipo);
@@ -304,7 +304,7 @@ std::string serializaManifiesto(const std::vector<Entry>& entradas) {
     return out;
 }
 
-bool analizaManifiesto(const std::string& texto, std::vector<Entry>& salida,
+bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
                        std::string& error) {
     salida.clear();
     error.clear();
@@ -352,7 +352,7 @@ bool analizaManifiesto(const std::string& texto, std::vector<Entry>& salida,
     return false;
 }
 
-Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
+Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
             bool borraLoQueSobra) {
     Plan plan;
     std::map<std::string, const Entry*> enDestino;
@@ -368,40 +368,40 @@ Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
         const Entry* alli = (it == enDestino.end()) ? nullptr : it->second;
 
         switch (e.tipo) {
-            case Tipo::Directorio:
-                if (alli == nullptr || alli->tipo != Tipo::Directorio) {
-                    plan.operaciones.push_back({Accion::CrearDirectorio, e});
+            case EntryKind::Directorio:
+                if (alli == nullptr || alli->tipo != EntryKind::Directorio) {
+                    plan.operaciones.push_back({Action::CrearDirectorio, e});
                 } else {
                     ++plan.iguales;
                 }
                 break;
-            case Tipo::Enlace:
-                if (alli == nullptr || alli->tipo != Tipo::Enlace || alli->destino != e.destino) {
-                    plan.operaciones.push_back({Accion::Enlazar, e});
+            case EntryKind::Enlace:
+                if (alli == nullptr || alli->tipo != EntryKind::Enlace || alli->destino != e.destino) {
+                    plan.operaciones.push_back({Action::Enlazar, e});
                 } else {
                     ++plan.iguales;
                 }
                 break;
-            case Tipo::EnlaceDuro:
+            case EntryKind::EnlaceDuro:
                 // Un enlace duro se rehace siempre que no esté ya como tal: comprobar que
                 // los dos nombres comparten inodo EN EL DESTINO costaría otro manifiesto,
                 // y rehacerlo es barato porque no mueve datos.
-                if (alli == nullptr || alli->tipo != Tipo::EnlaceDuro
+                if (alli == nullptr || alli->tipo != EntryKind::EnlaceDuro
                     || alli->destino != e.destino) {
-                    plan.operaciones.push_back({Accion::EnlazarDuro, e});
+                    plan.operaciones.push_back({Action::EnlazarDuro, e});
                 } else {
                     ++plan.iguales;
                 }
                 break;
-            case Tipo::Fichero:
+            case EntryKind::Fichero:
                 // La misma regla que `copytree` en local: tamaño y fecha. La fecha va en
                 // segundos enteros porque es lo único que dos sistemas de ficheros
                 // distintos pueden comparar; ver el comentario de `Entry::fecha`.
-                if (alli != nullptr && alli->tipo == Tipo::Fichero && alli->tamano == e.tamano
+                if (alli != nullptr && alli->tipo == EntryKind::Fichero && alli->tamano == e.tamano
                     && alli->fecha == e.fecha) {
                     ++plan.iguales;
                 } else {
-                    plan.operaciones.push_back({Accion::Copiar, e});
+                    plan.operaciones.push_back({Action::Copiar, e});
                     plan.bytes += e.tamano;
                 }
                 break;
@@ -431,25 +431,25 @@ Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
         return a.ruta > b.ruta;
     });
     for (const Entry& e : sobran) {
-        plan.operaciones.push_back({Accion::Borrar, e});
+        plan.operaciones.push_back({Action::Borrar, e});
     }
     return plan;
 }
 
 std::string describe(const Operation& o) {
     switch (o.accion) {
-        case Accion::CrearDirectorio: return "cd+++++++++ " + o.entrada.ruta + "/";
-        case Accion::Copiar:          return ">f+++++++++ " + o.entrada.ruta;
-        case Accion::Enlazar:         return "cL+++++++++ " + o.entrada.ruta + " -> "
+        case Action::CrearDirectorio: return "cd+++++++++ " + o.entrada.ruta + "/";
+        case Action::Copiar:          return ">f+++++++++ " + o.entrada.ruta;
+        case Action::Enlazar:         return "cL+++++++++ " + o.entrada.ruta + " -> "
                                              + o.entrada.destino;
-        case Accion::EnlazarDuro:     return "hf+++++++++ " + o.entrada.ruta + " => "
+        case Action::EnlazarDuro:     return "hf+++++++++ " + o.entrada.ruta + " => "
                                              + o.entrada.destino;
-        case Accion::Borrar:          return "*deleting   " + o.entrada.ruta;
+        case Action::Borrar:          return "*deleting   " + o.entrada.ruta;
     }
     return {};
 }
 
-std::string cabeceraDe(const Operation& o) {
+std::string headerOf(const Operation& o) {
     std::string h;
     h += letraDe(o.accion);
     h += ' ';
@@ -466,7 +466,7 @@ std::string cabeceraDe(const Operation& o) {
     return h;
 }
 
-bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& largoRuta,
+bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largoRuta,
                      std::size_t& largoDestino, std::string& error) {
     error.clear();
     std::istringstream iss(linea);
@@ -495,7 +495,7 @@ bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& l
 
 // --- Delta ------------------------------------------------------------------
 
-std::size_t tamanoDeBloque(std::uint64_t tamanoFichero) {
+std::size_t blockSize(std::uint64_t tamanoFichero) {
     if (tamanoFichero < 16ULL * 1024 * 1024) {
         return 8 * 1024;
     }
@@ -505,7 +505,7 @@ std::size_t tamanoDeBloque(std::uint64_t tamanoFichero) {
     return 256 * 1024;
 }
 
-std::uint32_t sumaRodante(const unsigned char* datos, std::size_t n) {
+std::uint32_t rollingSum(const unsigned char* datos, std::size_t n) {
     // La de rsync: una suma de los bytes y otra ponderada por la posición. La segunda es la
     // que hace que dos trozos con los mismos bytes en distinto orden NO coincidan.
     std::uint32_t a = 0;
@@ -517,7 +517,7 @@ std::uint32_t sumaRodante(const unsigned char* datos, std::size_t n) {
     return (a & 0xffff) | ((b & 0xffff) << 16);
 }
 
-std::string hashFuerteHex(const unsigned char* datos, std::size_t n) {
+std::string strongHashHex(const unsigned char* datos, std::size_t n) {
     unsigned char h[SHA256_DIGEST_LENGTH];
     SHA256(datos, n, h);
     static const char* hex = "0123456789abcdef";
@@ -530,7 +530,7 @@ std::string hashFuerteHex(const unsigned char* datos, std::size_t n) {
     return out;
 }
 
-bool hashDeFichero(const std::string& ruta, std::string& hexOut, std::string& error) {
+bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error) {
     hexOut.clear();
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
     if (f == nullptr) {
@@ -567,7 +567,7 @@ bool hashDeFichero(const std::string& ruta, std::string& hexOut, std::string& er
     return true;
 }
 
-bool firmasDe(const std::string& ruta, std::size_t tamBloque, std::vector<Firma>& salida,
+bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Signature>& salida,
               std::string& error) {
     salida.clear();
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
@@ -581,8 +581,8 @@ bool firmasDe(const std::string& ruta, std::size_t tamBloque, std::vector<Firma>
         if (n == 0) {
             break;
         }
-        Firma fi;
-        fi.debil = sumaRodante(buf.data(), n);
+        Signature fi;
+        fi.debil = rollingSum(buf.data(), n);
         unsigned char h[SHA256_DIGEST_LENGTH];
         SHA256(buf.data(), n, h);
         std::memcpy(fi.fuerte, h, sizeof(fi.fuerte));
@@ -595,10 +595,10 @@ bool firmasDe(const std::string& ruta, std::size_t tamBloque, std::vector<Firma>
     return true;
 }
 
-std::string serializaFirmas(const std::vector<Firma>& f) {
+std::string serializeSignatures(const std::vector<Signature>& f) {
     std::string out;
     out.reserve(f.size() * (4 + 16));
-    for (const Firma& x : f) {
+    for (const Signature& x : f) {
         for (int i = 0; i < 4; ++i) {
             out.push_back(static_cast<char>((x.debil >> (8 * i)) & 0xff));
         }
@@ -607,14 +607,14 @@ std::string serializaFirmas(const std::vector<Firma>& f) {
     return out;
 }
 
-bool analizaFirmas(const std::string& datos, std::vector<Firma>& salida, std::string& error) {
+bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, std::string& error) {
     salida.clear();
     if (datos.size() % 20 != 0) {
         error = "las firmas llegan a medias";
         return false;
     }
     for (std::size_t i = 0; i < datos.size(); i += 20) {
-        Firma f;
+        Signature f;
         f.debil = 0;
         for (int k = 0; k < 4; ++k) {
             f.debil |= static_cast<std::uint32_t>(static_cast<unsigned char>(datos[i + k]))
@@ -626,8 +626,8 @@ bool analizaFirmas(const std::string& datos, std::vector<Firma>& salida, std::st
     return true;
 }
 
-bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_t tamBloque,
-           std::vector<Instruccion>& salida, std::uint64_t& bytesLiterales,
+bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::size_t tamBloque,
+           std::vector<Instruction>& salida, std::uint64_t& bytesLiterales,
            std::string& error) {
     salida.clear();
     bytesLiterales = 0;
@@ -677,8 +677,8 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
         if (literal.empty()) {
             return;
         }
-        Instruccion in;
-        in.tipo = TipoInstruccion::Literal;
+        Instruction in;
+        in.tipo = InstructionKind::Literal;
         in.datos = literal;
         bytesLiterales += literal.size();
         salida.push_back(std::move(in));
@@ -706,7 +706,7 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
         }
         const std::size_t ventana = std::min<std::size_t>(tamBloque, fin - ini);
         if (!haySuma || ventana != tamBloque) {
-            suma = sumaRodante(buf.data() + ini, ventana);
+            suma = rollingSum(buf.data() + ini, ventana);
             haySuma = true;
         }
 
@@ -723,7 +723,7 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
             // una para todos. Medido: 300 KB de un solo byte repetido daban 37
             // instrucciones; con esto, una.
             std::vector<std::size_t> candidatos = it->second;
-            if (!salida.empty() && salida.back().tipo == TipoInstruccion::Copiar) {
+            if (!salida.empty() && salida.back().tipo == InstructionKind::Copiar) {
                 const std::size_t siguiente =
                     static_cast<std::size_t>(salida.back().bloque + salida.back().cuantos);
                 for (std::size_t k = 0; k < candidatos.size(); ++k) {
@@ -740,12 +740,12 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
                 sueltaLiteral();
                 // Bloques seguidos se juntan en una sola instrucción: un fichero que no ha
                 // cambiado nada se resuelve con UNA, no con una por bloque.
-                if (!salida.empty() && salida.back().tipo == TipoInstruccion::Copiar
+                if (!salida.empty() && salida.back().tipo == InstructionKind::Copiar
                     && salida.back().bloque + salida.back().cuantos == idx) {
                     ++salida.back().cuantos;
                 } else {
-                    Instruccion in;
-                    in.tipo = TipoInstruccion::Copiar;
+                    Instruction in;
+                    in.tipo = InstructionKind::Copiar;
                     in.bloque = idx;
                     in.cuantos = 1;
                     salida.push_back(in);
@@ -781,7 +781,7 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
     return true;
 }
 
-bool ponFecha(const std::string& ruta, std::int64_t segundos) {
+bool setMtime(const std::string& ruta, std::int64_t segundos) {
 #ifdef _WIN32
     HANDLE h = CreateFileW(fs::path(ruta).wstring().c_str(), FILE_WRITE_ATTRIBUTES,
                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
@@ -806,7 +806,7 @@ bool ponFecha(const std::string& ruta, std::int64_t segundos) {
 #endif
 }
 
-bool ponModo(const std::string& ruta, std::uint32_t modo) {
+bool setMode(const std::string& ruta, std::uint32_t modo) {
 #ifdef _WIN32
     (void)ruta;
     (void)modo;
@@ -821,8 +821,8 @@ bool ponModo(const std::string& ruta, std::uint32_t modo) {
 #endif
 }
 
-std::int64_t fechaDeFichero(const std::string& ruta, bool& ok) {
+std::int64_t fileMtime(const std::string& ruta, bool& ok) {
     return fechaDe(fs::path(ruta), ok);
 }
 
-}  // namespace zfsmgr::arbolremoto
+}  // namespace zfsmgr::remotetree

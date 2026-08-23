@@ -1,6 +1,6 @@
 #include "mainwindow_helpers.h"
 
-#include "avanzadas.h"
+#include "advanced.h"
 #include "datasets.h"
 #include "snapshots.h"
 
@@ -563,21 +563,21 @@ std::vector<std::string> deQt(const QStringList& v) {
 
 namespace mwhelpers {
 
-QStringList argvEnsamblar(const QString& dataset, const QStringList& hijos) {
-    return aQt(zfsmgr::commands::avanzadas::argvEnsamblar(dataset.toStdString(), deQt(hijos)));
+QStringList argvAssemble(const QString& dataset, const QStringList& hijos) {
+    return aQt(zfsmgr::commands::advanced::argvAssemble(dataset.toStdString(), deQt(hijos)));
 }
 
-QStringList argvDesglosar(const QString& dataset, const QStringList& subdirs,
+QStringList argvBreakdown(const QString& dataset, const QStringList& subdirs,
                           const QStringList& nombres) {
-    std::vector<zfsmgr::commands::avanzadas::Desglose> pares;
+    std::vector<zfsmgr::commands::advanced::Breakdown> pares;
     for (int i = 0; i < subdirs.size() && i < nombres.size(); ++i) {
         pares.push_back({subdirs.at(i).toStdString(), nombres.at(i).toStdString()});
     }
-    return aQt(zfsmgr::commands::avanzadas::argvDesglosar(dataset.toStdString(), pares));
+    return aQt(zfsmgr::commands::advanced::argvBreakdown(dataset.toStdString(), pares));
 }
 
-QStringList argvHaciaDir(const QString& dataset, const QString& directorio, bool destruyeOrigen) {
-    return aQt(zfsmgr::commands::avanzadas::argvHaciaDir(dataset.toStdString(),
+QStringList argvToDir(const QString& dataset, const QString& directorio, bool destruyeOrigen) {
+    return aQt(zfsmgr::commands::advanced::argvToDir(dataset.toStdString(),
                                                          directorio.toStdString(),
                                                          destruyeOrigen));
 }

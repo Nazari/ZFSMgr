@@ -181,7 +181,7 @@ bool runSshRaw(const ConnectionProfile& p,
     // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
     // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
     // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
+    // autenticación por contraseña. Result: cualquier conexión que dependiera de
     // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
     // a la vista en ninguna parte.
     //
@@ -710,7 +710,7 @@ struct VigilanteDeInactividad {
                 return false;  // cancela: es la muerte por silencio
             }
             // CON entrada de usuario: es lo que permite pulsar Cancelar mientras corre
-            // una transferencia larga.
+            // una transfer larga.
             ses.respira(/*permitirEntradaDeUsuario=*/true);
             return true;
         };
@@ -857,7 +857,7 @@ bool runSsh(TransportSession& ses,
     // --- Por SSH. Windows entra por RPC como cualquier otro sistema: el daemon nativo sirve
     // TLS por el mismo túnel, verificado contra un Windows 11 real ejecutando ZFS.
     //
-    // Camino HEREDADO: los argumentos se recuperan analizando la cadena. runAgentCommand los
+    // Route HEREDADO: los argumentos se recuperan analizando la cadena. runAgentCommand los
     // pasa ya hechos y no pasa por aquí. Este análisis desaparece cuando migren todos los
     // sitios; hasta entonces convive con el nuevo.
     if (allowAgentRpc && stdinPayload.empty()) {
@@ -923,7 +923,7 @@ bool runSsh(TransportSession& ses,
     // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
     // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
     // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-    // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
+    // autenticación por contraseña. Result: cualquier conexión que dependiera de
     // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
     // a la vista en ninguna parte.
     //

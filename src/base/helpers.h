@@ -113,7 +113,7 @@ std::string shPrintfOctalEscaped(const std::string& s);
 // ssh con un resumen de usuario/host/puerto.
 std::string sshControlPath();
 
-// Qué botones de transferencia deben quedar activos, dada la selección.
+// Qué botones de transfer deben quedar activos, dada la selección.
 TransferButtonState computeTransferButtonState(const TransferButtonInputs& in);
 
 // Puntos de montaje repetidos entre datasets: los agrupa por punto y devuelve solo los
@@ -233,7 +233,7 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // cambie, y ninguno de los tres clientes tiene por qué saber cómo se serializa.
 std::string argvParaAgente(const std::vector<std::string>& argv);
 
-// Entrega un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
+// Handover un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
 //
 // `sshpass -p <contraseña>` deja la contraseña en el argv, y el argv de cualquier proceso
 // lo lee todo el mundo con `ps`. sshpass la borra nada más arrancar —por eso en `ps` se

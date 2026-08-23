@@ -1,9 +1,9 @@
-#include "sincronizacion.h"
+#include "syncing.h"
 
 #include "helpers.h"
 #include "strutil.h"
 
-namespace zfsmgr::base::sincronizacion {
+namespace zfsmgr::base::syncing {
 
 std::string labelOf(Fallo f) {
     switch (f) {
@@ -33,7 +33,7 @@ std::string labelOf(Fallo f) {
     return {};
 }
 
-bool rutaUsable(const std::string& ruta, bool esWindows) {
+bool isUsablePath(const std::string& ruta, bool esWindows) {
     const std::string r = trim(ruta);
     // «none» y «-» son lo que responde ZFS cuando NO hay punto de montaje; tratarlos como
     // una ruta cualquiera acababa pasándoselos a rsync, que se quejaba de algo que no era
@@ -47,7 +47,7 @@ bool rutaUsable(const std::string& ruta, bool esWindows) {
     return r[0] == '/';
 }
 
-Fallo compruebo(const Extremo& origen, const Extremo& destino) {
+Fallo check(const Endpoint& origen, const Endpoint& destino) {
     if (origen.conexion == destino.conexion && origen.objeto == destino.objeto) {
         return Fallo::ElMismoObjeto;
     }
@@ -72,9 +72,9 @@ Fallo compruebo(const Extremo& origen, const Extremo& destino) {
     return Fallo::Ninguno;
 }
 
-Plan planea(const Extremo& origen, const Extremo& destino) {
+Plan makePlan(const Endpoint& origen, const Endpoint& destino) {
     Plan plan;
-    plan.fallo = compruebo(origen, destino);
+    plan.fallo = check(origen, destino);
     if (plan.fallo != Fallo::Ninguno) {
         return plan;
     }
@@ -86,8 +86,8 @@ Plan planea(const Extremo& origen, const Extremo& destino) {
         plan.fallo = Fallo::DestinoNoMontado;
         return plan;
     }
-    if (!rutaUsable(origen.puntoMontaje, origen.esWindows)
-        || !rutaUsable(destino.puntoMontaje, destino.esWindows)) {
+    if (!isUsablePath(origen.puntoMontaje, origen.esWindows)
+        || !isUsablePath(destino.puntoMontaje, destino.esWindows)) {
         plan.fallo = Fallo::RutaNoUsable;
         return plan;
     }
@@ -96,7 +96,7 @@ Plan planea(const Extremo& origen, const Extremo& destino) {
     return plan;
 }
 
-std::string cargaRsync(const std::vector<std::pair<std::string, std::string>>& pares,
+std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pares,
                        bool borrar, bool enSeco,
                        const std::string& rsh, const std::string& hostDestino) {
     if (pares.empty()) {
@@ -109,7 +109,7 @@ std::string cargaRsync(const std::vector<std::pair<std::string, std::string>>& p
     for (const auto& par : pares) {
         const std::string o = trim(par.first);
         const std::string d = trim(par.second);
-        if (!rutaUsable(o) || !rutaUsable(d)) {
+        if (!isUsablePath(o) || !isUsablePath(d)) {
             return {};
         }
         campos.push_back(o);
@@ -118,4 +118,4 @@ std::string cargaRsync(const std::vector<std::pair<std::string, std::string>>& p
     return helpers::argvParaAgente(campos);
 }
 
-}  // namespace zfsmgr::base::sincronizacion
+}  // namespace zfsmgr::base::syncing

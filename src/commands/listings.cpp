@@ -1,10 +1,10 @@
-#include "listados.h"
+#include "listings.h"
 
 #include "strutil.h"
 
 #include <algorithm>
 
-namespace zfsmgr::base::listados {
+namespace zfsmgr::base::listings {
 namespace {
 
 std::string valorDe(const json::Value& props, const char* clave) {
@@ -44,7 +44,7 @@ bool pools(const std::string& salida, std::vector<Pool>& out, std::string& error
     return true;
 }
 
-std::vector<Entry> entradas(const std::string& salidaTsv) {
+std::vector<Entry> entries(const std::string& salidaTsv) {
     std::vector<Entry> out;
     for (const std::string& linea : split(salidaTsv, "\n", true)) {
         const std::vector<std::string> c = split(linea, "\t", false);
@@ -101,7 +101,7 @@ std::string origenLegible(const std::string& tipo, const std::string& dato) {
 
 // El cuerpo común de `zfs get -j` y `zpool get -j`: cambia la sección de la que cuelgan
 // los objetos y nada más.
-bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<Propiedad>& out,
+bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<Property>& out,
                    std::string& error) {
     out.clear();
     error.clear();
@@ -115,7 +115,7 @@ bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<P
     // Hay una entrada por objeto aunque se haya preguntado por uno solo.
     for (const auto& obj : raiz[seccion].toObject()) {
         for (const auto& kv : obj.second["properties"].toObject()) {
-            Propiedad p;
+            Property p;
             p.nombre = kv.first;
             p.valor = kv.second["value"].toString();
             p.origen = origenLegible(kv.second["source"]["type"].toString(),
@@ -124,22 +124,22 @@ bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<P
         }
     }
     std::sort(out.begin(), out.end(),
-              [](const Propiedad& a, const Propiedad& b) { return a.nombre < b.nombre; });
+              [](const Property& a, const Property& b) { return a.nombre < b.nombre; });
     return true;
 }
 
 }  // namespace
 
-bool propiedades(const std::string& salida, std::vector<Propiedad>& out, std::string& error) {
+bool properties(const std::string& salida, std::vector<Property>& out, std::string& error) {
     return propiedadesDe(salida, "datasets", out, error);
 }
 
-bool propiedadesDePool(const std::string& salida, std::vector<Propiedad>& out,
+bool poolProperties(const std::string& salida, std::vector<Property>& out,
                        std::string& error) {
     return propiedadesDe(salida, "pools", out, error);
 }
 
-bool contenidoDeDirectorio(const std::string& salida, std::vector<EntradaDeDirectorio>& out,
+bool directoryContents(const std::string& salida, std::vector<DirectoryEntry>& out,
                            std::string& error) {
     out.clear();
     error.clear();
@@ -148,7 +148,7 @@ bool contenidoDeDirectorio(const std::string& salida, std::vector<EntradaDeDirec
         return false;
     }
     for (const zfsmgr::base::json::Value& e : raiz["entries"].toArray()) {
-        EntradaDeDirectorio ent;
+        DirectoryEntry ent;
         ent.nombre = e["name"].toString();
         if (ent.nombre.empty()) {
             continue;
@@ -160,13 +160,13 @@ bool contenidoDeDirectorio(const std::string& salida, std::vector<EntradaDeDirec
         out.push_back(ent);
     }
     std::sort(out.begin(), out.end(),
-              [](const EntradaDeDirectorio& a, const EntradaDeDirectorio& b) {
+              [](const DirectoryEntry& a, const DirectoryEntry& b) {
                   return a.nombre < b.nombre;
               });
     return true;
 }
 
-bool dispositivos(const std::string& salidaJson, std::vector<Dispositivo>& out,
+bool devices(const std::string& salidaJson, std::vector<Device>& out,
                   std::string& error) {
     out.clear();
     error.clear();
@@ -175,7 +175,7 @@ bool dispositivos(const std::string& salidaJson, std::vector<Dispositivo>& out,
         return false;
     }
     for (const zfsmgr::base::json::Value& d : raiz["devices"].toArray()) {
-        Dispositivo x;
+        Device x;
         x.ruta = d["path"].toString();
         if (x.ruta.empty()) {
             continue;
@@ -193,7 +193,7 @@ bool dispositivos(const std::string& salidaJson, std::vector<Dispositivo>& out,
     return true;
 }
 
-bool montados(const std::string& salidaJson,
+bool mounted(const std::string& salidaJson,
               std::vector<std::pair<std::string, std::string>>& out, std::string& error) {
     out.clear();
     error.clear();
@@ -212,14 +212,14 @@ bool montados(const std::string& salidaJson,
     return true;
 }
 
-bool tieneDescendientesMontados(const std::string& salidaJson, const std::string& dataset) {
+bool hasMountedDescendants(const std::string& salidaJson, const std::string& dataset) {
     const std::string ds = zfsmgr::base::trim(dataset);
     if (ds.empty()) {
         return false;
     }
     std::vector<std::pair<std::string, std::string>> lista;
     std::string err;
-    if (!montados(salidaJson, lista, err)) {
+    if (!mounted(salidaJson, lista, err)) {
         return false;
     }
     // Con la barra: «tank/datos2» empieza por «tank/datos» y no está debajo de él.
@@ -232,4 +232,4 @@ bool tieneDescendientesMontados(const std::string& salidaJson, const std::string
     return false;
 }
 
-}  // namespace zfsmgr::base::listados
+}  // namespace zfsmgr::base::listings

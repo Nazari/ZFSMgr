@@ -20,7 +20,7 @@ namespace zfsmgr::cli::creacion {
 enum class Nivel { Raiz, Conexion, Dataset };
 
 // Qué hay que crear.
-enum class Objeto { Conexion, Pool, Dataset, Instantanea };
+enum class Objeto { Conexion, Pool, Dataset, Snapshot };
 
 struct Decision {
     Objeto que{Objeto::Conexion};

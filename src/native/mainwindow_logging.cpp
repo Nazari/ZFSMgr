@@ -1,6 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -826,7 +826,7 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         // devuelve solo la COLA en vez de días enteros de latidos. 256 KiB dan de sobra
         // para las 2000 líneas que la vista conserva.
         mwhelpers::agentCommand(profile,
-                                mwhelpers::argvQt(zfsmgr::commands::peticiones::registro(
+                                mwhelpers::argvQt(zfsmgr::commands::requests::daemonLog(
                                                       static_cast<unsigned long long>(offset),
                                                       262144))
                                     .join(QLatin1Char(' ')));

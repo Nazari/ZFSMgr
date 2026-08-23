@@ -13,7 +13,7 @@
 // Tercera tanda de la mudanza, y la delicada: por aquí pasan las mutaciones. Todo lo que
 // hay aquí existe para responder a una sola pregunta con precisión —**¿pudo la orden haber
 // llegado al otro lado?**—, porque de ella depende si se puede reintentar. Reenviar un
-// `--dump-*` no cuesta nada; reenviar un `--job-submit` lanza la misma transferencia dos
+// `--dump-*` no cuesta nada; reenviar un `--job-submit` lanza la misma transfer dos
 // veces sobre los mismos datos.
 //
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.

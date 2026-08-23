@@ -324,7 +324,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             // Al agotarse el trozo, OpenSSL suele decir WANT_READ; pero según la
             // plataforma puede reportar SSL_ERROR_SYSCALL con EAGAIN, que significa lo
             // mismo. Tomarlo por un corte cerraría la espera antes de tiempo, y eso en una
-            // transferencia larga es dar por muerta una operación que va bien.
+            // transfer larga es dar por muerta una operación que va bien.
             const bool esperaDelSistema =
                 (motivo == SSL_ERROR_SYSCALL
                  && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR));

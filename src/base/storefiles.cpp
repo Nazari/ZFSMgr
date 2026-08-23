@@ -29,8 +29,8 @@ void soloElDueno(const std::string& ruta) {
 }
 
 json::Value leerFichero(const std::string& ruta,
-                        Motivo motivoAbrir,
-                        Motivo motivoInvalido,
+                        Reason motivoAbrir,
+                        Reason motivoInvalido,
                         Aviso& aviso) {
     aviso = Aviso{};
     std::error_code ec;
@@ -62,7 +62,7 @@ json::Value leerFichero(const std::string& ruta,
 bool escribirFichero(const std::string& dirConfig,
                      const std::string& ruta,
                      const json::Value& root,
-                     Motivo motivoEscribir,
+                     Reason motivoEscribir,
                      Aviso& aviso) {
     aviso = Aviso{};
     std::error_code ec;
@@ -70,7 +70,7 @@ bool escribirFichero(const std::string& dirConfig,
         // create_directories devuelve false también cuando el directorio ya existía por
         // una carrera; solo es fallo si de verdad no está.
         if (!fs::exists(dirConfig, ec)) {
-            aviso.motivo = Motivo::ConfigDirNoSeCrea;
+            aviso.motivo = Reason::ConfigDirNoSeCrea;
             return false;
         }
     }
@@ -103,19 +103,19 @@ std::string rutaTrustStore(const std::string& dirConfig) {
 }
 
 json::Value leerConfig(const std::string& dirConfig, Aviso& aviso) {
-    return leerFichero(rutaConfig(dirConfig), Motivo::ConfigNoSeAbre, Motivo::ConfigNoValido, aviso);
+    return leerFichero(rutaConfig(dirConfig), Reason::ConfigNoSeAbre, Reason::ConfigNoValido, aviso);
 }
 
 json::Value leerTrustStore(const std::string& dirConfig, Aviso& aviso) {
-    return leerFichero(rutaTrustStore(dirConfig), Motivo::TrustNoSeAbre, Motivo::TrustNoValido, aviso);
+    return leerFichero(rutaTrustStore(dirConfig), Reason::TrustNoSeAbre, Reason::TrustNoValido, aviso);
 }
 
 bool escribirConfig(const std::string& dirConfig, const json::Value& root, Aviso& aviso) {
-    return escribirFichero(dirConfig, rutaConfig(dirConfig), root, Motivo::ConfigNoSeEscribe, aviso);
+    return escribirFichero(dirConfig, rutaConfig(dirConfig), root, Reason::ConfigNoSeEscribe, aviso);
 }
 
 bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, Aviso& aviso) {
-    return escribirFichero(dirConfig, rutaTrustStore(dirConfig), root, Motivo::TrustNoSeEscribe, aviso);
+    return escribirFichero(dirConfig, rutaTrustStore(dirConfig), root, Reason::TrustNoSeEscribe, aviso);
 }
 
 namespace {
@@ -154,14 +154,14 @@ bool rotaCampo(json::Value& conexion, const char* campo, const std::string& viej
     if (SecretCipher::isEncrypted(valor)) {
         std::string err;
         if (!SecretCipher::decryptEncv1(valor, vieja, claro, err)) {
-            aviso = Aviso{Motivo::NoSeDescifra, nombreDe(conexion), campo, err};
+            aviso = Aviso{Reason::NoSeDescifra, nombreDe(conexion), campo, err};
             return false;
         }
     }
     std::string cifrado;
     std::string err;
     if (!SecretCipher::encryptEncv1(claro, nueva, cifrado, err)) {
-        aviso = Aviso{Motivo::NoSeCifra, nombreDe(conexion), campo, err};
+        aviso = Aviso{Reason::NoSeCifra, nombreDe(conexion), campo, err};
         return false;
     }
     conexion.set(campo, json::Value(cifrado));
@@ -231,13 +231,13 @@ bool cifraSiHace(std::string& valor, const char* campo, const std::string& maest
         return true;
     }
     if (maestra.empty()) {
-        aviso = Aviso{Motivo::ClaveMaestraRequeridaParaCifrar, {}, campo, {}};
+        aviso = Aviso{Reason::ClaveMaestraRequeridaParaCifrar, {}, campo, {}};
         return false;
     }
     std::string cifrado;
     std::string err;
     if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
-        aviso = Aviso{Motivo::NoSeCifra, {}, campo, err};
+        aviso = Aviso{Reason::NoSeCifra, {}, campo, err};
         return false;
     }
     valor = cifrado;
@@ -271,7 +271,7 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
                   const std::string& maestra, Aviso& aviso) {
     aviso = Aviso{};
     if (trim(p.id).empty()) {
-        aviso = Aviso{Motivo::IdVacio, {}, {}, {}};
+        aviso = Aviso{Reason::IdVacio, {}, {}, {}};
         return false;
     }
     json::Value root = leerConfig(dirConfig, aviso);
@@ -428,7 +428,7 @@ bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p
 bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, Aviso& aviso) {
     aviso = Aviso{};
     if (maestra.empty()) {
-        aviso = Aviso{Motivo::ClaveMaestraRequerida, {}, {}, {}};
+        aviso = Aviso{Reason::ClaveMaestraRequerida, {}, {}, {}};
         return false;
     }
     for (int cual = 0; cual < 2; ++cual) {
@@ -451,7 +451,7 @@ bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, A
                 std::string cifrado;
                 std::string err;
                 if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
-                    aviso = Aviso{Motivo::NoSeCifra, nombreDe(conexion), campo, err};
+                    aviso = Aviso{Reason::NoSeCifra, nombreDe(conexion), campo, err};
                     return false;
                 }
                 conexion.set(campo, json::Value(cifrado));
@@ -476,7 +476,7 @@ bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& avi
     aviso = Aviso{};
     const std::string buscado = toLowerAscii(trim(id));
     if (buscado.empty()) {
-        aviso = Aviso{Motivo::IdVacio, {}, {}, {}};
+        aviso = Aviso{Reason::IdVacio, {}, {}, {}};
         return false;
     }
     json::Value root = leerConfig(dirConfig, aviso);
@@ -494,7 +494,7 @@ bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& avi
         salida.push_back(v);
     }
     if (!encontrada) {
-        aviso = Aviso{Motivo::NoSeGuardaConexion, id, {}, {}};
+        aviso = Aviso{Reason::NoSeGuardaConexion, id, {}, {}};
         return false;
     }
     root.set("connections", json::Value(salida));
@@ -546,14 +546,14 @@ bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, A
         dirConfig,
         [&](const json::Value& conexion, const char* campo, const std::string& valor) {
             if (maestra.empty()) {
-                aviso = Aviso{Motivo::ClaveMaestraRequerida, nombreDe(conexion), campo, {}};
+                aviso = Aviso{Reason::ClaveMaestraRequerida, nombreDe(conexion), campo, {}};
                 ok = false;
                 return false;
             }
             std::string claro;
             std::string err;
             if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
-                aviso = Aviso{Motivo::NoSeDescifra, nombreDe(conexion), campo, err};
+                aviso = Aviso{Reason::NoSeDescifra, nombreDe(conexion), campo, err};
                 ok = false;
                 return false;
             }
@@ -572,7 +572,7 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
     aviso = Aviso{};
     copiaSufijo.clear();
     if (nueva.empty()) {
-        aviso = Aviso{Motivo::NuevaClaveMaestraVacia, {}, {}, {}};
+        aviso = Aviso{Reason::NuevaClaveMaestraVacia, {}, {}, {}};
         return false;
     }
     json::Value config = leerConfig(dirConfig, aviso);
@@ -596,7 +596,7 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
         }
         fs::copy_file(ruta, ruta + copiaSufijo, fs::copy_options::overwrite_existing, ec);
         if (ec) {
-            aviso = Aviso{Motivo::ConfigNoSeEscribe, {}, ruta + copiaSufijo, ec.message()};
+            aviso = Aviso{Reason::ConfigNoSeEscribe, {}, ruta + copiaSufijo, ec.message()};
             copiaSufijo.clear();
             return false;
         }

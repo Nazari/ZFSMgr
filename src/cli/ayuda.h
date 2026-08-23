@@ -45,7 +45,7 @@ enum class Objetivo {
     Conexion,    // la máquina
     Pool,        // la raíz de un pool
     Dataset,     // un dataset, pool incluido
-    Instantanea,
+    Snapshot,
     DatasetOInstantanea,
 };
 
@@ -55,7 +55,7 @@ struct Ranura {
         Url,        // se resuelve y se COMPRUEBA que el nodo es del tipo pedido
         Palabra,    // de un conjunto cerrado: stop, pause, start
         Vdev,       // ruta de dispositivo
-        Propiedad,  // nombre=valor
+        Property,  // nombre=valor
         Ruta,       // una ruta del sistema de ficheros de la máquina
         Texto,      // cualquier cosa
     };

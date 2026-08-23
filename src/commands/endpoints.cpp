@@ -1,139 +1,139 @@
-#include "dosextremos.h"
+#include "endpoints.h"
 
-namespace zfsmgr::base::dosextremos {
+namespace zfsmgr::base::endpoints {
 
-const char* keyOf(Accion a) {
+const char* keyOf(Action a) {
     switch (a) {
-        case Accion::Diff:        return "diff";
-        case Accion::Clonar:      return "clonar";
-        case Accion::Copiar:      return "copiar";
-        case Accion::Mover:       return "mover";
-        case Accion::Sincronizar: return "sincronizar";
-        case Accion::Nivelar:     return "nivelar";
+        case Action::Diff:        return "diff";
+        case Action::Clonar:      return "clonar";
+        case Action::Copiar:      return "copiar";
+        case Action::Mover:       return "mover";
+        case Action::Sincronizar: return "sincronizar";
+        case Action::Nivelar:     return "nivelar";
     }
     return "";
 }
 
-std::string labelOf(Accion a) {
+std::string labelOf(Action a) {
     switch (a) {
-        case Accion::Diff:        return "Comparar";
-        case Accion::Clonar:      return "Clonar aquí";
-        case Accion::Copiar:      return "Copiar aquí";
-        case Accion::Mover:       return "Mover aquí";
-        case Accion::Sincronizar: return "Sincronizar aquí";
-        case Accion::Nivelar:     return "Nivelar";
+        case Action::Diff:        return "Comparar";
+        case Action::Clonar:      return "Clonar aquí";
+        case Action::Copiar:      return "Copiar aquí";
+        case Action::Mover:       return "Mover aquí";
+        case Action::Sincronizar: return "Sincronizar aquí";
+        case Action::Nivelar:     return "Nivelar";
     }
     return {};
 }
 
-std::string labelOf(NoAplica n) {
+std::string labelOf(NotApplicable n) {
     switch (n) {
-        case NoAplica::Ninguna:
+        case NotApplicable::Ninguna:
             return {};
-        case NoAplica::SinOrigen:
+        case NotApplicable::SinOrigen:
             return "no hay ningún origen marcado";
-        case NoAplica::ElMismoObjeto:
+        case NotApplicable::ElMismoObjeto:
             return "el origen y el destino son el mismo";
-        case NoAplica::OrigenNoEsInstantanea:
+        case NotApplicable::OrigenNoEsInstantanea:
             return "el origen tiene que ser una instantánea";
-        case NoAplica::DestinoNoEsDataset:
+        case NotApplicable::DestinoNoEsDataset:
             return "el destino tiene que ser un dataset, no una instantánea";
-        case NoAplica::DistintoDataset:
+        case NotApplicable::DistintoDataset:
             return "comparar es entre dos puntos del mismo dataset";
-        case NoAplica::DistintaMaquina:
+        case NotApplicable::DistintaMaquina:
             return "los dos extremos tienen que estar en la misma máquina";
-        case NoAplica::DistintoPool:
+        case NotApplicable::DistintoPool:
             return "mover es dentro del mismo pool; entre pools se copia";
-        case NoAplica::OrigenNoEsDataset:
+        case NotApplicable::OrigenNoEsDataset:
             return "el origen tiene que ser un dataset, no una instantánea";
-        case NoAplica::DestinoDentroDelOrigen:
+        case NotApplicable::DestinoDentroDelOrigen:
             return "el destino cuelga del origen: no se puede meter dentro de sí mismo";
-        case NoAplica::TodaviaNoEstaEnLaWeb:
+        case NotApplicable::TodaviaNoEstaEnLaWeb:
             return "todavía no está en la web: hágalo desde la interfaz o el intérprete";
     }
     return {};
 }
 
-NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino) {
+NotApplicable check(Action a, const Endpoint& origen, const Endpoint& destino) {
     if (origen.vacio()) {
-        return NoAplica::SinOrigen;
+        return NotApplicable::SinOrigen;
     }
     if (origen.conexion == destino.conexion && origen.objeto == destino.objeto) {
-        return NoAplica::ElMismoObjeto;
+        return NotApplicable::ElMismoObjeto;
     }
     switch (a) {
-        case Accion::Diff:
+        case Action::Diff:
             // `zfs diff` compara dos puntos de la MISMA historia: dos instantáneas del
             // mismo dataset, o una instantánea contra el estado actual de su dataset. No
             // sirve para comparar dos datasets distintos, que es lo que la gente espera la
             // primera vez.
             if (origen.conexion != destino.conexion) {
-                return NoAplica::DistintaMaquina;
+                return NotApplicable::DistintaMaquina;
             }
             if (!origen.isSnapshot()) {
-                return NoAplica::OrigenNoEsInstantanea;
+                return NotApplicable::OrigenNoEsInstantanea;
             }
             if (origen.dataset() != destino.dataset()) {
-                return NoAplica::DistintoDataset;
+                return NotApplicable::DistintoDataset;
             }
-            return NoAplica::Ninguna;
-        case Accion::Clonar:
+            return NotApplicable::Ninguna;
+        case Action::Clonar:
             // Un clon nace de una instantánea y aparece como un dataset nuevo. El destino
             // marca DÓNDE, así que tiene que ser un dataset: colgar un clon de una
             // instantánea no significa nada.
             if (origen.conexion != destino.conexion) {
-                return NoAplica::DistintaMaquina;
+                return NotApplicable::DistintaMaquina;
             }
             if (!origen.isSnapshot()) {
-                return NoAplica::OrigenNoEsInstantanea;
+                return NotApplicable::OrigenNoEsInstantanea;
             }
             if (destino.isSnapshot()) {
-                return NoAplica::DestinoNoEsDataset;
+                return NotApplicable::DestinoNoEsDataset;
             }
-            return NoAplica::Ninguna;
-        case Accion::Mover:
+            return NotApplicable::Ninguna;
+        case Action::Mover:
             // **Mover NO es copiar y destruir.** Es un `zfs rename`, que ZFS solo deja
             // dentro del mismo pool: el dataset cambia de sitio en el árbol sin que se
             // muevan los datos, y por eso es instantáneo y no hay nada que destruir
-            // después. La interfaz de Qt hace exactamente esto —lo encola como cambio
+            // después. La interfaz de Qt hace exactamente esto —lo enqueue como cambio
             // pendiente— y aquí se replican sus mismas condiciones.
             //
             // Este documento decía «Copiar + destruir el origen». Era falso, y se vio al
             // leer `executeConnectionTransferAction`. Se deja escrito porque la versión
             // equivocada es más plausible que la verdadera y volverá a proponerse.
             if (origen.conexion != destino.conexion) {
-                return NoAplica::DistintaMaquina;
+                return NotApplicable::DistintaMaquina;
             }
             if (origen.isSnapshot()) {
-                return NoAplica::OrigenNoEsDataset;
+                return NotApplicable::OrigenNoEsDataset;
             }
             if (destino.isSnapshot()) {
-                return NoAplica::DestinoNoEsDataset;
+                return NotApplicable::DestinoNoEsDataset;
             }
             if (origen.pool() != destino.pool()) {
-                return NoAplica::DistintoPool;
+                return NotApplicable::DistintoPool;
             }
             // Meter un dataset bajo uno de sus propios descendientes no tiene sentido y
             // ZFS lo rechaza. Se compara con la barra puesta para que «tanque/datos» no
             // parezca padre de «tanque/datos2».
             if (destino.dataset() == origen.dataset()
                 || destino.dataset().rfind(origen.dataset() + "/", 0) == 0) {
-                return NoAplica::DestinoDentroDelOrigen;
+                return NotApplicable::DestinoDentroDelOrigen;
             }
-            return NoAplica::Ninguna;
-        case Accion::Copiar:
-        case Accion::Sincronizar:
-        case Accion::Nivelar:
-            // Las cuatro necesitan la orquestación de transferencia, que hoy vive dentro
+            return NotApplicable::Ninguna;
+        case Action::Copiar:
+        case Action::Sincronizar:
+        case Action::Nivelar:
+            // Las cuatro necesitan la orquestación de transfer, que hoy vive dentro
             // de la interfaz —`mainwindow_transfer.cpp`— y no en esta capa. Se ofrecen
             // igual, en gris y con el motivo: esconderlas haría creer que no existen.
-            return NoAplica::TodaviaNoEstaEnLaWeb;
+            return NotApplicable::TodaviaNoEstaEnLaWeb;
     }
-    return NoAplica::Ninguna;
+    return NotApplicable::Ninguna;
 }
 
-std::string destinoDeMover(const Extremo& origen, const Extremo& destino) {
+std::string moveDestination(const Endpoint& origen, const Endpoint& destino) {
     return destino.dataset() + "/" + origen.hoja();
 }
 
-}  // namespace zfsmgr::base::dosextremos
+}  // namespace zfsmgr::base::endpoints

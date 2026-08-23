@@ -1,6 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "agentversion.h"
 
 #include <QCheckBox>
@@ -666,7 +666,7 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         return false;
     }
     const QString cmd =
-        mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::permisosDe(datasetName.toStdString())));
+        mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::permissionsOf(datasetName.toStdString())));
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos"),
                                       cmd,
@@ -890,7 +890,7 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
     const QString batchCommand =
         daemonReadApiOk
             ? mwhelpers::agentShellCommand(
-                  p, mwhelpers::argvQt(zfsmgr::commands::peticiones::permisosDeVarios(
+                  p, mwhelpers::argvQt(zfsmgr::commands::requests::permissionsOfMany(
                          [&requested]() {
                              std::vector<std::string> v;
                              for (const QString& r : requested) {

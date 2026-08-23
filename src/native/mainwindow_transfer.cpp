@@ -1,8 +1,8 @@
 #include "mainwindow.h"
 
-#include "transferencia.h"
+#include "transfer.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "daemonpayload.h"
 #include "agentversion.h"
 
@@ -120,15 +120,15 @@ bool showZfsSendOptionsDialog(QWidget* parent,
 
 QString buildZfsSendFlags(const ZfsSendOptions& opts)
 {
-    // Las banderas viven en `base/transferencia`: el servidor web tiene que componer las
+    // Las banderas viven en `base/transfer`: el servidor web tiene que componer las
     // mismas, y dos listas con el mismo orden acaban discrepando en cuanto se añada una.
-    zfsmgr::base::transferencia::OpcionesDeEnvio o;
+    zfsmgr::base::transfer::SendOptions o;
     o.w = opts.flagW;
     o.L = opts.flagL;
     o.e = opts.flagE;
     o.c = opts.flagC;
     o.R = opts.flagR;
-    return QString::fromStdString(zfsmgr::base::transferencia::banderasDeEnvio(o));
+    return QString::fromStdString(zfsmgr::base::transfer::sendFlags(o));
 }
 
 QString syncCodecToken(mwhelpers::StreamCodec codec) {
@@ -268,7 +268,7 @@ bool MainWindow::runShellActionNow(const PendingShellActionDraft& draft, QString
     return true;
 }
 
-// La transferencia entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando eso no
+// La transfer entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando eso no
 // aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías de shell Unix.
 // En Windows se ejecutaban a través del bash de MSYS2, que se ha retirado: la aplicación
 // trabaja allí solo con el agente nativo, y el agente aún no implementa el streaming.
@@ -302,7 +302,7 @@ QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || dataset.trimmed().isEmpty()) {
         return QString();
     }
-    const auto r = zfsmgr::base::transferencia::buscaTestigo(
+    const auto r = zfsmgr::base::transfer::findResumeToken(
         m_transport, toBaseProfile(m_conns.profiles.at(connIdx)),
         dataset.trimmed().toStdString(), false);
     if (holderOut) {
@@ -358,12 +358,12 @@ void MainWindow::actionSendSnapshot() {
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     // Dónde se recibe DE VERDAD: al destino elegido se le añade el nombre del origen, y
-    // esa regla vive ahora en `base/transferencia` porque es la misma que hace que buscar
+    // esa regla vive ahora en `base/transfer` porque es la misma que hace que buscar
     // el testigo de reanudación sobre el dataset pulsado no encuentre nada.
-    const QString recvTarget = QString::fromStdString(zfsmgr::base::transferencia::destinoReal(
+    const QString recvTarget = QString::fromStdString(zfsmgr::base::transfer::actualDestination(
         src.datasetName.toStdString(), dst.datasetName.toStdString()));
 
-    // ¿Quedó una transferencia a medias en el destino?
+    // ¿Quedó una transfer a medias en el destino?
     //
     // Se recibe con `zfs recv -s`, así que un corte no deja basura: deja un envío en
     // suspenso y un testigo con el que continuar exactamente donde se quedó. Sin esto,
@@ -429,17 +429,17 @@ void MainWindow::actionSendSnapshot() {
 
     ZfsSendOptions sendOpts;
     // Al reanudar no se preguntan opciones de envío: el testigo ya lleva dentro qué
-    // snapshot y con qué banderas empezó la transferencia, y `zfs send -t` no admite
+    // snapshot y con qué banderas empezó la transfer, y `zfs send -t` no admite
     // que se le contradiga.
     if (!resumeRequested
         && !showZfsSendOptionsDialog(this, srcSnap, recvTarget, QString{}, &sendOpts)) {
         return;
     }
     const QString sendFlags = buildZfsSendFlags(sendOpts);
-    const QString sendRawCmd = QString::fromStdString(zfsmgr::base::transferencia::ordenDeEnvio(
+    const QString sendRawCmd = QString::fromStdString(zfsmgr::base::transfer::sendCommand(
         srcSnap.toStdString(), sendFlags.toStdString()));
     const QString recvRawCmd = QString::fromStdString(
-        zfsmgr::base::transferencia::ordenDeRecepcion(recvTarget.toStdString()));
+        zfsmgr::base::transfer::receiveCommand(recvTarget.toStdString()));
     QString sendCmd = withSudo(sp, sendRawCmd);
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
@@ -462,7 +462,7 @@ void MainWindow::actionSendSnapshot() {
         // no en el destino original.
         //
         // Medido: con el receptor en el padre se transfirieron 1.520 bytes y el estado no
-        // se movió; apuntando al dataset del testigo, 2,1 GB a 88 MiB/s y transferencia
+        // se movió; apuntando al dataset del testigo, 2,1 GB a 88 MiB/s y transfer
         // completa. El flujo de `zfs send -t` pertenece a ESE dataset y solo ahí encaja.
         const QString jobTarget =
             (resumeRequested && !resumeHolder.isEmpty()) ? resumeHolder : recvTarget;
@@ -2064,7 +2064,7 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     const bool sameConn = (srcConnIdx == dstConnIdx);
 
     // Los tres pasos —que el destino escuche, averiguar la dirección de vuelta, y que el
-    // origen arranque— viven en `base/transferencia`. Es lo que el servidor web necesita
+    // origen arranque— viven en `base/transfer`. Es lo que el servidor web necesita
     // para poder copiar, porque es el único camino que sostiene el daemon en vez de quien
     // lo lanzó.
     // Cómo se le habla al agente de cada máquina: es la ventana quien lo sabe, porque una
@@ -2086,7 +2086,7 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
         err = qerr.toStdString();
         return ok;
     };
-    const auto lanzado = zfsmgr::base::transferencia::lanzaTrabajo(
+    const auto lanzado = zfsmgr::base::transfer::launchJob(
         m_transport, llama, toBaseProfile(sp), toBaseProfile(dp), srcSnap.toStdString(),
         recvTarget.toStdString(), fromSnap.toStdString(), sendFlags.toStdString(),
         resumeToken.toStdString(), sameConn, false);
@@ -2094,7 +2094,7 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Job async: %1 (%2) — fallback síncrono")
                    .arg(QString::fromStdString(
-                            zfsmgr::base::transferencia::labelOf(lanzado.fallo)),
+                            zfsmgr::base::transfer::labelOf(lanzado.fallo)),
                         QString::fromStdString(lanzado.detalle)));
         return false;
     }
@@ -2144,7 +2144,7 @@ void MainWindow::pollDaemonJobs() {
         const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
         QStringList args;
         args << mwhelpers::argvQt(
-            zfsmgr::commands::peticiones::estadoDeTrabajo(pollJobId.toStdString()));
+            zfsmgr::commands::requests::jobStatus(pollJobId.toStdString()));
         QString out, err;
         int rc = -1;
         if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc) || rc != 0) continue;
@@ -2192,7 +2192,7 @@ void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) return;
     const ConnectionProfile sp = m_conns.profiles[connIdx];
     QStringList args;
-    args << mwhelpers::argvQt(zfsmgr::commands::peticiones::listaDeTrabajos());
+    args << mwhelpers::argvQt(zfsmgr::commands::requests::jobList());
     QString out, err;
     int rc = -1;
     if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 8000, out, err, rc) || rc != 0) return;

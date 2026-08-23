@@ -9,14 +9,14 @@
 
 // Mover DATOS entre dos extremos: por dónde van los bytes y desde dónde se reanuda.
 //
-// Aquí NO hay transferencia: hay las DECISIONES de una transferencia. Vive en la capa base
+// Aquí NO hay transfer: hay las DECISIONES de una transfer. Vive en la capa base
 // porque la interfaz de Qt y el servidor web tienen que tomar las mismas —cuál de los tres
 // caminos, y por qué no se puede cuando no se puede— y una segunda copia de esas reglas se
 // desincroniza en el primer arreglo.
 //
 // Ver docs/diseno_tecnico_transferencias.md. Esta es la fase 0: los tipos y la elección,
 // que se pueden probar sin mover un solo byte.
-namespace zfsmgr::base::transferencia {
+namespace zfsmgr::base::transfer {
 
 // Por dónde van los bytes. El orden de la enumeración ES el de preferencia.
 //
@@ -24,7 +24,7 @@ namespace zfsmgr::base::transferencia {
 // caminos con el respaldo por tar dentro. No es así. El tar es cosa de Sincronizar —que
 // mueve FICHEROS con rsync y tar, no `zfs send`— y Copiar no lo tiene: cuando no hay
 // tubería que montar, se para y lo dice.
-enum class Camino {
+enum class Route {
     // Lo lanza `--job-submit` y lo sostiene el daemon. Sobrevive a que se cierre el
     // cliente, y es el ÚNICO que le sirve al servidor web.
     TrabajoAsincrono,
@@ -49,14 +49,14 @@ enum class Fallo {
     ZfsDemasiadoViejo,       // por debajo de 2.3.3 no se transfiere
 };
 
-const char* keyOf(Camino c);
+const char* keyOf(Route c);
 const char* keyOf(Fallo f);
-std::string labelOf(Camino c);
+std::string labelOf(Route c);
 std::string labelOf(Fallo f);
 
 // Lo que hay que saber de un extremo para decidir. No se consulta nada desde aquí: lo trae
 // quien llama, que es el que tiene la sesión de transporte.
-struct Extremo {
+struct Endpoint {
     std::string conexion;
     std::string objeto;          // dataset, o dataset@instantánea en el origen
     bool esWindows{false};
@@ -77,10 +77,10 @@ struct Extremo {
 // de la ventana. Una versión vacía o que no se entiende NO bloquea: no saber la versión es
 // distinto de saber que es vieja, y bloquear por no saber dejaría sin copiar a una máquina
 // que quizá puede.
-bool versionAdmiteTransferencia(const std::string& version);
+bool versionSupportsTransfer(const std::string& version);
 
 // Las banderas de `zfs send`, en el orden en que las escribe el programa.
-struct OpcionesDeEnvio {
+struct SendOptions {
     bool w{false};   // crudo: manda el dataset cifrado tal cual, sin descifrarlo
     bool L{false};   // bloques grandes
     bool e{false};   // «embedded»: aprovecha los bloques ya comprimidos
@@ -90,7 +90,7 @@ struct OpcionesDeEnvio {
 
 // «-wLR», o vacío si no hay ninguna. Vacío y no «-»: un guion con un «-» suelto en medio
 // es un argumento que `zfs` no entiende.
-std::string banderasDeEnvio(const OpcionesDeEnvio& o);
+std::string sendFlags(const SendOptions& o);
 
 // Los caminos que se pueden probar, EN ORDEN, y no uno solo.
 //
@@ -98,7 +98,7 @@ std::string banderasDeEnvio(const OpcionesDeEnvio& o);
 // siguiente. Y eso se decide en marcha —el `recv-listen` puede fallar en el destino— no
 // aquí. Lo que se decide aquí es cuáles tiene sentido intentar.
 struct Plan {
-    std::vector<Camino> caminos;
+    std::vector<Route> caminos;
     Fallo fallo{Fallo::Ninguno};
 
     bool sePuede() const { return !caminos.empty(); }
@@ -106,10 +106,10 @@ struct Plan {
 
 // Qué caminos tiene sentido probar entre estos dos extremos.
 //
-// `exigeAsincrono` lo pone quien NO puede sostener la transferencia mientras dure: el
+// `exigeAsincrono` lo pone quien NO puede sostener la transfer mientras dure: el
 // servidor web atiende de una en una y una petición no puede durar cuatro horas, así que
 // para él solo vale el camino por trabajos. La interfaz puede esperar y no lo exige.
-Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono);
+Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincrono);
 
 // El testigo de reanudación que ZFS dejó en el destino, si hay alguno.
 //
@@ -118,7 +118,7 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono);
 // testigo en el dataset que estaba recibiendo en ese momento, que casi nunca es la raíz.
 // Medido cortando una copia de 3,4 GB: el padre quedó completo y el testigo apareció en el
 // hijo. Mirar solo la raíz decía «no hay nada que reanudar» con 247 MB ya transferidos.
-struct Reanudacion {
+struct Resume {
     std::string testigo;
     std::string quienLoTiene;   // el dataset donde estaba
 
@@ -128,8 +128,8 @@ struct Reanudacion {
 // La REGLA de cuál gana, separada de ir a buscarlos.
 //
 // Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Who las junta es
-// `buscaTestigo`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
-Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string& salidaTsv);
+// `findResumeToken`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
+Resume resumeToken(const std::string& objetivo, const std::string& salidaTsv);
 
 // La dirección con la que el ORIGEN ve a este equipo, sacada de lo que devuelve
 // `echo $SSH_CLIENT`. Vacía si no vale.
@@ -137,7 +137,7 @@ Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string&
 // **Admite IPv6 CON zona**: sshd puede contestar `fe80::d11d:24e3:5547:cbd6%enp1s0f0`, que
 // es justo lo que devolvió la máquina de pruebas. Una validación de solo hexadecimal y
 // puntos lo rechazaba y dejaba la copia sin dirección a la que volver.
-std::string direccionDeSshClient(const std::string& salida);
+std::string sshClientAddress(const std::string& salida);
 
 // ── Cómo se compone la orden de copiar ───────────────────────────────────────
 
@@ -150,21 +150,21 @@ std::string direccionDeSshClient(const std::string& salida);
 //
 // Ese detalle es también el que hace que buscar el testigo de reanudación sobre el dataset
 // pulsado no encuentre nada: hay que buscarlo sobre ESTE.
-std::string destinoReal(const std::string& origenDataset, const std::string& destinoElegido);
+std::string actualDestination(const std::string& origenDataset, const std::string& destinoElegido);
 
 // `zfs send [banderas] <instantánea>` y `zfs recv -Fus <destino>`, sin envolver.
 //
 // El `-Fus` del receptor no es decorativo: la «s» es lo que hace que un corte deje un envío
 // EN SUSPENSO con su testigo, en vez de basura. Sin ella no habría reanudación posible y
 // cada corte obligaría a mandarlo todo otra vez.
-std::string ordenDeEnvio(const std::string& instantanea, const std::string& banderas);
-std::string ordenDeRecepcion(const std::string& destino);
+std::string sendCommand(const std::string& instantanea, const std::string& banderas);
+std::string receiveCommand(const std::string& destino);
 
 // Aquí vivían `Montaje` y `montajeDe`: cuál de las tres formas de juntar los dos lados
 // tocaba —tubería local, remoto a remoto directo, o pasando los bytes por este equipo—.
 //
 // Se retiraron cuando Copiar y Nivelar dejaron de tener respaldos por shell. Las tres
-// formas eran formas de encadenar `ssh` y tuberías; con la transferencia hecha por un
+// formas eran formas de encadenar `ssh` y tuberías; con la transfer hecha por un
 // trabajo del daemon no hay nada que montar: el receptor abre un puerto y el emisor se
 // conecta. La regla no se ha perdido, ha dejado de existir.
 
@@ -175,7 +175,7 @@ std::string ordenDeRecepcion(const std::string& destino);
 // que volver el emisor, y el emisor arranca el envío y devuelve un identificador.
 
 // Lo que contesta `--zfs-recv-listen`: en qué puerto espera y con qué testigo.
-struct EscuchaDelReceptor {
+struct ReceiverListen {
     int puerto{0};
     std::string testigo;
 
@@ -185,12 +185,12 @@ struct EscuchaDelReceptor {
     bool vale() const { return puerto > 0 && testigo.size() == 64; }
 };
 
-EscuchaDelReceptor leeEscucha(const std::string& salida);
-std::string leeIdentificadorDeTrabajo(const std::string& salida);
+ReceiverListen readListen(const std::string& salida);
+std::string readJobId(const std::string& salida);
 
 // Por qué no arrancó el trabajo. Los cinco puntos donde puede romperse, separados, porque
 // cada uno lleva a un sitio distinto: uno es del receptor, otro de la red, otro del emisor.
-enum class FalloTrabajo {
+enum class JobFailure {
     Ninguno,
     ReceptorNoEscucha,
     RespuestaDeEscuchaNoVale,
@@ -199,14 +199,14 @@ enum class FalloTrabajo {
     SinIdentificador,
 };
 
-std::string labelOf(FalloTrabajo f);
+std::string labelOf(JobFailure f);
 
-struct Trabajo {
+struct Job {
     std::string id;
-    FalloTrabajo fallo{FalloTrabajo::Ninguno};
+    JobFailure fallo{JobFailure::Ninguno};
     std::string detalle;
 
-    bool ok() const { return fallo == FalloTrabajo::Ninguno && !id.empty(); }
+    bool ok() const { return fallo == JobFailure::Ninguno && !id.empty(); }
 };
 
 // Cómo se le habla al agente de una máquina. **Lo pone quien llama, y no es un capricho.**
@@ -228,7 +228,7 @@ using LlamadaAlAgente = std::function<bool(const ConnectionProfile& maquina,
 //
 // Con `testigoReanudacion` puesto, la instantánea, la base y las banderas van vacías a
 // propósito: `zfs send -t` lleva dentro qué continuar y no admite que se le contradiga.
-Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
                      const ConnectionProfile& origen, const ConnectionProfile& destino,
                      const std::string& instantanea, const std::string& destinoDelRecv,
                      const std::string& desdeInstantanea, const std::string& banderas,
@@ -260,13 +260,13 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
 // reenviaba el árbol entero en cada pasada.
 //
 // El directorio de destino tiene que EXISTIR: el receptor lo comprueba y falla si no. Para
-// crearlo está `avanzadas::argvDesdeDirPreparar`, que además monta el dataset y resuelve su
+// crearlo está `advanced::argvFromDirPrepare`, que además monta el dataset y resuelve su
 // punto de montaje real.
 //
 // Requiere daemon en LAS DOS puntas. El camino del tar solo lo pedía en el destino, así que
 // esto no lo sustituye: lo adelanta cuando se puede.
 //
-// `comoTrabajo` decide si el envío se encola en el daemon —la ventana lo quiere así: no la
+// `comoTrabajo` decide si el envío se enqueue en el daemon —la ventana lo quiere así: no la
 // bloquea, se puede cancelar y sigue si se cierra— o si se espera a que termine, que es lo
 // que hace el intérprete porque su orden ya devolvía el resultado y un guion detrás cuenta
 // con que los ficheros estén.
@@ -275,18 +275,18 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
 // que devolver, así que `ok()` —que exige uno— diría que no aunque todo haya ido bien: ahí
 // lo que se mira es `fallo`. `ok()` significa «hay un trabajo al que seguirle la pista», no
 // «salió bien».
-Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
                             const ConnectionProfile& origen, const ConnectionProfile& destino,
                             const std::string& directorioOrigen,
                             const std::string& directorioDestino, bool mismaConexion,
                             bool verboso, bool comoTrabajo, bool borrarEnDestino = false,
                             bool enSeco = false, std::string* salidaDelEnvio = nullptr);
 
-std::string haciaDondeConecta(TransportSession& ses, const ConnectionProfile& origen,
+std::string whereItConnects(TransportSession& ses, const ConnectionProfile& origen,
                               const ConnectionProfile& destino, bool mismaConexion,
                               bool verboso);
 
-std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& origen,
+std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& origen,
                              bool verboso);
 
 // El testigo de reanudación que haya en el destino o en sus descendientes.
@@ -294,7 +294,7 @@ std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& ori
 // Son N+1 consultas —una por dataset—, que es lo que hace hoy la interfaz. Se conserva tal
 // cual a propósito: esta fase no cambia comportamiento. Con un verbo que leyera una
 // propiedad de forma recursiva sería una sola, y está anotado en el diseño.
-Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino,
+Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
                          const std::string& objetivo, bool verboso);
 
 // ---------------------------------------------------------------------------
@@ -312,12 +312,12 @@ Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino
 //
 // Las tres negativas son de seguridad y vienen de la interfaz de Qt, que las tiene desde el
 // principio: sin ellas, nivelar puede tirar trabajo del destino sin avisar.
-struct Instantanea {
+struct Snapshot {
     std::string nombre;   // corto, sin «dataset@»
     std::string guid;
 };
 
-enum class FalloNivelar {
+enum class LevelFailure {
     Ninguno,
     ObjetivoNoEstaEnOrigen,
     DestinoSinInstantaneas,
@@ -326,20 +326,20 @@ enum class FalloNivelar {
     YaNivelado,
 };
 
-struct PlanNivelar {
+struct LevelPlan {
     std::string base;       // desde dónde: el «-I» del envío
     std::string objetivo;   // hasta dónde
-    FalloNivelar fallo{FalloNivelar::Ninguno};
-    bool sePuede() const { return fallo == FalloNivelar::Ninguno; }
+    LevelFailure fallo{LevelFailure::Ninguno};
+    bool sePuede() const { return fallo == LevelFailure::Ninguno; }
 };
 
 // Las dos listas van EN ORDEN DE CREACIÓN, que es como las da `zfs list -t snapshot`. El
 // orden es el que decide qué es «más nuevo», así que darlas ordenadas de otra forma no
 // devuelve un error: devuelve una respuesta equivocada.
-PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
-                          const std::vector<Instantanea>& destino,
+LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
+                          const std::vector<Snapshot>& destino,
                           const std::string& objetivo);
 
-std::string labelOf(FalloNivelar f);
+std::string labelOf(LevelFailure f);
 
-}  // namespace zfsmgr::base::transferencia
+}  // namespace zfsmgr::base::transfer

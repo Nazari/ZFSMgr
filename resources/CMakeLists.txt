@@ -192,26 +192,26 @@ add_library(zfsmgr_commands STATIC
     ../src/commands/snapshots.h
     ../src/commands/pools.cpp
     ../src/commands/pools.h
-    ../src/commands/avanzadas.cpp
-    ../src/commands/avanzadas.h
+    ../src/commands/advanced.cpp
+    ../src/commands/advanced.h
     ../src/commands/daemoninstall.cpp
     ../src/commands/daemoninstall.h
-    ../src/commands/dosextremos.cpp
-    ../src/commands/dosextremos.h
-    ../src/commands/peticiones.cpp
+    ../src/commands/endpoints.cpp
+    ../src/commands/endpoints.h
+    ../src/commands/requests.cpp
     ../src/commands/zfsallow.cpp
     ../src/commands/zfsallow.h
-    ../src/commands/transferencia.cpp
-    ../src/commands/sincronizacion.cpp
+    ../src/commands/transfer.cpp
+    ../src/commands/syncing.cpp
     ../src/commands/peers.cpp
     ../src/commands/peers.h
-    ../src/commands/transferencia.h
+    ../src/commands/transfer.h
     ../src/commands/zfsmurl.cpp
     ../src/commands/zfsmurl.h
     ../src/commands/refreshparse.cpp
     ../src/commands/refreshparse.h
-    ../src/commands/listados.cpp
-    ../src/commands/listados.h
+    ../src/commands/listings.cpp
+    ../src/commands/listings.h
     ../src/commands/gsa.cpp
     ../src/commands/gsa.h
     ../src/commands/zfsprops.cpp
@@ -269,7 +269,7 @@ endif()
 
 if(ZFSMGR_AGENT_ONLY)
     add_executable(zfsmgr_agent ../src/daemon/daemon_main.cpp ../src/commands/copytree.cpp
-                             ../src/commands/arbolremoto.cpp)
+                             ../src/commands/remotetree.cpp)
     target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
@@ -514,7 +514,7 @@ target_link_libraries(zfsmgr-gui PRIVATE zfsmgr_core)
 add_executable(zfsmgr_agent
     ../src/daemon/daemon_main.cpp
     ../src/commands/copytree.cpp
-    ../src/commands/arbolremoto.cpp
+    ../src/commands/remotetree.cpp
 )
 target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
 target_compile_definitions(zfsmgr_agent PRIVATE
@@ -734,7 +734,7 @@ if(BUILD_TESTING)
     add_executable(zfsmgr_copytree_test
         ../tests/copytree_test.cpp
         ../src/commands/copytree.cpp
-        ../src/commands/arbolremoto.cpp
+        ../src/commands/remotetree.cpp
     )
     target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)

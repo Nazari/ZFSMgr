@@ -185,7 +185,7 @@ bool isMutatingAgentCommand(const std::vector<std::string>& agentArgs) {
            || startsWith(cmd, "--zfs-send-")
            || startsWith(cmd, "--zfs-recv-")
            || cmd == "--repair-alt-mountpoints"
-           // --job-submit también: reenviarlo lanza la MISMA transferencia por segunda
+           // --job-submit también: reenviarlo lanza la MISMA transfer por segunda
            // vez, con dos jobs corriendo a la vez sobre los mismos datos. Estaba
            // --job-cancel pero no éste, que es el que causa daño al duplicarse.
            || cmd == "--job-submit"

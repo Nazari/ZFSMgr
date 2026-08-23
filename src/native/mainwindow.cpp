@@ -1,13 +1,13 @@
 #include "mainwindow.h"
 
-#include "commands/sincronizacion.h"
+#include "commands/syncing.h"
 
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
@@ -911,7 +911,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         int tRc = -1;
         const bool typeOk =
             daemonReadApiOk
-            && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadDeDataset("type", trimmedObject.toStdString())),
+            && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty("type", trimmedObject.toStdString())),
                                12000, tOut, tErr, tRc)
             && tRc == 0;
         if (typeOk) {
@@ -928,7 +928,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     // Only por argv al agente: el respaldo por shell se retiró y la orden que se
     // construía aquí no la usaba nadie. Era, además, la que justificaba la rama TSV de
     // más abajo, que se comía las propiedades en Windows.
-    const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesDeDataset(trimmedObject.toStdString()));
+    const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperties(trimmedObject.toStdString()));
     bool propsOk = daemonReadApiOk
           && runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc)
           && rc == 0;
@@ -1047,7 +1047,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     const bool propsOk =
         daemonReadApiOk
         && runAgentCommand(p,
-                           mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesConcretas(
+                           mwhelpers::argvQt(zfsmgr::commands::requests::specificProperties(
                                [&wantedProps]() {
                                    std::vector<std::string> v;
                                    for (const QString& w : wantedProps) {
@@ -1409,7 +1409,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             int rc = -1;
             // Only por argv al agente, igual que en las propiedades de dataset.
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesDePool(trimmedPool.toStdString()));
+            const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolProperties(trimmedPool.toStdString()));
             bool propsOk = daemonReadApiOk
                   && runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc)
                   && rc == 0;
@@ -1439,7 +1439,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             err.clear();
             rc = -1;
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList stCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::estadoDePool(trimmedPool.toStdString()));
+            const QStringList stCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolStatus(trimmedPool.toStdString()));
             bool statusOk = daemonReadApiOk
                   && runAgentCommand(profile, stCmdDaemonArgv, 20000, out, err, rc)
                   && rc == 0;
@@ -1457,7 +1457,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             err.clear();
             rc = -1;
             // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList stPCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::estadoDePoolCrudo(trimmedPool.toStdString()));
+            const QStringList stPCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolStatusRaw(trimmedPool.toStdString()));
             bool statusPOk = daemonReadApiOk
                   && runAgentCommand(profile, stPCmdDaemonArgv, 20000, out, err, rc)
                   && rc == 0;
@@ -1628,13 +1628,13 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
             propArgs << mwhelpers::shSingleQuote(prop);
         }
         const QString cmdDaemon =
-            mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::peticiones::gsaDeDataset(trimmedPool.toStdString())));
+            mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfDataset(trimmedPool.toStdString())));
         QString out;
         QString err;
         int rc = -1;
         const bool scanOk =
             daemonReadApiOk
-            && runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::peticiones::gsaDeDataset(trimmedPool.toStdString())),
+            && runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfDataset(trimmedPool.toStdString())),
                                20000, out, err, rc)
             && rc == 0;
         if (!scanOk) {
@@ -1870,7 +1870,7 @@ QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QStringLis
         && !st.daemonZpoolImportUsable) {
         return {};
     }
-    return mwhelpers::argvQt(zfsmgr::commands::peticiones::zpoolGenerico(
+    return mwhelpers::argvQt(zfsmgr::commands::requests::zpoolGeneric(
         mwhelpers::argvParaAgente(argv).toStdString()));
 }
 
@@ -1911,7 +1911,7 @@ QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QString& r
     const QString payloadB64 =
         mwhelpers::argvParaAgente(arr);
     return mwhelpers::argvQt(
-        zfsmgr::commands::peticiones::zpoolGenerico(payloadB64.toStdString()));
+        zfsmgr::commands::requests::zpoolGeneric(payloadB64.toStdString()));
 }
 
 // La variante por argv, gemela de la de `zpool`. Ver su comentario: el troceo de una cadena
@@ -1933,7 +1933,7 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QStringList&
     if (!isAllowedGenericZfsMutationOpClient(argv.first().trimmed())) {
         return {};
     }
-    return mwhelpers::argvQt(zfsmgr::commands::peticiones::zfsGenerico(
+    return mwhelpers::argvQt(zfsmgr::commands::requests::zfsGeneric(
         mwhelpers::argvParaAgente(argv).toStdString()));
 }
 
@@ -1967,7 +1967,7 @@ QStringList MainWindow::daemonizeZfsAllowBatchArgs(int connIdx,
         }
         lote.push_back(mwhelpers::argvParaAgente(argv));
     }
-    return mwhelpers::argvQt(zfsmgr::commands::peticiones::permisosEnLote(
+    return mwhelpers::argvQt(zfsmgr::commands::requests::permissionsBatch(
         mwhelpers::argvParaAgente(lote).toStdString()));
 }
 
@@ -2004,7 +2004,7 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& raw
     const QString payloadB64 =
         mwhelpers::argvParaAgente(arr);
     return mwhelpers::argvQt(
-        zfsmgr::commands::peticiones::zfsGenerico(payloadB64.toStdString()));
+        zfsmgr::commands::requests::zfsGeneric(payloadB64.toStdString()));
 }
 
 QStringList MainWindow::daemonizeLocalSendRecvArgs(int connIdx,
@@ -2094,12 +2094,12 @@ QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
     for (const QPair<QString, QString>& pair : pathPairs) {
         pares.push_back({pair.first.trimmed().toStdString(), pair.second.trimmed().toStdString()});
     }
-    const std::string carga = zfsmgr::base::sincronizacion::cargaRsync(
+    const std::string carga = zfsmgr::base::syncing::rsyncPayload(
         pares, useDelete, dryRun, rsh.toStdString(), dstHost.toStdString());
     if (carga.empty()) {
         return {};
     }
-    return mwhelpers::argvQt(zfsmgr::commands::peticiones::copiaConRsync(carga));
+    return mwhelpers::argvQt(zfsmgr::commands::requests::rsyncCopy(carga));
 }
 
 // Sincronizar dos directorios de la MISMA máquina con la copia propia del agente, sin
@@ -2357,7 +2357,7 @@ bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& po
         return false;
     }
     const bool holdsOk =
-        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::holdsDe({trimmedObject.toStdString()})), 20000, out, err, rc)
+        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::holdsOf({trimmedObject.toStdString()})), 20000, out, err, rc)
         && rc == 0;
     // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
     // destroying the nested maps dsInfo points into. Every use below is after this.

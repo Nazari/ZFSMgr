@@ -236,11 +236,11 @@ bool abreCampo(std::string& valor, const char* campo, const ConnectionProfile& p
     std::string claro;
     std::string err;
     if (maestra.empty()) {
-        avisos.push_back(store::Aviso{store::Motivo::ClaveMaestraRequerida, nombreDe(p), campo, {}});
+        avisos.push_back(store::Aviso{store::Reason::ClaveMaestraRequerida, nombreDe(p), campo, {}});
         return false;
     }
     if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
-        avisos.push_back(store::Aviso{store::Motivo::NoSeDescifra, nombreDe(p), campo, err});
+        avisos.push_back(store::Aviso{store::Reason::NoSeDescifra, nombreDe(p), campo, err});
         return false;
     }
     valor = claro;

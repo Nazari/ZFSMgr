@@ -91,21 +91,21 @@ protected:
 };
 
 bool isUserProperty(const QString& prop) {
-    return zfsmgr::base::zfsprops::esPropiedadDeUsuario(prop.toStdString());
+    return zfsmgr::base::zfsprops::isUserProperty(prop.toStdString());
 }
 
 // La familia de plataforma, el soporte por plataforma y la editabilidad viven ahora en
 // `base/zfsprops`, sin Qt. Estaban DUPLICADAS letra por letra en este fichero y en el
 // otro, y el servidor web necesita la misma regla para saber qué celda pinta con una caja
 // de edición. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
-using DatasetPlatformFamily = zfsmgr::base::zfsprops::Plataforma;
+using DatasetPlatformFamily = zfsmgr::base::zfsprops::Platform;
 
 DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
-    return zfsmgr::base::zfsprops::plataformaDe(osType.toStdString(), osLine.toStdString());
+    return zfsmgr::base::zfsprops::platformOf(osType.toStdString(), osLine.toStdString());
 }
 
 bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::soportadaEn(propName.toStdString(), platform);
+    return zfsmgr::base::zfsprops::isSupportedOn(propName.toStdString(), platform);
 }
 
 bool isDatasetPropertyEditable(const QString& propName,
@@ -113,7 +113,7 @@ bool isDatasetPropertyEditable(const QString& propName,
                                const QString& source,
                                const QString& readonly,
                                DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::editableEnLinea(propName.toStdString(),
+    return zfsmgr::base::zfsprops::isInlineEditable(propName.toStdString(),
                                                    datasetType.toStdString(),
                                                    source.toStdString(),
                                                    readonly.toStdString(), platform);
@@ -351,7 +351,7 @@ QString gsaComparableValue(const QString& propName, const QString& rawValue) {
 //
 // Los textos y sus claves son los mismos de antes a propósito: lo que se ha movido son las
 // reglas, no los mensajes, y cambiarlos de paso habría mezclado dos cosas en un cambio.
-QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Motivo& m,
+QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
                                        const QString& dataset) const {
     using F = zfsmgr::base::gsa::Fallo;
     switch (m.fallo) {
@@ -527,13 +527,13 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                 for (auto pit = propValues.cbegin(); pit != propValues.cend(); ++pit) {
                     propsStd[pit.key().toStdString()] = pit.value().toStdString();
                 }
-                zfsmgr::base::gsa::Programacion prog;
-                zfsmgr::base::gsa::Motivo motivo;
+                zfsmgr::base::gsa::Schedule prog;
+                zfsmgr::base::gsa::Reason motivo;
                 const auto conexionExiste = [this](const std::string& nombre) {
                     return connectionIndexByNameOrId(QString::fromStdString(nombre)) >= 0;
                 };
-                if (!zfsmgr::base::gsa::desdePropiedades(propsStd, prog, motivo)
-                    || !zfsmgr::base::gsa::valida(datasetName.toStdString(), prog, conexionExiste,
+                if (!zfsmgr::base::gsa::fromProperties(propsStd, prog, motivo)
+                    || !zfsmgr::base::gsa::isValid(datasetName.toStdString(), prog, conexionExiste,
                                                   motivo)) {
                     return fail(gsaMensajeDeMotivo(motivo, datasetName));
                 }
@@ -577,13 +577,13 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
         std::vector<zfsmgr::base::gsa::Entry> juego;
         for (int idx : it.value()) {
             const GsaState& s = enabledStates.at(idx);
-            zfsmgr::base::gsa::Programacion prog;
+            zfsmgr::base::gsa::Schedule prog;
             prog.activado = s.enabled;
             prog.recursivo = s.recursive;
             juego.push_back({s.datasetName.toStdString(), prog});
         }
-        zfsmgr::base::gsa::Motivo motivo;
-        if (!zfsmgr::base::gsa::validaConjunto(juego, motivo)) {
+        zfsmgr::base::gsa::Reason motivo;
+        if (!zfsmgr::base::gsa::isValidSet(juego, motivo)) {
             return fail(gsaMensajeDeMotivo(motivo, QString::fromStdString(motivo.dataset)));
         }
     }

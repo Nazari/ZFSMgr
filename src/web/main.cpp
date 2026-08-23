@@ -12,22 +12,22 @@
 #include "agentversion.h"
 #include "connectionjson.h"
 #include "daemoninstall.h"
-#include "dosextremos.h"
+#include "endpoints.h"
 #include "helpers.h"
-#include "sincronizacion.h"
+#include "syncing.h"
 #include "peers.h"
-#include "avanzadas.h"
+#include "advanced.h"
 #include "pools.h"
 #include "snapshots.h"
 #include "datasets.h"
 #include "gsa.h"
 #include "i18n.h"
-#include "listados.h"
-#include "peticiones.h"
+#include "listings.h"
+#include "requests.h"
 #include "session.h"
 #include "secretinput.h"
 #include "storefiles.h"
-#include "transferencia.h"
+#include "transfer.h"
 #include "transportcmd.h"
 // El `T(clave, castellano)` del intérprete: mismos catálogos, mismas claves, mismo
 // ayudante. Un tercer sistema de traducción en el mismo programa acabaría discrepando.
@@ -55,15 +55,15 @@ namespace B = zfsmgr::base;
 namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
 namespace H = zfsmgr::web::http;
-namespace L = zfsmgr::base::listados;
-namespace PET = zfsmgr::commands::peticiones;
+namespace L = zfsmgr::base::listings;
+namespace PET = zfsmgr::commands::requests;
 namespace ZP = zfsmgr::base::zfsprops;
-namespace DX = zfsmgr::base::dosextremos;
+namespace DX = zfsmgr::base::endpoints;
 namespace ZA = zfsmgr::base::zfsallow;
-namespace TR = zfsmgr::base::transferencia;
-namespace SY = zfsmgr::base::sincronizacion;
+namespace TR = zfsmgr::base::transfer;
+namespace SY = zfsmgr::base::syncing;
 namespace PR = zfsmgr::base::peers;
-namespace AV = zfsmgr::commands::avanzadas;
+namespace AV = zfsmgr::commands::advanced;
 namespace PL = zfsmgr::commands::pools;
 // `INST` y no `IN`: en Windows `IN` es un MACRO de `windows.h`, y
 // `namespace IN = …` no compila allí. Lo cazó el cruce de MinGW.
@@ -556,11 +556,11 @@ bool montajeDeDataset(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perf
     std::string salida;
     std::string err;
     int rc = 0;
-    if (!llamaAgente(ses, perfil, PET::listaDeDatasets(ds), salida, err, rc, nullptr, 60000)
+    if (!llamaAgente(ses, perfil, PET::datasetList(ds), salida, err, rc, nullptr, 60000)
         || rc != 0) {
         return false;
     }
-    for (const L::Entry& e : L::entradas(salida)) {
+    for (const L::Entry& e : L::entries(salida)) {
         if (e.nombre == ds) {
             montado = (e.montado == "yes");
             punto = e.puntoMontaje;
@@ -583,7 +583,7 @@ bool montajeDeDataset(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perf
     std::string salidaM;
     std::string errM;
     int rcM = 0;
-    if (!llamaAgente(ses, perfil, PET::montajes(), salidaM, errM, rcM, nullptr, 60000)
+    if (!llamaAgente(ses, perfil, PET::mounts(), salidaM, errM, rcM, nullptr, 60000)
         || rcM != 0) {
         return false;
     }
@@ -1001,7 +1001,7 @@ enum class Vista {
     PropsPool,
     Capacidades,
     Historial,
-    Programacion,
+    Schedule,
     // Las tres siguientes no consultan nada —salen del listado del árbol o son
     // formularios— pero necesitan una vista propia para poder ser pestañas: una pestaña es
     // un enlace, y un enlace necesita una URL.
@@ -1025,7 +1025,7 @@ const char* claveDeVista(Vista v) {
         case Vista::PropsPool:    return "poolprops";
         case Vista::Capacidades:  return "caps";
         case Vista::Historial:    return "historial";
-        case Vista::Programacion: return "gsa";
+        case Vista::Schedule: return "gsa";
         case Vista::Instantaneas: return "instantaneas";
         case Vista::Acciones:     return "acciones";
         case Vista::AccionesPool: return "acciones-pool";
@@ -1047,7 +1047,7 @@ std::string tituloDeVista(Vista v, const std::string& objeto) {
         case Vista::Capacidades:  return B::format(T("t_web_t_caps", "Capacidades de %1"), {objeto});
         case Vista::Pares:        return B::format(T("t_web_t_pares", "Pares de %1"), {objeto});
         case Vista::Historial:    return B::format(T("t_web_t_hist", "Historial de %1"), {objeto});
-        case Vista::Programacion: return B::format(T("t_web_t_gsa", "Instantáneas programadas de %1"), {objeto});
+        case Vista::Schedule: return B::format(T("t_web_t_gsa", "Instantáneas programadas de %1"), {objeto});
         case Vista::Instantaneas: return B::format(T("t_web_t_snaps", "Instantáneas de %1"), {objeto});
         case Vista::Acciones:     return B::format(T("t_web_t_acc", "Acciones sobre %1"), {objeto});
         case Vista::AccionesPool: return B::format(T("t_web_t_accpool", "Acciones sobre el pool %1"), {objeto});
@@ -1062,7 +1062,7 @@ Vista vistaDesde(const std::string& s) {
         Vista::Resumen,   Vista::Props,      Vista::Permisos,  Vista::Contenido,
         Vista::Estado,    Vista::PropsPool,  Vista::Capacidades, Vista::Historial,
         Vista::Pares,
-        Vista::Programacion, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
+        Vista::Schedule, Vista::Instantaneas, Vista::Acciones, Vista::AccionesPool,
         Vista::Diff, Vista::Holds,
     };
     for (const Vista v : todas) {
@@ -1381,7 +1381,7 @@ std::string grupoDeAcciones(const std::string& titulo, const std::string& cuerpo
 //
 // En su propia cookie y no en la de sesión, por lo mismo que el idioma: marcar un origen no
 // tiene nada que ver con estar autenticado.
-DX::Extremo origenDe(const H::Peticion& p) {
+DX::Endpoint origenDe(const H::Peticion& p) {
     // El valor va codificado ENTERO —«local%7Cwdx%2Fdatos%40lunes»— porque un nombre de
     // dataset puede llevar dentro casi cualquier cosa y una cookie no admite comas ni
     // puntos y coma. Así que primero se descodifica y luego se parte por la barra; al
@@ -1396,7 +1396,7 @@ DX::Extremo origenDe(const H::Peticion& p) {
 
 // El aviso de qué hay marcado. Sale en TODAS las páginas mientras haya origen: una marca
 // invisible es una marca que se olvida, y la siguiente acción de dos extremos sorprende.
-std::string avisoDeOrigen(const DX::Extremo& origen) {
+std::string avisoDeOrigen(const DX::Endpoint& origen) {
     if (origen.vacio()) {
         return {};
     }
@@ -1412,25 +1412,25 @@ std::string avisoDeOrigen(const DX::Extremo& origen) {
 // Las seis, con las que no aplican EN GRIS y con el motivo. Esconderlas haría creer que no
 // existen; enseñarlas sin decir por qué no se pueden deja al usuario probando.
 std::string accionesDeDosExtremos(const std::string& conn, const std::string& raiz,
-                                  const std::string& sel, const DX::Extremo& origen,
+                                  const std::string& sel, const DX::Endpoint& origen,
                                   const TR::Plan& plan, SY::Fallo falloSync,
                                   const std::string& testigo) {
-    const DX::Extremo destino{conn, sel};
+    const DX::Endpoint destino{conn, sel};
     std::string h;
-    for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar,
-                               DX::Accion::Mover, DX::Accion::Sincronizar, DX::Accion::Nivelar}) {
-        const DX::NoAplica porQue = DX::compruebo(a, origen, destino);
+    for (const DX::Action a : {DX::Action::Diff, DX::Action::Clonar, DX::Action::Copiar,
+                               DX::Action::Mover, DX::Action::Sincronizar, DX::Action::Nivelar}) {
+        const DX::NotApplicable porQue = DX::check(a, origen, destino);
         const std::string etiqueta = DX::labelOf(a);
-        // Copiar y Nivelar SÍ se pueden, si el plan de transferencia lo dice. El motivo de
+        // Copiar y Nivelar SÍ se pueden, si el plan de transfer lo dice. El motivo de
         // que no —un extremo Windows, un ZFS viejo, un daemon sin trabajos— sale del plan,
         // que es quien lo sabe, y no de una lista escrita aquí.
-        // Sincronizar ya está, pero NO es una transferencia: compara ficheros sobre los
+        // Sincronizar ya está, pero NO es una transfer: compara ficheros sobre los
         // puntos de montaje. Va por la página de confirmación porque esa página hace antes
         // una pasada EN SECO, y con `--delete` puede borrar en el destino.
         //
         // Lo que se mira aquí es solo lo barato —misma máquina, datasets, nada de Windows,
         // daemon en pie—; los montajes cuestan una consulta y se comprueban al pulsar.
-        if (a == DX::Accion::Sincronizar) {
+        if (a == DX::Action::Sincronizar) {
             if (falloSync == SY::Fallo::Ninguno) {
                 h += "<div>"
                      + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
@@ -1445,24 +1445,24 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
             }
             continue;
         }
-        // Mover ya está: es un `zfs rename` dentro del pool, no una transferencia. Va por
+        // Mover ya está: es un `zfs rename` dentro del pool, no una transfer. Va por
         // la página de confirmación porque cambia de sitio un dataset entero y con él la
         // ruta de montaje de todo lo que cuelgue.
-        if (a == DX::Accion::Mover && porQue == DX::NoAplica::Ninguna) {
+        if (a == DX::Action::Mover && porQue == DX::NotApplicable::Ninguna) {
             h += "<div>"
                  + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
                               + "&raiz=" + H::haciaUrl(raiz) + "&que=mover-desde-origen",
                           etiqueta)
                  + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
-                 + H::escapaHtml(DX::destinoDeMover(origen, destino)) + "</span></div>";
+                 + H::escapaHtml(DX::moveDestination(origen, destino)) + "</span></div>";
             continue;
         }
-        const bool esDeTransferencia = (a == DX::Accion::Copiar || a == DX::Accion::Nivelar);
-        if (esDeTransferencia && porQue == DX::NoAplica::TodaviaNoEstaEnLaWeb) {
+        const bool esDeTransferencia = (a == DX::Action::Copiar || a == DX::Action::Nivelar);
+        if (esDeTransferencia && porQue == DX::NotApplicable::TodaviaNoEstaEnLaWeb) {
             if (plan.sePuede()) {
                 h += "<div>"
                      + boton(conn, sel, raiz,
-                             a == DX::Accion::Copiar ? "copiar-desde-origen"
+                             a == DX::Action::Copiar ? "copiar-desde-origen"
                                                      : "nivelar-desde-origen",
                              etiqueta, testigo,
                              "<label class=\"campo\"><input type=\"checkbox\" name=\"rec\" "
@@ -1478,18 +1478,18 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                  + H::escapaHtml(TR::labelOf(plan.fallo)) + "</span></div>";
             continue;
         }
-        if (porQue != DX::NoAplica::Ninguna) {
+        if (porQue != DX::NotApplicable::Ninguna) {
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
                  + H::escapaHtml(DX::labelOf(porQue)) + "</span></div>";
             continue;
         }
-        if (a == DX::Accion::Diff) {
+        if (a == DX::Action::Diff) {
             h += "<div>" + enlace(urlDe(conn, raiz, sel, Vista::Diff), etiqueta)
                  + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
                  + H::escapaHtml(sel) + "</span></div>";
             continue;
         }
-        if (a == DX::Accion::Clonar) {
+        if (a == DX::Action::Clonar) {
             h += "<div>"
                  + boton(conn, sel, raiz, "clonar-desde-origen", etiqueta, testigo,
                          "<label class=\"campo\">"
@@ -1532,7 +1532,7 @@ std::vector<std::string> hijosDirectosDe(const Arbol& arbol, const std::string& 
 
 std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                               const std::string& ds, const L::Entry* e,
-                              const DX::Extremo& origen, const TR::Plan& plan,
+                              const DX::Endpoint& origen, const TR::Plan& plan,
                               SY::Fallo falloSync, const std::string& testigo,
                               const std::vector<std::string>& hijos, bool esWindows,
                               const std::vector<std::string>& maquinas) {
@@ -1607,7 +1607,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                              + "</div>"
                              + accionesDeDosExtremos(conn, raiz, ds, origen, plan, falloSync,
                                                      testigo));
-    // Las avanzadas. Las tres primeras van por RPC y como TRABAJO del daemon: mueven datos
+    // Las advanced. Las tres primeras van por RPC y como TRABAJO del daemon: mueven datos
     // y pueden tardar, y una petición HTTP colgada durante horas no es forma de esperar.
     std::string av;
 
@@ -1718,7 +1718,7 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
 // El menú de una INSTANTÁNEA. En Qt son cinco entradas; aquí están las tres que no piden
 // un segundo extremo.
 std::string accionesDeInstantanea(const std::string& conn, const std::string& raiz,
-                                  const std::string& snap, const DX::Extremo& origen,
+                                  const std::string& snap, const DX::Endpoint& origen,
                                   const TR::Plan& plan, SY::Fallo falloSync,
                                   const std::string& testigo) {
     std::string h;
@@ -1850,8 +1850,8 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
 enum class QueTrabajo { Copiar, Nivelar, Sincronizar };
 
 std::string paginaTrabajoLanzado(const std::string& conn, const std::string& origen,
-                                 const std::string& destino, const TR::Trabajo& t,
-                                 const TR::Reanudacion& reanuda, const std::string& testigo,
+                                 const std::string& destino, const TR::Job& t,
+                                 const TR::Resume& reanuda, const std::string& testigo,
                                  QueTrabajo cual) {
     std::string cuerpo;
     if (t.ok()) {
@@ -2159,7 +2159,7 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
     // enterarse al pulsar «Borrar» es enterarse tarde.
     const auto holds = leeHolds(salidaHolds);
     std::string h;
-    for (const auto& grupo : B::gsa::agrupaInstantaneas(cortos)) {
+    for (const auto& grupo : B::gsa::groupSnapshots(cortos)) {
         h += "<div class=\"grupotit\">" + H::escapaHtml(etiquetaDeClase(grupo.first)) + " ("
              + std::to_string(grupo.second.size()) + ")</div>";
         std::vector<std::vector<std::string>> filas;
@@ -2303,7 +2303,7 @@ std::string panelPares(const std::string& crudo, const std::string& conn,
     // dirección suelta le cortaría el acceso. Un campo libre solo serviría para escribir algo
     // que va a ser rechazado.
     std::string esc;
-    for (const std::string& dir : PR::direccionesDeEscucha()) {
+    for (const std::string& dir : PR::bindAddresses()) {
         esc += "<div>"
                + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(dir)
                             + "&raiz=" + H::haciaUrl(conn) + "&que=escucha-pares",
@@ -2521,7 +2521,7 @@ std::string envuelveDosPaneles(const std::string& titulo, const std::string& mig
 
 // Las propiedades, con las MODIFICABLES editables en su propia fila.
 //
-// Antes había abajo dos cajas sueltas —«Propiedad» y «Valor»— donde había que teclear el
+// Antes había abajo dos cajas sueltas —«Property» y «Valor»— donde había que teclear el
 // nombre a mano. Eso obliga a copiarlo de la tabla de arriba, y un nombre mal escrito no da
 // error: `zfs set` crea una propiedad de usuario nueva si lleva dos puntos, y si no, falla
 // con un mensaje que no dice cuál de las dos cajas estaba mal.
@@ -2533,14 +2533,14 @@ std::string envuelveDosPaneles(const std::string& titulo, const std::string& mig
 // Qt para pintar o no una celda editable. No es una lista escrita aquí: estaba TRES veces
 // dentro de la GUI y ahora está una vez en la capa base.
 std::string panelPropiedades(const std::string& conn, const std::string& raiz,
-                             const std::string& objeto, const std::vector<L::Propiedad>& props,
+                             const std::string& objeto, const std::vector<L::Property>& props,
                              bool soloCapacidades, const std::string& tipoDataset,
-                             ZP::Plataforma plataforma, bool editables,
+                             ZP::Platform plataforma, bool editables,
                              const std::string& testigo) {
     // El valor de `readonly` que declara el propio ZFS para ESTE objeto: una propiedad
     // editable en general no lo es en un dataset montado de solo lectura.
     std::string readonlyDelObjeto = "off";
-    for (const L::Propiedad& pr : props) {
+    for (const L::Property& pr : props) {
         if (pr.nombre == "readonly") {
             readonlyDelObjeto = pr.valor;
             break;
@@ -2550,7 +2550,7 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
     std::string h = "<table><thead><tr><th>Propiedad</th><th>Valor</th><th>Origen</th></tr>"
                     "</thead><tbody>";
     std::size_t cuantas = 0;
-    for (const L::Propiedad& pr : props) {
+    for (const L::Property& pr : props) {
         // Las «capacidades» de un pool son sus propiedades `feature@…`, no otra consulta:
         // `zpool get all` ya las trae mezcladas con las demás y separarlas es un filtro.
         const bool esCapacidad = B::startsWith(pr.nombre, "feature@");
@@ -2562,7 +2562,7 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
         // volver a ponerla en «off» desde aquí.
         const std::string ro = (pr.nombre == "readonly") ? std::string("off") : readonlyDelObjeto;
         const bool sePuede = editables
-                             && ZP::editableEnLinea(pr.nombre, tipoDataset, pr.origen, ro,
+                             && ZP::isInlineEditable(pr.nombre, tipoDataset, pr.origen, ro,
                                                     plataforma);
         h += "<tr><th class=\"prop\">"
              + H::escapaHtml(soloCapacidades ? pr.nombre.substr(8) : pr.nombre) + "</th><td>";
@@ -2663,7 +2663,7 @@ std::string panelContenido(const std::string& conn, const std::string& objeto,
 
 // Los ajustes de un dataset, sacados del volcado `name, property, value, source`.
 struct ProgramacionLeida {
-    B::gsa::Programacion prog;
+    B::gsa::Schedule prog;
     bool local{false};   // puesta AQUÍ, que es lo único que el planificador mira
 };
 
@@ -2689,8 +2689,8 @@ std::map<std::string, ProgramacionLeida> leeProgramaciones(const std::string& sa
     std::map<std::string, ProgramacionLeida> out;
     for (const auto& kv : props) {
         ProgramacionLeida r;
-        B::gsa::Motivo porQue;
-        if (!B::gsa::desdePropiedades(kv.second, r.prog, porQue)) {
+        B::gsa::Reason porQue;
+        if (!B::gsa::fromProperties(kv.second, r.prog, porQue)) {
             continue;   // un valor que no se entiende: no se inventa una programación
         }
         r.local = hayLocal[kv.first];
@@ -2742,7 +2742,7 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
     f += "<div class=\"fila\">" + casilla("nivelar", T("t_web_nivelar_con_el_e446c5", "Nivelar con el destino"), mia.prog.nivelar)
          + "<label class=\"campo\">" + H::escapaHtml(T("t_web_destino_c1a0f9", "Destino"))
          + " <input name=\"destino\" placeholder=\"zfsm://máquina/pool/dataset\" value=\""
-         + H::escapaHtml(B::gsa::destinoComoUrl(mia.prog.destino)) + "\"></label></div>";
+         + H::escapaHtml(B::gsa::destinationAsUrl(mia.prog.destino)) + "\"></label></div>";
     f += "<button type=\"submit\">Guardar</button></form>";
     if (mia.local) {
         f += boton(conn, sel, raiz, "desprogramar", T("t_web_quitarla_de_478a25", "Quitarla de aquí"), testigo, std::string(),
@@ -2758,13 +2758,13 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
         if (!kv.second.local || kv.first == sel) {
             continue;
         }
-        const B::gsa::Programacion& p = kv.second.prog;
-        filas.push_back({enlace(urlDe(conn, raiz, kv.first, Vista::Programacion), kv.first),
+        const B::gsa::Schedule& p = kv.second.prog;
+        filas.push_back({enlace(urlDe(conn, raiz, kv.first, Vista::Schedule), kv.first),
                          p.activado ? "sí" : "no", p.recursivo ? "sí" : "no",
                          std::to_string(p.horario), std::to_string(p.diario),
                          std::to_string(p.semanal), std::to_string(p.mensual),
                          std::to_string(p.anual),
-                         p.nivelar ? H::escapaHtml(B::gsa::destinoComoUrl(p.destino))
+                         p.nivelar ? H::escapaHtml(B::gsa::destinationAsUrl(p.destino))
                                    : std::string()});
     }
     h += "<div class=\"grupotit\">Programaciones puestas por debajo</div>";
@@ -2788,7 +2788,7 @@ bool lanzaRsync(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& quienLoHac
     if (!enSeco) {
         // En seco es rápido y su salida es LO QUE SE ENSEÑA, así que va directo. La de
         // verdad puede tardar horas y va como trabajo del daemon.
-        args = PET::encola(args);
+        args = PET::enqueue(args);
         if (args.empty()) {
             err = "esa orden no se puede encolar como trabajo";
             return false;
@@ -2821,12 +2821,12 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
     const bool porRsync = mismaConexion && !B::transport::isWindowsConnection(perfilDestino);
     if (porRsync) {
         const std::string carga =
-            SY::cargaRsync({{plan.rutaOrigen, plan.rutaDestino}}, borrar, enSeco, "", "");
+            SY::rsyncPayload({{plan.rutaOrigen, plan.rutaDestino}}, borrar, enSeco, "", "");
         if (carga.empty()) {
             err = "no se pudo construir la orden de sincronización";
             return false;
         }
-        return lanzaRsync(ses, perfilDestino, PET::copiaConRsync(carga), enSeco, salida, err,
+        return lanzaRsync(ses, perfilDestino, PET::rsyncCopy(carga), enSeco, salida, err,
                           idTrabajo);
     }
 
@@ -2836,11 +2836,11 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
     // rsync no existe.
     //
     // Los tres pasos —escuchar, averiguar con qué dirección ve el origen al destino, y
-    // enviar— ya no se escriben aquí: son `transferencia::lanzaTrabajoDeArbol`, la misma
+    // enviar— ya no se escriben aquí: son `transfer::launchTreeJob`, la misma
     // función que usan la ventana y el intérprete. Esta era la TERCERA copia de la
     // coreografía, y la única que además sabía pedir `--delete`; ahora eso es un parámetro.
     std::string salidaEnvio;
-    const auto hecho = TR::lanzaTrabajoDeArbol(
+    const auto hecho = TR::launchTreeJob(
         ses.transporte,
         [&ses](const B::ConnectionProfile& maquina, const std::vector<std::string>& args,
                int timeoutMs, std::string& salidaL, std::string& errL, int& rcL) {
@@ -2848,7 +2848,7 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
         },
         perfilOrigen, perfilDestino, plan.rutaOrigen, plan.rutaDestino, mismaConexion, verboso,
         /*comoTrabajo=*/!enSeco, borrar, enSeco, &salidaEnvio);
-    if (hecho.fallo != TR::FalloTrabajo::Ninguno) {
+    if (hecho.fallo != TR::JobFailure::Ninguno) {
         err = TR::labelOf(hecho.fallo)
               + (hecho.detalle.empty() ? std::string() : ": " + hecho.detalle);
         return false;
@@ -2871,7 +2871,7 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
 // ese ajuste. Sin JavaScript no hay forma de rehacer la vista previa al marcar una casilla,
 // y una vista previa que no corresponde a lo que se va a ejecutar es peor que ninguna.
 std::string paginaConfirmarSincronizar(const std::string& conn, const std::string& destino,
-                                       const DX::Extremo& origen, const std::string& raiz,
+                                       const DX::Endpoint& origen, const std::string& raiz,
                                        bool borrar, bool huboFallo,
                                        const std::string& salidaSeco,
                                        const std::string& testigo) {
@@ -2944,7 +2944,7 @@ std::string paginaConfirmarSincronizar(const std::string& conn, const std::strin
 // qué, igual que el intérprete antes de una orden destructiva.
 std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                             const std::string& que, const std::string& raiz,
-                            const std::string& testigo, const DX::Extremo& origen) {
+                            const std::string& testigo, const DX::Endpoint& origen) {
     std::string texto;
     if (que == "borrar-instantanea") {
         texto = B::format(T("t_web_conf_delsnap",
@@ -2970,7 +2970,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                             "Se va a MOVER «%1» a «%2», dentro de «%3». Es un renombrado: "
                             "los datos no se copian, pero cambia la ruta de montaje de ese "
                             "dataset y de todo lo que cuelgue de él."),
-                          {origen.objeto, DX::destinoDeMover(origen, DX::Extremo{conn, objeto}),
+                          {origen.objeto, DX::moveDestination(origen, DX::Endpoint{conn, objeto}),
                            conn});
     } else if (que == "pool-destroy") {
         texto = B::format(T("t_web_conf_destroypool",
@@ -3143,7 +3143,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
 // desplegó, qué contestó systemd o launchd, y en macOS el paso que queda a mano—. El
 // motivo por el que se puede: instalar es idempotente. Recargar reinstala lo mismo, que
 // no es lo que pasa con «destruir».
-std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::Resultado& res,
+std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::Result& res,
                               const std::string& traza, const std::string& testigo) {
     std::string cuerpo;
     if (res.ok()) {
@@ -3403,7 +3403,7 @@ int main(int argc, char** argv) {
             std::string salidaZ;
             std::string errZ;
             int rcZ = -1;
-            if (llamaAgente(*sesionZfs, perfilC, PET::versionDeZfs(), salidaZ, errZ, rcZ,
+            if (llamaAgente(*sesionZfs, perfilC, PET::zfsVersion(), salidaZ, errZ, rcZ,
                             nullptr, 8000)
                 && rcZ == 0) {
                 // `zfs version` escribe «zfs-2.4.2-…» en la primera línea.
@@ -3621,7 +3621,7 @@ int main(int argc, char** argv) {
                 bool encontrado = objeto.empty();
                 while (!encontrado) {
                     if (llamaAgente(*sesionZfs, *perfilD,
-                                                    PET::listaDeDatasets(dataset), salidaD,
+                                                    PET::datasetList(dataset), salidaD,
                                                     errD, rcD, &motivoD, 30000)
                         && rcD == 0) {
                         encontrado = true;
@@ -3635,8 +3635,8 @@ int main(int argc, char** argv) {
                     dataset = dataset.substr(0, ultima);
                 }
                 const std::vector<std::string> verboD =
-                    objeto.empty() ? PET::listaDePools()
-                                   : PET::listaDeDatasets(dataset);
+                    objeto.empty() ? PET::poolList()
+                                   : PET::datasetList(dataset);
                 if (!encontrado
                     || (objeto.empty()
                         && (!llamaAgente(*sesionZfs, *perfilD, verboD, salidaD,
@@ -3660,7 +3660,7 @@ int main(int argc, char** argv) {
                     // Los hijos DIRECTOS: `--dump-zfs-list-all` es recursivo, y meter los
                     // nietos aquí haría que el explorador enseñara el árbol entero aplanado.
                     std::string puntoMontaje;
-                    for (const L::Entry& e : L::entradas(salidaD)) {
+                    for (const L::Entry& e : L::entries(salidaD)) {
                         if (e.nombre == dataset) {
                             if (e.montado == "yes") {
                                 puntoMontaje = e.puntoMontaje;
@@ -3688,7 +3688,7 @@ int main(int argc, char** argv) {
                         int rcF = -1;
                         std::string motivoF;
                         if (llamaAgente(*sesionZfs, *perfilD,
-                                                        PET::contenidoDeDirectorio(rutaFs), salidaF, errF,
+                                                        PET::directoryContents(rutaFs), salidaF, errF,
                                                         rcF, &motivoF, 30000)
                             && rcF == 0) {
                             B::json::Value raizF;
@@ -3735,7 +3735,7 @@ int main(int argc, char** argv) {
                 std::string errG;
                 int rcG = -1;
                 if (llamaAgente(*sesionZfs, *perfilPedido,
-                                PET::contenidoDeFichero(rutaBaseFs, 0, 1), sal, errG, rcG, nullptr,
+                                PET::fileContents(rutaBaseFs, 0, 1), sal, errG, rcG, nullptr,
                                 60000)
                     && rcG == 0) {
                     long long total = 0;
@@ -3914,9 +3914,9 @@ int main(int argc, char** argv) {
                     conSudo.password = sudoDelFormulario;
                     conSudo.useSudo = true;
                 }
-                const std::string plataforma = DI::plataformaDe(conSudo);
+                const std::string plataforma = DI::platformOf(conSudo);
                 const std::string arq =
-                    DI::arquitecturaRemota(sesionZfs->transporte, conSudo, false);
+                    DI::remoteArchitecture(sesionZfs->transporte, conSudo, false);
                 const std::string binario = zfsmgr::cli::rutaDelAgente(plataforma, arq);
                 if (binario.empty()) {
                     r.codigo = 502;
@@ -3931,7 +3931,7 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 std::string traza;
-                const DI::Resultado res = DI::instala(
+                const DI::Result res = DI::install(
                     sesionZfs->transporte, conSudo, binario,
                     [&traza](const std::string& l) { traza += l + "\n"; }, false);
                 // Se olvida la versión recordada de esa máquina: acaba de cambiar, y
@@ -3970,7 +3970,7 @@ int main(int argc, char** argv) {
                 }
                 verbo = INST::argvDestroy(objeto, false, INST::Scope::Only);
             } else if (que == "montar" || que == "desmontar") {
-                verbo = PET::zfsGenerico(argvEnBase64(
+                verbo = PET::zfsGeneric(argvEnBase64(
                     que == "montar" ? DS::argvMount(objeto) : DS::argvUnmount(objeto)));
             } else if (que == "crear-dataset") {
                 const std::string nombre = B::trim(p.campo("nombre"));
@@ -3983,7 +3983,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::zfsGenerico(
+                verbo = PET::zfsGeneric(
                     argvEnBase64(DS::argvCreate(DS::childName(objeto, nombre))));
             } else if (que == "renombrar") {
                 const std::string nombre = B::trim(p.campo("nombre"));
@@ -4009,7 +4009,7 @@ int main(int argc, char** argv) {
                         respuesta = H::componer(r);
                         return true;
                     }
-                    verbo = PET::zfsGenerico(argvEnBase64(a));
+                    verbo = PET::zfsGeneric(argvEnBase64(a));
                 }
             } else if (que == "clonar") {
                 const std::string nombre = B::trim(p.campo("nombre"));
@@ -4047,12 +4047,12 @@ int main(int argc, char** argv) {
                                                                    : INST::Scope::Only);
             } else if (que == "cargar-clave" || que == "descargar-clave") {
                 if (que == "descargar-clave") {
-                    verbo = PET::zfsGenerico(argvEnBase64({"unload-key", objeto}));
+                    verbo = PET::zfsGeneric(argvEnBase64({"unload-key", objeto}));
                 } else {
                     // La frase va en base64 DENTRO de la carga, cifrada por mTLS, y el
                     // daemon se la pasa a `zfs` por una tubería. Nunca por argumento: eso
                     // sale en el «ps» de las dos máquinas.
-                    verbo = PET::cargaClave(objeto, p.campo("frase"));
+                    verbo = PET::loadKey(objeto, p.campo("frase"));
                 }
             } else if (que == "cambiar-clave") {
                 const std::string f1 = p.campo("frase");
@@ -4075,7 +4075,7 @@ int main(int argc, char** argv) {
                 // Mismo camino que `cargar-clave`: la frase viaja en base64 dentro de la carga
                 // —cifrada por mTLS— y el daemon se la da a `zfs` por una tubería, nunca por
                 // argumento. El tercer parámetro son las banderas, que aquí van vacías.
-                verbo = PET::cambiaClave(objeto, f1, std::string());
+                verbo = PET::changeKey(objeto, f1, std::string());
             } else if (que == "programar" || que == "desprogramar") {
                 // Los nueve ajustes en UNA sola orden: `zfs set a=1 b=2 … dataset`. Nueve
                 // llamadas separadas dejarían una programación a medias si fallara la
@@ -4087,12 +4087,12 @@ int main(int argc, char** argv) {
                     // quitadas es exactamente lo que no queremos.
                     bool todoBien = true;
                     std::string ultimoErr;
-                    for (const auto& kv : B::gsa::aPropiedades(B::gsa::Programacion{})) {
+                    for (const auto& kv : B::gsa::toProperties(B::gsa::Schedule{})) {
                         std::string sO;
                         std::string eO;
                         int rO = -1;
                         if (!llamaAgente(*sesionZfs, *perfil,
-                                         PET::zfsGenerico(
+                                         PET::zfsGeneric(
                                              argvEnBase64({"inherit", kv.first, objeto})),
                                          sO, eO, rO, nullptr, 60000)
                             || rO != 0) {
@@ -4112,18 +4112,18 @@ int main(int argc, char** argv) {
                         "Location: " + urlDe(conn, B::trim(p.campo("raiz")).empty()
                                                        ? objeto
                                                        : B::trim(p.campo("raiz")),
-                                             objeto, Vista::Programacion));
+                                             objeto, Vista::Schedule));
                     r.cuerpo = "";
                     respuesta = H::componer(r);
                     return true;
                 }
-                B::gsa::Programacion prog;
+                B::gsa::Schedule prog;
                 prog.activado = (p.campo("activado") == "1");
                 prog.recursivo = (p.campo("recursivo") == "1");
                 prog.nivelar = (p.campo("nivelar") == "1");
                 // Se teclea como URL y se GUARDA como siempre: el planificador del daemon
                 // parte el valor por «::» y está escrito así en datasets que ya existen.
-                prog.destino = B::gsa::destinoDesdeUrl(p.campo("destino"));
+                prog.destino = B::gsa::destinationFromUrl(p.campo("destino"));
                 const std::pair<const char*, int*> ret[] = {
                     {"horario", &prog.horario}, {"diario", &prog.diario},
                     {"semanal", &prog.semanal}, {"mensual", &prog.mensual},
@@ -4154,11 +4154,11 @@ int main(int argc, char** argv) {
                 // ninguna retención hace la instantánea y la borra —casi siempre es un
                 // olvido, y callarlo deja creyendo que hay copias—, y nivelar sin destino
                 // no puede nivelar contra nada.
-                B::gsa::Motivo porQue;
+                B::gsa::Reason porQue;
                 const auto existe = [&conns](const std::string& idConn) {
                     return zfsmgr::cli::buscarConexion(conns, idConn) != nullptr;
                 };
-                if (!B::gsa::valida(objeto, prog, existe, porQue)) {
+                if (!B::gsa::isValid(objeto, prog, existe, porQue)) {
                     r.codigo = 400;
                     r.cuerpo = paginaError("no se puede guardar: "
                                                + B::gsa::labelOf(porQue.fallo)
@@ -4170,13 +4170,13 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 std::vector<std::string> argv = {"set"};
-                for (const auto& kv : B::gsa::aPropiedades(prog)) {
+                for (const auto& kv : B::gsa::toProperties(prog)) {
                     argv.push_back(kv.first + "=" + kv.second);
                 }
                 argv.push_back(objeto);
-                verbo = PET::zfsGenerico(argvEnBase64(argv));
+                verbo = PET::zfsGeneric(argvEnBase64(argv));
             } else if (que == "copiar-desde-origen" || que == "nivelar-desde-origen") {
-                const DX::Extremo origen = origenDe(p);
+                const DX::Endpoint origen = origenDe(p);
                 const B::ConnectionProfile* perfilOrigen =
                     origen.vacio() ? nullptr
                                    : zfsmgr::cli::buscarConexion(conns, origen.conexion);
@@ -4194,21 +4194,21 @@ int main(int argc, char** argv) {
                 // máquina pudo caerse.
                 const Salud sO = saludDe(*perfilOrigen);
                 const Salud sD = saludDe(*perfil);
-                TR::Extremo eO;
+                TR::Endpoint eO;
                 eO.conexion = origen.conexion;
                 eO.objeto = origen.objeto;
                 eO.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
                 eO.tieneDaemon = sO.vivo;
                 eO.admiteTrabajos = sO.admiteTrabajos;
                 eO.versionZfs = sO.versionZfs;
-                TR::Extremo eD;
+                TR::Endpoint eD;
                 eD.conexion = conn;
                 eD.objeto = objeto;
                 eD.esWindows = B::transport::isWindowsConnection(*perfil);
                 eD.tieneDaemon = sD.vivo;
                 eD.admiteTrabajos = sD.admiteTrabajos;
                 eD.versionZfs = sD.versionZfs;
-                const TR::Plan plan = TR::planea(eO, eD, /*exigeAsincrono=*/true);
+                const TR::Plan plan = TR::makePlan(eO, eD, /*exigeAsincrono=*/true);
                 if (!plan.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(TR::labelOf(plan.fallo), sesion.testigo());
@@ -4223,11 +4223,11 @@ int main(int argc, char** argv) {
                 // leer la interfaz de Qt: `mainwindow_transfer.cpp:378` frente a `:1352`.
                 const bool esNivelar = (que == "nivelar-desde-origen");
                 const std::string destino =
-                    esNivelar ? objeto : TR::destinoReal(origen.dataset(), objeto);
+                    esNivelar ? objeto : TR::actualDestination(origen.dataset(), objeto);
 
                 // Nivelar manda un INCREMENTAL, y para eso hace falta la base común. Se
                 // busca por GUID —no por nombre— entre las instantáneas de los dos
-                // extremos; la regla y sus tres negativas viven en `base/transferencia`.
+                // extremos; la regla y sus tres negativas viven en `base/transfer`.
                 //
                 // Las dos listas salen de `--dump-zfs-list-all`, que ya trae el GUID, así
                 // que esto cuesta una consulta por extremo y ninguna más.
@@ -4235,16 +4235,16 @@ int main(int argc, char** argv) {
                 if (esNivelar) {
                     const auto instantaneasDe =
                         [&](const B::ConnectionProfile& maquina, const std::string& ds,
-                            std::vector<TR::Instantanea>& out) -> bool {
+                            std::vector<TR::Snapshot>& out) -> bool {
                         std::string sal;
                         std::string errL;
                         int rcL = 0;
-                        if (!llamaAgente(*sesionZfs, maquina, PET::listaDeDatasets(ds), sal,
+                        if (!llamaAgente(*sesionZfs, maquina, PET::datasetList(ds), sal,
                                          errL, rcL, nullptr, 60000)
                             || rcL != 0) {
                             return false;
                         }
-                        for (const L::Entry& e : L::entradas(sal)) {
+                        for (const L::Entry& e : L::entries(sal)) {
                             const std::size_t i = e.nombre.find('@');
                             if (i == std::string::npos || e.nombre.substr(0, i) != ds) {
                                 continue;
@@ -4253,8 +4253,8 @@ int main(int argc, char** argv) {
                         }
                         return true;
                     };
-                    std::vector<TR::Instantanea> deOrigen;
-                    std::vector<TR::Instantanea> deDestino;
+                    std::vector<TR::Snapshot> deOrigen;
+                    std::vector<TR::Snapshot> deDestino;
                     if (!instantaneasDe(*perfilOrigen, origen.dataset(), deOrigen)
                         || !instantaneasDe(*perfil, objeto, deDestino)) {
                         r.codigo = 502;
@@ -4267,8 +4267,8 @@ int main(int argc, char** argv) {
                     }
                     const std::string objetivoCorto =
                         origen.objeto.substr(origen.objeto.find('@') + 1);
-                    const TR::PlanNivelar pn =
-                        TR::planeaNivelar(deOrigen, deDestino, objetivoCorto);
+                    const TR::LevelPlan pn =
+                        TR::makeLevelPlan(deOrigen, deDestino, objetivoCorto);
                     if (!pn.sePuede()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_nivelar", "no se puede nivelar: ")
@@ -4281,9 +4281,9 @@ int main(int argc, char** argv) {
                 }
                 // El testigo de reanudación, si quedó algo a medias. Con él puesto, el
                 // envío continúa desde donde iba en vez de mandarlo todo otra vez.
-                const auto reanuda = TR::buscaTestigo(sesionZfs->transporte, *perfil, destino,
+                const auto reanuda = TR::findResumeToken(sesionZfs->transporte, *perfil, destino,
                                                       false);
-                TR::OpcionesDeEnvio opciones;
+                TR::SendOptions opciones;
                 opciones.R = (p.campo("rec") == "1");
                 const TR::LlamadaAlAgente llama =
                     [&](const B::ConnectionProfile& maquina,
@@ -4292,9 +4292,9 @@ int main(int argc, char** argv) {
                         return llamaAgente(*sesionZfs, maquina, args, out, errL, rcL, nullptr,
                                            timeoutMs);
                     };
-                const auto lanzado = TR::lanzaTrabajo(
+                const auto lanzado = TR::launchJob(
                     sesionZfs->transporte, llama, *perfilOrigen, *perfil, origen.objeto, destino,
-                    desdeInstantanea, TR::banderasDeEnvio(opciones), reanuda.testigo,
+                    desdeInstantanea, TR::sendFlags(opciones), reanuda.testigo,
                     origen.conexion == conn, op.verboso);
                 r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, destino, lanzado, reanuda,
                                                 sesion.testigo(),
@@ -4304,7 +4304,7 @@ int main(int argc, char** argv) {
                 respuesta = H::componer(r);
                 return true;
             } else if (que == "sincronizar-desde-origen") {
-                const DX::Extremo origen = origenDe(p);
+                const DX::Endpoint origen = origenDe(p);
                 const B::ConnectionProfile* perfilOrigen =
                     origen.vacio() ? nullptr
                                    : zfsmgr::cli::buscarConexion(conns, origen.conexion);
@@ -4319,12 +4319,12 @@ int main(int argc, char** argv) {
                 }
                 // Se vuelve a planear AQUÍ, montajes incluidos: entre que se vio la pasada
                 // en seco y se pulsó, alguien pudo desmontar cualquiera de los dos.
-                SY::Extremo eO;
+                SY::Endpoint eO;
                 eO.conexion = origen.conexion;
                 eO.objeto = origen.objeto;
                 eO.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
                 eO.tieneDaemon = saludDe(*perfilOrigen).vivo;
-                SY::Extremo eD;
+                SY::Endpoint eD;
                 eD.conexion = conn;
                 eD.objeto = objeto;
                 eD.esWindows = B::transport::isWindowsConnection(*perfil);
@@ -4332,7 +4332,7 @@ int main(int argc, char** argv) {
                 montajeDeDataset(*sesionZfs, *perfilOrigen, eO.objeto, eO.montado,
                                  eO.puntoMontaje);
                 montajeDeDataset(*sesionZfs, *perfil, eD.objeto, eD.montado, eD.puntoMontaje);
-                const SY::Plan planS = SY::planea(eO, eD);
+                const SY::Plan planS = SY::makePlan(eO, eD);
                 if (!planS.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
@@ -4347,26 +4347,26 @@ int main(int argc, char** argv) {
                 const bool okS = sincroniza(*sesionZfs, *perfilOrigen, *perfil, planS,
                                             origen.conexion == conn, p.campo("del") == "1",
                                             /*enSeco=*/false, op.verboso, salS, errS, idT);
-                TR::Trabajo t;
+                TR::Job t;
                 if (okS) {
                     t.id = idT;
                 } else {
-                    t.fallo = TR::FalloTrabajo::SinIdentificador;
+                    t.fallo = TR::JobFailure::SinIdentificador;
                     t.detalle = B::trim(errS).empty() ? B::trim(salS) : B::trim(errS);
                 }
-                r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, objeto, t, TR::Reanudacion{},
+                r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Sincronizar);
                 r.codigo = okS ? 200 : 502;
                 respuesta = H::componer(r);
                 return true;
             } else if (que == "mover-desde-origen") {
-                const DX::Extremo origen = origenDe(p);
-                const DX::Extremo destino{conn, objeto};
+                const DX::Endpoint origen = origenDe(p);
+                const DX::Endpoint destino{conn, objeto};
                 // Se vuelve a comprobar AQUÍ, no solo al pintar el enlace: entre que se
                 // dibujó la página y se confirmó, el origen pudo cambiar en otra pestaña.
                 // Validar solo donde se pinta no valida nada.
-                const DX::NoAplica porQue = DX::compruebo(DX::Accion::Mover, origen, destino);
-                if (porQue != DX::NoAplica::Ninguna) {
+                const DX::NotApplicable porQue = DX::check(DX::Action::Mover, origen, destino);
+                if (porQue != DX::NotApplicable::Ninguna) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_mover", "no se puede mover: ")
                                                + DX::labelOf(porQue),
@@ -4374,7 +4374,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                const std::string aDonde = DX::destinoDeMover(origen, destino);
+                const std::string aDonde = DX::moveDestination(origen, destino);
                 std::string salida;
                 std::string errL;
                 int rcL = 0;
@@ -4402,13 +4402,13 @@ int main(int argc, char** argv) {
                 respuesta = H::componer(r);
                 return true;
             } else if (que == "clonar-desde-origen") {
-                const DX::Extremo origen = origenDe(p);
-                const DX::Extremo destino{conn, objeto};
-                const DX::NoAplica porQue = DX::compruebo(DX::Accion::Clonar, origen, destino);
+                const DX::Endpoint origen = origenDe(p);
+                const DX::Endpoint destino{conn, objeto};
+                const DX::NotApplicable porQue = DX::check(DX::Action::Clonar, origen, destino);
                 // Se vuelve a comprobar AQUÍ y no solo al pintar el botón: entre que se
                 // dibujó la página y se pulsó, el origen pudo cambiar en otra pestaña del
                 // navegador. Validar solo donde se pinta no valida nada.
-                if (porQue != DX::NoAplica::Ninguna) {
+                if (porQue != DX::NotApplicable::Ninguna) {
                     r.codigo = 400;
                     r.cuerpo = paginaError("no se puede clonar: " + DX::labelOf(porQue),
                                            sesion.testigo());
@@ -4444,7 +4444,7 @@ int main(int argc, char** argv) {
                     std::string sal;
                     std::string er;
                     int rcP = -1;
-                    if (!llamaAgente(*sesionZfs, *perfil, PET::permisosDe(objeto), sal, er,
+                    if (!llamaAgente(*sesionZfs, *perfil, PET::permissionsOf(objeto), sal, er,
                                      rcP, nullptr, 30000)
                         || rcP != 0) {
                         r.codigo = 502;
@@ -4516,7 +4516,7 @@ int main(int argc, char** argv) {
                 std::string errA;
                 int rcA = -1;
                 if (!llamaAgente(*sesionZfs, *perfil,
-                                 PET::permisosEnLote(argvEnBase64(lote)),
+                                 PET::permissionsBatch(argvEnBase64(lote)),
                                  salA, errA, rcA, nullptr, 60000)
                     || rcA != 0) {
                     r.codigo = 502;
@@ -4538,7 +4538,7 @@ int main(int argc, char** argv) {
                 std::string salV;
                 std::string errV;
                 int rcV = -1;
-                if (llamaAgente(*sesionZfs, *perfil, PET::permisosDe(objeto), salV, errV,
+                if (llamaAgente(*sesionZfs, *perfil, PET::permissionsOf(objeto), salV, errV,
                                 rcV, nullptr, 30000)
                     && rcV == 0) {
                     bool esta = false;
@@ -4605,19 +4605,19 @@ int main(int argc, char** argv) {
             } else if (que == "entregar-pares") {
                 // La carga la compone la capa base, la misma que usa el intérprete. Aquí solo
                 // se decide a quién y se comprueba que haya algo que entregar.
-                const PR::Entrega entrega = PR::componeEntrega(conns.perfiles, conn);
+                const PR::Handover entrega = PR::composeHandover(conns.perfiles, conn);
                 if (!entrega.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(PR::labelOf(entrega.fallo), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::fijaPares(entrega.cargaB64);
+                verbo = PET::setPeers(entrega.cargaB64);
             } else if (que == "escucha-pares") {
                 // El «objeto» es la dirección. Se valida con la MISMA lista que ofrece la
                 // vista y que aplica el daemon: aquí solo se evita mandar algo que se sabe
                 // que va a ser rechazado.
-                if (!PR::direccionDeEscuchaValida(objeto)) {
+                if (!PR::isValidBindAddress(objeto)) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(
                         B::format(T("t_web_e_escucha", "dirección de escucha no admitida: «%1»"),
@@ -4626,7 +4626,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::fijaEscucha(objeto);
+                verbo = PET::setBindAddress(objeto);
             } else if (que == "cancelar-trabajo") {
                 // El «objeto» aquí es el identificador del trabajo, no una ruta de ZFS. Se
                 // comprueba que lo parezca antes de mandarlo: el daemon lo usa para buscar en
@@ -4644,7 +4644,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::cancelaTrabajo(idT);
+                verbo = PET::cancelJob(idT);
             } else if (que == "latido") {
                 verbo = {"--heartbeat"};
             } else if (B::startsWith(que, "pool-")) {
@@ -4709,9 +4709,9 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::zpoolGenerico(argvEnBase64(argv));
+                verbo = PET::zpoolGeneric(argvEnBase64(argv));
             } else if (que == "reparar-montajes") {
-                verbo = PET::reparaMontajesAlternativos({"apply"});
+                verbo = PET::repairAltMountpoints({"apply"});
             } else if (que == "desde-dir") {
                 const std::string dirOrigen = B::trim(p.campo("directorio"));
                 const std::string connOrigen = B::trim(p.campo("origenconn"));
@@ -4749,14 +4749,14 @@ int main(int argc, char** argv) {
                 const bool okF = sincroniza(*sesionZfs, *perfilOrigen, *perfil, plan,
                                             connOrigen == conn, /*borrar=*/false,
                                             /*enSeco=*/false, op.verboso, salF, errF, idF);
-                TR::Trabajo t;
+                TR::Job t;
                 if (okF) {
                     t.id = idF;
                 } else {
-                    t.fallo = TR::FalloTrabajo::SinIdentificador;
+                    t.fallo = TR::JobFailure::SinIdentificador;
                     t.detalle = B::trim(errF).empty() ? B::trim(salF) : B::trim(errF);
                 }
-                r.cuerpo = paginaTrabajoLanzado(conn, dirOrigen, objeto, t, TR::Reanudacion{},
+                r.cuerpo = paginaTrabajoLanzado(conn, dirOrigen, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Sincronizar);
                 r.codigo = okF ? 200 : 502;
                 respuesta = H::componer(r);
@@ -4772,12 +4772,12 @@ int main(int argc, char** argv) {
                     // Las filas vacías se saltan: el formulario ofrece tres y casi nunca se
                     // usan las tres. Y una a medias se descarta ENTERA, que es lo que evita
                     // que el verbo —que las lee de dos en dos— desplace todas las siguientes.
-                    // Las dos reglas viven en `commands::avanzadas`.
-                    std::vector<AV::Desglose> pares;
+                    // Las dos reglas viven en `commands::advanced`.
+                    std::vector<AV::Breakdown> pares;
                     for (std::size_t i = 0; i < dirs.size() && i < nombres.size(); ++i) {
-                        pares.push_back(AV::Desglose{dirs[i], nombres[i]});
+                        pares.push_back(AV::Breakdown{dirs[i], nombres[i]});
                     }
-                    args = AV::argvDesglosar(objeto, pares);
+                    args = AV::argvBreakdown(objeto, pares);
                     if (args.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_bd",
@@ -4789,9 +4789,9 @@ int main(int argc, char** argv) {
                     }
                 } else if (que == "ensamblar") {
                     // La regla de los nombres completos —y su porqué— vive en
-                    // `commands::avanzadas`, que es de donde salen también los del intérprete
+                    // `commands::advanced`, que es de donde salen también los del intérprete
                     // y los de la interfaz. Aquí estaba escrita a mano por segunda vez.
-                    args = AV::argvEnsamblar(objeto, p.campos("hijo"));
+                    args = AV::argvAssemble(objeto, p.campos("hijo"));
                     if (args.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_as", "hay que elegir al menos un hijo"),
@@ -4810,7 +4810,7 @@ int main(int argc, char** argv) {
                         respuesta = H::componer(r);
                         return true;
                     }
-                    args = AV::argvHaciaDir(objeto, destino, p.campo("borra") == "1");
+                    args = AV::argvToDir(objeto, destino, p.campo("borra") == "1");
                     if (args.empty()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_todir_ruta",
@@ -4821,7 +4821,7 @@ int main(int argc, char** argv) {
                         return true;
                     }
                 }
-                const std::vector<std::string> conTrabajo = PET::encola(args);
+                const std::vector<std::string> conTrabajo = PET::enqueue(args);
                 std::string salT;
                 std::string errT;
                 int rcT = 0;
@@ -4830,14 +4830,14 @@ int main(int argc, char** argv) {
                     && rcT == 0) {
                     idT = idDeTrabajoEn(salT);
                 }
-                TR::Trabajo t;
+                TR::Job t;
                 if (!idT.empty()) {
                     t.id = idT;
                 } else {
-                    t.fallo = TR::FalloTrabajo::SinIdentificador;
+                    t.fallo = TR::JobFailure::SinIdentificador;
                     t.detalle = B::trim(errT).empty() ? B::trim(salT) : B::trim(errT);
                 }
-                r.cuerpo = paginaTrabajoLanzado(conn, objeto, objeto, t, TR::Reanudacion{},
+                r.cuerpo = paginaTrabajoLanzado(conn, objeto, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Copiar);
                 r.codigo = idT.empty() ? 502 : 200;
                 respuesta = H::componer(r);
@@ -4873,9 +4873,9 @@ int main(int argc, char** argv) {
                 for (const std::string& d : discos) {
                     argv.push_back(d);
                 }
-                verbo = PET::zpoolGenerico(argvEnBase64(argv));
+                verbo = PET::zpoolGeneric(argvEnBase64(argv));
             } else if (que == "promover") {
-                verbo = PET::zfsGenerico(argvEnBase64(DS::argvPromote(objeto)));
+                verbo = PET::zfsGeneric(argvEnBase64(DS::argvPromote(objeto)));
             } else if (que == "set") {
                 const std::string prop = B::trim(p.campo("prop"));
                 const std::string valor = p.campo("valor");
@@ -4885,7 +4885,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::zfsGenerico(argvEnBase64({"set", prop + "=" + valor, objeto}));
+                verbo = PET::zfsGeneric(argvEnBase64({"set", prop + "=" + valor, objeto}));
             } else {
                 r.codigo = 400;
                 r.cuerpo = paginaError(B::format(T("t_web_e_acc", "acción desconocida: «%1»"), {que}), sesion.testigo());
@@ -4969,7 +4969,7 @@ int main(int argc, char** argv) {
             return std::string();
         };
         const PestanaLog pestana = pestanaDesde(valorDeConsulta("log"));
-        const DX::Extremo origenMarcado = origenDe(p);
+        const DX::Endpoint origenMarcado = origenDe(p);
 
         // Lo que la pestaña activa necesite de una máquina. «Combinado» y «Terminal» salen
         // de memoria y no piden nada; el daemon y los trabajos sí, y por eso solo se piden
@@ -4987,7 +4987,7 @@ int main(int argc, char** argv) {
                 std::string er;
                 int rcL = -1;
                 const std::vector<std::string> verboL =
-                    pestana.tipo == "daemon" ? PET::registro(0, 0) : PET::listaDeTrabajos();
+                    pestana.tipo == "daemon" ? PET::daemonLog(0, 0) : PET::jobList();
                 if (llamaAgente(*sesionZfs, *perfilLog, verboL, sal, er, rcL, nullptr, 30000)
                     && rcL == 0) {
                     logCargado = pestana.tipo == "daemon" ? panelRegistroDaemon(sal, 300)
@@ -5063,7 +5063,7 @@ int main(int argc, char** argv) {
             if (campoConsulta("que") == "sincronizar-desde-origen") {
                 const std::string cS = campoConsulta("c");
                 const std::string oS = campoConsulta("o");
-                const DX::Extremo origenS = origenDe(p);
+                const DX::Endpoint origenS = origenDe(p);
                 const B::ConnectionProfile* perfilS =
                     zfsmgr::cli::buscarConexion(conns, cS);
                 const B::ConnectionProfile* perfilOS =
@@ -5078,12 +5078,12 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                SY::Extremo eO;
+                SY::Endpoint eO;
                 eO.conexion = origenS.conexion;
                 eO.objeto = origenS.objeto;
                 eO.esWindows = B::transport::isWindowsConnection(*perfilOS);
                 eO.tieneDaemon = saludDe(*perfilOS).vivo;
-                SY::Extremo eD;
+                SY::Endpoint eD;
                 eD.conexion = cS;
                 eD.objeto = oS;
                 eD.esWindows = B::transport::isWindowsConnection(*perfilS);
@@ -5092,7 +5092,7 @@ int main(int argc, char** argv) {
                 // AQUÍ y no al pintar el menú de acciones.
                 montajeDeDataset(*sesionZfs, *perfilOS, eO.objeto, eO.montado, eO.puntoMontaje);
                 montajeDeDataset(*sesionZfs, *perfilS, eD.objeto, eD.montado, eD.puntoMontaje);
-                const SY::Plan planS = SY::planea(eO, eD);
+                const SY::Plan planS = SY::makePlan(eO, eD);
                 if (!planS.sePuede()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
@@ -5173,7 +5173,7 @@ int main(int argc, char** argv) {
         };
 
         if (objeto.empty()) {
-            if (!pide(PET::listaDePools(), 20000)) {
+            if (!pide(PET::poolList(), 20000)) {
                 r.codigo = 502;
                 r.cuerpo = paginaError("no se pudo hablar con «" + conn + "»: "
                                            + (err.empty() ? std::string("sin respuesta") : err),
@@ -5195,8 +5195,8 @@ int main(int argc, char** argv) {
             const Vista vistaMaquina = vistaDesde(campoDeConsulta("v"));
             std::string cargadoMaquina;
             switch (vistaMaquina) {
-                case Vista::Programacion:
-                    cargadoMaquina = pide(PET::gsaDeTodosLosPools(), 30000)
+                case Vista::Schedule:
+                    cargadoMaquina = pide(PET::gsaOfAllPools(), 30000)
                                          ? panelProgramacion(conn, std::string(),
                                                              std::string(), salida,
                                                              sesion.testigo())
@@ -5221,12 +5221,12 @@ int main(int argc, char** argv) {
             const std::vector<std::pair<std::string, std::vector<Pestana>>> gruposC = {
                 {std::string(),
                  {{Vista::Resumen, T("t_web_pools_2fd96d", "Pools")},
-                  {Vista::Programacion, T("t_web_programacion_cca584", "Programación")},
+                  {Vista::Schedule, T("t_web_programacion_cca584", "Programación")},
                   {Vista::Pares, T("t_web_pares_tab", "Pares")},
                   {Vista::Acciones, T("t_help_actions_001", "Acciones")}}}};
             std::string cuerpoC;
             switch (vistaMaquina) {
-                case Vista::Programacion:
+                case Vista::Schedule:
                     cuerpoC = cargadoMaquina;
                     break;
                 case Vista::Pares: {
@@ -5236,7 +5236,7 @@ int main(int argc, char** argv) {
                     int rcP = -1;
                     const bool vivo =
                         perfilP != nullptr
-                        && llamaAgente(*sesionZfs, *perfilP, PET::pares(), salP, erP, rcP,
+                        && llamaAgente(*sesionZfs, *perfilP, PET::peerList(), salP, erP, rcP,
                                        nullptr, 20000)
                         && rcP == 0;
                     if (!vivo) {
@@ -5260,7 +5260,7 @@ int main(int argc, char** argv) {
                         std::string salS;
                         std::string errS;
                         int rcS = 0;
-                        if (llamaAgente(*sesionZfs, *perfil, PET::sondaDeImportables(), salS,
+                        if (llamaAgente(*sesionZfs, *perfil, PET::importableProbe(), salS,
                                         errS, rcS, nullptr, 120000)) {
                             importables = poolsImportables(salS);
                         }
@@ -5270,7 +5270,7 @@ int main(int argc, char** argv) {
                         std::string salD;
                         std::string errD;
                         int rcD = 0;
-                        if (llamaAgente(*sesionZfs, *perfil, PET::dispositivosDeBloque(), salD, errD,
+                        if (llamaAgente(*sesionZfs, *perfil, PET::blockDevices(), salD, errD,
                                         rcD, nullptr, 60000)
                             && rcD == 0) {
                             discos = salD;
@@ -5283,7 +5283,7 @@ int main(int argc, char** argv) {
                         std::string salR;
                         std::string errR;
                         int rcR = 0;
-                        if (llamaAgente(*sesionZfs, *perfil, PET::reparaMontajesAlternativos({}), salR,
+                        if (llamaAgente(*sesionZfs, *perfil, PET::repairAltMountpoints({}), salR,
                                         errR, rcR, nullptr, 60000)
                             && rcR == 0) {
                             for (const std::string& l : B::split(salR, "\n", true)) {
@@ -5367,7 +5367,7 @@ int main(int argc, char** argv) {
         // pero es lo que hace que desde dentro de un pool se pueda saltar a otro sin
         // volver atrás dos pantallas.
         std::vector<L::Pool> poolsDeLaMaquina;
-        if (pide(PET::listaDePools(), 20000)) {
+        if (pide(PET::poolList(), 20000)) {
             std::string errP;
             L::pools(salida, poolsDeLaMaquina, errP);
         }
@@ -5378,13 +5378,13 @@ int main(int argc, char** argv) {
             poolsDeLaMaquina.push_back(solo);
         }
 
-        if (!pide(PET::listaDeDatasets(objeto), 30000)) {
+        if (!pide(PET::datasetList(objeto), 30000)) {
             r.codigo = 502;
             r.cuerpo = paginaError(B::format(T("t_web_e_list", "no se pudo listar «%1»"), {objeto}), sesion.testigo());
             respuesta = H::componer(r);
             return true;
         }
-        const Arbol arbol = construyeArbol(L::entradas(salida), objeto);
+        const Arbol arbol = construyeArbol(L::entries(salida), objeto);
         const std::string izq = panelArbol(conns.perfiles, conn, objeto, poolsDeLaMaquina, arbol,
                                            sel, true);
         const auto itSel = arbol.porNombre.find(sel);
@@ -5406,43 +5406,43 @@ int main(int argc, char** argv) {
             if (perfilOrigen != nullptr) {
                 const Salud sOrigen = saludDe(*perfilOrigen);
                 const Salud sDestino = saludDe(*perfil);
-                TR::Extremo eOrigen;
+                TR::Endpoint eOrigen;
                 eOrigen.conexion = origenMarcado.conexion;
                 eOrigen.objeto = origenMarcado.objeto;
                 eOrigen.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
                 eOrigen.tieneDaemon = sOrigen.vivo;
                 eOrigen.admiteTrabajos = sOrigen.admiteTrabajos;
                 eOrigen.versionZfs = sOrigen.versionZfs;
-                TR::Extremo eDestino;
+                TR::Endpoint eDestino;
                 eDestino.conexion = conn;
                 eDestino.objeto = sel;
                 eDestino.esWindows = B::transport::isWindowsConnection(*perfil);
                 eDestino.tieneDaemon = sDestino.vivo;
                 eDestino.admiteTrabajos = sDestino.admiteTrabajos;
                 eDestino.versionZfs = sDestino.versionZfs;
-                planTransfer = TR::planea(eOrigen, eDestino, /*exigeAsincrono=*/true);
+                planTransfer = TR::makePlan(eOrigen, eDestino, /*exigeAsincrono=*/true);
 
                 // Sincronizar tiene su propia regla: no comparte camino con las de
-                // transferencia porque no manda bloques, compara ficheros. Aquí solo la
+                // transfer porque no manda bloques, compara ficheros. Aquí solo la
                 // parte barata; los montajes se miran al pulsar.
-                SY::Extremo sO;
+                SY::Endpoint sO;
                 sO.conexion = origenMarcado.conexion;
                 sO.objeto = origenMarcado.objeto;
                 sO.esWindows = eOrigen.esWindows;
                 sO.tieneDaemon = sOrigen.vivo;
-                SY::Extremo sD;
+                SY::Endpoint sD;
                 sD.conexion = conn;
                 sD.objeto = sel;
                 sD.esWindows = eDestino.esWindows;
                 sD.tieneDaemon = sDestino.vivo;
-                falloSync = SY::compruebo(sO, sD);
+                falloSync = SY::check(sO, sD);
             }
         }
 
         // La plataforma de la máquina y el tipo del objeto: los dos hacen falta para saber
         // qué propiedad se puede escribir encima. `jailed` solo existe en FreeBSD, y a una
         // instantánea no se le cambia nada de ZFS —solo sus propiedades de usuario—.
-        const ZP::Plataforma plataforma = ZP::plataformaDe(perfil->osType, std::string());
+        const ZP::Platform plataforma = ZP::platformOf(perfil->osType, std::string());
         const bool selEsInstantanea = sel.find('@') != std::string::npos;
         const std::string tipoDelObjeto = selEsInstantanea ? "snapshot" : "filesystem";
 
@@ -5477,7 +5477,7 @@ int main(int argc, char** argv) {
             const std::size_t cuantas = itS == arbol.snapshots.end() ? 0 : itS->second.size();
             delObjeto.push_back({Vista::Permisos, T("t_permissions_node_001", "Permisos")});
             delObjeto.push_back({Vista::Contenido, T("t_content_node_001", "Contenido")});
-            delObjeto.push_back({Vista::Programacion, T("t_web_programacion_cca584", "Programación")});
+            delObjeto.push_back({Vista::Schedule, T("t_web_programacion_cca584", "Programación")});
             // Compuesta y no literal: se usa `format` con un hueco, que es como lo hace el
             // intérprete. Concatenar el número al texto deja la etiqueta a medio traducir,
             // y además obliga a que el número vaya siempre al final, cosa que no se puede
@@ -5489,9 +5489,9 @@ int main(int argc, char** argv) {
         }
         // «Comparar» solo sale cuando hay un origen que se puede comparar con esto: una
         // pestaña que al pulsarla dice «no aplica» es una pestaña de más.
-        if (DX::compruebo(DX::Accion::Diff, origenMarcado, DX::Extremo{conn, sel})
-            == DX::NoAplica::Ninguna) {
-            delObjeto.push_back({Vista::Diff, DX::labelOf(DX::Accion::Diff)});
+        if (DX::check(DX::Action::Diff, origenMarcado, DX::Endpoint{conn, sel})
+            == DX::NotApplicable::Ninguna) {
+            delObjeto.push_back({Vista::Diff, DX::labelOf(DX::Action::Diff)});
         }
         delObjeto.push_back({Vista::Acciones, T("t_help_actions_001", "Acciones")});
         grupos.push_back({esNodoDePool ? T("t_web_dataset_105268", "Dataset") : std::string(),
@@ -5532,10 +5532,10 @@ int main(int argc, char** argv) {
             return false;
         };
         const auto propsEn = [&](bool deUnPool, bool soloCapacidades) {
-            std::vector<L::Propiedad> props;
+            std::vector<L::Property> props;
             std::string errAnalisis;
-            const bool vale = deUnPool ? L::propiedadesDePool(salida, props, errAnalisis)
-                                       : L::propiedades(salida, props, errAnalisis);
+            const bool vale = deUnPool ? L::poolProperties(salida, props, errAnalisis)
+                                       : L::properties(salida, props, errAnalisis);
             if (!vale) {
                 loCargado = "<p class=\"vacio\">respuesta ilegible: " + H::escapaHtml(errAnalisis)
                             + "</p>";
@@ -5567,7 +5567,7 @@ int main(int argc, char** argv) {
                     for (const L::Entry& e : itS->second) {
                         objetos.push_back(e.nombre);
                     }
-                    const std::vector<std::string> args = PET::holdsDe(objetos);
+                    const std::vector<std::string> args = PET::holdsOf(objetos);
                     if (pide(args, 30000)) {
                         loCargado = salida;
                     }
@@ -5575,12 +5575,12 @@ int main(int argc, char** argv) {
                 break;
             }
             case Vista::Props:
-                if (pideOFalla(PET::propiedadesDeDataset(sel), "las propiedades")) {
+                if (pideOFalla(PET::datasetProperties(sel), "las propiedades")) {
                     propsEn(false, false);
                 }
                 break;
             case Vista::Permisos:
-                if (pideOFalla(PET::permisosDe(sel), "los permisos")) {
+                if (pideOFalla(PET::permissionsOf(sel), "los permisos")) {
                     loCargado = panelPermisos(conn, objeto, sel, salida, sesion.testigo());
                 }
                 break;
@@ -5590,39 +5590,39 @@ int main(int argc, char** argv) {
                 if (punto.empty() || punto == "none" || punto == "-") {
                     loCargado = "<p class=\"vacio\">«" + H::escapaHtml(sel)
                                 + "» no tiene punto de montaje.</p>";
-                } else if (pideOFalla(PET::contenidoDeDirectorio(punto), "el contenido")) {
+                } else if (pideOFalla(PET::directoryContents(punto), "el contenido")) {
                     loCargado = panelContenido(conn, sel, salida);
                 }
                 break;
             }
             case Vista::Estado:
-                if (pideOFalla(PET::estadoDePool(objeto), "el estado del pool")) {
+                if (pideOFalla(PET::poolStatus(objeto), "el estado del pool")) {
                     loCargado = panelTexto(salida);
                 }
                 break;
             case Vista::PropsPool:
-                if (pideOFalla(PET::propiedadesDePool(objeto), "las propiedades del pool")) {
+                if (pideOFalla(PET::poolProperties(objeto), "las propiedades del pool")) {
                     propsEn(true, false);
                 }
                 break;
             case Vista::Capacidades:
-                if (pideOFalla(PET::propiedadesDePool(objeto), "las capacidades del pool")) {
+                if (pideOFalla(PET::poolProperties(objeto), "las capacidades del pool")) {
                     propsEn(true, true);
                 }
                 break;
             case Vista::Historial:
-                if (pideOFalla(PET::historialDePool(objeto), "el historial")) {
+                if (pideOFalla(PET::poolHistory(objeto), "el historial")) {
                     loCargado = panelTexto(salida);
                 }
                 break;
-            case Vista::Programacion:
-                if (pideOFalla(PET::gsaDeDataset(sel), "la programación")) {
+            case Vista::Schedule:
+                if (pideOFalla(PET::gsaOfDataset(sel), "la programación")) {
                     loCargado = panelProgramacion(conn, objeto, sel, salida,
                                                   sesion.testigo());
                 }
                 break;
             case Vista::Holds:
-                if (pideOFalla(PET::holdsDe({sel}), "las retenciones")) {
+                if (pideOFalla(PET::holdsOf({sel}), "las retenciones")) {
                     loCargado = panelHolds(conn, objeto, sel, salida, sesion.testigo());
                 }
                 break;
@@ -5630,7 +5630,7 @@ int main(int argc, char** argv) {
                 // Los dos extremos en el orden que quiere `zfs diff`: primero el más
                 // antiguo. Va el ORIGEN marcado contra el destino elegido, que es
                 // exactamente lo que la regla acaba de dar por bueno.
-                if (pideOFalla(PET::diferenciaEntre(origenMarcado.objeto, sel),
+                if (pideOFalla(PET::diffBetween(origenMarcado.objeto, sel),
                                "la comparación")) {
                     loCargado = panelDiff(salida, origenMarcado.objeto, sel);
                 }
@@ -5676,7 +5676,7 @@ int main(int argc, char** argv) {
             case Vista::PropsPool:
             case Vista::Capacidades:
             case Vista::Historial:
-            case Vista::Programacion:
+            case Vista::Schedule:
             case Vista::Diff:
             case Vista::Holds:
                 cuerpo = loCargado;
@@ -5785,7 +5785,7 @@ int main(int argc, char** argv) {
             std::string errT;
             int rcT = -1;
             if (!llamaAgente(*sesionZfs, ficheroPedido.perfil,
-                             PET::contenidoDeFichero(ficheroPedido.ruta, desde + puesto, pido),
+                             PET::fileContents(ficheroPedido.ruta, desde + puesto, pido),
                              sal, errT, rcT, nullptr, 120000)
                 || rcT != 0) {
                 return true;   // ya se mandó la cabecera: cortar es todo lo que queda

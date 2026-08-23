@@ -75,13 +75,13 @@ std::string windowsNativeInstallCommand() {
         // reinterpretan los escapes. Así no depende de ninguna.
         // Regla de cortafuegos para el propio binario.
         //
-        // Hace falta para RECIBIR una transferencia: el agente abre un puerto efímero y
+        // Hace falta para RECIBIR una transfer: el agente abre un puerto efímero y
         // el emisor se conecta a él. Sin regla, Windows rechaza esa conexión y la copia
         // expira sin explicación —comprobado: el cortafuegos viene activo en los tres
         // perfiles y sin ninguna regla nuestra—.
         //
         // Va acotada al PROGRAMA, no a un puerto: los puertos son efímeros y distintos
-        // en cada transferencia, así que abrir un rango sería peor y menos preciso.
+        // en cada transfer, así que abrir un rango sería peor y menos preciso.
         // Se borra y se recrea para que apunte al binario actual si cambió de sitio, y
         // no interrumpe la instalación si falla: sin ella el agente sirve igual para
         // todo lo demás.

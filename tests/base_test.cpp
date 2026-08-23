@@ -4,20 +4,20 @@
 
 #include "zfsprops.h"
 #include "daemoninstall.h"
-#include "dosextremos.h"
-#include "sincronizacion.h"
+#include "endpoints.h"
+#include "syncing.h"
 #include "sistemaoperativo.h"
 #include "peers.h"
-#include "avanzadas.h"
-#include "peticiones.h"
+#include "advanced.h"
+#include "requests.h"
 #include "pools.h"
 #include "snapshots.h"
 #include "datasets.h"
-#include "transferencia.h"
+#include "transfer.h"
 #include "zfsallow.h"
 #include "daemonpayload.h"
 #include "connectionjson.h"
-#include "listados.h"
+#include "listings.h"
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "connectionprofile.h"
@@ -27,7 +27,7 @@
 #include "refreshparse.h"
 #include "agentversion.h"
 #include "connectionjson.h"
-#include "listados.h"
+#include "listings.h"
 #include "secretcipher.h"
 #include "strutil.h"
 #include "tlsclient.h"
@@ -209,22 +209,22 @@ int main() {
     {
         // «¿Hay descendientes montados?» ya no es un guion por plataforma ejecutado por SSH:
         // se contesta con la lista que da `--dump-zfs-mount`.
-        namespace L2 = zfsmgr::base::listados;
+        namespace L2 = zfsmgr::base::listings;
         const std::string j =
             R"({"datasets":{"tank/datos":{"mountpoint":"/tank/datos"},)"
             R"("tank/datos/hijo":{"mountpoint":"/tank/datos/hijo"},)"
             R"("tank/datos2":{"mountpoint":"/tank/datos2"}}})";
-        comprobar(L2::tieneDescendientesMontados(j, "tank/datos"),
+        comprobar(L2::hasMountedDescendants(j, "tank/datos"),
                   "montados: un hijo montado cuenta");
         // **«tank/datos2» empieza por «tank/datos» y NO está debajo de él.** Sin la barra en
         // el prefijo, desmontar «tank/datos» preguntaría por un dataset hermano.
-        comprobar(!L2::tieneDescendientesMontados(j, "tank/datos2"),
+        comprobar(!L2::hasMountedDescendants(j, "tank/datos2"),
                   "montados: un hermano con nombre parecido no cuenta");
         // El propio dataset tampoco: la pregunta es si desmontarlo arrastra a otros.
-        comprobar(!L2::tieneDescendientesMontados(
+        comprobar(!L2::hasMountedDescendants(
                       R"({"datasets":{"tank/solo":{"mountpoint":"/tank/solo"}}})", "tank/solo"),
                   "montados: uno mismo no es descendiente de sí mismo");
-        comprobar(!L2::tieneDescendientesMontados(R"({"datasets":{}})", "tank/datos"),
+        comprobar(!L2::hasMountedDescendants(R"({"datasets":{}})", "tank/datos"),
                   "montados: ninguno montado no es un error");
     }
 
@@ -710,7 +710,7 @@ int main() {
         avisos.clear();
         comprobar(!CJ::abreSecretos(q, "otra", avisos), "cj: con la maestra mala dice que no");
         igual(q.password, cifrado, "cj: y NO deja el campo a medias");
-        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Motivo::NoSeDescifra,
+        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Reason::NoSeDescifra,
                   "cj: con su motivo tipificado");
         igual(avisos.front().campo, "password", "cj: diciendo que campo");
         igual(avisos.front().conexion, "Unibody", "cj: y de que conexion");
@@ -720,7 +720,7 @@ int main() {
         r.id = "x"; r.password = cifrado;
         avisos.clear();
         comprobar(!CJ::abreSecretos(r, "", avisos), "cj: sin maestra tampoco abre");
-        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Motivo::ClaveMaestraRequerida,
+        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Reason::ClaveMaestraRequerida,
                   "cj: y el motivo lo distingue");
 
         // La fusion: MANDA EL ALMACEN sobre lo que traiga el perfil.
@@ -798,12 +798,12 @@ int main() {
                   "local: y el sistema corregido al de esta maquina");
     }
 
-    // --- los analizadores de listados
+    // --- los analizadores de listings
     //
     // Las muestras son SALIDA REAL de esta máquina, no ejemplos inventados: es lo que
     // distingue una prueba que sujeta algo de una que repite lo que el código ya hace.
     {
-        namespace L = zfsmgr::base::listados;
+        namespace L = zfsmgr::base::listings;
         std::string err;
 
         // `zpool list -j`, recortado a un pool con sus campos.
@@ -837,7 +837,7 @@ int main() {
             "fc16/dockvols\t9566138329724705167\t464G\t1.16x\taes-256-gcm\tmar mar  3 19:06 2026\t33.3G\tyes\t/var/lib/docker/volumes\ton\n"
             "fc16/dockvols/axigen\t5564728462171259101\t127G\t1.21x\taes-256-gcm\tmar mar  3 19:07 2026\t127G\tyes\t/var/lib/docker/volumes/axigen\ton\n"
             "fc16/dockvols@ayer\t123\t0B\t1.00x\taes-256-gcm\tmar mar  3 19:07 2026\t33.3G\t-\t-\t-\n";
-        const auto es = L::entradas(tsv);
+        const auto es = L::entries(tsv);
         comprobar(es.size() == 3, "listados: tres entradas");
         igual(es.at(0).nombre, "fc16/dockvols", "listados: el nombre");
         igual(es.at(0).puntoMontaje, "/var/lib/docker/volumes", "listados: el punto de montaje");
@@ -847,7 +847,7 @@ int main() {
 
         // Una linea con columnas de menos se SALTA: rellenar corrido enseñaria el punto de
         // montaje donde va el guid.
-        const auto pocas = L::entradas("solo\tdos\nfc16\t1\t2\t3\t4\t5\t6\t7\t8\t9\n");
+        const auto pocas = L::entries("solo\tdos\nfc16\t1\t2\t3\t4\t5\t6\t7\t8\t9\n");
         comprobar(pocas.size() == 1, "listados: la linea corta se salta");
         igual(pocas.at(0).nombre, "fc16", "listados: y la buena entra");
 
@@ -856,8 +856,8 @@ int main() {
             R"({"datasets":{"fc16/x":{"properties":{)"
             R"("compression":{"value":"lz4","source":{"type":"LOCAL","data":"-"}},)"
             R"("atime":{"value":"on","source":{"type":"INHERITED","data":"fc16"}}}}}})";
-        std::vector<L::Propiedad> props;
-        comprobar(L::propiedades(getJson, props, err), "listados: se analiza zfs get -j");
+        std::vector<L::Property> props;
+        comprobar(L::properties(getJson, props, err), "listados: se analiza zfs get -j");
         comprobar(props.size() == 2, "listados: dos propiedades");
         igual(props.at(0).nombre, "atime", "listados: ordenadas por nombre");
         igual(props.at(0).origen, "inherited from fc16",
@@ -877,10 +877,10 @@ int main() {
             R"("mountpoint":{"value":"/x","source":{"type":"RECEIVED","data":"-"}},)"
             R"("quota":{"value":"none","source":{"type":"LOCAL","data":"-"}},)"
             R"("xattr":{"value":"sa","source":{"type":"INHERITED","data":"padre"}}}}}})";
-        std::vector<L::Propiedad> orig;
-        comprobar(L::propiedades(origenes, orig, err), "listados: se analizan los origenes");
+        std::vector<L::Property> orig;
+        comprobar(L::properties(origenes, orig, err), "listados: se analizan los origenes");
         std::map<std::string, std::string> porNombre;
-        for (const L::Propiedad& pr : orig) {
+        for (const L::Property& pr : orig) {
             porNombre[pr.nombre] = pr.origen;
         }
         igual(porNombre["atime"], "default", "listados: DEFAULT no es «-»");
@@ -892,13 +892,13 @@ int main() {
         // Y lo que de verdad importaba: con el origen bien, la regla deja escribir encima
         // de lo que esta por omision — que es la mayoria de las propiedades de un dataset
         // recien creado.
-        comprobar(zfsmgr::base::zfsprops::editableEnLinea("atime", "filesystem",
+        comprobar(zfsmgr::base::zfsprops::isInlineEditable("atime", "filesystem",
                                                           porNombre["atime"], "off",
-                                                          zfsmgr::base::zfsprops::Plataforma::Linux),
+                                                          zfsmgr::base::zfsprops::Platform::Linux),
                   "listados: una propiedad por omision SI se puede cambiar");
-        comprobar(!zfsmgr::base::zfsprops::editableEnLinea("used", "filesystem",
+        comprobar(!zfsmgr::base::zfsprops::isInlineEditable("used", "filesystem",
                                                            porNombre["used"], "off",
-                                                           zfsmgr::base::zfsprops::Plataforma::Linux),
+                                                           zfsmgr::base::zfsprops::Platform::Linux),
                   "listados: y una calculada no");
         igual(props.at(1).valor, "lz4", "listados: y el valor");
 
@@ -912,8 +912,8 @@ int main() {
             R"("size":{"value":"2.46T","source":{"type":"NONE","data":"-"}},)"
             R"("capacity":{"value":"69%","source":{"type":"NONE","data":"-"}},)"
             R"("feature@lz4_compress":{"value":"active","source":{"type":"LOCAL","data":"-"}}}}}})";
-        std::vector<L::Propiedad> pp;
-        comprobar(L::propiedadesDePool(getPool, pp, err), "listados: se analiza zpool get -j");
+        std::vector<L::Property> pp;
+        comprobar(L::poolProperties(getPool, pp, err), "listados: se analiza zpool get -j");
         comprobar(pp.size() == 3, "listados: las tres propiedades del pool");
         igual(pp.at(0).nombre, "capacity", "listados: ordenadas por nombre tambien aqui");
         igual(pp.at(1).nombre, "feature@lz4_compress", "listados: la capacidad es una propiedad");
@@ -923,15 +923,15 @@ int main() {
         // Los controles negativos de la seccion: cada lector mira la SUYA. Si
         // `propiedadesDePool` mirase «datasets» —o al reves— no fallaria: devolveria una
         // lista VACIA, que es peor, porque parece un pool sin propiedades.
-        std::vector<L::Propiedad> cruzado;
-        comprobar(L::propiedades(getPool, cruzado, err) && cruzado.empty(),
+        std::vector<L::Property> cruzado;
+        comprobar(L::properties(getPool, cruzado, err) && cruzado.empty(),
                   "listados: zfs get NO lee la seccion de pools");
-        comprobar(L::propiedadesDePool(getJson, cruzado, err) && cruzado.empty(),
+        comprobar(L::poolProperties(getJson, cruzado, err) && cruzado.empty(),
                   "listados: y zpool get NO lee la de datasets");
         // Una salida vacia no es un error: es una maquina sin nada que contar.
-        comprobar(L::propiedadesDePool("", cruzado, err) && cruzado.empty(),
+        comprobar(L::poolProperties("", cruzado, err) && cruzado.empty(),
                   "listados: salida vacia de zpool get no es un fallo");
-        comprobar(!L::propiedadesDePool("{esto no es json", cruzado, err),
+        comprobar(!L::poolProperties("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
     }
 
@@ -943,93 +943,93 @@ int main() {
     // que se convierte en los dos sentidos.
     {
         namespace G = zfsmgr::base::gsa;
-        igual(G::destinoComoUrl("unibody::tank/copias"), "zfsm://unibody/tank/copias",
+        igual(G::destinationAsUrl("unibody::tank/copias"), "zfsm://unibody/tank/copias",
               "gsa: el destino guardado se ensena como URL");
-        igual(G::destinoDesdeUrl("zfsm://unibody/tank/copias"), "unibody::tank/copias",
+        igual(G::destinationFromUrl("zfsm://unibody/tank/copias"), "unibody::tank/copias",
               "gsa: y la URL se guarda como siempre");
         // La vuelta y vuelta no pierde nada, que es lo unico que impide que las dos mitades
         // se separen.
         for (const char* d : {"unibody::tank/copias", "local::fc16", "oldlau::winpool/sb/x"}) {
-            igual(G::destinoDesdeUrl(G::destinoComoUrl(d)), d,
+            igual(G::destinationFromUrl(G::destinationAsUrl(d)), d,
                   std::string("gsa: ida y vuelta de «") + d + "»");
         }
         // Se admiten las DOS formas al teclear: quien escriba a mano puede poner cualquiera.
-        igual(G::destinoDesdeUrl("unibody::tank/copias"), "unibody::tank/copias",
+        igual(G::destinationFromUrl("unibody::tank/copias"), "unibody::tank/copias",
               "gsa: el formato de siempre se acepta tal cual");
         // Y lo que no tiene forma de nada se deja pasar para que lo rechace la validacion
         // CON SU MOTIVO, no aqui en silencio.
-        igual(G::destinoComoUrl("sinformato"), "sinformato",
+        igual(G::destinationAsUrl("sinformato"), "sinformato",
               "gsa: lo que no tiene la forma se deja como esta");
-        igual(G::destinoDesdeUrl("zfsm://solomaquina"), "zfsm://solomaquina",
+        igual(G::destinationFromUrl("zfsm://solomaquina"), "zfsm://solomaquina",
               "gsa: una URL sin dataset no se convierte a medias");
-        igual(G::destinoComoUrl(""), "", "gsa: el vacio sigue vacio");
+        igual(G::destinationAsUrl(""), "", "gsa: el vacio sigue vacio");
     }
 
     // --- por dónde van los bytes, y desde dónde se reanuda
     //
-    // Phase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transferencia,
+    // Phase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transfer,
     // que se pueden probar sin mover un byte. Lo que se fija son los NOES y su orden, porque
     // el orden es lo que hace que el motivo sea util: decir «no hay daemon» cuando el
     // problema es que un extremo es Windows manda a instalar algo que no arregla nada.
     {
-        namespace TR = zfsmgr::base::transferencia;
+        namespace TR = zfsmgr::base::transfer;
         auto ext = [](const char* c, const char* o, bool win, bool dae, bool job) {
-            TR::Extremo e;
+            TR::Endpoint e;
             e.conexion = c; e.objeto = o;
             e.esWindows = win; e.tieneDaemon = dae; e.admiteTrabajos = job;
             return e;
         };
-        const TR::Extremo snapOk = ext("local", "p/d@lunes", false, true, true);
-        const TR::Extremo dsOk   = ext("unibody", "t/copias", false, true, true);
+        const TR::Endpoint snapOk = ext("local", "p/d@lunes", false, true, true);
+        const TR::Endpoint dsOk   = ext("unibody", "t/copias", false, true, true);
 
         // El caso bueno: los dos con daemon y con trabajos. Se pueden probar los TRES, y
         // en ese orden.
-        const TR::Plan buena = TR::planea(snapOk, dsOk, false);
+        const TR::Plan buena = TR::makePlan(snapOk, dsOk, false);
         comprobar(buena.sePuede() && buena.caminos.size() == 3, "transferencia: los tres caminos");
-        comprobar(buena.caminos.at(0) == TR::Camino::TrabajoAsincrono
-                      && buena.caminos.at(1) == TR::Camino::DaemonADaemon
-                      && buena.caminos.at(2) == TR::Camino::TuberiaSsh,
+        comprobar(buena.caminos.at(0) == TR::Route::TrabajoAsincrono
+                      && buena.caminos.at(1) == TR::Route::DaemonADaemon
+                      && buena.caminos.at(2) == TR::Route::TuberiaSsh,
                   "transferencia: y en orden de preferencia");
 
         // **La tuberia SSH no necesita daemon en ningun extremo**: manda `zfs send` y
         // `zfs recv` por SSH. Es lo que queda cuando no hay daemon, y por eso una copia
         // entre dos maquinas sin agente sigue siendo posible.
-        const TR::Extremo sinNada = ext("unibody", "t/copias", false, false, false);
-        const TR::Plan pelada = TR::planea(ext("local", "p/d@x", false, false, false), sinNada,
+        const TR::Endpoint sinNada = ext("unibody", "t/copias", false, false, false);
+        const TR::Plan pelada = TR::makePlan(ext("local", "p/d@x", false, false, false), sinNada,
                                            false);
         comprobar(pelada.sePuede() && pelada.caminos.size() == 1
-                      && pelada.caminos.at(0) == TR::Camino::TuberiaSsh,
+                      && pelada.caminos.at(0) == TR::Route::TuberiaSsh,
                   "transferencia: sin daemon en ninguno, queda la tuberia SSH");
 
         // Con daemon en los dos pero sin trabajos: se cae el asincrono y quedan dos.
-        const TR::Extremo sinJobs = ext("unibody", "t/copias", false, true, false);
-        const TR::Plan dos = TR::planea(snapOk, sinJobs, false);
-        comprobar(dos.caminos.size() == 2 && dos.caminos.at(0) == TR::Camino::DaemonADaemon,
+        const TR::Endpoint sinJobs = ext("unibody", "t/copias", false, true, false);
+        const TR::Plan dos = TR::makePlan(snapOk, sinJobs, false);
+        comprobar(dos.caminos.size() == 2 && dos.caminos.at(0) == TR::Route::DaemonADaemon,
                   "transferencia: sin trabajos, la interfaz aun tiene dos caminos");
 
         // Y para quien NO puede esperar, los otros dos no son un respaldo: son otra cosa
         // que no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
-        comprobar(TR::planea(snapOk, sinJobs, true).fallo == TR::Fallo::SinTrabajos,
+        comprobar(TR::makePlan(snapOk, sinJobs, true).fallo == TR::Fallo::SinTrabajos,
                   "transferencia: quien no puede esperar solo tiene el asincrono");
-        comprobar(TR::planea(snapOk, sinJobs, true).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, sinJobs, true).caminos.empty(),
                   "transferencia: y no se le ofrece ninguno");
-        comprobar(TR::planea(snapOk, dsOk, true).caminos.size() == 1,
+        comprobar(TR::makePlan(snapOk, dsOk, true).caminos.size() == 1,
                   "transferencia: con trabajos en los dos, si");
 
         // EL ORDEN de los noes. Windows corta TODO, no solo un camino: los dos primeros
         // necesitan tuberia y el tercero es un guion POSIX que alli no se ejecuta.
-        const TR::Extremo win = ext("oldlau", "wp/d", true, true, true);
-        comprobar(TR::planea(snapOk, win, false).fallo == TR::Fallo::ExtremoWindows,
+        const TR::Endpoint win = ext("oldlau", "wp/d", true, true, true);
+        comprobar(TR::makePlan(snapOk, win, false).fallo == TR::Fallo::ExtremoWindows,
                   "transferencia: Windows corta aunque tenga daemon y trabajos");
-        comprobar(TR::planea(snapOk, win, false).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, win, false).caminos.empty(),
                   "transferencia: y no deja ningun camino que probar");
         // Y lo que no depende del camino corta antes que Windows.
-        comprobar(TR::planea(ext("local", "p/d", false, true, true), win, false).fallo
+        comprobar(TR::makePlan(ext("local", "p/d", false, true, true), win, false).fallo
                       == TR::Fallo::OrigenNoEsInstantanea,
                   "transferencia: «el origen no es instantanea» manda sobre Windows");
-        comprobar(TR::planea(snapOk, snapOk, false).fallo == TR::Fallo::ElMismoObjeto,
+        comprobar(TR::makePlan(snapOk, snapOk, false).fallo == TR::Fallo::ElMismoObjeto,
                   "transferencia: el mismo objeto, lo primero de todo");
-        comprobar(TR::planea(snapOk, ext("unibody", "t/c@ya", false, true, true), false).fallo
+        comprobar(TR::makePlan(snapOk, ext("unibody", "t/c@ya", false, true, true), false).fallo
                       == TR::Fallo::DestinoNoEsDataset,
                   "transferencia: no se recibe SOBRE una instantanea");
 
@@ -1053,7 +1053,7 @@ int main() {
             "t/copias\t-\n"
             "t/copias/uno\t-\n"
             "t/copias/dos\t1-e7c3a...-token\n";
-        const auto rHijo = TR::testigoDeReanudacion("t/copias", enElHijo);
+        const auto rHijo = TR::resumeToken("t/copias", enElHijo);
         comprobar(rHijo.hay(), "transferencia: el testigo se encuentra en el DESCENDIENTE");
         igual(rHijo.quienLoTiene, "t/copias/dos", "transferencia: y se dice en cual estaba");
 
@@ -1061,7 +1061,7 @@ int main() {
         const std::string enLosDos =
             "t/copias\tTESTIGO-RAIZ\n"
             "t/copias/dos\tTESTIGO-HIJO\n";
-        igual(TR::testigoDeReanudacion("t/copias", enLosDos).quienLoTiene, "t/copias",
+        igual(TR::resumeToken("t/copias", enLosDos).quienLoTiene, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
         // --- lo que contestan los dos extremos al lanzar un trabajo
@@ -1074,38 +1074,38 @@ int main() {
             const std::string bueno =
                 "PORT=41235\n"
                 "TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
-            const auto e = TR::leeEscucha(bueno);
+            const auto e = TR::readListen(bueno);
             comprobar(e.vale() && e.puerto == 41235, "escucha: puerto y testigo");
             igual(std::to_string(e.testigo.size()), "64", "escucha: el testigo mide 64");
 
-            comprobar(!TR::leeEscucha("PORT=41235\nTOKEN=corto\n").vale(),
+            comprobar(!TR::readListen("PORT=41235\nTOKEN=corto\n").vale(),
                       "escucha: un testigo corto NO vale");
-            comprobar(!TR::leeEscucha("TOKEN=0123456789abcdef0123456789abcdef"
+            comprobar(!TR::readListen("TOKEN=0123456789abcdef0123456789abcdef"
                                       "0123456789abcdef0123456789abcdef\n").vale(),
                       "escucha: sin puerto tampoco");
-            comprobar(!TR::leeEscucha("PORT=0\nTOKEN=0123456789abcdef0123456789abcdef"
+            comprobar(!TR::readListen("PORT=0\nTOKEN=0123456789abcdef0123456789abcdef"
                                       "0123456789abcdef0123456789abcdef\n").vale(),
                       "escucha: el puerto cero no es un puerto");
-            comprobar(!TR::leeEscucha("").vale(), "escucha: sin respuesta, nada");
+            comprobar(!TR::readListen("").vale(), "escucha: sin respuesta, nada");
             // Lineas de mas no estorban: el daemon puede escribir avisos por delante.
-            comprobar(TR::leeEscucha("INFO algo\n" + bueno).vale(),
+            comprobar(TR::readListen("INFO algo\n" + bueno).vale(),
                       "escucha: lo que no reconoce se salta");
 
-            igual(TR::leeIdentificadorDeTrabajo("JOB_ID=2a538be8659bd62d\n"), "2a538be8659bd62d",
+            igual(TR::readJobId("JOB_ID=2a538be8659bd62d\n"), "2a538be8659bd62d",
                   "trabajo: el identificador");
-            igual(TR::leeIdentificadorDeTrabajo("algo\nJOB_ID=abc\nmas\n"), "abc",
+            igual(TR::readJobId("algo\nJOB_ID=abc\nmas\n"), "abc",
                   "trabajo: aunque venga rodeado");
-            igual(TR::leeIdentificadorDeTrabajo("sin identificador"), "",
+            igual(TR::readJobId("sin identificador"), "",
                   "trabajo: y sin el, vacio");
 
             // Los cinco puntos donde puede romperse, con su texto y ninguno repetido: cada
             // uno lleva a un sitio distinto —uno es del receptor, otro de la red, otro del
             // emisor— y confundirlos manda a mirar donde no es.
             std::set<std::string> ft;
-            for (const TR::FalloTrabajo f :
-                 {TR::FalloTrabajo::ReceptorNoEscucha, TR::FalloTrabajo::RespuestaDeEscuchaNoVale,
-                  TR::FalloTrabajo::SinDireccionDeVuelta, TR::FalloTrabajo::EmisorNoArranco,
-                  TR::FalloTrabajo::SinIdentificador}) {
+            for (const TR::JobFailure f :
+                 {TR::JobFailure::ReceptorNoEscucha, TR::JobFailure::RespuestaDeEscuchaNoVale,
+                  TR::JobFailure::SinDireccionDeVuelta, TR::JobFailure::EmisorNoArranco,
+                  TR::JobFailure::SinIdentificador}) {
                 comprobar(!TR::labelOf(f).empty(), "trabajo: el fallo tiene texto");
                 ft.insert(TR::labelOf(f));
             }
@@ -1117,34 +1117,34 @@ int main() {
         // No es el dataset sobre el que se pulso: se le anade el nombre del origen. Este
         // detalle es tambien el que hace que buscar el testigo de reanudacion sobre el
         // dataset pulsado no encuentre nada — hay que buscarlo sobre ESTE.
-        igual(TR::destinoReal("p/datos", "t/respaldos"), "t/respaldos/datos",
+        igual(TR::actualDestination("p/datos", "t/respaldos"), "t/respaldos/datos",
               "destino: se anade el nombre del origen");
-        igual(TR::destinoReal("p/a/b/datos", "t/respaldos"), "t/respaldos/datos",
+        igual(TR::actualDestination("p/a/b/datos", "t/respaldos"), "t/respaldos/datos",
               "destino: solo la hoja, no la ruta entera");
         // Si el destino ya acaba en ese nombre se toma tal cual: copiar dos veces al mismo
         // sitio dejaria «respaldos/datos/datos».
-        igual(TR::destinoReal("p/datos", "t/respaldos/datos"), "t/respaldos/datos",
+        igual(TR::actualDestination("p/datos", "t/respaldos/datos"), "t/respaldos/datos",
               "destino: si ya acaba en el nombre, no se repite");
-        igual(TR::destinoReal("p/datos", "t/datos"), "t/datos",
+        igual(TR::actualDestination("p/datos", "t/datos"), "t/datos",
               "destino: aunque sea el primer nivel");
         // Un pool entero como origen: su «hoja» es el propio nombre del pool.
-        igual(TR::destinoReal("wpool", "t/respaldos"), "t/respaldos/wpool",
+        igual(TR::actualDestination("wpool", "t/respaldos"), "t/respaldos/wpool",
               "destino: un pool entero tambien lleva su nombre");
-        igual(TR::destinoReal("p/datos", ""), "", "destino: sin destino, nada que componer");
+        igual(TR::actualDestination("p/datos", ""), "", "destino: sin destino, nada que componer");
 
         // --- las ordenes de envio y recepcion
-        igual(TR::ordenDeEnvio("p/d@lunes", ""), "zfs send 'p/d@lunes'",
+        igual(TR::sendCommand("p/d@lunes", ""), "zfs send 'p/d@lunes'",
               "orden: sin banderas");
-        igual(TR::ordenDeEnvio("p/d@lunes", "-wR"), "zfs send -wR 'p/d@lunes'",
+        igual(TR::sendCommand("p/d@lunes", "-wR"), "zfs send -wR 'p/d@lunes'",
               "orden: con banderas");
         // El «-Fus» del receptor no es decorativo: la «s» es lo que hace que un corte deje
         // un envio EN SUSPENSO con su testigo en vez de basura. Sin ella no habria
         // reanudacion y cada corte obligaria a mandarlo todo otra vez.
-        igual(TR::ordenDeRecepcion("t/respaldos/datos"), "zfs recv -Fus 't/respaldos/datos'",
+        igual(TR::receiveCommand("t/respaldos/datos"), "zfs recv -Fus 't/respaldos/datos'",
               "orden: la recepcion lleva -Fus, con la «s» de suspenso");
         // Un nombre con comilla dentro no puede romper la orden. El escapado es el de
         // siempre en shell: cerrar la comilla, meter una entre dobles, y volver a abrir.
-        igual(TR::ordenDeEnvio("p/d@ra\'ro", ""), "zfs send 'p/d@ra'\"'\"'ro'",
+        igual(TR::sendCommand("p/d@ra\'ro", ""), "zfs send 'p/d@ra'\"'\"'ro'",
               "orden: la comilla del nombre no rompe la orden");
 
 
@@ -1154,74 +1154,74 @@ int main() {
         // dentro de la ventana. Lo que se fija es la FRONTERA y, sobre todo, que no saber la
         // version NO bloquea: no saberla es distinto de saber que es vieja, y bloquear por
         // no saber dejaria sin copiar a una maquina que quiza puede.
-        comprobar(!TR::versionAdmiteTransferencia("2.3.2"), "version: 2.3.2 no");
-        comprobar(TR::versionAdmiteTransferencia("2.3.3"), "version: 2.3.3 justo si");
-        comprobar(TR::versionAdmiteTransferencia("2.3.4"), "version: y de ahi para arriba");
-        comprobar(!TR::versionAdmiteTransferencia("2.2.99"), "version: 2.2.x no, por alta que sea");
-        comprobar(TR::versionAdmiteTransferencia("2.4.0"), "version: 2.4 si");
-        comprobar(TR::versionAdmiteTransferencia("3.0.0"), "version: la rama 3 no es «vieja»");
+        comprobar(!TR::versionSupportsTransfer("2.3.2"), "version: 2.3.2 no");
+        comprobar(TR::versionSupportsTransfer("2.3.3"), "version: 2.3.3 justo si");
+        comprobar(TR::versionSupportsTransfer("2.3.4"), "version: y de ahi para arriba");
+        comprobar(!TR::versionSupportsTransfer("2.2.99"), "version: 2.2.x no, por alta que sea");
+        comprobar(TR::versionSupportsTransfer("2.4.0"), "version: 2.4 si");
+        comprobar(TR::versionSupportsTransfer("3.0.0"), "version: la rama 3 no es «vieja»");
         // El sufijo de distribucion no dice nada del formato del flujo: se ignora.
-        comprobar(TR::versionAdmiteTransferencia("2.3.3-1ubuntu2"), "version: con sufijo, igual");
-        comprobar(!TR::versionAdmiteTransferencia("2.2.7-pve1"), "version: y la vieja con sufijo");
+        comprobar(TR::versionSupportsTransfer("2.3.3-1ubuntu2"), "version: con sufijo, igual");
+        comprobar(!TR::versionSupportsTransfer("2.2.7-pve1"), "version: y la vieja con sufijo");
         // «2.3» sin el tercer numero es 2.3.0, que es menor que 2.3.3.
-        comprobar(!TR::versionAdmiteTransferencia("2.3"), "version: «2.3» es 2.3.0");
+        comprobar(!TR::versionSupportsTransfer("2.3"), "version: «2.3» es 2.3.0");
         // No saberla no bloquea.
-        comprobar(TR::versionAdmiteTransferencia(""), "version: vacia no bloquea");
-        comprobar(TR::versionAdmiteTransferencia("zfswin-2.4.1rc14"),
+        comprobar(TR::versionSupportsTransfer(""), "version: vacia no bloquea");
+        comprobar(TR::versionSupportsTransfer("zfswin-2.4.1rc14"),
                   "version: lo que no empieza por numero tampoco bloquea");
 
         // Y entra en el plan ANTES que el camino: da igual por donde vayan los bytes si el
         // formato del flujo no se entiende en el otro lado.
-        TR::Extremo viejo = ext("unibody", "t/copias", false, true, true);
+        TR::Endpoint viejo = ext("unibody", "t/copias", false, true, true);
         viejo.versionZfs = "2.2.7";
-        comprobar(TR::planea(snapOk, viejo, false).fallo == TR::Fallo::ZfsDemasiadoViejo,
+        comprobar(TR::makePlan(snapOk, viejo, false).fallo == TR::Fallo::ZfsDemasiadoViejo,
                   "transferencia: un extremo con ZFS viejo corta el plan");
-        comprobar(TR::planea(snapOk, viejo, false).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, viejo, false).caminos.empty(),
                   "transferencia: y no deja ningun camino");
 
         // --- las banderas de `zfs send`
-        comprobar(TR::banderasDeEnvio({}).empty(), "banderas: sin ninguna, cadena vacia");
-        igual(TR::banderasDeEnvio({true, false, false, false, true}), "-wR",
+        comprobar(TR::sendFlags({}).empty(), "banderas: sin ninguna, cadena vacia");
+        igual(TR::sendFlags({true, false, false, false, true}), "-wR",
               "banderas: en el orden en que las escribe el programa");
-        igual(TR::banderasDeEnvio({true, true, true, true, true}), "-wLecR", "banderas: las cinco");
+        igual(TR::sendFlags({true, true, true, true, true}), "-wLecR", "banderas: las cinco");
         // Vacio y NO «-»: un guion suelto en medio del argv es algo que `zfs` no entiende.
-        comprobar(TR::banderasDeEnvio({}) != "-", "banderas: el guion solo no se emite");
+        comprobar(TR::sendFlags({}) != "-", "banderas: el guion solo no se emite");
 
         // --- la direccion con la que el ORIGEN ve a este equipo
         //
         // Dos cosas que se aprendieron a base de fallar, y las dos se fijan aqui.
-        igual(TR::direccionDeSshClient("192.168.1.40 54321 22\n"), "192.168.1.40",
+        igual(TR::sshClientAddress("192.168.1.40 54321 22\n"), "192.168.1.40",
               "sshclient: el primer campo es la direccion");
         // El recorte se hace en C++ y NO con `${SSH_CLIENT%% *}` en la orden: esa orden la
         // lanza el cliente, que puede ser Windows, y alli «%» es la expansion de cmd — se
         // comia parte del texto y devolvia una direccion con una letra de mas.
-        igual(TR::direccionDeSshClient("10.0.0.1 1 2\n10.0.0.2 3 4\n"), "10.0.0.1",
+        igual(TR::sshClientAddress("10.0.0.1 1 2\n10.0.0.2 3 4\n"), "10.0.0.1",
               "sshclient: solo la primera linea");
 
         // **IPv6 CON ZONA.** sshd contesto `fe80::…%enp1s0f0` en la maquina de pruebas, y
         // una validacion de solo hexadecimal y puntos lo rechazaba: la copia se quedaba sin
         // direccion a la que volver y moria con «cannot connect to peer».
-        igual(TR::direccionDeSshClient("fe80::d11d:24e3:5547:cbd6%enp1s0f0 54321 22"),
+        igual(TR::sshClientAddress("fe80::d11d:24e3:5547:cbd6%enp1s0f0 54321 22"),
               "fe80::d11d:24e3:5547:cbd6%enp1s0f0", "sshclient: IPv6 con zona se admite");
-        igual(TR::direccionDeSshClient("2001:db8::1 1 2"), "2001:db8::1",
+        igual(TR::sshClientAddress("2001:db8::1 1 2"), "2001:db8::1",
               "sshclient: y IPv6 a secas");
 
         // Lo que no parece una direccion se descarta en vez de mandarse al otro extremo.
-        igual(TR::direccionDeSshClient(""), "", "sshclient: sin salida, nada");
-        igual(TR::direccionDeSshClient("\n"), "", "sshclient: una linea vacia tampoco");
-        igual(TR::direccionDeSshClient("hola 1 2"), "",
+        igual(TR::sshClientAddress(""), "", "sshclient: sin salida, nada");
+        igual(TR::sshClientAddress("\n"), "", "sshclient: una linea vacia tampoco");
+        igual(TR::sshClientAddress("hola 1 2"), "",
               "sshclient: sin dos puntos ni punto no es una direccion");
-        igual(TR::direccionDeSshClient("1.2.3.4;rm -rf / 1 2"), "",
+        igual(TR::sshClientAddress("1.2.3.4;rm -rf / 1 2"), "",
               "sshclient: y un caracter que no toca lo descarta entero");
 
         // «-» es «no hay», no un testigo que se llama asi.
-        comprobar(!TR::testigoDeReanudacion("t/copias", "t/copias\t-\n").hay(),
+        comprobar(!TR::resumeToken("t/copias", "t/copias\t-\n").hay(),
                   "transferencia: «-» es que no hay ninguno");
-        comprobar(!TR::testigoDeReanudacion("t/copias", "").hay(),
+        comprobar(!TR::resumeToken("t/copias", "").hay(),
                   "transferencia: y sin salida tampoco hay");
         // Que el dataset no salga NO significa que no haya nada a medias: significa que aun
         // no existe, que es lo normal en una copia nueva.
-        comprobar(!TR::testigoDeReanudacion("t/nuevo", "t/copias\t-\n").hay(),
+        comprobar(!TR::resumeToken("t/nuevo", "t/copias\t-\n").hay(),
                   "transferencia: un destino que aun no existe no tiene testigo");
     }
 
@@ -1335,44 +1335,44 @@ int main() {
     // deja hacer ZFS entre dos objetos, y el servidor web necesita la misma para saber qué
     // ofrece y qué deja en gris. Lo que se fija aquí son los NOES, que es lo que se enseña.
     {
-        namespace DX = zfsmgr::base::dosextremos;
-        const DX::Extremo snap{"local", "fc16/user@lunes"};
-        const DX::Extremo snap2{"local", "fc16/user@martes"};
-        const DX::Extremo ds{"local", "fc16/user"};
-        const DX::Extremo otroDs{"local", "fc16/work"};
-        const DX::Extremo otraMaq{"unibody", "tank/x"};
-        const DX::Extremo nada{};
+        namespace DX = zfsmgr::base::endpoints;
+        const DX::Endpoint snap{"local", "fc16/user@lunes"};
+        const DX::Endpoint snap2{"local", "fc16/user@martes"};
+        const DX::Endpoint ds{"local", "fc16/user"};
+        const DX::Endpoint otroDs{"local", "fc16/work"};
+        const DX::Endpoint otraMaq{"unibody", "tank/x"};
+        const DX::Endpoint nada{};
 
         // Comparar: dos puntos de la MISMA historia. Es lo que la gente espera mal la
         // primera vez —cree que compara dos datasets cualesquiera— y por eso el motivo
         // tiene que salir escrito.
-        comprobar(DX::compruebo(DX::Accion::Diff, snap, snap2) == DX::NoAplica::Ninguna,
+        comprobar(DX::check(DX::Action::Diff, snap, snap2) == DX::NotApplicable::Ninguna,
                   "dosextremos: comparar dos instantaneas del mismo dataset");
-        comprobar(DX::compruebo(DX::Accion::Diff, snap, ds) == DX::NoAplica::Ninguna,
+        comprobar(DX::check(DX::Action::Diff, snap, ds) == DX::NotApplicable::Ninguna,
                   "dosextremos: y una instantanea contra su dataset vivo");
-        comprobar(DX::compruebo(DX::Accion::Diff, snap, otroDs) == DX::NoAplica::DistintoDataset,
+        comprobar(DX::check(DX::Action::Diff, snap, otroDs) == DX::NotApplicable::DistintoDataset,
                   "dosextremos: pero NO contra otro dataset");
-        comprobar(DX::compruebo(DX::Accion::Diff, ds, otroDs)
-                      == DX::NoAplica::OrigenNoEsInstantanea,
+        comprobar(DX::check(DX::Action::Diff, ds, otroDs)
+                      == DX::NotApplicable::OrigenNoEsInstantanea,
                   "dosextremos: ni con un dataset de origen");
-        comprobar(DX::compruebo(DX::Accion::Diff, snap, otraMaq) == DX::NoAplica::DistintaMaquina,
+        comprobar(DX::check(DX::Action::Diff, snap, otraMaq) == DX::NotApplicable::DistintaMaquina,
                   "dosextremos: ni entre maquinas distintas");
 
         // Clonar: de una instantanea a un sitio, y ese sitio es un dataset.
-        comprobar(DX::compruebo(DX::Accion::Clonar, snap, otroDs) == DX::NoAplica::Ninguna,
+        comprobar(DX::check(DX::Action::Clonar, snap, otroDs) == DX::NotApplicable::Ninguna,
                   "dosextremos: clonar de una instantanea a un dataset");
-        comprobar(DX::compruebo(DX::Accion::Clonar, snap, snap2)
-                      == DX::NoAplica::DestinoNoEsDataset,
+        comprobar(DX::check(DX::Action::Clonar, snap, snap2)
+                      == DX::NotApplicable::DestinoNoEsDataset,
                   "dosextremos: no se clona SOBRE una instantanea");
-        comprobar(DX::compruebo(DX::Accion::Clonar, ds, otroDs)
-                      == DX::NoAplica::OrigenNoEsInstantanea,
+        comprobar(DX::check(DX::Action::Clonar, ds, otroDs)
+                      == DX::NotApplicable::OrigenNoEsInstantanea,
                   "dosextremos: ni desde un dataset");
 
         // Sin origen, ninguna. Y el mismo objeto en los dos extremos tampoco.
-        for (const DX::Accion a : {DX::Accion::Diff, DX::Accion::Clonar, DX::Accion::Copiar}) {
-            comprobar(DX::compruebo(a, nada, ds) == DX::NoAplica::SinOrigen,
+        for (const DX::Action a : {DX::Action::Diff, DX::Action::Clonar, DX::Action::Copiar}) {
+            comprobar(DX::check(a, nada, ds) == DX::NotApplicable::SinOrigen,
                       std::string("dosextremos: sin origen no aplica ") + DX::keyOf(a));
-            comprobar(DX::compruebo(a, ds, ds) == DX::NoAplica::ElMismoObjeto,
+            comprobar(DX::check(a, ds, ds) == DX::NotApplicable::ElMismoObjeto,
                       std::string("dosextremos: el mismo objeto no aplica ") + DX::keyOf(a));
         }
 
@@ -1380,79 +1380,79 @@ int main() {
         // eso puede borrar en el destino. Lo que se fija aqui es cuando NO se puede, que es
         // lo que se pinta en gris.
         {
-            namespace SY = zfsmgr::base::sincronizacion;
-            SY::Extremo o;
+            namespace SY = zfsmgr::base::syncing;
+            SY::Endpoint o;
             o.conexion = "local"; o.objeto = "wa/uno";
             o.montado = true; o.puntoMontaje = "/wa/uno"; o.tieneDaemon = true;
-            SY::Extremo d = o;
+            SY::Endpoint d = o;
             d.objeto = "wa/dos"; d.puntoMontaje = "/wa/dos";
 
-            const SY::Plan ok = SY::planea(o, d);
+            const SY::Plan ok = SY::makePlan(o, d);
             comprobar(ok.sePuede(), "sincronizar: dos datasets montados en la misma maquina");
             comprobar(ok.rutaOrigen == "/wa/uno" && ok.rutaDestino == "/wa/dos",
                       "sincronizar: y devuelve las dos rutas");
 
             // Entre maquinas SI se puede: va por el arbol por el socket entre daemons, que
             // no necesita rsync en ninguno de los dos lados.
-            SY::Extremo otraMaq = d; otraMaq.conexion = "unibody";
-            comprobar(SY::planea(o, otraMaq).sePuede(),
+            SY::Endpoint otraMaq = d; otraMaq.conexion = "unibody";
+            comprobar(SY::makePlan(o, otraMaq).sePuede(),
                       "sincronizar: entre maquinas si, por el arbol");
             // Y con un extremo Windows tambien, que es justo lo que ese mecanismo vino a
             // arreglar: por tar no habia ni borrado ni simulacion.
-            SY::Extremo winRemoto = d;
+            SY::Endpoint winRemoto = d;
             winRemoto.conexion = "oldlau";
             winRemoto.esWindows = true;
             // Con la ruta que de verdad se puede abrir en Windows. Comprobado en vivo: la
             // propiedad `mountpoint` de un dataset alli dice «/winpool/sa», y esa ruta NO
             // EXISTE para el sistema; la buena, con letra de unidad, sale de `zfs mount`.
             winRemoto.puntoMontaje = "Z:/sa";
-            comprobar(SY::planea(o, winRemoto).sePuede(),
+            comprobar(SY::makePlan(o, winRemoto).sePuede(),
                       "sincronizar: con un extremo Windows entre maquinas, tambien");
-            SY::Extremo winMal = winRemoto;
+            SY::Endpoint winMal = winRemoto;
             winMal.puntoMontaje = "/winpool/sa";
-            comprobar(SY::planea(o, winMal).fallo == SY::Fallo::RutaNoUsable,
+            comprobar(SY::makePlan(o, winMal).fallo == SY::Fallo::RutaNoUsable,
                       "sincronizar: una ruta POSIX en Windows no vale, aunque lo diga zfs list");
-            comprobar(SY::rutaUsable("Z:/sa", true) && !SY::rutaUsable("Z:/sa", false),
+            comprobar(SY::isUsablePath("Z:/sa", true) && !SY::isUsablePath("Z:/sa", false),
                       "sincronizar: la letra de unidad solo vale en Windows");
             // Y dentro de UNA misma maquina Windows tambien, desde que ese caso va por el
             // arbol —el daemon conectandose consigo mismo— en vez de por rsync. Tener dos
             // caminos segun la plataforma dejaba uno de los dos sin probar la mitad de las
             // veces.
-            SY::Extremo win = d;
+            SY::Endpoint win = d;
             win.esWindows = true;
             win.puntoMontaje = "Z:/dos";
-            SY::Extremo winO = o;
+            SY::Endpoint winO = o;
             winO.esWindows = true;
             winO.puntoMontaje = "Z:/uno";
-            comprobar(SY::planea(winO, win).sePuede(),
+            comprobar(SY::makePlan(winO, win).sePuede(),
                       "sincronizar: dentro de una misma maquina Windows, por el arbol");
-            SY::Extremo sinMontar = d; sinMontar.montado = false;
-            comprobar(SY::planea(o, sinMontar).fallo == SY::Fallo::DestinoNoMontado,
+            SY::Endpoint sinMontar = d; sinMontar.montado = false;
+            comprobar(SY::makePlan(o, sinMontar).fallo == SY::Fallo::DestinoNoMontado,
                       "sincronizar: sin montar no hay nada que comparar");
-            SY::Extremo sinRuta = d; sinRuta.puntoMontaje = "none";
-            comprobar(SY::planea(o, sinRuta).fallo == SY::Fallo::RutaNoUsable,
+            SY::Endpoint sinRuta = d; sinRuta.puntoMontaje = "none";
+            comprobar(SY::makePlan(o, sinRuta).fallo == SY::Fallo::RutaNoUsable,
                       "sincronizar: «none» no es una ruta");
-            SY::Extremo instant = d; instant.objeto = "wa/dos@lunes";
-            comprobar(SY::planea(o, instant).fallo == SY::Fallo::DestinoNoEsDataset,
+            SY::Endpoint instant = d; instant.objeto = "wa/dos@lunes";
+            comprobar(SY::makePlan(o, instant).fallo == SY::Fallo::DestinoNoEsDataset,
                       "sincronizar: no se sincroniza contra una instantanea");
-            SY::Extremo sinD = d; sinD.tieneDaemon = false;
-            comprobar(SY::planea(o, sinD).fallo == SY::Fallo::SinDaemon,
+            SY::Endpoint sinD = d; sinD.tieneDaemon = false;
+            comprobar(SY::makePlan(o, sinD).fallo == SY::Fallo::SinDaemon,
                       "sincronizar: hace falta el daemon");
 
             // La comprobacion barata NO mira montajes: es la que se usa al pintar, y mirar
             // montajes ahi costaba una consulta por dataset dibujado.
-            SY::Extremo desmontado = d; desmontado.montado = false;
-            comprobar(SY::compruebo(o, desmontado) == SY::Fallo::Ninguno,
+            SY::Endpoint desmontado = d; desmontado.montado = false;
+            comprobar(SY::check(o, desmontado) == SY::Fallo::Ninguno,
                       "sincronizar: la comprobacion barata no consulta montajes");
 
-            comprobar(!SY::rutaUsable("none") && !SY::rutaUsable("legacy")
-                          && !SY::rutaUsable("") && !SY::rutaUsable("relativa"),
+            comprobar(!SY::isUsablePath("none") && !SY::isUsablePath("legacy")
+                          && !SY::isUsablePath("") && !SY::isUsablePath("relativa"),
                       "sincronizar: rutas que no sirven");
-            comprobar(SY::rutaUsable("/wa/uno"), "sincronizar: una ruta absoluta si");
+            comprobar(SY::isUsablePath("/wa/uno"), "sincronizar: una ruta absoluta si");
 
             // La carga del verbo tipado: base64 de un JSON con los flags delante.
             const std::string carga =
-                SY::cargaRsync({{"/wa/uno", "/wa/dos"}}, true, true, "", "");
+                SY::rsyncPayload({{"/wa/uno", "/wa/dos"}}, true, true, "", "");
             comprobar(!carga.empty(), "sincronizar: la carga se construye");
             std::string claro;
             comprobar(zfsmgr::base::base64Decode(carga, claro),
@@ -1460,9 +1460,9 @@ int main() {
             comprobar(claro.find("[\"1\",\"1\",\"\",\"\",\"/wa/uno\",\"/wa/dos\"]")
                           != std::string::npos,
                       "sincronizar: con los flags y el par en orden");
-            comprobar(SY::cargaRsync({{"/wa/uno", "none"}}, false, false, "", "").empty(),
+            comprobar(SY::rsyncPayload({{"/wa/uno", "none"}}, false, false, "", "").empty(),
                       "sincronizar: una ruta mala no genera carga");
-            comprobar(SY::cargaRsync({}, false, false, "", "").empty(),
+            comprobar(SY::rsyncPayload({}, false, false, "", "").empty(),
                       "sincronizar: sin pares no hay carga");
         }
 
@@ -1470,53 +1470,53 @@ int main() {
         // envio completo, que no es lo mismo ni de lejos: llega con `zfs recv -Fus` y
         // arrastra lo que el origen no tenga.
         {
-            namespace TRN = zfsmgr::base::transferencia;
-            const std::vector<TRN::Instantanea> orig = {
+            namespace TRN = zfsmgr::base::transfer;
+            const std::vector<TRN::Snapshot> orig = {
                 {"lunes", "111"}, {"martes", "222"}, {"miercoles", "333"}, {"jueves", "444"}};
 
             // El caso normal: el destino llego hasta «martes», se manda de ahi a «jueves».
-            const TRN::PlanNivelar ok =
-                TRN::planeaNivelar(orig, {{"lunes", "111"}, {"martes", "222"}}, "jueves");
+            const TRN::LevelPlan ok =
+                TRN::makeLevelPlan(orig, {{"lunes", "111"}, {"martes", "222"}}, "jueves");
             comprobar(ok.sePuede(), "nivelar: hay incremental");
             comprobar(ok.base == "martes", "nivelar: la base es la ultima del destino");
             comprobar(ok.objetivo == "jueves", "nivelar: hasta la pedida");
 
             // El GUID manda sobre el nombre. Aqui el destino tiene un «martes» que NO es el
             // del origen —lo creo otro—, asi que no hay base comun aunque el nombre coincida.
-            const TRN::PlanNivelar impostor =
-                TRN::planeaNivelar(orig, {{"martes", "999"}}, "jueves");
-            comprobar(impostor.fallo == TRN::FalloNivelar::BaseNoEstaEnOrigen,
+            const TRN::LevelPlan impostor =
+                TRN::makeLevelPlan(orig, {{"martes", "999"}}, "jueves");
+            comprobar(impostor.fallo == TRN::LevelFailure::BaseNoEstaEnOrigen,
                       "nivelar: un nombre igual con otro guid NO es base comun");
 
             // Sin snapshots en el destino no hay desde donde seguir.
-            comprobar(TRN::planeaNivelar(orig, {}, "jueves").fallo
-                          == TRN::FalloNivelar::DestinoSinInstantaneas,
+            comprobar(TRN::makeLevelPlan(orig, {}, "jueves").fallo
+                          == TRN::LevelFailure::DestinoSinInstantaneas,
                       "nivelar: destino vacio no se nivela, se copia");
 
             // El destino va POR DELANTE de lo que se quiere enviar: se para.
-            comprobar(TRN::planeaNivelar(orig, {{"miercoles", "333"}}, "martes").fallo
-                          == TRN::FalloNivelar::DestinoMasNuevo,
+            comprobar(TRN::makeLevelPlan(orig, {{"miercoles", "333"}}, "martes").fallo
+                          == TRN::LevelFailure::DestinoMasNuevo,
                       "nivelar: no se pisa un destino mas moderno");
 
             // Ya esta al dia: no hay nada que mandar, y decirlo es mejor que mandar cero.
-            comprobar(TRN::planeaNivelar(orig, {{"jueves", "444"}}, "jueves").fallo
-                          == TRN::FalloNivelar::YaNivelado,
+            comprobar(TRN::makeLevelPlan(orig, {{"jueves", "444"}}, "jueves").fallo
+                          == TRN::LevelFailure::YaNivelado,
                       "nivelar: ya nivelado");
 
             // Y la que se pide tiene que existir en el origen.
-            comprobar(TRN::planeaNivelar(orig, {{"lunes", "111"}}, "viernes").fallo
-                          == TRN::FalloNivelar::ObjetivoNoEstaEnOrigen,
+            comprobar(TRN::makeLevelPlan(orig, {{"lunes", "111"}}, "viernes").fallo
+                          == TRN::LevelFailure::ObjetivoNoEstaEnOrigen,
                       "nivelar: el objetivo tiene que existir");
 
             // Cada motivo con su texto, y ninguno repetido: es lo que se pinta.
             std::set<std::string> textosN;
-            const std::vector<TRN::FalloNivelar> fallos = {
-                TRN::FalloNivelar::ObjetivoNoEstaEnOrigen,
-                TRN::FalloNivelar::DestinoSinInstantaneas,
-                TRN::FalloNivelar::BaseNoEstaEnOrigen,
-                TRN::FalloNivelar::DestinoMasNuevo,
-                TRN::FalloNivelar::YaNivelado};
-            for (const TRN::FalloNivelar f : fallos) {
+            const std::vector<TRN::LevelFailure> fallos = {
+                TRN::LevelFailure::ObjetivoNoEstaEnOrigen,
+                TRN::LevelFailure::DestinoSinInstantaneas,
+                TRN::LevelFailure::BaseNoEstaEnOrigen,
+                TRN::LevelFailure::DestinoMasNuevo,
+                TRN::LevelFailure::YaNivelado};
+            for (const TRN::LevelFailure f : fallos) {
                 const std::string t = TRN::labelOf(f);
                 comprobar(!t.empty(), "nivelar: el motivo tiene texto");
                 textosN.insert(t);
@@ -1528,51 +1528,51 @@ int main() {
         // Mover NO es copiar y destruir: es un `zfs rename`, y por eso no sale de su pool
         // ni acepta snapshots. El documento de diseno decia lo contrario; estas
         // aserciones son las que fijan la version buena.
-        const DX::Extremo otroPool{"local", "worg/sitio"};
-        const DX::Extremo hijo{"local", "fc16/user/dentro"};
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, otroDs) == DX::NoAplica::Ninguna,
+        const DX::Endpoint otroPool{"local", "worg/sitio"};
+        const DX::Endpoint hijo{"local", "fc16/user/dentro"};
+        comprobar(DX::check(DX::Action::Mover, ds, otroDs) == DX::NotApplicable::Ninguna,
                   "dosextremos: mover un dataset bajo otro del mismo pool");
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, otroPool) == DX::NoAplica::DistintoPool,
+        comprobar(DX::check(DX::Action::Mover, ds, otroPool) == DX::NotApplicable::DistintoPool,
                   "dosextremos: pero NO a otro pool, que eso es copiar");
-        comprobar(DX::compruebo(DX::Accion::Mover, snap, otroDs)
-                      == DX::NoAplica::OrigenNoEsDataset,
+        comprobar(DX::check(DX::Action::Mover, snap, otroDs)
+                      == DX::NotApplicable::OrigenNoEsDataset,
                   "dosextremos: ni una instantanea de origen");
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, snap2)
-                      == DX::NoAplica::DestinoNoEsDataset,
+        comprobar(DX::check(DX::Action::Mover, ds, snap2)
+                      == DX::NotApplicable::DestinoNoEsDataset,
                   "dosextremos: ni sobre una instantanea");
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, otraMaq) == DX::NoAplica::DistintaMaquina,
+        comprobar(DX::check(DX::Action::Mover, ds, otraMaq) == DX::NotApplicable::DistintaMaquina,
                   "dosextremos: ni entre maquinas");
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, hijo)
-                      == DX::NoAplica::DestinoDentroDelOrigen,
+        comprobar(DX::check(DX::Action::Mover, ds, hijo)
+                      == DX::NotApplicable::DestinoDentroDelOrigen,
                   "dosextremos: ni dentro de si mismo");
         // «fc16/user» NO es padre de «fc16/user2»: la comparacion lleva la barra puesta.
-        const DX::Extremo casiHijo{"local", "fc16/user2"};
-        comprobar(DX::compruebo(DX::Accion::Mover, ds, casiHijo) == DX::NoAplica::Ninguna,
+        const DX::Endpoint casiHijo{"local", "fc16/user2"};
+        comprobar(DX::check(DX::Action::Mover, ds, casiHijo) == DX::NotApplicable::Ninguna,
                   "dosextremos: y user2 no es descendiente de user");
-        comprobar(DX::destinoDeMover(ds, otroDs) == "fc16/work/user",
+        comprobar(DX::moveDestination(ds, otroDs) == "fc16/work/user",
                   "dosextremos: al mover conserva su ultimo nombre");
 
-        // Las tres de transferencia que faltan se ofrecen y se dicen: esconderlas haria
+        // Las tres de transfer que faltan se ofrecen y se dicen: esconderlas haria
         // creer que no existen, y el motivo es distinto de «no aplica aqui».
-        for (const DX::Accion a : {DX::Accion::Copiar, DX::Accion::Sincronizar,
-                                   DX::Accion::Nivelar}) {
-            comprobar(DX::compruebo(a, snap, otroDs) == DX::NoAplica::TodaviaNoEstaEnLaWeb,
+        for (const DX::Action a : {DX::Action::Copiar, DX::Action::Sincronizar,
+                                   DX::Action::Nivelar}) {
+            comprobar(DX::check(a, snap, otroDs) == DX::NotApplicable::TodaviaNoEstaEnLaWeb,
                       std::string("dosextremos: ") + DX::keyOf(a) + " dice que aun no esta");
         }
 
         // Cada motivo tiene su texto, y ninguno se confunde con otro: es lo que se pinta.
         std::set<std::string> textos;
-        const std::vector<DX::NoAplica> motivos = {DX::NoAplica::SinOrigen,
-                                                   DX::NoAplica::ElMismoObjeto,
-                                                   DX::NoAplica::OrigenNoEsInstantanea,
-                                                   DX::NoAplica::DestinoNoEsDataset,
-                                                   DX::NoAplica::DistintoDataset,
-                                                   DX::NoAplica::DistintaMaquina,
-                                                   DX::NoAplica::DistintoPool,
-                                                   DX::NoAplica::OrigenNoEsDataset,
-                                                   DX::NoAplica::DestinoDentroDelOrigen,
-                                                   DX::NoAplica::TodaviaNoEstaEnLaWeb};
-        for (const DX::NoAplica n : motivos) {
+        const std::vector<DX::NotApplicable> motivos = {DX::NotApplicable::SinOrigen,
+                                                   DX::NotApplicable::ElMismoObjeto,
+                                                   DX::NotApplicable::OrigenNoEsInstantanea,
+                                                   DX::NotApplicable::DestinoNoEsDataset,
+                                                   DX::NotApplicable::DistintoDataset,
+                                                   DX::NotApplicable::DistintaMaquina,
+                                                   DX::NotApplicable::DistintoPool,
+                                                   DX::NotApplicable::OrigenNoEsDataset,
+                                                   DX::NotApplicable::DestinoDentroDelOrigen,
+                                                   DX::NotApplicable::TodaviaNoEstaEnLaWeb};
+        for (const DX::NotApplicable n : motivos) {
             const std::string t = DX::labelOf(n);
             comprobar(!t.empty(), "dosextremos: el motivo tiene texto");
             textos.insert(t);
@@ -1582,7 +1582,7 @@ int main() {
         // comprueba, que es que NINGUN motivo se confunda con otro.
         comprobar(textos.size() == motivos.size(),
                   "dosextremos: y ningun motivo se confunde con otro");
-        igual(DX::labelOf(DX::NoAplica::Ninguna), "",
+        igual(DX::labelOf(DX::NotApplicable::Ninguna), "",
               "dosextremos: «si aplica» no tiene motivo que enseñar");
     }
 
@@ -1712,69 +1712,69 @@ int main() {
     // web no podía usarlas y habría acabado con una cuarta.
     {
         namespace ZP = zfsmgr::base::zfsprops;
-        igual(std::to_string(static_cast<int>(ZP::plataformaDe("FreeBSD 15", ""))),
-              std::to_string(static_cast<int>(ZP::Plataforma::FreeBsd)), "zfsprops: FreeBSD");
-        igual(std::to_string(static_cast<int>(ZP::plataformaDe("", "Darwin 24.0"))),
-              std::to_string(static_cast<int>(ZP::Plataforma::MacOs)),
+        igual(std::to_string(static_cast<int>(ZP::platformOf("FreeBSD 15", ""))),
+              std::to_string(static_cast<int>(ZP::Platform::FreeBsd)), "zfsprops: FreeBSD");
+        igual(std::to_string(static_cast<int>(ZP::platformOf("", "Darwin 24.0"))),
+              std::to_string(static_cast<int>(ZP::Platform::MacOs)),
               "zfsprops: la linea de uname vale cuando el perfil no dice nada");
-        igual(std::to_string(static_cast<int>(ZP::plataformaDe("", ""))),
-              std::to_string(static_cast<int>(ZP::Plataforma::Otra)),
+        igual(std::to_string(static_cast<int>(ZP::platformOf("", ""))),
+              std::to_string(static_cast<int>(ZP::Platform::Otra)),
               "zfsprops: sin datos, no se inventa una");
 
         // Lo que solo existe en un sistema. Ofrecerlo en otro es ofrecer un error.
-        comprobar(ZP::soportadaEn("jailed", ZP::Plataforma::FreeBsd), "zfsprops: jailed en FreeBSD");
-        comprobar(!ZP::soportadaEn("jailed", ZP::Plataforma::Linux), "zfsprops: y NO en Linux");
-        comprobar(ZP::soportadaEn("zoned", ZP::Plataforma::Linux), "zfsprops: zoned en Linux");
-        comprobar(!ZP::soportadaEn("zoned", ZP::Plataforma::FreeBsd), "zfsprops: y NO en FreeBSD");
-        comprobar(!ZP::soportadaEn("sharesmb", ZP::Plataforma::MacOs), "zfsprops: sharesmb no en macOS");
-        comprobar(!ZP::soportadaEn("vscan", ZP::Plataforma::Linux), "zfsprops: vscan en ningun sitio");
+        comprobar(ZP::isSupportedOn("jailed", ZP::Platform::FreeBsd), "zfsprops: jailed en FreeBSD");
+        comprobar(!ZP::isSupportedOn("jailed", ZP::Platform::Linux), "zfsprops: y NO en Linux");
+        comprobar(ZP::isSupportedOn("zoned", ZP::Platform::Linux), "zfsprops: zoned en Linux");
+        comprobar(!ZP::isSupportedOn("zoned", ZP::Platform::FreeBsd), "zfsprops: y NO en FreeBSD");
+        comprobar(!ZP::isSupportedOn("sharesmb", ZP::Platform::MacOs), "zfsprops: sharesmb no en macOS");
+        comprobar(!ZP::isSupportedOn("vscan", ZP::Platform::Linux), "zfsprops: vscan en ningun sitio");
 
-        const auto lin = ZP::Plataforma::Linux;
-        comprobar(ZP::editableEnLinea("compression", "filesystem", "local", "off", lin),
+        const auto lin = ZP::Platform::Linux;
+        comprobar(ZP::isInlineEditable("compression", "filesystem", "local", "off", lin),
                   "zfsprops: compression se escribe");
-        comprobar(ZP::editableEnLinea("volsize", "volume", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("volsize", "volume", "local", "off", lin),
                   "zfsprops: volsize en un volumen");
-        comprobar(!ZP::editableEnLinea("volsize", "filesystem", "local", "off", lin),
+        comprobar(!ZP::isInlineEditable("volsize", "filesystem", "local", "off", lin),
                   "zfsprops: pero NO en un sistema de ficheros");
-        comprobar(ZP::editableEnLinea("quota", "filesystem", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("quota", "filesystem", "local", "off", lin),
                   "zfsprops: quota en un sistema de ficheros");
-        comprobar(!ZP::editableEnLinea("quota", "volume", "local", "off", lin),
+        comprobar(!ZP::isInlineEditable("quota", "volume", "local", "off", lin),
                   "zfsprops: y NO en un volumen");
 
         // Los tres cortes que van ANTES de mirar la lista, y que son los que de verdad
         // evitan ofrecer una caja de edición que solo puede fallar.
-        comprobar(!ZP::editableEnLinea("used", "filesystem", "-", "off", lin),
+        comprobar(!ZP::isInlineEditable("used", "filesystem", "-", "off", lin),
                   "zfsprops: origen «-» es calculada, no editable");
-        comprobar(!ZP::editableEnLinea("compression", "filesystem", "local", "on", lin),
+        comprobar(!ZP::isInlineEditable("compression", "filesystem", "local", "on", lin),
                   "zfsprops: lo que ZFS declara readonly no se toca");
-        comprobar(!ZP::editableEnLinea("compression", "filesystem", "local", "yes", lin),
+        comprobar(!ZP::isInlineEditable("compression", "filesystem", "local", "yes", lin),
                   "zfsprops: y «yes» cuenta igual que «on»");
-        comprobar(!ZP::editableEnLinea("jailed", "filesystem", "local", "off", lin),
+        comprobar(!ZP::isInlineEditable("jailed", "filesystem", "local", "off", lin),
                   "zfsprops: lo no soportado en la plataforma tampoco");
 
         // A una instantánea no se le cambia nada. Es de solo lectura por definición, y en
         // el árbol se seleccionan tanto como los datasets.
-        comprobar(!ZP::editableEnLinea("compression", "snapshot", "local", "off", lin),
+        comprobar(!ZP::isInlineEditable("compression", "snapshot", "local", "off", lin),
                   "zfsprops: a una instantanea no se le escribe");
 
         // Las del usuario SIEMPRE, porque ZFS no las interpreta — y ahí es donde este
         // programa guarda su programación.
-        comprobar(ZP::editableEnLinea("org.fc16.gsa:diario", "filesystem", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("org.fc16.gsa:diario", "filesystem", "local", "off", lin),
                   "zfsprops: las propiedades de usuario se escriben");
-        comprobar(ZP::esPropiedadDeUsuario("org.fc16.gsa:diario"), "zfsprops: llevan dos puntos");
-        comprobar(!ZP::esPropiedadDeUsuario("compression"), "zfsprops: y las de ZFS no");
+        comprobar(ZP::isUserProperty("org.fc16.gsa:diario"), "zfsprops: llevan dos puntos");
+        comprobar(!ZP::isUserProperty("compression"), "zfsprops: y las de ZFS no");
         // Y SI se escriben en una instantánea, aunque las de ZFS no. No es un descuido de
         // la regla: se le preguntó a ZFS. `zfs set org.fc16.prueba:x=1 pool@s1` la acepta y
         // se lee de vuelta; `zfs set compression=zstd pool@s1` contesta «this property can
         // not be modified for snapshots». La regla dice exactamente eso.
-        comprobar(ZP::editableEnLinea("org.fc16.gsa:diario", "snapshot", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("org.fc16.gsa:diario", "snapshot", "local", "off", lin),
                   "zfsprops: las de usuario SI se escriben en una instantanea");
 
         // Sin saber el tipo se admite lo de cualquiera de los dos, que es lo que hacía la
         // interfaz: es mejor ofrecerlo y que ZFS diga que no, a esconder lo que sí valía.
-        comprobar(ZP::editableEnLinea("recordsize", "", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("recordsize", "", "local", "off", lin),
                   "zfsprops: sin tipo, se admite lo de los dos");
-        comprobar(!ZP::editableEnLinea("creation", "", "local", "off", lin),
+        comprobar(!ZP::isInlineEditable("creation", "", "local", "off", lin),
                   "zfsprops: pero no lo que no esta en ninguna lista");
     }
 
@@ -1789,9 +1789,9 @@ int main() {
     // una maquina que PARECE atendida: el gestor de servicios y la comprobacion posterior.
     {
         namespace DI = zfsmgr::base::daemoninstall;
-        const std::string lin = DI::guionDeInstalacion("linux", "9.9.9.1", "7");
-        const std::string mac = DI::guionDeInstalacion("macos", "9.9.9.1", "7");
-        const std::string bsd = DI::guionDeInstalacion("freebsd", "9.9.9.1", "7");
+        const std::string lin = DI::installScript("linux", "9.9.9.1", "7");
+        const std::string mac = DI::installScript("macos", "9.9.9.1", "7");
+        const std::string bsd = DI::installScript("freebsd", "9.9.9.1", "7");
 
         // Los tres despliegan el binario POR LA ENTRADA ESTANDAR y lo colocan con
         // `install -m 700`. Un `cp` dejaria los permisos del origen.
@@ -1840,21 +1840,21 @@ int main() {
 
         // Una plataforma desconocida cae a Linux y NO a un guion vacio: un guion vacio se
         // ejecutaria con exito sin instalar nada, que es la forma silenciosa de fallar.
-        igual(DI::guionDeInstalacion("loquesea", "9.9.9.1", "7"), lin,
+        igual(DI::installScript("loquesea", "9.9.9.1", "7"), lin,
               "daemoninstall: lo desconocido cae al guion de Linux");
 
         // La plataforma sale del perfil, sin preguntarle a la maquina.
         zfsmgr::base::ConnectionProfile perfilMac;
         perfilMac.osType = "macOS 15";
-        igual(DI::plataformaDe(perfilMac), "macos", "daemoninstall: macOS por el osType");
+        igual(DI::platformOf(perfilMac), "macos", "daemoninstall: macOS por el osType");
         perfilMac.osType = "Darwin";
-        igual(DI::plataformaDe(perfilMac), "macos", "daemoninstall: y Darwin tambien");
+        igual(DI::platformOf(perfilMac), "macos", "daemoninstall: y Darwin tambien");
         perfilMac.osType = "FreeBSD 15";
-        igual(DI::plataformaDe(perfilMac), "freebsd", "daemoninstall: FreeBSD");
+        igual(DI::platformOf(perfilMac), "freebsd", "daemoninstall: FreeBSD");
         perfilMac.osType = "Ubuntu 24.04";
-        igual(DI::plataformaDe(perfilMac), "linux", "daemoninstall: y lo demas es linux");
+        igual(DI::platformOf(perfilMac), "linux", "daemoninstall: y lo demas es linux");
         perfilMac.osType.clear();
-        igual(DI::plataformaDe(perfilMac), "linux", "daemoninstall: sin osType, linux");
+        igual(DI::platformOf(perfilMac), "linux", "daemoninstall: sin osType, linux");
 
         // El fallo es un TIPO y cada valor tiene su texto: un `bool` obligaba a adivinar
         // entre «no hay binario» —que se arregla compilando— y «la maquina lo rechazo».
@@ -1866,8 +1866,8 @@ int main() {
         zfsmgr::base::TransportSession sesionVacia;
         zfsmgr::base::ConnectionProfile local;
         local.name = "Local";
-        const DI::Resultado sinBin =
-            DI::instala(sesionVacia, local, "/no/existe/este/agente", {}, false);
+        const DI::Result sinBin =
+            DI::install(sesionVacia, local, "/no/existe/este/agente", {}, false);
         comprobar(sinBin.fallo == DI::Fallo::BinarioIlegible,
                   "daemoninstall: sin binario no se toca la maquina");
     }
@@ -1935,7 +1935,7 @@ int main() {
         sinM.id = "otra"; sinM.name = "Otra"; sinM.connType = "SSH";
         sinM.host = "h"; sinM.username = "u"; sinM.password = "en-claro";
         comprobar(!ST::guardaPerfil(dirG, sinM, "", av), "guardar: sin maestra no se guarda");
-        comprobar(av.motivo == ST::Motivo::ClaveMaestraRequeridaParaCifrar, "guardar: y lo dice");
+        comprobar(av.motivo == ST::Reason::ClaveMaestraRequeridaParaCifrar, "guardar: y lo dice");
         igual(av.conexion, "Otra", "guardar: diciendo de que conexion");
 
         // --- Cifrar lo que quedo en claro.
@@ -1966,7 +1966,7 @@ int main() {
             igual(tras3["connections"].toArray().at(0)["password"].toString(), guardado2,
                   "cifrar: lo ya cifrado se deja como esta");
             comprobar(!ST::cifraLoQueFalte(dirC, "", av2), "cifrar: sin maestra no se hace nada");
-            comprobar(av2.motivo == ST::Motivo::ClaveMaestraRequerida, "cifrar: y se dice por que");
+            comprobar(av2.motivo == ST::Reason::ClaveMaestraRequerida, "cifrar: y se dice por que");
             std::filesystem::remove_all(dirC);
         }
 
@@ -2000,16 +2000,16 @@ int main() {
             }
             // Y borrar una que no esta se dice, no se calla.
             comprobar(!ST::borraPerfil(dirG, "no-existe", av), "borrar: una que no esta falla");
-            comprobar(av.motivo == ST::Motivo::NoSeGuardaConexion, "borrar: con su motivo");
+            comprobar(av.motivo == ST::Reason::NoSeGuardaConexion, "borrar: con su motivo");
             comprobar(!ST::borraPerfil(dirG, "  ", av), "borrar: sin identificador tampoco");
-            comprobar(av.motivo == ST::Motivo::IdVacio, "borrar: y ese motivo es otro");
+            comprobar(av.motivo == ST::Reason::IdVacio, "borrar: y ese motivo es otro");
         }
 
         // Un perfil sin identificador no se guarda: sustituirlo o anadirlo seria adivinar.
         zfsmgr::base::ConnectionProfile sinId;
         sinId.name = "X";
         comprobar(!ST::guardaPerfil(dirG, sinId, maestra, av), "guardar: sin id no se guarda");
-        comprobar(av.motivo == ST::Motivo::IdVacio, "guardar: con su motivo");
+        comprobar(av.motivo == ST::Reason::IdVacio, "guardar: con su motivo");
         std::filesystem::remove_all(dirG);
     }
 
@@ -2067,7 +2067,7 @@ int main() {
             f << "{esto no es json";
         }
         const auto malo = ST::leerConfig(dir, a);
-        comprobar(a.motivo == ST::Motivo::ConfigNoValido, "un config.json corrupto da motivo");
+        comprobar(a.motivo == ST::Reason::ConfigNoValido, "un config.json corrupto da motivo");
         comprobar(!a.detalle.empty(), "y explica por que");
         comprobar(malo.toObject().empty(), "sin devolver nada a medias");
 
@@ -2144,7 +2144,7 @@ int main() {
                       "maestra: la nueva abre todo lo que hay");
             comprobar(!ST::maestraAbreTodo(dirRot, vieja, avAbre),
                       "maestra: la vieja ya no");
-            comprobar(avAbre.motivo == ST::Motivo::NoSeDescifra, "maestra: con su motivo");
+            comprobar(avAbre.motivo == ST::Reason::NoSeDescifra, "maestra: con su motivo");
             {
                 // Se ensucia UN campo del trust-store con la clave vieja: el primero de
                 // config sigue abriendo con la nueva, asi que solo recorriendolo todo se ve.
@@ -2170,14 +2170,14 @@ int main() {
             std::string copia2;
             comprobar(!ST::rotaClaveMaestra(dirRot, nueva, "", copia2, av),
                       "rotar: una clave nueva vacia se rechaza");
-            comprobar(av.motivo == ST::Motivo::NuevaClaveMaestraVacia, "rotar: y con su motivo");
+            comprobar(av.motivo == ST::Reason::NuevaClaveMaestraVacia, "rotar: y con su motivo");
             comprobar(copia2.empty(), "rotar: sin dejar copia de nada");
 
             // Con la clave vieja EQUIVOCADA no se puede descifrar, y hay que decirlo.
             std::string copia3;
             comprobar(!ST::rotaClaveMaestra(dirRot, "la-que-no-es", "otra", copia3, av),
                       "rotar: con la clave actual equivocada NO se rota");
-            comprobar(av.motivo == ST::Motivo::NoSeDescifra, "rotar: y el motivo es que no descifra");
+            comprobar(av.motivo == ST::Reason::NoSeDescifra, "rotar: y el motivo es que no descifra");
             igual(av.conexion, "Unibody", "rotar: diciendo en qué conexión");
             std::filesystem::remove_all(dirRot);
         }
@@ -2188,7 +2188,7 @@ int main() {
             f << "[1,2]";  // valido como JSON, pero no es un objeto
         }
         ST::leerTrustStore(dir, a);
-        comprobar(a.motivo == ST::Motivo::TrustNoValido,
+        comprobar(a.motivo == ST::Reason::TrustNoValido,
                   "el trust-store tiene motivo propio, no el de config");
 
         std::filesystem::remove_all(dir);
@@ -2243,7 +2243,7 @@ int main() {
             // alguien la tocó, no si lo que metió tenía sentido.
             //
             // Seis son necesarias —sin ellas hay funciones que no se pueden ofrecer— y dos
-            // son para ELEGIR: `zstd` y `gzip` deciden el códec de una transferencia. Esas
+            // son para ELEGIR: `zstd` y `gzip` deciden el códec de una transfer. Esas
             // dos se sondeaban aparte, con cuatro viajes por SSH cada vez que se abría el
             // diálogo de sincronizar; aquí salen gratis del refresco que ya se hace.
             const auto set = R::zfsmgrUnixCommandSet();
@@ -2835,28 +2835,28 @@ int main() {
     // que la motivó —un nombre de dataset colado entre las banderas—, y no solo que las
     // buenas pasen: un validador que acepte todo también haría pasar las buenas.
     {
-        using zfsmgr::base::zfsprops::banderasDeSendValidas;
+        using zfsmgr::base::zfsprops::areValidSendFlags;
         std::string mala;
-        comprobar(banderasDeSendValidas("", mala), "send: sin banderas vale");
-        comprobar(banderasDeSendValidas("-w -L -c", mala), "send: las banderas de verdad pasan");
-        comprobar(banderasDeSendValidas("-R -X tank/otro", mala),
+        comprobar(areValidSendFlags("", mala), "send: sin banderas vale");
+        comprobar(areValidSendFlags("-w -L -c", mala), "send: las banderas de verdad pasan");
+        comprobar(areValidSendFlags("-R -X tank/otro", mala),
                   "send: -X se lleva su dataset por delante");
-        comprobar(!banderasDeSendValidas("tank/otro@ayer", mala),
+        comprobar(!areValidSendFlags("tank/otro@ayer", mala),
                   "send: un dataset suelto NO pasa");
         igual(mala, "tank/otro@ayer", "send: y se dice cuál era");
-        comprobar(!banderasDeSendValidas("-w tank/otro@ayer", mala),
+        comprobar(!areValidSendFlags("-w tank/otro@ayer", mala),
                   "send: ni escondido detrás de una buena");
-        comprobar(!banderasDeSendValidas("-Z", mala), "send: una bandera inventada NO pasa");
-        comprobar(!banderasDeSendValidas("-i tank@a", mala),
+        comprobar(!areValidSendFlags("-Z", mala), "send: una bandera inventada NO pasa");
+        comprobar(!areValidSendFlags("-i tank@a", mala),
                   "send: -i es del programa, no del usuario");
-        comprobar(!banderasDeSendValidas("-t testigo", mala),
+        comprobar(!areValidSendFlags("-t testigo", mala),
                   "send: -t tampoco");
-        comprobar(!banderasDeSendValidas("-R -X", mala), "send: -X sin dataset NO pasa");
+        comprobar(!areValidSendFlags("-R -X", mala), "send: -X sin dataset NO pasa");
         // Agrupadas: es como las escribe OpenZFS y como las manda el planificador.
-        comprobar(banderasDeSendValidas("-wLec", mala), "send: un grupo de banderas buenas pasa");
-        comprobar(!banderasDeSendValidas("-wLZ", mala), "send: un grupo con una ajena NO pasa");
+        comprobar(areValidSendFlags("-wLec", mala), "send: un grupo de banderas buenas pasa");
+        comprobar(!areValidSendFlags("-wLZ", mala), "send: un grupo con una ajena NO pasa");
         igual(mala, "-wLZ", "send: y se señala el grupo entero, no una letra suelta");
-        comprobar(!banderasDeSendValidas("-wX", mala),
+        comprobar(!areValidSendFlags("-wX", mala),
                   "send: un grupo con una que lleva valor tampoco: no se sabe dónde empieza");
     }
 
@@ -2869,87 +2869,87 @@ int main() {
         namespace G = zfsmgr::base::gsa;
         const auto siempreExiste = [](const std::string&) { return true; };
         const auto nuncaExiste = [](const std::string&) { return false; };
-        G::Motivo m;
+        G::Reason m;
 
         // Leer las propiedades.
-        G::Programacion p;
-        comprobar(G::desdePropiedades({{"org.fc16.gsa:activado", "on"},
+        G::Schedule p;
+        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "on"},
                                        {"org.fc16.gsa:diario", "7"},
                                        {"org.fc16.gsa:horario", ""}},
                                       p, m),
                   "gsa: se leen las propiedades");
         comprobar(p.activado && p.diario == 7 && p.horario == 0,
                   "gsa: vacío es 0 y «on» es activado");
-        comprobar(G::desdePropiedades({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.activado,
+        comprobar(G::fromProperties({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.activado,
                   "gsa: el nombre de la propiedad no distingue mayúsculas");
-        comprobar(G::desdePropiedades({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.activado,
+        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.activado,
                   "gsa: un booleano que no se entiende es «off», que es lo conservador");
-        comprobar(!G::desdePropiedades({{"org.fc16.gsa:diario", "7d"}}, p, m),
+        comprobar(!G::fromProperties({{"org.fc16.gsa:diario", "7d"}}, p, m),
                   "gsa: «7d» NO es una retención");
         comprobar(m.fallo == G::Fallo::RetencionNoEntera && m.detalle == "org.fc16.gsa:diario",
                   "gsa: y se dice cuál de las cinco");
-        comprobar(!G::desdePropiedades({{"org.fc16.gsa:anual", "-1"}}, p, m),
+        comprobar(!G::fromProperties({{"org.fc16.gsa:anual", "-1"}}, p, m),
                   "gsa: una retención negativa tampoco");
 
         // Ida y vuelta: lo escrito se vuelve a leer igual.
-        G::Programacion q;
+        G::Schedule q;
         q.activado = true; q.recursivo = true; q.diario = 7; q.destino = "oldlau::tank/copias";
-        G::Programacion vuelta;
-        comprobar(G::desdePropiedades(G::aPropiedades(q), vuelta, m),
+        G::Schedule vuelta;
+        comprobar(G::fromProperties(G::toProperties(q), vuelta, m),
                   "gsa: lo escrito se vuelve a leer");
         comprobar(vuelta.activado && vuelta.recursivo && vuelta.diario == 7
                       && vuelta.destino == "oldlau::tank/copias",
                   "gsa: y llega igual");
 
         // Las reglas, una a una, con su control.
-        G::Programacion base;
+        G::Schedule base;
         base.activado = true; base.diario = 7;
-        comprobar(G::valida("tank/datos", base, siempreExiste, m), "gsa: la mínima válida vale");
+        comprobar(G::isValid("tank/datos", base, siempreExiste, m), "gsa: la mínima válida vale");
 
-        G::Programacion sinRet = base; sinRet.diario = 0;
-        comprobar(!G::valida("tank/datos", sinRet, siempreExiste, m),
+        G::Schedule sinRet = base; sinRet.diario = 0;
+        comprobar(!G::isValid("tank/datos", sinRet, siempreExiste, m),
                   "gsa: activada y sin retenciones NO vale");
         comprobar(m.fallo == G::Fallo::ActivadaSinRetencion && m.dataset == "tank/datos",
                   "gsa: con su motivo y su dataset");
 
-        G::Programacion apagadaSinRet = sinRet; apagadaSinRet.activado = false;
-        comprobar(G::valida("tank/datos", apagadaSinRet, siempreExiste, m),
+        G::Schedule apagadaSinRet = sinRet; apagadaSinRet.activado = false;
+        comprobar(G::isValid("tank/datos", apagadaSinRet, siempreExiste, m),
                   "gsa: apagada y sin retenciones SÍ vale: no hace nada");
 
-        G::Programacion nivelar = base; nivelar.nivelar = true;
-        comprobar(!G::valida("tank/datos", nivelar, siempreExiste, m),
+        G::Schedule nivelar = base; nivelar.nivelar = true;
+        comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: nivelar sin destino NO vale");
         comprobar(m.fallo == G::Fallo::NivelarSinDestino, "gsa: y lo dice");
 
         nivelar.destino = "tank/copias";
-        comprobar(!G::valida("tank/datos", nivelar, siempreExiste, m),
+        comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: un destino sin «::» NO vale");
         comprobar(m.fallo == G::Fallo::DestinoMalFormado, "gsa: y lo dice");
 
         nivelar.destino = "oldlau::tank/copias";
-        comprobar(G::valida("tank/datos", nivelar, siempreExiste, m),
+        comprobar(G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: con conexión que existe, vale");
-        comprobar(!G::valida("tank/datos", nivelar, nuncaExiste, m),
+        comprobar(!G::isValid("tank/datos", nivelar, nuncaExiste, m),
                   "gsa: si la conexión no existe, NO vale");
         comprobar(m.fallo == G::Fallo::DestinoSinConexion && m.detalle == "oldlau",
                   "gsa: y se nombra la conexión que falta");
 
         // Y el conjunto.
-        G::Programacion rec = base; rec.recursivo = true;
+        G::Schedule rec = base; rec.recursivo = true;
         std::vector<G::Entry> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
-        comprobar(!G::validaConjunto(juego, m), "gsa: un hijo bajo una recursiva choca");
+        comprobar(!G::isValidSet(juego, m), "gsa: un hijo bajo una recursiva choca");
         comprobar(m.fallo == G::Fallo::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
                       && m.detalle == "tank/datos",
                   "gsa: y se dice quién con quién");
-        comprobar(G::validaConjunto({{"tank/datos", base}, {"tank/datos/hijo", base}}, m),
+        comprobar(G::isValidSet({{"tank/datos", base}, {"tank/datos/hijo", base}}, m),
                   "gsa: sin recursiva no chocan");
-        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/otro", base}}, m),
+        comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/otro", base}}, m),
                   "gsa: y un hermano tampoco");
-        G::Programacion apagada = base; apagada.activado = false;
-        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/datos/hijo", apagada}}, m),
+        G::Schedule apagada = base; apagada.activado = false;
+        comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/datos/hijo", apagada}}, m),
                   "gsa: con el hijo apagado no hay choque: no hace instantáneas");
         // Y que «datosviejos» no cuente como hijo de «datos» por empezar igual.
-        comprobar(G::validaConjunto({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
+        comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
                   "gsa: el prefijo no basta, hace falta la barra");
 
         // --- Cómo se enseñan: manuales primero, programadas agrupadas por clase.
@@ -2957,17 +2957,17 @@ int main() {
         // Punto 6 del backlog. La regla estaba escrita dentro del bucle que pinta el árbol,
         // así que comprobarla exigía una ventana; aquí se comprueba el orden, que es lo
         // pedido, y de paso el intérprete la tiene para cuando liste instantáneas.
-        igual(G::claseDeInstantanea("GSA-daily-20260322-000000"), "daily",
+        igual(G::snapshotClass("GSA-daily-20260322-000000"), "daily",
               "gsa: la clase va entre el primer y el segundo guion");
-        igual(G::claseDeInstantanea("GSA-HOURLY-20260322-120000"), "hourly",
+        igual(G::snapshotClass("GSA-HOURLY-20260322-120000"), "hourly",
               "gsa: la clase no distingue mayúsculas");
-        igual(G::claseDeInstantanea("manual-001"), "",
+        igual(G::snapshotClass("manual-001"), "",
               "gsa: una manual no tiene clase");
-        igual(G::claseDeInstantanea("GSA-20260322-120000"), "20260322",
+        igual(G::snapshotClass("GSA-20260322-120000"), "20260322",
               "gsa: sin clase en el nombre no se inventa una: se toma lo que hay");
 
         {
-            const auto g = G::agrupaInstantaneas({"manual-001",
+            const auto g = G::groupSnapshots({"manual-001",
                                                   "GSA-daily-20260322-000000",
                                                   "GSA-hourly-20260322-120000",
                                                   "manual-002",
@@ -2983,11 +2983,11 @@ int main() {
             igual(g[3].first, "loquesea", "gsa: una clase que no conocemos va al final, no se pierde");
         }
         {
-            const auto g = G::agrupaInstantaneas({"GSA-yearly-20260101-000000", "GSA-weekly-20260322-000000"});
+            const auto g = G::groupSnapshots({"GSA-yearly-20260101-000000", "GSA-weekly-20260322-000000"});
             comprobar(g.size() == 2, "gsa: sin manuales no hay grupo vacío por delante");
             igual(g[0].first, "weekly", "gsa: semanal antes que anual aunque llegara después");
         }
-        comprobar(G::agrupaInstantaneas({}).empty(), "gsa: sin instantáneas, ningún grupo");
+        comprobar(G::groupSnapshots({}).empty(), "gsa: sin instantáneas, ningún grupo");
     }
 
     {
@@ -3027,7 +3027,7 @@ int main() {
     {
         // Matar el árbol de procesos al cancelar.
         //
-        // La cadena que motiva esto es la real de una transferencia:
+        // La cadena que motiva esto es la real de una transfer:
         // sh(100) -> sudo(101) -> sh(102) -> zfsmgr-agent(103) -> tar(104). Lo que fallaba
         // antes era quedarse en los hijos directos y dejar vivo el `tar`.
         namespace P = zfsmgr::base;
@@ -3108,7 +3108,7 @@ int main() {
         const std::vector<zfsmgr::base::ConnectionProfile> tres = {
             perfil("local", true), perfil("unibody", true), perfil("oldlau", true)};
 
-        const PE::Entrega e1 = PE::componeEntrega(tres, "local");
+        const PE::Handover e1 = PE::composeHandover(tres, "local");
         comprobar(e1.sePuede(), "peers: se puede entregar");
         comprobar(e1.nombres.size() == 2, "peers: van las OTRAS dos, no la de destino");
         comprobar(!e1.cargaB64.empty(), "peers: hay carga");
@@ -3127,105 +3127,105 @@ int main() {
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».
         const std::vector<zfsmgr::base::ConnectionProfile> sinTls = {perfil("local", true),
                                                                     perfil("unibody", false)};
-        igual(PE::labelOf(PE::componeEntrega(sinTls, "local").fallo),
+        igual(PE::labelOf(PE::composeHandover(sinTls, "local").fallo),
               PE::labelOf(PE::Fallo::SinMaterialTls),
               "peers: las hay pero sin certificados");
-        igual(PE::labelOf(PE::componeEntrega({perfil("local", true)}, "local").fallo),
+        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local").fallo),
               PE::labelOf(PE::Fallo::SinOtrasConexiones),
               "peers: no hay ninguna otra");
 
         // Las direcciones de escucha son tres y no más: el cliente llega por un túnel contra
         // 127.0.0.1 y una dirección suelta le cortaría el acceso.
-        comprobar(PE::direccionDeEscuchaValida("127.0.0.1"), "peers: el bucle local vale");
-        comprobar(PE::direccionDeEscuchaValida("0.0.0.0"), "peers: el comodín IPv4 vale");
-        comprobar(PE::direccionDeEscuchaValida("::"), "peers: el comodín IPv6 vale");
-        comprobar(!PE::direccionDeEscuchaValida("192.168.1.5"),
+        comprobar(PE::isValidBindAddress("127.0.0.1"), "peers: el bucle local vale");
+        comprobar(PE::isValidBindAddress("0.0.0.0"), "peers: el comodín IPv4 vale");
+        comprobar(PE::isValidBindAddress("::"), "peers: el comodín IPv6 vale");
+        comprobar(!PE::isValidBindAddress("192.168.1.5"),
                   "peers: una dirección suelta NO, cortaría el túnel");
-        comprobar(!PE::direccionDeEscuchaValida(""), "peers: vacía tampoco");
+        comprobar(!PE::isValidBindAddress(""), "peers: vacía tampoco");
     }
 
     {
         // Las cuatro acciones que mueven contenido: Desglosar, Ensamblar, Hacia Dir.
-        namespace AV = zfsmgr::commands::avanzadas;
+        namespace AV = zfsmgr::commands::advanced;
 
         // **La regla que costó descubrir ejecutando.** El agente comprueba cada hijo con
         // `zfs list <hijo>`: un nombre relativo no existe para él, y la operación se saldaba
         // con «ya absorbido» y rc=0 —decía que sí sin hacer nada—.
-        igual(AV::hijoConNombreCompleto("tank/datos", "fotos"), "tank/datos/fotos",
+        igual(AV::childWithFullName("tank/datos", "fotos"), "tank/datos/fotos",
               "avanzadas: un relativo se completa");
-        igual(AV::hijoConNombreCompleto("tank/datos", "tank/datos/fotos"), "tank/datos/fotos",
+        igual(AV::childWithFullName("tank/datos", "tank/datos/fotos"), "tank/datos/fotos",
               "avanzadas: uno completo se respeta");
         // Un nieto ya lleva barra: completarlo otra vez daría «tank/datos/tank/datos/…».
-        igual(AV::hijoConNombreCompleto("tank/datos", "tank/datos/fotos/2024"),
+        igual(AV::childWithFullName("tank/datos", "tank/datos/fotos/2024"),
               "tank/datos/fotos/2024", "avanzadas: un nieto no se vuelve a completar");
-        igual(AV::hijoConNombreCompleto("tank/datos", "  fotos  "), "tank/datos/fotos",
+        igual(AV::childWithFullName("tank/datos", "  fotos  "), "tank/datos/fotos",
               "avanzadas: se recortan los espacios");
-        igual(AV::hijoConNombreCompleto("tank/datos", ""), "", "avanzadas: vacío sigue vacío");
+        igual(AV::childWithFullName("tank/datos", ""), "", "avanzadas: vacío sigue vacío");
 
         {
-            const auto a1 = AV::argvEnsamblar("tank/datos", {"fotos", "tank/datos/musica"});
+            const auto a1 = AV::argvAssemble("tank/datos", {"fotos", "tank/datos/musica"});
             comprobar(a1 == std::vector<std::string>{"--mutate-advanced-assemble", "tank/datos",
                                                      "tank/datos/fotos", "tank/datos/musica"},
                       "avanzadas: ensamblar completa unos y respeta otros");
-            comprobar(AV::argvEnsamblar("tank/datos", {}).empty(),
+            comprobar(AV::argvAssemble("tank/datos", {}).empty(),
                       "avanzadas: ensamblar sin hijos no manda nada");
-            comprobar(AV::argvEnsamblar("tank/datos", {"", "  "}).empty(),
+            comprobar(AV::argvAssemble("tank/datos", {"", "  "}).empty(),
                       "avanzadas: hijos vacíos tampoco cuentan");
-            comprobar(AV::argvEnsamblar("", {"fotos"}).empty(),
+            comprobar(AV::argvAssemble("", {"fotos"}).empty(),
                       "avanzadas: sin dataset no hay orden");
         }
 
         {
-            const auto d = AV::argvDesglosar("tank/datos", {{"fotos", "fotos"}, {"cine", "cine"}});
+            const auto d = AV::argvBreakdown("tank/datos", {{"fotos", "fotos"}, {"cine", "cine"}});
             comprobar(d == std::vector<std::string>{"--mutate-advanced-breakdown", "tank/datos",
                                                     "fotos", "fotos", "cine", "cine"},
                       "avanzadas: desglosar empareja subdirectorio y dataset");
             // Un par a medias desplazaría TODOS los siguientes: el verbo los lee de dos en
             // dos y el daemon acabaría creando un dataset con el nombre de un directorio.
-            const auto medio = AV::argvDesglosar("tank/datos", {{"fotos", ""}, {"cine", "cine"}});
+            const auto medio = AV::argvBreakdown("tank/datos", {{"fotos", ""}, {"cine", "cine"}});
             comprobar(medio == std::vector<std::string>{"--mutate-advanced-breakdown", "tank/datos",
                                                         "cine", "cine"},
                       "avanzadas: un par a medias se descarta entero, no a medias");
-            comprobar(AV::argvDesglosar("tank/datos", {}).empty(),
+            comprobar(AV::argvBreakdown("tank/datos", {}).empty(),
                       "avanzadas: desglosar sin pares no manda nada");
-            comprobar(AV::argvDesglosar("tank/datos", {{"fotos", ""}}).empty(),
+            comprobar(AV::argvBreakdown("tank/datos", {{"fotos", ""}}).empty(),
                       "avanzadas: si el único par está a medias, tampoco");
         }
 
         {
-            comprobar(AV::rutaDeDestinoValida("/mnt/copia"), "avanzadas: ruta absoluta Unix");
-            comprobar(AV::rutaDeDestinoValida("Z:/copia"), "avanzadas: ruta con unidad Windows");
-            comprobar(!AV::rutaDeDestinoValida("copia"),
+            comprobar(AV::isValidDestinationPath("/mnt/copia"), "avanzadas: ruta absoluta Unix");
+            comprobar(AV::isValidDestinationPath("Z:/copia"), "avanzadas: ruta con unidad Windows");
+            comprobar(!AV::isValidDestinationPath("copia"),
                       "avanzadas: una relativa NO, el daemon la abriría desde su propio sitio");
-            comprobar(!AV::rutaDeDestinoValida(""), "avanzadas: vacía tampoco");
+            comprobar(!AV::isValidDestinationPath(""), "avanzadas: vacía tampoco");
 
-            const auto t = AV::argvHaciaDir("tank/datos", "/mnt/copia", false);
+            const auto t = AV::argvToDir("tank/datos", "/mnt/copia", false);
             comprobar(t == std::vector<std::string>{"--mutate-advanced-todir", "tank/datos",
                                                     "/mnt/copia", "0"},
                       "avanzadas: hacia dir sin destruir el origen");
-            const auto t2 = AV::argvHaciaDir("tank/datos", "/mnt/copia", true);
+            const auto t2 = AV::argvToDir("tank/datos", "/mnt/copia", true);
             igual(t2.back(), "1", "avanzadas: y con destrucción del origen es «1»");
-            comprobar(AV::argvHaciaDir("tank/datos", "relativa", false).empty(),
+            comprobar(AV::argvToDir("tank/datos", "relativa", false).empty(),
                       "avanzadas: con una ruta que no sirve no se manda nada");
         }
 
         {
             // Desde Dir: dónde cae cada origen dentro del dataset.
-            using O = AV::OrigenDesdeDir;
+            using O = AV::FromDirSource;
 
             // Uno solo: el dataset ES el directorio, así que su contenido va a la raíz.
-            const auto uno = AV::subdirectoriosDeDestino({O{"/home/ana/docs", "fc16", false}});
+            const auto uno = AV::destinationSubdirs({O{"/home/ana/docs", "fc16", false}});
             comprobar(uno == std::vector<std::string>{""},
                       "desdedir: un solo origen va a la raíz del dataset");
 
             // Varios con nombres distintos: cada uno al suyo.
-            const auto varios = AV::subdirectoriosDeDestino(
+            const auto varios = AV::destinationSubdirs(
                 {O{"/home/ana/docs", "fc16", false}, O{"/home/ana/fotos", "fc16", false}});
             comprobar(varios == std::vector<std::string>{"docs", "fotos"},
                       "desdedir: varios orígenes, cada uno a su subdirectorio");
 
             // Mismo nombre en máquinas distintas: desempata la máquina.
-            const auto dosMaquinas = AV::subdirectoriosDeDestino(
+            const auto dosMaquinas = AV::destinationSubdirs(
                 {O{"/home/ana/docs", "fc16", false}, O{"/home/ana/docs", "unibody", false}});
             comprobar(dosMaquinas == std::vector<std::string>{"fc16-docs", "unibody-docs"},
                       "desdedir: el mismo nombre en dos máquinas se separa por máquina");
@@ -3233,7 +3233,7 @@ int main() {
             // **El fallo que esto arregla.** Dos directorios con el mismo nombre en la MISMA
             // máquina daban los dos «fc16-docs»: el segundo tar se extraía encima del
             // primero y se perdía contenido sin decir nada.
-            const auto mismaMaquina = AV::subdirectoriosDeDestino(
+            const auto mismaMaquina = AV::destinationSubdirs(
                 {O{"/a/docs", "fc16", false}, O{"/b/docs", "fc16", false}});
             comprobar(mismaMaquina.size() == 2 && mismaMaquina[0] != mismaMaquina[1],
                       "desdedir: dos con el mismo nombre en la misma máquina NO se pisan");
@@ -3241,122 +3241,122 @@ int main() {
                       "desdedir: el segundo lleva sufijo");
 
             // Windows: los separadores son «\\».
-            const auto win = AV::subdirectoriosDeDestino(
+            const auto win = AV::destinationSubdirs(
                 {O{"C:\\Users\\ana\\docs", "oldlau", true}, O{"/home/ana/fotos", "fc16", false}});
             comprobar(win == std::vector<std::string>{"docs", "fotos"},
                       "desdedir: una ruta de Windows también deja su último tramo");
 
             // Barras finales: «/home/ana/docs/» es el mismo directorio.
-            const auto conBarra = AV::subdirectoriosDeDestino(
+            const auto conBarra = AV::destinationSubdirs(
                 {O{"/home/ana/docs///", "fc16", false}, O{"/home/ana/fotos", "fc16", false}});
             igual(conBarra[0], "docs", "desdedir: las barras finales no cuentan");
 
             // Una raíz no deja nombre detrás. Sin esto ese origen se iría a la raíz del
             // dataset mientras los demás van a su subdirectorio.
-            const auto raiz = AV::subdirectoriosDeDestino(
+            const auto raiz = AV::destinationSubdirs(
                 {O{"/", "fc16", false}, O{"/home/ana/fotos", "fc16", false}});
             comprobar(!raiz[0].empty() && raiz[0] != raiz[1],
                       "desdedir: una ruta sin último tramo tampoco se va a la raíz");
 
             // Un nombre de conexión con una barra dentro habría creado un nivel de más.
-            const auto sucio = AV::subdirectoriosDeDestino(
+            const auto sucio = AV::destinationSubdirs(
                 {O{"/a/docs", "casa/fc16", false}, O{"/b/docs", "casa/fc16", false}});
             comprobar(sucio[0].find('/') == std::string::npos,
                       "desdedir: el nombre resultante no lleva separadores");
 
             // Y «..» no puede salir del dataset.
-            const auto fuera = AV::subdirectoriosDeDestino(
+            const auto fuera = AV::destinationSubdirs(
                 {O{"/home/ana/..", "fc16", false}, O{"/home/ana/fotos", "fc16", false}});
             comprobar(fuera[0].find("..") == std::string::npos
-                          || AV::subdirectorioRelativoValido(fuera[0]),
+                          || AV::isValidRelativeSubdir(fuera[0]),
                       "desdedir: no se compone un destino que salga del dataset");
         }
 
         {
             // Subárboles de ficheros: `#content/{a,b}`.
-            comprobar(AV::rutasDeContenido("") == std::vector<std::string>{""},
+            comprobar(AV::contentPaths("") == std::vector<std::string>{""},
                       "contenido: sin ruta es el árbol entero");
-            comprobar(AV::rutasDeContenido("sub") == std::vector<std::string>{"sub"},
+            comprobar(AV::contentPaths("sub") == std::vector<std::string>{"sub"},
                       "contenido: una ruta suelta");
-            comprobar(AV::rutasDeContenido("{a,b,dir}")
+            comprobar(AV::contentPaths("{a,b,dir}")
                           == std::vector<std::string>{"a", "b", "dir"},
                       "contenido: las llaves se expanden");
-            comprobar(AV::rutasDeContenido("docs/{2024,2025}")
+            comprobar(AV::contentPaths("docs/{2024,2025}")
                           == std::vector<std::string>{"docs/2024", "docs/2025"},
                       "contenido: con prefijo delante");
-            comprobar(AV::rutasDeContenido(" {a , b } ")
+            comprobar(AV::contentPaths(" {a , b } ")
                           == std::vector<std::string>{"a", "b"},
                       "contenido: se recortan los espacios de cada pieza");
             // Lo mal escrito NO se adivina: devolver algo a medias sincronizaría una parte
             // distinta de la que se pidió, y con `--delete` eso borra.
-            comprobar(AV::rutasDeContenido("{a,b").empty(), "contenido: sin cerrar, nada");
-            comprobar(AV::rutasDeContenido("a,b}").empty(), "contenido: cierre suelto, nada");
-            comprobar(AV::rutasDeContenido("{a,{b,c}}").empty(), "contenido: anidadas, nada");
-            comprobar(AV::rutasDeContenido("{a,,b}").empty(), "contenido: pieza vacía, nada");
-            comprobar(AV::rutasDeContenido("{}").empty(), "contenido: llaves vacías, nada");
-            comprobar(AV::rutasDeContenido("{a,b}/{c,d}").empty(),
+            comprobar(AV::contentPaths("{a,b").empty(), "contenido: sin cerrar, nada");
+            comprobar(AV::contentPaths("a,b}").empty(), "contenido: cierre suelto, nada");
+            comprobar(AV::contentPaths("{a,{b,c}}").empty(), "contenido: anidadas, nada");
+            comprobar(AV::contentPaths("{a,,b}").empty(), "contenido: pieza vacía, nada");
+            comprobar(AV::contentPaths("{}").empty(), "contenido: llaves vacías, nada");
+            comprobar(AV::contentPaths("{a,b}/{c,d}").empty(),
                       "contenido: dos grupos, nada");
 
             // Y lo que no puede salir del árbol. Who lo ejecuta corre como root, y el
             // daemon NO lo comprueba para rsync: solo exige que la ruta sea absoluta.
-            comprobar(AV::rutaDeContenidoValida(""), "contenido: la raíz vale");
-            comprobar(AV::rutaDeContenidoValida("a/b"), "contenido: una relativa vale");
-            comprobar(!AV::rutaDeContenidoValida("/etc"), "contenido: absoluta no");
-            comprobar(!AV::rutaDeContenidoValida("../fuera"), "contenido: «..» no");
-            comprobar(!AV::rutaDeContenidoValida("sub/../../etc"),
+            comprobar(AV::isValidContentPath(""), "contenido: la raíz vale");
+            comprobar(AV::isValidContentPath("a/b"), "contenido: una relativa vale");
+            comprobar(!AV::isValidContentPath("/etc"), "contenido: absoluta no");
+            comprobar(!AV::isValidContentPath("../fuera"), "contenido: «..» no");
+            comprobar(!AV::isValidContentPath("sub/../../etc"),
                       "contenido: «..» en medio tampoco");
         }
 
         {
             // El subdirectorio, comprobado ANTES de abrir la tubería y no después, como
             // hacía el daemon: para cuando él lo miraba, el tar ya estaba corriendo.
-            comprobar(AV::subdirectorioRelativoValido(""),
+            comprobar(AV::isValidRelativeSubdir(""),
                       "desdedir: vacío vale, es la raíz del dataset");
-            comprobar(AV::subdirectorioRelativoValido("copia/2026"),
+            comprobar(AV::isValidRelativeSubdir("copia/2026"),
                       "desdedir: un relativo con niveles vale");
-            comprobar(!AV::subdirectorioRelativoValido("/copia"),
+            comprobar(!AV::isValidRelativeSubdir("/copia"),
                       "desdedir: absoluto no es «dentro del dataset»");
-            comprobar(!AV::subdirectorioRelativoValido("../fuera"),
+            comprobar(!AV::isValidRelativeSubdir("../fuera"),
                       "desdedir: «..» saldría del punto de montaje");
-            comprobar(!AV::subdirectorioRelativoValido("con\ttabulador"),
+            comprobar(!AV::isValidRelativeSubdir("con\ttabulador"),
                       "desdedir: un tabulador rompe el registro y la vista previa");
 
-            const auto fd = AV::argvDesdeDir("tank/datos", "copia");
+            const auto fd = AV::argvFromDir("tank/datos", "copia");
             comprobar(fd == std::vector<std::string>{"--mutate-advanced-fromdir", "tank/datos",
                                                      "copia"},
                       "desdedir: el argv lleva dataset y subdirectorio");
             // Sin subdirectorio NO se manda una cadena vacía detrás: el verbo lo trata como
             // opcional y una vacía le pide que decida qué significa.
-            const auto fdRaiz = AV::argvDesdeDir("tank/datos", "");
+            const auto fdRaiz = AV::argvFromDir("tank/datos", "");
             comprobar(fdRaiz == std::vector<std::string>{"--mutate-advanced-fromdir", "tank/datos"},
                       "desdedir: a la raíz se manda solo el dataset");
-            comprobar(AV::argvDesdeDir("tank/datos", "../fuera").empty(),
+            comprobar(AV::argvFromDir("tank/datos", "../fuera").empty(),
                       "desdedir: con un subdirectorio que no vale no se manda nada");
-            comprobar(AV::argvDesdeDir("", "copia").empty(),
+            comprobar(AV::argvFromDir("", "copia").empty(),
                       "desdedir: sin dataset tampoco");
 
             // La primera mitad, la que permite hacerlo sin tubería de shell.
-            const auto prep = AV::argvDesdeDirPreparar("tank/datos", "copia/2026");
+            const auto prep = AV::argvFromDirPrepare("tank/datos", "copia/2026");
             comprobar(prep == std::vector<std::string>{"--mutate-advanced-fromdir-prepare",
                                                        "tank/datos", "copia/2026"},
                       "desdedir: el argv de preparar el destino");
-            comprobar(AV::argvDesdeDirPreparar("tank/datos", "../fuera").empty(),
+            comprobar(AV::argvFromDirPrepare("tank/datos", "../fuera").empty(),
                       "desdedir: preparar tampoco acepta salir del dataset");
 
-            igual(AV::rutaPreparada("DST=/tpool/datos/copia/2026\n"), "/tpool/datos/copia/2026",
+            igual(AV::preparedPath("DST=/tpool/datos/copia/2026\n"), "/tpool/datos/copia/2026",
                   "desdedir: se lee la ruta preparada");
             // Por SSH la respuesta puede venir con un aviso delante: quedarse con la primera
             // línea daría una ruta que no es.
-            igual(AV::rutaPreparada("Warning: algo\nDST=/tpool/x\n"), "/tpool/x",
+            igual(AV::preparedPath("Warning: algo\nDST=/tpool/x\n"), "/tpool/x",
                   "desdedir: la ruta se busca por su línea, no al principio");
-            comprobar(AV::rutaPreparada("PORT=1234\n").empty(),
+            comprobar(AV::preparedPath("PORT=1234\n").empty(),
                       "desdedir: sin línea DST no hay ruta");
 
             // Las dos puntas con daemon, no una. Al camino del tar le basta con el destino.
-            comprobar(AV::puedeIrPorElArbol(true, true), "desdedir: con daemon en las dos, árbol");
-            comprobar(!AV::puedeIrPorElArbol(false, true),
+            comprobar(AV::canUseTreeTransfer(true, true), "desdedir: con daemon en las dos, árbol");
+            comprobar(!AV::canUseTreeTransfer(false, true),
                       "desdedir: sin daemon en el origen, no hay quien envíe");
-            comprobar(!AV::puedeIrPorElArbol(true, false),
+            comprobar(!AV::canUseTreeTransfer(true, false),
                       "desdedir: sin daemon en el destino, no hay quien escuche");
         }
     }
@@ -3364,58 +3364,58 @@ int main() {
     {
         // Lo que se le PIDE al agente: una función por cosa, para que el nombre del verbo no
         // se escriba en tres clientes distintos.
-        namespace PE2 = zfsmgr::commands::peticiones;
+        namespace PE2 = zfsmgr::commands::requests;
 
-        comprobar(PE2::listaDePools() == std::vector<std::string>{"--dump-zpool-list"},
+        comprobar(PE2::poolList() == std::vector<std::string>{"--dump-zpool-list"},
                   "peticiones: la lista de pools no lleva argumentos");
-        comprobar(PE2::estadoDePool("tank")
+        comprobar(PE2::poolStatus("tank")
                       == std::vector<std::string>{"--dump-zpool-status", "tank"},
                   "peticiones: el estado de un pool");
 
         // **Un verbo pelado NO se manda.** El daemon contestaría con su línea de uso y rc=2,
         // que es un error mucho peor de leer que no haber preguntado.
-        comprobar(PE2::estadoDePool("").empty(), "peticiones: sin pool no se pregunta");
-        comprobar(PE2::estadoDePool("   ").empty(), "peticiones: y los espacios no cuentan");
+        comprobar(PE2::poolStatus("").empty(), "peticiones: sin pool no se pregunta");
+        comprobar(PE2::poolStatus("   ").empty(), "peticiones: y los espacios no cuentan");
 
         // El orden es propiedad y luego objeto, que es al revés de como se dice en voz alta.
-        comprobar(PE2::propiedadDeDataset("mountpoint", "tank/datos")
+        comprobar(PE2::datasetProperty("mountpoint", "tank/datos")
                       == std::vector<std::string>{"--dump-zfs-get-prop", "mountpoint",
                                                   "tank/datos"},
                   "peticiones: una propiedad va antes que su objeto");
-        comprobar(PE2::propiedadDeDataset("", "tank/datos").empty(),
+        comprobar(PE2::datasetProperty("", "tank/datos").empty(),
                   "peticiones: sin propiedad tampoco");
 
         // Los holds aceptan varios objetos detrás.
-        comprobar(PE2::holdsDe({"tank@a", "tank@b"})
+        comprobar(PE2::holdsOf({"tank@a", "tank@b"})
                       == std::vector<std::string>{"--dump-zfs-holds", "tank@a", "tank@b"},
                   "peticiones: varios objetos en una sola llamada");
-        comprobar(PE2::holdsDe({}).empty(), "peticiones: sin objetos no hay holds que leer");
-        comprobar(PE2::holdsDe({"", "  "}).empty(),
+        comprobar(PE2::holdsOf({}).empty(), "peticiones: sin objetos no hay holds que leer");
+        comprobar(PE2::holdsOf({"", "  "}).empty(),
                   "peticiones: y unos objetos vacíos no son objetos");
 
         // El registro sin número pide desde el principio, y **no** manda una cadena vacía
         // detrás: no es lo mismo que no mandar nada.
         // Son BYTES, no líneas: el daemon hace `seek`. Cero y cero es el fichero entero, y
         // entonces no se mandan los argumentos.
-        comprobar(PE2::registro(0, 0) == std::vector<std::string>{"--dump-daemon-log"},
+        comprobar(PE2::daemonLog(0, 0) == std::vector<std::string>{"--dump-daemon-log"},
                   "peticiones: el registro entero no lleva argumentos");
-        comprobar(PE2::registro(0, 4096)
+        comprobar(PE2::daemonLog(0, 4096)
                       == std::vector<std::string>{"--dump-daemon-log", "0", "4096"},
                   "peticiones: con tope de bytes van los dos");
 
         {
             // Encolar pone el verbo DELANTE, no detrás.
-            const auto e = PE2::encola({"--mutate-advanced-todir", "tank/d", "/mnt/x", "0"});
+            const auto e = PE2::enqueue({"--mutate-advanced-todir", "tank/d", "/mnt/x", "0"});
             comprobar(e == std::vector<std::string>{"--job-submit", "--mutate-advanced-todir",
                                                     "tank/d", "/mnt/x", "0"},
                       "peticiones: --job-submit va delante de lo que encola");
             // Y lo que el daemon no sabe encolar no se manda: rebotaría.
-            comprobar(PE2::encola({"--mutate-zfs-destroy", "tank@a"}).empty(),
+            comprobar(PE2::enqueue({"--mutate-zfs-destroy", "tank@a"}).empty(),
                       "peticiones: un verbo no encolable no se encola");
-            comprobar(PE2::encola({}).empty(), "peticiones: nada que encolar, nada que mandar");
-            comprobar(PE2::sePuedeEncolar("--tree-send-to-peer"),
+            comprobar(PE2::enqueue({}).empty(), "peticiones: nada que encolar, nada que mandar");
+            comprobar(PE2::canEnqueue("--tree-send-to-peer"),
                       "peticiones: el árbol entre daemons sí se encola");
-            comprobar(!PE2::sePuedeEncolar("--dump-zpool-list"),
+            comprobar(!PE2::canEnqueue("--dump-zpool-list"),
                       "peticiones: una lectura no es un trabajo");
         }
     }
@@ -3622,7 +3622,7 @@ int main() {
         // tres eslabones. Cada uno se rompió por su cuenta y ninguno lo notaba nadie: la
         // instalación seguía saliendo en verde.
         namespace DI = zfsmgr::base::daemoninstall;
-        const std::string mac = DI::guionDeInstalacion("macos", "1.2.3", "3");
+        const std::string mac = DI::installScript("macos", "1.2.3", "3");
         comprobar(mac.find("launchctl bootstrap system") != std::string::npos,
                   "macos: el guion arranca el servicio");
         comprobar(mac.find("bootstrap system /Library/LaunchDaemons/org.zfsmgr.agent.plist "
@@ -3642,7 +3642,7 @@ int main() {
 
         // Una plataforma que no se reconoce cae al guion de systemd A PROPÓSITO —y ese
         // comprueba `systemctl` antes de nada—, así que NO se espera vacío.
-        comprobar(DI::guionDeInstalacion("plan9", "1.2.3", "3").find("systemctl")
+        comprobar(DI::installScript("plan9", "1.2.3", "3").find("systemctl")
                       != std::string::npos,
                   "una plataforma desconocida cae al guion de systemd, que se planta solo");
     }

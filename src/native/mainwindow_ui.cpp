@@ -1,6 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "mainwindow_connectiondatasettreedelegate.h"
 #include "mainwindow_ui_logic.h"
 
@@ -2247,7 +2247,7 @@ void MainWindow::buildUi() {
             const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
             QStringList args;
             args << mwhelpers::argvQt(
-                zfsmgr::commands::peticiones::cancelaTrabajo(jobId.toStdString()));
+                zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
             QString out, err;
             int rc = -1;
             tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc);

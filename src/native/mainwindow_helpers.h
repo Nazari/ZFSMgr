@@ -67,17 +67,17 @@ QString maskedAgentArgvForLog(const QStringList& argv);
 // mismo JSON.
 QString argvParaAgente(const QStringList& argv);
 
-// Puentes a `commands::avanzadas`, donde viven el argv y las REGLAS de Desglosar, Ensamblar
+// Puentes a `commands::advanced`, donde viven el argv y las REGLAS de Desglosar, Ensamblar
 // y Hacia Dir.
 //
 // Existen por lo mismo que el de arriba: la interfaz habla QStringList y la capa de órdenes
 // no conoce Qt. Lo que NO deben hacer es decidir nada —completar un nombre, descartar un par
 // a medias, validar una ruta—: eso está del otro lado, con sus pruebas, y compartido con el
 // intérprete y el servidor web. Aquí solo se convierte.
-QStringList argvEnsamblar(const QString& dataset, const QStringList& hijos);
-QStringList argvDesglosar(const QString& dataset, const QStringList& subdirs,
+QStringList argvAssemble(const QString& dataset, const QStringList& hijos);
+QStringList argvBreakdown(const QString& dataset, const QStringList& subdirs,
                           const QStringList& nombres);
-QStringList argvHaciaDir(const QString& dataset, const QString& directorio, bool destruyeOrigen);
+QStringList argvToDir(const QString& dataset, const QString& directorio, bool destruyeOrigen);
 
 // La cadena de shell equivalente a un argv de `zpool` o `zfs`, para el camino de RESPALDO
 // por SSH cuando no hay daemon.
@@ -85,7 +85,7 @@ QStringList argvHaciaDir(const QString& dataset, const QString& directorio, bool
 // El sentido importa: se deriva la cadena DEL argv, nunca al revés. Volver a trocear una
 // cadena no respeta las comillas, y un nombre con `;`, `&` o `|` dentro trunca los
 // argumentos —está documentado como fallo real en el plan técnico—.
-// El argv que compone `commands/peticiones` —o cualquier otro módulo—, en la forma que
+// El argv que compone `commands/requests` —o cualquier otro módulo—, en la forma que
 // esperan las funciones de esta capa.
 //
 // Existe para que el nombre del verbo no se escriba aquí. Antes cada sitio ponía
@@ -207,7 +207,7 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 // POSIX, así que vale igual en macOS, Linux y FreeBSD.
 QString shPrintfOctalEscaped(const QString& s);
 
-// Motivo reservado: el túnel RPC de esa conexión se está montando en un marco anterior
+// Reason reservado: el túnel RPC de esa conexión se está montando en un marco anterior
 // de la pila. NO es un fallo, y quien lo reciba no debe penalizar la conexión.
 
 // Una contraseña de perfil y la clave con la que se la vuelve a encontrar al restaurar.

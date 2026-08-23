@@ -46,10 +46,10 @@ std::string wrapRemoteCommand(const ConnectionProfile& p, const std::string& rem
 //
 // **Esta es la función delicada de todo el fichero.** De ella depende que una mutación que
 // pudo haber llegado NO se reenvíe: reenviar un `--dump-*` no cuesta nada, pero reenviar
-// un `--job-submit` lanza la misma transferencia dos veces sobre los mismos datos.
+// un `--job-submit` lanza la misma transfer dos veces sobre los mismos datos.
 bool isMutatingAgentCommand(const std::vector<std::string>& agentArgs);
 
-// --- Camino HEREDADO: recuperar los argumentos de una cadena de shell.
+// --- Route HEREDADO: recuperar los argumentos de una cadena de shell.
 //
 // Existe solo para los sitios que todavía construyen la orden como cadena. **No añadir
 // sitios nuevos por aquí**: el corte por separador, la lista blanca por prefijo y el

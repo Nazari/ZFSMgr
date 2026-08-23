@@ -19,7 +19,7 @@
 // Lo que hay aquí es la REGLA —cuándo se puede y por qué no— y la carga tipada del verbo
 // `--mutate-rsync-local`, que estaba dentro de la ventana principal
 // (`mainwindow.cpp:1963`) y que el servidor web necesita igual.
-namespace zfsmgr::base::sincronizacion {
+namespace zfsmgr::base::syncing {
 
 enum class Fallo {
     Ninguno,
@@ -34,7 +34,7 @@ enum class Fallo {
     SinDaemon,
 };
 
-struct Extremo {
+struct Endpoint {
     std::string conexion;
     std::string objeto;         // el dataset; con «@» dentro no vale
     bool montado{false};
@@ -53,18 +53,18 @@ struct Plan {
 // Lo que se puede decidir SIN preguntar a nadie: misma máquina, los dos datasets, ningún
 // extremo Windows, daemon en pie.
 //
-// Está separado de `planea` porque el punto de montaje del origen cuesta una consulta al
+// Está separado de `makePlan` porque el punto de montaje del origen cuesta una consulta al
 // agente, y quien pinta el menú de acciones lo pinta para cada dataset que se mire. Con una
 // sola función, ofrecer la acción costaba una consulta por dibujo; así el dibujo es gratis
 // y la consulta se hace una vez, al pulsar.
-Fallo compruebo(const Extremo& origen, const Extremo& destino);
+Fallo check(const Endpoint& origen, const Endpoint& destino);
 
 // La comprobación entera, ya con los montajes. Devuelve las dos rutas.
 //
 // Los montajes son EL dato: sin ellos no hay nada que comparar. Un dataset con
 // `canmount=off`, o montado donde no hay ruta absoluta, no se sincroniza por aquí aunque
 // exista.
-Plan planea(const Extremo& origen, const Extremo& destino);
+Plan makePlan(const Endpoint& origen, const Endpoint& destino);
 
 std::string labelOf(Fallo f);
 
@@ -77,7 +77,7 @@ std::string labelOf(Fallo f);
 //
 // Está aparte porque es la misma comprobación que hace la interfaz de Qt
 // (`isUsableMountPath`) y tenerla dos veces es tenerla mal en una de las dos.
-bool rutaUsable(const std::string& ruta, bool esWindows = false);
+bool isUsablePath(const std::string& ruta, bool esWindows = false);
 
 // La carga de `--mutate-rsync-local`: base64 de un JSON
 // `[borrar, enSeco, rsh, hostDestino, origen1, destino1, ...]`.
@@ -85,8 +85,8 @@ bool rutaUsable(const std::string& ruta, bool esWindows = false);
 // Devuelve vacío si algún par no sirve. Las rutas tienen que ser absolutas: el daemon
 // rechaza las que no empiezan por barra, así que dejarlas pasar aquí solo cambia dónde
 // falla.
-std::string cargaRsync(const std::vector<std::pair<std::string, std::string>>& pares,
+std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pares,
                        bool borrar, bool enSeco,
                        const std::string& rsh, const std::string& hostDestino);
 
-}  // namespace zfsmgr::base::sincronizacion
+}  // namespace zfsmgr::base::syncing

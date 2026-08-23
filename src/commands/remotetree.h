@@ -20,9 +20,9 @@
 // **El reparto**: aquí está todo lo que se puede comprobar sin tocar la red —recorrer,
 // comparar, decidir qué hacer, y el formato de cable—. Los sockets los pone el daemon,
 // que ya tiene el relé montado y endurecido.
-namespace zfsmgr::arbolremoto {
+namespace zfsmgr::remotetree {
 
-enum class Tipo {
+enum class EntryKind {
     Directorio,
     Fichero,
     Enlace,      // simbólico; viaja su destino, no su contenido
@@ -33,7 +33,7 @@ struct Entry {
     // Relativa a la raíz, y SIEMPRE con «/». Windows usa «\» en disco, pero el cable no:
     // si cada extremo mandara su separador, ninguna comparación casaría.
     std::string ruta;
-    Tipo tipo{Tipo::Fichero};
+    EntryKind tipo{EntryKind::Fichero};
     std::uint64_t tamano{0};
     // Segundos desde el epoch, enteros.
     //
@@ -54,15 +54,15 @@ struct Entry {
 // apuntando a la primera ruta que los trajo. En Windows NO se detectan y van como ficheros
 // sueltos: la API existe pero es cara, y allí son raros. Se dice aquí para que quien lea el
 // resultado no crea que se han preservado.
-bool recorre(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
+bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
              bool unSoloSistema = false);
 
 // El manifiesto: qué tiene ya el destino. Una línea por entrada.
-std::string serializaManifiesto(const std::vector<Entry>& entradas);
-bool analizaManifiesto(const std::string& texto, std::vector<Entry>& salida,
+std::string serializeManifest(const std::vector<Entry>& entradas);
+bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
                        std::string& error);
 
-enum class Accion {
+enum class Action {
     CrearDirectorio,
     Copiar,
     Enlazar,
@@ -71,7 +71,7 @@ enum class Accion {
 };
 
 struct Operation {
-    Accion accion{Accion::Copiar};
+    Action accion{Action::Copiar};
     Entry entrada;
 };
 
@@ -86,7 +86,7 @@ struct Plan {
 // El borrado va AL FINAL y de más hondo a menos hondo, para que un directorio se borre
 // después de su contenido. Si se hiciera al revés, borrar un directorio con cosas dentro
 // falla y el error no explica por qué.
-Plan planea(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
+Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
             bool borraLoQueSobra);
 
 // Una línea legible por operación, al estilo de `rsync -i`. Es lo que ve quien pide la
@@ -99,8 +99,8 @@ std::string describe(const Operation& o);
 // Formato: `<letra> <modo> <fecha> <tamaño> <largoRuta> <largoDestino>\n` y a continuación
 // la ruta y el destino pegados, sin separador. Las longitudes van explícitas porque un
 // nombre de fichero puede llevar dentro saltos de línea y espacios.
-std::string cabeceraDe(const Operation& o);
-bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& largoRuta,
+std::string headerOf(const Operation& o);
+bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largoRuta,
                      std::size_t& largoDestino, std::string& error);
 
 // ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ bool analizaCabecera(const std::string& linea, Operation& salida, std::size_t& l
 // que mandar el fichero entero; rsync aplica un umbral por lo mismo.
 constexpr std::uint64_t kMinimoParaDelta = 1024 * 1024;
 
-struct Firma {
+struct Signature {
     std::uint32_t debil{0};
     // SHA-256 recortado. Recortar está bien porque el hash fuerte solo confirma una
     // coincidencia que la suma débil ya propuso, y además al final se comprueba el fichero
@@ -137,24 +137,24 @@ struct Firma {
 
 // Cuánto mide un bloque para un fichero de ese tamaño. Por tramos y no por raíz cuadrada:
 // es predecible, y que los dos extremos calculen lo MISMO es más importante que afinarlo.
-std::size_t tamanoDeBloque(std::uint64_t tamanoFichero);
+std::size_t blockSize(std::uint64_t tamanoFichero);
 
 // La suma rodante de rsync sobre un trozo.
-std::uint32_t sumaRodante(const unsigned char* datos, std::size_t n);
+std::uint32_t rollingSum(const unsigned char* datos, std::size_t n);
 
-std::string hashFuerteHex(const unsigned char* datos, std::size_t n);
+std::string strongHashHex(const unsigned char* datos, std::size_t n);
 // El hash del fichero entero, para comprobar que lo reconstruido es lo que tenía que ser.
-bool hashDeFichero(const std::string& ruta, std::string& hexOut, std::string& error);
+bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error);
 
-bool firmasDe(const std::string& ruta, std::size_t tamBloque, std::vector<Firma>& salida,
+bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Signature>& salida,
               std::string& error);
-std::string serializaFirmas(const std::vector<Firma>& f);
-bool analizaFirmas(const std::string& datos, std::vector<Firma>& salida, std::string& error);
+std::string serializeSignatures(const std::vector<Signature>& f);
+bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, std::string& error);
 
-enum class TipoInstruccion { Copiar, Literal };
+enum class InstructionKind { Copiar, Literal };
 
-struct Instruccion {
-    TipoInstruccion tipo{TipoInstruccion::Literal};
+struct Instruction {
+    InstructionKind tipo{InstructionKind::Literal};
     std::uint64_t bloque{0};   // Copiar: primer bloque del destino
     std::uint64_t cuantos{0};  // Copiar: cuántos bloques seguidos
     std::string datos;         // Literal: los bytes
@@ -164,19 +164,19 @@ struct Instruccion {
 //
 // `bytesLiterales` es lo que de verdad viajaría: si sale casi igual al tamaño del fichero,
 // el delta no ha servido de nada y quien llama puede preferir mandarlo entero.
-bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_t tamBloque,
-           std::vector<Instruccion>& salida, std::uint64_t& bytesLiterales, std::string& error);
+bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::size_t tamBloque,
+           std::vector<Instruction>& salida, std::uint64_t& bytesLiterales, std::string& error);
 
 // Poner en el destino la fecha y el modo que traía el origen.
 //
 // La fecha hay que ponerla SIEMPRE tras escribir un fichero: si se deja la del momento de
 // la copia, la siguiente pasada lo verá distinto y lo volverá a traer entero. Es la
 // diferencia entre sincronizar y copiar una y otra vez.
-bool ponFecha(const std::string& ruta, std::int64_t segundos);
-bool ponModo(const std::string& ruta, std::uint32_t modo);
+bool setMtime(const std::string& ruta, std::int64_t segundos);
+bool setMode(const std::string& ruta, std::uint32_t modo);
 
 // La fecha de un fichero en segundos desde el epoch, tal y como la ve el sistema.
 // Expuesta para poder comprobar que lo escrito quedó con la fecha que tenía que quedar.
-std::int64_t fechaDeFichero(const std::string& ruta, bool& ok);
+std::int64_t fileMtime(const std::string& ruta, bool& ok);
 
-}  // namespace zfsmgr::arbolremoto
+}  // namespace zfsmgr::remotetree

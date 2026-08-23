@@ -12,9 +12,9 @@
 // desincroniza.
 //
 // Ver help/es/menus_contextuales.md, «Las seis acciones de origen y destino».
-namespace zfsmgr::base::dosextremos {
+namespace zfsmgr::base::endpoints {
 
-enum class Accion {
+enum class Action {
     Diff,
     Clonar,
     Copiar,
@@ -26,7 +26,7 @@ enum class Accion {
 // Por qué NO se puede, tipificado. Un booleano obligaba a que quien pinta el menú
 // adivinara el motivo, y el motivo es justo lo que hay que enseñar: «no aplica» sin decir
 // por qué deja al usuario probando combinaciones.
-enum class NoAplica {
+enum class NotApplicable {
     Ninguna,                 // sí aplica
     SinOrigen,
     ElMismoObjeto,
@@ -40,12 +40,12 @@ enum class NoAplica {
     TodaviaNoEstaEnLaWeb,
 };
 
-const char* keyOf(Accion a);
-std::string labelOf(Accion a);
-std::string labelOf(NoAplica n);
+const char* keyOf(Action a);
+std::string labelOf(Action a);
+std::string labelOf(NotApplicable n);
 
 // Un extremo: en qué máquina y qué objeto.
-struct Extremo {
+struct Endpoint {
     std::string conexion;
     std::string objeto;
 
@@ -76,9 +76,9 @@ struct Extremo {
 //
 // Vive aquí y no en quien pinta el menú porque es la MISMA cuenta que hace la interfaz de
 // Qt al encolar el renombrado, y tenerla dos veces es tenerla mal una de las dos.
-std::string destinoDeMover(const Extremo& origen, const Extremo& destino);
+std::string moveDestination(const Endpoint& origen, const Endpoint& destino);
 
-// ¿Se puede hacer `a` desde `origen` hasta `destino`? `NoAplica::Ninguna` es que sí.
-NoAplica compruebo(Accion a, const Extremo& origen, const Extremo& destino);
+// ¿Se puede hacer `a` desde `origen` hasta `destino`? `NotApplicable::Ninguna` es que sí.
+NotApplicable check(Action a, const Endpoint& origen, const Endpoint& destino);
 
-}  // namespace zfsmgr::base::dosextremos
+}  // namespace zfsmgr::base::endpoints

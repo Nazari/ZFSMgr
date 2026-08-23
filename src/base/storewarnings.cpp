@@ -11,49 +11,49 @@ std::string con(const std::string& base, const std::string& detalle) {
 
 std::string labelOf(const Aviso& a) {
     switch (a.motivo) {
-        case Motivo::Ninguno:
+        case Reason::Ninguno:
             return {};
-        case Motivo::ConfigNoSeAbre:
+        case Reason::ConfigNoSeAbre:
             return "no se pudo abrir config.json";
-        case Motivo::ConfigNoValido:
+        case Reason::ConfigNoValido:
             return con("config.json no es válido", a.detalle);
-        case Motivo::ConfigDirNoSeCrea:
+        case Reason::ConfigDirNoSeCrea:
             return con("no se pudo crear el directorio de configuración", a.detalle);
-        case Motivo::ConfigNoSeEscribe:
+        case Reason::ConfigNoSeEscribe:
             return con("no se pudo escribir config.json", a.detalle);
-        case Motivo::TrustNoSeAbre:
+        case Reason::TrustNoSeAbre:
             return "no se pudo abrir trust-store.json";
-        case Motivo::TrustNoValido:
+        case Reason::TrustNoValido:
             return con("trust-store.json no es válido", a.detalle);
-        case Motivo::TrustNoSeEscribe:
+        case Reason::TrustNoSeEscribe:
             return con("no se pudo escribir trust-store.json", a.detalle);
-        case Motivo::ClaveMaestraRequerida:
+        case Reason::ClaveMaestraRequerida:
             return "hace falta la contraseña maestra";
-        case Motivo::ClaveMaestraRequeridaParaCifrar:
+        case Reason::ClaveMaestraRequeridaParaCifrar:
             return con("hace falta la contraseña maestra para cifrar", a.campo);
-        case Motivo::NuevaClaveMaestraVacia:
+        case Reason::NuevaClaveMaestraVacia:
             return "la contraseña maestra nueva no puede estar vacía";
-        case Motivo::NoSeCifra:
+        case Reason::NoSeCifra:
             return con("no se pudo cifrar «" + a.campo + "»" + (a.conexion.empty() ? "" : " de " + a.conexion),
                        a.detalle);
-        case Motivo::NoSeDescifra:
+        case Reason::NoSeDescifra:
             return con("no se pudo descifrar «" + a.campo + "»" + (a.conexion.empty() ? "" : " de " + a.conexion),
                        a.detalle);
-        case Motivo::CampoIncorrecto:
+        case Reason::CampoIncorrecto:
             return con("campo incorrecto «" + a.campo + "»", a.detalle);
-        case Motivo::IdVacio:
+        case Reason::IdVacio:
             return "la conexión no tiene identificador";
-        case Motivo::NombreRequerido:
+        case Reason::NombreRequerido:
             return "hace falta el nombre de la conexión";
-        case Motivo::HostRequerido:
+        case Reason::HostRequerido:
             return "hace falta el host";
-        case Motivo::UsuarioRequerido:
+        case Reason::UsuarioRequerido:
             return "hace falta el usuario";
-        case Motivo::NombreDuplicado:
+        case Reason::NombreDuplicado:
             return con("ya hay una conexión con ese nombre", a.conexion);
-        case Motivo::NoSeGuardaConexion:
+        case Reason::NoSeGuardaConexion:
             return con("no se pudo guardar la conexión", a.detalle);
-        case Motivo::PerfilPsrpConvertido:
+        case Reason::PerfilPsrpConvertido:
             return con("perfil PSRP convertido a SSH", a.conexion);
     }
     return "error al leer la configuración";

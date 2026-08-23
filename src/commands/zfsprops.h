@@ -19,7 +19,7 @@ const std::vector<std::string>& valoresDe(const std::string& propiedad);
 
 // La familia de sistema de la máquina donde vive el dataset. Importa porque hay
 // propiedades que solo existen en una: `jailed` es de FreeBSD, `zoned` de Linux.
-enum class Plataforma {
+enum class Platform {
     Linux,
     MacOs,
     FreeBsd,
@@ -29,14 +29,14 @@ enum class Plataforma {
 
 // De lo que se sabe de la máquina —el tipo declarado en el perfil y la línea de `uname`—
 // a una familia. Mira las dos juntas: el perfil puede venir sin rellenar.
-Plataforma plataformaDe(const std::string& osType, const std::string& osLine);
+Platform platformOf(const std::string& osType, const std::string& osLine);
 
 // Las propiedades del usuario llevan «:» en el nombre. Siempre se pueden escribir: ZFS no
 // las interpreta, y este programa guarda ahí su programación (`org.fc16.gsa:*`).
-bool esPropiedadDeUsuario(const std::string& prop);
+bool isUserProperty(const std::string& prop);
 
 // ¿Existe esa propiedad en esa plataforma? Ofrecer `jailed` en Linux es ofrecer un error.
-bool soportadaEn(const std::string& prop, Plataforma p);
+bool isSupportedOn(const std::string& prop, Platform p);
 
 // ¿Se puede cambiar el valor de esa propiedad ESCRIBIÉNDOLO encima?
 //
@@ -48,11 +48,11 @@ bool soportadaEn(const std::string& prop, Plataforma p);
 // `mainwindow_dataset_tree.cpp`**, las dos con Qt dentro. No es una regla de interfaz: es
 // lo que ZFS deja hacer, y el servidor web necesita exactamente la misma para saber qué
 // celda pinta con una caja de edición y cuál no.
-bool editableEnLinea(const std::string& prop, const std::string& tipoDataset,
-                     const std::string& origen, const std::string& readonly, Plataforma p);
+bool isInlineEditable(const std::string& prop, const std::string& tipoDataset,
+                     const std::string& origen, const std::string& readonly, Platform p);
 
 // Una bandera de `zfs send`, tal y como la escribe el usuario.
-struct BanderaSend {
+struct SendFlag {
     const char* forma;   // "-w"
     bool valor{false};   // ¿lleva un valor detrás? («-X <dataset>»)
     const char* clave{""};  // la clave de traducción de `que`
@@ -68,10 +68,10 @@ struct BanderaSend {
 // Fuera a propósito: `-i` e `-I`, que las pone el programa a partir de `--base`, y `-t`,
 // que es el testigo de reanudación. Si el usuario pudiera escribirlas, podría además
 // nombrar OTRO dataset en su valor y sacar por el socket algo que nunca pidió.
-const std::vector<BanderaSend>& banderasDeSend();
+const std::vector<SendFlag>& banderasDeSend();
 
 // Comprueba una cadena entera de banderas —«-w -L»— contra esa lista. Si algo no está,
 // devuelve false y deja en `mala` el componente culpable.
-bool banderasDeSendValidas(const std::string& cadena, std::string& mala);
+bool areValidSendFlags(const std::string& cadena, std::string& mala);
 
 }  // namespace zfsmgr::base::zfsprops

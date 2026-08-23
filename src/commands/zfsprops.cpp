@@ -60,8 +60,8 @@ const std::vector<std::string>& valoresDe(const std::string& propiedad) {
 // Es la lista literal del mandato menos las tres que pone el programa. Copiarla entera y
 // no «las que hacen falta» es lo que hace que valga como criterio: cualquier otra cosa se
 // rechaza, y ahí entra tanto una bandera inventada como un nombre de dataset suelto.
-const std::vector<BanderaSend>& banderasDeSend() {
-    static const std::vector<BanderaSend> kTabla = {
+const std::vector<SendFlag>& banderasDeSend() {
+    static const std::vector<SendFlag> kTabla = {
         {"-D", false, "t_nat_send_D", "Deduplicado (obsoleto; el mandato aún lo acepta)."},
         {"-L", false, "t_nat_send_L", "Permite bloques grandes en el flujo."},
         {"-P", false, "t_nat_send_P", "Estadísticas en formato analizable."},
@@ -82,8 +82,8 @@ const std::vector<BanderaSend>& banderasDeSend() {
 }
 
 // ¿Está declarada esta forma, tal cual?
-const BanderaSend* buscaBanderaSend(const std::string& forma) {
-    for (const BanderaSend& b : banderasDeSend()) {
+const SendFlag* buscaBanderaSend(const std::string& forma) {
+    for (const SendFlag& b : banderasDeSend()) {
         if (forma == b.forma) {
             return &b;
         }
@@ -91,12 +91,12 @@ const BanderaSend* buscaBanderaSend(const std::string& forma) {
     return nullptr;
 }
 
-bool banderasDeSendValidas(const std::string& cadena, std::string& mala) {
+bool areValidSendFlags(const std::string& cadena, std::string& mala) {
     mala.clear();
     std::istringstream iss(cadena);
     std::string tok;
     while (iss >> tok) {
-        const BanderaSend* encontrada = buscaBanderaSend(tok);
+        const SendFlag* encontrada = buscaBanderaSend(tok);
         // AGRUPADAS: `-wLec` son cuatro. Es como las escribe el manual de OpenZFS y como
         // las manda el planificador de instantáneas, así que rechazarlas aquí no protegía
         // de nada y sí cortaba una nivelación entera.
@@ -106,7 +106,7 @@ bool banderasDeSendValidas(const std::string& cadena, std::string& mala) {
         if (!encontrada && tok.size() > 2 && tok[0] == '-' && tok[1] != '-') {
             bool todas = true;
             for (std::size_t i = 1; i < tok.size(); ++i) {
-                const BanderaSend* una = buscaBanderaSend(std::string("-") + tok[i]);
+                const SendFlag* una = buscaBanderaSend(std::string("-") + tok[i]);
                 if (!una || una->valor) {
                     todas = false;
                     break;
@@ -181,28 +181,28 @@ const std::set<std::string>& deVolumen() {
 
 }  // namespace
 
-Plataforma plataformaDe(const std::string& osType, const std::string& osLine) {
+Platform platformOf(const std::string& osType, const std::string& osLine) {
     const std::string junto = bajo(osType + " " + osLine);
     if (contains(junto, "windows")) {
-        return Plataforma::Windows;
+        return Platform::Windows;
     }
     if (contains(junto, "darwin") || contains(junto, "mac")) {
-        return Plataforma::MacOs;
+        return Platform::MacOs;
     }
     if (contains(junto, "freebsd")) {
-        return Plataforma::FreeBsd;
+        return Platform::FreeBsd;
     }
     if (contains(junto, "linux")) {
-        return Plataforma::Linux;
+        return Platform::Linux;
     }
-    return Plataforma::Otra;
+    return Platform::Otra;
 }
 
-bool esPropiedadDeUsuario(const std::string& prop) {
+bool isUserProperty(const std::string& prop) {
     return prop.find(':') != std::string::npos;
 }
 
-bool soportadaEn(const std::string& prop, Plataforma p) {
+bool isSupportedOn(const std::string& prop, Platform p) {
     const std::string n = bajo(prop);
     if (n.empty()) {
         return false;
@@ -211,28 +211,28 @@ bool soportadaEn(const std::string& prop, Plataforma p) {
         return false;
     }
     if (n == "jailed") {
-        return p == Plataforma::FreeBsd;
+        return p == Platform::FreeBsd;
     }
     if (n == "zoned") {
-        return p == Plataforma::Linux;
+        return p == Platform::Linux;
     }
     if (n == "sharesmb") {
-        return p != Plataforma::MacOs;
+        return p != Platform::MacOs;
     }
     if (n == "nbmand") {
-        return p == Plataforma::Linux;
+        return p == Platform::Linux;
     }
     return true;
 }
 
-bool editableEnLinea(const std::string& prop, const std::string& tipoDataset,
-                     const std::string& origen, const std::string& readonly, Plataforma p) {
+bool isInlineEditable(const std::string& prop, const std::string& tipoDataset,
+                     const std::string& origen, const std::string& readonly, Platform p) {
     const std::string n = bajo(prop);
     const std::string tipo = bajo(tipoDataset);
     if (n.empty()) {
         return false;
     }
-    if (!soportadaEn(n, p)) {
+    if (!isSupportedOn(n, p)) {
         return false;
     }
     // Lo que ZFS declara de solo lectura no se toca, diga lo que diga la lista de abajo.
@@ -243,7 +243,7 @@ bool editableEnLinea(const std::string& prop, const std::string& tipoDataset,
     if (trim(origen) == "-") {
         return false;
     }
-    if (esPropiedadDeUsuario(n)) {
+    if (isUserProperty(n)) {
         return true;
     }
     if (tipo == "filesystem") {

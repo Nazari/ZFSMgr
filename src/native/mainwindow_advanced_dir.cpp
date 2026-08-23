@@ -1,9 +1,9 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
-#include "avanzadas.h"
-#include "transferencia.h"
+#include "requests.h"
+#include "advanced.h"
+#include "transfer.h"
 #include "daemonpayload.h"
 
 #include <QtWidgets>
@@ -1030,14 +1030,14 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     // conexión daban los dos «fc16-docs» y el segundo tar se extraía encima del primero.
     // En una operación cuyo trabajo es copiar, eso es perder contenido sin decir nada.
     //
-    // Ahora la regla es `commands::avanzadas::subdirectoriosDeDestino`, con un caso de prueba
+    // Ahora la regla es `commands::advanced::destinationSubdirs`, con un caso de prueba
     // por variante, y garantiza que los destinos son únicos.
     //
     // Se registra el mapa completo antes de empezar: es una copia entre máquinas y adivinar
     // dónde acabó cada cosa no debería hacer falta.
     QHash<QString, QString> destSubdirByKey;
     {
-        std::vector<zfsmgr::commands::avanzadas::OrigenDesdeDir> origenes;
+        std::vector<zfsmgr::commands::advanced::FromDirSource> origenes;
         QVector<QPair<int, QString>> conRuta;
         for (const auto& e : std::as_const(selectedSources)) {
             if (e.second.trimmed().isEmpty()) {
@@ -1053,7 +1053,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             conRuta.push_back(e);
         }
         const std::vector<std::string> subs =
-            zfsmgr::commands::avanzadas::subdirectoriosDeDestino(origenes);
+            zfsmgr::commands::advanced::destinationSubdirs(origenes);
         for (int i = 0; i < conRuta.size() && i < static_cast<int>(subs.size()); ++i) {
             const QString sub = QString::fromStdString(subs[static_cast<std::size_t>(i)]);
             destSubdirByKey.insert(
@@ -1096,7 +1096,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     for (const auto& e : std::as_const(selectedSources)) {
         if (!e.second.trimmed().isEmpty()) {
             porElArbol = porElArbol
-                         && zfsmgr::commands::avanzadas::puedeIrPorElArbol(daemonListo(e.first),
+                         && zfsmgr::commands::advanced::canUseTreeTransfer(daemonListo(e.first),
                                                                           daemonListo(ctx.connIdx));
         }
     }
@@ -1116,7 +1116,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             arr.append(a);
         }
         const QByteArray argvJson = QJsonDocument(arr).toJson(QJsonDocument::Compact);
-        createArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::creaDataset(
+        createArgv = mwhelpers::argvQt(zfsmgr::commands::requests::createDataset(
             QString::fromLatin1(argvJson.toBase64()).toStdString()));
         createSecret = opt.encryptionPassphrase;
         // Montarlo sí puede ir por shell: no lleva secretos.
@@ -1172,7 +1172,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             // origen ya estaba corriendo: la mitad del contenido podía haber salido ya de la
             // otra máquina.
             const std::vector<std::string> fdArgv =
-                zfsmgr::commands::avanzadas::argvDesdeDir(opt.datasetPath.toStdString(),
+                zfsmgr::commands::advanced::argvFromDir(opt.datasetPath.toStdString(),
                                                           rel.toStdString());
             if (fdArgv.empty()) {
                 appLog(QStringLiteral("WARN"),
@@ -1357,7 +1357,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             // 1. Preparar el destino: montar, resolver el punto de montaje REAL y crear el
             // subdirectorio. `--tree-recv-listen` exige que ya exista.
             const std::vector<std::string> prepArgv =
-                zfsmgr::commands::avanzadas::argvDesdeDirPreparar(opt.datasetPath.toStdString(),
+                zfsmgr::commands::advanced::argvFromDirPrepare(opt.datasetPath.toStdString(),
                                                                   sub.toStdString());
             if (prepArgv.empty()) {
                 appLog(QStringLiteral("ERROR"),
@@ -1379,7 +1379,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                 return;
             }
             const QString dst = QString::fromStdString(
-                zfsmgr::commands::avanzadas::rutaPreparada(pOut.toStdString()));
+                zfsmgr::commands::advanced::preparedPath(pOut.toStdString()));
             if (dst.isEmpty()) {
                 QMessageBox::warning(
                     this, QStringLiteral("ZFSMgr"),
@@ -1388,7 +1388,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             }
             // 2 y 3. Escuchar, averiguar la dirección de vuelta y enviar, como trabajo.
             const ConnectionProfile srcProfile = m_conns.profiles.value(e.first);
-            const auto lanzado = zfsmgr::base::transferencia::lanzaTrabajoDeArbol(
+            const auto lanzado = zfsmgr::base::transfer::launchTreeJob(
                 m_transport, llama, toBaseProfile(srcProfile), toBaseProfile(dstProfile),
                 ruta.toStdString(), dst.toStdString(), e.first == ctx.connIdx, false,
                 /*comoTrabajo=*/true, /*borrarEnDestino=*/false, /*enSeco=*/false);
@@ -1398,7 +1398,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     QStringLiteral("Desde Dir falló en %1: %2\n%3")
                         .arg(ruta,
                              QString::fromStdString(
-                                 zfsmgr::base::transferencia::labelOf(lanzado.fallo)),
+                                 zfsmgr::base::transfer::labelOf(lanzado.fallo)),
                              QString::fromStdString(lanzado.detalle)));
                 return;
             }
@@ -1661,10 +1661,10 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
             Q_UNUSED(daemonReadApiOk);
             // El directorio lo elige el usuario: como argv no puede truncarse aunque
             // contenga ';', '&' o '|', que es lo que rompía esta acción.
-            // El argv sale de `commands::avanzadas`, que además exige que el directorio sea
+            // El argv sale de `commands::advanced`, que además exige que el directorio sea
             // una ruta ABSOLUTA: una relativa la abriría el daemon desde SU directorio de
             // trabajo, y el volcado acabaría donde nadie eligió.
-            const QStringList argv = mwhelpers::argvHaciaDir(ds, localDir, deleteSourceDataset);
+            const QStringList argv = mwhelpers::argvToDir(ds, localDir, deleteSourceDataset);
             if (argv.isEmpty()) {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_todir_ruta_rel001"),

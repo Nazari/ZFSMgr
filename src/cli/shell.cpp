@@ -10,8 +10,8 @@
 #include "connectionjson.h"
 #include "gsa.h"
 #include "storefiles.h"
-#include "sincronizacion.h"
-#include "transferencia.h"
+#include "syncing.h"
+#include "transfer.h"
 #include "zfsallow.h"
 #include "zfsprops.h"
 #include "helpers.h"
@@ -22,9 +22,9 @@
 #include "strutil.h"
 #include "tr.h"
 #include "peers.h"
-#include "avanzadas.h"
-#include "listados.h"
-#include "peticiones.h"
+#include "advanced.h"
+#include "listings.h"
+#include "requests.h"
 #include "pools.h"
 #include "snapshots.h"
 #include "datasets.h"
@@ -61,16 +61,16 @@ namespace B = zfsmgr::base;
 namespace H = zfsmgr::base::helpers;
 namespace T = zfsmgr::base::transport;
 namespace PR = zfsmgr::base::peers;
-namespace AV = zfsmgr::commands::avanzadas;
+namespace AV = zfsmgr::commands::advanced;
 namespace PL = zfsmgr::commands::pools;
 // `INST` y no `IN`: en Windows `IN` es un MACRO de `windows.h`, y
 // `namespace IN = …` no compila allí. Lo cazó el cruce de MinGW.
 namespace INST = zfsmgr::commands::snapshots;
 namespace DS = zfsmgr::commands::datasets;
-namespace TR = zfsmgr::base::transferencia;
-namespace L = zfsmgr::base::listados;
-namespace PET = zfsmgr::commands::peticiones;
-namespace SY = zfsmgr::base::sincronizacion;
+namespace TR = zfsmgr::base::transfer;
+namespace L = zfsmgr::base::listings;
+namespace PET = zfsmgr::commands::requests;
+namespace SY = zfsmgr::base::syncing;
 using B::ZfsmUrl;
 using B::ZfsmKind;
 
@@ -495,8 +495,8 @@ struct Peticion {
     }
 };
 
-bool zfsGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
-bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+bool zfsGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
                   const std::string& nombre);
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
@@ -585,7 +585,7 @@ bool encaja(const ZfsmUrl& u, Objetivo pedido) {
             return nodoDe(u) == Nodo::Dataset && u.isPoolRoot();
         case Objetivo::Dataset:
             return nodoDe(u) == Nodo::Dataset;
-        case Objetivo::Instantanea:
+        case Objetivo::Snapshot:
             return nodoDe(u) == Nodo::Snapshot;
         case Objetivo::DatasetOInstantanea:
             return nodoDe(u) == Nodo::Dataset || nodoDe(u) == Nodo::Snapshot;
@@ -605,7 +605,7 @@ std::string nombreDe(Objetivo pedido) {
         case Objetivo::Conexion: return T("t_obj_conexion", "una conexión");
         case Objetivo::Pool: return T("t_obj_pool", "un pool");
         case Objetivo::Dataset: return T("t_obj_dataset", "un dataset");
-        case Objetivo::Instantanea: return T("t_obj_snap", "una instantánea");
+        case Objetivo::Snapshot: return T("t_obj_snap", "una instantánea");
         case Objetivo::DatasetOInstantanea:
             return T("t_obj_ds_snap", "un dataset o una instantánea");
     }
@@ -651,7 +651,7 @@ ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo pedido) {
             return r;
         case Objetivo::Ninguno:
         case Objetivo::Cualquiera:
-        case Objetivo::Instantanea:
+        case Objetivo::Snapshot:
         case Objetivo::DatasetOInstantanea:
             return r;
     }
@@ -878,7 +878,7 @@ void listaConexiones(Estado& e, const Peticion& pet) {
 // Los pools de una conexión, del JSON de `zpool list`.
 bool listaPools(Estado& e, const ZfsmUrl& destino) {
     std::string out;
-    if (!agente(e, destino, PET::listaDePools(), out)) {
+    if (!agente(e, destino, PET::poolList(), out)) {
         return false;
     }
     B::json::Value raiz;
@@ -939,17 +939,17 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
         std::array<std::string, 5> v{};
         std::string salidaProps;
         if (!agente(e, destino,
-                    PET::propiedadesConcretas(
+                    PET::specificProperties(
                         {"type", "used", "compressratio", "mounted", "mountpoint"}, pool),
                     salidaProps, 15000)) {
             return v;
         }
-        std::vector<L::Propiedad> props;
+        std::vector<L::Property> props;
         std::string errProps;
-        if (!L::propiedades(salidaProps, props, errProps)) {
+        if (!L::properties(salidaProps, props, errProps)) {
             return v;
         }
-        for (const L::Propiedad& pr : props) {
+        for (const L::Property& pr : props) {
             if (pr.nombre == "type") {
                 // La MISMA palabra que usa el listado de datasets. `zfs` dice «filesystem» y
                 // allí se escribe «dataset»: dos tablas con la columna TIPO que no significan
@@ -993,7 +993,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // de permisos sobre los discos, un agente sin «Acceso total al disco» en macOS): si no
     // responde, se enseña lo importado y se sigue, en vez de no enseñar nada.
     std::string sonda;
-    if (agente(e, destino, PET::sondaDeImportables(), sonda, 25000)) {
+    if (agente(e, destino, PET::importableProbe(), sonda, 25000)) {
         // El agente avisa cuando el sistema no le deja leer los discos. Es macOS y su
         // «Acceso total al disco»: sin él `zpool import` responde «no pools available to
         // import» igual que si de verdad no hubiera ninguno, así que una lista vacía aquí
@@ -1033,7 +1033,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
 // mountpoint,canmount.
 bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     std::string out;
-    if (!agente(e, destino, PET::listaDeDatasets(destino.dataset), out)) {
+    if (!agente(e, destino, PET::datasetList(destino.dataset), out)) {
         return false;
     }
     Tabla t;
@@ -1088,13 +1088,13 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
     const std::string objetivo = destino.zfsName();
     std::string out;
     if (!destino.detail.empty()) {
-        if (!agente(e, destino, PET::propiedadDeDataset(destino.detail.front(), objetivo), out)) {
+        if (!agente(e, destino, PET::datasetProperty(destino.detail.front(), objetivo), out)) {
             return false;
         }
         std::fprintf(stdout, "%s\n", B::trim(out).c_str());
         return true;
     }
-    if (!agente(e, destino, PET::propiedadesDeDataset(objetivo), out)) {
+    if (!agente(e, destino, PET::datasetProperties(objetivo), out)) {
         return false;
     }
     B::json::Value raiz;
@@ -1135,7 +1135,7 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::permisosDe(objetivo), out)) {
+    if (!agente(e, destino, PET::permissionsOf(objetivo), out)) {
         return false;
     }
     Tabla t;
@@ -1254,7 +1254,7 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_s_en_s_35a806", "%s en %s\n"), conceder ? "permisos delegados" : "permisos retirados", objetivo.c_str());
@@ -1294,7 +1294,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     // instantánea se lee bajo el `.zfs` del dataset, que también hace falta montado.
     {
         std::string montado;
-        if (!agente(e, destino, PET::propiedadDeDataset("mounted", destino.dataset), montado)) {
+        if (!agente(e, destino, PET::datasetProperty("mounted", destino.dataset), montado)) {
             return false;
         }
         if (B::trim(montado) == "no") {
@@ -1310,7 +1310,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     esWindows = T::isWindowsConnection(*p);
     if (esWindows) {
         std::string letra;
-        if (!agente(e, destino, PET::propiedadDeDataset("driveletter", destino.pool), letra)) {
+        if (!agente(e, destino, PET::datasetProperty("driveletter", destino.pool), letra)) {
             return false;
         }
         letra = B::trim(letra);
@@ -1340,7 +1340,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
         }
     } else {
         std::string mp;
-        if (!agente(e, destino, PET::propiedadDeDataset("mountpoint", destino.zfsName()), mp)) {
+        if (!agente(e, destino, PET::datasetProperty("mountpoint", destino.zfsName()), mp)) {
             return false;
         }
         base = B::trim(mp);
@@ -1382,12 +1382,12 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
     }
 
     std::string out;
-    if (!agente(e, destino, PET::contenidoDeDirectorio(base), out)) {
+    if (!agente(e, destino, PET::directoryContents(base), out)) {
         return false;
     }
-    std::vector<L::EntradaDeDirectorio> entradas;
+    std::vector<L::DirectoryEntry> entradas;
     std::string errJson;
-    if (!L::contenidoDeDirectorio(out, entradas, errJson)) {
+    if (!L::directoryContents(out, entradas, errJson)) {
         std::fprintf(stderr, TC("t_contenido_ilegible", "respuesta ilegible al listar %s: %s\n"),
                      base.c_str(), errJson.c_str());
         e.ultimoRc = 1;
@@ -1399,7 +1399,7 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_tamano", "TAMAÑO")};
     t.campos = {"name", "type", "size"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes};
-    for (const L::EntradaDeDirectorio& ent : entradas) {
+    for (const L::DirectoryEntry& ent : entradas) {
         t.filas.push_back({ent.nombre,
                            ent.directorio ? "directory" : "file",
                            ent.directorio ? "" : std::to_string(ent.tamano)});
@@ -1501,7 +1501,7 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
         std::string err;
         int rc = -1;
         std::string motivo;
-        if (!ejecutarAgente(*e.ses, *p, PET::existeDataset(destino.zfsName()), out, err, rc,
+        if (!ejecutarAgente(*e.ses, *p, PET::datasetExists(destino.zfsName()), out, err, rc,
                             &motivo, 20000)) {
             std::fprintf(stderr, TC("t_no_se_pudo_1253da", "no se pudo comprobar %s: %s\n"), destino.zfsName().c_str(), motivo.c_str());
             e.ultimoRc = 1;
@@ -1521,10 +1521,10 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
 
 // --- Acciones sobre datasets, todas por `--mutate-zfs-generic`, que recibe el argv de
 // `zfs` en JSON y solo admite una lista cerrada de operaciones.
-bool zfsGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
+bool zfsGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     // El empaquetado lo hace la capa base: es cómo espera el daemon los argumentos.
     std::string out;
-    return agente(e, destino, PET::zfsGenerico(B::helpers::argvParaAgente(argv)), out);
+    return agente(e, destino, PET::zfsGeneric(B::helpers::argvParaAgente(argv)), out);
 }
 
 bool exigeDataset(const ZfsmUrl& u) {
@@ -1631,7 +1631,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
             argv.push_back("-f");
         }
         argv.push_back(destino.pool);
-        if (!zpoolGenerico(e, destino, argv)) {
+        if (!zpoolGeneric(e, destino, argv)) {
             return false;
         }
         std::fprintf(stderr, TC("t_destruido__a157ec", "destruido el pool %s\n"), destino.pool.c_str());
@@ -2049,7 +2049,7 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
     // `create datos` estando en `tank/casa` debe crear `tank/casa/datos`.
     const std::string hijo = d.nombre;
     argv.push_back(hijo.find('/') == std::string::npos ? destino.dataset + "/" + hijo : hijo);
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_creado_s_ea96d0", "creado %s\n"), argv.back().c_str());
@@ -2078,7 +2078,7 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const std::string completo = argvRen.back();
-    if (!zfsGenerico(e, destino, argvRen)) {
+    if (!zfsGeneric(e, destino, argvRen)) {
         return false;
     }
     std::fprintf(stderr, "renombrado %s -> %s\n", destino.dataset.c_str(), completo.c_str());
@@ -2096,7 +2096,7 @@ bool cmdMontaje(Estado& e, const LineaAnalizada& linea, bool montar) {
         argv.push_back("-f");
     }
     argv.push_back(destino.dataset);
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, "%s %s\n", montar ? "montado" : "desmontado", destino.dataset.c_str());
@@ -2109,7 +2109,7 @@ bool cmdPromote(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    if (!zfsGenerico(e, destino, {"promote", destino.dataset})) {
+    if (!zfsGeneric(e, destino, {"promote", destino.dataset})) {
         return false;
     }
     std::fprintf(stderr, "promovido %s\n", destino.dataset.c_str());
@@ -2125,12 +2125,12 @@ bool cmdSet(Estado& e, const LineaAnalizada& linea) {
     const std::string objetivo = destino.zfsName();
     std::vector<std::string> argv{"set"};
     // La firma ya ha exigido que sean `prop=valor` y que haya al menos una: la ranura es
-    // de tipo Propiedad y de cardinalidad UnaOMas.
+    // de tipo Property y de cardinalidad UnaOMas.
     for (const auto& asig : pet.lista("props")) {
         argv.push_back(asig);
     }
     argv.push_back(objetivo);
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, "aplicadas %zu propiedades a %s\n", pet.lista("props").size(),
@@ -2185,13 +2185,13 @@ std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::s
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
                        std::vector<B::gsa::Entry>& out) {
     std::string crudo;
-    if (!agente(e, destino, PET::gsaDeDataset(raiz), crudo, 30000)) {
+    if (!agente(e, destino, PET::gsaOfDataset(raiz), crudo, 30000)) {
         return false;
     }
     for (const auto& kv : agrupaGsa(crudo)) {
-        B::gsa::Programacion p;
-        B::gsa::Motivo m;
-        if (!B::gsa::desdePropiedades(kv.second, p, m)) {
+        B::gsa::Schedule p;
+        B::gsa::Reason m;
+        if (!B::gsa::fromProperties(kv.second, p, m)) {
             // Un valor que no es un entero está PUESTO en la máquina: no se puede corregir
             // desde aquí, pero callarlo dejaría una fila que miente.
             std::fprintf(stderr, TC("t_sch_valor_malo", "aviso: %s tiene %s con un valor que no es un "
@@ -2217,7 +2217,7 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero,
                Tipo::Cadena};
     for (const auto& f : filas) {
-        const B::gsa::Programacion& p = f.second.prog;
+        const B::gsa::Schedule& p = f.second.prog;
         t.filas.push_back({f.first, f.second.dataset, p.activado ? "true" : "false",
                            p.recursivo ? "true" : "false", std::to_string(p.horario),
                            std::to_string(p.diario), std::to_string(p.semanal),
@@ -2395,7 +2395,7 @@ bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    std::vector<std::string> argv = PET::reparaMontajesAlternativos({});
+    std::vector<std::string> argv = PET::repairAltMountpoints({});
     if (aplicar) {
         argv.push_back("apply");
     }
@@ -2462,7 +2462,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         std::string out;
-        if (!agente(e, destino, PET::fijaEscucha(dir), out, 20000)) {
+        if (!agente(e, destino, PET::setBindAddress(dir), out, 20000)) {
             return false;
         }
         std::fprintf(stderr, TC("t_peers_bind", "%s atiende ahora en %s; su daemon se está "
@@ -2471,7 +2471,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     }
     if (!pet.tiene("--push")) {
         std::string out;
-        if (!agente(e, destino, PET::pares(), out, 20000)) {
+        if (!agente(e, destino, PET::peerList(), out, 20000)) {
             return false;
         }
         const PR::Vista vista = PR::parse(out);
@@ -2513,8 +2513,8 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
 
     // Componer la carga es cosa de la capa base: la interfaz y el servidor web necesitan
     // exactamente lo mismo, y esto estaba solo aquí.
-    const PR::Entrega entrega =
-        PR::componeEntrega(e.conns.perfiles, destino.connection);
+    const PR::Handover entrega =
+        PR::composeHandover(e.conns.perfiles, destino.connection);
     if (!entrega.sePuede()) {
         std::fprintf(stderr, "%s\n", PR::labelOf(entrega.fallo).c_str());
         return false;
@@ -2528,7 +2528,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::fijaPares(entrega.cargaB64), out, 30000)) {
+    if (!agente(e, destino, PET::setPeers(entrega.cargaB64), out, 30000)) {
         return false;
     }
     std::fprintf(stderr, TC("t_peers_puestos", "entregadas %zu credenciales a %s\n"),
@@ -2558,7 +2558,7 @@ bool cmdLog(Estado& e, const LineaAnalizada& linea) {
     // Un renglón del registro anda por los 120 bytes; se piden con holgura y sobra poco.
     const long bytes = (lineas + 20) * 400;
     std::string out;
-    if (!agente(e, pet.objetivo, PET::registro(0, bytes), out, 30000)) {
+    if (!agente(e, pet.objetivo, PET::daemonLog(0, bytes), out, 30000)) {
         return false;
     }
     std::vector<std::string> todas = B::split(out, "\n", false);
@@ -2600,7 +2600,7 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
         u.kind = ZfsmKind::Connection;
         u.connection = id;
         std::string listaPools;
-        if (!agente(e, u, PET::listaDePools(), listaPools, 20000)) {
+        if (!agente(e, u, PET::poolList(), listaPools, 20000)) {
             continue;   // con --all, una máquina que no contesta no invalida a las demás
         }
         B::json::Value raiz;
@@ -2637,7 +2637,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     if (!leeProgramaciones(e, destino, destino.dataset, aqui)) {
         return false;
     }
-    B::gsa::Programacion actual;
+    B::gsa::Schedule actual;
     for (const B::gsa::Entry& en : aqui) {
         if (en.dataset == destino.dataset) {
             actual = en.prog;
@@ -2651,9 +2651,9 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
-        for (const auto& kv : B::gsa::aPropiedades(B::gsa::Programacion{})) {
+        for (const auto& kv : B::gsa::toProperties(B::gsa::Schedule{})) {
             std::string sinUsar;
-            if (!zfsGenerico(e, destino, {"inherit", kv.first, destino.dataset})) {
+            if (!zfsGeneric(e, destino, {"inherit", kv.first, destino.dataset})) {
                 return false;
             }
         }
@@ -2687,16 +2687,16 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         return true;
     }
 
-    B::gsa::Programacion nueva = actual;
+    B::gsa::Schedule nueva = actual;
     const auto retencion = [&](const char* opcion, int& campo) {
         const std::string v = pet.valor(opcion);
         if (v.empty()) {
             return true;
         }
         std::map<std::string, std::string> uno{{std::string(B::gsa::kPrefijo) + "diario", v}};
-        B::gsa::Programacion tmp;
-        B::gsa::Motivo m;
-        if (!B::gsa::desdePropiedades(uno, tmp, m)) {
+        B::gsa::Schedule tmp;
+        B::gsa::Reason m;
+        if (!B::gsa::fromProperties(uno, tmp, m)) {
             std::fprintf(stderr, TC("t_sch_no_entero", "«%s» no es un número de instantáneas válido "
                          "para --%s\n"), v.c_str(), opcion);
             return false;
@@ -2722,8 +2722,8 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     const auto conexionExiste = [&](const std::string& nombre) {
         return buscarConexion(e.conns, nombre) != nullptr;
     };
-    B::gsa::Motivo motivo;
-    if (!B::gsa::valida(destino.dataset, nueva, conexionExiste, motivo)) {
+    B::gsa::Reason motivo;
+    if (!B::gsa::isValid(destino.dataset, nueva, conexionExiste, motivo)) {
         std::fprintf(stderr, "%s: %s\n", destino.dataset.c_str(),
                      B::gsa::labelOf(motivo.fallo).c_str());
         if (!motivo.detalle.empty()) {
@@ -2747,7 +2747,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         if (!sustituido) {
             delPool.push_back({destino.dataset, nueva});
         }
-        if (!B::gsa::validaConjunto(delPool, motivo)) {
+        if (!B::gsa::isValidSet(delPool, motivo)) {
             std::fprintf(stderr, "%s: %s (%s)\n", motivo.dataset.c_str(),
                          B::gsa::labelOf(motivo.fallo).c_str(), motivo.detalle.c_str());
             return false;
@@ -2755,11 +2755,11 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
 
     std::vector<std::string> argv{"set"};
-    for (const auto& kv : B::gsa::aPropiedades(nueva)) {
+    for (const auto& kv : B::gsa::toProperties(nueva)) {
         argv.push_back(kv.first + "=" + kv.second);
     }
     argv.push_back(destino.dataset);
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_sch_puesta", "programación puesta en %s\n"), destino.dataset.c_str());
@@ -2783,7 +2783,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         }
         std::string out;
         const bool ok = agente(e, destino,
-                               PET::cargaClave(destino.dataset, frase),
+                               PET::loadKey(destino.dataset, frase),
                                out);
         for (char& c : frase) {
             c = '\0';
@@ -2794,7 +2794,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         std::fprintf(stderr, TC("t_clave_carg_09d2f4", "clave cargada en %s\n"), destino.dataset.c_str());
         return true;
     }
-    // Cambiar la frase. Va aparte de `zfsGenerico` por lo mismo que `load-key`: la frase no
+    // Cambiar la frase. Va aparte de `zfsGeneric` por lo mismo que `load-key`: la frase no
     // puede ir en el argv, así que la lleva el verbo dedicado del daemon —cifrada dentro de
     // la petición— y allí se le entrega a `zfs` por la entrada estándar.
     if (std::string(op) == "change-key") {
@@ -2829,7 +2829,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         }
         std::string out;
         const bool ok = agente(e, destino,
-                               PET::cambiaClave(destino.dataset, frase, std::string()),
+                               PET::changeKey(destino.dataset, frase, std::string()),
                                out);
         for (char& c : frase) { c = '\0'; }
         if (!ok) {
@@ -2839,7 +2839,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
                      destino.dataset.c_str());
         return true;
     }
-    if (!zfsGenerico(e, destino, {op, destino.dataset})) {
+    if (!zfsGeneric(e, destino, {op, destino.dataset})) {
         return false;
     }
     std::fprintf(stderr, TC("t_s_en_s_35a806", "%s en %s\n"), op, destino.dataset.c_str());
@@ -2866,14 +2866,14 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    // La lista llega en pares (subdirectorio, dataset nuevo); `argvDesglosar` los empareja y
+    // La lista llega en pares (subdirectorio, dataset nuevo); `argvBreakdown` los empareja y
     // descarta entero el que venga a medias, que es lo que desplazaría a todos los demás.
-    std::vector<AV::Desglose> pares;
+    std::vector<AV::Breakdown> pares;
     const auto& xs = pet.lista("texto");
     for (std::size_t i = 0; i + 1 < xs.size(); i += 2) {
-        pares.push_back(AV::Desglose{xs[i], xs[i + 1]});
+        pares.push_back(AV::Breakdown{xs[i], xs[i + 1]});
     }
-    const std::vector<std::string> argv = AV::argvDesglosar(destino.dataset, pares);
+    const std::vector<std::string> argv = AV::argvBreakdown(destino.dataset, pares);
     if (argv.empty()) {
         std::fputs(TC("t_nada_que_desglosar",
                       "los subdirectorios van en pares: <subdir> <dataset-nuevo>\n"), stderr);
@@ -2900,11 +2900,11 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    // La regla de los nombres completos vive en `commands::avanzadas`, con su porqué y sus
+    // La regla de los nombres completos vive en `commands::advanced`, con su porqué y sus
     // pruebas. Aquí estaba escrita en un comentario, otra vez en el servidor web, y resuelta
     // de una tercera manera en la interfaz.
     const std::vector<std::string> argv =
-        AV::argvEnsamblar(destino.dataset, pet.lista("texto"));
+        AV::argvAssemble(destino.dataset, pet.lista("texto"));
     if (argv.empty()) {
         std::fputs(TC("t_nada_que_ensamblar", "ninguno de los nombres dados sirve\n"), stderr);
         return false;
@@ -2933,7 +2933,7 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const std::vector<std::string> argvTodir =
-        AV::argvHaciaDir(destino.dataset, pet.uno("ruta"), borraOrigen);
+        AV::argvToDir(destino.dataset, pet.uno("ruta"), borraOrigen);
     if (argvTodir.empty()) {
         std::fputs(TC("t_ruta_no_absoluta",
                       "el directorio de destino tiene que ser una ruta absoluta\n"), stderr);
@@ -3003,7 +3003,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     // El subdirectorio se comprueba AQUÍ, antes de preguntar y antes de abrir la tubería.
     // Lo miraba solo el daemon, al otro extremo, y para entonces el tar del origen ya estaba
     // corriendo: la operación moría a mitad con parte del contenido ya fuera de su máquina.
-    if (!AV::subdirectorioRelativoValido(rel)) {
+    if (!AV::isValidRelativeSubdir(rel)) {
         std::fprintf(stderr,
                      TC("t_fromdir_subdir_malo",
                         "«%s» no sirve como subdirectorio: tiene que ser relativo al dataset y "
@@ -3035,7 +3035,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     // tiene daemon —eso lo lleva la ventana—, y una llamada que falla dice exactamente lo
     // mismo que diría la comprobación, sin costar un viaje de más cuando sí se puede.
     {
-        const std::vector<std::string> prepArgv = AV::argvDesdeDirPreparar(destino.dataset, rel);
+        const std::vector<std::string> prepArgv = AV::argvFromDirPrepare(destino.dataset, rel);
         std::string pOut;
         std::string pErr;
         int pRc = -1;
@@ -3043,7 +3043,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                                && ejecutarAgente(*e.ses, dst, prepArgv, pOut, pErr, pRc, nullptr,
                                                  60000)
                                && pRc == 0;
-        const std::string dirDestino = preparado ? AV::rutaPreparada(pOut) : std::string();
+        const std::string dirDestino = preparado ? AV::preparedPath(pOut) : std::string();
         if (!dirDestino.empty()) {
             const auto llama = [&e](const B::ConnectionProfile& maquina,
                                     const std::vector<std::string>& args, int timeoutMs,
@@ -3051,13 +3051,13 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                 return ejecutarAgente(*e.ses, maquina, args, salida, err, rc, nullptr, timeoutMs);
             };
             std::string salidaEnvio;
-            const auto hecho = TR::lanzaTrabajoDeArbol(
+            const auto hecho = TR::launchTreeJob(
                 e.ses->transporte, llama, src, dst, dir, dirDestino,
                 origen.connection == destino.connection, e.ses->verboso,
                 /*comoTrabajo=*/false, /*borrarEnDestino=*/false, /*enSeco=*/false,
                 &salidaEnvio);
             // `fallo` y no `ok()`: sin encolar no hay identificador, y `ok()` exige uno.
-            if (hecho.fallo == TR::FalloTrabajo::Ninguno) {
+            if (hecho.fallo == TR::JobFailure::Ninguno) {
                 std::fputs(salidaEnvio.c_str(), stdout);
                 return true;
             }
@@ -3074,7 +3074,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     // El argv lo compone el módulo, que es el mismo que usa la interfaz. La cadena se deriva
     // de él —nunca al revés—: aquí hace falta porque lo que se ejecuta es una tubería de
     // shell, y esa es justamente la punta que no puede ser un RPC.
-    const std::vector<std::string> fdArgv = AV::argvDesdeDir(destino.dataset, rel);
+    const std::vector<std::string> fdArgv = AV::argvFromDir(destino.dataset, rel);
     if (fdArgv.empty()) {
         std::fprintf(stderr, TC("t_fromdir_destino_malo", "destino no válido para fromdir\n"));
         return false;
@@ -3189,7 +3189,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     // Ninguno de los dos extremos puede ser Windows: el flujo por socket no está portado
-    // allí. Decirlo AQUÍ evita un fallo a mitad de transferencia que no se entiende.
+    // allí. Decirlo AQUÍ evita un fallo a mitad de transfer que no se entiende.
     if (T::isWindowsConnection(*pOrigen) || T::isWindowsConnection(*pDestino)) {
         std::fputs(TC("t_la_transfe_6f9799", "la transferencia por socket no está disponible en Windows.\n"
                      "Para llevar datos a o desde una máquina Windows, use «todir» y "
@@ -3213,7 +3213,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
 
-    // Los tres pasos —escuchar, resolver la dirección, enviar— los da `TR::lanzaTrabajo`.
+    // Los tres pasos —escuchar, resolver la dirección, enviar— los da `TR::launchJob`.
     //
     // Aquí había una copia entera de esa secuencia, y YA HABÍA DIVERGIDO: resolvía la
     // dirección del destino como «el host del perfil», que cuando el destino es la conexión
@@ -3227,8 +3227,8 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::string motivo;
         return ejecutarAgente(*e.ses, maquina, args, out, err, rc, &motivo, timeoutMs);
     };
-    const TR::Trabajo trabajo =
-        TR::lanzaTrabajo(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
+    const TR::Job trabajo =
+        TR::launchJob(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
                          destino.dataset,
                          base, banderasSend, /*testigoReanudacion=*/std::string(), mismaMaquina,
                          e.ses->verboso);
@@ -3254,7 +3254,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         std::string est;
-        if (!agente(e, origen, PET::estadoDeTrabajo(jobId), est, 20000)) {
+        if (!agente(e, origen, PET::jobStatus(jobId), est, 20000)) {
             return false;
         }
         const auto k = clavesDe(est);
@@ -3311,9 +3311,9 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     // intérprete: preguntar antes y contar después.
     namespace DI = B::daemoninstall;
     const B::ConnectionProfile perfil = conSudo(e, *p);
-    const std::string plataforma = DI::plataformaDe(perfil);
+    const std::string plataforma = DI::platformOf(perfil);
     // La arquitectura del OTRO lado, no la de aquí: se despliega a máquinas distintas.
-    const std::string arq = DI::arquitecturaRemota(e.ses->transporte, perfil, e.ses->verboso);
+    const std::string arq = DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso);
     const std::string binario = rutaDelAgente(plataforma, arq);
     if (binario.empty()) {
         std::fprintf(stderr, TC("t_no_se_enco_393030", "no se encontró el binario del daemon para %s/%s en este equipo.\n"
@@ -3323,7 +3323,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     }
     std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s en %s...\n"), binario.c_str(), quien.c_str());
 
-    const DI::Resultado r = DI::instala(
+    const DI::Result r = DI::install(
         e.ses->transporte, perfil, binario,
         [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, e.ses->verboso);
 
@@ -3406,7 +3406,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
         }
     }
     std::string out;
-    if (!agente(e, destino, PET::listaDeTrabajos(), out, 30000)) {
+    if (!agente(e, destino, PET::jobList(), out, 30000)) {
         return false;
     }
     Tabla t;
@@ -3480,14 +3480,14 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         std::string out;
-        if (!agente(e, destino, PET::cancelaTrabajo(id), out, 30000)) {
+        if (!agente(e, destino, PET::cancelJob(id), out, 30000)) {
             return false;
         }
         std::fprintf(stderr, TC("t_cancelado__b0d1d4", "cancelado el trabajo %s\n"), id.c_str());
         return true;
     }
     std::string out;
-    if (!agente(e, destino, PET::estadoDeTrabajo(id), out, 30000)) {
+    if (!agente(e, destino, PET::jobStatus(id), out, 30000)) {
         return false;
     }
     Tabla t;
@@ -3530,9 +3530,9 @@ bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 }
 
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
-    // `encola` además comprueba que el daemon sepa encolar ESE verbo: mandarle uno que no
+    // `enqueue` además comprueba que el daemon sepa encolar ESE verbo: mandarle uno que no
     // está en su lista es un viaje para recibir un rc=2.
-    const std::vector<std::string> conJob = PET::encola(argv);
+    const std::vector<std::string> conJob = PET::enqueue(argv);
     if (conJob.empty()) {
         std::fprintf(stderr, TC("t_no_encolable", "esa orden no se puede encolar como trabajo\n"));
         return false;
@@ -3557,9 +3557,9 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
 // Todo por `--mutate-zpool-generic`, que recibe el argv de `zpool` en JSON y solo admite
 // una lista cerrada de operaciones: nunca hay un intérprete de por medio.
 
-bool zpoolGenerico(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
+bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     std::string out;
-    if (!agente(e, destino, PET::zpoolGenerico(B::helpers::argvParaAgente(argv)),
+    if (!agente(e, destino, PET::zpoolGeneric(B::helpers::argvParaAgente(argv)),
                 out, 0)) {
         return false;
     }
@@ -3600,7 +3600,7 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
         std::fputs(TC("t_pool_op_invalida", "no se puede pedir eso sobre ese pool\n"), stderr);
         return false;
     }
-    if (!zpoolGenerico(e, destino, argv)) {
+    if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_s_s_en_mar_afe49e", "%s: %s en marcha\n"), destino.pool.c_str(), op);
@@ -3632,7 +3632,7 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo,
     for (const std::string& d : pet.lista("disco")) {
         argv.push_back(d);
     }
-    if (!zpoolGenerico(e, destino, argv)) {
+    if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, "%s: %s hecho\n", destino.pool.c_str(), op);
@@ -3652,7 +3652,7 @@ bool cmdStatus(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::estadoDePool(destino.pool), out, 60000)) {
+    if (!agente(e, destino, PET::poolStatus(destino.pool), out, 60000)) {
         return false;
     }
     std::fprintf(stdout, "%s", out.c_str());
@@ -3673,7 +3673,7 @@ bool cmdHistory(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::historialDePool(destino.pool), out, 60000)) {
+    if (!agente(e, destino, PET::poolHistory(destino.pool), out, 60000)) {
         return false;
     }
     Tabla t;
@@ -3711,7 +3711,7 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
     }
     if (pet.lista("texto").empty()) {
         std::string out;
-        if (!agente(e, destino, PET::sondaDeImportables(), out, 60000)) {
+        if (!agente(e, destino, PET::importableProbe(), out, 60000)) {
             return false;
         }
         std::fprintf(stdout, "%s", out.c_str());
@@ -3728,7 +3728,7 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
     if (!pet.valor("as").empty()) {
         argv.push_back(pet.valor("as"));  // importar con otro nombre
     }
-    if (!zpoolGenerico(e, destino, argv)) {
+    if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, "importado %s\n", pet.uno("texto").c_str());
@@ -3784,7 +3784,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
     for (const auto& v : vdevs) {
         argv.push_back(v);
     }
-    if (!zpoolGenerico(e, destino, argv)) {
+    if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
     // Con `-n` no se ha creado nada: zpool solo enseña la disposición que saldría. Decir
@@ -3864,7 +3864,7 @@ bool cmdRefrescar(Estado& e, const LineaAnalizada& linea) {
 
     // Y ahora se pregunta a la máquina. Los dos verbos que la interfaz usa para lo mismo.
     std::string basicos;
-    if (!agente(e, destino, PET::datosBasicosDelRefresco(), basicos, 30000)) {
+    if (!agente(e, destino, PET::refreshBasics(), basicos, 30000)) {
         return false;
     }
     std::string salud;
@@ -3962,7 +3962,7 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
                    stderr);
         return false;
     }
-    if (!zfsGenerico(e, destino, argv)) {
+    if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_s_la_reten_cb09d7", "%s la retención «%s» en %s\n"), poner ? "puesta" : "quitada", pet.uno("etiqueta").c_str(), destino.zfsName().c_str());
@@ -3993,7 +3993,7 @@ bool cmdDiff(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, origen, PET::diferenciaEntre(origen.zfsName(), hasta.zfsName()), out, 120000)) {
+    if (!agente(e, origen, PET::diffBetween(origen.zfsName(), hasta.zfsName()), out, 120000)) {
         return false;
     }
     Tabla t;
@@ -4027,7 +4027,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::dispositivosDeBloque(), out, 25000)) {
+    if (!agente(e, destino, PET::blockDevices(), out, 25000)) {
         return false;
     }
     B::json::Value raiz;
@@ -4067,7 +4067,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
 // otro camino, que no está portado al intérprete.
 bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
     std::string mp;
-    if (!agente(e, u, PET::propiedadDeDataset("mountpoint", u.zfsName()), mp)) {
+    if (!agente(e, u, PET::datasetProperty("mountpoint", u.zfsName()), mp)) {
         return false;
     }
     out = B::trim(mp);
@@ -4149,7 +4149,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     // `detail` viene ya troceado por «/»; se rejunta para volver a tener la ruta relativa
     // tal y como se escribió, que es sobre la que actúan las llaves.
     const auto rutaDe = [](const ZfsmUrl& u) { return B::join(u.detail, "/"); };
-    const std::vector<std::string> relativas = AV::rutasDeContenido(rutaDe(origen));
+    const std::vector<std::string> relativas = AV::contentPaths(rutaDe(origen));
     if (relativas.empty()) {
         std::fprintf(stderr,
                      TC("t_rsync_llaves_mal",
@@ -4159,7 +4159,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const auto dentroDelArbol = [](const std::string& rel, const char* cual) {
-        if (AV::rutaDeContenidoValida(rel)) {
+        if (AV::isValidContentPath(rel)) {
             return true;
         }
         std::fprintf(stderr,
@@ -4247,7 +4247,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
             std::string prepErr;
             int prepRc = -1;
             const std::vector<std::string> prep =
-                AV::argvDesdeDirPreparar(destino.zfsName(), rutaDe(destino));
+                AV::argvFromDirPrepare(destino.zfsName(), rutaDe(destino));
             if (prep.empty()
                 || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
                 || prepRc != 0) {
@@ -4255,11 +4255,11 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 return false;
             }
             std::string salidaEnvio;
-            const auto hecho = TR::lanzaTrabajoDeArbol(
-                e.ses->transporte, llama, src, dst, par.first, B::trim(AV::rutaPreparada(prepOut)),
+            const auto hecho = TR::launchTreeJob(
+                e.ses->transporte, llama, src, dst, par.first, B::trim(AV::preparedPath(prepOut)),
                 /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
                 &salidaEnvio);
-            if (hecho.fallo != TR::FalloTrabajo::Ninguno) {
+            if (hecho.fallo != TR::JobFailure::Ninguno) {
                 std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.fallo).c_str(),
                              hecho.detalle.c_str());
                 todoBien = false;
@@ -4273,14 +4273,14 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         return todoBien;
     }
 
-    const std::string carga = SY::cargaRsync(pares, borra, simula, std::string(), std::string());
+    const std::string carga = SY::rsyncPayload(pares, borra, simula, std::string(), std::string());
     if (carga.empty()) {
         std::fputs(TC("t_rsync_rutas_mal",
                       "las rutas de origen y destino tienen que ser absolutas\n"),
                    stderr);
         return false;
     }
-    const std::vector<std::string> argv = PET::copiaConRsync(carga);
+    const std::vector<std::string> argv = PET::rsyncCopy(carga);
     // Un `--check` es una simulación: no hay nada que mandar al daemon como trabajo, y lo
     // que uno quiere es LEER la salida ahora mismo.
     if (simula) {
@@ -4364,7 +4364,7 @@ std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
             int rc = -1;
             const auto* p = buscarConexion(e.conns, u.connection);
             if (!p || e.conns.desconectada(u.connection)
-                || !ejecutarAgente(*e.ses, *p, PET::listaDePools(), texto, err, rc, nullptr, 8000)
+                || !ejecutarAgente(*e.ses, *p, PET::poolList(), texto, err, rc, nullptr, 8000)
                 || rc != 0) {
                 return out;
             }
@@ -4384,7 +4384,7 @@ std::vector<std::string> hijosDe(Estado& e, const ZfsmUrl& u) {
             int rc = -1;
             const auto* p = buscarConexion(e.conns, u.connection);
             if (!p || e.conns.desconectada(u.connection)
-                || !ejecutarAgente(*e.ses, *p, PET::listaDeDatasets(u.dataset), texto, err, rc,
+                || !ejecutarAgente(*e.ses, *p, PET::datasetList(u.dataset), texto, err, rc,
                                    nullptr, 12000)
                 || rc != 0) {
                 return out;
@@ -4433,7 +4433,7 @@ const std::vector<std::string>& propiedadesDe(Estado& e, const ZfsmUrl& donde) {
         std::string err;
         // El verbo devuelve el JSON de `zfs get -j`, no columnas: los nombres son las claves
         // de `properties`.
-        if (agente(e, donde, PET::propiedadesDeDataset(donde.zfsName()), out, 20000)
+        if (agente(e, donde, PET::datasetProperties(donde.zfsName()), out, 20000)
             && B::json::parse(out, raiz, &err)) {
             for (const auto& ds : raiz["datasets"].toObject()) {
                 for (const auto& prop : ds.second["properties"].toObject()) {

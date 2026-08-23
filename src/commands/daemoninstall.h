@@ -31,7 +31,7 @@ enum class Fallo {
 
 std::string labelOf(Fallo f);
 
-struct Resultado {
+struct Result {
     Fallo fallo{Fallo::Ninguno};
     int rc{0};
     std::string detalle;             // lo que dijo la otra punta, tal cual
@@ -44,23 +44,23 @@ struct Resultado {
 
 // «linux», «macos», «freebsd» o «windows», con los nombres que espera quien busca el
 // binario empaquetado. Sale del `osType` del perfil, no de una consulta.
-std::string plataformaDe(const ConnectionProfile& p);
+std::string platformOf(const ConnectionProfile& p);
 
 // La arquitectura del OTRO lado, preguntándosela. En Windows no se pregunta: es x86_64 y
 // no hay agente para otra cosa. Vacía si la máquina no contesta.
-std::string arquitecturaRemota(TransportSession& ses, const ConnectionProfile& p, bool verboso);
+std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p, bool verboso);
 
 // El guion que se manda, según la plataforma. **Público a propósito**: es la pieza que
 // decide dónde va el binario, qué gestor de servicios se usa y qué se comprueba después,
 // y así se puede examinar en una prueba sin tener delante una máquina de cada sistema.
-std::string guionDeInstalacion(const std::string& plataforma, const std::string& version,
+std::string installScript(const std::string& plataforma, const std::string& version,
                                const std::string& apiVersion);
 
 // Instala o actualiza y arranca. No pregunta nada: la confirmación es de quien llama,
 // porque esto reemplaza un binario y reinicia un servicio en la otra punta.
 //
 // `traza` recibe cada línea que suelta la instalación, para poder enseñarla mientras pasa.
-Resultado instala(TransportSession& ses, const ConnectionProfile& perfil,
+Result install(TransportSession& ses, const ConnectionProfile& perfil,
                   const std::string& rutaBinario,
                   const std::function<void(const std::string&)>& traza = {},
                   bool verboso = false);

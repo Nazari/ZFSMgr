@@ -1,7 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
-#include "listados.h"
+#include "requests.h"
+#include "listings.h"
 #include "strutil.h"
 
 
@@ -434,12 +434,12 @@ void MainWindow::createPoolForSelectedConnection() {
         QString devOut;
         QString devErr;
         int devRc = -1;
-        if (runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::dispositivosDeBloque()),
+        if (runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::blockDevices()),
                             25000, devOut, devErr, devRc)
             && devRc == 0) {
-            std::vector<zfsmgr::base::listados::Dispositivo> lista;
+            std::vector<zfsmgr::base::listings::Device> lista;
             std::string errJson;
-            if (zfsmgr::base::listados::dispositivos(devOut.toStdString(), lista, errJson)) {
+            if (zfsmgr::base::listings::devices(devOut.toStdString(), lista, errJson)) {
                 QStringList filas;
                 for (const auto& d : lista) {
                     if (d.alias) {

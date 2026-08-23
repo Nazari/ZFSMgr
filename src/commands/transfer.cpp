@@ -1,17 +1,17 @@
-#include "transferencia.h"
+#include "transfer.h"
 
 #include "strutil.h"
 #include "transportcmd.h"
 #include "transportrpc.h"
 
-namespace zfsmgr::base::transferencia {
+namespace zfsmgr::base::transfer {
 
-const char* keyOf(Camino c) {
+const char* keyOf(Route c) {
     switch (c) {
-        case Camino::TrabajoAsincrono: return "trabajo";
-        case Camino::DaemonADaemon:    return "daemon-a-daemon";
-        case Camino::TuberiaSsh:       return "tuberia-ssh";
-        case Camino::Ninguno:          return "ninguno";
+        case Route::TrabajoAsincrono: return "trabajo";
+        case Route::DaemonADaemon:    return "daemon-a-daemon";
+        case Route::TuberiaSsh:       return "tuberia-ssh";
+        case Route::Ninguno:          return "ninguno";
     }
     return "ninguno";
 }
@@ -29,12 +29,12 @@ const char* keyOf(Fallo f) {
     return "";
 }
 
-std::string labelOf(Camino c) {
+std::string labelOf(Route c) {
     switch (c) {
-        case Camino::TrabajoAsincrono: return "como trabajo en el daemon";
-        case Camino::DaemonADaemon:    return "de daemon a daemon";
-        case Camino::TuberiaSsh:       return "por una tubería SSH";
-        case Camino::Ninguno:          return "ninguno";
+        case Route::TrabajoAsincrono: return "como trabajo en el daemon";
+        case Route::DaemonADaemon:    return "de daemon a daemon";
+        case Route::TuberiaSsh:       return "por una tubería SSH";
+        case Route::Ninguno:          return "ninguno";
     }
     return {};
 }
@@ -61,7 +61,7 @@ std::string labelOf(Fallo f) {
     return {};
 }
 
-bool versionAdmiteTransferencia(const std::string& version) {
+bool versionSupportsTransfer(const std::string& version) {
     const std::string v = trim(version);
     if (v.empty()) {
         return true;   // no saberla no es saber que es vieja
@@ -101,7 +101,7 @@ bool versionAdmiteTransferencia(const std::string& version) {
     return n[2] >= 3;
 }
 
-std::string banderasDeEnvio(const OpcionesDeEnvio& o) {
+std::string sendFlags(const SendOptions& o) {
     std::string f = "-";
     if (o.w) { f += 'w'; }
     if (o.L) { f += 'L'; }
@@ -111,7 +111,7 @@ std::string banderasDeEnvio(const OpcionesDeEnvio& o) {
     return f == "-" ? std::string() : f;
 }
 
-Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) {
+Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincrono) {
     Plan p;
 
     // Lo que no depende del camino va primero: no tiene sentido hablar de daemons cuando el
@@ -131,8 +131,8 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) 
 
     // La versión de ZFS antes que el camino: da igual por dónde vayan los bytes si el
     // formato del flujo no se entiende en el otro lado.
-    if (!versionAdmiteTransferencia(origen.versionZfs)
-        || !versionAdmiteTransferencia(destino.versionZfs)) {
+    if (!versionSupportsTransfer(origen.versionZfs)
+        || !versionSupportsTransfer(destino.versionZfs)) {
         p.fallo = Fallo::ZfsDemasiadoViejo;
         return p;
     }
@@ -153,7 +153,7 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) 
     const bool hayTrabajos = hayLosDosDaemons && origen.admiteTrabajos && destino.admiteTrabajos;
 
     if (hayTrabajos) {
-        p.caminos.push_back(Camino::TrabajoAsincrono);
+        p.caminos.push_back(Route::TrabajoAsincrono);
     }
     if (exigeAsincrono) {
         // Para quien no puede esperar, los otros dos no son un respaldo: son otra cosa que
@@ -164,16 +164,16 @@ Plan planea(const Extremo& origen, const Extremo& destino, bool exigeAsincrono) 
         return p;
     }
     if (hayLosDosDaemons) {
-        p.caminos.push_back(Camino::DaemonADaemon);
+        p.caminos.push_back(Route::DaemonADaemon);
     }
     // La tubería SSH no necesita daemon en ningún extremo: manda `zfs send` y `zfs recv`
     // por SSH. Es lo que queda cuando no hay daemon, y por eso siempre entra en la lista.
-    p.caminos.push_back(Camino::TuberiaSsh);
+    p.caminos.push_back(Route::TuberiaSsh);
     return p;
 }
 
-Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string& salidaTsv) {
-    Reanudacion r;
+Resume resumeToken(const std::string& objetivo, const std::string& salidaTsv) {
+    Resume r;
     const std::string diana = trim(objetivo);
     std::vector<std::pair<std::string, std::string>> conTestigo;
     for (const std::string& linea : split(salidaTsv, "\n", true)) {
@@ -206,7 +206,7 @@ Reanudacion testigoDeReanudacion(const std::string& objetivo, const std::string&
     return r;
 }
 
-std::string direccionDeSshClient(const std::string& salida) {
+std::string sshClientAddress(const std::string& salida) {
     // SSH_CLIENT = «<dirección> <puerto origen> <puerto destino>». Se coge la primera línea
     // y su primer campo.
     //
@@ -241,7 +241,7 @@ std::string direccionDeSshClient(const std::string& salida) {
     return dir;
 }
 
-std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& origen,
+std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& origen,
                              bool verboso) {
     if (transport::isLocalConnection(origen)) {
         return "127.0.0.1";
@@ -256,10 +256,10 @@ std::string comoMeVeElOrigen(TransportSession& ses, const ConnectionProfile& ori
         || rc != 0) {
         return {};
     }
-    return direccionDeSshClient(out);
+    return sshClientAddress(out);
 }
 
-Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino,
+Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
                          const std::string& objetivo, bool verboso) {
     const std::string diana = trim(objetivo);
     if (diana.empty()) {
@@ -297,14 +297,14 @@ Reanudacion buscaTestigo(TransportSession& ses, const ConnectionProfile& destino
             tsv += ds + "\t" + testigoDe(ds) + "\n";
         }
     }
-    return testigoDeReanudacion(diana, tsv);
+    return resumeToken(diana, tsv);
 }
 
-}  // namespace zfsmgr::base::transferencia
+}  // namespace zfsmgr::base::transfer
 
-namespace zfsmgr::base::transferencia {
+namespace zfsmgr::base::transfer {
 
-std::string destinoReal(const std::string& origenDataset, const std::string& destinoElegido) {
+std::string actualDestination(const std::string& origenDataset, const std::string& destinoElegido) {
     const std::string origen = trim(origenDataset);
     const std::string destino = trim(destinoElegido);
     const std::size_t barra = origen.find_last_of('/');
@@ -323,23 +323,23 @@ std::string destinoReal(const std::string& origenDataset, const std::string& des
     return destino + "/" + hoja;
 }
 
-std::string ordenDeEnvio(const std::string& instantanea, const std::string& banderas) {
+std::string sendCommand(const std::string& instantanea, const std::string& banderas) {
     const std::string b = trim(banderas);
     return b.empty() ? "zfs send " + shSingleQuote(instantanea)
                      : "zfs send " + b + " " + shSingleQuote(instantanea);
 }
 
-std::string ordenDeRecepcion(const std::string& destino) {
+std::string receiveCommand(const std::string& destino) {
     return "zfs recv -Fus " + shSingleQuote(destino);
 }
 
 
-}  // namespace zfsmgr::base::transferencia
+}  // namespace zfsmgr::base::transfer
 
-namespace zfsmgr::base::transferencia {
+namespace zfsmgr::base::transfer {
 
-EscuchaDelReceptor leeEscucha(const std::string& salida) {
-    EscuchaDelReceptor e;
+ReceiverListen readListen(const std::string& salida) {
+    ReceiverListen e;
     for (const std::string& linea : split(salida, "\n", true)) {
         const std::string l = trim(linea);
         if (startsWith(l, "PORT=")) {
@@ -351,7 +351,7 @@ EscuchaDelReceptor leeEscucha(const std::string& salida) {
     return e;
 }
 
-std::string leeIdentificadorDeTrabajo(const std::string& salida) {
+std::string readJobId(const std::string& salida) {
     for (const std::string& linea : split(salida, "\n", true)) {
         const std::string l = trim(linea);
         if (startsWith(l, "JOB_ID=")) {
@@ -361,29 +361,29 @@ std::string leeIdentificadorDeTrabajo(const std::string& salida) {
     return {};
 }
 
-std::string labelOf(FalloTrabajo f) {
+std::string labelOf(JobFailure f) {
     switch (f) {
-        case FalloTrabajo::Ninguno:
+        case JobFailure::Ninguno:
             return {};
-        case FalloTrabajo::ReceptorNoEscucha:
+        case JobFailure::ReceptorNoEscucha:
             return "el daemon del destino no pudo ponerse a escuchar";
-        case FalloTrabajo::RespuestaDeEscuchaNoVale:
+        case JobFailure::RespuestaDeEscuchaNoVale:
             return "el destino contestó algo que no es un puerto y un testigo";
-        case FalloTrabajo::SinDireccionDeVuelta:
+        case JobFailure::SinDireccionDeVuelta:
             return "no se pudo averiguar con qué dirección ve el origen a este equipo";
-        case FalloTrabajo::EmisorNoArranco:
+        case JobFailure::EmisorNoArranco:
             return "el daemon del origen no arrancó el envío";
-        case FalloTrabajo::SinIdentificador:
+        case JobFailure::SinIdentificador:
             return "el origen arrancó el envío pero no dijo con qué identificador seguirlo";
     }
     return {};
 }
 
-std::string haciaDondeConecta(TransportSession& ses, const ConnectionProfile& origen,
+std::string whereItConnects(TransportSession& ses, const ConnectionProfile& origen,
                               const ConnectionProfile& destino, bool mismaConexion,
                               bool verboso) {
     // El `host` del perfil del destino NO sirve cuando el destino es la conexión Local:
-    // vale «localhost», que desde el origen apunta al propio origen. La transferencia se
+    // vale «localhost», que desde el origen apunta al propio origen. La transfer se
     // quedaba intentando conectar consigo misma. Se le pregunta al origen con qué dirección
     // nos ve, que es la única que con seguridad le sirve para volver.
     //
@@ -394,17 +394,17 @@ std::string haciaDondeConecta(TransportSession& ses, const ConnectionProfile& or
         return "127.0.0.1";
     }
     if (transport::isLocalConnection(destino)) {
-        return comoMeVeElOrigen(ses, origen, verboso);
+        return howTheSourceSeesMe(ses, origen, verboso);
     }
     return trim(destino.host);
 }
 
-Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
                      const ConnectionProfile& origen, const ConnectionProfile& destino,
                      const std::string& instantanea, const std::string& destinoDelRecv,
                      const std::string& desdeInstantanea, const std::string& banderas,
                      const std::string& testigoReanudacion, bool mismaConexion, bool verboso) {
-    Trabajo t;
+    Job t;
 
     // 1. Que el destino se ponga a escuchar.
     std::string salida;
@@ -412,22 +412,22 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
     int rc = -1;
     if (!llama(destino, {"--zfs-recv-listen", destinoDelRecv, "1"}, 12000, salida, err, rc)
         || rc != 0) {
-        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.fallo = JobFailure::ReceptorNoEscucha;
         t.detalle = trim(err.empty() ? salida : err);
         return t;
     }
-    const EscuchaDelReceptor escucha = leeEscucha(salida);
+    const ReceiverListen escucha = readListen(salida);
     if (!escucha.vale()) {
-        t.fallo = FalloTrabajo::RespuestaDeEscuchaNoVale;
+        t.fallo = JobFailure::RespuestaDeEscuchaNoVale;
         t.detalle = trim(salida);
         return t;
     }
 
     // 2. Con qué dirección tiene que conectar el ORIGEN.
-    const std::string haciaDonde = haciaDondeConecta(ses, origen, destino, mismaConexion,
+    const std::string haciaDonde = whereItConnects(ses, origen, destino, mismaConexion,
                                                      verboso);
     if (haciaDonde.empty()) {
-        t.fallo = FalloTrabajo::SinDireccionDeVuelta;
+        t.fallo = JobFailure::SinDireccionDeVuelta;
         return t;
     }
 
@@ -451,27 +451,27 @@ Trabajo lanzaTrabajo(TransportSession& ses, const LlamadaAlAgente& llama,
     err.clear();
     rc = -1;
     if (!llama(quienEnvia, args, 10000, salida, err, rc) || rc != 0) {
-        t.fallo = FalloTrabajo::EmisorNoArranco;
+        t.fallo = JobFailure::EmisorNoArranco;
         t.detalle = trim(err.empty() ? salida : err);
         return t;
     }
-    t.id = leeIdentificadorDeTrabajo(salida);
+    t.id = readJobId(salida);
     if (t.id.empty()) {
-        t.fallo = FalloTrabajo::SinIdentificador;
+        t.fallo = JobFailure::SinIdentificador;
         t.detalle = trim(salida);
     }
     return t;
 }
 
-Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
                             const ConnectionProfile& origen, const ConnectionProfile& destino,
                             const std::string& directorioOrigen,
                             const std::string& directorioDestino, bool mismaConexion,
                             bool verboso, bool comoTrabajo, bool borrarEnDestino, bool enSeco,
                             std::string* salidaDelEnvio) {
-    Trabajo t;
+    Job t;
     if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
-        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.fallo = JobFailure::ReceptorNoEscucha;
         t.detalle = "falta el directorio de origen o el de destino";
         return t;
     }
@@ -484,13 +484,13 @@ Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
     int rc = -1;
     if (!llama(destino, {"--tree-recv-listen", directorioDestino}, 30000, salida, err, rc)
         || rc != 0) {
-        t.fallo = FalloTrabajo::ReceptorNoEscucha;
+        t.fallo = JobFailure::ReceptorNoEscucha;
         t.detalle = trim(err.empty() ? salida : err);
         return t;
     }
-    const EscuchaDelReceptor escucha = leeEscucha(salida);
+    const ReceiverListen escucha = readListen(salida);
     if (!escucha.vale()) {
-        t.fallo = FalloTrabajo::RespuestaDeEscuchaNoVale;
+        t.fallo = JobFailure::RespuestaDeEscuchaNoVale;
         t.detalle = trim(salida);
         return t;
     }
@@ -498,10 +498,10 @@ Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
     // 2. Con qué dirección ve el ORIGEN al destino. Es la misma regla que el flujo de
     // instantáneas, y por eso se llama en vez de copiarse: el caso de la conexión Local
     // —donde «localhost» apuntaría al propio origen— es el que se pierde al copiarla.
-    const std::string haciaDonde = haciaDondeConecta(ses, origen, destino, mismaConexion,
+    const std::string haciaDonde = whereItConnects(ses, origen, destino, mismaConexion,
                                                      verboso);
     if (haciaDonde.empty()) {
-        t.fallo = FalloTrabajo::SinDireccionDeVuelta;
+        t.fallo = JobFailure::SinDireccionDeVuelta;
         return t;
     }
 
@@ -534,7 +534,7 @@ Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
     // declararía fallida mientras sigue moviendo datos.
     const int plazo = comoTrabajo ? 60000 : 0;
     if (!llama(quienEnvia, args, plazo, salida, err, rc) || rc != 0) {
-        t.fallo = FalloTrabajo::EmisorNoArranco;
+        t.fallo = JobFailure::EmisorNoArranco;
         t.detalle = trim(err.empty() ? salida : err);
         return t;
     }
@@ -544,38 +544,38 @@ Trabajo lanzaTrabajoDeArbol(TransportSession& ses, const LlamadaAlAgente& llama,
     if (!comoTrabajo) {
         return t;  // terminó: no hay identificador que leer ni que seguir
     }
-    t.id = leeIdentificadorDeTrabajo(salida);
+    t.id = readJobId(salida);
     if (t.id.empty()) {
-        t.fallo = FalloTrabajo::SinIdentificador;
+        t.fallo = JobFailure::SinIdentificador;
         t.detalle = trim(salida);
     }
     return t;
 }
 
-std::string labelOf(FalloNivelar f) {
+std::string labelOf(LevelFailure f) {
     switch (f) {
-        case FalloNivelar::Ninguno:
+        case LevelFailure::Ninguno:
             return {};
-        case FalloNivelar::ObjetivoNoEstaEnOrigen:
+        case LevelFailure::ObjetivoNoEstaEnOrigen:
             return "la instantánea de origen ya no está en su dataset";
-        case FalloNivelar::DestinoSinInstantaneas:
+        case LevelFailure::DestinoSinInstantaneas:
             return "el destino no tiene ninguna instantánea: no hay base común desde la que "
                    "seguir; para llevarlo entero, copie";
-        case FalloNivelar::BaseNoEstaEnOrigen:
+        case LevelFailure::BaseNoEstaEnOrigen:
             return "la última instantánea del destino no existe en el origen: son historias "
                    "distintas y no hay incremental posible";
-        case FalloNivelar::DestinoMasNuevo:
+        case LevelFailure::DestinoMasNuevo:
             return "el destino tiene una instantánea más moderna que la que se quiere enviar";
-        case FalloNivelar::YaNivelado:
+        case LevelFailure::YaNivelado:
             return "el destino ya está nivelado en esa instantánea";
     }
     return {};
 }
 
-PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
-                          const std::vector<Instantanea>& destino,
+LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
+                          const std::vector<Snapshot>& destino,
                           const std::string& objetivo) {
-    PlanNivelar plan;
+    LevelPlan plan;
     plan.objetivo = objetivo;
 
     std::size_t iObjetivo = origen.size();
@@ -586,11 +586,11 @@ PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
         }
     }
     if (iObjetivo == origen.size()) {
-        plan.fallo = FalloNivelar::ObjetivoNoEstaEnOrigen;
+        plan.fallo = LevelFailure::ObjetivoNoEstaEnOrigen;
         return plan;
     }
     if (destino.empty()) {
-        plan.fallo = FalloNivelar::DestinoSinInstantaneas;
+        plan.fallo = LevelFailure::DestinoSinInstantaneas;
         return plan;
     }
 
@@ -609,19 +609,19 @@ PlanNivelar planeaNivelar(const std::vector<Instantanea>& origen,
         }
     }
     if (iBase == origen.size()) {
-        plan.fallo = FalloNivelar::BaseNoEstaEnOrigen;
+        plan.fallo = LevelFailure::BaseNoEstaEnOrigen;
         return plan;
     }
     if (iBase > iObjetivo) {
-        plan.fallo = FalloNivelar::DestinoMasNuevo;
+        plan.fallo = LevelFailure::DestinoMasNuevo;
         return plan;
     }
     if (iBase == iObjetivo) {
-        plan.fallo = FalloNivelar::YaNivelado;
+        plan.fallo = LevelFailure::YaNivelado;
         return plan;
     }
     plan.base = origen[iBase].nombre;
     return plan;
 }
 
-}  // namespace zfsmgr::base::transferencia
+}  // namespace zfsmgr::base::transfer

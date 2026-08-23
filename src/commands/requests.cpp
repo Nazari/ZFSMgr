@@ -1,8 +1,8 @@
-#include "peticiones.h"
+#include "requests.h"
 
 #include "strutil.h"
 
-namespace zfsmgr::commands::peticiones {
+namespace zfsmgr::commands::requests {
 
 namespace {
 
@@ -21,47 +21,47 @@ std::vector<std::string> conUno(const char* verbo, const std::string& arg) {
 
 }  // namespace
 
-std::vector<std::string> listaDePools() { return {"--dump-zpool-list"}; }
+std::vector<std::string> poolList() { return {"--dump-zpool-list"}; }
 
-std::vector<std::string> estadoDePool(const std::string& pool) {
+std::vector<std::string> poolStatus(const std::string& pool) {
     return conUno("--dump-zpool-status", pool);
 }
 
-std::vector<std::string> estadoDePoolCrudo(const std::string& pool) {
+std::vector<std::string> poolStatusRaw(const std::string& pool) {
     return conUno("--dump-zpool-status-p", pool);
 }
 
-std::vector<std::string> historialDePool(const std::string& pool) {
+std::vector<std::string> poolHistory(const std::string& pool) {
     return conUno("--dump-zpool-history", pool);
 }
 
-std::vector<std::string> propiedadesDePool(const std::string& pool) {
+std::vector<std::string> poolProperties(const std::string& pool) {
     return conUno("--dump-zpool-get-all", pool);
 }
 
-std::vector<std::string> guidDePool(const std::string& pool) {
+std::vector<std::string> poolGuid(const std::string& pool) {
     return conUno("--dump-zpool-guid", pool);
 }
 
-std::vector<std::string> sondaDeImportables() { return {"--dump-zpool-import-probe"}; }
+std::vector<std::string> importableProbe() { return {"--dump-zpool-import-probe"}; }
 
-std::vector<std::string> listaDeDatasets(const std::string& objeto) {
+std::vector<std::string> datasetList(const std::string& objeto) {
     return conUno("--dump-zfs-list-all", objeto);
 }
 
-std::vector<std::string> nombresDeDescendientes(const std::string& objeto) {
+std::vector<std::string> descendantNames(const std::string& objeto) {
     return conUno("--dump-zfs-list-children", objeto);
 }
 
-std::vector<std::string> listaDeDesglose(const std::string& dataset) {
+std::vector<std::string> breakdownList(const std::string& dataset) {
     return conUno("--dump-advanced-breakdown-list", dataset);
 }
 
-std::vector<std::string> propiedadesDeDataset(const std::string& objeto) {
+std::vector<std::string> datasetProperties(const std::string& objeto) {
     return conUno("--dump-zfs-get-all", objeto);
 }
 
-std::vector<std::string> propiedadDeDataset(const std::string& propiedad,
+std::vector<std::string> datasetProperty(const std::string& propiedad,
                                             const std::string& objeto) {
     const std::string p = limpia(propiedad);
     const std::string o = limpia(objeto);
@@ -74,15 +74,15 @@ std::vector<std::string> propiedadDeDataset(const std::string& propiedad,
     return {"--dump-zfs-get-prop", p, o};
 }
 
-std::vector<std::string> existeDataset(const std::string& objeto) {
+std::vector<std::string> datasetExists(const std::string& objeto) {
     return conUno("--dump-zfs-exists", objeto);
 }
 
-std::vector<std::string> mapaDeGuids(const std::string& objeto) {
+std::vector<std::string> guidMap(const std::string& objeto) {
     return conUno("--dump-zfs-guid-map", objeto);
 }
 
-std::vector<std::string> propiedadesConcretas(const std::vector<std::string>& propiedades,
+std::vector<std::string> specificProperties(const std::vector<std::string>& propiedades,
                                               const std::string& objeto) {
     const std::string o = limpia(objeto);
     if (o.empty()) {
@@ -105,7 +105,7 @@ std::vector<std::string> propiedadesConcretas(const std::vector<std::string>& pr
     return {"--dump-zfs-get-json", lista, o};
 }
 
-std::vector<std::string> permisosDeVarios(const std::vector<std::string>& datasets) {
+std::vector<std::string> permissionsOfMany(const std::vector<std::string>& datasets) {
     std::vector<std::string> argv{"--dump-zfs-allow-batch"};
     for (const std::string& d : datasets) {
         const std::string t = limpia(d);
@@ -116,19 +116,19 @@ std::vector<std::string> permisosDeVarios(const std::vector<std::string>& datase
     return argv.size() < 2 ? std::vector<std::string>{} : argv;
 }
 
-std::vector<std::string> guidYEstadoDeLosPools() { return {"--dump-zpool-guid-status-batch"}; }
+std::vector<std::string> poolGuidsAndStates() { return {"--dump-zpool-guid-status-batch"}; }
 
-std::vector<std::string> montajes() { return {"--dump-zfs-mount"}; }
+std::vector<std::string> mounts() { return {"--dump-zfs-mount"}; }
 
-std::vector<std::string> letrasDeUnidad(const std::string& pool) {
+std::vector<std::string> driveLetters(const std::string& pool) {
     return conUno("--dump-zfs-driveletters", pool);
 }
 
-std::vector<std::string> permisosDe(const std::string& dataset) {
+std::vector<std::string> permissionsOf(const std::string& dataset) {
     return conUno("--dump-zfs-allow", dataset);
 }
 
-std::vector<std::string> holdsDe(const std::vector<std::string>& objetos) {
+std::vector<std::string> holdsOf(const std::vector<std::string>& objetos) {
     std::vector<std::string> argv{"--dump-zfs-holds"};
     for (const std::string& o : objetos) {
         const std::string t = limpia(o);
@@ -142,7 +142,7 @@ std::vector<std::string> holdsDe(const std::vector<std::string>& objetos) {
     return argv;
 }
 
-std::vector<std::string> diferenciaEntre(const std::string& instantaneaA,
+std::vector<std::string> diffBetween(const std::string& instantaneaA,
                                          const std::string& instantaneaB) {
     const std::string a = limpia(instantaneaA);
     const std::string b = limpia(instantaneaB);
@@ -152,17 +152,17 @@ std::vector<std::string> diferenciaEntre(const std::string& instantaneaA,
     return {"--dump-zfs-diff", a, b};
 }
 
-std::vector<std::string> gsaDeDataset(const std::string& dataset) {
+std::vector<std::string> gsaOfDataset(const std::string& dataset) {
     return conUno("--dump-zfs-get-gsa-raw-recursive", dataset);
 }
 
-std::vector<std::string> gsaDeTodosLosPools() { return {"--dump-zfs-get-gsa-raw-all-pools"}; }
+std::vector<std::string> gsaOfAllPools() { return {"--dump-zfs-get-gsa-raw-all-pools"}; }
 
-std::vector<std::string> contenidoDeDirectorio(const std::string& ruta) {
+std::vector<std::string> directoryContents(const std::string& ruta) {
     return conUno("--dump-dir-list", ruta);
 }
 
-std::vector<std::string> contenidoDeFichero(const std::string& ruta, unsigned long long desde,
+std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
                                             unsigned long long cuanto) {
     const std::string r = limpia(ruta);
     if (r.empty()) {
@@ -171,9 +171,9 @@ std::vector<std::string> contenidoDeFichero(const std::string& ruta, unsigned lo
     return {"--dump-file", r, std::to_string(desde), std::to_string(cuanto)};
 }
 
-std::vector<std::string> salud() { return {"--health"}; }
+std::vector<std::string> health() { return {"--health"}; }
 
-std::vector<std::string> registro(unsigned long long desdeByte, unsigned long long cuantos) {
+std::vector<std::string> daemonLog(unsigned long long desdeByte, unsigned long long cuantos) {
     if (desdeByte == 0 && cuantos == 0) {
         // Entero: el verbo trata los dos argumentos como opcionales, y mandar «0 0» no es lo
         // mismo que no mandar nada en todos los caminos.
@@ -182,29 +182,29 @@ std::vector<std::string> registro(unsigned long long desdeByte, unsigned long lo
     return {"--dump-daemon-log", std::to_string(desdeByte), std::to_string(cuantos)};
 }
 
-std::vector<std::string> dispositivosDeBloque() { return {"--dump-block-devices"}; }
+std::vector<std::string> blockDevices() { return {"--dump-block-devices"}; }
 
-std::vector<std::string> versionDeZfs() { return {"--dump-zfs-version"}; }
+std::vector<std::string> zfsVersion() { return {"--dump-zfs-version"}; }
 
-std::vector<std::string> herramientasDisponibles() { return {"--dump-tool-availability"}; }
+std::vector<std::string> availableTools() { return {"--dump-tool-availability"}; }
 
-std::vector<std::string> datosBasicosDelRefresco() { return {"--dump-refresh-basics"}; }
+std::vector<std::string> refreshBasics() { return {"--dump-refresh-basics"}; }
 
-std::vector<std::string> pares() { return {"--dump-peers"}; }
+std::vector<std::string> peerList() { return {"--dump-peers"}; }
 
-std::vector<std::string> zfsGenerico(const std::string& argvCodificado) {
+std::vector<std::string> zfsGeneric(const std::string& argvCodificado) {
     return conUno("--mutate-zfs-generic", argvCodificado);
 }
 
-std::vector<std::string> zpoolGenerico(const std::string& argvCodificado) {
+std::vector<std::string> zpoolGeneric(const std::string& argvCodificado) {
     return conUno("--mutate-zpool-generic", argvCodificado);
 }
 
-std::vector<std::string> creaDataset(const std::string& argvCodificado) {
+std::vector<std::string> createDataset(const std::string& argvCodificado) {
     return conUno("--mutate-zfs-create", argvCodificado);
 }
 
-std::vector<std::string> cargaClave(const std::string& dataset, const std::string& frase) {
+std::vector<std::string> loadKey(const std::string& dataset, const std::string& frase) {
     const std::string d = limpia(dataset);
     if (d.empty()) {
         return {};
@@ -214,7 +214,7 @@ std::vector<std::string> cargaClave(const std::string& dataset, const std::strin
             zfsmgr::base::base64Encode(frase)};
 }
 
-std::vector<std::string> cambiaClave(const std::string& dataset, const std::string& frase,
+std::vector<std::string> changeKey(const std::string& dataset, const std::string& frase,
                                      const std::string& nueva) {
     const std::string d = limpia(dataset);
     if (d.empty()) {
@@ -224,7 +224,7 @@ std::vector<std::string> cambiaClave(const std::string& dataset, const std::stri
             zfsmgr::base::base64Encode(frase), zfsmgr::base::base64Encode(nueva)};
 }
 
-std::vector<std::string> reparaMontajesAlternativos(const std::vector<std::string>& extras) {
+std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& extras) {
     std::vector<std::string> argv{"--repair-alt-mountpoints"};
     for (const std::string& e : extras) {
         const std::string t = limpia(e);
@@ -235,23 +235,23 @@ std::vector<std::string> reparaMontajesAlternativos(const std::vector<std::strin
     return argv;
 }
 
-std::vector<std::string> fijaPares(const std::string& cargaB64) {
+std::vector<std::string> setPeers(const std::string& cargaB64) {
     return conUno("--mutate-set-peers", cargaB64);
 }
 
-std::vector<std::string> fijaEscucha(const std::string& direccion) {
+std::vector<std::string> setBindAddress(const std::string& direccion) {
     return conUno("--mutate-set-bind", direccion);
 }
 
-std::vector<std::string> copiaConRsync(const std::string& cargaB64) {
+std::vector<std::string> rsyncCopy(const std::string& cargaB64) {
     return conUno("--mutate-rsync-local", cargaB64);
 }
 
-std::vector<std::string> permisosEnLote(const std::string& cargaB64) {
+std::vector<std::string> permissionsBatch(const std::string& cargaB64) {
     return conUno("--mutate-zfs-allow-batch", cargaB64);
 }
 
-bool sePuedeEncolar(const std::string& verbo) {
+bool canEnqueue(const std::string& verbo) {
     const std::string v = limpia(verbo);
     // **Esta lista tiene un solo dueño, y es esta función.** El daemon la necesita para no
     // fiarse del cliente y los clientes para decidir antes de pedir nada —qué botón pintar,
@@ -262,8 +262,8 @@ bool sePuedeEncolar(const std::string& verbo) {
            || v == "--tree-send-to-peer";
 }
 
-std::vector<std::string> encola(const std::vector<std::string>& orden) {
-    if (orden.empty() || !sePuedeEncolar(orden.front())) {
+std::vector<std::string> enqueue(const std::vector<std::string>& orden) {
+    if (orden.empty() || !canEnqueue(orden.front())) {
         return {};
     }
     std::vector<std::string> argv{"--job-submit"};
@@ -271,14 +271,14 @@ std::vector<std::string> encola(const std::vector<std::string>& orden) {
     return argv;
 }
 
-std::vector<std::string> listaDeTrabajos() { return {"--job-list"}; }
+std::vector<std::string> jobList() { return {"--job-list"}; }
 
-std::vector<std::string> estadoDeTrabajo(const std::string& id) {
+std::vector<std::string> jobStatus(const std::string& id) {
     return conUno("--job-status", id);
 }
 
-std::vector<std::string> cancelaTrabajo(const std::string& id) {
+std::vector<std::string> cancelJob(const std::string& id) {
     return conUno("--job-cancel", id);
 }
 
-}  // namespace zfsmgr::commands::peticiones
+}  // namespace zfsmgr::commands::requests

@@ -34,7 +34,7 @@ enum class Feature {
     ToolAvailability,      // sondeo de herramientas disponibles
 };
 
-// Motivo tipificado. La interfaz lo traduce; aquí no hay texto de usuario.
+// Reason tipificado. La interfaz lo traduce; aquí no hay texto de usuario.
 enum class Reason {
     MissingTool,           // falta una herramienta que el agente necesita ejecutar
     Available,

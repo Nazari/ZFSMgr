@@ -9,8 +9,8 @@
 #include "base/procesos.h"
 #include "base/tlsclient.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
-#include "listados.h"
+#include "requests.h"
+#include "listings.h"
 #include "agentversion.h"
 #include "daemonpayload.h"
 
@@ -72,7 +72,7 @@ bool isMutatingAgentCommand(const QStringList& agentArgs) {
     return BT::isMutatingAgentCommand(a);
 }
 
-// Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
+// Route HEREDADO: recupera los argumentos parseando una cadena de shell.
 //
 // Existe solo para los sitios que todavía construyen la orden como cadena. Los que ya
 // pasan por runAgentCommand no lo tocan, y cuando migren los últimos esta función y las
@@ -221,15 +221,15 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     // --job-submit delante, y el resto como carga del trabajo. Antes esto se hacía
     // buscando la ruta del binario dentro de una cadena y partiéndola en dos.
     //
-    // `encola` además comprueba que el daemon sepa encolar ESE verbo: la lista de los que
-    // acepta vive en `commands/peticiones` y es la misma que consulta el propio daemon, así
+    // `enqueue` además comprueba que el daemon sepa encolar ESE verbo: la lista de los que
+    // acepta vive en `commands/requests` y es la misma que consulta el propio daemon, así
     // que no pueden divergir.
     std::vector<std::string> aEncolar;
     for (const QString& a : agentArgs) {
         aEncolar.push_back(a.toStdString());
     }
     const QStringList submitArgs =
-        mwhelpers::argvQt(zfsmgr::commands::peticiones::encola(aEncolar));
+        mwhelpers::argvQt(zfsmgr::commands::requests::enqueue(aEncolar));
     if (submitArgs.isEmpty()) {
         return false;
     }
@@ -260,7 +260,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     m_transport.log(TransportSession::Nivel::Info,
            QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
 
-    const QStringList statusArgs = mwhelpers::argvQt(zfsmgr::commands::peticiones::estadoDeTrabajo(jobId.toStdString()));
+    const QStringList statusArgs = mwhelpers::argvQt(zfsmgr::commands::requests::jobStatus(jobId.toStdString()));
     QString lastProgress;
     // No overall deadline on purpose: the daemon owns the operation and reports when
     // it is done. Each individual poll is short, so a dead daemon still surfaces.
@@ -283,7 +283,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
             QString cOut;
             QString cErr;
             int cRc = -1;
-            const QStringList cancelArgs = mwhelpers::argvQt(zfsmgr::commands::peticiones::cancelaTrabajo(jobId.toStdString()));
+            const QStringList cancelArgs = mwhelpers::argvQt(zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
             const bool asked = runAgentCommand(p, cancelArgs, 20000, cOut, cErr, cRc);
             m_transport.log(asked && cRc == 0 ? TransportSession::Nivel::Normal
                                               : TransportSession::Nivel::Error,
@@ -1104,7 +1104,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     QString err;
     int rc = -1;
     const bool ok =
-        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadDeDataset(prop.toStdString(), dataset.toStdString())), 15000, out, err, rc)
+        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty(prop.toStdString(), dataset.toStdString())), 15000, out, err, rc)
         && rc == 0;
     if (!ok) {
         return false;
@@ -1158,7 +1158,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
             return false;
         }
         const bool ok = runAgentCommand(
-                            p, mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadDeDataset("guid", trimmedObject.toStdString())),
+                            p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty("guid", trimmedObject.toStdString())),
                             15000, out, err, rc)
                         && rc == 0;
         if (!ok) {
@@ -1217,7 +1217,7 @@ QString MainWindow::effectiveMountPath(int connIdx,
     //
     // El cálculo de más abajo sube por los padres buscando `driveletter`, y esa propiedad
     // SE HEREDA: un hijo de un pool montado en Z: devuelve Z igual que su padre, así que
-    // se le tomaba por la raíz de la unidad y se le asignaba `Z:\`. Resultado visto en
+    // se le tomaba por la raíz de la unidad y se le asignaba `Z:\`. Result visto en
     // Windows: el árbol mostraba EL MISMO contenido en winpool y en winpool/subds1.
     //
     // La lista de montajes no se hereda ni se deduce: dice dónde está montado cada uno.
@@ -1316,7 +1316,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             int gRc = -1;
             const bool guidOk =
                 daemonReadApiOk
-                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::guidDePool(trimmedPool.toStdString())),
+                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolGuid(trimmedPool.toStdString())),
                                    12000, gOut, gErr, gRc)
                 && gRc == 0;
             if (guidOk) {
@@ -1366,7 +1366,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         requireDaemonForRead(connIdx, QStringLiteral("listar los datasets de un pool"));
     }
     if (daemonReadApiOk
-        && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::listaDeDatasets(poolName.toStdString())), 35000, out, err, rc)
+        && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetList(poolName.toStdString())), 35000, out, err, rc)
         && rc == 0) {
         // Aquí se comprobaba si la respuesta era JSON, y si no, se TIRABA.
         //
@@ -1376,13 +1376,13 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         // líneas más abajo. Dos viajes por pool y por refresco, y el árbol de datasets
         // era el único camino de lectura que no pasaba por el daemon.
         //
-        // El reparto de columnas lo hace `commands::listados`, que es quien ya lo hacía
+        // El reparto de columnas lo hace `commands::listings`, que es quien ya lo hacía
         // para el servidor web: una línea con menos de diez columnas se salta en vez de
         // rellenar con vacíos, porque un punto de montaje con un tabulador dentro
         // correría los campos y enseñaría un montaje donde va el nombre.
-        const std::vector<zfsmgr::base::listados::Entry> entradas =
-            zfsmgr::base::listados::entradas(out.toStdString());
-        for (const zfsmgr::base::listados::Entry& e : entradas) {
+        const std::vector<zfsmgr::base::listings::Entry> entradas =
+            zfsmgr::base::listings::entries(out.toStdString());
+        for (const zfsmgr::base::listings::Entry& e : entradas) {
             const QString name = QString::fromStdString(e.nombre).trimmed();
             if (name.isEmpty()) {
                 continue;
@@ -1420,7 +1420,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // sudo. Se ha quitado a propósito: ningún cliente opera sobre una máquina sin agente.
     //
     // No es una pérdida de función, es dejar de fingir una: mientras existió, el respaldo
-    // ATENDÍA EL 100 % de los listados —la rama del daemon comprobaba si la respuesta era
+    // ATENDÍA EL 100 % de los listings —la rama del daemon comprobaba si la respuesta era
     // JSON y ese verbo devuelve TSV—, así que la aplicación llevaba meses leyendo el árbol
     // por shell sin que nadie lo supiera.
     if (!loadedFromDaemon) {
@@ -1470,7 +1470,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         // dataset de la HEREDADA del pool— y ahora eso está escrito donde vive el verbo.
         if (runAgentCommand(p,
                             mwhelpers::argvQt(
-                                zfsmgr::commands::peticiones::letrasDeUnidad(poolName.toStdString())),
+                                zfsmgr::commands::requests::driveLetters(poolName.toStdString())),
                             20000, dOut, dErr, dRc)
             && dRc == 0) {
             QMap<QString, QStringList> byDrive;

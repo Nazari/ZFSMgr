@@ -2,7 +2,7 @@
 
 #include "pools.h"
 #include "mainwindow_helpers.h"
-#include "peticiones.h"
+#include "requests.h"
 #include "daemonpayload.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
@@ -263,7 +263,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         && !requireDaemonForRead(connIdx, QStringLiteral("leer el estado de un pool"))) {
         return;
     }
-    (void)runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::peticiones::estadoDePool(trimmedPool.toStdString())),
+    (void)runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::poolStatus(trimmedPool.toStdString())),
                           20000, out, err, rc);
     if (rc != 0) {
         const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
@@ -2395,7 +2395,7 @@ void MainWindow::showPoolHistoryFromRow(int row) {
         && !requireDaemonForRead(idx, QStringLiteral("leer el historial de un pool"))) {
         return;
     }
-    const QString cmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::historialDePool(poolName.toStdString())));
+    const QString cmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolHistory(poolName.toStdString())));
     QString out;
     QString detail;
     if (!fetchPoolCommandOutput(idx, poolName, QStringLiteral("Historial"), cmd, &out, &detail, 45000)) {

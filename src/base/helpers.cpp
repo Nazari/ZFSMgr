@@ -85,7 +85,7 @@ bool parentAllowsChildMount(const std::string& parentMountpoint, const std::stri
 // `buildHasMountedChildrenCommand` vivía aquí: dos guiones —uno de `sh` y otro de
 // PowerShell— que se ejecutaban por SSH solo para contestar sí o no a «¿hay descendientes
 // montados?». La respuesta ya estaba en `--dump-zfs-mount`, que el agente sirve en las dos
-// plataformas; ahora se calcula con `listados::tieneDescendientesMontados`.
+// plataformas; ahora se calcula con `listings::hasMountedDescendants`.
 
 std::string buildRecursiveUmountCommand(bool isWindows, const std::string& datasetName) {
     if (isWindows) {

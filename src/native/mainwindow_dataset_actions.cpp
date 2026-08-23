@@ -1,8 +1,8 @@
 #include "mainwindow.h"
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
-#include "listados.h"
-#include "peticiones.h"
+#include "listings.h"
+#include "requests.h"
 #include "daemonpayload.h"
 
 #include <QComboBox>
@@ -1032,7 +1032,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         && m_conns.states[connIdx].daemonActive
         && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-    const QStringList poolCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::peticiones::propiedadesDePool(trimmedPool.toStdString()));
+    const QStringList poolCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolProperties(trimmedPool.toStdString()));
     bool poolPropsOk = daemonReadApiOk
           && runAgentCommand(profile, poolCmdDaemonArgv, 15000, out, err, rc)
           && rc == 0;
@@ -1620,7 +1620,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
         //
         // La orden compuesta no llegaba entera: el planificador que la convierte en RPC
         // tipado parse UNA operación, veía `load-key`, emitía --mutate-zfs-load-key y
-        // se comía el `&& zfs mount` sin decir nada. Resultado medido: la clave quedaba
+        // se comía el `&& zfs mount` sin decir nada. Result medido: la clave quedaba
         // cargada y el dataset SIN montar, y la acción se daba por terminada con éxito.
         //
         // Peor todavía, tomaba como objetivo el ÚLTIMO token de la línea —que venía del
@@ -1834,11 +1834,11 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         && m_conns.states[ctx.connIdx].daemonInstalled
         && m_conns.states[ctx.connIdx].daemonActive
         && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::montajes()));
+    const QString mountedCmdDaemon = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::mounts()));
     QVector<QPair<QString, QString>> mountedRows;
     const bool mountListOk =
         daemonReadApiOk
-        && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::peticiones::montajes()), 20000, mountedOut, mountedErr, mountedRc)
+        && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::mounts()), 20000, mountedOut, mountedErr, mountedRc)
         && mountedRc == 0;
     if (mountListOk) {
         // El daemon responde "zfs mount -j" en cualquier plataforma.
@@ -1905,10 +1905,10 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
         return false;
     }
     const bool ran = runAgentCommand(
-        p, mwhelpers::argvQt(zfsmgr::commands::peticiones::montajes()), 12000, out, err, rc);
+        p, mwhelpers::argvQt(zfsmgr::commands::requests::mounts()), 12000, out, err, rc);
     const bool hasChildrenMounted =
         ran && rc == 0
-        && zfsmgr::base::listados::tieneDescendientesMontados(out.toStdString(),
+        && zfsmgr::base::listings::hasMountedDescendants(out.toStdString(),
                                                               ctx.datasetName.toStdString());
     QString cmd;
     if (hasChildrenMounted) {

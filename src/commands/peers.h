@@ -47,7 +47,7 @@ enum class Fallo {
     SinMaterialTls,       // las hay, pero ninguna tiene certificados
 };
 
-struct Entrega {
+struct Handover {
     std::string cargaB64;              // para `--mutate-set-peers`
     std::vector<std::string> nombres;  // qué se entrega, para poder preguntarlo antes
     Fallo fallo{Fallo::Ninguno};
@@ -63,7 +63,7 @@ struct Entrega {
 // **`self` lo sabe el cliente y solo el cliente.** La máquina de destino no puede
 // deducirlo: no hay forma de que sepa con qué nombre la tiene apuntada quien le habla, y ese
 // nombre es justo el que aparecerá en el destino de una nivelación.
-Entrega componeEntrega(const std::vector<ConnectionProfile>& perfiles,
+Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
                        const std::string& destino);
 
 std::string labelOf(Fallo f);
@@ -73,7 +73,7 @@ std::string labelOf(Fallo f);
 // No es una lista arbitraria: el cliente llega por un túnel contra 127.0.0.1, así que una
 // dirección suelta le cortaría el acceso. El daemon rechaza el resto, y tener aquí la misma
 // lista permite ofrecer solo lo válido en vez de dejar fallar la llamada.
-bool direccionDeEscuchaValida(const std::string& dir);
-std::vector<std::string> direccionesDeEscucha();
+bool isValidBindAddress(const std::string& dir);
+std::vector<std::string> bindAddresses();
 
 }  // namespace zfsmgr::base::peers

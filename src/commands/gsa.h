@@ -31,7 +31,7 @@ namespace zfsmgr::base::gsa {
 // máquinas ya instaladas y renombrarlos rompería sus programaciones.
 extern const char* const kPrefijo;
 
-struct Programacion {
+struct Schedule {
     bool activado{false};
     bool recursivo{false};
     bool nivelar{false};
@@ -57,7 +57,7 @@ enum class Fallo {
     ChocaConRecursiva,      // detalle: el dataset que ya la tiene
 };
 
-struct Motivo {
+struct Reason {
     Fallo fallo{Fallo::Ninguno};
     std::string dataset;   // a quién le pasa
     std::string detalle;   // la propiedad, la conexión ausente o el otro dataset
@@ -68,27 +68,27 @@ struct Motivo {
 //
 // Devuelve false solo si una retención no es un entero >= 0; el resto de valores no puede
 // fallar aquí (un booleano que no se reconoce es «off», que es lo conservador).
-bool desdePropiedades(const std::map<std::string, std::string>& props, Programacion& out,
-                      Motivo& porQue);
+bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
+                      Reason& porQue);
 
 // Estructura → las propiedades que hay que escribir, con su prefijo.
-std::map<std::string, std::string> aPropiedades(const Programacion& p);
+std::map<std::string, std::string> toProperties(const Schedule& p);
 
 // Una programación, por sí sola. `conexionExiste` la resuelve quien llama: la lista de
 // conexiones es del cliente, no de esta capa.
-bool valida(const std::string& dataset, const Programacion& p,
-            const std::function<bool(const std::string&)>& conexionExiste, Motivo& porQue);
+bool isValid(const std::string& dataset, const Schedule& p,
+            const std::function<bool(const std::string&)>& conexionExiste, Reason& porQue);
 
 // El conjunto: dos programaciones ACTIVADAS del mismo pool no pueden solaparse si una es
 // recursiva. Se comprueba aparte porque no es una propiedad de ninguna de las dos.
 struct Entry {
     std::string dataset;
-    Programacion prog;
+    Schedule prog;
 };
-bool validaConjunto(const std::vector<Entry>& delMismoPool, Motivo& porQue);
+bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue);
 
 // ¿`dataset` es `ancestro` o cuelga de él?
-bool esMismoODescendiente(const std::string& dataset, const std::string& ancestro);
+bool isSameOrDescendant(const std::string& dataset, const std::string& ancestro);
 
 // El castellano de reserva del motivo, para quien no tenga catálogo propio.
 std::string labelOf(Fallo f);
@@ -99,7 +99,7 @@ std::string labelOf(Fallo f);
 //
 // El nombre lo escribe `gsaCreateSnapshot` como «GSA-<clase>-<fecha>-<hora>», así que la
 // clase es lo que va entre el primer y el segundo guion.
-std::string claseDeInstantanea(const std::string& nombre);
+std::string snapshotClass(const std::string& nombre);
 
 // ── El destino, en las dos formas que tiene ──────────────────────────────────
 //
@@ -111,15 +111,15 @@ std::string claseDeInstantanea(const std::string& nombre);
 // Pero esa nomenclatura es de antes de que existiera `zfsm://`, y en pantalla convive mal
 // con las direcciones que usa el resto del programa. Así que se GUARDA como siempre y se
 // ENSEÑA como URL. Estas dos funciones son la conversión, y viven aquí —junto a lo que lee
-// y valida el destino— para que no acabe habiendo una copia por cliente.
+// y isValid el destino— para que no acabe habiendo una copia por cliente.
 
 // «Conexión::Pool/Dataset» → «zfsm://Conexión/Pool/Dataset». Devuelve el texto tal cual si
 // no tiene la forma esperada: enseñar algo raro es mejor que esconderlo.
-std::string destinoComoUrl(const std::string& destino);
+std::string destinationAsUrl(const std::string& destino);
 
 // La vuelta. Admite las DOS formas en la entrada —una URL o el formato de siempre— porque
 // quien teclea a mano puede escribir cualquiera de las dos y las dos se entienden.
-std::string destinoDesdeUrl(const std::string& texto);
+std::string destinationFromUrl(const std::string& texto);
 
 // Las instantáneas de un dataset, ORDENADAS para enseñarlas: primero las manuales, en el
 // orden en que llegaron, y después las programadas agrupadas por clase, con las clases
@@ -128,7 +128,7 @@ std::string destinoDesdeUrl(const std::string& texto);
 // Devuelve pares (clase, instantáneas); la clase vacía es el grupo de las manuales, que
 // va siempre primero y solo si hay alguna. Vive aquí y no dentro del árbol porque es una
 // REGLA, no dibujo: el intérprete querrá la misma cuando liste instantáneas.
-std::vector<std::pair<std::string, std::vector<std::string>>> agrupaInstantaneas(
+std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
     const std::vector<std::string>& nombres);
 
 }  // namespace zfsmgr::base::gsa

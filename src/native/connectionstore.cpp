@@ -212,13 +212,13 @@ QString ConnectionStore::trk(const QString& key,
 // donde vive el idioma. Es el mismo reparto que en connectioncapabilities, y es lo que
 // permitió sacar el almacén de Qt sin llevarse consigo el sistema de traducción.
 // Atajo para los sitios que solo necesitan el texto de un motivo.
-QString ConnectionStore::aviso(BS::Motivo m, const QString& conexion, const QString& campo,
+QString ConnectionStore::aviso(BS::Reason m, const QString& conexion, const QString& campo,
                                const QString& detalle) const {
     return traduce(BS::Aviso{m, conexion.toStdString(), campo.toStdString(), detalle.toStdString()});
 }
 
 QString ConnectionStore::traduce(const BS::Aviso& a) const {
-    using M = BS::Motivo;
+    using M = BS::Reason;
     const QString conexion = QString::fromStdString(a.conexion);
     const QString campo = QString::fromStdString(a.campo);
     const QString detalle = QString::fromStdString(a.detalle);
@@ -551,7 +551,7 @@ LoadResult ConnectionStore::loadConnections() const {
         // Antes de ensurePort: la conversión decide el puerto y no debe pisarla nadie.
         if (migratePsrpProfileToSsh(p)) {
             result.warnings.push_back(
-                aviso(BS::Motivo::PerfilPsrpConvertido, p.name.isEmpty() ? p.id : p.name));
+                aviso(BS::Reason::PerfilPsrpConvertido, p.name.isEmpty() ? p.id : p.name));
         }
         p.port = ensurePort(p.connType, p.port);
 
@@ -595,15 +595,15 @@ LoadResult ConnectionStore::loadConnections() const {
 bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString& error) {
     error.clear();
     if (profile.name.trimmed().isEmpty()) {
-        error = aviso(BS::Motivo::NombreRequerido);
+        error = aviso(BS::Reason::NombreRequerido);
         return false;
     }
     if (profile.host.trimmed().isEmpty()) {
-        error = aviso(BS::Motivo::HostRequerido);
+        error = aviso(BS::Reason::HostRequerido);
         return false;
     }
     if (profile.username.trimmed().isEmpty()) {
-        error = aviso(BS::Motivo::UsuarioRequerido);
+        error = aviso(BS::Reason::UsuarioRequerido);
         return false;
     }
 
@@ -632,7 +632,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
             continue;
         }
         if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
-            error = aviso(BS::Motivo::NombreDuplicado);
+            error = aviso(BS::Reason::NombreDuplicado);
             return false;
         }
     }
@@ -662,7 +662,7 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     // Que no hubiera ninguna con ese identificador no era un fallo por este lado: se
     // guardaba igual y se devolvía true. Se conserva ese trato para no cambiar de paso lo
     // que hace la interfaz al borrar algo que ya no está.
-    if (aviso.motivo == BS::Motivo::NoSeGuardaConexion) {
+    if (aviso.motivo == BS::Reason::NoSeGuardaConexion) {
         return true;
     }
     error = traduce(aviso);

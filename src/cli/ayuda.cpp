@@ -934,7 +934,7 @@ const std::vector<Orden> kOrdenes = {
       "las que tienen lista cerrada —`compression`, `canmount`, `sync`…—. Para `quota` o "
       "`mountpoint` no ofrece nada, que es mejor que inventar."}},
      Objetivo::DatasetOInstantanea,
-     {{"props", Ranura::Tipo::Propiedad, Ranura::Cuantas::UnaOMas}}},
+     {{"props", Ranura::Tipo::Property, Ranura::Cuantas::UnaOMas}}},
     {"load-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},
      Objetivo::Dataset, {}},
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
@@ -986,7 +986,7 @@ const std::vector<Orden> kOrdenes = {
     // --- Instantáneas
     {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
      {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {},
      {{"-r", false, {"t_nat_rollback_r", "Destruye las instantáneas posteriores a esa."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
     {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
@@ -1002,18 +1002,18 @@ const std::vector<Orden> kOrdenes = {
        "  cd /local/tank/datos@ayer\n"
        "  clone recuperado\n"
        "o desde cualquier sitio: «clone tank/recuperado --from /local/tank/datos@ayer»."}},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {}},
     {"hold", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"},
      {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-r", false, {"t_nat_hold_r", "También en las instantáneas de los descendientes."}}}},
     {"release", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-r", false, {"t_nat_release_r", "También en las instantáneas de los descendientes."}}}},
     {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
@@ -1181,7 +1181,7 @@ const std::vector<Orden> kOrdenes = {
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
       "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
       {"t_send_windows_ok", "Funciona también con un extremo Windows: su agente emite y recibe el flujo desde la fase 2, comprobado contra una máquina real."}},
-     Objetivo::Instantanea,
+     Objetivo::Snapshot,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}},
      nativasDeSend()},
 

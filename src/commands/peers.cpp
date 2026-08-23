@@ -47,9 +47,9 @@ std::string labelOf(Fallo f) {
     return {};
 }
 
-Entrega componeEntrega(const std::vector<ConnectionProfile>& perfiles,
+Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
                        const std::string& destino) {
-    Entrega e;
+    Handover e;
     json::Array pares;
     bool habiaOtras = false;
     for (const ConnectionProfile& p : perfiles) {
@@ -93,13 +93,13 @@ Entrega componeEntrega(const std::vector<ConnectionProfile>& perfiles,
     return e;
 }
 
-std::vector<std::string> direccionesDeEscucha() {
+std::vector<std::string> bindAddresses() {
     return {"127.0.0.1", "0.0.0.0", "::"};
 }
 
-bool direccionDeEscuchaValida(const std::string& dir) {
+bool isValidBindAddress(const std::string& dir) {
     const std::string d = trim(dir);
-    for (const std::string& v : direccionesDeEscucha()) {
+    for (const std::string& v : bindAddresses()) {
         if (d == v) {
             return true;
         }

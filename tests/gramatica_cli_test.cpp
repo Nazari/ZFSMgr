@@ -50,7 +50,7 @@ static std::string rellenoDe(const zfsmgr::cli::Orden& o) {
         }
         switch (r.tipo) {
             case zfsmgr::cli::Ranura::Tipo::Url: relleno += " /a/b"; break;
-            case zfsmgr::cli::Ranura::Tipo::Propiedad: relleno += " k=v"; break;
+            case zfsmgr::cli::Ranura::Tipo::Property: relleno += " k=v"; break;
             default: relleno += " relleno"; break;
         }
     }
@@ -540,11 +540,11 @@ int main(int argc, char** argv) {
 
         // El marcador `@` gana en los tres niveles.
         for (const CR::Nivel n : {CR::Nivel::Raiz, CR::Nivel::Conexion, CR::Nivel::Dataset}) {
-            comprueba(dec(n, "@ayer").que == CR::Objeto::Instantanea,
+            comprueba(dec(n, "@ayer").que == CR::Objeto::Snapshot,
                       "«@» nombra una instantánea en cualquier nivel");
         }
         // Y un nombre con barra DETRÁS del arroba no lo convierte en otra cosa.
-        comprueba(dec(CR::Nivel::Raiz, "@a/b").que == CR::Objeto::Instantanea,
+        comprueba(dec(CR::Nivel::Raiz, "@a/b").que == CR::Objeto::Snapshot,
                   "«@» gana también con barras detrás");
     }
 

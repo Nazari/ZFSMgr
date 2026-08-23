@@ -424,7 +424,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // **BatchMode se emite UNA sola vez, y con el valor correcto.** En OpenSSH gana el
         // PRIMER valor de cada opción, así que poner `BatchMode=yes` delante y
         // `BatchMode=no` detrás dejaba BatchMode en «yes», que DESACTIVA la
-        // autenticación por contraseña. Resultado: cualquier conexión que dependiera de
+        // autenticación por contraseña. Result: cualquier conexión que dependiera de
         // una contraseña guardada fallaba con «Permission denied», y el motivo no estaba
         // a la vista en ninguna parte.
         //
