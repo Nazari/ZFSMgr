@@ -710,7 +710,7 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
             haySuma = true;
         }
 
-        bool casó = false;
+        bool coincidio = false;
         const auto it = porDebil.find(suma);
         if (it != porDebil.end()) {
             unsigned char h[SHA256_DIGEST_LENGTH];
@@ -752,15 +752,15 @@ bool delta(const std::string& ruta, const std::vector<Firma>& firmas, std::size_
                 }
                 ini += ventana;
                 haySuma = false;
-                casó = true;
+                coincidio = true;
                 break;
             }
         }
-        if (casó) {
+        if (coincidio) {
             continue;
         }
 
-        // No casó: este byte es literal y la ventana avanza UNO. Aquí es donde la suma
+        // No hubo coincidencia: este byte es literal y la ventana avanza UNO. Aquí es donde la suma
         // rodante se gana su nombre: se actualiza sin volver a recorrer la ventana.
         literal.push_back(static_cast<char>(buf[ini]));
         const unsigned char sale = buf[ini];

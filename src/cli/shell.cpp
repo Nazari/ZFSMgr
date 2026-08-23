@@ -571,8 +571,8 @@ bool pide(const std::string& etiqueta, const std::string& porOmision, std::strin
 // la máquina local sin decir nada.
 
 // ¿Encaja este nodo en lo que la orden pide?
-bool encaja(const ZfsmUrl& u, Objetivo qué) {
-    switch (qué) {
+bool encaja(const ZfsmUrl& u, Objetivo pedido) {
+    switch (pedido) {
         case Objetivo::Ninguno:
         case Objetivo::Cualquiera:
             return true;
@@ -598,8 +598,8 @@ bool encaja(const ZfsmUrl& u, Objetivo qué) {
 // mensaje salió sin el objeto —«hace falta  (ahora: zfsm://local)»—, que es el mismo fallo
 // que ya había mordido en `etiqueta()`. El compilador no lo ve: no es un switch incompleto,
 // es una vida útil.
-std::string nombreDe(Objetivo qué) {
-    switch (qué) {
+std::string nombreDe(Objetivo pedido) {
+    switch (pedido) {
         case Objetivo::Ninguno: return {};
         case Objetivo::Cualquiera: return {};
         case Objetivo::Conexion: return T("t_obj_conexion", "una conexión");
@@ -618,9 +618,9 @@ std::string nombreDe(Objetivo qué) {
 // eso—, pero el sitio actual se interpreta con sentido: estando en `local/tank/datos`,
 // `install-daemon` habla de la MÁQUINA, no del dataset, y no tiene sentido obligar a subir
 // a mano antes de teclearlo.
-ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo qué) {
+ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo pedido) {
     ZfsmUrl r = u;
-    switch (qué) {
+    switch (pedido) {
         case Objetivo::Conexion:
             r.pool.clear();
             r.dataset.clear();

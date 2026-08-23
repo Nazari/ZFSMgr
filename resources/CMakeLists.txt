@@ -104,6 +104,18 @@ set(CMAKE_AUTORCC ON)
 # despliega solo en la máquina remota y tiene que ir enlazado estáticamente.
 option(ZFSMGR_AGENT_ONLY "Compilar únicamente el agente, sin Qt ni GUI" OFF)
 
+# El árbol está en UTF-8, y hay que DECÍRSELO al compilador de Microsoft.
+#
+# Sin `/utf-8` lee los fuentes en la página de códigos ANSI de la máquina, así que cada
+# letra acentuada se parte en dos. En un comentario da igual; en un identificador —había
+# tres, ya renombrados— aborta con «C3872: 'U+a9': this character is not allowed in an
+# identifier», que señala un carácter que no está escrito en ninguna parte. Y en los
+# literales, que son casi todos los mensajes del programa, lo que se cuela es basura.
+# gcc y clang suponen UTF-8 por omisión, de ahí que solo lo viera el CI.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
