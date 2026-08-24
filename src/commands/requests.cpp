@@ -11,7 +11,7 @@ std::string limpia(const std::string& s) { return zfsmgr::base::trim(s); }
 // Un verbo con un argumento obligatorio. Si el argumento viene vacío se devuelve la lista
 // vacía en vez de mandar el verbo pelado: el daemon contestaría con su línea de uso y un
 // rc=2, que es un error mucho peor de leer que no haber preguntado.
-std::vector<std::string> conUno(const char* verbo, const std::string& arg) {
+std::vector<std::string> withOne(const char* verbo, const std::string& arg) {
     const std::string a = limpia(arg);
     if (a.empty()) {
         return {};
@@ -24,41 +24,41 @@ std::vector<std::string> conUno(const char* verbo, const std::string& arg) {
 std::vector<std::string> poolList() { return {"--dump-zpool-list"}; }
 
 std::vector<std::string> poolStatus(const std::string& pool) {
-    return conUno("--dump-zpool-status", pool);
+    return withOne("--dump-zpool-status", pool);
 }
 
 std::vector<std::string> poolStatusRaw(const std::string& pool) {
-    return conUno("--dump-zpool-status-p", pool);
+    return withOne("--dump-zpool-status-p", pool);
 }
 
 std::vector<std::string> poolHistory(const std::string& pool) {
-    return conUno("--dump-zpool-history", pool);
+    return withOne("--dump-zpool-history", pool);
 }
 
 std::vector<std::string> poolProperties(const std::string& pool) {
-    return conUno("--dump-zpool-get-all", pool);
+    return withOne("--dump-zpool-get-all", pool);
 }
 
 std::vector<std::string> poolGuid(const std::string& pool) {
-    return conUno("--dump-zpool-guid", pool);
+    return withOne("--dump-zpool-guid", pool);
 }
 
 std::vector<std::string> importableProbe() { return {"--dump-zpool-import-probe"}; }
 
 std::vector<std::string> datasetList(const std::string& objeto) {
-    return conUno("--dump-zfs-list-all", objeto);
+    return withOne("--dump-zfs-list-all", objeto);
 }
 
 std::vector<std::string> descendantNames(const std::string& objeto) {
-    return conUno("--dump-zfs-list-children", objeto);
+    return withOne("--dump-zfs-list-children", objeto);
 }
 
 std::vector<std::string> breakdownList(const std::string& dataset) {
-    return conUno("--dump-advanced-breakdown-list", dataset);
+    return withOne("--dump-advanced-breakdown-list", dataset);
 }
 
 std::vector<std::string> datasetProperties(const std::string& objeto) {
-    return conUno("--dump-zfs-get-all", objeto);
+    return withOne("--dump-zfs-get-all", objeto);
 }
 
 std::vector<std::string> datasetProperty(const std::string& propiedad,
@@ -75,11 +75,11 @@ std::vector<std::string> datasetProperty(const std::string& propiedad,
 }
 
 std::vector<std::string> datasetExists(const std::string& objeto) {
-    return conUno("--dump-zfs-exists", objeto);
+    return withOne("--dump-zfs-exists", objeto);
 }
 
 std::vector<std::string> guidMap(const std::string& objeto) {
-    return conUno("--dump-zfs-guid-map", objeto);
+    return withOne("--dump-zfs-guid-map", objeto);
 }
 
 std::vector<std::string> specificProperties(const std::vector<std::string>& propiedades,
@@ -121,11 +121,11 @@ std::vector<std::string> poolGuidsAndStates() { return {"--dump-zpool-guid-statu
 std::vector<std::string> mounts() { return {"--dump-zfs-mount"}; }
 
 std::vector<std::string> driveLetters(const std::string& pool) {
-    return conUno("--dump-zfs-driveletters", pool);
+    return withOne("--dump-zfs-driveletters", pool);
 }
 
 std::vector<std::string> permissionsOf(const std::string& dataset) {
-    return conUno("--dump-zfs-allow", dataset);
+    return withOne("--dump-zfs-allow", dataset);
 }
 
 std::vector<std::string> holdsOf(const std::vector<std::string>& objetos) {
@@ -153,13 +153,13 @@ std::vector<std::string> diffBetween(const std::string& instantaneaA,
 }
 
 std::vector<std::string> gsaOfDataset(const std::string& dataset) {
-    return conUno("--dump-zfs-get-gsa-raw-recursive", dataset);
+    return withOne("--dump-zfs-get-gsa-raw-recursive", dataset);
 }
 
 std::vector<std::string> gsaOfAllPools() { return {"--dump-zfs-get-gsa-raw-all-pools"}; }
 
 std::vector<std::string> directoryContents(const std::string& ruta) {
-    return conUno("--dump-dir-list", ruta);
+    return withOne("--dump-dir-list", ruta);
 }
 
 std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
@@ -193,15 +193,15 @@ std::vector<std::string> refreshBasics() { return {"--dump-refresh-basics"}; }
 std::vector<std::string> peerList() { return {"--dump-peers"}; }
 
 std::vector<std::string> zfsGeneric(const std::string& argvCodificado) {
-    return conUno("--mutate-zfs-generic", argvCodificado);
+    return withOne("--mutate-zfs-generic", argvCodificado);
 }
 
 std::vector<std::string> zpoolGeneric(const std::string& argvCodificado) {
-    return conUno("--mutate-zpool-generic", argvCodificado);
+    return withOne("--mutate-zpool-generic", argvCodificado);
 }
 
 std::vector<std::string> createDataset(const std::string& argvCodificado) {
-    return conUno("--mutate-zfs-create", argvCodificado);
+    return withOne("--mutate-zfs-create", argvCodificado);
 }
 
 std::vector<std::string> loadKey(const std::string& dataset, const std::string& frase) {
@@ -236,19 +236,19 @@ std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& ex
 }
 
 std::vector<std::string> setPeers(const std::string& cargaB64) {
-    return conUno("--mutate-set-peers", cargaB64);
+    return withOne("--mutate-set-peers", cargaB64);
 }
 
 std::vector<std::string> setBindAddress(const std::string& direccion) {
-    return conUno("--mutate-set-bind", direccion);
+    return withOne("--mutate-set-bind", direccion);
 }
 
 std::vector<std::string> rsyncCopy(const std::string& cargaB64) {
-    return conUno("--mutate-rsync-local", cargaB64);
+    return withOne("--mutate-rsync-local", cargaB64);
 }
 
 std::vector<std::string> permissionsBatch(const std::string& cargaB64) {
-    return conUno("--mutate-zfs-allow-batch", cargaB64);
+    return withOne("--mutate-zfs-allow-batch", cargaB64);
 }
 
 bool canEnqueue(const std::string& verbo) {
@@ -274,11 +274,11 @@ std::vector<std::string> enqueue(const std::vector<std::string>& orden) {
 std::vector<std::string> jobList() { return {"--job-list"}; }
 
 std::vector<std::string> jobStatus(const std::string& id) {
-    return conUno("--job-status", id);
+    return withOne("--job-status", id);
 }
 
 std::vector<std::string> cancelJob(const std::string& id) {
-    return conUno("--job-cancel", id);
+    return withOne("--job-cancel", id);
 }
 
 }  // namespace zfsmgr::commands::requests
