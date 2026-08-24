@@ -1497,6 +1497,16 @@ void MainWindow::applyPoolDetailsLoadResult(int connIdx,
             refreshSelectedPoolDetails(false, false);
         }
     }
+    // Y el panel que esté enseñando la ficha de ESE pool, que la pidió y se quedó
+    // esperando: `ensurePoolDetailsLoaded()` solo encarga la lectura y devuelve el
+    // control, así que sin repintar aquí la tabla se quedaba vacía hasta el siguiente
+    // clic.
+    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
+        const DatasetPane& pane = m_datasetPanes[paneIdx];
+        if (pane.connIdx == connIdx && pane.detailForced == QStringLiteral("pool")) {
+            updatePaneDetail(paneIdx);
+        }
+    }
 }
 
 bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& poolName) {

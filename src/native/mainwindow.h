@@ -653,6 +653,8 @@ private:
     void updatePaneDetail(int paneIdx);
     QString paneDetailPathHtml(int connIdx, const QString& poolName, const QString& datasetName,
                                const QString& snapshotName) const;
+    void showPaneConnectionDetail(int paneIdx, int connIdx);
+    void showPanePoolDetail(int paneIdx, int connIdx, const QString& poolName, bool allowLoad);
     void releaseSnapshotHoldNamed(int connIdx, const QString& poolName,
                                   const QString& datasetName, const QString& snapshotName,
                                   const QString& holdName);
@@ -1247,9 +1249,10 @@ private:
         // los lleva dentro, así que sin esto el detalle no tendría forma de saber que lo
         // que se está mirando es una instantánea y no su dataset.
         QString snapshotSel;
-        // Pulsar la conexión en el rótulo del detalle trae su ficha sin tocar lo que haya
-        // marcado en el árbol. Se deshace al marcar cualquier otra cosa.
-        bool detailForceConnection{false};
+        // Qué tramo del rótulo se ha pulsado: vacío, «conn» o «pool». Trae la ficha de
+        // ese tramo sin tocar lo que haya marcado en el árbol, y se deshace al marcar
+        // cualquier otra cosa.
+        QString detailForced;
         QTableWidget* datasetHoldsTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];

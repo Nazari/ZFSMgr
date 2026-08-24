@@ -206,14 +206,20 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     pane.detailTitle->setTextFormat(Qt::RichText);
     pane.detailTitle->setTextInteractionFlags(Qt::TextBrowserInteraction);
     pane.detailTitle->setOpenExternalLinks(false);
-    // La conexión del rótulo es un enlace: es la única parte del camino que NO está en el
-    // árbol —se elige en el desplegable—, así que sin esto su ficha se pierde en cuanto se
-    // marca cualquier cosa y no hay forma de volver a ella.
+    // Los dos primeros tramos del rótulo son enlaces.
+    //
+    // La conexión, porque no está en el árbol —se elige en el desplegable—, así que al
+    // perderse del rótulo no quedaba forma de volver a su ficha.
+    //
+    // El pool, porque su ficha —propiedades y `zpool status`— NO SE PODÍA ALCANZAR de
+    // ninguna manera: el nodo del pool en el árbol y el dataset raíz del pool son el
+    // mismo item, de modo que marcarlo siempre traía nombre de dataset y el detalle se
+    // iba por la rama del dataset. La página estaba construida y rellenándose para nadie.
     connect(pane.detailTitle, &QLabel::linkActivated, this, [this, paneIdx](const QString& href) {
-        if (href != QStringLiteral("conn")) {
+        if (href != QStringLiteral("conn") && href != QStringLiteral("pool")) {
             return;
         }
-        m_datasetPanes[paneIdx].detailForceConnection = true;
+        m_datasetPanes[paneIdx].detailForced = href;
         updatePaneDetail(paneIdx);
     });
     layout->addWidget(pane.detailTitle, 0);
@@ -372,7 +378,7 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                     return;
                 }
                 p.snapshotSel = item->data(1, Qt::UserRole).toString();
-                p.detailForceConnection = false;
+                p.detailForced.clear();
                 setSelectedDataset(paneIdx == 0 ? QStringLiteral("origin") : QStringLiteral("dest"),
                                    item->data(0, Qt::UserRole).toString(),
                                    p.snapshotSel);
@@ -614,7 +620,7 @@ QString MainWindow::paneDetailPathHtml(int connIdx, const QString& poolName,
     parts << QStringLiteral("<a href=\"conn\">%1</a>")
                  .arg(connName.isEmpty() ? QStringLiteral("?") : connName.toHtmlEscaped());
     if (!poolName.trimmed().isEmpty()) {
-        parts << poolName.trimmed().toHtmlEscaped();
+        parts << QStringLiteral("<a href=\"pool\">%1</a>").arg(poolName.trimmed().toHtmlEscaped());
     }
     // El dataset ya lleva el pool delante («tpool/datos»): se le quita para no repetirlo.
     QString object = datasetName.trimmed();
@@ -634,6 +640,73 @@ QString MainWindow::paneDetailPathHtml(int connIdx, const QString& poolName,
     return parts.join(QStringLiteral(" / "));
 }
 
+// La ficha de la conexión del panel: su perfil y su diagnóstico.
+void MainWindow::showPaneConnectionDetail(int paneIdx, int connIdx) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (!pane.detailStack || !pane.connDetailTable) {
+        return;
+    }
+    pane.detailStack->setCurrentWidget(pane.connDetailTable);
+    const auto toItems = [](const QVector<QPair<QString, QString>>& in) {
+        QVector<QStringList> out;
+        for (const auto& row : in) {
+            out.push_back({row.first, row.second});
+        }
+        return out;
+    };
+    setPairedRows(pane.connDetailTable,
+                  {toItems(connectionProfileRows(connIdx)), toItems(connectionInfoRows(connIdx))},
+                  2, 2);
+}
+
+// La ficha del pool: sus propiedades y su `zpool status`.
+//
+// `allowLoad` distingue quién pregunta. Al repintar por un cambio de selección NO se pide
+// nada por red: el detalle se rehace a cada movimiento del cursor y eso colgaría la
+// interfaz. Pulsar el pool en el rótulo es un gesto deliberado, y ahí sí toca preguntar
+// a la máquina; si no, la ficha salía vacía, que es lo que pasaba: la página no la
+// alcanzaba nadie, así que sus propiedades no se habían leído nunca.
+void MainWindow::showPanePoolDetail(int paneIdx, int connIdx, const QString& poolName,
+                                    bool allowLoad) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (!pane.detailStack || !pane.poolDetailTable || !pane.poolDetailStatus) {
+        return;
+    }
+    pane.detailStack->setCurrentWidget(pane.poolDetailTable->parentWidget());
+    pane.poolDetailTable->setRowCount(0);
+    pane.poolDetailStatus->clear();
+    // Las propiedades y el estado viven en DOS sitios y no siempre en los dos: el modelo
+    // —`poolInfo->runtime`— y la caché de detalles. `ensurePoolDetailsLoaded()` se da por
+    // satisfecho con que haya UNO de los dos cargado, así que un pool con solo el
+    // `zpool status` leído se daba por completo y las propiedades no se pedían nunca. Se
+    // mira en los dos, y se encarga la lectura si faltan las propiedades.
+    QVector<QStringList> rows;
+    QString statusText;
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName)) {
+        rows = poolInfo->runtime.zpoolPropertyRows;
+        statusText = poolInfo->runtime.poolStatusText;
+    }
+    if (const PoolDetailsCacheEntry* entry = poolDetailsEntry(connIdx, poolName)) {
+        if (rows.isEmpty()) {
+            rows = entry->propsRows;
+        }
+        if (statusText.trimmed().isEmpty()) {
+            statusText = entry->statusText;
+        }
+    }
+    if (allowLoad && rows.isEmpty()) {
+        schedulePoolDetailsLoad(connIdx, poolName);
+    }
+    QVector<QStringList> items;
+    for (const QStringList& row : std::as_const(rows)) {
+        if (row.size() >= 3) {
+            items.push_back({row.value(0), row.value(1), row.value(2)});
+        }
+    }
+    setPairedRows(pane.poolDetailTable, {items}, 3, 2);
+    pane.poolDetailStatus->setPlainText(statusText);
+}
+
 void MainWindow::updatePaneDetail(int paneIdx) {
     DatasetPane& pane = m_datasetPanes[paneIdx];
     if (!pane.detailStack || !pane.treeWidget) {
@@ -651,18 +724,7 @@ void MainWindow::updatePaneDetail(int paneIdx) {
     // Sin nada marcado, el detalle es el de la conexión del panel. Es lo que hace que
     // Properties e Info sigan estando a un clic aunque ya no cuelguen de ningún nodo.
     if (!item) {
-        pane.detailStack->setCurrentWidget(pane.connDetailTable);
-        const auto toItems = [](const QVector<QPair<QString, QString>>& in) {
-            QVector<QStringList> out;
-            for (const auto& row : in) {
-                out.push_back({row.first, row.second});
-            }
-            return out;
-        };
-        setPairedRows(pane.connDetailTable,
-                      {toItems(connectionProfileRows(pane.connIdx)),
-                       toItems(connectionInfoRows(pane.connIdx))},
-                      2, 2);
+        showPaneConnectionDetail(paneIdx, pane.connIdx);
         pane.detailTitle->setText(paneDetailPathHtml(pane.connIdx, QString(), QString(), QString()));
         return;
     }
@@ -681,21 +743,14 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                                        ? dataset
                                        : QStringLiteral("%1@%2").arg(dataset, snapshot);
         pane.detailTitle->setText(paneDetailPathHtml(connIdx, poolName, dataset, snapshot));
-        if (pane.detailForceConnection) {
-            // El enlace de la conexión manda sobre lo marcado, pero sin cambiar la marca:
-            // el camino sigue enseñándose entero y volver es marcar otra cosa.
-            pane.detailStack->setCurrentWidget(pane.connDetailTable);
-            const auto toItems = [](const QVector<QPair<QString, QString>>& in) {
-                QVector<QStringList> out;
-                for (const auto& row : in) {
-                    out.push_back({row.first, row.second});
-                }
-                return out;
-            };
-            setPairedRows(pane.connDetailTable,
-                          {toItems(connectionProfileRows(connIdx)),
-                           toItems(connectionInfoRows(connIdx))},
-                          2, 2);
+        // El tramo pulsado manda sobre lo marcado, pero sin cambiar la marca: el camino
+        // se sigue enseñando entero y volver al objeto es marcar cualquier cosa.
+        if (pane.detailForced == QStringLiteral("conn")) {
+            showPaneConnectionDetail(paneIdx, connIdx);
+            return;
+        }
+        if (pane.detailForced == QStringLiteral("pool")) {
+            showPanePoolDetail(paneIdx, connIdx, poolName, true);
             return;
         }
         pane.detailStack->setCurrentWidget(pane.datasetTabs);
@@ -746,31 +801,11 @@ void MainWindow::updatePaneDetail(int paneIdx) {
 
     if (!poolName.isEmpty() && connIdx >= 0) {
         pane.detailTitle->setText(paneDetailPathHtml(connIdx, poolName, dataset, snapshot));
-        pane.detailStack->setCurrentWidget(pane.poolDetailTable->parentWidget());
-        pane.poolDetailTable->setRowCount(0);
-        pane.poolDetailStatus->clear();
-        // Sin carga remota desde aquí: el detalle se repinta a cada cambio de selección y
-        // pedirlo por red en cada paso del cursor colgaría la interfaz. Lo que haya en
-        // caché se enseña; lo que no, lo trae el refresco.
-        if (const PoolDetailsCacheEntry* entry = poolDetailsEntry(connIdx, poolName)) {
-            QVector<QStringList> items;
-            for (const QStringList& row : entry->propsRows) {
-                if (row.size() >= 3) {
-                    items.push_back({row.value(0), row.value(1), row.value(2)});
-                }
-            }
-            setPairedRows(pane.poolDetailTable, {items}, 3, 2);
-            pane.poolDetailStatus->setPlainText(entry->statusText);
-        }
+        showPanePoolDetail(paneIdx, connIdx, poolName, false);
         return;
     }
 
-    pane.detailStack->setCurrentWidget(pane.connDetailTable);
-    QVector<QStringList> items;
-    for (const auto& row : connectionProfileRows(pane.connIdx)) {
-        items.push_back({row.first, row.second});
-    }
-    setPairedRows(pane.connDetailTable, {items}, 2, 2);
+    showPaneConnectionDetail(paneIdx, pane.connIdx);
     pane.detailTitle->setText(paneDetailPathHtml(connIdx, poolName, dataset, snapshot));
 }
 
