@@ -38,7 +38,7 @@ struct RemoteTlsMaterial {
 bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   bool forceRefresh,
                                   RemoteTlsMaterial& out,
-                                  MotivoFallo* failureReason = nullptr);
+                                  FailureReason* failureReason = nullptr);
 
 // Vacía la caché en memoria del material TLS remoto. Hace falta cuando se reaprovisiona
 // una conexión: si no, se seguiría hablando con el certificado viejo hasta cinco minutos.
@@ -68,7 +68,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                                    std::string& out,
                                    std::string& err,
                                    int& rc,
-                                   MotivoFallo* failureReason = nullptr,
+                                   FailureReason* failureReason = nullptr,
                                    bool* commandMayHaveRunOut = nullptr);
 
 }  // namespace zfsmgr::base::transport

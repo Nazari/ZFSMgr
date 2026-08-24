@@ -208,79 +208,79 @@ QString ConnectionStore::trk(const QString& key,
 
 // --- Traducción de los motivos tipificados.
 //
-// La capa base devuelve un `Aviso` con motivo y datos; el texto se decide AQUÍ, que es
+// La capa base devuelve un `Warning` con motivo y datos; el texto se decide AQUÍ, que es
 // donde vive el idioma. Es el mismo reparto que en connectioncapabilities, y es lo que
 // permitió sacar el almacén de Qt sin llevarse consigo el sistema de traducción.
 // Atajo para los sitios que solo necesitan el texto de un motivo.
 QString ConnectionStore::aviso(BS::Reason m, const QString& conexion, const QString& campo,
                                const QString& detalle) const {
-    return traduce(BS::Aviso{m, conexion.toStdString(), campo.toStdString(), detalle.toStdString()});
+    return traduce(BS::Warning{m, conexion.toStdString(), campo.toStdString(), detalle.toStdString()});
 }
 
-QString ConnectionStore::traduce(const BS::Aviso& a) const {
+QString ConnectionStore::traduce(const BS::Warning& a) const {
     using M = BS::Reason;
-    const QString conexion = QString::fromStdString(a.conexion);
-    const QString campo = QString::fromStdString(a.campo);
-    const QString detalle = QString::fromStdString(a.detalle);
-    switch (a.motivo) {
+    const QString conexion = QString::fromStdString(a.connection);
+    const QString campo = QString::fromStdString(a.field);
+    const QString detalle = QString::fromStdString(a.detail);
+    switch (a.reason) {
         case M::None_:
             return QString();
-        case M::ConfigNoSeAbre:
+        case M::ConfigCannotBeOpened:
             return trk(QStringLiteral("t_cfg_json_read_open_err"),
                        QStringLiteral("No se pudo abrir config.json"),
                        QStringLiteral("Could not open config.json"),
                        QStringLiteral("无法打开 config.json"));
-        case M::ConfigNoValido:
+        case M::ConfigNotValid:
             return trk(QStringLiteral("t_cfg_json_parse_err"),
                        QStringLiteral("config.json no es válido"),
                        QStringLiteral("config.json is invalid"),
                        QStringLiteral("config.json 无效"));
-        case M::ConfigDirNoSeCrea:
+        case M::ConfigDirCannotBeCreated:
             return trk(QStringLiteral("t_cfg_json_dir_err"),
                        QStringLiteral("No se pudo crear el directorio de configuración"),
                        QStringLiteral("Could not create configuration directory"),
                        QStringLiteral("无法创建配置目录"));
-        case M::ConfigNoSeEscribe:
+        case M::ConfigCannotBeWritten:
             return trk(QStringLiteral("t_cfg_json_write_open_err"),
                        QStringLiteral("No se pudo escribir config.json"),
                        QStringLiteral("Could not write config.json"),
                        QStringLiteral("无法写入 config.json"));
-        case M::TrustNoSeAbre:
+        case M::TrustCannotBeOpened:
             return trk(QStringLiteral("t_trust_json_read_open_err"),
                        QStringLiteral("No se pudo abrir trust-store.json"),
                        QStringLiteral("Could not open trust-store.json"),
                        QStringLiteral("无法打开 trust-store.json"));
-        case M::TrustNoValido:
+        case M::TrustNotValid:
             return trk(QStringLiteral("t_trust_json_parse_err"),
                        QStringLiteral("trust-store.json no es válido"),
                        QStringLiteral("trust-store.json is invalid"),
                        QStringLiteral("trust-store.json 无效"));
-        case M::TrustNoSeEscribe:
+        case M::TrustCannotBeWritten:
             return trk(QStringLiteral("t_trust_json_write_open_err"),
                        QStringLiteral("No se pudo escribir trust-store.json"),
                        QStringLiteral("Could not write trust-store.json"),
                        QStringLiteral("无法写入 trust-store.json"));
-        case M::ClaveMaestraRequerida:
+        case M::MasterPasswordRequired:
             return trk(QStringLiteral("t_cstore_auto003"),
                        QStringLiteral("Password maestro requerido"),
                        QStringLiteral("Master password required"),
                        QStringLiteral("需要主密码"));
-        case M::ClaveMaestraRequeridaParaCifrar:
+        case M::MasterPasswordRequiredToEncrypt:
             return trk(QStringLiteral("t_cstore_tls_mp_required_001"),
                        QStringLiteral("Password maestro requerido para cifrar %1"),
                        QStringLiteral("Master password required to encrypt %1"),
                        QStringLiteral("需要主密码才能加密 %1")).arg(campo);
-        case M::NuevaClaveMaestraVacia:
+        case M::NewMasterPasswordEmpty:
             return trk(QStringLiteral("t_cstore_auto016"),
                        QStringLiteral("Nuevo password maestro vacío"),
                        QStringLiteral("New master password is empty"),
                        QStringLiteral("新主密码为空"));
-        case M::NoSeCifra:
+        case M::CannotEncrypt:
             return trk(QStringLiteral("t_cstore_tls_enc_fail_001"),
                        QStringLiteral("No se pudo cifrar %1: %2"),
                        QStringLiteral("Could not encrypt %1: %2"),
                        QStringLiteral("无法加密 %1：%2")).arg(campo, detalle);
-        case M::NoSeDescifra:
+        case M::CannotDecrypt:
             return QStringLiteral("%1.%2: %3").arg(
                 conexion, campo,
                 detalle.trimmed().isEmpty()
@@ -289,42 +289,42 @@ QString ConnectionStore::traduce(const BS::Aviso& a) const {
                           QStringLiteral("could not decrypt"),
                           QStringLiteral("无法解密"))
                     : detalle);
-        case M::CampoIncorrecto:
+        case M::WrongField:
             return trk(QStringLiteral("t_cstore_auto002"),
                        QStringLiteral("%1: %2 incorrecto"),
                        QStringLiteral("%1: invalid %2"),
                        QStringLiteral("%1：%2 无效")).arg(conexion, campo);
-        case M::IdVacio:
+        case M::EmptyId:
             return trk(QStringLiteral("t_cstore_auto012"),
                        QStringLiteral("ID vacío"),
                        QStringLiteral("Empty ID"),
                        QStringLiteral("ID 为空"));
-        case M::NombreRequerido:
+        case M::NameRequired:
             return trk(QStringLiteral("t_cstore_auto006"),
                        QStringLiteral("Nombre requerido"),
                        QStringLiteral("Name required"),
                        QStringLiteral("需要名称"));
-        case M::HostRequerido:
+        case M::HostRequired:
             return trk(QStringLiteral("t_cstore_auto007"),
                        QStringLiteral("Host requerido"),
                        QStringLiteral("Host required"),
                        QStringLiteral("需要主机"));
-        case M::UsuarioRequerido:
+        case M::UserRequired:
             return trk(QStringLiteral("t_cstore_auto008"),
                        QStringLiteral("Usuario requerido"),
                        QStringLiteral("User required"),
                        QStringLiteral("需要用户"));
-        case M::NombreDuplicado:
+        case M::DuplicateName:
             return trk(QStringLiteral("t_conn_name_unique_01"),
                        QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
                        QStringLiteral("Connection name already exists. It must be unique."),
                        QStringLiteral("连接名称已存在，必须唯一。"));
-        case M::NoSeGuardaConexion:
+        case M::ConnectionNotSaved:
             return trk(QStringLiteral("t_cstore_json_upsert_err"),
                        QStringLiteral("No se pudo guardar la conexión"),
                        QStringLiteral("Could not save the connection"),
                        QStringLiteral("无法保存该连接"));
-        case M::PerfilPsrpConvertido:
+        case M::PsrpProfileConverted:
             return QStringLiteral("%1: %2").arg(
                 conexion,
                 trk(QStringLiteral("t_cstore_psrp001"),
@@ -360,8 +360,8 @@ QString ConnectionStore::trustStorePath() const {
 
 
 QJsonObject ConnectionStore::loadConfigJson(QString* error) const {
-    BS::Aviso a;
-    const BJ::Value v = BS::leerConfig(bs(configDir()), a);
+    BS::Warning a;
+    const BJ::Value v = BS::readConfig(bs(configDir()), a);
     if (error) {
         *error = traduce(a);
     }
@@ -369,8 +369,8 @@ QJsonObject ConnectionStore::loadConfigJson(QString* error) const {
 }
 
 bool ConnectionStore::saveConfigJson(const QJsonObject& root, QString* error) const {
-    BS::Aviso a;
-    const bool ok = BS::escribirConfig(bs(configDir()), deQtJson(root), a);
+    BS::Warning a;
+    const bool ok = BS::writeConfig(bs(configDir()), deQtJson(root), a);
     if (error) {
         *error = traduce(a);
     }
@@ -378,8 +378,8 @@ bool ConnectionStore::saveConfigJson(const QJsonObject& root, QString* error) co
 }
 
 QJsonObject ConnectionStore::loadTrustStoreJson(QString* error) const {
-    BS::Aviso a;
-    const BJ::Value v = BS::leerTrustStore(bs(configDir()), a);
+    BS::Warning a;
+    const BJ::Value v = BS::readTrustStore(bs(configDir()), a);
     if (error) {
         *error = traduce(a);
     }
@@ -387,8 +387,8 @@ QJsonObject ConnectionStore::loadTrustStoreJson(QString* error) const {
 }
 
 bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error) const {
-    BS::Aviso a;
-    const bool ok = BS::escribirTrustStore(bs(configDir()), deQtJson(root), a);
+    BS::Warning a;
+    const bool ok = BS::writeTrustStore(bs(configDir()), deQtJson(root), a);
     if (error) {
         *error = traduce(a);
     }
@@ -397,8 +397,8 @@ bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error
 
 bool ConnectionStore::upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const {
     error.clear();
-    BS::Aviso aviso;
-    if (zfsmgr::base::store::guardaTlsEnAlmacen(configDir().toStdString(), aBase(profile),
+    BS::Warning aviso;
+    if (zfsmgr::base::store::saveTlsToStore(configDir().toStdString(), aBase(profile),
                                                 m_masterPassword.toStdString(), aviso)) {
         return true;
     }
@@ -444,12 +444,12 @@ void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>&
     for (const ConnectionProfile& p : profiles) {
         base.push_back(aBase(p));
     }
-    BS::Avisos avisos;
+    BS::Warnings avisos;
     zfsmgr::base::json::Value trustBase;
     std::string parseErr;
     if (zfsmgr::base::json::parse(QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)).toStdString(),
                                   trustBase, &parseErr)) {
-        zfsmgr::base::connjson::fundeTrustStore(base, trustBase, m_masterPassword.toStdString(), avisos);
+        zfsmgr::base::connjson::mergeTrustStore(base, trustBase, m_masterPassword.toStdString(), avisos);
     }
     // Se vuelca el vector ENTERO y no posición a posición: la fusión puede AÑADIR perfiles
     // —una entrada del almacén sin conexión que le corresponda— y copiando solo los que
@@ -458,7 +458,7 @@ void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>&
     for (const BP::ConnectionProfile& b : base) {
         profiles.push_back(deBase(b));
     }
-    for (const BS::Aviso& a : avisos) {
+    for (const BS::Warning& a : avisos) {
         warnings.push_back(traduce(a));
     }
 }
@@ -481,8 +481,8 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     // La comprobación la hace la capa base, que es donde la usa también el intérprete.
     // Aquí solo se redacta el motivo.
     error.clear();
-    BS::Aviso aviso;
-    if (zfsmgr::base::store::maestraAbreTodo(configDir().toStdString(),
+    BS::Warning aviso;
+    if (zfsmgr::base::store::masterOpensEverything(configDir().toStdString(),
                                              m_masterPassword.toStdString(), aviso)) {
         return true;
     }
@@ -551,7 +551,7 @@ LoadResult ConnectionStore::loadConnections() const {
         // Antes de ensurePort: la conversión decide el puerto y no debe pisarla nadie.
         if (migratePsrpProfileToSsh(p)) {
             result.warnings.push_back(
-                aviso(BS::Reason::PerfilPsrpConvertido, p.name.isEmpty() ? p.id : p.name));
+                aviso(BS::Reason::PsrpProfileConverted, p.name.isEmpty() ? p.id : p.name));
         }
         p.port = ensurePort(p.connType, p.port);
 
@@ -560,10 +560,10 @@ LoadResult ConnectionStore::loadConnections() const {
         // las dos mitades.
         {
             BP::ConnectionProfile bp = aBase(p);
-            BS::Avisos avisos;
-            zfsmgr::base::connjson::abreSecretos(bp, m_masterPassword.toStdString(), avisos);
+            BS::Warnings avisos;
+            zfsmgr::base::connjson::openSecrets(bp, m_masterPassword.toStdString(), avisos);
             p = deBase(bp);
-            for (const BS::Aviso& a : avisos) {
+            for (const BS::Warning& a : avisos) {
                 result.warnings.push_back(traduce(a));
             }
         }
@@ -582,7 +582,7 @@ LoadResult ConnectionStore::loadConnections() const {
         for (const ConnectionProfile& p : result.profiles) {
             base.push_back(aBase(p));
         }
-        zfsmgr::base::connjson::aseguraPerfilLocal(base, currentLocalMachineUid().toStdString());
+        zfsmgr::base::connjson::ensureLocalProfile(base, currentLocalMachineUid().toStdString());
         result.profiles.clear();
         for (const BP::ConnectionProfile& b : base) {
             result.profiles.push_back(deBase(b));
@@ -595,15 +595,15 @@ LoadResult ConnectionStore::loadConnections() const {
 bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString& error) {
     error.clear();
     if (profile.name.trimmed().isEmpty()) {
-        error = aviso(BS::Reason::NombreRequerido);
+        error = aviso(BS::Reason::NameRequired);
         return false;
     }
     if (profile.host.trimmed().isEmpty()) {
-        error = aviso(BS::Reason::HostRequerido);
+        error = aviso(BS::Reason::HostRequired);
         return false;
     }
     if (profile.username.trimmed().isEmpty()) {
-        error = aviso(BS::Reason::UsuarioRequerido);
+        error = aviso(BS::Reason::UserRequired);
         return false;
     }
 
@@ -632,7 +632,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
             continue;
         }
         if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
-            error = aviso(BS::Reason::NombreDuplicado);
+            error = aviso(BS::Reason::DuplicateName);
             return false;
         }
     }
@@ -644,8 +644,8 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     // intérprete no tiene y que no le voy a imponer de rebote.
     ConnectionProfile toSave = profile;
     toSave.id = id;
-    BS::Aviso avisoGuardar;
-    if (!zfsmgr::base::store::guardaPerfil(configDir().toStdString(), aBase(toSave),
+    BS::Warning avisoGuardar;
+    if (!zfsmgr::base::store::saveProfile(configDir().toStdString(), aBase(toSave),
                                            m_masterPassword.toStdString(), avisoGuardar)) {
         error = traduce(avisoGuardar);
         return false;
@@ -655,14 +655,14 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
 
 bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     error.clear();
-    BS::Aviso aviso;
-    if (zfsmgr::base::store::borraPerfil(configDir().toStdString(), id.toStdString(), aviso)) {
+    BS::Warning aviso;
+    if (zfsmgr::base::store::deleteProfile(configDir().toStdString(), id.toStdString(), aviso)) {
         return true;
     }
     // Que no hubiera ninguna con ese identificador no era un fallo por este lado: se
     // guardaba igual y se devolvía true. Se conserva ese trato para no cambiar de paso lo
     // que hace la interfaz al borrar algo que ya no está.
-    if (aviso.motivo == BS::Reason::NoSeGuardaConexion) {
+    if (aviso.reason == BS::Reason::ConnectionNotSaved) {
         return true;
     }
     error = traduce(aviso);
@@ -671,8 +671,8 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
 
 bool ConnectionStore::encryptStoredPasswords(QString& error) {
     error.clear();
-    BS::Aviso aviso;
-    if (zfsmgr::base::store::cifraLoQueFalte(configDir().toStdString(),
+    BS::Warning aviso;
+    if (zfsmgr::base::store::encryptWhatIsMissing(configDir().toStdString(),
                                              m_masterPassword.toStdString(), aviso)) {
         return true;
     }
@@ -689,8 +689,8 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
     // se puede comprobar sin arrancar una ventana.
     error.clear();
     std::string copiaSufijo;
-    zfsmgr::base::store::Aviso aviso;
-    if (zfsmgr::base::store::rotaClaveMaestra(configDir().toStdString(),
+    zfsmgr::base::store::Warning aviso;
+    if (zfsmgr::base::store::rotateMasterKey(configDir().toStdString(),
                                               oldMasterPassword.toStdString(),
                                               newMasterPassword.toStdString(),
                                               copiaSufijo, aviso)) {

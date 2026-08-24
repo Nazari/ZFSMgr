@@ -198,7 +198,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     // Los avisos —los que son PROSA— llegan tipificados y se redactan aquí, que es donde
     // se sabe el idioma. El transporte solo dice cuál es; ver transportNoticeText.
     m_transport.avisoSink = [this](TransportSession::Nivel n, const std::string& connId,
-                                   const zfsmgr::base::transport::NotaDeAviso& a) {
+                                   const zfsmgr::base::transport::WarningNote& a) {
         m_transport.logConn(n, connId, transportNoticeText(a).toStdString());
     };
     m_transport.sink = [this](TransportSession::Nivel n, const std::string& connId,
@@ -1871,7 +1871,7 @@ QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QStringLis
         return {};
     }
     return mwhelpers::argvQt(zfsmgr::commands::requests::zpoolGeneric(
-        mwhelpers::argvParaAgente(argv).toStdString()));
+        mwhelpers::agentArgv(argv).toStdString()));
 }
 
 QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const {
@@ -1909,7 +1909,7 @@ QStringList MainWindow::daemonizeZpoolMutationArgs(int connIdx, const QString& r
         return {};
     }
     const QString payloadB64 =
-        mwhelpers::argvParaAgente(arr);
+        mwhelpers::agentArgv(arr);
     return mwhelpers::argvQt(
         zfsmgr::commands::requests::zpoolGeneric(payloadB64.toStdString()));
 }
@@ -1934,7 +1934,7 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QStringList&
         return {};
     }
     return mwhelpers::argvQt(zfsmgr::commands::requests::zfsGeneric(
-        mwhelpers::argvParaAgente(argv).toStdString()));
+        mwhelpers::agentArgv(argv).toStdString()));
 }
 
 QStringList MainWindow::daemonizeZfsAllowBatchArgs(int connIdx,
@@ -1965,10 +1965,10 @@ QStringList MainWindow::daemonizeZfsAllowBatchArgs(int connIdx,
         if (op != QStringLiteral("allow") && op != QStringLiteral("unallow")) {
             return {};
         }
-        lote.push_back(mwhelpers::argvParaAgente(argv));
+        lote.push_back(mwhelpers::agentArgv(argv));
     }
     return mwhelpers::argvQt(zfsmgr::commands::requests::permissionsBatch(
-        mwhelpers::argvParaAgente(lote).toStdString()));
+        mwhelpers::agentArgv(lote).toStdString()));
 }
 
 QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const {
@@ -2002,7 +2002,7 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& raw
         return {};
     }
     const QString payloadB64 =
-        mwhelpers::argvParaAgente(arr);
+        mwhelpers::agentArgv(arr);
     return mwhelpers::argvQt(
         zfsmgr::commands::requests::zfsGeneric(payloadB64.toStdString()));
 }
@@ -2057,9 +2057,9 @@ QStringList MainWindow::daemonizeLocalSendRecvArgs(int connIdx,
     }
 
     QStringList outer;
-    outer.push_back(mwhelpers::argvParaAgente(sendArgv));
-    outer.push_back(mwhelpers::argvParaAgente(recvArgv));
-    const QString payloadB64 = mwhelpers::argvParaAgente(outer);
+    outer.push_back(mwhelpers::agentArgv(sendArgv));
+    outer.push_back(mwhelpers::agentArgv(recvArgv));
+    const QString payloadB64 = mwhelpers::agentArgv(outer);
     return {QStringLiteral("--zfs-pipe-local"), payloadB64};
 }
 

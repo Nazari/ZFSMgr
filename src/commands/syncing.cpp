@@ -115,7 +115,7 @@ std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>&
         campos.push_back(o);
         campos.push_back(d);
     }
-    return helpers::argvParaAgente(campos);
+    return helpers::agentArgv(campos);
 }
 
 }  // namespace zfsmgr::base::syncing

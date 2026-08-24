@@ -18,7 +18,7 @@ namespace zfsmgr::base::tlsserver {
 //
 // Lleva subjectAltName, keyUsage y extendedKeyUsage porque sin ellos el backend TLS de
 // Apple los rechaza. Los ficheros quedan con permisos solo del dueño.
-bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaClave,
+bool writeSelfSignedPair(const std::string& rutaCert, const std::string& rutaClave,
                            const std::string& commonName, bool paraServidor,
                            const std::string& altNames, std::string& error);
 
@@ -35,7 +35,7 @@ using Escritor = std::function<bool(const char* datos, std::size_t cuantos)>;
 // `alEscuchar`, si se pasa, se llama UNA vez y solo cuando el socket ya está escuchando.
 // Es donde va el cartel de «servidor en marcha»: escribirlo antes de llamar aquí deja al
 // usuario con una URL que nunca funcionó cuando el puerto estaba cogido.
-bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
+bool serve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string& peticion, std::string& respuesta)>& atiende,
            const std::function<bool()>& sigueVivo, std::string& error,

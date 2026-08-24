@@ -81,7 +81,7 @@ std::string errorDeOpenssl() {
 
 }  // namespace
 
-bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaClave,
+bool writeSelfSignedPair(const std::string& rutaCert, const std::string& rutaClave,
                            const std::string& commonName, bool paraServidor,
                            const std::string& altNames, std::string& error) {
     EVP_PKEY* pkey = EVP_RSA_gen(2048);
@@ -153,7 +153,7 @@ bool escribeParAutofirmado(const std::string& rutaCert, const std::string& rutaC
     return true;
 }
 
-bool sirve(const std::string& bind, int puerto, const std::string& rutaCert,
+bool serve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::string& rutaClave,
            const std::function<bool(const std::string&, std::string&)>& atiende,
            const std::function<bool()>& sigueVivo, std::string& error,

@@ -3,7 +3,7 @@
 #include "mainwindow_helpers.h"
 
 #include "base/helpers.h"
-#include "base/sistemaoperativo.h"
+#include "base/osinfo.h"
 
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -438,7 +438,7 @@ constexpr int kFdDeLaClave = 3;
 // órdenes. Devuelve los argumentos que hay que anteponer, o una lista vacía si no se pudo
 // —en cuyo caso quien llama debe lanzar `ssh` a secas, nunca sshpass con «-p»—.
 QStringList preparaClavePorDescriptor(QProcess& proc,
-                                      const std::shared_ptr<zfsmgr::base::helpers::SecretoPorDescriptor>& secreto) {
+                                      const std::shared_ptr<zfsmgr::base::helpers::SecretFromDescriptor>& secreto) {
 #ifdef Q_OS_UNIX
     if (!secreto || !secreto->vale()) {
         return {};
@@ -470,11 +470,11 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     // La contraseña NO entra en los argumentos: viaja por un descriptor. El prefijo de
     // sshpass se antepone más abajo, cuando ya existe el QProcess al que hay que
     // engancharle ese descriptor.
-    std::shared_ptr<zfsmgr::base::helpers::SecretoPorDescriptor> secreto;
+    std::shared_ptr<zfsmgr::base::helpers::SecretFromDescriptor> secreto;
     if (hasPassword) {
         const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
         if (!sshpassExe.isEmpty()) {
-            secreto = std::make_shared<zfsmgr::base::helpers::SecretoPorDescriptor>(
+            secreto = std::make_shared<zfsmgr::base::helpers::SecretFromDescriptor>(
                 p.password.toStdString());
             if (secreto->vale()) {
                 program = sshpassExe;
@@ -574,11 +574,11 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
     QString program = QStringLiteral("ssh");
     QStringList args;
     bool usingSshpass = false;
-    std::shared_ptr<zfsmgr::base::helpers::SecretoPorDescriptor> secreto;
+    std::shared_ptr<zfsmgr::base::helpers::SecretFromDescriptor> secreto;
     if (hasPassword) {
         const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
         if (!sshpassExe.isEmpty()) {
-            secreto = std::make_shared<zfsmgr::base::helpers::SecretoPorDescriptor>(
+            secreto = std::make_shared<zfsmgr::base::helpers::SecretFromDescriptor>(
                 p.password.toStdString());
             if (secreto->vale()) {
                 program = sshpassExe;
@@ -697,7 +697,7 @@ bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
             // quitaba las comillas del valor.
             if (runSshProbe(p, QStringLiteral("cat /etc/os-release"), 8000, lOut, lErr)) {
                 flavorOut = QString::fromStdString(
-                    zfsmgr::base::sistemaoperativo::deOsRelease(lOut.toStdString()));
+                    zfsmgr::base::osinfo::fromOsRelease(lOut.toStdString()));
             }
             if (flavorOut.isEmpty()) {
                 flavorOut = QStringLiteral("Linux");
@@ -714,7 +714,7 @@ bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
             runSshProbe(p, QStringLiteral("system_profiler SPSoftwareDataType"), 10000, mOut,
                         mErr);
             fullText = QString::fromStdString(
-                zfsmgr::base::sistemaoperativo::deSystemProfiler(mOut.toStdString()));
+                zfsmgr::base::osinfo::fromSystemProfiler(mOut.toStdString()));
             mOut.clear();
             mErr.clear();
             runSshProbe(p, QStringLiteral("sw_vers -productVersion"), 8000, mOut, mErr);

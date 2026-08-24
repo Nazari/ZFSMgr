@@ -1,5 +1,5 @@
 #include "mainwindow.h"
-#include "base/procesos.h"
+#include "base/processes.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -102,7 +102,7 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
     if (rootPid <= 0) {
         return;
     }
-    // Todo el recorrido vive en la capa base (`base::mataDescendencia`), que además es
+    // Todo el recorrido vive en la capa base (`base::killDescendants`), que además es
     // donde ya estaba la regla de no meter nunca un intérprete por medio.
     //
     // Antes esto era un guion de `sh -lc` que llamaba a `pgrep -P` una vez por proceso y
@@ -111,7 +111,7 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
     // y no un proceso: se cambia una decena larga de lanzamientos por uno. El tope de ocho
     // niveles desaparece de paso —no tenía por qué existir— y la rama de Windows, que era
     // un `#ifdef` aquí arriba, se queda dentro de la misma función.
-    zfsmgr::base::mataDescendencia(static_cast<long long>(rootPid));
+    zfsmgr::base::killDescendants(static_cast<long long>(rootPid));
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

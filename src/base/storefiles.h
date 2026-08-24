@@ -16,19 +16,19 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::store {
 
-std::string rutaConfig(const std::string& dirConfig);
-std::string rutaTrustStore(const std::string& dirConfig);
+std::string configPath(const std::string& dirConfig);
+std::string trustStorePath(const std::string& dirConfig);
 
 // Que el fichero NO exista no es un aviso: es el primer arranque. Devuelve un objeto
 // vacío y `aviso` sin motivo.
-json::Value leerConfig(const std::string& dirConfig, Aviso& aviso);
-json::Value leerTrustStore(const std::string& dirConfig, Aviso& aviso);
+json::Value readConfig(const std::string& dirConfig, Warning& aviso);
+json::Value readTrustStore(const std::string& dirConfig, Warning& aviso);
 
 // Escriben con permisos **solo del dueño**, fijados ANTES de volcar el contenido: al
 // revés quedaría un instante con el fichero ya lleno de secretos cifrados y los
 // permisos que dejara el umask.
-bool escribirConfig(const std::string& dirConfig, const json::Value& root, Aviso& aviso);
-bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, Aviso& aviso);
+bool writeConfig(const std::string& dirConfig, const json::Value& root, Warning& aviso);
+bool writeTrustStore(const std::string& dirConfig, const json::Value& root, Warning& aviso);
 
 // Cambia la CLAVE MAESTRA: descifra con la vieja y vuelve a cifrar con la nueva TODO lo
 // que cuelga de ella, en los dos ficheros.
@@ -44,8 +44,8 @@ bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, A
 //
 // Vive en la capa base, y no en la interfaz, porque el intérprete la necesita igual: era
 // la última cosa que solo se podía hacer con una ventana delante.
-bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
-                      const std::string& nueva, std::string& copiaSufijo, Aviso& aviso);
+bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
+                      const std::string& nueva, std::string& copiaSufijo, Warning& aviso);
 
 // Guarda un perfil en `config.json`: sustituye el que tenga su identificador o lo añade.
 //
@@ -63,8 +63,8 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
 //
 // La validación de los campos y de dónde sale el identificador NO está aquí: cada mitad
 // tiene la suya y son políticas distintas.
-bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
-                  const std::string& maestra, Aviso& aviso);
+bool saveProfile(const std::string& dirConfig, const ConnectionProfile& p,
+                  const std::string& maestra, Warning& aviso);
 
 // Guarda en el almacén de confianza el material TLS negociado con una máquina.
 //
@@ -75,8 +75,8 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
 //
 // Las conexiones LOCALES no van al almacén, y las que no traigan material tampoco: no hay
 // nada que fijar.
-bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p,
-                        const std::string& maestra, Aviso& aviso);
+bool saveTlsToStore(const std::string& dirConfig, const ConnectionProfile& p,
+                        const std::string& maestra, Warning& aviso);
 
 // Cifra lo que haya quedado EN CLARO en los dos ficheros. Lo ya cifrado no se toca —no se
 // sabe con qué clave está, y volver a cifrarlo exigiría abrirlo primero—.
@@ -84,7 +84,7 @@ bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p
 // Es la migración de una configuración que se escribió sin clave maestra, o de un campo
 // que se coló en claro. No lleva copia de seguridad como la rotación: aquí no hay nada que
 // perder, porque lo único que cambia es de legible a ilegible.
-bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, Aviso& aviso);
+bool encryptWhatIsMissing(const std::string& dirConfig, const std::string& maestra, Warning& aviso);
 
 // Quita una conexión de los DOS ficheros.
 //
@@ -94,12 +94,12 @@ bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, A
 // «oldlau» en el intérprete desaparecía de config.json y volvía a la lista al reabrir.
 //
 // Devuelve false solo si no había ninguna con ese identificador o si no se pudo escribir.
-bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& aviso);
+bool deleteProfile(const std::string& dirConfig, const std::string& id, Warning& aviso);
 
 // ¿Hay ALGO cifrado en los dos ficheros? Si no lo hay, pedir la contraseña maestra es
 // fricción sin motivo, y esa es la clase de fricción que acaba con la contraseña escrita
 // en un alias del intérprete de órdenes.
-bool hayAlgoCifrado(const std::string& dirConfig);
+bool hasSomethingEncrypted(const std::string& dirConfig);
 
 // ¿Abre esta maestra TODO lo que hay cifrado? Devuelve el primer campo que no abrió.
 //
@@ -112,6 +112,6 @@ bool hayAlgoCifrado(const std::string& dirConfig);
 // para saber que la clave es la buena; pero también detecta una configuración a MEDIO
 // ROTAR, con unos campos en la clave nueva y otros en la vieja, que es justo lo que puede
 // dejar una rotación interrumpida.
-bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, Aviso& aviso);
+bool masterOpensEverything(const std::string& dirConfig, const std::string& maestra, Warning& aviso);
 
 }  // namespace zfsmgr::base::store

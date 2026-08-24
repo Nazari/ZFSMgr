@@ -2,39 +2,40 @@
 
 #include <string>
 
-// Las versiones del AGENTE: la que espera este cliente, cómo se ordenan dos, y cuál
-// declara un binario que está en disco.
+// AGENT versions: the one this client expects, how two of them order, and which one a
+// binary sitting on disk declares.
 //
-// Vive en la capa base porque el intérprete las necesita igual que la interfaz: hoy marca
-// con « * » la máquina cuya versión no es la esperada, y al instalar escribe una versión
-// en `agent.conf`. Tenía su propia manera de hacer las dos cosas, más pobre —comparaba
-// cadenas con `!=` y escribía la versión con la que se compiló él, no la del binario que
-// estaba copiando—, y esa es exactamente la clase de divergencia que la capa base existe
-// para evitar.
+// It lives in the base layer because the shell needs them just as much as the interface
+// does: today it marks with a « * » the machine whose version is not the expected one, and
+// on install it writes a version into `agent.conf`. It used to have its own way of doing
+// both, a poorer one —it compared strings with `!=` and wrote the version it had itself been
+// built with, not the one of the binary it was copying—, and that is exactly the kind of
+// divergence the base layer exists to prevent.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::agentversion {
 
-// La que este cliente espera. Del compilador: lleva el sufijo del marcador de esquema.
-std::string laEsperada();
+// The one this client expects. From the compiler: it carries the schema-marker suffix.
+std::string expected();
 
-// La versión del PROTOCOLO, que no es la del agente y cambia mucho menos.
-std::string apiEsperada();
+// The PROTOCOL version, which is not the agent's and changes far less often.
+std::string expectedApi();
 
-// Ordena dos versiones «may.men.par[rcN][.sufijo]». Devuelve <0, 0 o >0.
+// Orders two «maj.min.patch[rcN][.suffix]» versions. Returns <0, 0 or >0.
 //
-// Un candidato a release —«0.93.0rc1»— va ANTES que su final. Lo que no encaje en la
-// forma se compara como texto, que no es correcto pero es predecible.
-int compara(const std::string& a, const std::string& b);
+// A release candidate —«0.93.0rc1»— comes BEFORE its final. Anything that does not fit the
+// shape is compared as text, which is not correct but is predictable.
+int compare(const std::string& a, const std::string& b);
 
-// La versión que declara un binario de agente, leyéndola del FICHERO.
+// The version an agent binary declares, read out of the FILE.
 //
-// Hace falta leerla así porque el agente empaquetado suele ser de otra plataforma y no se
-// puede ejecutar aquí para preguntárselo.
+// It has to be read that way because the bundled agent is usually for another platform and
+// cannot be run here to be asked.
 //
-// **Busca cualquier versión bien formada, no la de esta compilación.** Antes se anclaba al
-// prefijo de la versión actual, y por eso NO encontraba nada justo en el caso que
-// importa: un agente empaquetado de otra versión —que es cuando hay algo que avisar—.
-std::string versionEnBinario(const std::string& ruta);
+// **It looks for any well-formed version, not this build's.** It used to be anchored to the
+// current version's prefix, and that is why it found NOTHING in exactly the case that
+// matters: a bundled agent of a different version —which is when there is something to warn
+// about—.
+std::string versionInBinary(const std::string& path);
 
 }  // namespace zfsmgr::base::agentversion

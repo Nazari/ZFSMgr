@@ -354,7 +354,7 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
     return join(parts, " ");
 }
 
-std::string argvParaAgente(const std::vector<std::string>& argv) {
+std::string agentArgv(const std::vector<std::string>& argv) {
     json::Value arr{json::Array{}};
     for (const std::string& a : argv) {
         arr.push(json::Value(a));
@@ -362,7 +362,7 @@ std::string argvParaAgente(const std::vector<std::string>& argv) {
     return base64Encode(json::toCompact(arr));
 }
 
-SecretoPorDescriptor::SecretoPorDescriptor(const std::string& secreto) {
+SecretFromDescriptor::SecretFromDescriptor(const std::string& secreto) {
 #ifndef _WIN32
     int tubo[2] = {-1, -1};
     if (pipe(tubo) != 0) {
@@ -390,7 +390,7 @@ SecretoPorDescriptor::SecretoPorDescriptor(const std::string& secreto) {
 #endif
 }
 
-SecretoPorDescriptor::~SecretoPorDescriptor() {
+SecretFromDescriptor::~SecretFromDescriptor() {
 #ifndef _WIN32
     if (m_fd >= 0) {
         ::close(m_fd);
@@ -398,15 +398,15 @@ SecretoPorDescriptor::~SecretoPorDescriptor() {
 #endif
 }
 
-std::string SecretoPorDescriptor::opcionSshpass() const {
+std::string SecretFromDescriptor::opcionSshpass() const {
     return m_fd >= 0 ? ("-d" + std::to_string(m_fd)) : std::string();
 }
 
-ScpInvocacion scpUpload(const ConnectionProfile& p,
+ScpInvocation scpUpload(const ConnectionProfile& p,
                         const std::string& localPath,
                         const std::string& remotePath,
                         bool multiplex) {
-    ScpInvocacion inv;
+    ScpInvocation inv;
     inv.args = scpUploadArgs(p, localPath, remotePath, multiplex);
     inv.program = "scp";
     // Con contraseña, `scp` la pide por el terminal y aquí no hay ninguno: se lanza a
@@ -415,7 +415,7 @@ ScpInvocacion scpUpload(const ConnectionProfile& p,
     if (!trim(p.password).empty()) {
         const std::string sshpassExe = findLocalExecutable("sshpass");
         if (!sshpassExe.empty()) {
-            auto secreto = std::make_shared<SecretoPorDescriptor>(p.password);
+            auto secreto = std::make_shared<SecretFromDescriptor>(p.password);
             if (secreto->vale()) {
                 inv.program = sshpassExe;
                 std::vector<std::string> conPrefijo{secreto->opcionSshpass(), "scp"};

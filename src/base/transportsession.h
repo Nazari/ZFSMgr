@@ -1,7 +1,7 @@
 #pragma once
 
 #include "connectionprofile.h"
-#include "procesos.h"
+#include "processes.h"
 #include "transportreason.h"
 
 #include <chrono>
@@ -79,9 +79,9 @@ struct TransportSession {
     // las direcciones resueltas. Eso es rastro técnico y va tal cual. Lo que acaba delante
     // del usuario en forma de frase entra por aquí tipificado, y lo redacta quien sabe el
     // idioma. Sin esta separación, una sesión con `--lang en` salía salpicada de castellano.
-    std::function<void(Nivel, const std::string& connId, const transport::NotaDeAviso&)> avisoSink;
+    std::function<void(Nivel, const std::string& connId, const transport::WarningNote&)> avisoSink;
 
-    void aviso(Nivel n, const std::string& connId, const transport::NotaDeAviso& a) const {
+    void aviso(Nivel n, const std::string& connId, const transport::WarningNote& a) const {
         if (avisoSink) {
             avisoSink(n, connId, a);
             return;
@@ -90,8 +90,8 @@ struct TransportSession {
         // en silencio porque nadie ha conectado el traductor sería peor.
         if (sink) {
             sink(n, connId,
-                 std::string(transport::labelOf(a.aviso))
-                     + (a.detalle.empty() ? std::string() : ": " + a.detalle));
+                 std::string(transport::labelOf(a.warning))
+                     + (a.detail.empty() ? std::string() : ": " + a.detail));
         }
     }
 
@@ -236,7 +236,7 @@ struct TransportSession {
     // Hasta cuándo no se reintenta el RPC de una conexión, y por qué. Sin esto, una
     // conexión con el daemon caído se lleva una ida y vuelta por SSH en cada operación.
     std::map<std::string, std::chrono::steady_clock::time_point> retryAfterByConnKey;
-    std::map<std::string, transport::MotivoFallo> retryReasonByConnKey;
+    std::map<std::string, transport::FailureReason> retryReasonByConnKey;
 
     // Conexiones a las que se ha renunciado al multiplexado de SSH, y aquellas cuya
     // resolución de nombre ya se anotó en el registro: las dos existen para no repetir el

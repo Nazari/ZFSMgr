@@ -2,7 +2,7 @@
 
 #include "helpers.h"
 #include "json.h"
-#include "procesos.h"
+#include "processes.h"
 #include "strutil.h"
 #include "tlsclient.h"
 #include "transportcmd.h"
@@ -133,10 +133,10 @@ void closeTunnelForConnection(TransportSession& ses, const ConnectionProfile& p)
 bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   bool forceRefresh,
                                   RemoteTlsMaterial& out,
-                                  MotivoFallo* failureReason) {
+                                  FailureReason* failureReason) {
     out = RemoteTlsMaterial{};
     if (failureReason) {
-        *failureReason = MotivoFallo{};
+        *failureReason = FailureReason{};
     }
     const std::string key = remoteDaemonTlsCacheKey(p);
 
@@ -207,7 +207,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     }
     if (!ok) {
         if (failureReason) {
-            *failureReason = {Failure::MaterialNoSeLee, trim(H::oneLine(errTexto))};
+            *failureReason = {Failure::MaterialCannotBeRead, trim(H::oneLine(errTexto))};
         }
         return false;
     }
@@ -215,7 +215,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     RemoteTlsBundle paquete;
     if (!parseRemoteDaemonTlsBundle(texto, paquete)) {
         if (failureReason) {
-            *failureReason = {Failure::MaterialIncompleto, {}};
+            *failureReason = {Failure::MaterialIncomplete, {}};
         }
         return false;
     }
@@ -229,7 +229,7 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     }
     if (out.clientKeyPem.empty()) {
         if (failureReason) {
-            *failureReason = {Failure::ClaveClienteNoDisponible, {}};
+            *failureReason = {Failure::ClientKeyUnavailable, {}};
         }
         return false;
     }
@@ -283,17 +283,17 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                                    std::string& out,
                                    std::string& err,
                                    int& rc,
-                                   MotivoFallo* failureReason,
+                                   FailureReason* failureReason,
                                    bool* commandMayHaveRunOut) {
     if (failureReason) {
-        *failureReason = MotivoFallo{};
+        *failureReason = FailureReason{};
     }
     if (commandMayHaveRunOut) {
         *commandMayHaveRunOut = false;
     }
     if (!ses.puedeMontarTuneles()) {
         if (failureReason) {
-            *failureReason = {Failure::FueraDelHiloDeTuneles, {}};
+            *failureReason = {Failure::OffTheTunnelThread, {}};
         }
         return false;
     }
@@ -303,13 +303,13 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     rc = -1;
     if (agentArgs.empty()) {
         if (failureReason) {
-            *failureReason = {Failure::ArgumentosVacios, {}};
+            *failureReason = {Failure::EmptyArguments, {}};
         }
         return false;
     }
     if (toLowerAscii(p.connType) != "ssh") {
         if (failureReason) {
-            *failureReason = {Failure::ConexionNoSsh, {}};
+            *failureReason = {Failure::ConnectionNotSsh, {}};
         }
         return false;
     }
@@ -326,7 +326,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         std::lock_guard<std::mutex> lock(ses.mutex);
         if (ses.tunnelsBeingCreated.count(rpcConnKey) > 0) {
             if (failureReason) {
-                *failureReason = {Failure::TunelOcupado, {}};
+                *failureReason = {Failure::TunnelBusy, {}};
             }
             return false;
         }
@@ -407,7 +407,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // La contraseña viaja por un descriptor, no por el argv. Este objeto tiene que
         // seguir vivo hasta el `start()` de más abajo, que es quien lanza el proceso;
         // por eso se declara en este ámbito y no dentro del `if`.
-        H::SecretoPorDescriptor secreto(hayClave ? p.password : std::string());
+        H::SecretFromDescriptor secreto(hayClave ? p.password : std::string());
         if (hayClave) {
             const std::string sshpassExe = H::findLocalExecutable("sshpass");
             if (!sshpassExe.empty() && secreto.vale()) {
@@ -490,7 +490,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             // miente sobre cuánto tardó algo hace perder horas buscando la lentitud donde
             // no está.
             ses.aviso(Nivel::Warn, p.id,
-                      {sshMurio ? Aviso::TunelNoAceptaSshMurio : Aviso::TunelNoAceptaEsperaAgotada,
+                      {sshMurio ? Warning::TunnelNotAcceptingSshDied : Warning::TunnelNotAcceptingTimedOut,
                        {}, std::to_string(msDesde(inicio))});
             nuevo.process.stop(1500);
             return false;
@@ -508,7 +508,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         return true;
     };
 
-    MotivoFallo motivo;
+    FailureReason motivo;
     const auto intento = [&](bool forceRefreshTls) -> bool {
         RemoteTlsMaterial mat;
         if (!fetchRemoteDaemonTlsMaterial(p, forceRefreshTls, mat, &motivo)) {
@@ -526,17 +526,17 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // Se valida ANTES de montar el túnel: descubrirlo dentro del saludo costaría casi
         // un segundo y el fallo se leería como problema de red.
         if (!pemCertificateIsValid(mat.serverCertPem) || !pemCertificateIsValid(mat.clientCertPem)) {
-            motivo = {Failure::CertificadosInvalidos, {}};
+            motivo = {Failure::InvalidCertificates, {}};
             return false;
         }
         if (!pemPrivateKeyIsValid(mat.clientKeyPem)) {
-            motivo = {Failure::ClaveClienteInvalida, {}};
+            motivo = {Failure::InvalidClientKey, {}};
             return false;
         }
 
         std::uint16_t localPort = 0;
         if (!aseguraTunel(mat.daemonPort, localPort) || localPort == 0) {
-            motivo = {Failure::TunelNoSeMonta, {}};
+            motivo = {Failure::TunnelCannotBeBuilt, {}};
             return false;
         }
 
@@ -601,24 +601,24 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                     // certificados y marca la conexión como «TLS desincronizado», que
                     // dispara un reaprovisionamiento incapaz de arreglar un problema de
                     // transporte.
-                    motivo = {Failure::ConexionRechazada, errTls};
+                    motivo = {Failure::ConnectionRefused, errTls};
                     break;
                 case TlsFailure::Pinning:
-                    motivo = {Failure::CertificadoNoCoincide, {}};
+                    motivo = {Failure::CertificateMismatch, {}};
                     break;
                 case TlsFailure::Write:
-                    motivo = {Failure::EnvioFallido, {}};
+                    motivo = {Failure::SendFailed, {}};
                     break;
                 case TlsFailure::Read:
-                    motivo = {Failure::TunelCortadoEnEspera, {}};
+                    motivo = {Failure::TunnelCutWhileWaiting, {}};
                     break;
                 default:
-                    motivo = {Failure::HandshakeFallido, errTls};
+                    motivo = {Failure::HandshakeFailed, errTls};
                     break;
             }
             cierraTunel(ses, rpcConnKey);
-            if (motivo.vacio()) {
-                motivo = {Failure::RespuestaNoValida, {}};
+            if (motivo.empty()) {
+                motivo = {Failure::InvalidAnswer, {}};
             }
             return false;
         }
@@ -626,7 +626,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         json::Value resp;
         std::string errJson;
         if (!json::parse(respuesta, resp, &errJson)) {
-            motivo = {Failure::RespuestaNoValida, errJson};
+            motivo = {Failure::InvalidAnswer, errJson};
             cierraTunel(ses, rpcConnKey);
             return false;
         }
@@ -650,25 +650,25 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // La petición YA llegó al daemon. Reintentar enviaría la misma orden por segunda
         // vez mientras la primera puede seguir corriendo en la otra máquina, lo que para
         // una mutación significa trabajo destructivo duplicado.
-        if (failureReason && !motivo.vacio()) {
+        if (failureReason && !motivo.empty()) {
             *failureReason = motivo;
         }
         return false;
     }
-    // La decisión sale del TIPO del fallo, no de leer su frase. `sugiereRevivirDaemon` es
+    // La decisión sale del TIPO del fallo, no de leer su frase. `suggestsDaemonRevival` es
     // un `switch` sin `default`: un motivo nuevo no compila hasta haber dicho si esto le
     // toca. Antes, un motivo nuevo simplemente no casaba con ninguna cadena y el reintento
     // dejaba de intentarse sin que nadie se enterara.
-    if (sugiereRevivirDaemon(motivo.fallo)) {
+    if (suggestsDaemonRevival(motivo.failure)) {
         if (tryReviveRemoteDaemonService(p)) {
             ses.log(Nivel::Info, "daemon-rpc revive requested on " + p.name + " after failure: "
-                                     + labelOf(motivo.fallo));
+                                     + labelOf(motivo.failure));
         }
     }
     if (intento(true)) {
         return true;
     }
-    if (failureReason && !motivo.vacio()) {
+    if (failureReason && !motivo.empty()) {
         *failureReason = motivo;
     }
     return false;

@@ -104,9 +104,9 @@ Tabla tablaDeConexiones(const Conexiones& c) {
 
 Conexiones cargarConexiones(const std::string& dirConfig, const std::string& maestra) {
     Conexiones c;
-    ST::Aviso aviso;
-    const auto root = ST::leerConfig(dirConfig, aviso);
-    if (!aviso.vacio()) {
+    ST::Warning aviso;
+    const auto root = ST::readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
         c.aviso = T("t_no_lee_config", "no se pudo leer config.json");
         return c;
     }
@@ -117,15 +117,15 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     // se podía abrir se dejaba pasar en silencio y solo se anotaba «este perfil tiene algo
     // sin abrir», mientras la interfaz decía QUÉ campo de QUÉ conexión y por qué. La misma
     // configuración se describía distinto según por dónde se mirara.
-    ST::Aviso avisoTrust;
-    const auto trust = ST::leerTrustStore(dirConfig, avisoTrust);
+    ST::Warning avisoTrust;
+    const auto trust = ST::readTrustStore(dirConfig, avisoTrust);
 
     // Las apartadas, de la misma lectura del fichero.
     for (const auto& v : root["app"]["disconnected_connections"].toArray()) {
         c.desconectadas.insert(B::toLowerAscii(B::trim(v.toString())));
     }
 
-    ST::Avisos avisos;
+    ST::Warnings avisos;
     for (const auto& v : root["connections"].toArray()) {
         auto p = CJ::connectionFromJson(v, std::string());
         const std::string idBajo = B::toLowerAscii(p.id.empty() ? p.name : p.id);
@@ -134,7 +134,7 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
         if (CJ::profileHasDaemonTls(p)) {
             c.conTls.insert(idBajo);
         }
-        if (!CJ::abreSecretos(p, maestra, avisos)) {
+        if (!CJ::openSecrets(p, maestra, avisos)) {
             c.secretosSinAbrir.insert(idBajo);
         }
         p.port = CJ::ensurePort(p.connType, p.port);
@@ -143,14 +143,14 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     // El almacén de confianza, DESPUÉS de tener todos los perfiles: solo rellena lo que el
     // fichero de conexiones no traiga. Sin esto el transporte pediría el material TLS otra
     // vez por SSH en cada arranque, y donde /etc/zfsmgr es solo de root eso es pedir sudo.
-    CJ::fundeTrustStore(c.perfiles, trust, maestra, avisos);
+    CJ::mergeTrustStore(c.perfiles, trust, maestra, avisos);
     // Y el perfil «Local», que hasta ahora el intérprete no sintetizaba: sin conexión
     // local configurada arrancaba en la raíz, mientras la interfaz siempre enseñaba una.
     // La misma máquina, dos programas, dos respuestas a «¿qué hay aquí?».
     //
     // El identificador de máquina se deja vacío: averiguarlo es leer el registro en Windows
     // o `ioreg` en macOS, y el intérprete no lo necesita para nada de lo que hace.
-    CJ::aseguraPerfilLocal(c.perfiles, std::string());
+    CJ::ensureLocalProfile(c.perfiles, std::string());
     for (const auto& p : c.perfiles) {
         if (CJ::profileHasDaemonTls(p)) {
             c.conTls.insert(B::toLowerAscii(p.id.empty() ? p.name : p.id));
@@ -201,7 +201,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
     // Los avisos —que son prosa— se redactan AQUÍ, donde se sabe el idioma; el transporte
     // solo dice cuál es. Ver textoDeAviso.
     s->transporte.avisoSink = [raw](Nivel n, const std::string& connId,
-                                    const B::transport::NotaDeAviso& a) {
+                                    const B::transport::WarningNote& a) {
         raw->transporte.logConn(n, connId, textoDeAviso(a));
     };
     s->transporte.sink = [raw](Nivel n, const std::string& connId, const std::string& msg) {
@@ -289,10 +289,10 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
         // interfaz. Sin contraseña maestra NO se guarda en claro: dejar certificados y
         // clave privada legibles en disco para ahorrarse una lectura por SSH es un mal
         // cambio, y esa regla ya estaba en las dos por separado.
-        ST::Aviso aviso;
-        if (!ST::guardaTlsEnAlmacen(raw->dirConfig, guardado, raw->maestra, aviso)) {
+        ST::Warning aviso;
+        if (!ST::saveTlsToStore(raw->dirConfig, guardado, raw->maestra, aviso)) {
             if (errorOut) {
-                *errorOut = aviso.motivo == ST::Reason::ClaveMaestraRequeridaParaCifrar
+                *errorOut = aviso.reason == ST::Reason::MasterPasswordRequiredToEncrypt
                                 ? T("t_tls_sin_maestra",
                                     "sin contraseña maestra no se guarda el material TLS en claro")
                                 : ST::labelOf(aviso);
@@ -319,99 +319,99 @@ std::string clavePersistencia(const std::string& idONombre) {
 }  // namespace
 
 // El directorio del propio ejecutable. Sin Qt no hay `applicationDirPath()`.
-std::string textoDeAviso(const B::transport::NotaDeAviso& a) {
-    using A = B::transport::Aviso;
-    switch (a.aviso) {
+std::string textoDeAviso(const B::transport::WarningNote& a) {
+    using A = B::transport::Warning;
+    switch (a.warning) {
         case A::None_:
             return {};
-        case A::TlsLocalNoLegible:
+        case A::LocalTlsUnreadable:
             return B::format(T("t_av_tls_no_legible",
                                "no se pudo leer el material TLS del daemon local en %1. "
                                "Reinstale el daemon."),
-                             {a.ruta});
-        case A::TlsLocalSinSudo:
+                             {a.path});
+        case A::LocalTlsNeedsSudo:
             return T("t_av_tls_sin_sudo",
                      "no se pudo leer el material TLS del daemon local: faltan credenciales "
                      "de sudo");
-        case A::TlsLocalNoSeLee:
+        case A::LocalTlsCannotBeRead:
             return B::format(T("t_av_tls_no_se_lee",
                                "no se pudo leer el material TLS del daemon local: %1"),
-                             {a.detalle});
-        case A::TlsLocalIncompleto:
+                             {a.detail});
+        case A::LocalTlsIncomplete:
             return T("t_av_tls_incompleto",
                      "el material TLS del daemon local llegó incompleto");
-        case A::HostSshNoVerificado:
+        case A::SshHostUnverified:
             return T("t_av_host_no_verificado", "falló la verificación del host SSH");
-        case A::SinSshpass:
+        case A::NoSshpass:
             return T("t_av_sin_sshpass",
                      "hay contraseña guardada, pero no está sshpass: se usará SSH no interactivo");
-        case A::MultiplexadoFallo:
+        case A::MultiplexingFailed:
             return T("t_av_mux_fallo",
                      "el SSH multiplexado falló; se reintenta sin ControlMaster");
-        case A::MultiplexadoDesactivado:
+        case A::MultiplexingDisabled:
             return T("t_av_mux_off",
                      "el SSH multiplexado queda desactivado para esta conexión en esta sesión");
-        case A::TunelNoAceptaSshMurio:
+        case A::TunnelNotAcceptingSshDied:
             return B::format(T("t_av_tunel_ssh_murio",
                                "el túnel SSH no aceptó conexiones: el ssh terminó (%1 ms)"),
-                             {a.detalle});
-        case A::TunelNoAceptaEsperaAgotada:
+                             {a.detail});
+        case A::TunnelNotAcceptingTimedOut:
             return B::format(T("t_av_tunel_espera",
                                "el túnel SSH no aceptó conexiones: se agotó la espera (%1 ms)"),
-                             {a.detalle});
+                             {a.detail});
     }
     return {};
 }
 
-std::string textoDeFallo(const B::transport::MotivoFallo& m) {
+std::string textoDeFallo(const B::transport::FailureReason& m) {
     using F = B::transport::Failure;
     // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene
     // del sistema, ya en su idioma, y reescribirlo perdería justo lo que sirve para
     // diagnosticar. Se pega detrás del texto que sí es nuestro.
     const auto con = [&m](const std::string& texto) {
-        return m.detalle.empty() ? texto : texto + ": " + m.detalle;
+        return m.detail.empty() ? texto : texto + ": " + m.detail;
     };
-    switch (m.fallo) {
+    switch (m.failure) {
         case F::None_:
             return {};
-        case F::TunelOcupado:
+        case F::TunnelBusy:
             return T("t_f_tunel_ocupado", "el túnel se está montando para esta conexión");
-        case F::FueraDelHiloDeTuneles:
+        case F::OffTheTunnelThread:
             return T("t_f_fuera_hilo", "RPC pedido fuera del hilo de los túneles");
-        case F::ArgumentosVacios:
+        case F::EmptyArguments:
             return T("t_f_args_vacios", "no se dijo qué ejecutar");
-        case F::ConexionNoSsh:
+        case F::ConnectionNotSsh:
             return T("t_f_no_ssh", "la conexión no es SSH");
-        case F::EnEspera:
+        case F::Cooling:
             return B::format(T("t_f_en_espera", "en espera tras un fallo reciente (%1 s)"),
-                             {m.detalle});
-        case F::MaterialNoSeLee:
+                             {m.detail});
+        case F::MaterialCannotBeRead:
             return con(T("t_f_tls_no_lee", "no se pudo leer el material TLS del daemon"));
-        case F::MaterialIncompleto:
+        case F::MaterialIncomplete:
             return T("t_f_tls_incompleto", "el material TLS del daemon llegó incompleto");
-        case F::ClaveClienteNoDisponible:
+        case F::ClientKeyUnavailable:
             return T("t_f_sin_clave_cli",
                      "no hay clave TLS de cliente, ni guardada ni en la otra máquina");
-        case F::CertificadosInvalidos:
+        case F::InvalidCertificates:
             return T("t_f_certs_malos", "los certificados TLS del daemon no son válidos");
-        case F::ClaveClienteInvalida:
+        case F::InvalidClientKey:
             return T("t_f_clave_cli_mala", "la clave TLS de cliente no es válida");
-        case F::TunelNoSeMonta:
+        case F::TunnelCannotBeBuilt:
             return T("t_f_tunel_no_monta", "no se pudo montar el túnel SSH hasta el daemon");
-        case F::ConexionRechazada:
+        case F::ConnectionRefused:
             return con(T("t_f_conn_rechazada", "el daemon no aceptó la conexión"));
-        case F::CertificadoNoCoincide:
+        case F::CertificateMismatch:
             return T("t_f_cert_no_coincide",
                      "el certificado que presenta el daemon no es el fijado");
-        case F::EnvioFallido:
+        case F::SendFailed:
             return T("t_f_envio", "no se pudo enviar la petición");
-        case F::TunelCortadoEnEspera:
+        case F::TunnelCutWhileWaiting:
             return T("t_f_tunel_cortado", "el túnel se cortó mientras se esperaba respuesta");
-        case F::HandshakeFallido:
+        case F::HandshakeFailed:
             return con(T("t_f_handshake", "falló el saludo TLS con el daemon"));
-        case F::RespuestaNoValida:
+        case F::InvalidAnswer:
             return con(T("t_f_resp_no_valida", "el daemon no devolvió una respuesta válida"));
-        case F::NoEspecificado:
+        case F::Unspecified:
             return T("t_f_sin_motivo", "falló sin decir por qué");
     }
     return {};
@@ -535,8 +535,8 @@ bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& erro
     // Cifrar, conservar o soltar el material TLS según haya cambiado el extremo, y
     // sustituir o añadir: todo eso lo hace la capa base, que es donde lo usa también la
     // interfaz. Aquí se queda lo que es de este lado: la guardia de --no-secrets.
-    ST::Aviso aviso;
-    if (!ST::guardaPerfil(s.dirConfig, p, s.maestra, aviso)) {
+    ST::Warning aviso;
+    if (!ST::saveProfile(s.dirConfig, p, s.maestra, aviso)) {
         error = ST::labelOf(aviso);
         return false;
     }
@@ -549,9 +549,9 @@ bool borrarConexion(Sesion& s, const std::string& id, std::string& error) {
     // `config.json`, y su entrada del almacén de confianza se quedaba: desde que una
     // entrada huérfana se convierte en conexión, eso significaba que la conexión borrada
     // VOLVÍA a la lista en el siguiente arranque.
-    ST::Aviso aviso;
-    if (!ST::borraPerfil(s.dirConfig, id, aviso)) {
-        error = aviso.motivo == ST::Reason::NoSeGuardaConexion
+    ST::Warning aviso;
+    if (!ST::deleteProfile(s.dirConfig, id, aviso)) {
+        error = aviso.reason == ST::Reason::ConnectionNotSaved
                     ? B::format(T("t_no_conn_id", "no hay ninguna conexión con identificador «%1»"), {id})
                     : ST::labelOf(aviso);
         return false;
@@ -567,8 +567,8 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
         error = T("t_id_vacio", "identificador vacío");
         return false;
     }
-    ST::Aviso aviso;
-    auto root = ST::leerConfig(s.dirConfig, aviso);
+    ST::Warning aviso;
+    auto root = ST::readConfig(s.dirConfig, aviso);
     auto app = root["app"];
     B::json::Array lista;
     for (const auto& v : app["disconnected_connections"].toArray()) {
@@ -581,8 +581,8 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
     }
     app.set("disconnected_connections", B::json::Value(std::move(lista)));
     root.set("app", app);
-    ST::Aviso avisoEscritura;
-    if (!ST::escribirConfig(s.dirConfig, root, avisoEscritura)) {
+    ST::Warning avisoEscritura;
+    if (!ST::writeConfig(s.dirConfig, root, avisoEscritura)) {
         error = T("t_no_escribe_config", "no se pudo escribir config.json");
         return false;
     }
@@ -625,7 +625,7 @@ bool ejecutarAgente(Sesion& s,
         T::LocalRpcDiag diag;
         if (!T::runLocalAgentRpc(args, srv, cli, key, puerto, timeoutMs, out, err, rc, &diag)) {
             if (motivo) {
-                *motivo = diag.failure.vacio()
+                *motivo = diag.failure.empty()
                               ? T("t_daemon_local_mudo", "el daemon local no respondió")
                               : textoDeFallo(diag.failure);
             }
@@ -642,7 +642,7 @@ bool ejecutarAgente(Sesion& s,
             // se lee de ahí. Sin esto el usuario recibía «no respondió por RPC», que no
             // dice si falta el material TLS, si la máquina está apagada o si el daemon no
             // está instalado — tres cosas con arreglos distintos.
-            B::transport::MotivoFallo fallo;
+            B::transport::FailureReason fallo;
             {
                 std::lock_guard<std::mutex> lock(s.transporte.mutex);
                 const auto it = s.transporte.retryReasonByConnKey.find(

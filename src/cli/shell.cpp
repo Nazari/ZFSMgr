@@ -17,7 +17,7 @@
 #include "helpers.h"
 #include "linea.h"
 #include "json.h"
-#include "procesos.h"
+#include "processes.h"
 #include "secretinput.h"
 #include "strutil.h"
 #include "tr.h"
@@ -830,7 +830,7 @@ void listaConexiones(Estado& e, const Peticion& pet) {
     t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
     t.campos.push_back("daemon");
     t.tipos.push_back(Tipo::Cadena);
-    const std::string esperada = B::agentversion::laEsperada();
+    const std::string esperada = B::agentversion::expected();
     for (std::size_t i = 0; i < t.filas.size() && i < e.conns.perfiles.size(); ++i) {
         const auto& p = e.conns.perfiles[i];
         const std::string id = p.id.empty() ? p.name : p.id;
@@ -863,7 +863,7 @@ void listaConexiones(Estado& e, const Peticion& pet) {
         if (version.empty()) {
             version = "-";
         } else {
-            const int cmp = B::agentversion::compara(version, esperada);
+            const int cmp = B::agentversion::compare(version, esperada);
             if (cmp < 0) {
                 version += " *";       // el agente se ha quedado atrás
             } else if (cmp > 0) {
@@ -1029,7 +1029,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
 }
 
 // Los hijos y las instantáneas de un dataset. Sale de `--dump-zfs-list-all`, que es TSV con
-// las columnas name,guid,used,compressratio,encryption,creation,referenced,mounted,
+// las columnas name,guid,used,compressratio,encryption,creation,referenced,montados,
 // mountpoint,canmount.
 bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     std::string out;
@@ -1524,7 +1524,7 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
 bool zfsGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     // El empaquetado lo hace la capa base: es cómo espera el daemon los argumentos.
     std::string out;
-    return agente(e, destino, PET::zfsGeneric(B::helpers::argvParaAgente(argv)), out);
+    return agente(e, destino, PET::zfsGeneric(B::helpers::agentArgv(argv)), out);
 }
 
 bool exigeDataset(const ZfsmUrl& u) {
@@ -2332,9 +2332,9 @@ bool cmdExportTrust(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_et_local", "la conexión Local ya usa el almacén de esta máquina\n"), stderr);
         return false;
     }
-    B::store::Aviso aviso;
-    const B::json::Value almacen = B::store::leerTrustStore(e.ses->dirConfig, aviso);
-    if (!aviso.vacio()) {
+    B::store::Warning aviso;
+    const B::json::Value almacen = B::store::readTrustStore(e.ses->dirConfig, aviso);
+    if (!aviso.empty()) {
         std::fprintf(stderr, TC("t_et_sin_almacen", "no se pudo leer el almacén de confianza\n"));
         return false;
     }
@@ -3332,7 +3332,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                      TC("t_agente_empaquetado_viejo",
                         "aviso: el agente empaquetado para %s es %s y este cliente espera %s; "
                         "se instala igual, pero la conexión seguirá saliendo desactualizada\n"),
-                     plataforma.c_str(), r.version.c_str(), B::agentversion::laEsperada().c_str());
+                     plataforma.c_str(), r.version.c_str(), B::agentversion::expected().c_str());
     }
     if (!r.ok()) {
         if (r.fallo == DI::Failure::UnreadableBinary) {
@@ -3559,7 +3559,7 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
 
 bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     std::string out;
-    if (!agente(e, destino, PET::zpoolGeneric(B::helpers::argvParaAgente(argv)),
+    if (!agente(e, destino, PET::zpoolGeneric(B::helpers::agentArgv(argv)),
                 out, 0)) {
         return false;
     }
@@ -4878,8 +4878,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
                 continue;
             }
             std::string copia;
-            B::store::Aviso aviso;
-            if (!B::store::rotaClaveMaestra(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
+            B::store::Warning aviso;
+            if (!B::store::rotateMasterKey(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
                 std::fprintf(stderr, "%s\n", B::store::labelOf(aviso).c_str());
                 e.ultimoRc = 1;
                 continue;

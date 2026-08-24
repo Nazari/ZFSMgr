@@ -229,18 +229,18 @@ std::string nombreDe(const ConnectionProfile& p) {
 // Un campo. Si no está cifrado se deja como está —hay configuraciones sin maestra— y si
 // lo está y no se abre, se CONSERVA cifrado y se avisa.
 bool abreCampo(std::string& valor, const char* campo, const ConnectionProfile& p,
-               const std::string& maestra, store::Avisos& avisos) {
+               const std::string& maestra, store::Warnings& avisos) {
     if (!SecretCipher::isEncrypted(valor)) {
         return true;
     }
     std::string claro;
     std::string err;
     if (maestra.empty()) {
-        avisos.push_back(store::Aviso{store::Reason::ClaveMaestraRequerida, nombreDe(p), campo, {}});
+        avisos.push_back(store::Warning{store::Reason::MasterPasswordRequired, nombreDe(p), campo, {}});
         return false;
     }
     if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
-        avisos.push_back(store::Aviso{store::Reason::NoSeDescifra, nombreDe(p), campo, err});
+        avisos.push_back(store::Warning{store::Reason::CannotDecrypt, nombreDe(p), campo, err});
         return false;
     }
     valor = claro;
@@ -249,7 +249,7 @@ bool abreCampo(std::string& valor, const char* campo, const ConnectionProfile& p
 
 }  // namespace
 
-bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Avisos& avisos) {
+bool openSecrets(ConnectionProfile& p, const std::string& maestra, store::Warnings& avisos) {
     bool todos = true;
     todos = abreCampo(p.username, "username", p, maestra, avisos) && todos;
     todos = abreCampo(p.password, "password", p, maestra, avisos) && todos;
@@ -259,15 +259,15 @@ bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Aviso
     return todos;
 }
 
-void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
-                     const std::string& maestra, store::Avisos& avisos) {
+void mergeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
+                     const std::string& maestra, store::Warnings& avisos) {
     std::map<std::string, ConnectionProfile> porId;
     for (const json::Value& v : trust["connections"].toArray()) {
         ConnectionProfile t = connectionFromJson(v, std::string());
         if (trim(t.id).empty()) {
             continue;
         }
-        abreSecretos(t, maestra, avisos);
+        openSecrets(t, maestra, avisos);
         porId[toLowerAscii(t.id)] = t;
     }
     // Las entradas del almacén que no tienen conexión: se añaden.
@@ -309,7 +309,7 @@ void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value
     }
 }
 
-void aseguraPerfilLocal(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid) {
+void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid) {
     const std::string soDeAqui =
 #if defined(_WIN32)
         "Windows";

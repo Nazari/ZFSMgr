@@ -71,11 +71,11 @@ bool pareceVersionDeAgente(const std::string& tramo) {
 
 }  // namespace
 
-std::string laEsperada() { return ZFSMGR_AGENT_VERSION_STRING; }
+std::string expected() { return ZFSMGR_AGENT_VERSION_STRING; }
 
-std::string apiEsperada() { return "3"; }
+std::string expectedApi() { return "3"; }
 
-int compara(const std::string& a, const std::string& b) {
+int compare(const std::string& a, const std::string& b) {
     const std::vector<int> ka = clave(a);
     const std::vector<int> kb = clave(b);
     if (ka.empty() || kb.empty()) {
@@ -91,7 +91,7 @@ int compara(const std::string& a, const std::string& b) {
     return 0;
 }
 
-std::string versionEnBinario(const std::string& ruta) {
+std::string versionInBinary(const std::string& ruta) {
     std::ifstream f(ruta, std::ios::binary);
     if (!f) {
         return {};
@@ -103,7 +103,7 @@ std::string versionEnBinario(const std::string& ruta) {
     // Se recorren TODOS los tramos de dígitos y puntos delimitados, y se queda con el
     // primero que tenga forma de versión de agente —cuatro números—. La de esta
     // compilación gana si aparece, que es el caso corriente y el más fiable.
-    const std::string esperada = laEsperada();
+    const std::string esperada = expected();
     std::string primera;
     std::size_t i = 0;
     while (i < blob.size()) {

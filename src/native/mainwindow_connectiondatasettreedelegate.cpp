@@ -1068,7 +1068,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
         arr.push_back(holdName);
         arr.push_back(objectName);
         const QString payloadB64 = QString::fromUtf8(
-            mwhelpers::argvParaAgente(arr).toUtf8());
+            mwhelpers::agentArgv(arr).toUtf8());
         queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
                        .arg(mwhelpers::shSingleQuote(payloadB64));
     }
@@ -1170,7 +1170,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
         arr.push_back(holdName);
         arr.push_back(objectName);
         const QString payloadB64 = QString::fromUtf8(
-            mwhelpers::argvParaAgente(arr).toUtf8());
+            mwhelpers::agentArgv(arr).toUtf8());
         queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
                        .arg(mwhelpers::shSingleQuote(payloadB64));
     }

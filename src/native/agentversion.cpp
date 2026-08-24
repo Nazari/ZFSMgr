@@ -12,16 +12,16 @@ namespace BAV = zfsmgr::base::agentversion;
 
 namespace agentversion {
 
-QString currentVersion() { return QString::fromStdString(BAV::laEsperada()); }
+QString currentVersion() { return QString::fromStdString(BAV::expected()); }
 
-QString expectedApiVersion() { return QString::fromStdString(BAV::apiEsperada()); }
+QString expectedApiVersion() { return QString::fromStdString(BAV::expectedApi()); }
 
 int compareVersions(const QString& a, const QString& b) {
-    return BAV::compara(a.toStdString(), b.toStdString());
+    return BAV::compare(a.toStdString(), b.toStdString());
 }
 
 QString versionFromBinary(const QString& path) {
-    return QString::fromStdString(BAV::versionEnBinario(path.toStdString()));
+    return QString::fromStdString(BAV::versionInBinary(path.toStdString()));
 }
 
 } // namespace agentversion

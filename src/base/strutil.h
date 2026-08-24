@@ -99,7 +99,7 @@ std::string base64Encode(const std::string& data);
 //
 // Vive aquí porque la escriben dos clientes. Estaba dentro de la tabla del intérprete, y la
 // ventana iba a necesitar la misma para enseñar lo que ahora le da el agente en bytes.
-std::string tamanoLegible(const std::string& v);
+std::string humanSize(const std::string& v);
 bool base64Decode(const std::string& text, std::string& out);
 
 // `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.

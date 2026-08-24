@@ -150,7 +150,7 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
         return 1;
     }
     if (conns.perfiles.empty()) {
-        std::fprintf(stderr, TC("t_s_no_hay_c_8978da", "%s: no hay conexiones configuradas en %s\n"), kNombre, ST::rutaConfig(op.dirConfig).c_str());
+        std::fprintf(stderr, TC("t_s_no_hay_c_8978da", "%s: no hay conexiones configuradas en %s\n"), kNombre, ST::configPath(op.dirConfig).c_str());
     }
     zfsmgr::cli::tablaDeConexiones(conns).imprime(op.formato);
     return 0;
@@ -164,13 +164,13 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
 // para saber si la clave es la buena. Es cierto, pero deja pasar una configuración a MEDIO
 // ROTAR —unos campos con la clave nueva y otros con la vieja—, que es exactamente lo que
 // puede dejar una rotación interrumpida. Ahora se recorren todos.
-bool hayAlgoCifrado(const std::string& dirConfig) {
-    return ST::hayAlgoCifrado(dirConfig);
+bool hasSomethingEncrypted(const std::string& dirConfig) {
+    return ST::hasSomethingEncrypted(dirConfig);
 }
 
 bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
-    ST::Aviso aviso;
-    return ST::maestraAbreTodo(dirConfig, maestra, aviso);
+    ST::Warning aviso;
+    return ST::masterOpensEverything(dirConfig, maestra, aviso);
 }
 
 }  // namespace
@@ -257,8 +257,8 @@ int main(int argc, char** argv) {
     {
         std::string idioma = op.idioma;
         if (idioma.empty()) {
-            ST::Aviso aviso;
-            const auto root = ST::leerConfig(op.dirConfig, aviso);
+            ST::Warning aviso;
+            const auto root = ST::readConfig(op.dirConfig, aviso);
             idioma = root["app"]["language"].toString();
             if (idioma.empty()) {
                 idioma = root["ui"]["language"].toString();
@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
     // solo se leía cuando ya lo había, y eso es un pez que se muerde la cola: para dar de
     // alta la PRIMERA conexión con contraseña hace falta una maestra, y no se pedía porque
     // aún no había nada que descifrar.
-    if (!op.sinSecretos && (op.passwordFd >= 0 || hayAlgoCifrado(op.dirConfig))) {
+    if (!op.sinSecretos && (op.passwordFd >= 0 || hasSomethingEncrypted(op.dirConfig))) {
         std::string err;
         if (op.passwordFd >= 0) {
             if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, maestra, err)) {

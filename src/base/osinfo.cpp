@@ -1,10 +1,10 @@
-#include "sistemaoperativo.h"
+#include "osinfo.h"
 
 #include <sstream>
 
 #include "strutil.h"
 
-namespace zfsmgr::base::sistemaoperativo {
+namespace zfsmgr::base::osinfo {
 
 namespace {
 
@@ -22,7 +22,7 @@ std::string sinComillas(std::string x) {
 
 }  // namespace
 
-std::string deOsRelease(const std::string& contenido) {
+std::string fromOsRelease(const std::string& contenido) {
     std::istringstream iss(contenido);
     std::string linea;
     std::string nombre;
@@ -46,7 +46,7 @@ std::string deOsRelease(const std::string& contenido) {
     return trim(trim(nombre) + " " + version);
 }
 
-std::string deSystemProfiler(const std::string& salida) {
+std::string fromSystemProfiler(const std::string& salida) {
     std::istringstream iss(salida);
     std::string linea;
     const std::string marca = "System Version:";
@@ -64,4 +64,4 @@ std::string deSystemProfiler(const std::string& salida) {
     return {};
 }
 
-}  // namespace zfsmgr::base::sistemaoperativo
+}  // namespace zfsmgr::base::osinfo

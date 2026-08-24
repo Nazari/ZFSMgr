@@ -121,13 +121,13 @@ QStringList ql(const std::vector<std::string>& v) {
 
 QString shPrintfOctalEscaped(const QString& s) { return q(B::shPrintfOctalEscaped(b(s))); }
 
-QString argvParaAgente(const QStringList& argv) {
+QString agentArgv(const QStringList& argv) {
     std::vector<std::string> v;
     v.reserve(static_cast<std::size_t>(argv.size()));
     for (const QString& a : argv) {
         v.push_back(a.toStdString());
     }
-    return QString::fromStdString(zfsmgr::base::helpers::argvParaAgente(v));
+    return QString::fromStdString(zfsmgr::base::helpers::agentArgv(v));
 }
 
 QString maskedAgentArgvForLog(const QStringList& argv) { return q(B::maskedAgentArgvForLog(bl(argv))); }
@@ -235,10 +235,10 @@ QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remo
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
     return q(B::buildSshPreviewCommandText(toBase(p), b(remoteCmd)));
 }
-ScpInvocacion scpUpload(const ConnectionProfile& p, const QString& localPath,
+ScpInvocation scpUpload(const ConnectionProfile& p, const QString& localPath,
                         const QString& remotePath, bool multiplex) {
-    const B::ScpInvocacion inv = B::scpUpload(toBase(p), b(localPath), b(remotePath), multiplex);
-    return ScpInvocacion{q(inv.program), ql(inv.args)};
+    const B::ScpInvocation inv = B::scpUpload(toBase(p), b(localPath), b(remotePath), multiplex);
+    return ScpInvocation{q(inv.program), ql(inv.args)};
 }
 
 QStringList scpUploadArgs(const ConnectionProfile& p, const QString& localPath,

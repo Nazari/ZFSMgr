@@ -35,7 +35,7 @@ bool profileHasDaemonTls(const ConnectionProfile& p);
 // Estaba escrito dos veces —la interfaz recogía avisos tipificados y el intérprete se los
 // tragaba en silencio— y por eso la misma configuración se describía distinto según por
 // dónde se mirara.
-bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Avisos& avisos);
+bool openSecrets(ConnectionProfile& p, const std::string& maestra, store::Warnings& avisos);
 
 // El perfil «Local» de ESTA máquina: se corrige si está y se sintetiza si no.
 //
@@ -45,7 +45,7 @@ bool abreSecretos(ConnectionProfile& p, const std::string& maestra, store::Aviso
 //
 // `maquinaUid` lo da quien llama: averiguarlo es leer el registro en Windows o `ioreg` en
 // macOS, y eso no baja aquí. Vacío = se conserva el que hubiera.
-void aseguraPerfilLocal(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid);
+void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid);
 
 // Funde en cada perfil el material TLS que viva en el almacén de confianza, indexando por
 // identificador.
@@ -61,8 +61,8 @@ void aseguraPerfilLocal(std::vector<ConnectionProfile>& perfiles, const std::str
 // material TLS negociado con una máquina que sigue ahí: descartarlo obligaría a
 // renegociarlo por SSH, y en un host donde /etc/zfsmgr es solo de root eso es pedir sudo.
 // Las locales no, que se sintetizan aparte.
-void fundeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
-                     const std::string& maestra, store::Avisos& avisos);
+void mergeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
+                     const std::string& maestra, store::Warnings& avisos);
 
 // PSRP se retiró como transporte: no admite el daemon, porque el RPC viaja por un túnel
 // `ssh -L` y sin SSH no hay túnel. Un perfil guardado con PSRP no puede quedarse como

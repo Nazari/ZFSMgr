@@ -31,8 +31,8 @@ void soloElDueno(const std::string& ruta) {
 json::Value leerFichero(const std::string& ruta,
                         Reason motivoAbrir,
                         Reason motivoInvalido,
-                        Aviso& aviso) {
-    aviso = Aviso{};
+                        Warning& aviso) {
+    aviso = Warning{};
     std::error_code ec;
     if (!fs::exists(ruta, ec) || ec) {
         // Primer arranque: no hay nada que leer y no hay nada que avisar.
@@ -40,20 +40,20 @@ json::Value leerFichero(const std::string& ruta,
     }
     std::ifstream f(ruta, std::ios::binary);
     if (!f) {
-        aviso.motivo = motivoAbrir;
+        aviso.reason = motivoAbrir;
         return json::Value(json::Object{});
     }
     std::ostringstream ss;
     ss << f.rdbuf();
     if (!f && !f.eof()) {
-        aviso.motivo = motivoAbrir;
+        aviso.reason = motivoAbrir;
         return json::Value(json::Object{});
     }
     json::Value v;
     std::string err;
     if (!json::parse(ss.str(), v, &err) || !v.isObject()) {
-        aviso.motivo = motivoInvalido;
-        aviso.detalle = err;
+        aviso.reason = motivoInvalido;
+        aviso.detail = err;
         return json::Value(json::Object{});
     }
     return v;
@@ -63,21 +63,21 @@ bool escribirFichero(const std::string& dirConfig,
                      const std::string& ruta,
                      const json::Value& root,
                      Reason motivoEscribir,
-                     Aviso& aviso) {
-    aviso = Aviso{};
+                     Warning& aviso) {
+    aviso = Warning{};
     std::error_code ec;
     if (!fs::exists(dirConfig, ec) && !fs::create_directories(dirConfig, ec)) {
         // create_directories devuelve false también cuando el directorio ya existía por
         // una carrera; solo es fallo si de verdad no está.
         if (!fs::exists(dirConfig, ec)) {
-            aviso.motivo = Reason::ConfigDirNoSeCrea;
+            aviso.reason = Reason::ConfigDirCannotBeCreated;
             return false;
         }
     }
     {
         std::ofstream f(ruta, std::ios::binary | std::ios::trunc);
         if (!f) {
-            aviso.motivo = motivoEscribir;
+            aviso.reason = motivoEscribir;
             return false;
         }
         // El permiso va con el fichero ya creado pero todavía VACÍO.
@@ -85,7 +85,7 @@ bool escribirFichero(const std::string& dirConfig,
         const std::string texto = json::toIndented(root);
         f.write(texto.data(), static_cast<std::streamsize>(texto.size()));
         if (!f) {
-            aviso.motivo = motivoEscribir;
+            aviso.reason = motivoEscribir;
             return false;
         }
     }
@@ -94,28 +94,28 @@ bool escribirFichero(const std::string& dirConfig,
 
 }  // namespace
 
-std::string rutaConfig(const std::string& dirConfig) {
+std::string configPath(const std::string& dirConfig) {
     return dirConfig + "/config.json";
 }
 
-std::string rutaTrustStore(const std::string& dirConfig) {
+std::string trustStorePath(const std::string& dirConfig) {
     return dirConfig + "/trust-store.json";
 }
 
-json::Value leerConfig(const std::string& dirConfig, Aviso& aviso) {
-    return leerFichero(rutaConfig(dirConfig), Reason::ConfigNoSeAbre, Reason::ConfigNoValido, aviso);
+json::Value readConfig(const std::string& dirConfig, Warning& aviso) {
+    return leerFichero(configPath(dirConfig), Reason::ConfigCannotBeOpened, Reason::ConfigNotValid, aviso);
 }
 
-json::Value leerTrustStore(const std::string& dirConfig, Aviso& aviso) {
-    return leerFichero(rutaTrustStore(dirConfig), Reason::TrustNoSeAbre, Reason::TrustNoValido, aviso);
+json::Value readTrustStore(const std::string& dirConfig, Warning& aviso) {
+    return leerFichero(trustStorePath(dirConfig), Reason::TrustCannotBeOpened, Reason::TrustNotValid, aviso);
 }
 
-bool escribirConfig(const std::string& dirConfig, const json::Value& root, Aviso& aviso) {
-    return escribirFichero(dirConfig, rutaConfig(dirConfig), root, Reason::ConfigNoSeEscribe, aviso);
+bool writeConfig(const std::string& dirConfig, const json::Value& root, Warning& aviso) {
+    return escribirFichero(dirConfig, configPath(dirConfig), root, Reason::ConfigCannotBeWritten, aviso);
 }
 
-bool escribirTrustStore(const std::string& dirConfig, const json::Value& root, Aviso& aviso) {
-    return escribirFichero(dirConfig, rutaTrustStore(dirConfig), root, Reason::TrustNoSeEscribe, aviso);
+bool writeTrustStore(const std::string& dirConfig, const json::Value& root, Warning& aviso) {
+    return escribirFichero(dirConfig, trustStorePath(dirConfig), root, Reason::TrustCannotBeWritten, aviso);
 }
 
 namespace {
@@ -142,7 +142,7 @@ std::string nombreDe(const json::Value& conexion) {
 // Un campo: se abre con la vieja —si estaba cifrado— y se cierra con la nueva. Un campo en
 // claro se CIFRA, que es lo que hace que una configuración a medias quede entera después.
 bool rotaCampo(json::Value& conexion, const char* campo, const std::string& vieja,
-               const std::string& nueva, Aviso& aviso) {
+               const std::string& nueva, Warning& aviso) {
     if (!conexion[campo].isString()) {
         return true;
     }
@@ -154,14 +154,14 @@ bool rotaCampo(json::Value& conexion, const char* campo, const std::string& viej
     if (SecretCipher::isEncrypted(valor)) {
         std::string err;
         if (!SecretCipher::decryptEncv1(valor, vieja, claro, err)) {
-            aviso = Aviso{Reason::NoSeDescifra, nombreDe(conexion), campo, err};
+            aviso = Warning{Reason::CannotDecrypt, nombreDe(conexion), campo, err};
             return false;
         }
     }
     std::string cifrado;
     std::string err;
     if (!SecretCipher::encryptEncv1(claro, nueva, cifrado, err)) {
-        aviso = Aviso{Reason::NoSeCifra, nombreDe(conexion), campo, err};
+        aviso = Warning{Reason::CannotEncrypt, nombreDe(conexion), campo, err};
         return false;
     }
     conexion.set(campo, json::Value(cifrado));
@@ -169,7 +169,7 @@ bool rotaCampo(json::Value& conexion, const char* campo, const std::string& viej
 }
 
 bool rotaConexiones(json::Value& raiz, const std::string& vieja, const std::string& nueva,
-                    Aviso& aviso) {
+                    Warning& aviso) {
     if (!raiz["connections"].isArray()) {
         return true;
     }
@@ -194,12 +194,12 @@ namespace {
 // Recorre los campos secretos de los dos ficheros. `porCada` decide si se sigue.
 bool recorreSecretos(const std::string& dirConfig,
                      const std::function<bool(const json::Value&, const char*, const std::string&)>& porCada,
-                     Aviso& aviso) {
+                     Warning& aviso) {
     for (int cual = 0; cual < 2; ++cual) {
-        Aviso propio;
-        const json::Value raiz = (cual == 0) ? leerConfig(dirConfig, propio)
-                                             : leerTrustStore(dirConfig, propio);
-        if (!propio.vacio()) {
+        Warning propio;
+        const json::Value raiz = (cual == 0) ? readConfig(dirConfig, propio)
+                                             : readTrustStore(dirConfig, propio);
+        if (!propio.empty()) {
             aviso = propio;
             return false;
         }
@@ -226,18 +226,18 @@ bool recorreSecretos(const std::string& dirConfig,
 namespace {
 
 // Cifra un campo si va en claro. Sin maestra no se escribe: se dice y se para.
-bool cifraSiHace(std::string& valor, const char* campo, const std::string& maestra, Aviso& aviso) {
+bool cifraSiHace(std::string& valor, const char* campo, const std::string& maestra, Warning& aviso) {
     if (valor.empty() || SecretCipher::isEncrypted(valor)) {
         return true;
     }
     if (maestra.empty()) {
-        aviso = Aviso{Reason::ClaveMaestraRequeridaParaCifrar, {}, campo, {}};
+        aviso = Warning{Reason::MasterPasswordRequiredToEncrypt, {}, campo, {}};
         return false;
     }
     std::string cifrado;
     std::string err;
     if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
-        aviso = Aviso{Reason::NoSeCifra, {}, campo, err};
+        aviso = Warning{Reason::CannotEncrypt, {}, campo, err};
         return false;
     }
     valor = cifrado;
@@ -267,15 +267,15 @@ bool mismoExtremo(const ConnectionProfile& nuevo, const ConnectionProfile& viejo
 
 }  // namespace
 
-bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
-                  const std::string& maestra, Aviso& aviso) {
-    aviso = Aviso{};
+bool saveProfile(const std::string& dirConfig, const ConnectionProfile& p,
+                  const std::string& maestra, Warning& aviso) {
+    aviso = Warning{};
     if (trim(p.id).empty()) {
-        aviso = Aviso{Reason::IdVacio, {}, {}, {}};
+        aviso = Warning{Reason::EmptyId, {}, {}, {}};
         return false;
     }
-    json::Value root = leerConfig(dirConfig, aviso);
-    if (!aviso.vacio()) {
+    json::Value root = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
         return false;
     }
     ConnectionProfile guardado = p;
@@ -298,9 +298,9 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
         break;
     }
 
-    Aviso avisoTrust;
-    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
-    if (!avisoTrust.vacio()) {
+    Warning avisoTrust;
+    json::Value trust = readTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.empty()) {
         aviso = avisoTrust;
         return false;
     }
@@ -345,7 +345,7 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
         || !cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
         || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
         || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
-        aviso.conexion = !p.name.empty() ? p.name : p.id;
+        aviso.connection = !p.name.empty() ? p.name : p.id;
         return false;
     }
 
@@ -364,7 +364,7 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
         salida.push_back(connjson::connectionToJson(guardado, std::string()));
     }
     root.set("connections", json::Value(salida));
-    if (!escribirConfig(dirConfig, root, aviso)) {
+    if (!writeConfig(dirConfig, root, aviso)) {
         return false;
     }
 
@@ -385,12 +385,12 @@ bool guardaPerfil(const std::string& dirConfig, const ConnectionProfile& p,
     trust.set("schema", json::Value(1));
     trust.set("created_by", json::Value(std::string("ZFSMgr")));
     trust.set("connections", json::Value(salidaTrust));
-    return escribirTrustStore(dirConfig, trust, aviso);
+    return writeTrustStore(dirConfig, trust, aviso);
 }
 
-bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p,
-                        const std::string& maestra, Aviso& aviso) {
-    aviso = Aviso{};
+bool saveTlsToStore(const std::string& dirConfig, const ConnectionProfile& p,
+                        const std::string& maestra, Warning& aviso) {
+    aviso = Warning{};
     if (trim(p.id).empty() || connjson::isLocalProfile(p) || !connjson::profileHasDaemonTls(p)) {
         return true;   // nada que fijar
     }
@@ -398,11 +398,11 @@ bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p
     if (!cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
         || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
         || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
-        aviso.conexion = !p.name.empty() ? p.name : p.id;
+        aviso.connection = !p.name.empty() ? p.name : p.id;
         return false;
     }
-    json::Value trust = leerTrustStore(dirConfig, aviso);
-    if (!aviso.vacio()) {
+    json::Value trust = readTrustStore(dirConfig, aviso);
+    if (!aviso.empty()) {
         return false;
     }
     json::Array salida;
@@ -422,18 +422,18 @@ bool guardaTlsEnAlmacen(const std::string& dirConfig, const ConnectionProfile& p
     trust.set("schema", json::Value(1));
     trust.set("created_by", json::Value(std::string("ZFSMgr")));
     trust.set("connections", json::Value(salida));
-    return escribirTrustStore(dirConfig, trust, aviso);
+    return writeTrustStore(dirConfig, trust, aviso);
 }
 
-bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, Aviso& aviso) {
-    aviso = Aviso{};
+bool encryptWhatIsMissing(const std::string& dirConfig, const std::string& maestra, Warning& aviso) {
+    aviso = Warning{};
     if (maestra.empty()) {
-        aviso = Aviso{Reason::ClaveMaestraRequerida, {}, {}, {}};
+        aviso = Warning{Reason::MasterPasswordRequired, {}, {}, {}};
         return false;
     }
     for (int cual = 0; cual < 2; ++cual) {
-        json::Value raiz = (cual == 0) ? leerConfig(dirConfig, aviso) : leerTrustStore(dirConfig, aviso);
-        if (!aviso.vacio()) {
+        json::Value raiz = (cual == 0) ? readConfig(dirConfig, aviso) : readTrustStore(dirConfig, aviso);
+        if (!aviso.empty()) {
             return false;
         }
         json::Array salida;
@@ -451,7 +451,7 @@ bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, A
                 std::string cifrado;
                 std::string err;
                 if (!SecretCipher::encryptEncv1(valor, maestra, cifrado, err)) {
-                    aviso = Aviso{Reason::NoSeCifra, nombreDe(conexion), campo, err};
+                    aviso = Warning{Reason::CannotEncrypt, nombreDe(conexion), campo, err};
                     return false;
                 }
                 conexion.set(campo, json::Value(cifrado));
@@ -463,8 +463,8 @@ bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, A
             continue;   // nada en claro: no se reescribe el fichero por gusto
         }
         raiz.set("connections", json::Value(salida));
-        const bool ok = (cual == 0) ? escribirConfig(dirConfig, raiz, aviso)
-                                    : escribirTrustStore(dirConfig, raiz, aviso);
+        const bool ok = (cual == 0) ? writeConfig(dirConfig, raiz, aviso)
+                                    : writeTrustStore(dirConfig, raiz, aviso);
         if (!ok) {
             return false;
         }
@@ -472,15 +472,15 @@ bool cifraLoQueFalte(const std::string& dirConfig, const std::string& maestra, A
     return true;
 }
 
-bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& aviso) {
-    aviso = Aviso{};
+bool deleteProfile(const std::string& dirConfig, const std::string& id, Warning& aviso) {
+    aviso = Warning{};
     const std::string buscado = toLowerAscii(trim(id));
     if (buscado.empty()) {
-        aviso = Aviso{Reason::IdVacio, {}, {}, {}};
+        aviso = Warning{Reason::EmptyId, {}, {}, {}};
         return false;
     }
-    json::Value root = leerConfig(dirConfig, aviso);
-    if (!aviso.vacio()) {
+    json::Value root = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
         return false;
     }
     json::Array salida;
@@ -494,18 +494,18 @@ bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& avi
         salida.push_back(v);
     }
     if (!encontrada) {
-        aviso = Aviso{Reason::NoSeGuardaConexion, id, {}, {}};
+        aviso = Warning{Reason::ConnectionNotSaved, id, {}, {}};
         return false;
     }
     root.set("connections", json::Value(salida));
-    if (!escribirConfig(dirConfig, root, aviso)) {
+    if (!writeConfig(dirConfig, root, aviso)) {
         return false;
     }
 
     // Y del almacén de confianza, o la conexión vuelve sola.
-    Aviso avisoTrust;
-    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
-    if (!avisoTrust.vacio()) {
+    Warning avisoTrust;
+    json::Value trust = readTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.empty()) {
         aviso = avisoTrust;
         return false;
     }
@@ -523,12 +523,12 @@ bool borraPerfil(const std::string& dirConfig, const std::string& id, Aviso& avi
         return true;
     }
     trust.set("connections", json::Value(salidaTrust));
-    return escribirTrustStore(dirConfig, trust, aviso);
+    return writeTrustStore(dirConfig, trust, aviso);
 }
 
-bool hayAlgoCifrado(const std::string& dirConfig) {
+bool hasSomethingEncrypted(const std::string& dirConfig) {
     bool alguno = false;
-    Aviso aviso;
+    Warning aviso;
     recorreSecretos(dirConfig,
                     [&alguno](const json::Value&, const char*, const std::string&) {
                         alguno = true;
@@ -538,22 +538,22 @@ bool hayAlgoCifrado(const std::string& dirConfig) {
     return alguno;
 }
 
-bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, Aviso& aviso) {
-    aviso = Aviso{};
+bool masterOpensEverything(const std::string& dirConfig, const std::string& maestra, Warning& aviso) {
+    aviso = Warning{};
     bool ok = true;
-    Aviso avisoLectura;
+    Warning avisoLectura;
     const bool leido = recorreSecretos(
         dirConfig,
         [&](const json::Value& conexion, const char* campo, const std::string& valor) {
             if (maestra.empty()) {
-                aviso = Aviso{Reason::ClaveMaestraRequerida, nombreDe(conexion), campo, {}};
+                aviso = Warning{Reason::MasterPasswordRequired, nombreDe(conexion), campo, {}};
                 ok = false;
                 return false;
             }
             std::string claro;
             std::string err;
             if (!SecretCipher::decryptEncv1(valor, maestra, claro, err)) {
-                aviso = Aviso{Reason::NoSeDescifra, nombreDe(conexion), campo, err};
+                aviso = Warning{Reason::CannotDecrypt, nombreDe(conexion), campo, err};
                 ok = false;
                 return false;
             }
@@ -567,21 +567,21 @@ bool maestraAbreTodo(const std::string& dirConfig, const std::string& maestra, A
     return ok;
 }
 
-bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
-                      const std::string& nueva, std::string& copiaSufijo, Aviso& aviso) {
-    aviso = Aviso{};
+bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
+                      const std::string& nueva, std::string& copiaSufijo, Warning& aviso) {
+    aviso = Warning{};
     copiaSufijo.clear();
     if (nueva.empty()) {
-        aviso = Aviso{Reason::NuevaClaveMaestraVacia, {}, {}, {}};
+        aviso = Warning{Reason::NewMasterPasswordEmpty, {}, {}, {}};
         return false;
     }
-    json::Value config = leerConfig(dirConfig, aviso);
-    if (!aviso.vacio()) {
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
         return false;
     }
-    Aviso avisoTrust;
-    json::Value trust = leerTrustStore(dirConfig, avisoTrust);
-    if (!avisoTrust.vacio()) {
+    Warning avisoTrust;
+    json::Value trust = readTrustStore(dirConfig, avisoTrust);
+    if (!avisoTrust.empty()) {
         aviso = avisoTrust;
         return false;
     }
@@ -590,13 +590,13 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
     // la mitad, lo que queda en disco no sirve ni con la clave vieja ni con la nueva.
     copiaSufijo = ".antes-de-rotar";
     std::error_code ec;
-    for (const std::string& ruta : {rutaConfig(dirConfig), rutaTrustStore(dirConfig)}) {
+    for (const std::string& ruta : {configPath(dirConfig), trustStorePath(dirConfig)}) {
         if (!fs::exists(ruta, ec)) {
             continue;
         }
         fs::copy_file(ruta, ruta + copiaSufijo, fs::copy_options::overwrite_existing, ec);
         if (ec) {
-            aviso = Aviso{Reason::ConfigNoSeEscribe, {}, ruta + copiaSufijo, ec.message()};
+            aviso = Warning{Reason::ConfigCannotBeWritten, {}, ruta + copiaSufijo, ec.message()};
             copiaSufijo.clear();
             return false;
         }
@@ -608,13 +608,13 @@ bool rotaClaveMaestra(const std::string& dirConfig, const std::string& vieja,
     if (!rotaConexiones(trust, vieja, nueva, aviso)) {
         return false;
     }
-    if (!escribirConfig(dirConfig, config, aviso)) {
+    if (!writeConfig(dirConfig, config, aviso)) {
         return false;
     }
     if (trust["connections"].isArray() && !trust["connections"].toArray().empty()) {
         trust.set("schema", json::Value(1));
         trust.set("created_by", json::Value(std::string("ZFSMgr")));
-        if (!escribirTrustStore(dirConfig, trust, aviso)) {
+        if (!writeTrustStore(dirConfig, trust, aviso)) {
             return false;
         }
     }

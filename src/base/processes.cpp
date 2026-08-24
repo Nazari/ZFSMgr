@@ -1,4 +1,4 @@
-#include "procesos.h"
+#include "processes.h"
 
 #include <map>
 #include <set>
@@ -1138,7 +1138,7 @@ bool canConnectLocal(std::uint16_t port, int timeoutMs) {
     return ok;
 }
 
-std::vector<long long> descendientesDe(long long raiz, const std::string& salidaPs) {
+std::vector<long long> descendantsOf(long long raiz, const std::string& salidaPs) {
     // pid -> hijos. Un `ps` de una máquina cargada trae miles de líneas, así que el mapa
     // se construye una vez y el recorrido va por él, no releyendo el texto por nivel.
     std::map<long long, std::vector<long long>> hijos;
@@ -1189,7 +1189,7 @@ std::vector<long long> descendientesDe(long long raiz, const std::string& salida
     return orden;
 }
 
-void mataDescendencia(long long raiz, int msGracia) {
+void killDescendants(long long raiz, int msGracia) {
     if (raiz <= 0) {
         return;
     }
@@ -1200,7 +1200,7 @@ void mataDescendencia(long long raiz, int msGracia) {
     if (ps.rc != 0) {
         return;
     }
-    const std::vector<long long> muertos = descendientesDe(raiz, ps.out);
+    const std::vector<long long> muertos = descendantsOf(raiz, ps.out);
     for (const long long pid : muertos) {
         ::kill(static_cast<pid_t>(pid), SIGTERM);
     }

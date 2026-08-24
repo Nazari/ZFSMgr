@@ -58,8 +58,8 @@ typedef int pid_t;
 #include "remotetree.h"
 #include "copytree.h"
 #include "json.h"
-#include "base/procesos.h"
-#include "base/sistemaoperativo.h"
+#include "base/processes.h"
+#include "base/osinfo.h"
 #include "commands/gsa.h"
 #include "base/strutil.h"
 #include "base/tlsserver.h"
@@ -2107,7 +2107,7 @@ std::string detectOsLine() {
             std::ostringstream ss;
             ss << f.rdbuf();
             const std::string combined =
-                zfsmgr::base::sistemaoperativo::deOsRelease(ss.str());
+                zfsmgr::base::osinfo::fromOsRelease(ss.str());
             if (!combined.empty()) {
                 return combined;
             }
@@ -3876,7 +3876,7 @@ bool writeSelfSignedPair(const std::string& certPath,
     // La emisión vive en `base/tlsserver.cpp` desde que hay un segundo artefacto que la
     // necesita —el servidor web—. Aquí queda el nombre y los alt-names del agente.
     std::string err;
-    const bool ok = zfsmgr::base::tlsserver::escribeParAutofirmado(
+    const bool ok = zfsmgr::base::tlsserver::writeSelfSignedPair(
         certPath, keyPath, commonName, serverAuth,
         "DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1", err);
     if (!ok) {

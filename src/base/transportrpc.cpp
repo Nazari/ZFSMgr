@@ -2,7 +2,7 @@
 
 #include "helpers.h"
 #include "json.h"
-#include "procesos.h"
+#include "processes.h"
 #include "strutil.h"
 #include "tlsclient.h"
 #include "transportcmd.h"
@@ -162,11 +162,11 @@ bool runSshRaw(const ConnectionProfile& p,
     bool conSshpass = false;
     // Vive hasta el final de la función, que es cuando se ha lanzado el proceso: si se
     // cerrase antes, sshpass leería de un descriptor ya muerto.
-    H::SecretoPorDescriptor secreto(hasPassword ? p.password : std::string());
+    H::SecretFromDescriptor secreto(hasPassword ? p.password : std::string());
     if (hasPassword) {
         const std::string sshpassExe = H::findLocalExecutable("sshpass");
         if (!sshpassExe.empty() && secreto.vale()) {
-            // La contraseña va por el descriptor, no por el argv: ver SecretoPorDescriptor.
+            // La contraseña va por el descriptor, no por el argv: ver SecretFromDescriptor.
             program = sshpassExe;
             args.push_back(secreto.opcionSshpass());
             args.push_back("ssh");
@@ -324,7 +324,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!tlsRequestLine(tls, json::toCompact(req), respuesta, errorTls)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = {Failure::HandshakeFallido, errorTls};
+            diag->failure = {Failure::HandshakeFailed, errorTls};
         }
         return false;
     }
@@ -333,7 +333,7 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     if (!json::parse(respuesta, resp, &errJson)) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = {Failure::RespuestaNoValida, errJson};
+            diag->failure = {Failure::InvalidAnswer, errJson};
         }
         return false;
     }
@@ -429,7 +429,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         // que la lectura directa de arriba basta. Si ha fallado no queda camino
         // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo, y
         // lanzarlo daría un error que no dice nada. Se explica lo que pasa.
-        ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalNoLegible, cfg.tlsCertPath, {}});
+        ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsUnreadable, cfg.tlsCertPath, {}});
         return false;
 #else
         // Mismo guion y mismos marcadores que el camino remoto, para poder reutilizar su
@@ -457,7 +457,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         sudoProfile.connType = "LOCAL";
         sudoProfile.useSudo = true;
         if (!ses.resolveLocalSudo(sudoProfile)) {
-            ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalSinSudo, {}, {}});
+            ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsNeedsSudo, {}, {}});
             return false;
         }
         std::string out;
@@ -471,13 +471,13 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
                     /*echoOutputToLog=*/false)
             || rc != 0) {
             ses.aviso(Nivel::Warn, {},
-                      {Aviso::TlsLocalNoSeLee, {},
+                      {Warning::LocalTlsCannotBeRead, {},
                        H::maskSecretOutput(H::oneLine(err.empty() ? out : err))});
             return false;
         }
         RemoteTlsBundle paquete;
         if (!parseRemoteDaemonTlsBundle(out, paquete)) {
-            ses.aviso(Nivel::Warn, {}, {Aviso::TlsLocalIncompleto, {}, {}});
+            ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsIncomplete, {}, {}});
             return false;
         }
         srv = paquete.serverCertPem;
@@ -529,7 +529,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     // ¿Está esta conexión castigada por un fallo reciente? Sin esto, una conexión con el
     // daemon caído se lleva una ida y vuelta por SSH en cada operación.
     bool sePuedeIntentar = true;
-    MotivoFallo motivoSuprimido;
+    FailureReason motivoSuprimido;
     {
         std::lock_guard<std::mutex> lock(ses.mutex);
         const auto it = ses.retryAfterByConnKey.find(rpcConnKey);
@@ -538,12 +538,12 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
             const long long quedanMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            it->second - Reloj::now())
                                            .count();
-            motivoSuprimido = {Failure::EnEspera, std::to_string((quedanMs + 999) / 1000)};
+            motivoSuprimido = {Failure::Cooling, std::to_string((quedanMs + 999) / 1000)};
         }
     }
 
     bool intentoOk = false;
-    MotivoFallo motivoFallo;
+    FailureReason motivoFallo;
     bool ordenPudoLlegar = false;
     if (sePuedeIntentar) {
         // Al hilo donde se pueden montar túneles, y bloqueando: el resultado se necesita
@@ -569,11 +569,11 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         // provoca el bombeo de eventos— lo correcto sigue siendo caer al otro camino.
         constexpr int kEsperasMax = 20;      // 20 × 100 ms = 2 s, de sobra para montar uno
         for (int intento = 0;
-             !intentoOk && motivoFallo.fallo == Failure::TunelOcupado && !ses.puedeMontarTuneles()
+             !intentoOk && motivoFallo.failure == Failure::TunnelBusy && !ses.puedeMontarTuneles()
              && intento < kEsperasMax;
              ++intento) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            motivoFallo = MotivoFallo{};
+            motivoFallo = FailureReason{};
             ordenPudoLlegar = false;
             ses.enElHiloDeTuneles([&]() {
                 intentoOk = tryRunRemoteAgentRpcViaTunnel(ses, p, agentArgs, timeoutMs, out, err,
@@ -600,13 +600,13 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         return true;
     }
 
-    const MotivoFallo motivo =
-        motivoFallo.vacio() ? MotivoFallo{Failure::NoEspecificado, {}} : motivoFallo;
+    const FailureReason motivo =
+        motivoFallo.empty() ? FailureReason{Failure::Unspecified, {}} : motivoFallo;
     // Para el REGISTRO: etiqueta estable más el detalle técnico, que ya viene en inglés de
     // OpenSSL o del sistema. El texto para personas lo pone quien tiene interfaz.
     const std::string motivoLog =
-        std::string(labelOf(motivo.fallo))
-        + (motivo.detalle.empty() ? std::string() : ": " + motivo.detalle);
+        std::string(labelOf(motivo.failure))
+        + (motivo.detail.empty() ? std::string() : ": " + motivo.detail);
 
     if (sePuedeIntentar && ordenPudoLlegar && isMutatingAgentCommand(agentArgs)) {
         // El daemon recibió una orden que MUTA y nunca llegó su respuesta. Cerrar el túnel
@@ -626,7 +626,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     // Qué se castiga y qué no lo dice el TIPO del fallo. Antes se comparaba el motivo
     // con `rpcTunnelBusyReason()` letra a letra: con esa frase traducida, «ocupado» —que no
     // es un fallo— habría empezado a contar como conexión rota, castigo de 30 s incluido.
-    if (sePuedeIntentar && !mereceCastigo(motivo.fallo)) {
+    if (sePuedeIntentar && !deservesPenalty(motivo.failure)) {
         ses.logConn(Nivel::Info, p.id,
                     quien + " $ [daemon-rpc:skip] " + queOrden + " -> " + motivoLog);
     } else if (sePuedeIntentar) {
@@ -636,10 +636,10 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         std::lock_guard<std::mutex> lock(ses.mutex);
         ses.retryAfterByConnKey[rpcConnKey] = Reloj::now() + std::chrono::seconds(kCastigoSeg);
         ses.retryReasonByConnKey[rpcConnKey] = motivo;
-    } else if (!motivoSuprimido.vacio()) {
+    } else if (!motivoSuprimido.empty()) {
         ses.logConn(Nivel::Info, p.id,
                     quien + " $ [daemon-rpc:skip] " + queOrden + " -> "
-                        + labelOf(motivoSuprimido.fallo) + " " + motivoSuprimido.detalle + "s");
+                        + labelOf(motivoSuprimido.failure) + " " + motivoSuprimido.detail + "s");
     }
     return false;
 }
@@ -847,7 +847,7 @@ bool runSsh(TransportSession& ses,
             const std::string pista = H::sshHostKeyProblemHint(err);
             if (!pista.empty()) {
                 err = pista + "\n\n" + err;
-                ses.aviso(Nivel::Warn, p.id, {Aviso::HostSshNoVerificado, {}, {}});
+                ses.aviso(Nivel::Warn, p.id, {Warning::SshHostUnverified, {}, {}});
             }
         }
         ecoResumen(ses, p.id, out, err, echoOutputToLog);
@@ -890,7 +890,7 @@ bool runSsh(TransportSession& ses,
     ses.logConn(Nivel::Info, p.id,
                 H::sshUserHostPort(p) + " $ " + H::maskCommandSecrets(wrappedCmd));
     if (hayClave && !conSshpass) {
-        ses.aviso(Nivel::Normal, p.id, {Aviso::SinSshpass, {}, {}});
+        ses.aviso(Nivel::Normal, p.id, {Warning::NoSshpass, {}, {}});
     }
 
     const auto intento = [&](bool conMultiplexado, std::string& aOut, std::string& aErr,
@@ -903,7 +903,7 @@ bool runSsh(TransportSession& ses,
         // del intento, no fuera. Un pipe se lee una sola vez: como esta lambda se ejecuta
         // dos veces —la segunda sin multiplexado— un único descriptor creado fuera llegaría
         // vacío al reintento y la autenticación fallaría sin explicar por qué.
-        H::SecretoPorDescriptor secreto(conSshpass ? p.password : std::string());
+        H::SecretFromDescriptor secreto(conSshpass ? p.password : std::string());
         std::string programa = program;
         std::vector<std::string> args;
         if (conSshpass) {
@@ -1026,10 +1026,10 @@ bool runSsh(TransportSession& ses,
             std::lock_guard<std::mutex> lock(ses.mutex);
             ses.disableMultiplexKeys.insert(sshConnKey);
         }
-        ses.aviso(Nivel::Warn, p.id, {Aviso::MultiplexadoFallo, {}, {}});
+        ses.aviso(Nivel::Warn, p.id, {Warning::MultiplexingFailed, {}, {}});
         arrancoOk = intento(false, out, err, rc);
     } else if (!permiteMultiplexado) {
-        ses.aviso(Nivel::Normal, p.id, {Aviso::MultiplexadoDesactivado, {}, {}});
+        ses.aviso(Nivel::Normal, p.id, {Warning::MultiplexingDisabled, {}, {}});
     }
 
     if (!arrancoOk) {

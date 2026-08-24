@@ -3,7 +3,7 @@
 #include "agentversion.h"
 #include "daemonpayload.h"
 #include "helpers.h"
-#include "procesos.h"
+#include "processes.h"
 #include "strutil.h"
 #include "transportcmd.h"
 #include "transportrpc.h"
@@ -184,13 +184,13 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     // empaquetado de una plataforma puede ser más viejo si solo se recompiló el de otra.
     // Escribir entonces la versión de este binario deja el `agent.conf` mintiendo, y la
     // máquina se declara al día con un daemon que no lo está.
-    r.version = agentversion::versionEnBinario(rutaBinario);
+    r.version = agentversion::versionInBinary(rutaBinario);
     if (r.version.empty()) {
-        r.version = agentversion::laEsperada();
+        r.version = agentversion::expected();
     } else {
-        r.versionBehind = (r.version != agentversion::laEsperada());
+        r.versionBehind = (r.version != agentversion::expected());
     }
-    const std::string api = agentversion::apiEsperada();
+    const std::string api = agentversion::expectedApi();
 
     std::string out;
     std::string err;
@@ -210,7 +210,7 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
                 return r;
             }
         } else {
-            const H::ScpInvocacion inv = H::scpUpload(perfil, rutaBinario, subida, false);
+            const H::ScpInvocation inv = H::scpUpload(perfil, rutaBinario, subida, false);
             const ExecResult sr =
                 runExecStream(inv.program, inv.args, std::string(), 300000, StreamCallbacks{});
             if (sr.rc != 0) {

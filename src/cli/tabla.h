@@ -64,7 +64,7 @@ struct Tabla {
             return v == "true" ? T("t_si", "sí") : (v == "false" ? T("t_no", "no") : v);
         }
         if (tipoDe(col) == Tipo::Bytes) {
-            return tamanoLegible(v);
+            return humanSize(v);
         }
         return v;
     }
@@ -75,8 +75,8 @@ struct Tabla {
     // Se usan múltiplos de 1024 y las mismas unidades que `zfs list`, para que lo que se ve
     // aquí y lo que se ve allí coincidan.
     // La regla vive en `base/strutil`: la escriben el intérprete y la ventana.
-    static std::string tamanoLegible(const std::string& v) {
-        return zfsmgr::base::tamanoLegible(v);
+    static std::string humanSize(const std::string& v) {
+        return zfsmgr::base::humanSize(v);
     }
 
     void imprimeJson() const {

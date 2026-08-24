@@ -5,67 +5,67 @@
 #include <string>
 #include <vector>
 
-// Motivos tipificados del almacén de conexiones.
+// Typed reasons from the connection store.
 //
-// La capa base NO traduce: devuelve un motivo y los datos que lo acompañan, y quien
-// tiene interfaz decide cómo se dice. Es el mismo reparto que ya hacía
-// `connectioncapabilities`, y es lo que permite sacar `ConnectionStore` de Qt sin
-// arrastrar con él el sistema de traducción.
+// The base layer does NOT translate: it returns a reason and the data that goes with it, and
+// whoever has an interface decides how it is worded. It is the same split
+// `connectioncapabilities` already made, and it is what lets `ConnectionStore` be pulled out
+// of Qt without dragging the translation system along with it.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::store {
 
 enum class Reason {
     None_ = 0,
 
-    // --- Ficheros
-    ConfigNoSeAbre,
-    ConfigNoValido,        // detalle: el error del analizador
-    ConfigDirNoSeCrea,
-    ConfigNoSeEscribe,
-    TrustNoSeAbre,
-    TrustNoValido,         // detalle: el error del analizador
-    TrustNoSeEscribe,
+    // --- Files
+    ConfigCannotBeOpened,
+    ConfigNotValid,                  // detail: the parser's error
+    ConfigDirCannotBeCreated,
+    ConfigCannotBeWritten,
+    TrustCannotBeOpened,
+    TrustNotValid,                   // detail: the parser's error
+    TrustCannotBeWritten,
 
-    // --- Clave maestra y cifrado
-    ClaveMaestraRequerida,
-    ClaveMaestraRequeridaParaCifrar,  // campo
-    NuevaClaveMaestraVacia,
-    NoSeCifra,                        // campo, detalle
-    // Un campo cifrado que no se pudo abrir. OJO: cuando esto ocurre el campo CONSERVA
-    // el texto cifrado, así que quien lo reciba no debe usarlo como si fuera el valor en
-    // claro. Ver la nota del diseño sobre pam_faillock.
-    NoSeDescifra,                     // conexion, campo, detalle
-    CampoIncorrecto,                  // conexion, campo
+    // --- Master password and encryption
+    MasterPasswordRequired,
+    MasterPasswordRequiredToEncrypt,  // field
+    NewMasterPasswordEmpty,
+    CannotEncrypt,                   // field, detail
+    // An encrypted field that could not be opened. CAREFUL: when this happens the field
+    // KEEPS the ciphertext, so whoever receives it must not use it as though it were the
+    // plaintext value. See the design note on pam_faillock.
+    CannotDecrypt,                   // connection, field, detail
+    WrongField,                      // connection, field
 
-    // --- Validación
-    IdVacio,
-    NombreRequerido,
-    HostRequerido,
-    UsuarioRequerido,
-    NombreDuplicado,
-    NoSeGuardaConexion,
+    // --- Validation
+    EmptyId,
+    NameRequired,
+    HostRequired,
+    UserRequired,
+    DuplicateName,
+    ConnectionNotSaved,
 
-    // --- Avisos informativos
-    PerfilPsrpConvertido,             // conexion
+    // --- Informational warnings
+    PsrpProfileConverted,            // connection
 };
 
-// El motivo con sus datos. Campos con nombre, no una lista de argumentos: así el sitio
-// que lo construye se lee solo y quien traduce no puede intercambiarlos de orden.
-struct Aviso {
-    Reason motivo{Reason::None_};
-    std::string conexion;  // nombre de la conexión, o su id si no tiene nombre
-    std::string campo;     // el campo afectado, cuando el motivo distingue uno
-    std::string detalle;   // el error subyacente, cuando lo hay
+// The reason with its data. Named fields, not a list of arguments: that way the place that
+// builds it reads on its own, and whoever translates cannot swap their order.
+struct Warning {
+    Reason reason{Reason::None_};
+    std::string connection;  // the connection's name, or its id when it has no name
+    std::string field;       // the affected field, when the reason singles one out
+    std::string detail;      // the underlying error, when there is one
 
-    bool vacio() const { return motivo == Reason::None_; }
+    bool empty() const { return reason == Reason::None_; }
 };
 
-using Avisos = std::vector<Aviso>;
+using Warnings = std::vector<Warning>;
 
-// El castellano de reserva de un aviso, con sus datos ya puestos, para quien no tenga
-// catálogo propio. La interfaz y el intérprete tienen el suyo y lo redactan a su manera;
-// esto evita que un motivo nuevo salga como un número o, peor, en silencio.
-std::string labelOf(const Aviso& a);
+// The fallback Spanish wording of a warning, with its data already filled in, for whoever
+// has no catalogue of their own. The interface and the shell have theirs and word it their
+// own way; this keeps a new reason from coming out as a number or, worse, silently.
+std::string labelOf(const Warning& w);
 
 }  // namespace zfsmgr::base::store

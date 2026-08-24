@@ -2,140 +2,142 @@
 
 #include <string>
 
-// Por qué no se pudo hablar con el daemon, TIPIFICADO.
+// Why the daemon could not be talked to, TYPED.
 //
-// Antes esto era una frase en castellano, y el código decidía leyéndola:
+// This used to be a sentence in Spanish, and the code decided by reading it:
 //
-//     if (contains(motivo, "handshake tls daemon-rpc") || contains(motivo, "conexión ..."))
+//     if (contains(reason, "handshake tls daemon-rpc") || contains(reason, "conexión ..."))
 //         tryReviveRemoteDaemonService(p);
 //
-// Eso ataba tres cosas que no tienen por qué ir juntas: cómo se le cuenta el fallo a una
-// persona, en qué idioma, y qué hace el programa a continuación. Cambiar una coma de la
-// frase apagaba el reintento; traducirla al inglés lo apagaba entero y **en silencio**,
-// porque no hay forma de que eso falle ruidosamente: la función simplemente deja de
-// llamarse. Lo mismo valía para comparar contra `rpcTunnelBusyReason()`, donde «ocupado»
-// —que NO es un fallo— se habría empezado a tratar como conexión rota, con su castigo de
-// 30 s incluido.
+// That tied together three things that need not travel together: how the failure is told to
+// a person, in which language, and what the program does next. Changing a comma in the
+// sentence switched off the retry; translating it to English switched it off entirely and
+// **silently**, because there is no way for that to fail loudly: the function simply stops
+// being called. The same held for comparing against `rpcTunnelBusyReason()`, where «busy»
+// —which is NOT a failure— would have started being treated as a broken connection, 30-second
+// penalty included.
 //
-// Ahora la capa base devuelve QUÉ pasó y quien tiene interfaz decide cómo se dice. Es el
-// mismo reparto que ya hacía `store::Reason` con los avisos del almacén.
+// Now the base layer returns WHAT happened and whoever has an interface decides how it is
+// worded. It is the same split `store::Reason` already made with the store's warnings.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::transport {
 
 enum class Failure {
     None_ = 0,
 
-    // --- Antes de llegar a intentarlo
-    // Ocupado NO es roto: el túnel se está montando en un marco anterior de la pila. Esta
-    // llamada se salta el RPC y sale por el camino de siempre, sin castigar a la conexión.
-    TunelOcupado,
-    FueraDelHiloDeTuneles,
-    ArgumentosVacios,
-    ConexionNoSsh,
-    EnEspera,  // castigo activo. detalle: los segundos que quedan
+    // --- Before even getting to try
+    // Busy is NOT broken: the tunnel is being built in an earlier stack frame. This call
+    // skips the RPC and leaves by the usual path, without penalising the connection.
+    TunnelBusy,
+    OffTheTunnelThread,
+    EmptyArguments,
+    ConnectionNotSsh,
+    Cooling,                 // penalty in force. detail: the seconds left
 
-    // --- El material TLS del daemon remoto
-    MaterialNoSeLee,           // detalle: lo que dijo la otra máquina
-    MaterialIncompleto,        // llegó respuesta, pero sin las tres piezas
-    ClaveClienteNoDisponible,  // ni local ni remota; el daemon solo la entrega una vez
-    CertificadosInvalidos,
-    ClaveClienteInvalida,
+    // --- The remote daemon's TLS material
+    MaterialCannotBeRead,    // detail: what the other machine said
+    MaterialIncomplete,      // an answer arrived, but without the three pieces
+    ClientKeyUnavailable,    // neither local nor remote; the daemon hands it over only once
+    InvalidCertificates,
+    InvalidClientKey,
 
-    // --- El túnel SSH
-    TunelNoSeMonta,
+    // --- The SSH tunnel
+    TunnelCannotBeBuilt,
 
-    // --- La sesión TLS contra el daemon
-    // El socket no llegó a abrirse. NO es un fallo de saludo: contarlo como tal apuntaría
-    // el diagnóstico a los certificados y dispararía un reaprovisionamiento incapaz de
-    // arreglar un problema de transporte.
-    ConexionRechazada,      // detalle: el error del socket
-    CertificadoNoCoincide,  // fijación: el daemon presenta otro certificado
-    EnvioFallido,
-    TunelCortadoEnEspera,
-    HandshakeFallido,   // detalle: el error de TLS
-    RespuestaNoValida,  // detalle: el error del analizador, si lo hay
+    // --- The TLS session against the daemon
+    // The socket never opened. This is NOT a handshake failure: counting it as one would
+    // point the diagnosis at the certificates and fire off a re-provisioning incapable of
+    // fixing a transport problem.
+    ConnectionRefused,       // detail: the socket's error
+    CertificateMismatch,     // pinning: the daemon presents a different certificate
+    SendFailed,
+    TunnelCutWhileWaiting,
+    HandshakeFailed,         // detail: the TLS error
+    InvalidAnswer,           // detail: the parser's error, when there is one
 
-    // Falló sin dejar dicho por qué. Existe para no tener que distinguir «no falló» de
-    // «falló y no lo contó», que es justo donde se colaba un motivo vacío.
-    NoEspecificado,
+    // It failed without saying why. It exists so that «it did not fail» never has to be told
+    // apart from «it failed and did not say», which is exactly where an empty reason slipped
+    // through.
+    Unspecified,
 };
 
-// --- Los AVISOS que el transporte manda al registro.
+// --- The WARNINGS the transport sends to the log.
 //
-// Misma razón que los motivos de fallo, distinto sitio: la capa base tampoco puede
-// escribir la prosa de estos, porque acaban delante del usuario. Con `--lang en` se veía
-// una sesión en inglés salpicada de «no se pudo leer el material TLS del daemon».
+// Same reason as the failure reasons, different place: the base layer cannot write the prose
+// of these either, because they end up in front of the user. With `--lang en` you saw an
+// English session sprinkled with «no se pudo leer el material TLS del daemon».
 //
-// Lo que NO pasa por aquí, y no es un olvido: las TRAZAS —la orden que se ejecuta, los
-// `[daemon-rpc:fallback]`, las direcciones resueltas—. Eso no es prosa, es el rastro
-// técnico que se lee con grep, y traducirlo estorbaría en vez de ayudar.
-enum class Aviso {
+// What does NOT come through here, and it is not an oversight: the TRACES —the command being
+// run, the `[daemon-rpc:fallback]` lines, the resolved addresses—. That is not prose, it is
+// the technical trail one reads with grep, and translating it would get in the way rather
+// than help.
+enum class Warning {
     None_ = 0,
 
-    // --- Material TLS del daemon de ESTA máquina
-    TlsLocalNoLegible,  // ruta: dónde se esperaba encontrarlo
-    TlsLocalSinSudo,
-    TlsLocalNoSeLee,  // detalle: lo que dijo la orden
-    TlsLocalIncompleto,
+    // --- TLS material of THIS machine's daemon
+    LocalTlsUnreadable,      // path: where it was expected to be
+    LocalTlsNeedsSudo,
+    LocalTlsCannotBeRead,    // detail: what the command said
+    LocalTlsIncomplete,
 
     // --- SSH
-    HostSshNoVerificado,
-    SinSshpass,
-    MultiplexadoFallo,
-    MultiplexadoDesactivado,
+    SshHostUnverified,
+    NoSshpass,
+    MultiplexingFailed,
+    MultiplexingDisabled,
 
-    // --- Túnel. Dos avisos y no uno con el motivo dentro: «murió el ssh» y «se agotó la
-    // espera» son cosas distintas, y meter cuál fue en el detalle habría vuelto a poner
-    // texto donde tiene que haber tipo. En los dos, `detalle` son los milisegundos.
-    TunelNoAceptaSshMurio,
-    TunelNoAceptaEsperaAgotada,
+    // --- Tunnel. Two warnings and not one with the reason inside: «the ssh died» and «the
+    // wait ran out» are different things, and putting which one it was into the detail would
+    // have gone back to keeping text where a type belongs. In both, `detail` is milliseconds.
+    TunnelNotAcceptingSshDied,
+    TunnelNotAcceptingTimedOut,
 };
 
-// Un aviso con lo que lo acompaña. Campos con nombre, como en `store::Aviso`.
-struct NotaDeAviso {
-    Aviso aviso{Aviso::None_};
-    std::string ruta;
-    std::string detalle;
+// One warning with what goes with it. Named fields, as in `store::Warning`.
+struct WarningNote {
+    Warning warning{Warning::None_};
+    std::string path;
+    std::string detail;
 
-    bool vacio() const { return aviso == Aviso::None_; }
+    bool empty() const { return warning == Warning::None_; }
 };
 
-// La etiqueta ASCII estable de un aviso. Se usa como RESPALDO cuando nadie ha puesto
-// traductor: es fea, pero perder un aviso en silencio es peor.
-const char* labelOf(Aviso a);
+// The stable ASCII label of a warning. Used as a FALLBACK when nobody has installed a
+// translator: it is ugly, but losing a warning silently is worse.
+const char* labelOf(Warning w);
 
-// El motivo con lo que lo acompaña. Ver `store::Aviso`: campo con nombre y no una lista de
-// argumentos, para que el sitio que lo construye se lea solo.
-struct MotivoFallo {
-    Failure fallo{Failure::None_};
-    std::string detalle;
+// The reason with what goes with it. See `store::Warning`: named fields and not a list of
+// arguments, so that the place that builds it reads on its own.
+struct FailureReason {
+    Failure failure{Failure::None_};
+    std::string detail;
 
-    bool vacio() const { return fallo == Failure::None_; }
+    bool empty() const { return failure == Failure::None_; }
 };
 
-// --- Las decisiones que antes se tomaban leyendo la frase.
+// --- The decisions that used to be made by reading the sentence.
 //
-// Las tres se implementan con un `switch` SIN `default`: así, el día que se añada un
-// motivo nuevo, el compilador obliga a pasar por aquí y decidir. Con la comparación de
-// texto, un motivo nuevo simplemente no casaba con nada y nadie se enteraba.
+// All three are implemented with a `switch` WITHOUT a `default`: that way, the day a new
+// reason is added, the compiler forces someone to come through here and decide. With the
+// text comparison, a new reason simply matched nothing and nobody found out.
 
-// ¿Este fallo pinta a daemon caído, y por tanto merece intentar levantarlo antes de
-// reintentar? Los de certificado NO: si el material está mal, revivir el servicio no
-// arregla nada y encima gasta una conexión SSH.
-bool sugiereRevivirDaemon(Failure f);
+// Does this failure look like a downed daemon, and therefore deserve trying to bring it back
+// before retrying? The certificate ones do NOT: if the material is wrong, reviving the
+// service fixes nothing and spends an SSH connection doing it.
+bool suggestsDaemonRevival(Failure f);
 
-// ¿Es cosa del material TLS o del saludo? Lo usa la interfaz para decidir si enseña el
-// castigo como «TLS en espera» o se lo calla.
-bool esDeTls(Failure f);
+// Is it about the TLS material or the handshake? The interface uses this to decide whether
+// to show the penalty as «TLS cooling off» or keep quiet about it.
+bool looksLikeTls(Failure f);
 
-// ¿Merece castigar a la conexión 30 s? Ocupado y «fuera del hilo» no: no dicen nada sobre
-// si el daemon está vivo.
-bool mereceCastigo(Failure f);
+// Is it worth penalising the connection for 30 s? Busy and «off the thread» are not: they say
+// nothing about whether the daemon is alive.
+bool deservesPenalty(Failure f);
 
-// Una etiqueta ASCII estable para el REGISTRO. No es texto para leer: es lo que se busca
-// con grep en un log que puede venir de una máquina en otro idioma. El texto para personas
-// lo pone quien tiene interfaz.
+// A stable ASCII label for the LOG. It is not text to be read: it is what one greps for in a
+// log that may come from a machine in another language. The text for people is supplied by
+// whoever has an interface.
 const char* labelOf(Failure f);
 
 }  // namespace zfsmgr::base::transport

@@ -308,7 +308,7 @@ std::string envuelve(const std::string& titulo, const std::string& migas,
         h += "<a class=\"idioma" + std::string(esta ? " activo" : "") + "\" href=\"/idioma?a="
              + idi.first + "\">" + idi.second + "</a> ";
     }
-    h += " zfsmgr-web " + H::escapaHtml(B::agentversion::laEsperada()) + "</footer>";
+    h += " zfsmgr-web " + H::escapaHtml(B::agentversion::expected()) + "</footer>";
     h += "</body></html>";
     return h;
 }
@@ -428,7 +428,7 @@ std::string tabla(const std::vector<std::string>& cabeceras,
 // El empaquetado vive en la capa base: es cómo espera el DAEMON los argumentos, no una
 // decisión de este cliente. Aquí queda solo el nombre corto que usa el resto del fichero.
 std::string argvEnBase64(const std::vector<std::string>& argv) {
-    return zfsmgr::base::helpers::argvParaAgente(argv);
+    return zfsmgr::base::helpers::agentArgv(argv);
 }
 
 // Un campo oculto con el testigo. Va en TODOS los formularios: sin él, el servidor
@@ -610,7 +610,7 @@ std::string marcaDeVersion(const std::string& version) {
     if (version.empty()) {
         return "-";
     }
-    const int cmp = B::agentversion::compara(version, B::agentversion::laEsperada());
+    const int cmp = B::agentversion::compare(version, B::agentversion::expected());
     if (cmp < 0) {
         return version + " *";
     }
@@ -3162,7 +3162,7 @@ std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::R
     if (res.versionBehind) {
         cuerpo += "<div class=\"pendiente\">El agente empaquetado para esa plataforma es "
                   + H::escapaHtml(res.version) + " y este cliente espera "
-                  + H::escapaHtml(B::agentversion::laEsperada())
+                  + H::escapaHtml(B::agentversion::expected())
                   + ": se ha instalado igual, pero la conexión seguirá saliendo "
                     "desactualizada. Hay que recompilar el agente de esa plataforma.</div>";
     }
@@ -3238,8 +3238,8 @@ int main(int argc, char** argv) {
     zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../Resources/i18n");
     std::string idiomaBase = op.idioma;
     if (idiomaBase.empty()) {
-        ST::Aviso avisoIdioma;
-        const auto raizCfg = ST::leerConfig(op.dirConfig, avisoIdioma);
+        ST::Warning avisoIdioma;
+        const auto raizCfg = ST::readConfig(op.dirConfig, avisoIdioma);
         idiomaBase = raizCfg["app"]["language"].toString();
         if (idiomaBase.empty()) {
             idiomaBase = raizCfg["ui"]["language"].toString();
@@ -3265,7 +3265,7 @@ int main(int argc, char** argv) {
     // La contraseña maestra: al arrancar, como hace la interfaz, y viva en memoria mientras
     // el proceso lo esté. Ver la decisión 2 del diseño.
     std::string maestra;
-    if (ST::hayAlgoCifrado(op.dirConfig)) {
+    if (ST::hasSomethingEncrypted(op.dirConfig)) {
         std::string err;
         if (op.passwordFd >= 0) {
             if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, maestra, err)) {
@@ -3276,8 +3276,8 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return 2;
         }
-        ST::Aviso aviso;
-        if (!ST::maestraAbreTodo(op.dirConfig, maestra, aviso)) {
+        ST::Warning aviso;
+        if (!ST::masterOpensEverything(op.dirConfig, maestra, aviso)) {
             std::fprintf(stderr, TC("t_web_maestra_mal",
                                 "la contraseña maestra no abre la configuración: %s\n"),
                          ST::labelOf(aviso).c_str());
@@ -3294,7 +3294,7 @@ int main(int argc, char** argv) {
     const std::string rutaClave = dirWeb + "/server.key";
     if (!std::filesystem::exists(rutaCert, ec) || !std::filesystem::exists(rutaClave, ec)) {
         std::string err;
-        if (!B::tlsserver::escribeParAutofirmado(rutaCert, rutaClave, "zfsmgr-web", true,
+        if (!B::tlsserver::writeSelfSignedPair(rutaCert, rutaClave, "zfsmgr-web", true,
                                                  "DNS:localhost,IP:127.0.0.1", err)) {
             std::fprintf(stderr, TC("t_web_cert_mal", "no se pudo emitir el certificado: %s\n"),
                      err.c_str());
@@ -5808,7 +5808,7 @@ int main(int argc, char** argv) {
     };
 
     std::string err;
-    if (!B::tlsserver::sirve(op.bind, op.puerto, rutaCert, rutaClave, atiende,
+    if (!B::tlsserver::serve(op.bind, op.puerto, rutaCert, rutaClave, atiende,
                              [] { return g_vivo.load(); }, err, yaEscucha, atiendeChorro)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         cierraTuneles();

@@ -1,11 +1,10 @@
 #pragma once
 
-// Rutas y cargas útiles de instalación del agente, SIN Qt.
+// Paths and installation payloads for the agent, WITHOUT Qt.
 //
-// Primera pieza de la capa base: la lógica vive aquí y `src/daemonpayload.h` se queda
-// como adaptador que convierte a QString en la frontera, para no tocar los 47 puntos
-// de llamada del cliente de una sentada. Ver
-// docs/diseno_tecnico_capa_base_sin_qt.md.
+// The first piece of the base layer: the logic lives here and `src/daemonpayload.h` remains
+// as an adapter that converts to QString at the boundary, so as not to touch the client's 47
+// call sites in one sitting. See docs/diseno_tecnico_capa_base_sin_qt.md.
 
 #include <string>
 

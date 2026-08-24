@@ -2,14 +2,15 @@
 
 #include <string>
 
-// Los datos de una conexión, sin Qt.
+// The data of one connection, without Qt.
 //
-// Espejo campo a campo de `ConnectionProfile` (src/connectionstore.h). Se copian TODOS,
-// incluidos los que la capa base no usa hoy: un espejo parcial invita a que alguien
-// lea más adelante un campo que llega silenciosamente vacío, y ese fallo es mucho peor
-// que copiar unas cadenas de más al construir una orden que va a lanzar un proceso.
+// A field-for-field mirror of `ConnectionProfile` (src/connectionstore.h). ALL of them are
+// copied, including the ones the base layer does not use today: a partial mirror invites
+// someone later on to read a field that arrives silently empty, and that failure is far
+// worse than copying a few extra strings while building a command that is about to launch a
+// process.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
 struct ConnectionProfile {

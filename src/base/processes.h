@@ -159,11 +159,11 @@ bool canConnectLocal(std::uint16_t port, int timeoutMs);
 //
 // Separada de la ejecución para poder probarla con una salida de `ps` escrita a mano, que
 // es lo único de esto que se puede comprobar sin matar procesos de verdad.
-std::vector<long long> descendientesDe(long long raiz, const std::string& salidaPs);
+std::vector<long long> descendantsOf(long long raiz, const std::string& salidaPs);
 
 // Mata la descendencia de `raiz`: TERM a todos, se espera `msGracia`, y KILL a los que
 // sigan en pie. No toca a `raiz`.
-void mataDescendencia(long long raiz, int msGracia = 300);
+void killDescendants(long long raiz, int msGracia = 300);
 
 #ifdef _WIN32
 // CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así

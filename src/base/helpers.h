@@ -231,7 +231,7 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // la ventana principal, dos en el intérprete y una en el servidor web—, cada una armando el
 // mismo JSON a mano. Catorce sitios donde equivocarse por separado el día que ese formato
 // cambie, y ninguno de los tres clientes tiene por qué saber cómo se serializa.
-std::string argvParaAgente(const std::vector<std::string>& argv);
+std::string agentArgv(const std::vector<std::string>& argv);
 
 // Entrega un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
 //
@@ -249,12 +249,12 @@ std::string argvParaAgente(const std::vector<std::string>& argv);
 //
 // El descriptor se deja SIN CLOEXEC a propósito: aquí la herencia es justo lo que se
 // quiere, al revés que en los sockets.
-class SecretoPorDescriptor {
+class SecretFromDescriptor {
 public:
-    explicit SecretoPorDescriptor(const std::string& secreto);
-    ~SecretoPorDescriptor();
-    SecretoPorDescriptor(const SecretoPorDescriptor&) = delete;
-    SecretoPorDescriptor& operator=(const SecretoPorDescriptor&) = delete;
+    explicit SecretFromDescriptor(const std::string& secreto);
+    ~SecretFromDescriptor();
+    SecretFromDescriptor(const SecretFromDescriptor&) = delete;
+    SecretFromDescriptor& operator=(const SecretFromDescriptor&) = delete;
 
     // Falso si no se pudo montar la tubería, o en Windows, donde no hay sshpass.
     bool vale() const { return m_fd >= 0; }
@@ -272,15 +272,15 @@ private:
 // que lanzar `sshpass` en vez de `scp`, y además poner `BatchMode=no`. Devolver solo los
 // argumentos obligaba a quien llama a acordarse de las dos cosas, y no se acordaba: el
 // despliegue del daemon a una máquina con contraseña fallaba con «Connection closed».
-struct ScpInvocacion {
+struct ScpInvocation {
     std::string program;
     std::vector<std::string> args;
     // La tubería por la que viaja la contraseña, si la hay. Va DENTRO de la invocación
     // porque tiene que seguir abierta hasta que quien llama lance el proceso: si se
     // cerrase al volver de scpUpload, sshpass leería de un descriptor muerto.
-    std::shared_ptr<SecretoPorDescriptor> secreto;
+    std::shared_ptr<SecretFromDescriptor> secreto;
 };
-ScpInvocacion scpUpload(const ConnectionProfile& p,
+ScpInvocation scpUpload(const ConnectionProfile& p,
                         const std::string& localPath,
                         const std::string& remotePath,
                         bool multiplex);

@@ -62,10 +62,10 @@ QString maskedAgentArgvForLog(const QStringList& argv);
 
 // Los argumentos de un verbo genérico del daemon, empaquetados como él los espera.
 //
-// Es un puente a `base::helpers::argvParaAgente`: el formato es un contrato del DAEMON y no
+// Es un puente a `base::helpers::agentArgv`: el formato es un contrato del DAEMON y no
 // de la interfaz. Estaba escrito a mano en once sitios de esta capa, cada uno armando el
 // mismo JSON.
-QString argvParaAgente(const QStringList& argv);
+QString agentArgv(const QStringList& argv);
 
 // Puentes a `commands::advanced`, donde viven el argv y las REGLAS de Desglosar, Ensamblar
 // y Hacia Dir.
@@ -155,11 +155,11 @@ QString sshBaseCommand(const ConnectionProfile& p);
 // contraseña hay que lanzar `sshpass` en vez de `scp`; pedir solo los argumentos obligaba a
 // acordarse de eso en el punto de llamada, y no se hacía: el despliegue del daemon a una
 // máquina con contraseña moría con «Connection closed».
-struct ScpInvocacion {
+struct ScpInvocation {
     QString program;
     QStringList args;
 };
-ScpInvocacion scpUpload(const ConnectionProfile& p,
+ScpInvocation scpUpload(const ConnectionProfile& p,
                         const QString& localPath,
                         const QString& remotePath,
                         bool multiplex);

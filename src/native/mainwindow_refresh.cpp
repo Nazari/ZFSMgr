@@ -1,7 +1,7 @@
 #include "mainwindow.h"
 
 #include "commands/refreshparse.h"
-#include "base/sistemaoperativo.h"
+#include "base/osinfo.h"
 
 namespace BR = zfsmgr::base::refresh;
 #include "mainwindow_helpers.h"
@@ -115,7 +115,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         int probeRc = -1;
         if (uname.compare(QStringLiteral("Linux"), Qt::CaseInsensitive) == 0) {
             // Se trae el fichero y se interpreta AQUÍ, con la misma función que usa el
-            // daemon (`base::sistemaoperativo::deOsRelease`). Antes viajaba un
+            // daemon (`base::osinfo::fromOsRelease`). Antes viajaba un
             // `sh -lc '. /etc/os-release; printf …'`: un guion en el otro extremo para
             // sacar dos valores de un fichero de texto plano.
             //
@@ -127,7 +127,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                        probeErr, probeRc)
                 && probeRc == 0) {
                 const QString refined = QString::fromStdString(
-                    zfsmgr::base::sistemaoperativo::deOsRelease(probeOut.toStdString()));
+                    zfsmgr::base::osinfo::fromOsRelease(probeOut.toStdString()));
                 if (!refined.isEmpty()) {
                     return refined;
                 }
@@ -136,12 +136,12 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         }
         if (uname.compare(QStringLiteral("Darwin"), Qt::CaseInsensitive) == 0) {
             // Igual que arriba: se trae la salida entera y el `sed`/`head` los hace
-            // `deSystemProfiler`, en C++ y en un solo sitio.
+            // `fromSystemProfiler`, en C++ y en un solo sitio.
             if (runSsh(profile, QStringLiteral("system_profiler SPSoftwareDataType"), 10000,
                        probeOut, probeErr, probeRc)
                 && probeRc == 0) {
                 const QString refined = QString::fromStdString(
-                    zfsmgr::base::sistemaoperativo::deSystemProfiler(probeOut.toStdString()));
+                    zfsmgr::base::osinfo::fromSystemProfiler(probeOut.toStdString()));
                 if (!refined.isEmpty()) {
                     return refined;
                 }
@@ -521,7 +521,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                 for (const QString& c : wanted) {
                     wantedJson.push_back(c);
                 }
-                const QString payloadB64 = mwhelpers::argvParaAgente(wantedJson);
+                const QString payloadB64 = mwhelpers::agentArgv(wantedJson);
                 const QString probeCmd = mwhelpers::agentShellCommand(
                         p, mwhelpers::argvQt(
                                zfsmgr::commands::requests::availableTools())

@@ -337,7 +337,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
             return plan;
         }
         const QString payloadB64 = QString::fromUtf8(
-            mwhelpers::argvParaAgente(arr).toUtf8());
+            mwhelpers::agentArgv(arr).toUtf8());
         plan.matched = true;
         plan.daemonArgv = {QStringLiteral("--mutate-zfs-generic"), payloadB64};
         return plan;

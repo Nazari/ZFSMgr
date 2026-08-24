@@ -123,7 +123,7 @@ private:
                   const QString& conexion = QString(),
                   const QString& campo = QString(),
                   const QString& detalle = QString()) const;
-    QString traduce(const zfsmgr::base::store::Aviso& a) const;
+    QString traduce(const zfsmgr::base::store::Warning& a) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
                 const QString& en = QString(),

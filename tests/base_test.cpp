@@ -6,7 +6,7 @@
 #include "daemoninstall.h"
 #include "endpoints.h"
 #include "syncing.h"
-#include "sistemaoperativo.h"
+#include "osinfo.h"
 #include "peers.h"
 #include "advanced.h"
 #include "requests.h"
@@ -23,7 +23,7 @@
 #include "connectionprofile.h"
 #include "helpers.h"
 #include "json.h"
-#include "procesos.h"
+#include "processes.h"
 #include "refreshparse.h"
 #include "agentversion.h"
 #include "connectionjson.h"
@@ -433,29 +433,29 @@ int main() {
         ses.sink = [&visto](TransportSession::Nivel, const std::string&, const std::string& m) {
             visto = m;
         };
-        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Aviso::TlsLocalSinSudo, {}, {}});
+        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Warning::LocalTlsNeedsSudo, {}, {}});
         igual(visto, "tls-local-sin-sudo", "sin traductor sale la etiqueta, no el silencio");
         ses.aviso(TransportSession::Nivel::Warn, "local",
-                  {BTr::Aviso::TunelNoAceptaEsperaAgotada, {}, "5000"});
+                  {BTr::Warning::TunnelNotAcceptingTimedOut, {}, "5000"});
         igual(visto, "tunel-espera-agotada: 5000", "y el detalle se conserva");
         ses.avisoSink = [&visto](TransportSession::Nivel, const std::string&,
-                                 const BTr::NotaDeAviso& a) {
-            visto = std::string("traducido:") + BTr::labelOf(a.aviso);
+                                 const BTr::WarningNote& a) {
+            visto = std::string("traducido:") + BTr::labelOf(a.warning);
         };
-        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Aviso::SinSshpass, {}, {}});
+        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Warning::NoSshpass, {}, {}});
         igual(visto, "traducido:sin-sshpass", "con traductor puesto, manda el traductor");
     }
     // Y las decisiones tipificadas sobre los fallos: lo que antes se leia de una frase.
     {
         namespace BTr = zfsmgr::base::transport;
-        comprobar(BTr::sugiereRevivirDaemon(BTr::Failure::HandshakeFallido),
+        comprobar(BTr::suggestsDaemonRevival(BTr::Failure::HandshakeFailed),
                   "un saludo TLS fallido invita a levantar el daemon");
-        comprobar(!BTr::sugiereRevivirDaemon(BTr::Failure::CertificadosInvalidos),
+        comprobar(!BTr::suggestsDaemonRevival(BTr::Failure::InvalidCertificates),
                   "unos certificados malos NO se arreglan levantando el daemon");
-        comprobar(!BTr::mereceCastigo(BTr::Failure::TunelOcupado),
+        comprobar(!BTr::deservesPenalty(BTr::Failure::TunnelBusy),
                   "ocupado no es roto: no se castiga la conexion");
-        comprobar(BTr::esDeTls(BTr::Failure::CertificadoNoCoincide) &&
-                      !BTr::esDeTls(BTr::Failure::TunelNoSeMonta),
+        comprobar(BTr::looksLikeTls(BTr::Failure::CertificateMismatch) &&
+                      !BTr::looksLikeTls(BTr::Failure::TunnelCannotBeBuilt),
                   "de TLS es lo de TLS, no lo de red");
     }
 
@@ -697,8 +697,8 @@ int main() {
         p.id = "unibody";
         p.name = "Unibody";
         p.password = cifrado;
-        ST::Avisos avisos;
-        comprobar(CJ::abreSecretos(p, maestra, avisos) && avisos.empty(), "cj: abre con la maestra buena");
+        ST::Warnings avisos;
+        comprobar(CJ::openSecrets(p, maestra, avisos) && avisos.empty(), "cj: abre con la maestra buena");
         igual(p.password, "secreto", "cj: y deja el valor en claro");
 
         // Con la maestra equivocada el campo CONSERVA su cifrado, que es lo que impide que
@@ -708,19 +708,19 @@ int main() {
         q.name = "Unibody";
         q.password = cifrado;
         avisos.clear();
-        comprobar(!CJ::abreSecretos(q, "otra", avisos), "cj: con la maestra mala dice que no");
+        comprobar(!CJ::openSecrets(q, "otra", avisos), "cj: con la maestra mala dice que no");
         igual(q.password, cifrado, "cj: y NO deja el campo a medias");
-        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Reason::NoSeDescifra,
+        comprobar(avisos.size() == 1 && avisos.front().reason == ST::Reason::CannotDecrypt,
                   "cj: con su motivo tipificado");
-        igual(avisos.front().campo, "password", "cj: diciendo que campo");
-        igual(avisos.front().conexion, "Unibody", "cj: y de que conexion");
+        igual(avisos.front().field, "password", "cj: diciendo que campo");
+        igual(avisos.front().connection, "Unibody", "cj: y de que conexion");
 
         // Sin maestra ninguna, el motivo es otro: falta la clave, no es que no descifre.
         zfsmgr::base::ConnectionProfile r;
         r.id = "x"; r.password = cifrado;
         avisos.clear();
-        comprobar(!CJ::abreSecretos(r, "", avisos), "cj: sin maestra tampoco abre");
-        comprobar(avisos.size() == 1 && avisos.front().motivo == ST::Reason::ClaveMaestraRequerida,
+        comprobar(!CJ::openSecrets(r, "", avisos), "cj: sin maestra tampoco abre");
+        comprobar(avisos.size() == 1 && avisos.front().reason == ST::Reason::MasterPasswordRequired,
                   "cj: y el motivo lo distingue");
 
         // La fusion: MANDA EL ALMACEN sobre lo que traiga el perfil.
@@ -736,7 +736,7 @@ int main() {
         J::Value trust;
         trust.set("connections", J::Value(J::Array{entrada}));
         avisos.clear();
-        CJ::fundeTrustStore(perfiles, trust, maestra, avisos);
+        CJ::mergeTrustStore(perfiles, trust, maestra, avisos);
         igual(perfiles.at(0).daemonTlsClientKeyPem, "clave-fresca-del-almacen",
               "cj: manda el almacen, que es donde se persiste lo negociado");
         comprobar(perfiles.at(0).daemonTlsPort == 12345, "cj: y su puerto");
@@ -747,7 +747,7 @@ int main() {
         vacia.set("id", J::Value(std::string("unibody")));
         J::Value trust2;
         trust2.set("connections", J::Value(J::Array{vacia}));
-        CJ::fundeTrustStore(perfiles2, trust2, maestra, avisos);
+        CJ::mergeTrustStore(perfiles2, trust2, maestra, avisos);
         igual(perfiles2.at(0).daemonTlsClientKeyPem, "clave-vieja-de-config",
               "cj: una entrada vacia no borra lo que habia");
 
@@ -760,13 +760,13 @@ int main() {
         huerfana.set("daemon_tls_client_key_pem", J::Value(std::string("k")));
         J::Value trust3;
         trust3.set("connections", J::Value(J::Array{huerfana}));
-        CJ::fundeTrustStore(ninguno, trust3, maestra, avisos);
+        CJ::mergeTrustStore(ninguno, trust3, maestra, avisos);
         comprobar(ninguno.size() == 1, "cj: una entrada huerfana se convierte en conexion");
         igual(ninguno.at(0).id, "fantasma", "cj: con su identificador");
 
         // --- El perfil «Local»: se sintetiza si no esta y se corrige si esta.
         std::vector<zfsmgr::base::ConnectionProfile> sinLocal;
-        CJ::aseguraPerfilLocal(sinLocal, "uid-de-esta-maquina");
+        CJ::ensureLocalProfile(sinLocal, "uid-de-esta-maquina");
         comprobar(sinLocal.size() == 1, "local: se sintetiza cuando no hay ninguno");
         igual(sinLocal.at(0).id, "local", "local: con el identificador reservado");
         igual(sinLocal.at(0).connType, "LOCAL", "local: y su tipo");
@@ -779,7 +779,7 @@ int main() {
         zfsmgr::base::ConnectionProfile remota;
         remota.id = "unibody"; remota.name = "Unibody"; remota.connType = "SSH";
         conOtra.push_back(remota);
-        CJ::aseguraPerfilLocal(conOtra, "uid");
+        CJ::ensureLocalProfile(conOtra, "uid");
         igual(conOtra.at(0).id, "local", "local: se pone la primera");
         comprobar(conOtra.size() == 2, "local: sin tocar las demas");
 
@@ -791,7 +791,7 @@ int main() {
         viejoLocal.machineUid = "uid-de-otro-equipo";
         viejoLocal.osType = "Windows";
         conLocalRancio.push_back(viejoLocal);
-        CJ::aseguraPerfilLocal(conLocalRancio, "uid-de-esta");
+        CJ::ensureLocalProfile(conLocalRancio, "uid-de-esta");
         comprobar(conLocalRancio.size() == 1, "local: no se duplica el que ya hay");
         igual(conLocalRancio.at(0).machineUid, "uid-de-esta", "local: con el uid corregido");
         comprobar(conLocalRancio.at(0).osType != "Windows" || sinLocal.at(0).osType == "Windows",
@@ -1611,9 +1611,9 @@ int main() {
         const std::string certCli = dir + "/c.crt";
         const std::string claveCli = dir + "/c.key";
         std::string errC;
-        comprobar(TS::escribeParAutofirmado(cert, clave, "localhost", true, "IP:127.0.0.1", errC),
+        comprobar(TS::writeSelfSignedPair(cert, clave, "localhost", true, "IP:127.0.0.1", errC),
                   "tls-lento: se emite el par del servidor");
-        comprobar(TS::escribeParAutofirmado(certCli, claveCli, "cliente", false, std::string(),
+        comprobar(TS::writeSelfSignedPair(certCli, claveCli, "cliente", false, std::string(),
                                             errC),
                   "tls-lento: y el del cliente, que el cliente exige tener");
 
@@ -1624,7 +1624,7 @@ int main() {
         // le pone abajo al cliente.
         std::thread hilo([&] {
             std::string errS;
-            TS::sirve("127.0.0.1", puerto, cert, clave,
+            TS::serve("127.0.0.1", puerto, cert, clave,
                       [&](const std::string&, std::string& resp) {
                           std::this_thread::sleep_for(std::chrono::milliseconds(1200));
                           atendio = true;
@@ -1889,11 +1889,11 @@ int main() {
         p.host = "unib.local"; p.port = 22; p.username = "linarese";
         p.password = "secreta";
         p.daemonTlsServerCertPem = "CERT-DE-UNIB";
-        ST::Aviso av;
-        comprobar(ST::guardaPerfil(dirG, p, maestra, av) && av.vacio(), "guardar: escribe el perfil");
+        ST::Warning av;
+        comprobar(ST::saveProfile(dirG, p, maestra, av) && av.empty(), "guardar: escribe el perfil");
 
         // La contrasena queda CIFRADA en disco, nunca en claro.
-        auto leido = ST::leerConfig(dirG, av);
+        auto leido = ST::readConfig(dirG, av);
         const zfsmgr::base::json::Value& c0 = leido["connections"].toArray().at(0);
         comprobar(zfsmgr::base::SecretCipher::isEncrypted(c0["password"].toString()),
                   "guardar: la contrasena va cifrada");
@@ -1902,7 +1902,7 @@ int main() {
         comprobar(!c0.contains("daemon_tls_server_cert_pem")
                       || c0["daemon_tls_server_cert_pem"].toString().empty(),
                   "guardar: el TLS no se escribe en config.json");
-        auto leidoTrust = ST::leerTrustStore(dirG, av);
+        auto leidoTrust = ST::readTrustStore(dirG, av);
         comprobar(leidoTrust["connections"].toArray().size() == 1,
                   "guardar: la entrada va al almacen de confianza");
         comprobar(zfsmgr::base::SecretCipher::isEncrypted(
@@ -1912,12 +1912,12 @@ int main() {
         // Guardar OTRA VEZ sin material TLS, con el mismo extremo: se conserva el que habia.
         zfsmgr::base::ConnectionProfile igualExtremo = p;
         igualExtremo.daemonTlsServerCertPem.clear();
-        comprobar(ST::guardaPerfil(dirG, igualExtremo, maestra, av), "guardar: segunda vez");
-        leidoTrust = ST::leerTrustStore(dirG, av);
+        comprobar(ST::saveProfile(dirG, igualExtremo, maestra, av), "guardar: segunda vez");
+        leidoTrust = ST::readTrustStore(dirG, av);
         zfsmgr::base::ConnectionProfile tras = zfsmgr::base::connjson::connectionFromJson(
             leidoTrust["connections"].toArray().at(0), std::string());
-        ST::Avisos avisos;
-        zfsmgr::base::connjson::abreSecretos(tras, maestra, avisos);
+        ST::Warnings avisos;
+        zfsmgr::base::connjson::openSecrets(tras, maestra, avisos);
         igual(tras.daemonTlsServerCertPem, "CERT-DE-UNIB",
               "guardar: mismo extremo, se conserva el TLS que ya habia");
 
@@ -1925,8 +1925,8 @@ int main() {
         zfsmgr::base::ConnectionProfile otroHost = p;
         otroHost.host = "otra.local";
         otroHost.daemonTlsServerCertPem.clear();
-        comprobar(ST::guardaPerfil(dirG, otroHost, maestra, av), "guardar: con otro host");
-        leidoTrust = ST::leerTrustStore(dirG, av);
+        comprobar(ST::saveProfile(dirG, otroHost, maestra, av), "guardar: con otro host");
+        leidoTrust = ST::readTrustStore(dirG, av);
         comprobar(leidoTrust["connections"].toArray().empty(),
                   "guardar: cambiar de host SUELTA el certificado fijado del anterior");
 
@@ -1934,9 +1934,9 @@ int main() {
         zfsmgr::base::ConnectionProfile sinM;
         sinM.id = "otra"; sinM.name = "Otra"; sinM.connType = "SSH";
         sinM.host = "h"; sinM.username = "u"; sinM.password = "en-claro";
-        comprobar(!ST::guardaPerfil(dirG, sinM, "", av), "guardar: sin maestra no se guarda");
-        comprobar(av.motivo == ST::Reason::ClaveMaestraRequeridaParaCifrar, "guardar: y lo dice");
-        igual(av.conexion, "Otra", "guardar: diciendo de que conexion");
+        comprobar(!ST::saveProfile(dirG, sinM, "", av), "guardar: sin maestra no se guarda");
+        comprobar(av.reason == ST::Reason::MasterPasswordRequiredToEncrypt, "guardar: y lo dice");
+        igual(av.connection, "Otra", "guardar: diciendo de que conexion");
 
         // --- Cifrar lo que quedo en claro.
         {
@@ -1949,10 +1949,10 @@ int main() {
             conexion.set("password", J2::Value(std::string("EN-CLARO")));
             J2::Value cfg2;
             cfg2.set("connections", J2::Value(J2::Array{conexion}));
-            ST::Aviso av2;
-            comprobar(ST::escribirConfig(dirC, cfg2, av2), "cifrar: config con un secreto en claro");
-            comprobar(ST::cifraLoQueFalte(dirC, "m", av2) && av2.vacio(), "cifrar: se cifra");
-            auto tras2 = ST::leerConfig(dirC, av2);
+            ST::Warning av2;
+            comprobar(ST::writeConfig(dirC, cfg2, av2), "cifrar: config con un secreto en claro");
+            comprobar(ST::encryptWhatIsMissing(dirC, "m", av2) && av2.empty(), "cifrar: se cifra");
+            auto tras2 = ST::readConfig(dirC, av2);
             const std::string guardado2 = tras2["connections"].toArray().at(0)["password"].toString();
             comprobar(zfsmgr::base::SecretCipher::isEncrypted(guardado2), "cifrar: ya no esta en claro");
             std::string claro2;
@@ -1961,12 +1961,12 @@ int main() {
                           && claro2 == "EN-CLARO",
                       "cifrar: y sigue siendo el mismo valor");
             // Lo ya cifrado NO se toca: no se sabe con que clave esta.
-            comprobar(ST::cifraLoQueFalte(dirC, "otra", av2), "cifrar: segunda pasada con otra clave");
-            auto tras3 = ST::leerConfig(dirC, av2);
+            comprobar(ST::encryptWhatIsMissing(dirC, "otra", av2), "cifrar: segunda pasada con otra clave");
+            auto tras3 = ST::readConfig(dirC, av2);
             igual(tras3["connections"].toArray().at(0)["password"].toString(), guardado2,
                   "cifrar: lo ya cifrado se deja como esta");
-            comprobar(!ST::cifraLoQueFalte(dirC, "", av2), "cifrar: sin maestra no se hace nada");
-            comprobar(av2.motivo == ST::Reason::ClaveMaestraRequerida, "cifrar: y se dice por que");
+            comprobar(!ST::encryptWhatIsMissing(dirC, "", av2), "cifrar: sin maestra no se hace nada");
+            comprobar(av2.reason == ST::Reason::MasterPasswordRequired, "cifrar: y se dice por que");
             std::filesystem::remove_all(dirC);
         }
 
@@ -1980,36 +1980,36 @@ int main() {
             conTls.id = "paraborrar"; conTls.name = "ParaBorrar"; conTls.connType = "SSH";
             conTls.host = "h"; conTls.username = "u";
             conTls.daemonTlsServerCertPem = "CERT";
-            comprobar(ST::guardaPerfil(dirG, conTls, maestra, av), "borrar: se prepara con TLS");
-            auto t = ST::leerTrustStore(dirG, av);
+            comprobar(ST::saveProfile(dirG, conTls, maestra, av), "borrar: se prepara con TLS");
+            auto t = ST::readTrustStore(dirG, av);
             bool estaEnElAlmacen = false;
             for (const auto& v : t["connections"].toArray()) {
                 if (v["id"].toString() == "paraborrar") estaEnElAlmacen = true;
             }
             comprobar(estaEnElAlmacen, "borrar: y esta en el almacen");
 
-            comprobar(ST::borraPerfil(dirG, "paraborrar", av), "borrar: se borra");
-            auto cfgTrasBorrar = ST::leerConfig(dirG, av);
+            comprobar(ST::deleteProfile(dirG, "paraborrar", av), "borrar: se borra");
+            auto cfgTrasBorrar = ST::readConfig(dirG, av);
             for (const auto& v : cfgTrasBorrar["connections"].toArray()) {
                 comprobar(v["id"].toString() != "paraborrar", "borrar: fuera de config.json");
             }
-            t = ST::leerTrustStore(dirG, av);
+            t = ST::readTrustStore(dirG, av);
             for (const auto& v : t["connections"].toArray()) {
                 comprobar(v["id"].toString() != "paraborrar",
                           "borrar: y FUERA del almacen, o resucitaria");
             }
             // Y borrar una que no esta se dice, no se calla.
-            comprobar(!ST::borraPerfil(dirG, "no-existe", av), "borrar: una que no esta falla");
-            comprobar(av.motivo == ST::Reason::NoSeGuardaConexion, "borrar: con su motivo");
-            comprobar(!ST::borraPerfil(dirG, "  ", av), "borrar: sin identificador tampoco");
-            comprobar(av.motivo == ST::Reason::IdVacio, "borrar: y ese motivo es otro");
+            comprobar(!ST::deleteProfile(dirG, "no-existe", av), "borrar: una que no esta falla");
+            comprobar(av.reason == ST::Reason::ConnectionNotSaved, "borrar: con su motivo");
+            comprobar(!ST::deleteProfile(dirG, "  ", av), "borrar: sin identificador tampoco");
+            comprobar(av.reason == ST::Reason::EmptyId, "borrar: y ese motivo es otro");
         }
 
         // Un perfil sin identificador no se guarda: sustituirlo o anadirlo seria adivinar.
         zfsmgr::base::ConnectionProfile sinId;
         sinId.name = "X";
-        comprobar(!ST::guardaPerfil(dirG, sinId, maestra, av), "guardar: sin id no se guarda");
-        comprobar(av.motivo == ST::Reason::IdVacio, "guardar: con su motivo");
+        comprobar(!ST::saveProfile(dirG, sinId, maestra, av), "guardar: sin id no se guarda");
+        comprobar(av.reason == ST::Reason::EmptyId, "guardar: con su motivo");
         std::filesystem::remove_all(dirG);
     }
 
@@ -2019,19 +2019,19 @@ int main() {
     // que el cliente salia marcado igual que uno anticuado. Aqui se fija el orden.
     {
         namespace AV = zfsmgr::base::agentversion;
-        comprobar(AV::compara("0.93.1.598479612", "0.93.1.598479612") == 0, "av: iguales");
-        comprobar(AV::compara("0.92.0.598479612", "0.93.1.598479612") < 0, "av: 0.92 va antes que 0.93");
-        comprobar(AV::compara("0.93.2.100000000", "0.93.1.999999999") > 0,
+        comprobar(AV::compare("0.93.1.598479612", "0.93.1.598479612") == 0, "av: iguales");
+        comprobar(AV::compare("0.92.0.598479612", "0.93.1.598479612") < 0, "av: 0.92 va antes que 0.93");
+        comprobar(AV::compare("0.93.2.100000000", "0.93.1.999999999") > 0,
                   "av: manda el parche, no el sufijo de esquema");
-        comprobar(AV::compara("0.93.0.111111111", "0.93.0.222222222") < 0,
+        comprobar(AV::compare("0.93.0.111111111", "0.93.0.222222222") < 0,
                   "av: a igual version, ordena el sufijo");
         // Un candidato va ANTES que su final, que es lo que uno espera y lo contrario de
         // lo que sale al comparar como texto («0.93.0rc1» > «0.93.0» alfabeticamente).
-        comprobar(AV::compara("0.93.0rc1", "0.93.0") < 0, "av: un rc va antes que su final");
-        comprobar(AV::compara("0.93.0rc1", "0.93.0rc2") < 0, "av: y entre rc, por numero");
+        comprobar(AV::compare("0.93.0rc1", "0.93.0") < 0, "av: un rc va antes que su final");
+        comprobar(AV::compare("0.93.0rc1", "0.93.0rc2") < 0, "av: y entre rc, por numero");
         // Lo que no tiene forma de version se compara como texto: no es correcto, pero es
         // predecible, y no debe hacer creer que dos cosas raras son iguales.
-        comprobar(AV::compara("no-es-version", "tampoco") != 0, "av: lo informe no se declara igual");
+        comprobar(AV::compare("no-es-version", "tampoco") != 0, "av: lo informe no se declara igual");
     }
 
     // --- ficheros del almacen y motivos tipificados
@@ -2041,34 +2041,34 @@ int main() {
         std::filesystem::remove_all(dir);
 
         // Que el fichero NO exista es el primer arranque, no un aviso.
-        ST::Aviso a;
-        const auto vacio = ST::leerConfig(dir, a);
-        comprobar(a.vacio(), "un config.json inexistente NO produce aviso");
+        ST::Warning a;
+        const auto vacio = ST::readConfig(dir, a);
+        comprobar(a.empty(), "un config.json inexistente NO produce aviso");
         comprobar(vacio.isObject() && vacio.toObject().empty(), "y devuelve un objeto vacio");
 
         // Escribir crea el directorio y deja el fichero solo para el dueno.
         zfsmgr::base::json::Value root;
         root.set("app", zfsmgr::base::json::Value(zfsmgr::base::json::Object{}));
-        comprobar(ST::escribirConfig(dir, root, a) && a.vacio(), "escribe config.json");
-        comprobar(std::filesystem::exists(ST::rutaConfig(dir)), "el fichero esta ahi");
+        comprobar(ST::writeConfig(dir, root, a) && a.empty(), "escribe config.json");
+        comprobar(std::filesystem::exists(ST::configPath(dir)), "el fichero esta ahi");
 #ifndef _WIN32
-        const auto permisos = std::filesystem::status(ST::rutaConfig(dir)).permissions();
+        const auto permisos = std::filesystem::status(ST::configPath(dir)).permissions();
         comprobar((permisos & std::filesystem::perms::group_all) == std::filesystem::perms::none
                       && (permisos & std::filesystem::perms::others_all) == std::filesystem::perms::none,
                   "config.json queda SOLO para el dueno");
 #endif
         // Ida y vuelta.
-        const auto leido = ST::leerConfig(dir, a);
-        comprobar(a.vacio() && leido.contains("app"), "se relee lo escrito");
+        const auto leido = ST::readConfig(dir, a);
+        comprobar(a.empty() && leido.contains("app"), "se relee lo escrito");
 
         // Un fichero corrupto tiene que dar motivo, no una configuracion a medias.
         {
-            std::ofstream f(ST::rutaConfig(dir), std::ios::trunc);
+            std::ofstream f(ST::configPath(dir), std::ios::trunc);
             f << "{esto no es json";
         }
-        const auto malo = ST::leerConfig(dir, a);
-        comprobar(a.motivo == ST::Reason::ConfigNoValido, "un config.json corrupto da motivo");
-        comprobar(!a.detalle.empty(), "y explica por que");
+        const auto malo = ST::readConfig(dir, a);
+        comprobar(a.reason == ST::Reason::ConfigNotValid, "un config.json corrupto da motivo");
+        comprobar(!a.detail.empty(), "y explica por que");
         comprobar(malo.toObject().empty(), "sin devolver nada a medias");
 
         // --- Rotar la clave maestra.
@@ -2099,25 +2099,25 @@ int main() {
             conexion.set("daemon_tls_client_key_pem", J::Value(keyCifrada));
             J::Value cfg;
             cfg.set("connections", J::Value(J::Array{conexion}));
-            ST::Aviso av;
-            comprobar(ST::escribirConfig(dirRot, cfg, av), "rotar: config de partida");
+            ST::Warning av;
+            comprobar(ST::writeConfig(dirRot, cfg, av), "rotar: config de partida");
             J::Value trustConn;
             trustConn.set("id", J::Value(std::string("unibody")));
             trustConn.set("daemon_tls_client_key_pem", J::Value(keyCifrada));
             J::Value trust;
             trust.set("connections", J::Value(J::Array{trustConn}));
-            comprobar(ST::escribirTrustStore(dirRot, trust, av), "rotar: trust-store de partida");
+            comprobar(ST::writeTrustStore(dirRot, trust, av), "rotar: trust-store de partida");
 
             std::string copia;
-            comprobar(ST::rotaClaveMaestra(dirRot, vieja, nueva, copia, av) && av.vacio(),
+            comprobar(ST::rotateMasterKey(dirRot, vieja, nueva, copia, av) && av.empty(),
                       "rotar: la rotacion va bien");
             igual(copia, ".antes-de-rotar", "rotar: dice con que sufijo dejo la copia");
-            comprobar(std::filesystem::exists(ST::rutaConfig(dirRot) + copia),
+            comprobar(std::filesystem::exists(ST::configPath(dirRot) + copia),
                       "rotar: la copia de config.json esta ahi");
-            comprobar(std::filesystem::exists(ST::rutaTrustStore(dirRot) + copia),
+            comprobar(std::filesystem::exists(ST::trustStorePath(dirRot) + copia),
                       "rotar: y la del trust-store");
 
-            const auto cfgTras = ST::leerConfig(dirRot, av);
+            const auto cfgTras = ST::readConfig(dirRot, av);
             const J::Value& c0 = cfgTras["connections"].toArray().at(0);
             std::string claro;
             comprobar(SecretCipher::decryptEncv1(c0["password"].toString(), nueva, claro, err),
@@ -2127,7 +2127,7 @@ int main() {
                       "rotar: y ya NO abre con la vieja");
             comprobar(SecretCipher::decryptEncv1(c0["daemon_tls_client_key_pem"].toString(), nueva, claro, err),
                       "rotar: el material TLS de config tambien se rotó");
-            const auto trustTras = ST::leerTrustStore(dirRot, av);
+            const auto trustTras = ST::readTrustStore(dirRot, av);
             const J::Value& t0 = trustTras["connections"].toArray().at(0);
             comprobar(SecretCipher::decryptEncv1(t0["daemon_tls_client_key_pem"].toString(), nueva, claro, err),
                       "rotar: y el del almacen de confianza, que es el que se olvida");
@@ -2138,20 +2138,20 @@ int main() {
             // El caso que lo obliga: una configuracion A MEDIO ROTAR, con unos campos en la
             // clave nueva y otros en la vieja. Mirando solo el primero, la clave nueva
             // parece buena y el programa arranca con la mitad de los secretos cerrados.
-            comprobar(ST::hayAlgoCifrado(dirRot), "maestra: detecta que hay campos cifrados");
-            ST::Aviso avAbre;
-            comprobar(ST::maestraAbreTodo(dirRot, nueva, avAbre) && avAbre.vacio(),
+            comprobar(ST::hasSomethingEncrypted(dirRot), "maestra: detecta que hay campos cifrados");
+            ST::Warning avAbre;
+            comprobar(ST::masterOpensEverything(dirRot, nueva, avAbre) && avAbre.empty(),
                       "maestra: la nueva abre todo lo que hay");
-            comprobar(!ST::maestraAbreTodo(dirRot, vieja, avAbre),
+            comprobar(!ST::masterOpensEverything(dirRot, vieja, avAbre),
                       "maestra: la vieja ya no");
-            comprobar(avAbre.motivo == ST::Reason::NoSeDescifra, "maestra: con su motivo");
+            comprobar(avAbre.reason == ST::Reason::CannotDecrypt, "maestra: con su motivo");
             {
                 // Se ensucia UN campo del trust-store con la clave vieja: el primero de
                 // config sigue abriendo con la nueva, asi que solo recorriendolo todo se ve.
                 std::string aMedias;
                 std::string errM;
                 comprobar(SecretCipher::encryptEncv1("x", vieja, aMedias, errM), "maestra: se prepara el medio rotado");
-                J::Value tr = ST::leerTrustStore(dirRot, av);
+                J::Value tr = ST::readTrustStore(dirRot, av);
                 J::Array conns;
                 for (const J::Value& c : tr["connections"].toArray()) {
                     J::Value copia = c;
@@ -2159,36 +2159,36 @@ int main() {
                     conns.push_back(copia);
                 }
                 tr.set("connections", J::Value(conns));
-                comprobar(ST::escribirTrustStore(dirRot, tr, av), "maestra: se escribe a medias");
-                ST::Aviso avMedio;
-                comprobar(!ST::maestraAbreTodo(dirRot, nueva, avMedio),
+                comprobar(ST::writeTrustStore(dirRot, tr, av), "maestra: se escribe a medias");
+                ST::Warning avMedio;
+                comprobar(!ST::masterOpensEverything(dirRot, nueva, avMedio),
                           "maestra: una configuracion a medio rotar NO se da por buena");
-                igual(avMedio.campo, "daemon_tls_server_cert_pem", "maestra: y dice que campo");
+                igual(avMedio.field, "daemon_tls_server_cert_pem", "maestra: y dice que campo");
             }
 
             // Una maestra nueva vacia se rechaza ANTES de tocar nada.
             std::string copia2;
-            comprobar(!ST::rotaClaveMaestra(dirRot, nueva, "", copia2, av),
+            comprobar(!ST::rotateMasterKey(dirRot, nueva, "", copia2, av),
                       "rotar: una clave nueva vacia se rechaza");
-            comprobar(av.motivo == ST::Reason::NuevaClaveMaestraVacia, "rotar: y con su motivo");
+            comprobar(av.reason == ST::Reason::NewMasterPasswordEmpty, "rotar: y con su motivo");
             comprobar(copia2.empty(), "rotar: sin dejar copia de nada");
 
             // Con la clave vieja EQUIVOCADA no se puede descifrar, y hay que decirlo.
             std::string copia3;
-            comprobar(!ST::rotaClaveMaestra(dirRot, "la-que-no-es", "otra", copia3, av),
+            comprobar(!ST::rotateMasterKey(dirRot, "la-que-no-es", "otra", copia3, av),
                       "rotar: con la clave actual equivocada NO se rota");
-            comprobar(av.motivo == ST::Reason::NoSeDescifra, "rotar: y el motivo es que no descifra");
-            igual(av.conexion, "Unibody", "rotar: diciendo en qué conexión");
+            comprobar(av.reason == ST::Reason::CannotDecrypt, "rotar: y el motivo es que no descifra");
+            igual(av.connection, "Unibody", "rotar: diciendo en qué conexión");
             std::filesystem::remove_all(dirRot);
         }
 
         // El almacen de confianza usa sus propios motivos, no los de config.
         {
-            std::ofstream f(ST::rutaTrustStore(dir), std::ios::trunc);
+            std::ofstream f(ST::trustStorePath(dir), std::ios::trunc);
             f << "[1,2]";  // valido como JSON, pero no es un objeto
         }
-        ST::leerTrustStore(dir, a);
-        comprobar(a.motivo == ST::Reason::TrustNoValido,
+        ST::readTrustStore(dir, a);
+        comprobar(a.reason == ST::Reason::TrustNotValid,
                   "el trust-store tiene motivo propio, no el de config");
 
         std::filesystem::remove_all(dir);
@@ -2998,29 +2998,29 @@ int main() {
         // sustituye —`printf "%s %s" "$NAME" "$VERSION_ID"`— devolvía «Arch Linux » con un
         // espacio de cola, porque Arch no trae `VERSION_ID`, y ese espacio llegaba a la
         // ficha de la conexión.
-        namespace SO = zfsmgr::base::sistemaoperativo;
-        igual(SO::deOsRelease("NAME=\"Fedora Linux\"\nVERSION_ID=42\n"), "Fedora Linux 42",
+        namespace SO = zfsmgr::base::osinfo;
+        igual(SO::fromOsRelease("NAME=\"Fedora Linux\"\nVERSION_ID=42\n"), "Fedora Linux 42",
               "so: nombre entre comillas y versión suelta");
-        igual(SO::deOsRelease("NAME=\"Arch Linux\"\nID=arch\n"), "Arch Linux",
+        igual(SO::fromOsRelease("NAME=\"Arch Linux\"\nID=arch\n"), "Arch Linux",
               "so: sin VERSION_ID no queda espacio de cola (Arch, comprobado en vivo)");
-        igual(SO::deOsRelease("NAME='Gentoo'\n"), "Gentoo",
+        igual(SO::fromOsRelease("NAME='Gentoo'\n"), "Gentoo",
               "so: las comillas simples también se quitan, que el formato las admite");
-        igual(SO::deOsRelease("NAME=\"Ubuntu\"\r\nVERSION_ID=\"26.04\"\r\n"), "Ubuntu 26.04",
+        igual(SO::fromOsRelease("NAME=\"Ubuntu\"\r\nVERSION_ID=\"26.04\"\r\n"), "Ubuntu 26.04",
               "so: el retorno de carro no se cuela dentro de la versión");
-        igual(SO::deOsRelease("PRETTY_NAME=\"Algo\"\n"), "",
+        igual(SO::fromOsRelease("PRETTY_NAME=\"Algo\"\n"), "",
               "so: sin NAME devuelve vacío, para que quien llame ponga su respaldo");
-        igual(SO::deOsRelease(""), "", "so: fichero vacío, nada que decir");
+        igual(SO::fromOsRelease(""), "", "so: fichero vacío, nada que decir");
         // `VERSION` a secas NO es `VERSION_ID`, y el prefijo es el mismo hasta la coma.
-        igual(SO::deOsRelease("NAME=\"Debian\"\nVERSION=\"12 (bookworm)\"\n"), "Debian",
+        igual(SO::fromOsRelease("NAME=\"Debian\"\nVERSION=\"12 (bookworm)\"\n"), "Debian",
               "so: VERSION no se confunde con VERSION_ID");
 
-        igual(SO::deSystemProfiler("Software:\n\n    System Software Overview:\n\n"
+        igual(SO::fromSystemProfiler("Software:\n\n    System Software Overview:\n\n"
                                    "      System Version: macOS 15.5 (24F74)\n"
                                    "      Kernel Version: Darwin 24.5.0\n"),
               "macOS 15.5 (24F74)", "so: la versión de macOS sale de su línea");
-        igual(SO::deSystemProfiler("      System Version: uno\n      System Version: dos\n"),
+        igual(SO::fromSystemProfiler("      System Version: uno\n      System Version: dos\n"),
               "uno", "so: la primera, como hacía el head -1");
-        igual(SO::deSystemProfiler("Kernel Version: Darwin 24.5.0\n"), "",
+        igual(SO::fromSystemProfiler("Kernel Version: Darwin 24.5.0\n"), "",
               "so: sin la línea buena, vacío");
     }
 
@@ -3039,33 +3039,33 @@ int main() {
             "103 102\n"
             "104 103\n"
             "200 1\n";
-        const auto d = P::descendientesDe(100, ps);
+        const auto d = P::descendantsOf(100, ps);
         comprobar(d == std::vector<long long>{104, 103, 102, 101},
                   "arbol: la descendencia entera, de hojas a raíz");
-        comprobar(P::descendientesDe(104, ps).empty(), "arbol: una hoja no tiene descendencia");
-        comprobar(P::descendientesDe(200, ps).empty(), "arbol: un proceso suelto tampoco");
-        comprobar(P::descendientesDe(99999, ps).empty(), "arbol: un pid que no está, nada");
+        comprobar(P::descendantsOf(104, ps).empty(), "arbol: una hoja no tiene descendencia");
+        comprobar(P::descendantsOf(200, ps).empty(), "arbol: un proceso suelto tampoco");
+        comprobar(P::descendantsOf(99999, ps).empty(), "arbol: un pid que no está, nada");
 
         // Más de ocho niveles: el guion de shell que esto sustituye se paraba ahí.
         std::string hondo;
         for (int i = 1; i <= 15; ++i) {
             hondo += std::to_string(1000 + i) + " " + std::to_string(1000 + i - 1) + "\n";
         }
-        const auto h = P::descendientesDe(1000, hondo);
+        const auto h = P::descendantsOf(1000, hondo);
         comprobar(h.size() == 15, "arbol: quince niveles, no se para en el octavo");
         igual(std::to_string(h.front()), "1015", "arbol: y el más hondo va el primero");
 
         // Dos ramas del mismo padre: las dos caen, y el nivel de abajo antes que el de arriba.
-        const auto r = P::descendientesDe(1, "1 0\n10 1\n11 1\n20 10\n");
+        const auto r = P::descendantsOf(1, "1 0\n10 1\n11 1\n20 10\n");
         comprobar(r.size() == 3, "arbol: las dos ramas");
         igual(std::to_string(r.front()), "20", "arbol: el nieto antes que los hijos");
 
         // Un ciclo no cuelga. No pasa en un árbol de procesos de verdad, pero la salida de
         // `ps` la escribe otro programa y no se le cree a ciegas.
-        const auto c = P::descendientesDe(5, "5 6\n6 5\n");
+        const auto c = P::descendantsOf(5, "5 6\n6 5\n");
         comprobar(c.size() == 1, "arbol: un ciclo se recorre una vez y para");
 
-        comprobar(P::descendientesDe(1, "cabecera que no son numeros\n\n").empty(),
+        comprobar(P::descendantsOf(1, "cabecera que no son numeros\n\n").empty(),
                   "arbol: una salida que no es la esperada no inventa procesos");
     }
 

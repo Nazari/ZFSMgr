@@ -456,7 +456,7 @@ void MainWindow::createPoolForSelectedConnection() {
                     // de formato es la misma que usa el intérprete, en `base/strutil`.
                     const QString tam =
                         d.alias ? QString()
-                                : QString::fromStdString(zfsmgr::base::tamanoLegible(
+                                : QString::fromStdString(zfsmgr::base::humanSize(
                                       std::to_string(d.size)));
                     filas << QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6")
                                  .arg(ruta, tam, QString::fromStdString(d.mountpoint), resuelta,

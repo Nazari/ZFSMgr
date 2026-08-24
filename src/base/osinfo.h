@@ -20,7 +20,7 @@
 //
 // Con el parseo aquí, lo que viaja por SSH pasa a ser `cat /etc/os-release`: un mandato sin
 // nada que interpretar, en vez de un guion.
-namespace zfsmgr::base::sistemaoperativo {
+namespace zfsmgr::base::osinfo {
 
 // El contenido de `/etc/os-release` → «Fedora Linux 42».
 //
@@ -29,12 +29,12 @@ namespace zfsmgr::base::sistemaoperativo {
 //
 // Quita las comillas de los valores: el formato las admite —`NAME="Fedora Linux"`— y
 // dejarlas puestas se veía en la ficha de la conexión.
-std::string deOsRelease(const std::string& contenido);
+std::string fromOsRelease(const std::string& contenido);
 
 // La salida de `system_profiler SPSoftwareDataType` → «macOS 15.5 (24F74)».
 //
 // Se busca la línea «System Version:» y se devuelve lo que va detrás. Antes lo hacía un
 // `sed -n "s/^ *System Version: //p" | head -1` dentro del guion remoto.
-std::string deSystemProfiler(const std::string& salida);
+std::string fromSystemProfiler(const std::string& salida);
 
-}  // namespace zfsmgr::base::sistemaoperativo
+}  // namespace zfsmgr::base::osinfo

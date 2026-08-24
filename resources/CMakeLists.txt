@@ -130,12 +130,12 @@ find_package(Threads REQUIRED)
 add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
-    ../src/base/sistemaoperativo.cpp
-    ../src/base/sistemaoperativo.h
+    ../src/base/osinfo.cpp
+    ../src/base/osinfo.h
     ../src/base/tlsclient.cpp
     ../src/base/tlsclient.h
-    ../src/base/procesos.cpp
-    ../src/base/procesos.h
+    ../src/base/processes.cpp
+    ../src/base/processes.h
     ../src/base/storefiles.cpp
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp

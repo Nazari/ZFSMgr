@@ -387,7 +387,7 @@ bool base64Decode(const std::string& text, std::string& out) {
 
 namespace zfsmgr::base {
 
-std::string tamanoLegible(const std::string& v) {
+std::string humanSize(const std::string& v) {
     char* fin = nullptr;
     const double n = std::strtod(v.c_str(), &fin);
     if (!fin || *fin != '\0' || v.empty()) {

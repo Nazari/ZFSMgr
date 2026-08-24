@@ -3559,7 +3559,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 // El PROGRAMA sale del helper, no es «scp» fijo: con una conexión que usa
                 // contraseña hay que pasar por sshpass, o scp la pide por un terminal que
                 // no existe y la subida muere con «Connection closed».
-                const mwhelpers::ScpInvocacion inv =
+                const mwhelpers::ScpInvocation inv =
                     mwhelpers::scpUpload(p, localAgentPath, uploadPath, multiplex);
                 scpProc.start(inv.program, inv.args);
                 if (!scpProc.waitForStarted(5000)) {

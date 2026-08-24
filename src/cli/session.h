@@ -136,11 +136,11 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
 // él —reintentar, castigar, revivir el daemon— sin que esa decisión dependa de una frase
 // que alguien puede reescribir o traducir. Aquí, que es donde hay idioma, se le pone texto.
 // La interfaz gráfica hace lo mismo por su cuenta con `tr()`.
-std::string textoDeFallo(const zfsmgr::base::transport::MotivoFallo& m);
+std::string textoDeFallo(const zfsmgr::base::transport::FailureReason& m);
 
 // Y el de un aviso del transporte, por lo mismo: son frases que acaban delante del
 // usuario, así que las redacta quien sabe en qué idioma está la sesión.
-std::string textoDeAviso(const zfsmgr::base::transport::NotaDeAviso& a);
+std::string textoDeAviso(const zfsmgr::base::transport::WarningNote& a);
 
 // El directorio donde está este ejecutable. Hace falta para encontrar lo que viaja a su
 // lado: los agentes que se despliegan y los catálogos de traducción.
