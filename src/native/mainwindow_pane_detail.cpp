@@ -24,6 +24,8 @@
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QTabWidget>
+#include <QTreeWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -139,7 +141,9 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     // desde hacía tiempo apuntando a `m_connContentPropsTable`, un miembro que nunca
     // llegaba a asignarse: la edición de propiedades se hacía por las columnas C1...C10
     // del árbol. Aquí recupera su sitio.
-    pane.datasetDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue, colInherited});
+    pane.datasetTabs = new QTabWidget(pane.detailStack);
+    pane.datasetTabs->setDocumentMode(true);
+    pane.datasetDetailTable = makeDetailTable(pane.datasetTabs, {colProp, colValue, colInherited});
     pane.datasetDetailTable->setObjectName(isOrigin ? QStringLiteral("originDatasetDetailTable")
                                                     : QStringLiteral("destinationDatasetDetailTable"));
     pane.datasetDetailTable->setEditTriggers(QAbstractItemView::DoubleClicked
@@ -147,7 +151,57 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                                              | QAbstractItemView::AnyKeyPressed);
     connect(pane.datasetDetailTable, &QTableWidget::cellChanged, this,
             &MainWindow::onDatasetPropsCellChanged);
-    pane.detailStack->addWidget(pane.datasetDetailTable);
+    pane.datasetTabs->addTab(pane.datasetDetailTable,
+                             trk(QStringLiteral("t_detail_tab_props_001"),
+                                 QStringLiteral("Propiedades"),
+                                 QStringLiteral("Properties")));
+
+    pane.datasetPermsTree = new QTreeWidget(pane.datasetTabs);
+    pane.datasetPermsTree->setObjectName(isOrigin ? QStringLiteral("originDatasetPermsTree")
+                                                  : QStringLiteral("destinationDatasetPermsTree"));
+    pane.datasetPermsTree->setColumnCount(1);
+    pane.datasetPermsTree->setHeaderLabels({trk(QStringLiteral("t_detail_perms_col_001"),
+                                                QStringLiteral("Delegación / permiso"),
+                                                QStringLiteral("Delegation / permission"))});
+    pane.datasetPermsTree->setRootIsDecorated(true);
+    pane.datasetPermsTree->setUniformRowHeights(true);
+    connect(pane.datasetPermsTree, &QTreeWidget::itemChanged, this,
+            [this, paneIdx](QTreeWidgetItem* item, int column) {
+                if (column == 0) {
+                    commitPanePermissionGrant(paneIdx, item);
+                }
+            });
+    pane.datasetTabs->addTab(pane.datasetPermsTree,
+                             trk(QStringLiteral("t_detail_tab_perms_001"),
+                                 QStringLiteral("Permisos"),
+                                 QStringLiteral("Permissions")));
+    // Los permisos se leen al ABRIR su pestaña, no al marcar el dataset. Leerlos con la
+    // selección sería una llamada remota por cada movimiento del cursor; abrir la pestaña
+    // es un gesto deliberado y ahí sí toca preguntar a la máquina. Es el mismo trato que
+    // tenían cuando había que desplegar el nodo «Permisos» del árbol.
+    connect(pane.datasetTabs, &QTabWidget::currentChanged, this,
+            [this, paneIdx](int index) {
+                DatasetPane& p = m_datasetPanes[paneIdx];
+                if (!p.datasetTabs || !p.datasetPermsTree
+                    || p.datasetTabs->widget(index) != p.datasetPermsTree) {
+                    return;
+                }
+                const int connIdx = p.datasetPermsTree->property("zfsmgr.permsConnIdx").toInt();
+                const QString poolName = p.datasetPermsTree->property("zfsmgr.permsPool").toString();
+                const QString dataset = p.datasetPermsTree->property("zfsmgr.permsDataset").toString();
+                if (connIdx < 0 || poolName.isEmpty() || dataset.isEmpty()) {
+                    return;
+                }
+                const DatasetPermissionsCacheEntry* entry =
+                    datasetPermissionsEntry(connIdx, poolName, dataset);
+                if (entry && entry->loaded) {
+                    return;
+                }
+                if (ensureDatasetPermissionsLoaded(connIdx, poolName, dataset)) {
+                    fillPanePermissions(paneIdx, connIdx, poolName, dataset);
+                }
+            });
+    pane.detailStack->addWidget(pane.datasetTabs);
 
     layout->addWidget(pane.detailStack, 1);
     return frame;
@@ -312,8 +366,9 @@ void MainWindow::updatePaneDetail(int paneIdx) {
         const QString objectName = ctx.snapshotName.trimmed().isEmpty()
                                        ? dataset
                                        : QStringLiteral("%1@%2").arg(dataset, ctx.snapshotName.trimmed());
-        pane.detailStack->setCurrentWidget(pane.datasetDetailTable);
+        pane.detailStack->setCurrentWidget(pane.datasetTabs);
         pane.detailTitle->setText(objectName);
+        fillPanePermissions(paneIdx, connIdx, poolName, dataset);
         // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
         // El estado del borrador —qué propiedad se ha cambiado, cuál era su valor
         // original, si estaba heredada— es uno solo: `m_propsToken`, `m_propsDataset`,
@@ -353,4 +408,184 @@ void MainWindow::updatePaneDetail(int paneIdx) {
     pane.detailStack->setCurrentWidget(pane.connDetailTable);
     setDetailRows(pane.connDetailTable, connectionProfileRows(pane.connIdx));
     pane.detailTitle->setText(item->text(0));
+}
+
+// ── Permisos ────────────────────────────────────────────────────────────────────
+//
+// La segunda pestaña del detalle de un dataset. Es un árbol de dos niveles: cada
+// delegación —a quién y con qué ámbito— y debajo sus permisos con casilla.
+//
+// Lo mismo se editaba dentro del árbol principal, con los permisos tumbados en las
+// columnas C1...C10: dos filas por bloque, una de nombres y otra de casillas, cortadas
+// cada `m_connPropColumnsSetting` columnas. Con veintitantos permisos delegables eso eran
+// cinco bloques que había que leer en zigzag. Aquí cada permiso es una fila con su marca.
+
+namespace {
+constexpr int kPaneGrantScopeRole = Qt::UserRole + 27;
+constexpr int kPaneGrantTargetTypeRole = Qt::UserRole + 28;
+constexpr int kPaneGrantTargetNameRole = Qt::UserRole + 29;
+constexpr int kPaneGrantNodeRole = Qt::UserRole + 32;
+constexpr int kPanePermTokenRole = Qt::UserRole + 30;
+}  // namespace
+
+void MainWindow::fillPanePermissions(int paneIdx, int connIdx, const QString& poolName,
+                                     const QString& datasetName) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    QTreeWidget* tree = pane.datasetPermsTree;
+    if (!tree) {
+        return;
+    }
+    const QSignalBlocker blocker(tree);
+    tree->clear();
+    // Antes de cualquier salida: de estas tres propiedades depende que abrir la pestaña
+    // sepa qué permisos pedir, y el camino que sale antes es justo el de «aún no leídos».
+    tree->setProperty("zfsmgr.permsConnIdx", connIdx);
+    tree->setProperty("zfsmgr.permsPool", poolName);
+    tree->setProperty("zfsmgr.permsDataset", datasetName);
+    if (connIdx < 0 || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()
+        || datasetName.contains(QLatin1Char('@'))) {
+        return;
+    }
+    // Lo que ya esté en caché. Sin lectura remota: el detalle se repinta a cada cambio de
+    // selección, y pedir los permisos por red en cada paso del cursor colgaría la
+    // interfaz. Los trae el mismo camino que los traía antes —abrir el nodo, refrescar—.
+    const DatasetPermissionsCacheEntry* entry =
+        datasetPermissionsEntry(connIdx, poolName, datasetName);
+    if (!entry || !entry->loaded) {
+        auto* pending = new QTreeWidgetItem(tree);
+        pending->setText(0, trk(QStringLiteral("t_perm_not_loaded_001"),
+                                QStringLiteral("Permisos sin leer todavía"),
+                                QStringLiteral("Permissions not read yet")));
+        QFont f = pending->font(0);
+        f.setItalic(true);
+        pending->setFont(0, f);
+        pending->setFlags(pending->flags() & ~Qt::ItemIsSelectable);
+        return;
+    }
+
+    QVector<DatasetPermissionGrant> allGrants = entry->localGrants;
+    allGrants += entry->descendantGrants;
+    allGrants += entry->localDescendantGrants;
+    if (allGrants.isEmpty()) {
+        auto* none = new QTreeWidgetItem(tree);
+        none->setText(0, trk(QStringLiteral("t_perm_none_001"),
+                             QStringLiteral("Sin delegaciones"),
+                             QStringLiteral("No delegations")));
+        QFont f = none->font(0);
+        f.setItalic(true);
+        none->setFont(0, f);
+        none->setFlags(none->flags() & ~Qt::ItemIsSelectable);
+        return;
+    }
+
+    const auto scopeLabel = [this](const QString& scope) {
+        const QString s = scope.trimmed().toLower();
+        if (s == QStringLiteral("local")) {
+            return trk(QStringLiteral("t_perm_scope_local_001"),
+                       QStringLiteral("Local"), QStringLiteral("Local"));
+        }
+        if (s == QStringLiteral("descendant")) {
+            return trk(QStringLiteral("t_perm_scope_desc_001"),
+                       QStringLiteral("Descendientes"), QStringLiteral("Descendants"));
+        }
+        return trk(QStringLiteral("t_perm_scope_localdesc_001"),
+                   QStringLiteral("Local y descendientes"),
+                   QStringLiteral("Local and descendants"));
+    };
+    const QStringList tokens = availableDelegablePermissions(datasetName, connIdx, poolName);
+    for (const DatasetPermissionGrant& grant : std::as_const(allGrants)) {
+        QString who = trk(QStringLiteral("t_everyone_001"),
+                          QStringLiteral("Everyone"), QStringLiteral("Everyone"));
+        if (grant.targetType == QStringLiteral("user")) {
+            who = trk(QStringLiteral("t_user_with_name_001"),
+                      QStringLiteral("Usuario %1"), QStringLiteral("User %1")).arg(grant.targetName);
+        } else if (grant.targetType == QStringLiteral("group")) {
+            who = trk(QStringLiteral("t_group_with_name_001"),
+                      QStringLiteral("Grupo %1"), QStringLiteral("Group %1")).arg(grant.targetName);
+        }
+        auto* grantNode = new QTreeWidgetItem(tree);
+        grantNode->setText(0, QStringLiteral("%1 — %2").arg(who, scopeLabel(grant.scope)));
+        grantNode->setData(0, kPaneGrantNodeRole, true);
+        grantNode->setData(0, kPaneGrantScopeRole, grant.scope);
+        grantNode->setData(0, kPaneGrantTargetTypeRole, grant.targetType);
+        grantNode->setData(0, kPaneGrantTargetNameRole, grant.targetName);
+        grantNode->setFlags(grantNode->flags() & ~Qt::ItemIsUserCheckable);
+        QFont bold = grantNode->font(0);
+        bold.setBold(true);
+        grantNode->setFont(0, bold);
+        // Una delegación que aún no se ha aplicado se lee en cursiva: existe en el
+        // borrador y no en la máquina.
+        if (grant.pending) {
+            QFont f = grantNode->font(0);
+            f.setItalic(true);
+            grantNode->setFont(0, f);
+        }
+        for (const QString& token : tokens) {
+            auto* tokenNode = new QTreeWidgetItem(grantNode);
+            tokenNode->setText(0, token);
+            tokenNode->setData(0, kPanePermTokenRole, token);
+            tokenNode->setFlags(tokenNode->flags() | Qt::ItemIsUserCheckable);
+            tokenNode->setCheckState(0, grant.permissions.contains(token, Qt::CaseInsensitive)
+                                            ? Qt::Checked
+                                            : Qt::Unchecked);
+        }
+        grantNode->setExpanded(false);
+    }
+}
+
+// Marcar o desmarcar un permiso reescribe la delegación entera, no ese permiso suelto:
+// `zfs allow` recibe la lista completa de quien delega, así que la lista de la máquina es
+// la que sale de recorrer las casillas.
+void MainWindow::commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* tokenNode) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    QTreeWidget* tree = pane.datasetPermsTree;
+    if (!tree || !tokenNode) {
+        return;
+    }
+    QTreeWidgetItem* grantNode = tokenNode->parent();
+    if (!grantNode || !grantNode->data(0, kPaneGrantNodeRole).toBool()) {
+        return;
+    }
+    const int connIdx = tree->property("zfsmgr.permsConnIdx").toInt();
+    const QString poolName = tree->property("zfsmgr.permsPool").toString();
+    const QString datasetName = tree->property("zfsmgr.permsDataset").toString();
+    if (connIdx < 0 || poolName.isEmpty() || datasetName.isEmpty()) {
+        return;
+    }
+    const QString scope = grantNode->data(0, kPaneGrantScopeRole).toString();
+    const QString targetType = grantNode->data(0, kPaneGrantTargetTypeRole).toString();
+    const QString targetName = grantNode->data(0, kPaneGrantTargetNameRole).toString();
+
+    QStringList checked;
+    for (int i = 0; i < grantNode->childCount(); ++i) {
+        QTreeWidgetItem* child = grantNode->child(i);
+        if (child && child->checkState(0) == Qt::Checked) {
+            checked.push_back(child->data(0, kPanePermTokenRole).toString().trimmed());
+        }
+    }
+    checked.removeAll(QString());
+    checked.sort(Qt::CaseInsensitive);
+
+    DatasetPermissionsCacheEntry* entry =
+        datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
+    if (!entry) {
+        return;
+    }
+    auto updateGrantList = [&](QVector<DatasetPermissionGrant>& grants) -> bool {
+        for (DatasetPermissionGrant& g : grants) {
+            if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
+                g.permissions = checked;
+                entry->dirty = true;
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!updateGrantList(entry->localGrants)
+        && !updateGrantList(entry->descendantGrants)
+        && !updateGrantList(entry->localDescendantGrants)) {
+        return;
+    }
+    mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+    updateApplyPropsButtonState();
 }

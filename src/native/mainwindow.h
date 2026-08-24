@@ -649,6 +649,9 @@ private:
     void populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName);
     QWidget* buildPaneDetail(int paneIdx, QWidget* parent);
     void updatePaneDetail(int paneIdx);
+    void fillPanePermissions(int paneIdx, int connIdx, const QString& poolName,
+                             const QString& datasetName);
+    void commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* grantNode);
     void updatePaneDetailForTree(QTreeWidget* tree);
     QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
     QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
@@ -1211,7 +1214,12 @@ private:
         QTableWidget* connDetailTable{nullptr};
         QTableWidget* poolDetailTable{nullptr};
         QPlainTextEdit* poolDetailStatus{nullptr};
+        // El detalle de un dataset son dos cosas, y en pestañas: sus PROPIEDADES y sus
+        // PERMISOS. Las dos se editaban dentro del árbol, tumbadas en las columnas
+        // C1...C10; aquí cada una tiene su forma natural —tabla y árbol con casillas—.
+        QTabWidget* datasetTabs{nullptr};
         QTableWidget* datasetDetailTable{nullptr};
+        QTreeWidget* datasetPermsTree{nullptr};
     };
     DatasetPane m_datasetPanes[2];
     QSplitter* m_datasetPanesSplit{nullptr};
