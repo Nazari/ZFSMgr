@@ -6,6 +6,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTreeWidget>
+#include <QMenu>
+#include <QTabWidget>
+#include <QMenuBar>
 #include <QtTest/QtTest>
 
 #include <algorithm>
@@ -492,6 +495,113 @@ private Q_SLOTS:
         QCOMPARE(visto[0][2], QStringLiteral("general"));
         QCOMPARE(visto[1][1], QStringLiteral("unib"));
         QCOMPARE(visto[1][2], QStringLiteral("de conexión"));
+    }
+
+    // La barra de menús, con la forma que se pidió.
+    //
+    // Se comprueba aquí y no mirando una captura porque estas cuatro cosas se deshacen
+    // solas: basta con que alguien añada una entrada «donde encaje» para que Idioma
+    // vuelva a hundirse en un submenú o que Ajustes reaparezca como pestaña. Lo que
+    // afirma es la ESTRUCTURA, no los rótulos: la ventana se abre en inglés y los textos
+    // salen del catálogo.
+    void menuBarHasTheAgreedShape() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        QMenuBar* bar = window.menuBar();
+        QVERIFY(bar);
+
+        const auto topLevel = [bar]() {
+            QStringList out;
+            for (QAction* a : bar->actions()) {
+                if (a && a->menu()) {
+                    out << a->menu()->objectName() + a->text();
+                }
+            }
+            return out;
+        };
+        const auto menuNamed = [bar](const QString& text) -> QMenu* {
+            for (QAction* a : bar->actions()) {
+                if (a && a->menu() && a->text().contains(text, Qt::CaseInsensitive)) {
+                    return a->menu();
+                }
+            }
+            return nullptr;
+        };
+        const auto hasAction = [](QMenu* m, const QString& text) {
+            if (!m) return false;
+            for (QAction* a : m->actions()) {
+                if (a && a->text().contains(text, Qt::CaseInsensitive)) return true;
+            }
+            return false;
+        };
+        const auto submenuNamed = [](QMenu* m, const QString& text) -> QMenu* {
+            if (!m) return nullptr;
+            for (QAction* a : m->actions()) {
+                if (a && a->menu() && a->text().contains(text, Qt::CaseInsensitive)) {
+                    return a->menu();
+                }
+            }
+            return nullptr;
+        };
+
+        // 1. Idioma es de PRIMER NIVEL, no un submenú de «Menu».
+        QMenu* language = menuNamed(QStringLiteral("Language"));
+        QVERIFY2(language, qPrintable(QStringLiteral("no hay menú Idioma en la barra: ")
+                                      + topLevel().join(QStringLiteral(", "))));
+        QVERIFY(hasAction(language, QStringLiteral("Espa")));
+        QVERIFY(hasAction(language, QStringLiteral("English")));
+
+        // 2. Comprobar conectividad vive en Ayuda, y separada por una barra.
+        QMenu* help = menuNamed(QStringLiteral("Ayuda"));
+        if (!help) help = menuNamed(QStringLiteral("Help"));
+        QVERIFY(help);
+        QVERIFY(hasAction(help, QStringLiteral("connectivity")));
+        bool foundConnectivity = false;
+        bool separatorAfter = false;
+        for (QAction* a : help->actions()) {
+            if (foundConnectivity) {
+                separatorAfter = a && a->isSeparator();
+                break;
+            }
+            if (a && a->text().contains(QStringLiteral("connectivity"), Qt::CaseInsensitive)) {
+                foundConnectivity = true;
+            }
+        }
+        QVERIFY2(separatorAfter,
+                 "«Comprobar conectividad» tiene que quedar separada del resto por una barra");
+
+        // 3. Ajustes es de primer nivel, con Log dentro y la casilla de confirmación.
+        QMenu* settings = menuNamed(QStringLiteral("Settings"));
+        QVERIFY2(settings, qPrintable(QStringLiteral("no hay menú Ajustes en la barra: ")
+                                      + topLevel().join(QStringLiteral(", "))));
+        QMenu* logs = submenuNamed(settings, QStringLiteral("Logs"));
+        QVERIFY2(logs, "«Ajustes» tiene que llevar el submenú «Logs»");
+        // Y los tres submenús de Logs, que son listas cerradas.
+        QVERIFY(submenuNamed(logs, QStringLiteral("level")));
+        QVERIFY(submenuNamed(logs, QStringLiteral("lines")));
+        QVERIFY(submenuNamed(logs, QStringLiteral("size")));
+        QVERIFY(hasAction(logs, QStringLiteral("Clear")));
+        QVERIFY(hasAction(logs, QStringLiteral("Copy")));
+
+        // La casilla, y con ella el miembro que `mainwindow_dialogs` mantiene al día. Que
+        // sea MARCABLE es la mitad del asunto: como acción normal no se vería el estado.
+        QAction* confirm = nullptr;
+        for (QAction* a : settings->actions()) {
+            if (a && a->isCheckable()) {
+                confirm = a;
+                break;
+            }
+        }
+        QVERIFY2(confirm, "«Ajustes» tiene que llevar la casilla de confirmación");
+        QVERIFY(confirm->text().contains(QStringLiteral("confirmation"), Qt::CaseInsensitive));
+
+        // 4. Y ya NO hay una pestaña «Ajustes» abajo.
+        const auto tabs = window.findChildren<QTabWidget*>();
+        for (QTabWidget* t : tabs) {
+            for (int i = 0; i < t->count(); ++i) {
+                QVERIFY2(!t->tabText(i).contains(QStringLiteral("Settings"), Qt::CaseInsensitive),
+                         "«Ajustes» volvió a ser una pestaña");
+            }
+        }
     }
 };
 
