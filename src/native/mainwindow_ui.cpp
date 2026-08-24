@@ -1407,10 +1407,41 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_menu_main_001"),
             QStringLiteral("Menú"),
             QStringLiteral("Menu")));
-    // Idioma va en la BARRA, no dentro de «Menú». Es lo primero que busca quien abre la
-    // aplicación en un idioma que no es el suyo, y enterrado en un submenú había que
-    // encontrarlo antes de poder leer nada.
-    QMenu* languageMenu = menuBar()->addMenu(
+    // Sin separador delante: al salir de aquí Idioma y Comprobar conectividad, «Salir» se
+    // quedó sola y la barra encabezaba el menú, que es un renglón vacío.
+    m_menuExitAction = appMenu->addAction(
+        trk(QStringLiteral("t_menu_exit_001"),
+            QStringLiteral("Salir"),
+            QStringLiteral("Exit")));
+    m_menuExitAction->setEnabled(!actionsLocked());
+    connect(m_menuExitAction, &QAction::triggered, this, [this]() {
+        if (actionsLocked()) {
+            return;
+        }
+        close();
+    });
+
+    // ── Ajustes ──────────────────────────────────────────────────────────────
+    //
+    // Esto era una PESTAÑA en el panel de abajo, entre «Transferencias» y «Log combinado».
+    // No pinta nada allí: las pestañas de abajo enseñan lo que está pasando —trabajos en
+    // marcha, registro— y esto no enseña nada, se toca una vez y se olvida. Ocupaba una
+    // pestaña permanente para tres desplegables y una casilla.
+    //
+    // Las listas cerradas pasan a submenús con marca de selección, que es la forma que Qt
+    // da a «una de estas»: se ve el valor puesto sin abrir nada, y elegir cuesta un clic
+    // menos que un desplegable.
+    QMenu* settingsMenu = menuBar()->addMenu(
+        trk(QStringLiteral("t_settings_tab_001"),
+            QStringLiteral("Ajustes"),
+            QStringLiteral("Settings")));
+
+    // Idioma, lo primero de Ajustes. Estuvo suelto en la barra por el mismo argumento que
+    // ahora lo trae aquí —quien abre la aplicación en un idioma que no es el suyo tiene
+    // que poder cambiarlo sin leer nada— y resulta que ese argumento se cumple igual: los
+    // menús de Qt se abren al pasar por encima, así que llegar hasta aquí cuesta el mismo
+    // gesto que antes y la barra se queda con una entrada menos.
+    QMenu* languageMenu = settingsMenu->addMenu(
         trk(QStringLiteral("t_lang_menu_001"),
             QStringLiteral("Idioma"),
             QStringLiteral("Language")));
@@ -1447,35 +1478,6 @@ void MainWindow::buildUi() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Idioma cambiado a %1").arg(m_language));
         applyLanguageLive();
     });
-
-    // Sin separador delante: al salir de aquí Idioma y Comprobar conectividad, «Salir» se
-    // quedó sola y la barra encabezaba el menú, que es un renglón vacío.
-    m_menuExitAction = appMenu->addAction(
-        trk(QStringLiteral("t_menu_exit_001"),
-            QStringLiteral("Salir"),
-            QStringLiteral("Exit")));
-    m_menuExitAction->setEnabled(!actionsLocked());
-    connect(m_menuExitAction, &QAction::triggered, this, [this]() {
-        if (actionsLocked()) {
-            return;
-        }
-        close();
-    });
-
-    // ── Ajustes ──────────────────────────────────────────────────────────────
-    //
-    // Esto era una PESTAÑA en el panel de abajo, entre «Transferencias» y «Log combinado».
-    // No pinta nada allí: las pestañas de abajo enseñan lo que está pasando —trabajos en
-    // marcha, registro— y esto no enseña nada, se toca una vez y se olvida. Ocupaba una
-    // pestaña permanente para tres desplegables y una casilla.
-    //
-    // Las listas cerradas pasan a submenús con marca de selección, que es la forma que Qt
-    // da a «una de estas»: se ve el valor puesto sin abrir nada, y elegir cuesta un clic
-    // menos que un desplegable.
-    QMenu* settingsMenu = menuBar()->addMenu(
-        trk(QStringLiteral("t_settings_tab_001"),
-            QStringLiteral("Ajustes"),
-            QStringLiteral("Settings")));
 
     QMenu* logsMenu = settingsMenu->addMenu(
         trk(QStringLiteral("t_logs_menu_001"),

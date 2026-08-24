@@ -501,7 +501,7 @@ private Q_SLOTS:
     //
     // Se comprueba aquí y no mirando una captura porque estas cuatro cosas se deshacen
     // solas: basta con que alguien añada una entrada «donde encaje» para que Idioma
-    // vuelva a hundirse en un submenú o que Ajustes reaparezca como pestaña. Lo que
+    // se salga de Ajustes o que Ajustes reaparezca como pestaña. Lo que
     // afirma es la ESTRUCTURA, no los rótulos: la ventana se abre en inglés y los textos
     // salen del catálogo.
     void menuBarHasTheAgreedShape() {
@@ -543,12 +543,10 @@ private Q_SLOTS:
             return nullptr;
         };
 
-        // 1. Idioma es de PRIMER NIVEL, no un submenú de «Menu».
-        QMenu* language = menuNamed(QStringLiteral("Language"));
-        QVERIFY2(language, qPrintable(QStringLiteral("no hay menú Idioma en la barra: ")
-                                      + topLevel().join(QStringLiteral(", "))));
-        QVERIFY(hasAction(language, QStringLiteral("Espa")));
-        QVERIFY(hasAction(language, QStringLiteral("English")));
+        // 1. Idioma NO está suelto en la barra: se comprueba con el resto de Ajustes.
+        QVERIFY2(!menuNamed(QStringLiteral("Language")),
+                 qPrintable(QStringLiteral("Idioma volvió a la barra: ")
+                            + topLevel().join(QStringLiteral(", "))));
 
         // 2. Comprobar conectividad vive en Ayuda, y separada por una barra.
         QMenu* help = menuNamed(QStringLiteral("Ayuda"));
@@ -573,6 +571,10 @@ private Q_SLOTS:
         QMenu* settings = menuNamed(QStringLiteral("Settings"));
         QVERIFY2(settings, qPrintable(QStringLiteral("no hay menú Ajustes en la barra: ")
                                       + topLevel().join(QStringLiteral(", "))));
+        QMenu* language = submenuNamed(settings, QStringLiteral("Language"));
+        QVERIFY2(language, "«Ajustes» tiene que llevar el submenú «Idioma»");
+        QVERIFY(hasAction(language, QStringLiteral("Espa")));
+        QVERIFY(hasAction(language, QStringLiteral("English")));
         QMenu* logs = submenuNamed(settings, QStringLiteral("Logs"));
         QVERIFY2(logs, "«Ajustes» tiene que llevar el submenú «Logs»");
         // Y los tres submenús de Logs, que son listas cerradas.
