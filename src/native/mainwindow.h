@@ -639,10 +639,15 @@ private:
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
-    void rebuildAllSplitTrees();
-    void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
-                                 const QString& rootDataset, const QString& displayRoot);
-    void appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx);
+    QWidget* buildDatasetPane(int paneIdx, QWidget* parent);
+    void refillDatasetPaneCombos();
+    void onPaneConnectionChosen(int paneIdx);
+    void onPanePoolChosen(int paneIdx);
+    void rebuildDatasetPane(int paneIdx);
+    void rebuildDatasetPanes();
+    void populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName);
+    void appendPaneTreeRootedAtPool(QTreeWidget* tree, int connIdx, const QString& poolName,
+                                    const QString& rootDataset, const QString& displayRoot);
     void installConnContentTreeHeaderContextMenu(QTreeWidget* tree);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
@@ -1173,16 +1178,27 @@ private:
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};
-    struct SplitTreeEntry {
-        int connIdx{-1};
-        QString poolName;
-        QString rootDataset;
-        QString displayRoot;
+    // Los dos árboles fijos: el 0 a la izquierda es el ORIGEN y el 1 a la derecha el
+    // DESTINO. La posición no es una preferencia de colocación: es lo que decide qué papel
+    // juega cada selección en las seis acciones de transferencia. Antes había un solo árbol
+    // con todas las conexiones dentro, el origen se marcaba a mano con «Marcar como origen»
+    // y el destino era aquello sobre lo que se pulsaba; los dos papeles vivían en el mismo
+    // sitio y no se distinguían mirando.
+    struct DatasetPane {
         ConnectionDatasetTreeWidget* treeWidget{nullptr};
         MainWindowConnectionDatasetTreeDelegate* delegate{nullptr};
+        QComboBox* connCombo{nullptr};
+        QComboBox* poolCombo{nullptr};
+        int connIdx{-1};
+        // Vacío quiere decir «todos los pools de esa conexión», que es lo que muestra la
+        // primera entrada del desplegable.
+        QString poolName;
+        // Mientras se rellenan los desplegables, sus señales no deben rehacer el árbol:
+        // rellenar dispara currentIndexChanged aunque la elección del usuario no cambie.
+        bool refilling{false};
     };
-    QList<SplitTreeEntry> m_splitTrees;
-    QSplitter* m_connContentTreeSplitter{nullptr};
+    DatasetPane m_datasetPanes[2];
+    QSplitter* m_datasetPanesSplit{nullptr};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
     QMap<QString, QPointer<QWidget>> m_connectionLogTabs;

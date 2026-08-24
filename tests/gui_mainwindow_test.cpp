@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QComboBox>
 #include <QTreeWidget>
 #include <QMenu>
 #include <QTabWidget>
@@ -215,11 +216,18 @@ private Q_SLOTS:
 
         QCOMPARE(window.objectName(), QStringLiteral("mainWindow"));
 
-        // La tabla de conexiones desapareció al unificar la interfaz en un solo
-        // árbol, y ese árbol pasó a llamarse connContentTreeUnified: el panel se
-        // crea con Role::Unified (mainwindow_ui.cpp), no con Top/Bottom.
-        auto* unifiedTree = window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified"));
-        QVERIFY(unifiedTree != nullptr);
+        // Dos árboles fijos, no uno unificado: el de arriba es el ORIGEN y el de abajo
+        // el DESTINO —Role::Top y Role::Bottom en mainwindow_ui.cpp—, cada uno con su
+        // pareja de desplegables encima. Se comprueban aquí los cuatro nombres porque
+        // son la dirección por la que el resto del código y estas pruebas los alcanzan.
+        QVERIFY(window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeTop")) != nullptr);
+        QVERIFY(window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeBottom")) != nullptr);
+        QVERIFY(window.findChild<QComboBox*>(QStringLiteral("originConnCombo")) != nullptr);
+        QVERIFY(window.findChild<QComboBox*>(QStringLiteral("originPoolCombo")) != nullptr);
+        QVERIFY(window.findChild<QComboBox*>(QStringLiteral("destinationConnCombo")) != nullptr);
+        QVERIFY(window.findChild<QComboBox*>(QStringLiteral("destinationPoolCombo")) != nullptr);
+        QVERIFY2(window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified")) == nullptr,
+                 "el árbol unificado con todas las conexiones dentro ya no existe");
 
 
         auto* logView = window.findChild<QPlainTextEdit*>(QStringLiteral("applicationLogView"));
@@ -230,9 +238,9 @@ private Q_SLOTS:
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         const QFont baseFont = QApplication::font();
 
-        auto* unifiedTree = window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified"));
-        QVERIFY(unifiedTree != nullptr);
-        QCOMPARE(unifiedTree->font().pointSize(), baseFont.pointSize());
+        auto* originTree = window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeTop"));
+        QVERIFY(originTree != nullptr);
+        QCOMPARE(originTree->font().pointSize(), baseFont.pointSize());
 
     }
 

@@ -5200,16 +5200,16 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         return false;
     }();
     auto poolRootTitle = [&]() -> QString {
-        QString connName = (connIdx >= 0 && connIdx < m_conns.profiles.size()) ? m_conns.profiles[connIdx].name : QStringLiteral("?");
-        const bool groupedByConnection = treeGroupsPoolsByConnectionRoots(safeTree.data());
+        // Solo el nombre del pool. Llevaba delante el de la conexión —«Pool Local::fc16»—
+        // porque el árbol de destino no la enseñaba en ningún otro sitio; ahora la dice el
+        // desplegable de encima del panel y repetirla en cada raíz solo gastaba ancho.
         const bool poolSuspended = isPoolSuspended(connIdx, poolName);
         const QString poolPrefix =
             trk(QStringLiteral("t_tree_pool_prefix_001"),
                 QStringLiteral("Pool"),
                 QStringLiteral("Pool"));
         if (poolImported) {
-            QString title = groupedByConnection ? QStringLiteral("%1 %2").arg(poolPrefix, poolName)
-                                                : QStringLiteral("%1 %2::%3").arg(poolPrefix, connName, poolName);
+            QString title = QStringLiteral("%1 %2").arg(poolPrefix, poolName);
             if (poolSuspended) {
                 title += QStringLiteral(" (Suspended)");
             }
@@ -5218,8 +5218,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         const QString stateText = trk(QStringLiteral("t_pool_impable_001"),
                                       QStringLiteral("Importable"),
                                       QStringLiteral("Importable"));
-        return groupedByConnection ? QStringLiteral("%1 %2 [%3]").arg(poolPrefix, poolName, stateText)
-                                   : QStringLiteral("%1 %2::%3 [%4]").arg(poolPrefix, connName, poolName, stateText);
+        return QStringLiteral("%1 %2 [%3]").arg(poolPrefix, poolName, stateText);
     };
     auto connectionRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_conns.profiles.size()) ? m_conns.profiles[connIdx].name : QStringLiteral("?");
@@ -5875,10 +5874,12 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     }
 }
 
-void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
-                                         const QString& poolName,
-                                         const QString& rootDataset,
-                                         const QString& displayRoot) {
+// Enraíza el árbol en un pool —o en un dataset de dentro— en lugar de enseñar la
+// conexión entera. Es lo que hace el desplegable de pool de cada panel.
+void MainWindow::appendPaneTreeRootedAtPool(QTreeWidget* tree, int connIdx,
+                                            const QString& poolName,
+                                            const QString& rootDataset,
+                                            const QString& displayRoot) {
     if (!tree || connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()) {
         return;
     }
@@ -5944,48 +5945,6 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
             tree->addTopLevelItem(datasetItem);
             datasetItem->setExpanded(true);
         }
-    }
-}
-
-void MainWindow::appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx) {
-    if (!tree || connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return;
-    }
-    const ConnectionRuntimeState& st = m_conns.states[connIdx];
-    // Use ConnectionContent for full interactivity (same as the main tree).
-    // The tree must have groupPoolsByConnectionRoots = true so that each call to
-    // appendDatasetTreeForPool creates/reuses the connection root item and hangs
-    // the pool roots under it — giving the new panel the same layout as the original.
-    const DatasetTreeRenderOptions opts =
-        datasetTreeRenderOptionsForTree(tree, DatasetTreeContext::ConnectionContent);
-
-    QSet<QString> seenPools;
-    for (const PoolImported& pool : st.importedPools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
-            continue;
-        }
-        seenPools.insert(poolKey);
-        appendDatasetTreeForPool(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, opts, false);
-    }
-    for (const PoolImportable& pool : st.importablePools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
-            continue;
-        }
-        const QString stateUp = pool.state.trimmed().toUpper();
-        if (stateUp != QStringLiteral("ONLINE") || pool.action.trimmed().isEmpty()) {
-            continue;
-        }
-        seenPools.insert(poolKey);
-        appendDatasetTreeForPool(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, opts, false);
-    }
-
-    // Mark the connection root item as split root so the "Close" action appears on it.
-    if (QTreeWidgetItem* connRoot = findConnectionRootItem(tree, connIdx)) {
-        connRoot->setData(0, kIsSplitRootRole, true);
     }
 }
 

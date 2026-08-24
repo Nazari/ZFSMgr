@@ -2006,12 +2006,9 @@ void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
 
 
 void MainWindow::rebuildConnectionEntityTabs() {
-    rebuildConnContentDetailTree(m_connContentTree,
-                                 m_topDetailConnIdx,
-                                 m_rebuildingTopConnContentTree,
-                                 &m_forceRestoreTopStateConnIdx,
-                                 [this](int connIdx) { saveTopTreeStateForConnection(connIdx); });
-    rebuildAllSplitTrees();
+    // Los dos paneles, y antes sus desplegables: la lista de conexiones y la de pools
+    // puede haber cambiado justo en el refresco que trae aquí.
+    rebuildDatasetPanes();
 }
 
 void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,

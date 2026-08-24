@@ -1514,13 +1514,6 @@ void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) 
     if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
         refreshed = refreshTargetPoolInTree(m_bottomConnContentTree) || refreshed;
     }
-    for (const SplitTreeEntry& entry : std::as_const(m_splitTrees)) {
-        QTreeWidget* tree = entry.treeWidget ? entry.treeWidget->tree() : nullptr;
-        if (!tree || tree == m_connContentTree || tree == m_bottomConnContentTree) {
-            continue;
-        }
-        refreshed = refreshTargetPoolInTree(tree) || refreshed;
-    }
     if (!refreshed) {
         refreshConnectionByIndex(connIdx);
     }

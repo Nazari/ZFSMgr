@@ -847,26 +847,234 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
     });
 }
 
-void MainWindow::rebuildAllSplitTrees() {
-    for (const SplitTreeEntry& entry : std::as_const(m_splitTrees)) {
-        if (!entry.treeWidget) {
-            continue;
-        }
-        QTreeWidget* t = entry.treeWidget->tree();
-        if (!t) {
-            continue;
-        }
-        {
-            const QSignalBlocker blocker(t);
-            t->clear();
-            if (entry.poolName.trimmed().isEmpty()) {
-                appendSplitDatasetTreeForConnection(t, entry.connIdx);
-            } else {
-                appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
-            }
-            applyUserExpandedState(t);
-        }
+// ── Los dos árboles fijos ────────────────────────────────────────────────────────
+//
+// Cada uno lleva encima dos desplegables, conexión y pool, y enseña dentro lo que
+// cuelga de esa pareja. Antes había un solo árbol con TODAS las conexiones dentro,
+// cada una como nodo raíz: para llegar a un dataset había que desplegar la conexión,
+// desplegar el pool y bajar; y para transferir entre dos máquinas, tener las dos
+// desplegadas a la vez en la misma columna.
+
+QWidget* MainWindow::buildDatasetPane(int paneIdx, QWidget* parent) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    const bool isOrigin = (paneIdx == 0);
+
+    auto* holder = new QWidget(parent);
+    auto* holderLayout = new QVBoxLayout(holder);
+    holderLayout->setContentsMargins(0, 0, 0, 0);
+    holderLayout->setSpacing(3);
+
+    auto* head = new QWidget(holder);
+    auto* headLayout = new QHBoxLayout(head);
+    headLayout->setContentsMargins(2, 0, 2, 0);
+    headLayout->setSpacing(4);
+    auto* title = new QLabel(isOrigin
+                                 ? trk(QStringLiteral("t_pane_origin_001"),
+                                       QStringLiteral("Origen"),
+                                       QStringLiteral("Source"))
+                                 : trk(QStringLiteral("t_pane_dest_001"),
+                                       QStringLiteral("Destino"),
+                                       QStringLiteral("Destination")),
+                             head);
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    pane.connCombo = new QComboBox(head);
+    pane.connCombo->setObjectName(isOrigin ? QStringLiteral("originConnCombo")
+                                           : QStringLiteral("destinationConnCombo"));
+    pane.poolCombo = new QComboBox(head);
+    pane.poolCombo->setObjectName(isOrigin ? QStringLiteral("originPoolCombo")
+                                           : QStringLiteral("destinationPoolCombo"));
+    // Que no crezcan con el nombre más largo: los dos desplegables comparten fila y sin
+    // esto una conexión de nombre largo se lleva todo el ancho y deja el pool sin sitio.
+    pane.connCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    pane.poolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    pane.connCombo->setMinimumWidth(120);
+    pane.poolCombo->setMinimumWidth(120);
+    headLayout->addWidget(title, 0);
+    headLayout->addWidget(pane.connCombo, 1);
+    headLayout->addWidget(pane.poolCombo, 1);
+
+    delete pane.delegate;
+    pane.delegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
+    ConnectionDatasetTreeWidget::Config cfg;
+    cfg.treeName = isOrigin ? QStringLiteral("originDatasetTreeWidget")
+                            : QStringLiteral("destinationDatasetTreeWidget");
+    cfg.primaryColumnTitle = trk(QStringLiteral("t_pane_dataset_col001"),
+                                 QStringLiteral("Pool/Dataset"),
+                                 QStringLiteral("Pool/Dataset"));
+    cfg.role = isOrigin ? ConnectionDatasetTreePane::Role::Top
+                        : ConnectionDatasetTreePane::Role::Bottom;
+    // Sin raíces de conexión: la conexión ya la dice el desplegable de encima, y
+    // repetirla dentro costaba un nivel de despliegue en cada rama.
+    cfg.groupPoolsByConnectionRoots = false;
+    pane.treeWidget = new ConnectionDatasetTreeWidget(cfg, pane.delegate, holder);
+    if (QTreeWidget* tree = pane.treeWidget->tree()) {
+        tree->setItemDelegate(new ConnContentPropBorderDelegate(tree));
+        // Cada panel guarda su despliegue por separado: los dos pueden estar sobre la
+        // misma conexión, y sin esto el de la derecha heredaría lo abierto en el izquierdo.
+        tree->setProperty("zfsmgr.isSplitTree", true);
+        installConnContentTreeHeaderContextMenu(tree);
     }
+    holderLayout->addWidget(head, 0);
+    holderLayout->addWidget(pane.treeWidget, 1);
+
+    connect(pane.connCombo, &QComboBox::currentIndexChanged, this,
+            [this, paneIdx](int) { onPaneConnectionChosen(paneIdx); });
+    connect(pane.poolCombo, &QComboBox::currentIndexChanged, this,
+            [this, paneIdx](int) { onPanePoolChosen(paneIdx); });
+    return holder;
+}
+
+// Rellena los dos desplegables sin perder lo que hubiera elegido el usuario.
+//
+// Se llama en cada refresco, así que la elección tiene que sobrevivir a que cambie la
+// lista: se busca por identificador de conexión y por nombre de pool, no por posición.
+// Indexar por posición es justo lo que hacía que al borrar una conexión el panel se
+// quedara enseñando la siguiente sin avisar.
+void MainWindow::refillDatasetPaneCombos() {
+    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
+        DatasetPane& pane = m_datasetPanes[paneIdx];
+        if (!pane.connCombo || !pane.poolCombo) {
+            continue;
+        }
+        QScopedValueRollback<bool> guard(pane.refilling, true);
+
+        const QString wantedConnId = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
+                                         ? m_conns.profiles[pane.connIdx].id.trimmed()
+                                         : QString();
+        pane.connCombo->clear();
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
+            const ConnectionProfile& p = m_conns.profiles.at(i);
+            const QString name = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+            pane.connCombo->addItem(name, p.id.trimmed());
+        }
+        int connRow = wantedConnId.isEmpty() ? -1 : pane.connCombo->findData(wantedConnId);
+        if (connRow < 0 && pane.connCombo->count() > 0) {
+            connRow = 0;
+        }
+        pane.connCombo->setCurrentIndex(connRow);
+        pane.connIdx = (connRow >= 0 && connRow < m_conns.profiles.size()) ? connRow : -1;
+
+        const QString wantedPool = pane.poolName.trimmed();
+        pane.poolCombo->clear();
+        pane.poolCombo->addItem(trk(QStringLiteral("t_pane_all_pools_001"),
+                                    QStringLiteral("(todos los pools)"),
+                                    QStringLiteral("(all pools)")),
+                                QString());
+        if (pane.connIdx >= 0 && pane.connIdx < m_conns.states.size()) {
+            const ConnectionRuntimeState& st = m_conns.states.at(pane.connIdx);
+            QSet<QString> seen;
+            for (const PoolImported& pool : st.importedPools) {
+                const QString poolName = pool.pool.trimmed();
+                if (poolName.isEmpty() || seen.contains(poolName.toLower())) {
+                    continue;
+                }
+                seen.insert(poolName.toLower());
+                pane.poolCombo->addItem(poolName, poolName);
+            }
+            for (const PoolImportable& pool : st.importablePools) {
+                const QString poolName = pool.pool.trimmed();
+                if (poolName.isEmpty() || seen.contains(poolName.toLower())) {
+                    continue;
+                }
+                seen.insert(poolName.toLower());
+                pane.poolCombo->addItem(
+                    QStringLiteral("%1 [%2]").arg(poolName,
+                                                  trk(QStringLiteral("t_importable_tag_001"),
+                                                      QStringLiteral("Importable"),
+                                                      QStringLiteral("Importable"))),
+                    poolName);
+            }
+        }
+        int poolRow = wantedPool.isEmpty() ? 0 : pane.poolCombo->findData(wantedPool);
+        if (poolRow < 0) {
+            poolRow = 0;
+        }
+        pane.poolCombo->setCurrentIndex(poolRow);
+        pane.poolName = pane.poolCombo->itemData(poolRow).toString().trimmed();
+    }
+}
+
+void MainWindow::onPaneConnectionChosen(int paneIdx) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (pane.refilling || !pane.connCombo) {
+        return;
+    }
+    const int row = pane.connCombo->currentIndex();
+    pane.connIdx = (row >= 0 && row < m_conns.profiles.size()) ? row : -1;
+    // Al cambiar de conexión el pool anterior no tiene por qué existir en la nueva: se
+    // vuelve a «todos» y que el relleno decida.
+    pane.poolName.clear();
+    if (paneIdx == 0 && pane.connIdx >= 0) {
+        m_topDetailConnIdx = pane.connIdx;
+    }
+    refillDatasetPaneCombos();
+    rebuildDatasetPane(paneIdx);
+}
+
+void MainWindow::onPanePoolChosen(int paneIdx) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (pane.refilling || !pane.poolCombo) {
+        return;
+    }
+    pane.poolName = pane.poolCombo->currentData().toString().trimmed();
+    rebuildDatasetPane(paneIdx);
+}
+
+void MainWindow::rebuildDatasetPane(int paneIdx) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (!pane.treeWidget) {
+        return;
+    }
+    populatePaneTree(pane.treeWidget->tree(), pane.connIdx, pane.poolName);
+}
+
+void MainWindow::rebuildDatasetPanes() {
+    refillDatasetPaneCombos();
+    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
+        rebuildDatasetPane(paneIdx);
+    }
+}
+
+void MainWindow::populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName) {
+    if (!tree) {
+        return;
+    }
+    const QSignalBlocker blocker(tree);
+    const QString stateToken = connContentTokenForTree(tree);
+    tree->clear();
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
+        syncConnContentPropertyColumnsFor(tree, stateToken);
+        return;
+    }
+    const QString pool = poolName.trimmed();
+    if (pool.isEmpty()) {
+        populateConnectionPoolsIntoTree(tree, connIdx, m_conns.states.at(connIdx));
+    } else {
+        appendPaneTreeRootedAtPool(tree, connIdx, pool, pool, pool);
+    }
+    if (tree->topLevelItemCount() == 0) {
+        auto* empty = new QTreeWidgetItem();
+        empty->setText(0, isConnectionDisconnected(connIdx)
+                              ? trk(QStringLiteral("t_pane_disconnected_001"),
+                                    QStringLiteral("Conexión desconectada"),
+                                    QStringLiteral("Connection disconnected"))
+                              : trk(QStringLiteral("t_no_pools_001"),
+                                    QStringLiteral("Sin Pools"),
+                                    QStringLiteral("No Pools")));
+        QFont f = empty->font(0);
+        f.setItalic(true);
+        empty->setFont(0, f);
+        empty->setFlags((empty->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
+        tree->addTopLevelItem(empty);
+    }
+    if (!stateToken.isEmpty()) {
+        restoreConnContentTreeStateFor(tree, stateToken);
+    }
+    applyUserExpandedState(tree);
+    applyDebugNodeIdsToTree(tree);
+    syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
 }
 
 bool MainWindow::focusPendingChangeLine(const QString& line) {
@@ -1562,21 +1770,25 @@ void MainWindow::buildUi() {
     auto* connContentLayout = new QVBoxLayout(m_connContentPage);
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
-    delete m_topConnContentDelegate;
-    m_topConnContentDelegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
-    ConnectionDatasetTreeWidget::Config topTreeConfig;
-    topTreeConfig.treeName = QStringLiteral("originDatasetTreeWidget");
-    topTreeConfig.primaryColumnTitle = trk(QStringLiteral("t_unified_dataset_col001"),
-                                           QStringLiteral("Conexión/Pool/Dataset"),
-                                           QStringLiteral("Connection/Pool/Dataset"));
-    topTreeConfig.role = ConnectionDatasetTreePane::Role::Unified;
-    topTreeConfig.groupPoolsByConnectionRoots = true;
-    m_topDatasetTreeWidget = new ConnectionDatasetTreeWidget(topTreeConfig, m_topConnContentDelegate, m_connContentPage);
+    m_datasetPanesSplit = new QSplitter(Qt::Horizontal, m_connContentPage);
+    m_datasetPanesSplit->setObjectName(QStringLiteral("zfsmgrDatasetPanesSplit"));
+    m_datasetPanesSplit->setChildrenCollapsible(false);
+    m_datasetPanesSplit->addWidget(buildDatasetPane(0, m_datasetPanesSplit));
+    m_datasetPanesSplit->addWidget(buildDatasetPane(1, m_datasetPanesSplit));
+    m_datasetPanesSplit->setStretchFactor(0, 1);
+    m_datasetPanesSplit->setStretchFactor(1, 1);
+    // Los nombres de siempre siguen apuntando a los mismos dos árboles: origen es el
+    // panel izquierdo y destino el derecho. El resto del código pide «el árbol de
+    // origen» y «el de destino» por estos miembros, y así no tiene que enterarse de
+    // que ahora vienen de un panel con desplegables.
+    m_topConnContentDelegate = m_datasetPanes[0].delegate;
+    m_topDatasetTreeWidget = m_datasetPanes[0].treeWidget;
     m_topDatasetPane = m_topDatasetTreeWidget->pane();
     m_connContentTree = m_topDatasetTreeWidget->tree();
-    m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
+    m_bottomDatasetTreeWidget = m_datasetPanes[1].treeWidget;
+    m_bottomConnContentTree = m_bottomDatasetTreeWidget->tree();
     // Las acciones se exponen por menú contextual del árbol.
-    connContentLayout->addWidget(m_topDatasetTreeWidget, 1);
+    connContentLayout->addWidget(m_datasetPanesSplit, 1);
     m_btnApplyConnContentProps->setEnabled(false);
     if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
     m_connPropsStack->addWidget(m_connContentPage);
@@ -1589,12 +1801,10 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->addWidget(entityFrame, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
-    m_bottomDatasetTreeWidget = nullptr;
-    m_bottomConnContentTree = nullptr;
-    // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
-    // incluso cuando uno de ellos esté vacío.
+    // Mismo esquema de columnas en los dos árboles aunque uno esté vacío.
     syncConnContentPropertyColumnsFor(m_connContentTree, connContentTokenForTree(m_connContentTree));
-    installConnContentTreeHeaderContextMenu(m_connContentTree);
+    syncConnContentPropertyColumnsFor(m_bottomConnContentTree,
+                                      connContentTokenForTree(m_bottomConnContentTree));
 
     m_logsTabs = new QTabWidget(central);
     m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
