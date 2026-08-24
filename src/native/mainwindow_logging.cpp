@@ -663,16 +663,20 @@ void MainWindow::syncConnectionLogTabs() {
         }
         // Los paneles enseñan el documento de este visor: hay que soltarlo ANTES de
         // destruirlo, o se quedan apuntando a memoria liberada. No lo avisa nada.
+        //
+        // Se suelta con `nullptr`, que hace que el visor se cree uno vacío con el
+        // `QPlainTextDocumentLayout` que exige; con un `QTextDocument` construido a pelo
+        // Qt avisa por consola y NO cambia nada.
         for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
             DatasetPane& pane = m_datasetPanes[paneIdx];
             if (pane.logTerminalView && it.value()
                 && pane.logTerminalView->document() == it.value()->document()) {
-                pane.logTerminalView->setDocument(new QTextDocument(pane.logTerminalView));
+                pane.logTerminalView->setDocument(nullptr);
             }
             QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr);
             if (pane.logDaemonView && gsaOwner
                 && pane.logDaemonView->document() == gsaOwner->document()) {
-                pane.logDaemonView->setDocument(new QTextDocument(pane.logDaemonView));
+                pane.logDaemonView->setDocument(nullptr);
             }
         }
         if (QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr)) {

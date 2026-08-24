@@ -1233,8 +1233,10 @@ void applySnapshotVisualState(QTreeWidgetItem* item) {
     }
     const QString snap = item->data(1, Qt::UserRole).toString().trimmed();
     const QString leaf = datasetLeafName(ds);
-    item->setText(0, snap.isEmpty() ? QStringLiteral("Dataset %1").arg(leaf)
-                                    : QStringLiteral("Dataset %1@%2").arg(leaf, snap));
+    // Solo el nombre. Llevaba «Dataset» delante cuando en el árbol convivían datasets con
+    // nodos de propiedades, permisos, contenido y snapshots, y hacía falta decir qué era
+    // cada fila. Ahora dentro solo hay pools y datasets, y el icono ya los distingue.
+    item->setText(0, snap.isEmpty() ? leaf : QStringLiteral("%1@%2").arg(leaf, snap));
     item->setIcon(0, datasetNodeIcon(item));
 
     const bool hideDatasetChildren = !snap.isEmpty();
@@ -3465,7 +3467,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         const QString displayName = fullName.contains('/')
                                         ? fullName.section('/', -1, -1)
                                         : fullName;
-        item->setText(0, QStringLiteral("Dataset %1").arg(displayName));
+        // Sin «Dataset» delante: ver el comentario de `applySnapshotVisualState()`.
+        item->setText(0, displayName);
         item->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
         {
             QFont f = item->font(0);

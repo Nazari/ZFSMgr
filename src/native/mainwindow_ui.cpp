@@ -1119,14 +1119,20 @@ void MainWindow::updatePaneLog(int paneIdx) {
         if (!view) {
             return;
         }
-        // Sin dueño —conexión desconectada, o log aún sin crear— un documento propio y
-        // vacío. Dejarle el anterior enseñaría el log de otra máquina bajo este panel, que
-        // es peor que no enseñar nada.
+        // Sin dueño —conexión desconectada, o log aún sin crear— se suelta el documento
+        // pasando `nullptr`, que hace que el visor se cree uno vacío. Dejarle el anterior
+        // enseñaría el log de otra máquina bajo este panel, que es peor que no enseñar nada.
+        //
+        // `nullptr` y NO un `QTextDocument` recién hecho: `QPlainTextEdit` exige que el
+        // documento traiga un `QPlainTextDocumentLayout`, y uno construido a pelo no lo
+        // tiene. En ese caso Qt AVISA POR CONSOLA Y NO HACE NADA —el visor se queda con el
+        // documento anterior—, que es justo lo contrario de lo que se pretendía. Se vio en
+        // la salida de la aplicación, no leyendo el código.
         QTextDocument* doc = owner ? owner->document() : nullptr;
-        if (view->document() == doc) {
+        if (doc && view->document() == doc) {
             return;
         }
-        view->setDocument(doc ? doc : new QTextDocument(view));
+        view->setDocument(doc);
     };
     attach(pane.logTerminalView, connId.isEmpty() ? nullptr
                                                   : m_connectionLogViews.value(connId, nullptr));
