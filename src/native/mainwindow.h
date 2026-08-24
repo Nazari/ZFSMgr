@@ -634,8 +634,6 @@ private:
     QString connectionAccountCacheKey(int connIdx) const;
     QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
     bool runDatasetRenameNow(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
-    QStringList pendingConnContentApplyCommands() const;
-    QStringList pendingConnContentApplyDisplayLines() const;
     bool focusPendingChangeLine(const QString& line);
     void updatePendingChangesList();
     void startPendingApplyAnimation();

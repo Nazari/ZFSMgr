@@ -1655,9 +1655,12 @@ void MainWindow::buildUi() {
             QStringLiteral("Apply changes")),
         connectionsTab);
     m_btnDiscardPendingChanges = new QPushButton(
+        // «Vaciar lista» era su nombre cuando descartaba una lista de acciones
+        // encoladas. Esa lista ya no existe: lo que descarta son ediciones a medias de
+        // propiedades y permisos, así que se llama por lo que hace.
         trk(QStringLiteral("t_discard_changes_001"),
-            QStringLiteral("Vaciar lista"),
-            QStringLiteral("Empty list")),
+            QStringLiteral("Descartar cambios"),
+            QStringLiteral("Discard changes")),
         connectionsTab);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnApplyConnContentProps->setFont(baseUiFont);
@@ -1949,6 +1952,18 @@ void MainWindow::buildUi() {
     stateProgressLayout->addWidget(m_connOriginSelectionLabel, 1);
     stateProgressLayout->addWidget(statusWrap, 1);
     stateProgressLayout->addWidget(detailWrap, 3);
+    // Aplicar y Deshacer, aquí y no en cada panel.
+    //
+    // Estaban en `leftPane`, que está oculto desde que su pestaña se quedó sin contenido:
+    // o sea que no se veían. Con la edición de propiedades en las columnas C1...C10 del
+    // árbol eso ya era un agujero —se podía cambiar un valor y no había con qué
+    // aplicarlo—; con la tabla del detalle se nota a la primera.
+    //
+    // Van en la banda de abajo y no dentro de cada panel porque el borrador es UNO: el
+    // mismo `m_propsToken`/`m_propsDataset` para los dos árboles. Dos parejas de botones
+    // dirían que hay dos lotes de cambios, y no los hay.
+    stateProgressLayout->addWidget(m_btnApplyConnContentProps, 0);
+    stateProgressLayout->addWidget(m_btnDiscardPendingChanges, 0);
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
@@ -2221,14 +2236,14 @@ void MainWindow::buildUi() {
                 const auto choice = QMessageBox::question(
                     this,
                     trk(QStringLiteral("t_empty_list_title001"),
-                        QStringLiteral("Vaciar la lista de cambios pendientes"),
-                        QStringLiteral("Empty the pending changes list")),
+                        QStringLiteral("Descartar los cambios sin aplicar"),
+                        QStringLiteral("Discard the unapplied changes")),
                     trk(QStringLiteral("t_empty_list_body001"),
                         QStringLiteral("Se va a descartar:\n\n%1\n\nNo afecta a lo ya "
-                                       "ejecutado, y no se puede deshacer.\n\n¿Vaciar la lista?"),
+                                       "ejecutado, y no se puede deshacer.\n\n¿Descartarlos?"),
                         QStringLiteral("The following will be discarded:\n\n%1\n\nThis does not "
                                        "affect what has already run, and cannot be undone.\n\n"
-                                       "Empty the list?"))
+                                       "Discard them?"))
                         .arg(bullets.join(QStringLiteral("\n"))),
                     QMessageBox::Yes | QMessageBox::No,
                     QMessageBox::No);

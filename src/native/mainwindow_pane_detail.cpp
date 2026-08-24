@@ -18,6 +18,7 @@
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreewidget.h"
 
+#include <QAbstractItemView>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -40,9 +41,16 @@ QTableWidget* makeDetailTable(QWidget* parent, const QStringList& headers) {
     table->setAlternatingRowColors(true);
     table->setWordWrap(false);
     if (QHeaderView* header = table->horizontalHeader()) {
-        header->setStretchLastSection(true);
-        for (int col = 0; col + 1 < headers.size(); ++col) {
-            header->setSectionResizeMode(col, QHeaderView::Interactive);
+        // El ancho sobrante se lo queda el VALOR, no la última columna. Con
+        // `stretchLastSection` la casilla de «heredada» se llevaba media tabla para
+        // enseñar una marca de siete píxeles.
+        header->setStretchLastSection(false);
+        for (int col = 0; col < headers.size(); ++col) {
+            header->setSectionResizeMode(col, col == 1 ? QHeaderView::Stretch
+                                                       : QHeaderView::Interactive);
+        }
+        if (headers.size() > 2) {
+            table->setColumnWidth(2, 90);
         }
     }
     return table;
@@ -98,6 +106,9 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     const QString colSource = trk(QStringLiteral("t_detail_col_source_001"),
                                   QStringLiteral("Origen"),
                                   QStringLiteral("Source"));
+    const QString colInherited = trk(QStringLiteral("t_detail_col_inherited_001"),
+                                     QStringLiteral("Heredada"),
+                                     QStringLiteral("Inherited"));
 
     pane.connDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue});
     pane.connDetailTable->setObjectName(isOrigin ? QStringLiteral("originConnDetailTable")
@@ -121,9 +132,21 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     poolLayout->addWidget(pane.poolDetailStatus, 2);
     pane.detailStack->addWidget(poolPage);
 
-    pane.datasetDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue, colSource});
+    // La tabla de propiedades del dataset NO es una tabla más: es la que rellena
+    // `refreshDatasetProperties()` y edita `onDatasetPropsCellChanged()`, con sus
+    // desplegables para las propiedades de valores cerrados, su casilla de «heredada» y
+    // su borrador contra el que trabajan Aplicar y Deshacer. Todo eso estaba escrito
+    // desde hacía tiempo apuntando a `m_connContentPropsTable`, un miembro que nunca
+    // llegaba a asignarse: la edición de propiedades se hacía por las columnas C1...C10
+    // del árbol. Aquí recupera su sitio.
+    pane.datasetDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue, colInherited});
     pane.datasetDetailTable->setObjectName(isOrigin ? QStringLiteral("originDatasetDetailTable")
                                                     : QStringLiteral("destinationDatasetDetailTable"));
+    pane.datasetDetailTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                             | QAbstractItemView::EditKeyPressed
+                                             | QAbstractItemView::AnyKeyPressed);
+    connect(pane.datasetDetailTable, &QTableWidget::cellChanged, this,
+            &MainWindow::onDatasetPropsCellChanged);
     pane.detailStack->addWidget(pane.datasetDetailTable);
 
     layout->addWidget(pane.detailStack, 1);
@@ -290,18 +313,15 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                                        ? dataset
                                        : QStringLiteral("%1@%2").arg(dataset, ctx.snapshotName.trimmed());
         pane.detailStack->setCurrentWidget(pane.datasetDetailTable);
-        pane.datasetDetailTable->setRowCount(0);
-        const QVector<DatasetPropCacheRow> rows =
-            datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
-        for (const DatasetPropCacheRow& row : rows) {
-            const int r = pane.datasetDetailTable->rowCount();
-            pane.datasetDetailTable->insertRow(r);
-            pane.datasetDetailTable->setItem(r, 0, new QTableWidgetItem(row.prop));
-            pane.datasetDetailTable->setItem(r, 1, new QTableWidgetItem(row.value));
-            pane.datasetDetailTable->setItem(r, 2, new QTableWidgetItem(row.source));
-        }
-        pane.datasetDetailTable->resizeColumnToContents(0);
         pane.detailTitle->setText(objectName);
+        // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
+        // El estado del borrador —qué propiedad se ha cambiado, cuál era su valor
+        // original, si estaba heredada— es uno solo: `m_propsToken`, `m_propsDataset`,
+        // `m_propsOriginalValues`. Apuntar aquí la tabla activa es lo que dice a quién
+        // pertenece ese estado. La del otro panel se queda con lo último que enseñó,
+        // que sigue siendo cierto, y vuelve a estar viva en cuanto se marque algo en él.
+        m_connContentPropsTable = pane.datasetDetailTable;
+        refreshConnContentPropertiesFor(tree);
         return;
     }
 

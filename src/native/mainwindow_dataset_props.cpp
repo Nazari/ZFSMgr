@@ -1970,16 +1970,6 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 }
 
-QStringList MainWindow::pendingConnContentApplyCommands() const {
-    QStringList commands;
-    return commands;
-}
-
-QStringList MainWindow::pendingConnContentApplyDisplayLines() const {
-    QStringList lines;
-    return lines;
-}
-
 int MainWindow::pendingShellSingleConnectionIdx(const PendingShellActionDraft& draft) const {
     QSet<int> connIdxs;
     if (draft.refreshSource.valid && draft.refreshSource.connIdx >= 0) {
@@ -2287,28 +2277,27 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
 }
 
 void MainWindow::updateApplyPropsButtonState() {
-    const QStringList pendingCommands = pendingConnContentApplyCommands();
     if (m_pendingApplyInProgress && !m_pendingApplyFinishSuppressed) {
         finishPendingApplyAnimation();
     }
     updatePendingChangesList();
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setToolTip(QString());
-        // Descartar mira la lista ENTERA, no solo lo activo: si todo está desmarcado
-        // —el estado normal tras aplicar— el usuario tiene que poder vaciarla igual, sin
-        // ir borrando una a una.
-        const bool hasAnyRow = !pendingConnContentApplyDisplayLines().isEmpty();
-        if (m_propsSide == QStringLiteral("conncontent")) {
-            m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
+        // Se enciende con lo que `applyDatasetPropertyChanges()` va a recorrer, que son
+        // los borradores de propiedades y los de permisos. Ni uno más ni uno menos.
+        //
+        // Antes miraba `pendingConnContentApplyCommands()`, que al retirar el modelo de
+        // pendientes quedó como un muñón devolviendo lista vacía siempre. Con eso el
+        // botón NO se encendía nunca: se podía cambiar una propiedad, verla marcada en
+        // negrita, y no había forma de aplicarla. No se notó porque los botones estaban
+        // además dentro de un panel oculto.
+        const bool hasPropertyDrafts = !pendingConnContentPropertyDraftsFromModel().isEmpty();
+        const bool hasPermissionDrafts = !dirtyDatasetPermissionsEntriesFromModel().isEmpty();
+        const bool hasAnyDraft = hasPropertyDrafts || hasPermissionDrafts;
+        if (hasAnyDraft || m_propsSide == QStringLiteral("conncontent")) {
+            m_btnApplyConnContentProps->setEnabled(hasAnyDraft && !actionsLocked());
             if (m_btnDiscardPendingChanges) {
-                m_btnDiscardPendingChanges->setEnabled(hasAnyRow);
-            }
-            return;
-        }
-        if (!pendingCommands.isEmpty() || hasAnyRow) {
-            m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
-            if (m_btnDiscardPendingChanges) {
-                m_btnDiscardPendingChanges->setEnabled(hasAnyRow);
+                m_btnDiscardPendingChanges->setEnabled(hasAnyDraft && !actionsLocked());
             }
             return;
         }
