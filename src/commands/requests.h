@@ -3,148 +3,149 @@
 #include <string>
 #include <vector>
 
-// Lo que se le PIDE al agente, una función por cosa.
+// What is ASKED of the agent, one function per thing.
 //
-// **Por qué existe.** El nombre de un verbo —«--dump-zpool-status»— es un contrato entre el
-// daemon y sus tres clientes, y hasta ahora se escribía a mano en cada uno. Medido antes de
-// escribir esto: de 59 verbos, **34 aparecían literalmente en dos o tres clientes**. Veinte
-// de ellos en los tres.
+// **Why this exists.** The name of a verb —«--dump-zpool-status»— is a contract between the
+// daemon and its clients, and until now it was written out by hand in each one. Measured
+// before writing this: of 59 verbs, **34 appeared verbatim in two or three clients**. Twenty
+// of them in all three.
 //
-// Eso no es feo, es frágil de una manera concreta: con el verbo se reparte también **cuántos
-// argumentos lleva y en qué orden**, y eso no está escrito en ninguna parte. Cuando un verbo
-// gana un argumento, el cliente que no se entera no falla al compilar: falla en ejecución,
-// contra una máquina, y con suerte.
+// That is not merely ugly, it is fragile in a specific way: along with the verb goes **how
+// many arguments it takes and in which order**, and that is written down nowhere. When a
+// verb gains an argument, the client that does not hear about it does not fail to compile:
+// it fails at run time, against a machine, and with luck.
 //
-// Aquí no se decide nada más. No hay transporte, no hay sudo, no hay formato de salida: solo
-// el argv. Quién lo ejecuta y cómo es cosa de cada cliente, porque una conexión Local no se
-// alcanza igual que una remota.
+// Nothing else is decided here. No transport, no sudo, no output format: the argv and
+// nothing more. Who runs it and how is each client's business, because a Local connection is
+// not reached the same way as a remote one.
 //
-// Las mutaciones con reglas propias NO están aquí: viven donde vive su regla —`pools`,
-// `snapshots`, `datasets`, `advanced`, `zfsallow`—, porque componer su argv exige saber
-// qué significa cada bandera. Esto es para lo que no tiene más regla que su nombre.
+// Mutations that carry rules of their own are NOT here: they live where their rule lives
+// —`pools`, `snapshots`, `datasets`, `advanced`, `zfsallow`—, because composing their argv
+// requires knowing what each flag means. This is for what has no rule beyond its name.
 namespace zfsmgr::commands::requests {
 
-// ── Lecturas de pool ─────────────────────────────────────────────────────────
+// ── Pool reads ───────────────────────────────────────────────────────────────
 
 std::vector<std::string> poolList();
 std::vector<std::string> poolStatus(const std::string& pool);
-// La variante `-p`: los mismos datos sin redondear. Son dos verbos y no una bandera porque
-// el daemon los sirve por separado.
+// The `-p` variant: the same data unrounded. Two verbs and not one flag, because the daemon
+// serves them separately.
 std::vector<std::string> poolStatusRaw(const std::string& pool);
 std::vector<std::string> poolHistory(const std::string& pool);
 std::vector<std::string> poolProperties(const std::string& pool);
 std::vector<std::string> poolGuid(const std::string& pool);
-// Los pools que se podrían importar. No lleva argumentos: pregunta por todos.
+// The pools that could be imported. It takes no arguments: it asks about all of them.
 std::vector<std::string> importableProbe();
 
-// ── Lecturas de dataset ──────────────────────────────────────────────────────
+// ── Dataset reads ────────────────────────────────────────────────────────────
 
-// El árbol entero bajo un objeto, en TSV de diez columnas. Ver `listings::entries`.
-std::vector<std::string> datasetList(const std::string& objeto);
-// Solo los nombres, recursivo.
-std::vector<std::string> descendantNames(const std::string& objeto);
-// Los directorios que Desglosar puede convertir en datasets. Contesta «__MP__=<punto>» y
-// luego una ruta relativa por línea. Vale en las dos plataformas: resuelve el punto de
-// montaje con los montajes REALES, que en Windows es una letra de unidad.
+// The whole tree under an object, as ten-column TSV. See `listings::entries`.
+std::vector<std::string> datasetList(const std::string& object);
+// The names only, recursive.
+std::vector<std::string> descendantNames(const std::string& object);
+// The directories Breakdown can turn into datasets. It answers «__MP__=<mountpoint>» and
+// then one relative path per line. It works on both platforms: it resolves the mountpoint
+// from the REAL mounts, which on Windows is a drive letter.
 std::vector<std::string> breakdownList(const std::string& dataset);
-std::vector<std::string> datasetProperties(const std::string& objeto);
-std::vector<std::string> datasetProperty(const std::string& propiedad,
-                                            const std::string& objeto);
-std::vector<std::string> datasetExists(const std::string& objeto);
-std::vector<std::string> guidMap(const std::string& objeto);
-// Varias propiedades de un objeto en una sola consulta. La lista va SEPARADA POR COMAS en un
-// único argumento, no como argumentos sueltos: pedirlas de una en una son N viajes.
-std::vector<std::string> specificProperties(const std::vector<std::string>& propiedades,
-                                              const std::string& objeto);
-// Los permisos de varios datasets a la vez.
+std::vector<std::string> datasetProperties(const std::string& object);
+std::vector<std::string> datasetProperty(const std::string& property,
+                                            const std::string& object);
+std::vector<std::string> datasetExists(const std::string& object);
+std::vector<std::string> guidMap(const std::string& object);
+// Several properties of one object in a single query. The list goes COMMA-SEPARATED in one
+// argument, not as loose arguments: asking one at a time is N round trips.
+std::vector<std::string> specificProperties(const std::vector<std::string>& properties,
+                                              const std::string& object);
+// The permissions of several datasets at once.
 std::vector<std::string> permissionsOfMany(const std::vector<std::string>& datasets);
-// El GUID y el estado de TODOS los pools de golpe, que es lo que necesita el refresco. No
-// lleva argumentos: preguntar pool a pool eran N viajes por refresco.
+// The GUID and the state of ALL pools at once, which is what a refresh needs. It takes no
+// arguments: asking pool by pool was N round trips per refresh.
 std::vector<std::string> poolGuidsAndStates();
 std::vector<std::string> mounts();
-// Las letras de unidad de un pool, con su origen —«local», «temporary» o heredada—.
+// The drive letters of a pool, with their source —«local», «temporary» or inherited—.
 //
-// El origen NO es un detalle: en Windows los descendientes heredan la letra del pool y se
-// montan planos bajo esa unidad, así que dos datasets con la misma letra heredada es el
-// funcionamiento normal. Sin el origen, cualquier pool con más de un dataset parecía tener
-// letras duplicadas. Comprobado contra OldLau: «winpool Z: local», «winpool/sa z: temporary».
+// The source is NOT a detail: on Windows the descendants inherit the pool's letter and mount
+// flat under that drive, so two datasets sharing an inherited letter is normal operation.
+// Without the source, any pool with more than one dataset looked like it had duplicate
+// letters. Verified against OldLau: «winpool Z: local», «winpool/sa z: temporary».
 //
-// Fuera de Windows el verbo existe pero `zfs` contesta que la propiedad no existe —en macOS,
-// «invalid property 'driveletter'», comprobado— y devuelve un código distinto de cero. Quien
-// llama lo lee como «no hay letras», que es la verdad.
+// Off Windows the verb exists but `zfs` answers that the property does not exist —on macOS,
+// «invalid property 'driveletter'», verified— and returns a non-zero code. The caller reads
+// that as «there are no letters», which is the truth.
 
 std::vector<std::string> driveLetters(const std::string& pool);
 std::vector<std::string> permissionsOf(const std::string& dataset);
-// Varios objetos en una llamada: el verbo los acepta detrás.
-std::vector<std::string> holdsOf(const std::vector<std::string>& objetos);
-std::vector<std::string> diffBetween(const std::string& instantaneaA,
-                                         const std::string& instantaneaB);
+// Several objects in one call: the verb takes them after it.
+std::vector<std::string> holdsOf(const std::vector<std::string>& objects);
+std::vector<std::string> diffBetween(const std::string& snapshotA,
+                                         const std::string& snapshotB);
 
-// ── Instantáneas programadas (GSA) ───────────────────────────────────────────
+// ── Scheduled snapshots (GSA) ────────────────────────────────────────────────
 
 std::vector<std::string> gsaOfDataset(const std::string& dataset);
 std::vector<std::string> gsaOfAllPools();
 
-// ── Ficheros ─────────────────────────────────────────────────────────────────
+// ── Files ────────────────────────────────────────────────────────────────────
 
-std::vector<std::string> directoryContents(const std::string& ruta);
-// `desde` y `cuanto` en bytes; cero y cero significa el fichero entero.
-std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
-                                            unsigned long long cuanto);
+std::vector<std::string> directoryContents(const std::string& path);
+// `from` and `howMuch` in bytes; zero and zero means the whole file.
+std::vector<std::string> fileContents(const std::string& path, unsigned long long from,
+                                            unsigned long long howMuch);
 
-// ── El propio agente ─────────────────────────────────────────────────────────
+// ── The agent itself ─────────────────────────────────────────────────────────
 
 std::vector<std::string> health();
-// El registro del daemon: desde qué byte y cuántos como mucho. Cero y cero es entero.
+// The daemon's log: from which byte, and how many at most. Zero and zero is the whole file.
 //
-// Son BYTES, no líneas, aunque el nombre del verbo no lo diga: el daemon hace `seek` sobre
-// el fichero. Confundirlo con líneas es lo que hace que un cliente pida «las últimas 200» y
-// reciba 200 bytes a media palabra.
-std::vector<std::string> daemonLog(unsigned long long desdeByte, unsigned long long cuantos);
+// They are BYTES, not lines, even though the verb's name does not say so: the daemon `seek`s
+// into the file. Mistaking them for lines is what makes a client ask for «the last 200» and
+// receive 200 bytes starting mid-word.
+std::vector<std::string> daemonLog(unsigned long long fromByte, unsigned long long howMany);
 std::vector<std::string> blockDevices();
 std::vector<std::string> zfsVersion();
 std::vector<std::string> availableTools();
 std::vector<std::string> refreshBasics();
 std::vector<std::string> peerList();
 
-// ── Mutaciones sin más regla que su forma ────────────────────────────────────
+// ── Mutations with no rule beyond their shape ────────────────────────────────
 //
-// Las que SÍ tienen regla —qué bandera significa qué, qué alcance es cuál— se componen en su
-// módulo: `pools`, `snapshots`, `datasets`, `advanced`, `zfsallow`. Aquí solo están las
-// que se limitan a envolver un argv o a pasar unos argumentos.
+// The ones that DO carry a rule —which flag means what, which scope is which— are composed
+// in their own module: `pools`, `snapshots`, `datasets`, `advanced`, `zfsallow`. Here are
+// only the ones that do no more than wrap an argv or pass a few arguments along.
 
-// Un `zfs <op> …` cualquiera, con el argv codificado. El daemon lo ejecuta con execvp y
-// comprueba que `op` esté en su lista blanca.
-std::vector<std::string> zfsGeneric(const std::string& argvCodificado);
-std::vector<std::string> zpoolGeneric(const std::string& argvCodificado);
-// Crear un dataset es un verbo aparte y no un `zfs create` genérico **porque puede llevar
-// frase de cifrado**: el daemon la recibe por la carga del RPC y se la da a `zfs` por una
-// tubería. Por el camino genérico acabaría en argv, visible en un `ps`.
-std::vector<std::string> createDataset(const std::string& argvCodificado);
+// Any `zfs <op> …`, with the argv encoded. The daemon runs it with execvp and checks that
+// `op` is on its allow-list.
+std::vector<std::string> zfsGeneric(const std::string& encodedArgv);
+std::vector<std::string> zpoolGeneric(const std::string& encodedArgv);
+// Creating a dataset is a verb of its own and not a generic `zfs create` **because it can
+// carry an encryption passphrase**: the daemon receives it in the RPC payload and hands it to
+// `zfs` down a pipe. Through the generic path it would end up in argv, visible in a `ps`.
+std::vector<std::string> createDataset(const std::string& encodedArgv);
 
-// **Estas dos llevan sus argumentos en base64, y no por capricho.** Una frase de paso en
-// argv la ve cualquiera con un `ps` en la máquina; codificada viaja dentro de la carga del
-// RPC, que va cifrada. Quien llama pasa el texto en claro y aquí se codifica: dejarlo en
-// manos del llamante era invitar a que uno se olvidara.
-std::vector<std::string> loadKey(const std::string& dataset, const std::string& frase);
-// `nueva` vacía significa quitar la clave.
-std::vector<std::string> changeKey(const std::string& dataset, const std::string& frase,
-                                     const std::string& nueva);
+// **These two carry their arguments in base64, and not out of whim.** A passphrase in argv
+// is visible to anyone with a `ps` on the machine; encoded, it travels inside the RPC
+// payload, which is encrypted. The caller passes plain text and the encoding happens here:
+// leaving it to the caller was inviting one of them to forget.
+std::vector<std::string> loadKey(const std::string& dataset, const std::string& phrase);
+// An empty `newPhrase` means removing the key.
+std::vector<std::string> changeKey(const std::string& dataset, const std::string& phrase,
+                                     const std::string& newPhrase);
 
 std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& extras);
-std::vector<std::string> setPeers(const std::string& cargaB64);
-std::vector<std::string> setBindAddress(const std::string& direccion);
-std::vector<std::string> rsyncCopy(const std::string& cargaB64);
-std::vector<std::string> permissionsBatch(const std::string& cargaB64);
+std::vector<std::string> setPeers(const std::string& payloadB64);
+std::vector<std::string> setBindAddress(const std::string& address);
+std::vector<std::string> rsyncCopy(const std::string& payloadB64);
+std::vector<std::string> permissionsBatch(const std::string& payloadB64);
 
-// ── Trabajos ─────────────────────────────────────────────────────────────────
+// ── Jobs ─────────────────────────────────────────────────────────────────────
 
-// Encolar: el verbo va DELANTE de la orden que se encola, no detrás.
+// Enqueueing: the verb goes IN FRONT of the command being enqueued, not behind it.
 //
-// El daemon solo acepta encolar unas pocas mutaciones —las largas—, así que una lista vacía
-// o una orden que no sea de esas devuelve vacío en vez de mandar algo que va a rebotar.
-std::vector<std::string> enqueue(const std::vector<std::string>& orden);
-bool canEnqueue(const std::string& verbo);
+// The daemon only accepts a few mutations for queueing —the long ones—, so an empty list, or
+// a command that is not one of those, returns empty instead of sending something that is
+// going to bounce.
+std::vector<std::string> enqueue(const std::vector<std::string>& command);
+bool canEnqueue(const std::string& verb);
 std::vector<std::string> jobList();
 std::vector<std::string> jobStatus(const std::string& id);
 std::vector<std::string> cancelJob(const std::string& id);

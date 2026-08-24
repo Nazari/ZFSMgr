@@ -7,135 +7,137 @@
 
 #include "json.h"
 
-// Lo que el agente contesta, convertido en estructuras.
+// What the agent answers, turned into structures.
 //
-// Los tres formatos que hay que leer para enseñar un árbol de ZFS:
+// The three formats that have to be read to show a ZFS tree:
 //
-//   `--dump-zpool-list`     JSON de `zpool list -j`
-//   `--dump-zfs-list-all`   TSV de diez columnas
-//   `--dump-zfs-get-all`    JSON de `zfs get -j all`
+//   `--dump-zpool-list`     JSON from `zpool list -j`
+//   `--dump-zfs-list-all`   ten-column TSV
+//   `--dump-zfs-get-all`    JSON from `zfs get -j all`
 //
-// Estaban dentro del intérprete, mezclados con la tabla de texto que los pinta. Son
-// REGLAS —qué campo es cuál y qué hacer cuando falta—, y el servidor web necesita los
-// mismos datos con otra cara. Aquí no se decide nada de presentación: ni orden de
-// columnas, ni unidades, ni traducciones.
+// They used to live inside the shell, tangled up with the text table that paints them. They
+// are RULES —which field is which, and what to do when one is missing—, and another client
+// needs the same data wearing a different face. Nothing about presentation is decided here:
+// no column order, no units, no translations.
 namespace zfsmgr::base::listings {
 
 struct Pool {
-    std::string nombre;
-    std::string estado;      // ONLINE, DEGRADED…
-    std::string salud;
-    std::string tamano;
-    std::string libre;
-    std::string uso;         // «27%», tal cual lo da zpool
+    std::string name;
+    std::string state;       // ONLINE, DEGRADED…
+    std::string health;
+    std::string size;
+    std::string free;
+    std::string used;        // «27%», exactly as zpool gives it
     std::string guid;
 };
 
-// De `zpool list -j`.
+// From `zpool list -j`.
 //
-// **Una salida vacía NO es un error**: sin pools, Linux imprime un objeto con «pools»
-// vacío y el OpenZFS de macOS —2.4.1— no imprime nada y sale con 0. Tratarlo como JSON
-// ilegible decía «respuesta ilegible» en una máquina donde lo único que pasa es que aún no
-// hay ningún pool.
-bool pools(const std::string& salida, std::vector<Pool>& out, std::string& error);
+// **Empty output is NOT an error**: with no pools, Linux prints an object with an empty
+// «pools» and the macOS OpenZFS —2.4.1— prints nothing at all and exits 0. Treating that as
+// unreadable JSON said «unreadable answer» on a machine where the only thing going on is
+// that there are no pools yet.
+bool pools(const std::string& output, std::vector<Pool>& out, std::string& error);
 
 struct Entry {
-    std::string nombre;
+    std::string name;
     std::string guid;
-    std::string usado;
-    std::string compresion;
-    std::string cifrado;
-    std::string creacion;
-    std::string referenciado;
-    std::string montado;      // «yes», «no», «-»
-    std::string puntoMontaje;
+    std::string used;
+    std::string compression;
+    std::string encryption;
+    std::string creation;
+    std::string referenced;
+    std::string mounted;      // «yes», «no», «-»
+    std::string mountpoint;
     std::string canmount;
 
-    bool isSnapshot() const { return nombre.find('@') != std::string::npos; }
+    bool isSnapshot() const { return name.find('@') != std::string::npos; }
 };
 
-// De `--dump-zfs-list-all`: TSV con diez columnas en este orden —name, guid, used,
+// From `--dump-zfs-list-all`: TSV with ten columns in this order —name, guid, used,
 // compressratio, encryption, creation, referenced, mounted, mountpoint, canmount—.
 //
-// Una línea con menos de diez columnas se SALTA en vez de rellenar con vacíos: un punto de
-// montaje con un tabulador dentro rompería el reparto, y preferimos perder la fila a
-// enseñar los campos corridos.
-std::vector<Entry> entries(const std::string& salidaTsv);
+// A line with fewer than ten columns is SKIPPED rather than padded with blanks: a mountpoint
+// with a tab inside it would break the split, and losing the row beats showing the fields
+// shifted by one.
+std::vector<Entry> entries(const std::string& tsvOutput);
 
 struct Property {
-    std::string nombre;
-    std::string valor;
-    // El origen, ESCRITO COMO LO ESCRIBE `zfs get -H -o source`: «local», «default»,
+    std::string name;
+    std::string value;
+    // The source, SPELLED THE WAY `zfs get -H -o source` spells it: «local», «default»,
     // «inherited from fc16», «received», «-».
     //
-    // El JSON no lo da así: trae `{"type":"DEFAULT","data":"-"}`, y quedarse con `data`
-    // —que es lo que se hacía— deja en «-» todo lo que viene por omisión. Ese «-» significa
-    // otra cosa: es la marca de una propiedad CALCULADA, como `used` o `creation`. Con las
-    // dos cosas escritas igual no había forma de distinguir «se puede cambiar y nadie la ha
-    // cambiado» de «esto no se cambia», y el servidor web dejaba de ofrecer la edición de
-    // `atime`, `quota` y `recordsize` — todo lo que estuviera por omisión.
-    std::string origen;
+    // The JSON does not give it that way: it brings `{"type":"DEFAULT","data":"-"}`, and
+    // keeping `data` —which is what used to happen— leaves everything that comes by default
+    // as «-». That «-» means something else: it is the mark of a COMPUTED property, like
+    // `used` or `creation`. With both spelled identically there was no way to tell «this can
+    // be changed and nobody has» from «this is not changeable», and one client stopped
+    // offering to edit `atime`, `quota` and `recordsize` — everything left at its default.
+    std::string source;
 };
 
-// De `zfs get -j all`. Ordenadas por nombre, que es como se leen.
-bool properties(const std::string& salida, std::vector<Property>& out, std::string& error);
+// From `zfs get -j all`. Sorted by name, which is how they get read.
+bool properties(const std::string& output, std::vector<Property>& out, std::string& error);
 
-// Una entrada del contenido de un directorio, de `--dump-dir-list`.
+// One entry of a directory's contents, from `--dump-dir-list`.
 //
-// El daemon recorre el directorio él mismo y contesta JSON, y solo si la ruta cae dentro de
-// un punto de montaje de ZFS. Antes cada cliente lo listaba por shell —y con DOS formatos
-// distintos: `ls -lA` en Unix y `Get-ChildItem` con tabuladores en Windows—, así que la
-// misma orden enseñaba columnas distintas según la máquina.
+// The daemon walks the directory itself and answers JSON, and only when the path falls
+// inside a ZFS mountpoint. Each client used to list it over the shell —and in TWO different
+// formats: `ls -lA` on Unix and `Get-ChildItem` with tabs on Windows—, so the same command
+// showed different columns depending on the machine.
 struct DirectoryEntry {
-    std::string nombre;
-    std::uint64_t tamano{0};
-    bool directorio{false};
+    std::string name;
+    std::uint64_t size{0};
+    bool directory{false};
 };
 
-// Las entradas, ordenadas por nombre. Un JSON ilegible SÍ es un error; una lista vacía no:
-// un directorio vacío es una respuesta legítima.
-bool directoryContents(const std::string& salida, std::vector<DirectoryEntry>& out,
+// The entries, sorted by name. Unreadable JSON IS an error; an empty list is not: an empty
+// directory is a legitimate answer.
+bool directoryContents(const std::string& output, std::vector<DirectoryEntry>& out,
                            std::string& error);
 
-// Un dispositivo de bloque, de `--dump-block-devices`.
+// One block device, from `--dump-block-devices`.
 //
-// `alias` distingue las entradas que son un NOMBRE ALTERNATIVO —los `by-id`— de las que son
-// el dispositivo: las primeras solo traen ruta y a qué apuntan. No es un adorno: un pool
-// creado con `/dev/sdb` se rompe si mañana el kernel llama `sdc` a ese disco, y con el alias
-// no.
+// `alias` tells apart the entries that are an ALTERNATE NAME —the `by-id` ones— from the
+// ones that are the device: the former only carry a path and what they point at. Not an
+// ornament: a pool created with `/dev/sdb` breaks if tomorrow the kernel calls that disk
+// `sdc`, and with the alias it does not.
 struct Device {
-    std::string ruta;
-    std::string resuelta;   // a qué apunta un alias; vacío si no lo es
-    std::string tipo;       // «disk» o «part»
+    std::string path;
+    std::string resolved;   // what an alias points at; empty when it is not one
+    std::string type;       // «disk» or «part»
     std::string fs;
-    std::string montaje;
-    std::string padre;
-    std::uint64_t tamano{0};
-    bool enUso{false};
+    std::string mountpoint;
+    std::string parent;
+    std::uint64_t size{0};
+    bool inUse{false};
     bool alias{false};
 };
 
-bool devices(const std::string& salidaJson, std::vector<Device>& out,
+bool devices(const std::string& jsonOutput, std::vector<Device>& out,
                   std::string& error);
 
-// Los datasets MONTADOS, de `--dump-zfs-mount`. La clave es el nombre y el valor su punto de
-// montaje real —el de verdad, no la propiedad `mountpoint`—.
-bool mounted(const std::string& salidaJson, std::vector<std::pair<std::string, std::string>>& out,
+// The MOUNTED datasets, from `--dump-zfs-mount`. The key is the name and the value its real
+// mountpoint —the actual one, not the `mountpoint` property—.
+bool mounted(const std::string& jsonOutput, std::vector<std::pair<std::string, std::string>>& out,
               std::string& error);
 
-// ¿Hay algún DESCENDIENTE de este dataset montado?
+// Is any DESCENDANT of this dataset mounted?
 //
-// Se contesta con la lista de montajes que ya trae `--dump-zfs-mount`, sin preguntar nada
-// más. Antes esto era un guion —uno para Unix y otro para Windows— que se ejecutaba por SSH
-// solo para contestar sí o no.
+// Answered from the mount list `--dump-zfs-mount` already brings, without asking anything
+// else. This used to be a script —one for Unix and another for Windows— run over SSH just to
+// answer yes or no.
 //
-// El propio dataset NO cuenta: la pregunta es si desmontarlo va a arrastrar a otros.
-bool hasMountedDescendants(const std::string& salidaJson, const std::string& dataset);
+// The dataset itself does NOT count: the question is whether unmounting it will drag others
+// along.
+bool hasMountedDescendants(const std::string& jsonOutput, const std::string& dataset);
 
-// De `zpool get -j all`. Es el MISMO formato con otra sección: `zfs` cuelga sus objetos de
-// «datasets» y `zpool` de «pools». Se separan en dos funciones y no en un parámetro porque
-// quien llama sabe cuál pidió, y un booleano en la llamada no se lee.
-bool poolProperties(const std::string& salida, std::vector<Property>& out,
+// From `zpool get -j all`. The SAME format under a different section: `zfs` hangs its
+// objects off «datasets» and `zpool` off «pools». Two functions and not one parameter,
+// because the caller knows which one they asked for, and a boolean at the call site does not
+// read.
+bool poolProperties(const std::string& output, std::vector<Property>& out,
                        std::string& error);
 
 }  // namespace zfsmgr::base::listings

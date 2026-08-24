@@ -950,23 +950,23 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
             return v;
         }
         for (const L::Property& pr : props) {
-            if (pr.nombre == "type") {
+            if (pr.name == "type") {
                 // La MISMA palabra que usa el listado de datasets. `zfs` dice «filesystem» y
                 // allí se escribe «dataset»: dos tablas con la columna TIPO que no significan
                 // lo mismo se leen peor que una columna menos.
-                v[0] = pr.valor == "snapshot" ? "snapshot" : "dataset";
-            } else if (pr.nombre == "used") {
-                v[1] = pr.valor;
-            } else if (pr.nombre == "compressratio") {
+                v[0] = pr.value == "snapshot" ? "snapshot" : "dataset";
+            } else if (pr.name == "used") {
+                v[1] = pr.value;
+            } else if (pr.name == "compressratio") {
                 // Sin la «x» final: `zfs get` la pone y `zfs list -p` no, y esta columna sale
                 // en las dos tablas.
-                v[2] = (!pr.valor.empty() && pr.valor.back() == 'x')
-                           ? pr.valor.substr(0, pr.valor.size() - 1)
-                           : pr.valor;
-            } else if (pr.nombre == "mounted") {
-                v[3] = pr.valor;
-            } else if (pr.nombre == "mountpoint") {
-                v[4] = pr.valor;
+                v[2] = (!pr.value.empty() && pr.value.back() == 'x')
+                           ? pr.value.substr(0, pr.value.size() - 1)
+                           : pr.value;
+            } else if (pr.name == "mounted") {
+                v[3] = pr.value;
+            } else if (pr.name == "mountpoint") {
+                v[4] = pr.value;
             }
         }
         return v;
@@ -1400,9 +1400,9 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
     t.campos = {"name", "type", "size"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes};
     for (const L::DirectoryEntry& ent : entradas) {
-        t.filas.push_back({ent.nombre,
-                           ent.directorio ? "directory" : "file",
-                           ent.directorio ? "" : std::to_string(ent.tamano)});
+        t.filas.push_back({ent.name,
+                           ent.directory ? "directory" : "file",
+                           ent.directory ? "" : std::to_string(ent.size)});
     }
     t.imprime(e.formato);
     return true;

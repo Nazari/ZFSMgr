@@ -27,20 +27,20 @@ bool pools(const std::string& salida, std::vector<Pool>& out, std::string& error
         const json::Value& p = kv.second;
         const json::Value& props = p["properties"];
         Pool pool;
-        pool.nombre = p["name"].toString(kv.first);
-        pool.estado = p["state"].toString();
+        pool.name = p["name"].toString(kv.first);
+        pool.state = p["state"].toString();
         pool.guid = p["pool_guid"].toString();
-        pool.salud = valorDe(props, "health");
-        pool.tamano = valorDe(props, "size");
-        pool.libre = valorDe(props, "free");
-        pool.uso = valorDe(props, "capacity");
-        if (pool.nombre.empty()) {
+        pool.health = valorDe(props, "health");
+        pool.size = valorDe(props, "size");
+        pool.free = valorDe(props, "free");
+        pool.used = valorDe(props, "capacity");
+        if (pool.name.empty()) {
             continue;   // sin nombre no se puede nombrar: no sirve para nada
         }
         out.push_back(pool);
     }
     std::sort(out.begin(), out.end(),
-              [](const Pool& a, const Pool& b) { return a.nombre < b.nombre; });
+              [](const Pool& a, const Pool& b) { return a.name < b.name; });
     return true;
 }
 
@@ -52,17 +52,17 @@ std::vector<Entry> entries(const std::string& salidaTsv) {
             continue;
         }
         Entry e;
-        e.nombre = c[0];
+        e.name = c[0];
         e.guid = c[1];
-        e.usado = c[2];
-        e.compresion = c[3];
-        e.cifrado = c[4];
-        e.creacion = c[5];
-        e.referenciado = c[6];
-        e.montado = c[7];
-        e.puntoMontaje = c[8];
+        e.used = c[2];
+        e.compression = c[3];
+        e.encryption = c[4];
+        e.creation = c[5];
+        e.referenced = c[6];
+        e.mounted = c[7];
+        e.mountpoint = c[8];
         e.canmount = c[9];
-        if (trim(e.nombre).empty()) {
+        if (trim(e.name).empty()) {
             continue;
         }
         out.push_back(e);
@@ -116,15 +116,15 @@ bool propiedadesDe(const std::string& salida, const char* seccion, std::vector<P
     for (const auto& obj : raiz[seccion].toObject()) {
         for (const auto& kv : obj.second["properties"].toObject()) {
             Property p;
-            p.nombre = kv.first;
-            p.valor = kv.second["value"].toString();
-            p.origen = origenLegible(kv.second["source"]["type"].toString(),
+            p.name = kv.first;
+            p.value = kv.second["value"].toString();
+            p.source = origenLegible(kv.second["source"]["type"].toString(),
                                      kv.second["source"]["data"].toString());
             out.push_back(p);
         }
     }
     std::sort(out.begin(), out.end(),
-              [](const Property& a, const Property& b) { return a.nombre < b.nombre; });
+              [](const Property& a, const Property& b) { return a.name < b.name; });
     return true;
 }
 
@@ -149,19 +149,19 @@ bool directoryContents(const std::string& salida, std::vector<DirectoryEntry>& o
     }
     for (const zfsmgr::base::json::Value& e : raiz["entries"].toArray()) {
         DirectoryEntry ent;
-        ent.nombre = e["name"].toString();
-        if (ent.nombre.empty()) {
+        ent.name = e["name"].toString();
+        if (ent.name.empty()) {
             continue;
         }
-        ent.directorio = e["type"].toString() == "d";
+        ent.directory = e["type"].toString() == "d";
         // Un directorio no tiene tamaño que enseñar: el que trae el sistema de ficheros es
         // el del propio nodo, no el de lo que contiene, y enseñarlo invita a leerlo mal.
-        ent.tamano = ent.directorio ? 0 : static_cast<std::uint64_t>(e["size"].toInt());
+        ent.size = ent.directory ? 0 : static_cast<std::uint64_t>(e["size"].toInt());
         out.push_back(ent);
     }
     std::sort(out.begin(), out.end(),
               [](const DirectoryEntry& a, const DirectoryEntry& b) {
-                  return a.nombre < b.nombre;
+                  return a.name < b.name;
               });
     return true;
 }
@@ -176,18 +176,18 @@ bool devices(const std::string& salidaJson, std::vector<Device>& out,
     }
     for (const zfsmgr::base::json::Value& d : raiz["devices"].toArray()) {
         Device x;
-        x.ruta = d["path"].toString();
-        if (x.ruta.empty()) {
+        x.path = d["path"].toString();
+        if (x.path.empty()) {
             continue;
         }
-        x.resuelta = d["resolved"].toString();
+        x.resolved = d["resolved"].toString();
         x.alias = d["alias"].toBool();
-        x.tipo = d["type"].toString();
+        x.type = d["type"].toString();
         x.fs = d["fstype"].toString();
-        x.montaje = d["mountpoint"].toString();
-        x.padre = d["parent"].toString();
-        x.tamano = static_cast<std::uint64_t>(d["size"].toInt());
-        x.enUso = d["inuse"].toBool();
+        x.mountpoint = d["mountpoint"].toString();
+        x.parent = d["parent"].toString();
+        x.size = static_cast<std::uint64_t>(d["size"].toInt());
+        x.inUse = d["inuse"].toBool();
         out.push_back(x);
     }
     return true;

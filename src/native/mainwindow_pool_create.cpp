@@ -446,22 +446,22 @@ void MainWindow::createPoolForSelectedConnection() {
                         // Los alias no son dispositivos: se apuntan aparte para colgarlos
                         // luego del dispositivo al que apuntan.
                         dispositivosAlias.push_back(
-                            {QString::fromStdString(d.ruta), QString::fromStdString(d.resuelta)});
+                            {QString::fromStdString(d.path), QString::fromStdString(d.resolved)});
                         continue;
                     }
-                    const QString ruta = QString::fromStdString(d.ruta);
+                    const QString ruta = QString::fromStdString(d.path);
                     const QString resuelta = QString::fromStdString(
-                        d.resuelta.empty() ? d.ruta : d.resuelta);
+                        d.resolved.empty() ? d.path : d.resolved);
                     // Los tamaños llegan en BYTES y aquí se enseñan a una persona. La regla
                     // de formato es la misma que usa el intérprete, en `base/strutil`.
                     const QString tam =
                         d.alias ? QString()
                                 : QString::fromStdString(zfsmgr::base::tamanoLegible(
-                                      std::to_string(d.tamano)));
+                                      std::to_string(d.size)));
                     filas << QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6")
-                                 .arg(ruta, tam, QString::fromStdString(d.montaje), resuelta,
+                                 .arg(ruta, tam, QString::fromStdString(d.mountpoint), resuelta,
                                       QString::fromStdString(d.fs),
-                                      QString::fromStdString(d.tipo));
+                                      QString::fromStdString(d.type));
                 }
                 out = filas.join(QLatin1Char('\n'));
                 descubrimientoOk = true;

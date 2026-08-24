@@ -818,10 +818,10 @@ int main() {
         std::vector<L::Pool> ps;
         comprobar(L::pools(zpoolJson, ps, err) && err.empty(), "listados: se analiza zpool list -j");
         comprobar(ps.size() == 1, "listados: un pool");
-        igual(ps.at(0).nombre, "fc16", "listados: su nombre");
-        igual(ps.at(0).salud, "ONLINE", "listados: su salud, de properties");
-        igual(ps.at(0).tamano, "2.46T", "listados: su tamaño");
-        igual(ps.at(0).uso, "69%", "listados: y el uso tal cual, sin tocar");
+        igual(ps.at(0).name, "fc16", "listados: su nombre");
+        igual(ps.at(0).health, "ONLINE", "listados: su salud, de properties");
+        igual(ps.at(0).size, "2.46T", "listados: su tamaño");
+        igual(ps.at(0).used, "69%", "listados: y el uso tal cual, sin tocar");
         igual(ps.at(0).guid, "6150128433348792083", "listados: y el guid");
 
         // Sin pools NO es un error: macOS no imprime nada y sale con 0.
@@ -839,9 +839,9 @@ int main() {
             "fc16/dockvols@ayer\t123\t0B\t1.00x\taes-256-gcm\tmar mar  3 19:07 2026\t33.3G\t-\t-\t-\n";
         const auto es = L::entries(tsv);
         comprobar(es.size() == 3, "listados: tres entradas");
-        igual(es.at(0).nombre, "fc16/dockvols", "listados: el nombre");
-        igual(es.at(0).puntoMontaje, "/var/lib/docker/volumes", "listados: el punto de montaje");
-        igual(es.at(0).cifrado, "aes-256-gcm", "listados: el cifrado");
+        igual(es.at(0).name, "fc16/dockvols", "listados: el nombre");
+        igual(es.at(0).mountpoint, "/var/lib/docker/volumes", "listados: el punto de montaje");
+        igual(es.at(0).encryption, "aes-256-gcm", "listados: el cifrado");
         comprobar(!es.at(0).isSnapshot(), "listados: un dataset no es instantanea");
         comprobar(es.at(2).isSnapshot(), "listados: y una con @ si");
 
@@ -849,7 +849,7 @@ int main() {
         // montaje donde va el guid.
         const auto pocas = L::entries("solo\tdos\nfc16\t1\t2\t3\t4\t5\t6\t7\t8\t9\n");
         comprobar(pocas.size() == 1, "listados: la linea corta se salta");
-        igual(pocas.at(0).nombre, "fc16", "listados: y la buena entra");
+        igual(pocas.at(0).name, "fc16", "listados: y la buena entra");
 
         // `zfs get -j all`.
         const std::string getJson =
@@ -859,8 +859,8 @@ int main() {
         std::vector<L::Property> props;
         comprobar(L::properties(getJson, props, err), "listados: se analiza zfs get -j");
         comprobar(props.size() == 2, "listados: dos propiedades");
-        igual(props.at(0).nombre, "atime", "listados: ordenadas por nombre");
-        igual(props.at(0).origen, "inherited from fc16",
+        igual(props.at(0).name, "atime", "listados: ordenadas por nombre");
+        igual(props.at(0).source, "inherited from fc16",
               "listados: el origen heredado dice de donde, como `zfs get -o source`");
 
         // El origen se escribe COMO LO ESCRIBE `zfs get -H -o source`, y no es cosmetico:
@@ -881,7 +881,7 @@ int main() {
         comprobar(L::properties(origenes, orig, err), "listados: se analizan los origenes");
         std::map<std::string, std::string> porNombre;
         for (const L::Property& pr : orig) {
-            porNombre[pr.nombre] = pr.origen;
+            porNombre[pr.name] = pr.source;
         }
         igual(porNombre["atime"], "default", "listados: DEFAULT no es «-»");
         igual(porNombre["used"], "-", "listados: NONE si es «-», que es lo calculado");
@@ -900,7 +900,7 @@ int main() {
                                                            porNombre["used"], "off",
                                                            zfsmgr::base::zfsprops::Platform::Linux),
                   "listados: y una calculada no");
-        igual(props.at(1).valor, "lz4", "listados: y el valor");
+        igual(props.at(1).value, "lz4", "listados: y el valor");
 
         // `zpool get -j all` es el MISMO formato con la seccion cambiada: los objetos
         // cuelgan de «pools» y no de «datasets». Fixture recortado de una salida real de
@@ -915,10 +915,10 @@ int main() {
         std::vector<L::Property> pp;
         comprobar(L::poolProperties(getPool, pp, err), "listados: se analiza zpool get -j");
         comprobar(pp.size() == 3, "listados: las tres propiedades del pool");
-        igual(pp.at(0).nombre, "capacity", "listados: ordenadas por nombre tambien aqui");
-        igual(pp.at(1).nombre, "feature@lz4_compress", "listados: la capacidad es una propiedad");
-        igual(pp.at(1).valor, "active", "listados: con su valor");
-        igual(pp.at(2).nombre, "size", "listados: y la ultima por orden alfabetico");
+        igual(pp.at(0).name, "capacity", "listados: ordenadas por nombre tambien aqui");
+        igual(pp.at(1).name, "feature@lz4_compress", "listados: la capacidad es una propiedad");
+        igual(pp.at(1).value, "active", "listados: con su valor");
+        igual(pp.at(2).name, "size", "listados: y la ultima por orden alfabetico");
 
         // Los controles negativos de la seccion: cada lector mira la SUYA. Si
         // `propiedadesDePool` mirase «datasets» —o al reves— no fallaria: devolveria una

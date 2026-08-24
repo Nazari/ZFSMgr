@@ -1383,19 +1383,19 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         const std::vector<zfsmgr::base::listings::Entry> entradas =
             zfsmgr::base::listings::entries(out.toStdString());
         for (const zfsmgr::base::listings::Entry& e : entradas) {
-            const QString name = QString::fromStdString(e.nombre).trimmed();
+            const QString name = QString::fromStdString(e.name).trimmed();
             if (name.isEmpty()) {
                 continue;
             }
             DatasetRecord rec{name,
                               QString::fromStdString(e.guid),
-                              QString::fromStdString(e.usado),
-                              QString::fromStdString(e.compresion),
-                              QString::fromStdString(e.cifrado),
-                              QString::fromStdString(e.creacion),
-                              QString::fromStdString(e.referenciado),
-                              QString::fromStdString(e.montado),
-                              QString::fromStdString(e.puntoMontaje),
+                              QString::fromStdString(e.used),
+                              QString::fromStdString(e.compression),
+                              QString::fromStdString(e.encryption),
+                              QString::fromStdString(e.creation),
+                              QString::fromStdString(e.referenced),
+                              QString::fromStdString(e.mounted),
+                              QString::fromStdString(e.mountpoint),
                               QString::fromStdString(e.canmount)};
             if (!rec.guid.trimmed().isEmpty() && rec.guid.trimmed() != QStringLiteral("-")) {
                 cache.objectGuidByName.insert(name, rec.guid.trimmed());
