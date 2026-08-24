@@ -168,7 +168,10 @@ void ConnectionDatasetTreePane::configureTree() {
         header->setSectionResizeMode(1, QHeaderView::Interactive);
         header->setSectionResizeMode(2, QHeaderView::Interactive);
         header->setSectionResizeMode(3, QHeaderView::Interactive);
-        header->setStretchLastSection(false);
+        // La columna del nombre se queda con el ancho sobrante. Estaba fija porque a su
+        // derecha venían las columnas C1...C10 con las propiedades; sin ellas, dejarla fija
+        // era una franja vacía a la derecha del árbol.
+        header->setStretchLastSection(true);
         header->setFont(QApplication::font());
         header->setContextMenuPolicy(Qt::CustomContextMenu);
     }
