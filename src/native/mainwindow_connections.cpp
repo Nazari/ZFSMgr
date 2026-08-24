@@ -1365,51 +1365,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     aNewConn->setEnabled(menuState.canNewConnection);
     aNewPool->setEnabled(menuState.canNewPool);
 
-    menu.addSeparator();
-    const bool isSplitTree = sourceTree && sourceTree->property("zfsmgr.isSplitTree").toBool();
-    QAction* aCloseSplit = nullptr;
-    QAction* aSplitRight = nullptr;
-    QAction* aSplitLeft = nullptr;
-    QAction* aSplitBelow = nullptr;
-    QAction* aSplitAbove = nullptr;
-    if (isSplitTree) {
-        aCloseSplit = menu.addAction(trk(QStringLiteral("t_ctx_close001"),
-        QStringLiteral("Cerrar"),
-        QStringLiteral("Close")));
-    } else {
-        QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-        aSplitRight = splitMenu->addAction(
-            trk(QStringLiteral("t_split_right_001"),
-                QStringLiteral("Derecha"),
-                QStringLiteral("Right")));
-        aSplitLeft = splitMenu->addAction(
-            trk(QStringLiteral("t_split_left_001"),
-                QStringLiteral("Izquierda"),
-                QStringLiteral("Left")));
-        aSplitBelow = splitMenu->addAction(
-            trk(QStringLiteral("t_split_below_001"),
-                QStringLiteral("Abajo"),
-                QStringLiteral("Below")));
-        aSplitAbove = splitMenu->addAction(
-            trk(QStringLiteral("t_split_above_001"),
-                QStringLiteral("Arriba"),
-                QStringLiteral("Above")));
-    }
-
     endBusy();
     QAction* chosen = menu.exec(globalPos);
     if (!chosen) {
-        return;
-    }
-    if (chosen == aCloseSplit) {
-        closeSplitTree(sourceTree);
-        return;
-    }
-    if (chosen == aSplitRight || chosen == aSplitLeft || chosen == aSplitBelow || chosen == aSplitAbove) {
-        const Qt::Orientation orient =
-            (chosen == aSplitRight || chosen == aSplitLeft) ? Qt::Horizontal : Qt::Vertical;
-        const bool insertBefore = (chosen == aSplitLeft || chosen == aSplitAbove);
-        splitAndRootConnContent(orient, insertBefore, connIdx, QString{}, QString{}, sourceTree);
         return;
     }
     if (chosen == aConnect && hasConn) {

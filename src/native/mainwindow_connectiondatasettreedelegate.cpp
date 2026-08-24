@@ -2188,11 +2188,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         return;
     }
 
-    QAction* aSplitVertical = nullptr;
-    QAction* aSplitHorizontal = nullptr;
-    QAction* aSplitLeft = nullptr;
-    QAction* aSplitAbove = nullptr;
-    QAction* aCloseSplit = nullptr;
 
     int poolRow = -1;
     QString poolAction;
@@ -2238,31 +2233,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             poolActions.clear->setEnabled(false);
             poolActions.destroy->setEnabled(false);
         }
-        if (!item->data(0, kIsSplitRootRole).toBool()) {
-            QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-            aSplitHorizontal = splitMenu->addAction(
-                m_mainWindow->trk(QStringLiteral("t_split_right_001"),
-                                  QStringLiteral("Derecha"),
-                                  QStringLiteral("Right")));
-            aSplitLeft = splitMenu->addAction(
-                m_mainWindow->trk(QStringLiteral("t_split_left_001"),
-                                  QStringLiteral("Izquierda"),
-                                  QStringLiteral("Left")));
-            aSplitVertical = splitMenu->addAction(
-                m_mainWindow->trk(QStringLiteral("t_split_below_001"),
-                                  QStringLiteral("Abajo"),
-                                  QStringLiteral("Below")));
-            aSplitAbove = splitMenu->addAction(
-                m_mainWindow->trk(QStringLiteral("t_split_above_001"),
-                                  QStringLiteral("Arriba"),
-                                  QStringLiteral("Above")));
-        }
-    }
-
-    if (item->data(0, kIsSplitRootRole).toBool()) {
-        aCloseSplit = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_close001"),
-                              QStringLiteral("Cerrar"),
-                              QStringLiteral("Close")));
     }
 
     // Las seis acciones de origen+destino, invocadas SOBRE el destino.
@@ -2543,25 +2513,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Marcar como origen"),
                                   QStringLiteral("Mark as source")));
             buildTransferMenu(ctx);
-            if (!item->data(0, kIsSplitRootRole).toBool() && !isPoolRoot) {
-                QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-                aSplitHorizontal = splitMenu->addAction(
-                    m_mainWindow->trk(QStringLiteral("t_split_right_001"),
-                                      QStringLiteral("Derecha"),
-                                      QStringLiteral("Right")));
-                aSplitLeft = splitMenu->addAction(
-                    m_mainWindow->trk(QStringLiteral("t_split_left_001"),
-                                      QStringLiteral("Izquierda"),
-                                      QStringLiteral("Left")));
-                aSplitVertical = splitMenu->addAction(
-                    m_mainWindow->trk(QStringLiteral("t_split_below_001"),
-                                      QStringLiteral("Abajo"),
-                                      QStringLiteral("Below")));
-                aSplitAbove = splitMenu->addAction(
-                    m_mainWindow->trk(QStringLiteral("t_split_above_001"),
-                                      QStringLiteral("Arriba"),
-                                      QStringLiteral("Above")));
-            }
         }
     }
     if (poolSuspendedContext) {
@@ -3559,27 +3510,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             // Por umountDataset, igual que Montar va por mountDataset: pregunta si hay
             // hijos montados debajo y encola con el diagnóstico de «target is busy».
             m_mainWindow->umountDataset(QStringLiteral("conncontent"), mwCtx);
-            return;
-        }
-        if (picked == aSplitVertical || picked == aSplitHorizontal
-            || picked == aSplitLeft || picked == aSplitAbove) {
-            // aSplitHorizontal = "Derecha"    → new tree on the right → Qt::Horizontal
-            // aSplitLeft       = "Izquierda"  → new tree on the left  → Qt::Horizontal (insertBefore)
-            // aSplitVertical   = "Abajo"      → new tree below        → Qt::Vertical
-            // aSplitAbove      = "Arriba"     → new tree above        → Qt::Vertical   (insertBefore)
-            const Qt::Orientation orient =
-                (picked == aSplitHorizontal || picked == aSplitLeft) ? Qt::Horizontal : Qt::Vertical;
-            const bool insertBefore = (picked == aSplitLeft || picked == aSplitAbove);
-            const int ci = ctx.valid ? ctx.connIdx : connIdx;
-            const QString pn = ctx.valid ? ctx.poolName : poolName;
-            const QString ds = ctx.valid && !ctx.datasetName.trimmed().isEmpty()
-                                   ? ctx.datasetName.trimmed()
-                                   : pn.trimmed();
-            m_mainWindow->splitAndRootConnContent(orient, insertBefore, ci, pn, ds, tree);
-            return;
-        }
-        if (picked == aCloseSplit) {
-            m_mainWindow->closeSplitTree(tree);
             return;
         }
 }

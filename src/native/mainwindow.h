@@ -639,13 +639,7 @@ private:
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
-    void splitAndRootConnContent(Qt::Orientation orientation, bool insertBefore, int connIdx,
-                                  const QString& poolName, const QString& rootDataset,
-                                  QTreeWidget* sourceTree = nullptr);
-    void closeSplitTree(QTreeWidget* tree);
     void rebuildAllSplitTrees();
-    QString serializeSplitTreeLayoutState() const;
-    void restoreSplitTreeLayoutFromState(const QString& state);
     void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
                                  const QString& rootDataset, const QString& displayRoot);
     void appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx);
@@ -1130,7 +1124,6 @@ private:
     QByteArray m_topMainSplitState;
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
-    QString m_splitTreeLayoutState;
     int m_forceRestoreTopStateConnIdx{-1};
     QString m_userSelectedConnectionKey;
     QString m_persistedTopDetailConnectionKey;
