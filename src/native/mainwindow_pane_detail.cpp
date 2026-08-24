@@ -34,44 +34,87 @@ namespace {
 
 // Las tres tablas se parecen lo bastante como para que configurarlas a mano tres veces
 // fuera una invitación a que se separaran sin querer.
-QTableWidget* makeDetailTable(QWidget* parent, const QStringList& headers) {
-    auto* table = new QTableWidget(0, headers.size(), parent);
-    table->setHorizontalHeaderLabels(headers);
+// Las tablas del detalle se parecen lo bastante como para que configurarlas a mano una
+// por una fuera una invitación a que se separaran sin querer.
+//
+// `pairs` es cuántas veces se repite el juego de columnas en la MISMA fila: con dos, una
+// tabla de «Propiedad | Valor» pasa a ser «Propiedad | Valor | Propiedad | Valor» y
+// enseña el doble de datos en la mitad del alto. Un par nombre/valor no llega a los 300
+// píxeles y el detalle mide más de 800: la otra mitad era margen derecho.
+QTableWidget* makeDetailTable(QWidget* parent, const QStringList& headers, int pairs = 1) {
+    QStringList allHeaders;
+    for (int p = 0; p < pairs; ++p) {
+        allHeaders += headers;
+    }
+    auto* table = new QTableWidget(0, allHeaders.size(), parent);
+    table->setHorizontalHeaderLabels(allHeaders);
     table->verticalHeader()->setVisible(false);
+    // Filas compactas. Por omisión Qt las deja a la altura de un botón, que para una línea
+    // de texto es casi el doble de lo necesario: en una tabla de treinta propiedades eso
+    // son diez filas menos a la vista.
+    if (QHeaderView* vheader = table->verticalHeader()) {
+        vheader->setDefaultSectionSize(20);
+        vheader->setSectionResizeMode(QHeaderView::Fixed);
+        vheader->setMinimumSectionSize(16);
+    }
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setAlternatingRowColors(true);
     table->setWordWrap(false);
     if (QHeaderView* header = table->horizontalHeader()) {
-        // El ancho sobrante se lo queda el VALOR, no la última columna. Con
+        // El ancho sobrante se lo quedan las columnas de VALOR, no la última. Con
         // `stretchLastSection` la casilla de «heredada» se llevaba media tabla para
         // enseñar una marca de siete píxeles.
         header->setStretchLastSection(false);
-        for (int col = 0; col < headers.size(); ++col) {
-            header->setSectionResizeMode(col, col == 1 ? QHeaderView::Stretch
-                                                       : QHeaderView::Interactive);
-        }
-        if (headers.size() > 2) {
-            table->setColumnWidth(2, 90);
+        const int perPair = headers.size();
+        for (int col = 0; col < allHeaders.size(); ++col) {
+            const bool isValue = (col % perPair) == 1;
+            header->setSectionResizeMode(col, isValue ? QHeaderView::Stretch
+                                                      : QHeaderView::Interactive);
+            if (perPair > 2 && (col % perPair) == 2) {
+                table->setColumnWidth(col, 90);
+            }
         }
     }
     return table;
 }
 
-void setDetailRows(QTableWidget* table, const QVector<QPair<QString, QString>>& rows) {
+// Rellena la tabla con `pairs` juegos por fila. Los grupos NO se mezclan: cada uno
+// empieza en su fila, porque el corte entre el perfil de la conexión y su diagnóstico es
+// lo que hace legible la tabla.
+void setPairedRows(QTableWidget* table,
+                   const QVector<QVector<QStringList>>& groups,
+                   int perItem,
+                   int pairs) {
     if (!table) {
         return;
     }
     table->setRowCount(0);
-    for (const auto& row : rows) {
-        const int r = table->rowCount();
-        table->insertRow(r);
-        table->setItem(r, 0, new QTableWidgetItem(row.first));
-        table->setItem(r, 1, new QTableWidgetItem(row.second));
+    bool first = true;
+    for (const QVector<QStringList>& group : groups) {
+        if (group.isEmpty()) {
+            continue;
+        }
+        if (!first) {
+            table->insertRow(table->rowCount());
+        }
+        first = false;
+        for (int i = 0; i < group.size(); i += pairs) {
+            const int r = table->rowCount();
+            table->insertRow(r);
+            for (int k = 0; k < pairs && (i + k) < group.size(); ++k) {
+                const QStringList& item = group.at(i + k);
+                for (int c = 0; c < perItem; ++c) {
+                    table->setItem(r, k * perItem + c, new QTableWidgetItem(item.value(c)));
+                }
+            }
+        }
     }
-    if (table->columnCount() > 0) {
-        table->resizeColumnToContents(0);
+    for (int col = 0; col < table->columnCount(); ++col) {
+        if (col % perItem != 1) {
+            table->resizeColumnToContents(col);
+        }
     }
 }
 
@@ -113,7 +156,7 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                                      QStringLiteral("Heredada"),
                                      QStringLiteral("Inherited"));
 
-    pane.connDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue});
+    pane.connDetailTable = makeDetailTable(pane.detailStack, {colProp, colValue}, 2);
     pane.connDetailTable->setObjectName(isOrigin ? QStringLiteral("originConnDetailTable")
                                                 : QStringLiteral("destinationConnDetailTable"));
     pane.detailStack->addWidget(pane.connDetailTable);
@@ -122,7 +165,7 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     auto* poolLayout = new QVBoxLayout(poolPage);
     poolLayout->setContentsMargins(0, 0, 0, 0);
     poolLayout->setSpacing(2);
-    pane.poolDetailTable = makeDetailTable(poolPage, {colProp, colValue, colSource});
+    pane.poolDetailTable = makeDetailTable(poolPage, {colProp, colValue, colSource}, 2);
     pane.poolDetailTable->setObjectName(isOrigin ? QStringLiteral("originPoolDetailTable")
                                                  : QStringLiteral("destinationPoolDetailTable"));
     pane.poolDetailStatus = new QPlainTextEdit(poolPage);
@@ -388,13 +431,17 @@ void MainWindow::updatePaneDetail(int paneIdx) {
     // Properties e Info sigan estando a un clic aunque ya no cuelguen de ningún nodo.
     if (!item) {
         pane.detailStack->setCurrentWidget(pane.connDetailTable);
-        QVector<QPair<QString, QString>> rows = connectionProfileRows(pane.connIdx);
-        const QVector<QPair<QString, QString>> info = connectionInfoRows(pane.connIdx);
-        if (!info.isEmpty()) {
-            rows.push_back({QString(), QString()});
-            rows.append(info);
-        }
-        setDetailRows(pane.connDetailTable, rows);
+        const auto toItems = [](const QVector<QPair<QString, QString>>& in) {
+            QVector<QStringList> out;
+            for (const auto& row : in) {
+                out.push_back({row.first, row.second});
+            }
+            return out;
+        };
+        setPairedRows(pane.connDetailTable,
+                      {toItems(connectionProfileRows(pane.connIdx)),
+                       toItems(connectionInfoRows(pane.connIdx))},
+                      2, 2);
         pane.detailTitle->setText(
             (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
                 ? m_conns.profiles.at(pane.connIdx).name
@@ -416,13 +463,35 @@ void MainWindow::updatePaneDetail(int paneIdx) {
         pane.detailStack->setCurrentWidget(pane.datasetTabs);
         pane.detailTitle->setText(objectName);
         const bool isSnapshot = !ctx.snapshotName.trimmed().isEmpty();
-        // Cada pestaña solo para lo que le toca: un snapshot no delega permisos y un
-        // dataset no tiene holds. Apagarlas dice por qué está vacía sin tener que abrirla.
-        pane.datasetTabs->setTabEnabled(pane.datasetTabs->indexOf(pane.datasetPermsTree), !isSnapshot);
-        pane.datasetTabs->setTabEnabled(pane.datasetTabs->indexOf(pane.datasetHoldsTable), isSnapshot);
-        if (!pane.datasetTabs->isTabEnabled(pane.datasetTabs->currentIndex())) {
-            pane.datasetTabs->setCurrentWidget(pane.datasetDetailTable);
-        }
+        // La pestaña que no aplica NO se enseña, en vez de enseñarse apagada.
+        //
+        // Un snapshot no delega permisos y un dataset no tiene holds. Estaban las tres
+        // siempre, con la que no tocaba en gris; y una pestaña en gris no dice «esto no
+        // aplica aquí», dice «esto está roto» —hubo que preguntarlo—. Quitarla y ponerla
+        // no cuesta nada: el widget se conserva, solo cambia de sitio.
+        const auto showTab = [this, &pane](QWidget* page, bool wanted, int at, const QString& title) {
+            if (!page || !pane.datasetTabs) {
+                return;
+            }
+            const int idx = pane.datasetTabs->indexOf(page);
+            if (wanted && idx < 0) {
+                pane.datasetTabs->insertTab(qMin(at, pane.datasetTabs->count()), page, title);
+            } else if (!wanted && idx >= 0) {
+                pane.datasetTabs->removeTab(idx);
+                // `removeTab` deja el widget SIN padre: sin esto, al destruirse la ventana
+                // nadie lo borra.
+                page->setParent(pane.datasetTabs);
+                page->hide();
+            }
+        };
+        showTab(pane.datasetPermsTree, !isSnapshot, 1,
+                trk(QStringLiteral("t_detail_tab_perms_001"),
+                    QStringLiteral("Permisos"),
+                    QStringLiteral("Permissions")));
+        showTab(pane.datasetHoldsTable, isSnapshot, 2,
+                trk(QStringLiteral("t_detail_tab_holds_001"),
+                    QStringLiteral("Holds"),
+                    QStringLiteral("Holds")));
         fillPanePermissions(paneIdx, connIdx, poolName, dataset);
         fillPaneHolds(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
         // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
@@ -445,24 +514,24 @@ void MainWindow::updatePaneDetail(int paneIdx) {
         // pedirlo por red en cada paso del cursor colgaría la interfaz. Lo que haya en
         // caché se enseña; lo que no, lo trae el refresco.
         if (const PoolDetailsCacheEntry* entry = poolDetailsEntry(connIdx, poolName)) {
+            QVector<QStringList> items;
             for (const QStringList& row : entry->propsRows) {
-                if (row.size() < 3) {
-                    continue;
+                if (row.size() >= 3) {
+                    items.push_back({row.value(0), row.value(1), row.value(2)});
                 }
-                const int r = pane.poolDetailTable->rowCount();
-                pane.poolDetailTable->insertRow(r);
-                pane.poolDetailTable->setItem(r, 0, new QTableWidgetItem(row.value(0)));
-                pane.poolDetailTable->setItem(r, 1, new QTableWidgetItem(row.value(1)));
-                pane.poolDetailTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
             }
+            setPairedRows(pane.poolDetailTable, {items}, 3, 2);
             pane.poolDetailStatus->setPlainText(entry->statusText);
         }
-        pane.poolDetailTable->resizeColumnToContents(0);
         return;
     }
 
     pane.detailStack->setCurrentWidget(pane.connDetailTable);
-    setDetailRows(pane.connDetailTable, connectionProfileRows(pane.connIdx));
+    QVector<QStringList> items;
+    for (const auto& row : connectionProfileRows(pane.connIdx)) {
+        items.push_back({row.first, row.second});
+    }
+    setPairedRows(pane.connDetailTable, {items}, 2, 2);
     pane.detailTitle->setText(item->text(0));
 }
 
