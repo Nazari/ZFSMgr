@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
         "menus_contextuales", "propiedades_inline_columnas"};
     QTextStream out(stdout);
     int fallos = 0;
-    for (const QString& l : {QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")}) {
+    for (const QString& l : {QStringLiteral("es"), QStringLiteral("en")}) {
         for (const QString& t : temas) {
             const QString p = QStringLiteral(":/help/%1/%2.md").arg(l, t);
             QFile f(p);

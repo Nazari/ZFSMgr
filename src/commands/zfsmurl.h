@@ -52,7 +52,7 @@ enum class ZfsmKind {
 
 // Section names the application knows today.
 //
-// **In English, even though the tree may be shown in Spanish or Chinese.** A URL is an
+// **In English, even though the tree may be shown in Spanish.** A URL is an
 // identifier, not text to read: if the literal depended on the language of whoever wrote
 // it, the same thing would have three names and none would be usable for storing or
 // comparing.

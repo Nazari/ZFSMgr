@@ -643,8 +643,8 @@ endif()
 #
 # La interfaz tiene los suyos compilados como recurso de Qt y funciona sin fichero
 # ninguno; el intérprete no enlaza Qt —ese es su contrato—, así que los lee del disco. Sin
-# esto se instala y arranca, pero solo habla castellano: los textos en inglés y en chino
-# se quedan en el literal de reserva.
+# esto se instala y arranca, pero solo habla castellano: los textos en inglés se quedan
+# en el literal de reserva.
 #
 # `share/zfsmgr/i18n` no es un sitio elegido al azar: es una de las cuatro rutas que
 # `src/cli/main.cpp` ya busca a partir del ejecutable, justo la pensada para un binario

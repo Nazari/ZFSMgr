@@ -119,7 +119,7 @@ void uso() {
                  "                        cambiarlo expone tus máquinas: hazlo a sabiendas.\n"
                  "  --port <n>            Puerto. Por omisión 47654.\n"
                  "  --password-fd <n>     Lee la contraseña maestra de ese descriptor.\n"
-                 "  --lang es|en|zh       Idioma. Sin él, el de la interfaz gráfica\n"
+                 "  --lang es|en          Idioma. Sin él, el de la interfaz gráfica\n"
                  "                        (app.language de config.json). Cada navegador\n"
                  "                        puede elegir el suyo desde el pie de la página.\n"
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
@@ -302,8 +302,7 @@ std::string envuelve(const std::string& titulo, const std::string& migas,
     // cambiar de idioma no debe tocar la autenticación.
     h += " · ";
     for (const auto& idi : {std::pair<const char*, const char*>{"es", "Español"},
-                            {"en", "English"},
-                            {"zh", "中文"}}) {
+                            {"en", "English"}}) {
         const bool esta = (zfsmgr::base::i18n::language() == idi.first);
         h += "<a class=\"idioma" + std::string(esta ? " activo" : "") + "\" href=\"/idioma?a="
              + idi.first + "\">" + idi.second + "</a> ";
@@ -3427,7 +3426,7 @@ int main(int argc, char** argv) {
         {
             const std::string suyo = p.cookie("zfsmgr_idioma");
             zfsmgr::base::i18n::setLanguage(
-                (suyo == "es" || suyo == "en" || suyo == "zh") ? suyo : idiomaBase);
+                (suyo == "es" || suyo == "en") ? suyo : idiomaBase);
         }
         H::Respuesta r;
         if (!p.valida) {
@@ -3454,7 +3453,7 @@ int main(int argc, char** argv) {
             // Solo los tres que hay catálogo. Cualquier otra cosa se ignora en vez de
             // guardarse: una cookie con basura dentro dejaría la página en castellano sin
             // que se entienda por qué.
-            if (quiere != "es" && quiere != "en" && quiere != "zh") {
+            if (quiere != "es" && quiere != "en") {
                 quiere = "es";
             }
             r.codigo = 302;

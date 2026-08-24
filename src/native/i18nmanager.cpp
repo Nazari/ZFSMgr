@@ -33,7 +33,6 @@ I18nManager& I18nManager::instance() {
 QString I18nManager::normalizeLanguage(const QString& language) {
     const QString l = language.trimmed().toLower();
     if (l == QStringLiteral("en")) return QStringLiteral("en");
-    if (l == QStringLiteral("zh")) return QStringLiteral("zh");
     return QStringLiteral("es");
 }
 
@@ -118,8 +117,7 @@ QHash<QString, QString> I18nManager::loadLegacyAliases() {
 QString I18nManager::translateKey(const QString& language,
                                   const QString& key,
                                   const QString& fallbackEs,
-                                  const QString& fallbackEn,
-                                  const QString& fallbackZh) {
+                                  const QString& fallbackEn) {
     const QString lang = normalizeLanguage(language);
     if (!m_catalogs.contains(lang)) {
         m_catalogs.insert(lang, loadCatalog(lang));
@@ -143,9 +141,6 @@ QString I18nManager::translateKey(const QString& language,
     if (lang == QStringLiteral("en") && !fallbackEn.isEmpty()) {
         return fallbackEn;
     }
-    if (lang == QStringLiteral("zh") && !fallbackZh.isEmpty()) {
-        return fallbackZh;
-    }
     if (lang == QStringLiteral("es") && !fallbackEs.isEmpty()) {
         return fallbackEs;
     }
@@ -161,7 +156,7 @@ QString I18nManager::translateKey(const QString& language,
 
 bool I18nManager::areJsonCatalogsAvailable(QStringList* missingLanguages) const {
     QStringList missing;
-    const QStringList langs = {QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")};
+    const QStringList langs = {QStringLiteral("es"), QStringLiteral("en")};
     for (const QString& lang : langs) {
         const QString fileName = QStringLiteral("%1.json").arg(lang);
         bool found = false;

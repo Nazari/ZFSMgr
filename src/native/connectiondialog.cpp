@@ -136,8 +136,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     }
     setWindowTitle(trk(QStringLiteral("t_conexi_n_d70cf0"),
                        QStringLiteral("Conexión"),
-                       QStringLiteral("Connection"),
-                       QStringLiteral("连接")));
+                       QStringLiteral("Connection")));
     resize(640, 320);
 
     auto* root = new QVBoxLayout(this);
@@ -157,16 +156,13 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     nameOsLayout->setSpacing(8);
     auto* nameLbl = new QLabel(trk(QStringLiteral("t_nombre_e68491"),
                                    QStringLiteral("Nombre"),
-                                   QStringLiteral("Name"),
-                                   QStringLiteral("名称")), nameOsRow);
+                                   QStringLiteral("Name")), nameOsRow);
     auto* osLbl = new QLabel(trk(QStringLiteral("t_so_2290cf"),
                                  QStringLiteral("S.O."),
-                                 QStringLiteral("OS"),
-                                 QStringLiteral("系统")), nameOsRow);
+                                 QStringLiteral("OS")), nameOsRow);
     auto* typeLbl = new QLabel(trk(QStringLiteral("t_tipo_6cc619"),
                                    QStringLiteral("Tipo"),
-                                   QStringLiteral("Type"),
-                                   QStringLiteral("类型")), nameOsRow);
+                                   QStringLiteral("Type")), nameOsRow);
     nameLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     osLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     typeLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -199,14 +195,11 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     hostPortLayout->setSpacing(8);
     auto* hostLbl = new QLabel(trk(QStringLiteral("t_host_3960ec"),
                                    QStringLiteral("Host"),
-                                   QStringLiteral("Host"),
-                                   QStringLiteral("主机")), hostPortRow);
+                                   QStringLiteral("Host")), hostPortRow);
     auto* portLbl = new QLabel(trk(QStringLiteral("t_puerto_095508"),
                                    QStringLiteral("Port"),
-                                   QStringLiteral("Port"),
-                                   QStringLiteral("端口")), hostPortRow);
+                                   QStringLiteral("Port")), hostPortRow);
     auto* familyLbl = new QLabel(trk(QStringLiteral("t_ip_family_001"),
-                                     QStringLiteral("IP"),
                                      QStringLiteral("IP"),
                                      QStringLiteral("IP")), hostPortRow);
     hostLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -238,12 +231,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     userPassLayout->setSpacing(8);
     auto* userLbl = new QLabel(trk(QStringLiteral("t_usuario_3f2ecd"),
                                    QStringLiteral("Usuario"),
-                                   QStringLiteral("User"),
-                                   QStringLiteral("用户")), userPassRow);
+                                   QStringLiteral("User")), userPassRow);
     auto* passLbl = new QLabel(trk(QStringLiteral("t_password_8be3c9"),
                                    QStringLiteral("Password"),
-                                   QStringLiteral("Password"),
-                                   QStringLiteral("密码")), userPassRow);
+                                   QStringLiteral("Password")), userPassRow);
     userLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     passLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     userLbl->setMinimumWidth(76);
@@ -261,8 +252,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     m_keyBrowseBtn = new QPushButton(
         trk(QStringLiteral("t_browse_btn001"),
             QStringLiteral("Examinar..."),
-            QStringLiteral("Browse..."),
-            QStringLiteral("浏览...")),
+            QStringLiteral("Browse...")),
         this);
     auto* keyRow = new QWidget(this);
     auto* keyLayout = new QHBoxLayout(keyRow);
@@ -270,8 +260,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     keyLayout->setSpacing(8);
     auto* keyLbl = new QLabel(trk(QStringLiteral("t_clave_ssh_37a1aa"),
                                   QStringLiteral("Clave privada SSH"),
-                                  QStringLiteral("SSH private key"),
-                                  QStringLiteral("SSH 私钥")), keyRow);
+                                  QStringLiteral("SSH private key")), keyRow);
     keyLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     keyLbl->setMinimumWidth(76);
     keyLayout->addWidget(keyLbl, 0);
@@ -291,16 +280,13 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     btnRow->setSpacing(8);
     auto* testBtn = new QPushButton(trk(QStringLiteral("t_probar_con_956752"),
                                         QStringLiteral("Probar conexión"),
-                                        QStringLiteral("Test connection"),
-                                        QStringLiteral("测试连接")), this);
+                                        QStringLiteral("Test connection")), this);
     auto* okBtn = new QPushButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                       QStringLiteral("Aceptar"),
-                                      QStringLiteral("Accept"),
-                                      QStringLiteral("确认")), this);
+                                      QStringLiteral("Accept")), this);
     auto* cancelBtn = new QPushButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                           QStringLiteral("Cancelar"),
-                                          QStringLiteral("Cancel"),
-                                          QStringLiteral("取消")), this);
+                                          QStringLiteral("Cancel")), this);
     connect(okBtn, &QPushButton::clicked, this, [this]() { acceptDialog(); });
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(testBtn, &QPushButton::clicked, this, [this]() {
@@ -383,7 +369,7 @@ void ConnectionDialog::updateConnectionModeUi() {
     if (m_sshFamilyCombo) {
         m_sshFamilyCombo->setEnabled(true);
     }
-    m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
+    m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password")));
     m_portEdit->setPlaceholderText(QStringLiteral("22"));
 
     ensureDefaultPortForMode();
@@ -399,8 +385,7 @@ void ConnectionDialog::updateDetectedOsLabel() {
     if (osType.isEmpty() && flavor.isEmpty()) {
         m_osInfoLabel->setText(trk(QStringLiteral("t_os_detect_pending_001"),
                                    QStringLiteral("Pendiente de identificar"),
-                                   QStringLiteral("Pending identification"),
-                                   QStringLiteral("待识别")));
+                                   QStringLiteral("Pending identification")));
         return;
     }
     m_osInfoLabel->setText(flavor.isEmpty() ? osType : QStringLiteral("%1 | %2").arg(osType, flavor));
@@ -411,13 +396,11 @@ void ConnectionDialog::browsePrivateKey() {
         this,
         trk(QStringLiteral("t_pick_ssh_key001"),
             QStringLiteral("Seleccionar clave privada SSH"),
-            QStringLiteral("Select SSH private key"),
-            QStringLiteral("选择 SSH 私钥")),
+            QStringLiteral("Select SSH private key")),
         m_keyEdit ? m_keyEdit->text().trimmed() : QString(),
         trk(QStringLiteral("t_all_files_001"),
             QStringLiteral("Todos los archivos (*)"),
-            QStringLiteral("All files (*)"),
-            QStringLiteral("所有文件 (*)")));
+            QStringLiteral("All files (*)")));
     if (!selected.isEmpty() && m_keyEdit) {
         m_keyEdit->setText(selected);
     }
@@ -524,8 +507,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     if (!proc.waitForStarted(3000)) {
         detail = trk(QStringLiteral("t_no_se_pudo_99f7f4"),
                      QStringLiteral("No se pudo iniciar %1"),
-                     QStringLiteral("Could not start %1"),
-                     QStringLiteral("无法启动 %1")).arg(program);
+                     QStringLiteral("Could not start %1")).arg(program);
         return false;
     }
     if (!proc.waitForFinished(12000)) {
@@ -533,8 +515,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
         proc.waitForFinished(1000);
         detail = trk(QStringLiteral("t_timeout_de_0509c4"),
                      QStringLiteral("Timeout de conexión SSH"),
-                     QStringLiteral("SSH connection timeout"),
-                     QStringLiteral("SSH 连接超时"));
+                     QStringLiteral("SSH connection timeout"));
         return false;
     }
     const int rc = proc.exitCode();
@@ -543,8 +524,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     if (rc == 0 && out.contains(QStringLiteral("ZFSMGR_CONN_OK"))) {
         detail = trk(QStringLiteral("t_ssh_ok_c1b8e6"),
                      QStringLiteral("SSH OK"),
-                     QStringLiteral("SSH OK"),
-                     QStringLiteral("SSH 正常"));
+                     QStringLiteral("SSH OK"));
         return true;
     }
     // Un cambio de clave de host es lo primero que hay que explicar aquí: al dar de
@@ -557,8 +537,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     detail = err.isEmpty()
                  ? trk(QStringLiteral("t_error_ssh__30fa40"),
                        QStringLiteral("Error SSH (exit %1)"),
-                       QStringLiteral("SSH error (exit %1)"),
-                       QStringLiteral("SSH 错误（退出码 %1）")).arg(rc)
+                       QStringLiteral("SSH error (exit %1)")).arg(rc)
                  : err;
     return false;
 }
@@ -640,8 +619,7 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
     if (!proc.waitForStarted(3000)) {
         err = trk(QStringLiteral("t_no_se_pudo_99f7f4"),
                   QStringLiteral("No se pudo iniciar %1"),
-                  QStringLiteral("Could not start %1"),
-                  QStringLiteral("无法启动 %1")).arg(program);
+                  QStringLiteral("Could not start %1")).arg(program);
         appendConnectionDialogTrace(QStringLiteral("WARN"),
                                     QStringLiteral("SSH probe failed to start: program=%1 detail=%2")
                                         .arg(program, oneLine(err)));
@@ -652,8 +630,7 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
         proc.waitForFinished(1000);
         err = trk(QStringLiteral("t_timeout_de_0509c4"),
                   QStringLiteral("Timeout de conexión SSH"),
-                  QStringLiteral("SSH connection timeout"),
-                  QStringLiteral("SSH 连接超时"));
+                  QStringLiteral("SSH connection timeout"));
         appendConnectionDialogTrace(QStringLiteral("WARN"),
                                     QStringLiteral("SSH probe timeout: %1@%2:%3 cmd=\"%4\"")
                                         .arg(p.username,
@@ -813,8 +790,7 @@ void ConnectionDialog::testConnection() {
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_complete_a_77b969"),
                                  QStringLiteral("Complete al menos Host y Usuario para probar la conexión."),
-                                 QStringLiteral("Fill at least Host and User to test the connection."),
-                                 QStringLiteral("至少填写主机和用户后再测试连接。")));
+                                 QStringLiteral("Fill at least Host and User to test the connection.")));
         return;
     }
     if (p.port <= 0) {
@@ -825,8 +801,7 @@ void ConnectionDialog::testConnection() {
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_puerto_inv_1bda91"),
                                  QStringLiteral("Puerto inválido."),
-                                 QStringLiteral("Invalid port."),
-                                 QStringLiteral("端口无效。")));
+                                 QStringLiteral("Invalid port.")));
         return;
     }
 
@@ -856,8 +831,7 @@ void ConnectionDialog::testConnection() {
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_conexi_n_s_62acc8"),
                                      QStringLiteral("Conexión SSH correcta a %1@%2:%3\nSistema: %4"),
-                                     QStringLiteral("SSH connection successful to %1@%2:%3\nSystem: %4"),
-                                     QStringLiteral("SSH 连接成功：%1@%2:%3\n系统：%4"))
+                                     QStringLiteral("SSH connection successful to %1@%2:%3\nSystem: %4"))
                                      .arg(p.username)
                                      .arg(p.host)
                                      .arg(p.port)
@@ -865,8 +839,7 @@ void ConnectionDialog::testConnection() {
                                               ? (m_detectedOsType.isEmpty()
                                                      ? trk(QStringLiteral("t_os_detect_pending_001"),
                                                            QStringLiteral("Pendiente de identificar"),
-                                                           QStringLiteral("Pending identification"),
-                                                           QStringLiteral("待识别"))
+                                                           QStringLiteral("Pending identification"))
                                                      : m_detectedOsType)
                                               : QStringLiteral("%1 | %2").arg(m_detectedOsType, m_detectedOsFlavor)));
         return;
@@ -884,8 +857,7 @@ void ConnectionDialog::testConnection() {
                           QStringLiteral("ZFSMgr"),
                           trk(QStringLiteral("t_fallo_en_p_f63bd9"),
                               QStringLiteral("Fallo en prueba SSH:\n%1"),
-                              QStringLiteral("SSH test failed:\n%1"),
-                              QStringLiteral("SSH 测试失败：\n%1")).arg(detail));
+                              QStringLiteral("SSH test failed:\n%1")).arg(detail));
 }
 
 mwhelpers::SudoCheck ConnectionDialog::checkRemoteSudoPassword(const ConnectionProfile& p,
@@ -918,8 +890,7 @@ void ConnectionDialog::acceptDialog() {
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_complete_a_77b969"),
                                      QStringLiteral("Complete al menos Host y Usuario para probar la conexión."),
-                                     QStringLiteral("Fill at least Host and User to test the connection."),
-                                     QStringLiteral("至少填写主机和用户后再测试连接。")));
+                                     QStringLiteral("Fill at least Host and User to test the connection.")));
             return;
         }
         QString osType;
@@ -930,8 +901,7 @@ void ConnectionDialog::acceptDialog() {
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_detect_os_fail_001"),
                                      QStringLiteral("No se pudo identificar el sistema operativo remoto por SSH.\nPruebe la conexión antes de guardar.\n\n%1"),
-                                     QStringLiteral("Could not identify the remote operating system over SSH.\nTest the connection before saving.\n\n%1"),
-                                     QStringLiteral("无法通过 SSH 识别远程操作系统。\n请先测试连接再保存。\n\n%1"))
+                                     QStringLiteral("Could not identify the remote operating system over SSH.\nTest the connection before saving.\n\n%1"))
                                      .arg(detail));
             return;
         }
@@ -954,8 +924,7 @@ void ConnectionDialog::acceptDialog() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_conn_sudo_bad_001"),
                     QStringLiteral("La contraseña de sudo no es válida en %1@%2.\n%3\n\nCorríjala antes de guardar."),
-                    QStringLiteral("The sudo password is not valid on %1@%2.\n%3\n\nFix it before saving."),
-                    QStringLiteral("在 %1@%2 上 sudo 密码无效。\n%3\n\n请先更正再保存。"))
+                    QStringLiteral("The sudo password is not valid on %1@%2.\n%3\n\nFix it before saving."))
                     .arg(p.username, p.host, sudoDetail));
             return;
         }
@@ -970,8 +939,7 @@ void ConnectionDialog::acceptDialog() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_conn_sudo_unchecked_001"),
                     QStringLiteral("No se pudo comprobar la contraseña de sudo en %1@%2:\n%3\n\n¿Guardar de todos modos?"),
-                    QStringLiteral("Could not verify the sudo password on %1@%2:\n%3\n\nSave anyway?"),
-                    QStringLiteral("无法验证 %1@%2 上的 sudo 密码：\n%3\n\n仍要保存吗？"))
+                    QStringLiteral("Could not verify the sudo password on %1@%2:\n%3\n\nSave anyway?"))
                     .arg(p.username, p.host, sudoDetail),
                 QMessageBox::Yes | QMessageBox::No,
                 QMessageBox::Yes);
@@ -989,7 +957,6 @@ void ConnectionDialog::acceptDialog() {
 
 QString ConnectionDialog::trk(const QString& key,
                               const QString& es,
-                              const QString& en,
-                              const QString& zh) const {
-    return I18nManager::instance().translateKey(m_language, key, es, en, zh);
+                              const QString& en) const {
+    return I18nManager::instance().translateKey(m_language, key, es, en);
 }

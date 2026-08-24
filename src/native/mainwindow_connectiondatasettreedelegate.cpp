@@ -414,29 +414,24 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.update = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_pool_refresh_status001"),
                           QStringLiteral("Actualizar estado"),
-                          QStringLiteral("Refresh status"),
-                          QStringLiteral("刷新状态")));
+                          QStringLiteral("Refresh status")));
     actions.importPool = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_import_btn001"),
                           QStringLiteral("Importar"),
-                          QStringLiteral("Import"),
-                          QStringLiteral("导入")));
+                          QStringLiteral("Import")));
     actions.importRename = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_import_rename01"),
                               QStringLiteral("Importar renombrando"),
-                              QStringLiteral("Import renaming"),
-                              QStringLiteral("导入并重命名")));
+                              QStringLiteral("Import renaming")));
     actions.exportPool = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_export_btn001"),
                           QStringLiteral("Exportar"),
-                          QStringLiteral("Export"),
-                          QStringLiteral("导出")));
+                          QStringLiteral("Export")));
     actions.history = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_pool_history_t1"),
                           QStringLiteral("Historial")));
     QMenu* management = menu.addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_management001"),
                               QStringLiteral("Gestión"),
-                              QStringLiteral("Management"),
-                              QStringLiteral("管理")));
+                              QStringLiteral("Management")));
     actions.sync = management->addAction(QStringLiteral("Sync"));
     actions.scrub = management->addAction(QStringLiteral("Scrub"));
     actions.upgrade = management->addAction(QStringLiteral("Upgrade"));
@@ -853,12 +848,10 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     if (!m_mainWindow->editInlinePropertiesDialog(
             m_mainWindow->trk(QStringLiteral("t_visible_props_title_001"),
                               QStringLiteral("Propiedades visibles"),
-                              QStringLiteral("Visible properties"),
-                              QStringLiteral("可见属性")),
+                              QStringLiteral("Visible properties")),
             m_mainWindow->trk(QStringLiteral("t_visible_props_msg_001"),
                               QStringLiteral("Seleccione las propiedades que desea mostrar en línea y organícelas en grupos."),
-                              QStringLiteral("Select the properties you want to show inline and organize them into groups."),
-                              QStringLiteral("选择要内联显示的属性并按组组织。")),
+                              QStringLiteral("Select the properties you want to show inline and organize them into groups.")),
                                                   allProps,
                                                   selection,
                                                   editedGroups,
@@ -972,13 +965,11 @@ bool MainWindowConnectionDatasetTreeDelegate::promptNewPassphrase(const QString&
     pass2->setEchoMode(QLineEdit::Password);
     layout->addRow(m_mainWindow->trk(QStringLiteral("t_new_key_lbl_001"),
                                      QStringLiteral("Nueva clave"),
-                                     QStringLiteral("New key"),
-                                     QStringLiteral("新密钥")),
+                                     QStringLiteral("New key")),
                    pass1);
     layout->addRow(m_mainWindow->trk(QStringLiteral("t_repeat_key_lbl_001"),
                                      QStringLiteral("Repita la clave"),
-                                     QStringLiteral("Repeat key"),
-                                     QStringLiteral("重复密钥")),
+                                     QStringLiteral("Repeat key")),
                    pass2);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     layout->addWidget(buttons);
@@ -994,8 +985,7 @@ bool MainWindowConnectionDatasetTreeDelegate::promptNewPassphrase(const QString&
                              QStringLiteral("ZFSMgr"),
                              m_mainWindow->trk(QStringLiteral("t_keys_do_not_match_001"),
                                                QStringLiteral("Las claves no coinciden."),
-                                               QStringLiteral("Keys do not match."),
-                                               QStringLiteral("密钥不匹配。")));
+                                               QStringLiteral("Keys do not match.")));
         return false;
     }
     passphraseOut = p1;
@@ -1569,8 +1559,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     QMenu autoMenu(m_mainWindow);
     QAction* aDeleteSchedule = autoMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_schedule01"),
                               QStringLiteral("Borrar programación"),
-                              QStringLiteral("Delete schedule"),
-                              QStringLiteral("删除计划")));
+                              QStringLiteral("Delete schedule")));
     m_mainWindow->endUiBusy();
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
     logContextMenuPerf(m_mainWindow,
@@ -1853,16 +1842,13 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     QMenu permMenu(m_mainWindow);
     QAction* aNewGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
                               QStringLiteral("Nueva delegación"),
-                              QStringLiteral("New delegation"),
-                              QStringLiteral("新建委派")));
+                              QStringLiteral("New delegation")));
     QAction* aNewSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_set001"),
                               QStringLiteral("Nuevo set de permisos"),
-                              QStringLiteral("New permission set"),
-                              QStringLiteral("新建权限集")));
+                              QStringLiteral("New permission set")));
     QAction* aRefreshPerms = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_refresh_perms1"),
                               QStringLiteral("Refrescar permisos"),
-                              QStringLiteral("Refresh permissions"),
-                              QStringLiteral("刷新权限")));
+                              QStringLiteral("Refresh permissions")));
     QAction* aEditGrant = nullptr;
     QAction* aDeleteGrant = nullptr;
     QAction* aRenameSet = nullptr;
@@ -1871,22 +1857,18 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         permMenu.addSeparator();
         aEditGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_edit_grant001"),
                               QStringLiteral("Editar delegación"),
-                              QStringLiteral("Edit delegation"),
-                              QStringLiteral("编辑委派")));
+                              QStringLiteral("Edit delegation")));
         aDeleteGrant = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_grant001"),
                               QStringLiteral("Eliminar delegación"),
-                              QStringLiteral("Delete delegation"),
-                              QStringLiteral("删除委派")));
+                              QStringLiteral("Delete delegation")));
     } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
         permMenu.addSeparator();
         aRenameSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_rename_set001"),
                               QStringLiteral("Renombrar conjunto de permisos"),
-                              QStringLiteral("Rename permission set"),
-                              QStringLiteral("重命名权限集")));
+                              QStringLiteral("Rename permission set")));
         aDeleteSet = permMenu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_del_set001"),
                               QStringLiteral("Eliminar set de permisos"),
-                              QStringLiteral("Delete permission set"),
-                              QStringLiteral("删除权限集")));
+                              QStringLiteral("Delete permission set")));
     }
     m_mainWindow->endUiBusy();
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
@@ -2033,8 +2015,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         if (!promptPermissionGrant(mwCtx,
                                    m_mainWindow->trk(QStringLiteral("t_ctx_edit_grant001"),
                               QStringLiteral("Editar delegación"),
-                              QStringLiteral("Edit delegation"),
-                              QStringLiteral("编辑委派")),
+                              QStringLiteral("Edit delegation")),
                                    targetType,
                                    targetName,
                                    scope,
@@ -2103,8 +2084,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
             m_mainWindow,
             m_mainWindow->trk(QStringLiteral("t_ctx_rename_set001"),
                               QStringLiteral("Renombrar conjunto de permisos"),
-                              QStringLiteral("Rename permission set"),
-                              QStringLiteral("重命名权限集")),
+                              QStringLiteral("Rename permission set")),
             QStringLiteral("Nuevo nombre"),
             QLineEdit::Normal,
             oldSetName,
@@ -2263,31 +2243,26 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             aSplitHorizontal = splitMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_split_right_001"),
                                   QStringLiteral("Derecha"),
-                                  QStringLiteral("Right"),
-                                  QStringLiteral("向右")));
+                                  QStringLiteral("Right")));
             aSplitLeft = splitMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_split_left_001"),
                                   QStringLiteral("Izquierda"),
-                                  QStringLiteral("Left"),
-                                  QStringLiteral("向左")));
+                                  QStringLiteral("Left")));
             aSplitVertical = splitMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_split_below_001"),
                                   QStringLiteral("Abajo"),
-                                  QStringLiteral("Below"),
-                                  QStringLiteral("向下")));
+                                  QStringLiteral("Below")));
             aSplitAbove = splitMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_split_above_001"),
                                   QStringLiteral("Arriba"),
-                                  QStringLiteral("Above"),
-                                  QStringLiteral("向上")));
+                                  QStringLiteral("Above")));
         }
     }
 
     if (item->data(0, kIsSplitRootRole).toBool()) {
         aCloseSplit = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_close001"),
                               QStringLiteral("Cerrar"),
-                              QStringLiteral("Close"),
-                              QStringLiteral("关闭")));
+                              QStringLiteral("Close")));
     }
 
     // Las seis acciones de origen+destino, invocadas SOBRE el destino.
@@ -2313,12 +2288,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         QMenu* sub = menu.addMenu(
             hasOrigin ? m_mainWindow->trk(QStringLiteral("t_ctx_with_origin001"),
                                           QStringLiteral("Con el origen %1"),
-                                          QStringLiteral("With source %1"),
-                                          QStringLiteral("以 %1 为源")).arg(originShort)
+                                          QStringLiteral("With source %1")).arg(originShort)
                       : m_mainWindow->trk(QStringLiteral("t_ctx_with_origin_none001"),
                                           QStringLiteral("Con el origen marcado"),
-                                          QStringLiteral("With the marked source"),
-                                          QStringLiteral("以已标记的源")));
+                                          QStringLiteral("With the marked source")));
         MainWindow::DatasetSelectionContext dst;
         dst.valid = target.valid;
         dst.connIdx = target.connIdx;
@@ -2331,34 +2304,32 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             QString verb;
             QString es;
             QString en;
-            QString zh;
             const MainWindow::TransferActionAvailability::Entry* entry;
         };
         const QVector<Spec> specs = {
             {QStringLiteral("send"),  QStringLiteral("Enviar aquí desde %1"),
-             QStringLiteral("Send here from %1"),      QStringLiteral("从 %1 发送到此"),      &avail.send},
+             QStringLiteral("Send here from %1"),      &avail.send},
             {QStringLiteral("move"),  QStringLiteral("Mover aquí desde %1"),
-             QStringLiteral("Move here from %1"),      QStringLiteral("从 %1 移动到此"),      &avail.move},
+             QStringLiteral("Move here from %1"),      &avail.move},
             {QStringLiteral("clone"), QStringLiteral("Clonar aquí desde %1"),
-             QStringLiteral("Clone here from %1"),     QStringLiteral("从 %1 克隆到此"),      &avail.clone},
+             QStringLiteral("Clone here from %1"),      &avail.clone},
             {QStringLiteral("sync"),  QStringLiteral("Sincronizar aquí desde %1"),
-             QStringLiteral("Sync here from %1"),      QStringLiteral("从 %1 同步到此"),      &avail.sync},
+             QStringLiteral("Sync here from %1"),      &avail.sync},
             {QStringLiteral("level"), QStringLiteral("Nivelar con %1"),
-             QStringLiteral("Level with %1"),          QStringLiteral("与 %1 同步快照"),      &avail.level},
+             QStringLiteral("Level with %1"),      &avail.level},
             {QStringLiteral("diff"),  QStringLiteral("Comparar con %1"),
-             QStringLiteral("Compare with %1"),        QStringLiteral("与 %1 比较"),          &avail.diff},
+             QStringLiteral("Compare with %1"),          &avail.diff},
         };
         for (const Spec& spec : specs) {
             const QString label =
                 hasOrigin
                     ? m_mainWindow->trk(QStringLiteral("t_ctx_transfer_%1").arg(spec.verb),
-                                        spec.es, spec.en, spec.zh).arg(originShort)
+                                        spec.es, spec.en).arg(originShort)
                     : m_mainWindow->trk(QStringLiteral("t_ctx_transfer_%1").arg(spec.verb),
-                                        spec.es, spec.en, spec.zh)
+                                        spec.es, spec.en)
                           .arg(m_mainWindow->trk(QStringLiteral("t_ctx_transfer_nosrc001"),
                                                  QStringLiteral("(sin origen)"),
-                                                 QStringLiteral("(no source)"),
-                                                 QStringLiteral("（无源）")));
+                                                 QStringLiteral("(no source)")));
             QAction* act = sub->addAction(label);
             const bool ok = spec.entry->enabled && !m_mainWindow->actionsLocked();
             act->setEnabled(ok);
@@ -2368,8 +2339,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 act->setToolTip(m_mainWindow->actionsLocked()
                                     ? m_mainWindow->trk(QStringLiteral("t_ctx_transfer_busy001"),
                                                         QStringLiteral("Hay una acción en curso."),
-                                                        QStringLiteral("An action is running."),
-                                                        QStringLiteral("有操作正在执行。"))
+                                                        QStringLiteral("An action is running."))
                                     : spec.entry->reason);
             }
             transferEntries.push_back(TransferEntry{act, spec.verb});
@@ -2492,30 +2462,25 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             aDelete = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_delete_snapshot001"),
                                   QStringLiteral("Borrar snapshot"),
-                                  QStringLiteral("Delete snapshot"),
-                                  QStringLiteral("删除快照")));
+                                  QStringLiteral("Delete snapshot")));
             aRollback = menu.addAction(QStringLiteral("Rollback"));
             aNewHold = menu.addAction(m_mainWindow->trk(QStringLiteral("t_new_hold_title001"), QStringLiteral("Nuevo Hold")));
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
                                   QStringLiteral("Marcar como origen"),
-                                  QStringLiteral("Mark as source"),
-                                  QStringLiteral("标记为源")));
+                                  QStringLiteral("Mark as source")));
             buildTransferMenu(ctx);
         } else {
             datasetMenuRoot = menu.addMenu(QStringLiteral("Dataset"));
             aCreate = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_create001"),
                               QStringLiteral("Crear"),
-                              QStringLiteral("Create"),
-                              QStringLiteral("创建")));
+                              QStringLiteral("Create")));
             aRename = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_rename001"),
                               QStringLiteral("Renombrar"),
-                              QStringLiteral("Rename"),
-                              QStringLiteral("重命名")));
+                              QStringLiteral("Rename")));
             aDelete = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_delete001"),
                               QStringLiteral("Borrar"),
-                              QStringLiteral("Delete"),
-                              QStringLiteral("删除")));
+                              QStringLiteral("Delete")));
             // Montar y desmontar viven en «Dataset», no en «Acciones»: son estado del
             // propio dataset, como crear o renombrar, y no operaciones de datos como
             // Desglosar o Hacia Dir. Desmontar no estaba en ningún menú pese a existir
@@ -2523,97 +2488,79 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             datasetMenuRoot->addSeparator();
             aMount = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_mount001"),
                               QStringLiteral("Montar"),
-                              QStringLiteral("Mount"),
-                              QStringLiteral("挂载")));
+                              QStringLiteral("Mount")));
             aUnmount = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_unmount001"),
                               QStringLiteral("Desmontar"),
-                              QStringLiteral("Unmount"),
-                              QStringLiteral("卸载")));
+                              QStringLiteral("Unmount")));
             // Promover un clon. Estaba en la lista de mutaciones permitidas y en la de
             // permisos delegables, pero no había forma de invocarlo desde la interfaz: es
             // justo lo que hace falta después de clonar, para soltar la atadura con la
             // instantánea de origen y poder borrarla.
             aPromote = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_promote001"),
                               QStringLiteral("Promover clon"),
-                              QStringLiteral("Promote clone"),
-                              QStringLiteral("提升克隆")));
+                              QStringLiteral("Promote clone")));
             datasetMenuRoot->addSeparator();
             mEncryption = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_enc_key001"),
                               QStringLiteral("Clave de encriptación"),
-                              QStringLiteral("Encryption key"),
-                              QStringLiteral("加密密钥")));
+                              QStringLiteral("Encryption key")));
             aLoadKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_load_key001"),
                               QStringLiteral("Cargar clave"),
-                              QStringLiteral("Load key"),
-                              QStringLiteral("加载密钥")));
+                              QStringLiteral("Load key")));
             aUnloadKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_unload_key001"),
                               QStringLiteral("Descargar clave"),
-                              QStringLiteral("Unload key"),
-                              QStringLiteral("卸载密钥")));
+                              QStringLiteral("Unload key")));
             aChangeKey = mEncryption->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_change_key001"),
                               QStringLiteral("Cambiar clave"),
-                              QStringLiteral("Change key"),
-                              QStringLiteral("更改密钥")));
+                              QStringLiteral("Change key")));
             aScheduleSnapshots = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_sched_snaps01"),
                               QStringLiteral("Programar snapshots"),
-                              QStringLiteral("Schedule snapshots"),
-                              QStringLiteral("计划快照")));
+                              QStringLiteral("Schedule snapshots")));
             permsMenuRoot = datasetMenuRoot->addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_permissions01"),
                               QStringLiteral("Permisos"),
-                              QStringLiteral("Permissions"),
-                              QStringLiteral("权限")));
+                              QStringLiteral("Permissions")));
             aPermNewSet = permsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_set001"),
                               QStringLiteral("Nuevo set de permisos"),
-                              QStringLiteral("New permission set"),
-                              QStringLiteral("新建权限集")));
+                              QStringLiteral("New permission set")));
             aPermNewDeleg = permsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
                               QStringLiteral("Nueva delegación"),
-                              QStringLiteral("New delegation"),
-                              QStringLiteral("新建委派")));
+                              QStringLiteral("New delegation")));
 
             actionsMenuRoot = menu.addMenu(m_mainWindow->trk(QStringLiteral("t_ctx_actions001"),
                               QStringLiteral("Acciones"),
-                              QStringLiteral("Actions"),
-                              QStringLiteral("操作")));
+                              QStringLiteral("Actions")));
             aBreakdown = actionsMenuRoot->addAction(
-                m_mainWindow->trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
+                m_mainWindow->trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down")));
             aAssemble = actionsMenuRoot->addAction(
-                m_mainWindow->trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
+                m_mainWindow->trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble")));
             aFromDir = actionsMenuRoot->addAction(
-                m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
+                m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir")));
             aToDir = actionsMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_advdir_auto035"),
                               QStringLiteral("Hacia Dir"),
-                              QStringLiteral("To Dir"),
-                              QStringLiteral("到目录")));
+                              QStringLiteral("To Dir")));
 
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
                                   QStringLiteral("Marcar como origen"),
-                                  QStringLiteral("Mark as source"),
-                                  QStringLiteral("标记为源")));
+                                  QStringLiteral("Mark as source")));
             buildTransferMenu(ctx);
             if (!item->data(0, kIsSplitRootRole).toBool() && !isPoolRoot) {
                 QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
                 aSplitHorizontal = splitMenu->addAction(
                     m_mainWindow->trk(QStringLiteral("t_split_right_001"),
                                       QStringLiteral("Derecha"),
-                                      QStringLiteral("Right"),
-                                      QStringLiteral("向右")));
+                                      QStringLiteral("Right")));
                 aSplitLeft = splitMenu->addAction(
                     m_mainWindow->trk(QStringLiteral("t_split_left_001"),
                                       QStringLiteral("Izquierda"),
-                                      QStringLiteral("Left"),
-                                      QStringLiteral("向左")));
+                                      QStringLiteral("Left")));
                 aSplitVertical = splitMenu->addAction(
                     m_mainWindow->trk(QStringLiteral("t_split_below_001"),
                                       QStringLiteral("Abajo"),
-                                      QStringLiteral("Below"),
-                                      QStringLiteral("向下")));
+                                      QStringLiteral("Below")));
                 aSplitAbove = splitMenu->addAction(
                     m_mainWindow->trk(QStringLiteral("t_split_above_001"),
                                       QStringLiteral("Arriba"),
-                                      QStringLiteral("Above"),
-                                      QStringLiteral("向上")));
+                                      QStringLiteral("Above")));
             }
         }
     }
@@ -2974,8 +2921,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     QStringLiteral("Schedule prepared for «%1»: enabled, keeping 7 daily "
                                    "snapshots.\n\nIt has not been applied yet. Adjust the retentions "
                                    "in the dataset properties (org.fc16.gsa:*) and press Apply.")
-                        .arg(actx.datasetName),
-                    QStringLiteral("已为「%1」准备计划：已启用，保留 7 份每日快照。\n\n尚未应用。")
+                        .arg(actx.datasetName)
                         .arg(actx.datasetName)));
             return;
         }
@@ -3145,8 +3091,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                         QStringLiteral("Promoting %1 makes it an independent dataset: it takes ownership "
                                        "of the data and its origin snapshot moves under the dataset it "
                                        "was cloned from.\n\nIt only has an effect if %1 is a clone."
-                                       "\n\nContinue?").arg(ds),
-                        QStringLiteral("提升 %1 会使其成为独立数据集。\n\n继续？").arg(ds)),
+                                       "\n\nContinue?").arg(ds).arg(ds)),
                     QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
                 return;
             }
@@ -3220,8 +3165,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     QStringLiteral("ZFSMgr"),
                     m_mainWindow->trk(QStringLiteral("t_pool_rename_info_001"),
                                       QStringLiteral("Para renombrar un pool hay que exportarlo y volver a importarlo con el nuevo nombre."),
-                                      QStringLiteral("To rename a pool, export it and import it again with the new name."),
-                                      QStringLiteral("要重命名存储池，必须先导出，再以新名称重新导入。")));
+                                      QStringLiteral("To rename a pool, export it and import it again with the new name.")));
                 return;
             }
             const bool isSnapshot = !actx.snapshotName.trimmed().isEmpty();
@@ -3235,14 +3179,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 m_mainWindow->trk(QStringLiteral("t_ctx_rename_001"),
                                   m_mainWindow->trk(QStringLiteral("t_ctx_ds_rename001"),
                               QStringLiteral("Renombrar"),
-                              QStringLiteral("Rename"),
-                              QStringLiteral("重命名")),
-                                  QStringLiteral("Rename"),
-                                  QStringLiteral("重命名")),
+                              QStringLiteral("Rename")),
+                                  QStringLiteral("Rename")),
                 m_mainWindow->trk(QStringLiteral("t_new_name_001"),
                                   QStringLiteral("Nuevo nombre"),
-                                  QStringLiteral("New name"),
-                                  QStringLiteral("新名称")),
+                                  QStringLiteral("New name")),
                 QLineEdit::Normal,
                 currentLeaf,
                 &ok).trimmed();
@@ -3255,8 +3196,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     QStringLiteral("ZFSMgr"),
                     m_mainWindow->trk(QStringLiteral("t_invalid_ds_name_001"),
                                       QStringLiteral("El nuevo nombre no puede contener '/' ni '@'."),
-                                      QStringLiteral("The new name cannot contain '/' or '@'."),
-                                      QStringLiteral("新名称不能包含“/”或“@”。")));
+                                      QStringLiteral("The new name cannot contain '/' or '@'.")));
                 return;
             }
             const QString parentName = mwhelpers::parentDatasetName(actx.datasetName.trimmed());
@@ -3266,8 +3206,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     QStringLiteral("ZFSMgr"),
                     m_mainWindow->trk(QStringLiteral("t_invalid_ds_target_001"),
                                       QStringLiteral("El nuevo nombre no puede aplicarse a este dataset."),
-                                      QStringLiteral("The new name cannot be applied to this dataset."),
-                                      QStringLiteral("该新名称无法应用到此数据集。")));
+                                      QStringLiteral("The new name cannot be applied to this dataset.")));
                 return;
             }
             const QString targetObject = isSnapshot
@@ -3346,8 +3285,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 dlg.setModal(true);
                 dlg.setWindowTitle(m_mainWindow->trk(QStringLiteral("t_ctx_new_grant001"),
                               QStringLiteral("Nueva delegación"),
-                              QStringLiteral("New delegation"),
-                              QStringLiteral("新建委派")));
+                              QStringLiteral("New delegation")));
                 auto* layout = new QVBoxLayout(&dlg);
                 auto* form = new QFormLayout();
                 auto* targetType = new QComboBox(&dlg);
@@ -3481,8 +3419,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (picked == aLoadKey) {
                 actionName = m_mainWindow->trk(QStringLiteral("t_load_key_001"),
                                                QStringLiteral("Cargar clave"),
-                                               QStringLiteral("Load key"),
-                                               QStringLiteral("加载密钥"));
+                                               QStringLiteral("Load key"));
                 cmd = QStringLiteral("zfs load-key %1").arg(ctx.datasetName);
             } else if (picked == aUnloadKey) {
                 actionName = QStringLiteral("Unload key");

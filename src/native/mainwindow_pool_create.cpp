@@ -334,8 +334,7 @@ void MainWindow::createPoolForSelectedConnection() {
             this,
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_poolcrt_auto001"), QStringLiteral("Seleccione una conexión para gestionar pools."),
-                QStringLiteral("Select a connection to manage pools."),
-                QStringLiteral("请选择一个连接来管理池。")));
+                QStringLiteral("Select a connection to manage pools.")));
         return;
     }
     const ConnectionProfile p = m_conns.profiles[idx];
@@ -995,7 +994,7 @@ void MainWindow::createPoolForSelectedConnection() {
     const QFont baseUiFont = QApplication::font();
     dlg.setFont(baseUiFont);
     dlg.setWindowTitle(
-        trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
+        trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"))
             .arg(p.name));
     dlg.setModal(true);
     dlg.resize(1180, 912);
@@ -1007,7 +1006,7 @@ void MainWindow::createPoolForSelectedConnection() {
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->setSpacing(8);
     auto* baseBox = new QGroupBox(
-        trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
+        trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters")), leftPane);
     auto* form = new QFormLayout(baseBox);
     form->setContentsMargins(6, 6, 6, 6);
     form->setVerticalSpacing(3);
@@ -1205,7 +1204,7 @@ void MainWindow::createPoolForSelectedConnection() {
         fsPropsEd->setText(others.join(QStringLiteral(",")));
     }
     auto* poolNameLabel = new QLabel(
-        trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")),
+        trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name")),
         baseBox);
     setRequiredLabelState(poolNameLabel, true);
     bindRequiredLineEditLabel(poolNameEd, poolNameLabel);
@@ -1214,7 +1213,7 @@ void MainWindow::createPoolForSelectedConnection() {
     flagsRow->addWidget(forceCb);
     flagsRow->addWidget(dryRunCb);
     flagsRow->addStretch(1);
-    form->addRow(trk(QStringLiteral("t_poolcrt_auto006"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
+    form->addRow(trk(QStringLiteral("t_poolcrt_auto006"), QStringLiteral("Flags"), QStringLiteral("Flags")), flagsRow);
     auto* poolCoreGrid = new QGridLayout();
     poolCoreGrid->setContentsMargins(0, 0, 0, 0);
     poolCoreGrid->setHorizontalSpacing(6);
@@ -1272,20 +1271,17 @@ void MainWindow::createPoolForSelectedConnection() {
 
     auto* vdevBox =
         new QGroupBox(trk(QStringLiteral("t_poolcrt_auto007"), QStringLiteral("Constructor de VDEV"),
-                          QStringLiteral("VDEV builder"),
-                          QStringLiteral("VDEV 构建器")),
+                          QStringLiteral("VDEV builder")),
                       leftPane);
     auto* vdevLay = new QVBoxLayout(vdevBox);
     auto* vdevButtonsRow = new QHBoxLayout();
     auto* addSelectedBtn = new QPushButton(
         trk(QStringLiteral("t_poolcrt_auto011b"),
             QStringLiteral("Añadir seleccionados"),
-            QStringLiteral("Add selected"),
-            QStringLiteral("添加所选设备")),
+            QStringLiteral("Add selected")),
         vdevBox);
     auto* clearSelBtn = new QPushButton(trk(QStringLiteral("t_poolcrt_auto011"), QStringLiteral("Limpiar selección dispositivos"),
-                                            QStringLiteral("Clear device selection"),
-                                            QStringLiteral("清除设备选择")),
+                                            QStringLiteral("Clear device selection")),
                                         vdevBox);
     addSelectedBtn->setFont(baseUiFont);
     clearSelBtn->setFont(baseUiFont);
@@ -1296,8 +1292,7 @@ void MainWindow::createPoolForSelectedConnection() {
     auto* vdevHelp =
         new QLabel(trk(QStringLiteral("t_poolcrt_auto013"),
                        QStringLiteral("Cree nodos con el menú contextual del árbol, marque block devices y pulse Añadir seleccionados."),
-                       QStringLiteral("Create nodes with the tree context menu, check block devices, and click Add selected."),
-                       QStringLiteral("通过树的上下文菜单创建节点，勾选块设备后点击添加所选设备。")),
+                       QStringLiteral("Create nodes with the tree context menu, check block devices, and click Add selected.")),
                    vdevBox);
     vdevHelp->setWordWrap(true);
     vdevLay->addWidget(vdevHelp, 0);
@@ -1325,18 +1320,17 @@ void MainWindow::createPoolForSelectedConnection() {
 
     auto* devicesBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto015"), QStringLiteral("Block devices disponibles"),
-            QStringLiteral("Available block devices"),
-            QStringLiteral("可用块设备")),
+            QStringLiteral("Available block devices")),
         &dlg);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
     DeviceDragTreeWidget* devicesTree = new DeviceDragTreeWidget(devicesBox);
     devicesTree->setFont(baseUiFont);
     devicesTree->setColumnCount(4);
     devicesTree->setHeaderLabels({
-        trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
-        trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
-        trk(QStringLiteral("t_poolcrt_auto034"), QStringLiteral("Tipo partición"), QStringLiteral("Partition type"), QStringLiteral("分区类型")),
-        trk(QStringLiteral("t_poolcrt_auto036"), QStringLiteral("En pool"), QStringLiteral("In pool"), QStringLiteral("在池中")),
+        trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device")),
+        trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size")),
+        trk(QStringLiteral("t_poolcrt_auto034"), QStringLiteral("Tipo partición"), QStringLiteral("Partition type")),
+        trk(QStringLiteral("t_poolcrt_auto036"), QStringLiteral("En pool"), QStringLiteral("In pool")),
     });
     for (int c = 0; c < devicesTree->columnCount(); ++c) {
         devicesTree->header()->setSectionResizeMode(c, QHeaderView::Interactive);
@@ -1467,8 +1461,8 @@ void MainWindow::createPoolForSelectedConnection() {
             isMacConn && isDiskRoot
             && (isMacDisk0Root || e.synthesized || macRootHasApfsChildren || isApfsLikeFsType(e.fsType));
         if (isWinEfiOrReservedOnlyOrEmptyDisk) {
-            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
-            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"));
+            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"));
             rr.bgColor = stGreen;
             rr.colorRank = 0;
             rr.selectable = true;
@@ -1486,12 +1480,11 @@ void MainWindow::createPoolForSelectedConnection() {
                        .arg(macImportedPoolVirtualDisk ? 1 : 0)
                        .arg(macSynthesizedDevice ? 1 : 0)
                        .arg(e.fsType.trimmed()));
-            rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"));
             if (protectedMount) {
-                rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
+                rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
-                                    QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
-                                    QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
+                                    QStringLiteral("System device (/ /boot /boot/efi or SWAP)"));
             } else if (macSynthesizedDevice && !isDiskRoot) {
                 rr.stateText = QStringLiteral("POOL");
                 rr.detailText = QStringLiteral("Partición de disco sintetizado por ZFS/macOS");
@@ -1518,35 +1511,31 @@ void MainWindow::createPoolForSelectedConnection() {
                                           QStringLiteral("Pertenece a «%1», que no está importado")
                                               .arg(e.poolName),
                                           QStringLiteral("Belongs to \"%1\", which is not imported")
-                                              .arg(e.poolName),
-                                          QStringLiteral("属于「%1」，该池未导入").arg(e.poolName))
+                                              .arg(e.poolName).arg(e.poolName))
                                     : trk(QStringLiteral("t_poolcrt_notimp_002"),
                                           QStringLiteral("Pertenece a «%1» (no importado, %2)")
                                               .arg(e.poolName, e.poolState),
                                           QStringLiteral("Belongs to \"%1\" (not imported, %2)")
-                                              .arg(e.poolName, e.poolState),
-                                          QStringLiteral("属于「%1」（未导入，%2）")
+                                              .arg(e.poolName, e.poolState)
                                               .arg(e.poolName, e.poolState));
             } else if (!e.poolName.isEmpty()) {
                 rr.stateText = e.poolName;
                 rr.detailText = trk(QStringLiteral("t_poolcrt_imported_001"),
                                     QStringLiteral("En uso por el pool «%1», importado").arg(e.poolName),
-                                    QStringLiteral("In use by pool \"%1\", imported").arg(e.poolName),
-                                    QStringLiteral("正在被已导入的池「%1」使用").arg(e.poolName));
+                                    QStringLiteral("In use by pool \"%1\", imported").arg(e.poolName).arg(e.poolName));
             } else {
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
-                                    QStringLiteral("Already part of a pool"),
-                                    QStringLiteral("已属于某个池"));
+                                    QStringLiteral("Already part of a pool"));
             }
             rr.bgColor = stRed;
             rr.colorRank = 2;
             rr.selectable = false;
         } else {
-            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"));
             if (e.zfsSignature) {
                 rr.detailText = QStringLiteral("Firma ZFS detectada, pero no aparece en zpool status/import");
             } else {
-                rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"));
             }
             rr.bgColor = stGreen;
             rr.colorRank = 0;
@@ -1698,8 +1687,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QAction* aClear = menu.addAction(
             trk(QStringLiteral("t_poolcrt_labelclear_001"),
                 QStringLiteral("Limpiar la etiqueta de «%1» en %2").arg(poolName, devPath),
-                QStringLiteral("Clear the \"%1\" label on %2").arg(poolName, devPath),
-                QStringLiteral("清除 %2 上「%1」的标签").arg(poolName, devPath)));
+                QStringLiteral("Clear the \"%1\" label on %2").arg(poolName, devPath).arg(poolName, devPath)));
         if (menu.exec(devicesTree->viewport()->mapToGlobal(pos)) != aClear) {
             return;
         }
@@ -1712,9 +1700,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 QStringLiteral("The ZFS label on %1 will be erased.\n\nThe device claims to belong "
                                "to pool \"%2\", which is not imported. If that pool still matters to "
                                "anyone, this makes it unrecoverable from this device.\n\nContinue?")
-                    .arg(devPath, poolName),
-                QStringLiteral("即将擦除 %1 上的 ZFS 标签。\n\n该设备声称属于未导入的池「%2」。"
-                               "如果该池仍有价值，此操作将使其无法从该设备恢复。\n\n是否继续？")
+                    .arg(devPath, poolName)
                     .arg(devPath, poolName));
         if (QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"), warn,
                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
@@ -1741,8 +1727,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 QStringLiteral("Etiqueta borrada. Cierre y vuelva a abrir «Crear pool» para "
                                "que %1 aparezca como libre.").arg(devPath),
                 QStringLiteral("Label cleared. Close and reopen \"Create pool\" so %1 shows as "
-                               "free.").arg(devPath),
-                QStringLiteral("标签已清除。请关闭并重新打开「创建池」，%1 才会显示为空闲。")
+                               "free.").arg(devPath)
                     .arg(devPath)));
     });
 
@@ -2316,8 +2301,7 @@ void MainWindow::createPoolForSelectedConnection() {
             menu.addSeparator();
             QAction* removeAction = menu.addAction(trk(QStringLiteral("t_ctx_remove_node01"),
         QStringLiteral("Eliminar nodo"),
-        QStringLiteral("Remove node"),
-        QStringLiteral("删除节点")));
+        QStringLiteral("Remove node")));
             QObject::connect(removeAction, &QAction::triggered, &dlg, removePoolNode);
         }
         menu.exec(poolTree->viewport()->mapToGlobal(pos));
@@ -2464,8 +2448,7 @@ void MainWindow::createPoolForSelectedConnection() {
         if (poolName.isEmpty()) {
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_poolcrt_auto031"), QStringLiteral("Nombre de pool vacío."),
-                                     QStringLiteral("Pool name is empty."),
-                                     QStringLiteral("池名称为空。")));
+                                     QStringLiteral("Pool name is empty.")));
             return;
         }
 
@@ -2541,8 +2524,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 QMessageBox::warning(
                     this, QStringLiteral("ZFSMgr"),
                     trk(QStringLiteral("t_poolcrt_auto032"), QStringLiteral("Defina la estructura del pool en el árbol o seleccione dispositivos para modo rápido."),
-                        QStringLiteral("Build the pool layout in the tree or select devices for quick mode."),
-                        QStringLiteral("请在树中构建池结构，或在快速模式中选择设备。")));
+                        QStringLiteral("Build the pool layout in the tree or select devices for quick mode.")));
                 return;
             }
             specLines << selectedDevices.join(' ');
@@ -2593,12 +2575,10 @@ void MainWindow::createPoolForSelectedConnection() {
                 this,
                 trk(QStringLiteral("t_poolcrt_exec_err_t001"),
                     QStringLiteral("Crear pool"),
-                    QStringLiteral("Create pool"),
-                    QStringLiteral("创建池")),
+                    QStringLiteral("Create pool")),
                 trk(QStringLiteral("t_poolcrt_exec_err_q001"),
                     QStringLiteral("No se pudo crear el pool:\n%1"),
-                    QStringLiteral("Could not create pool:\n%1"),
-                    QStringLiteral("无法创建存储池：\n%1"))
+                    QStringLiteral("Could not create pool:\n%1"))
                     .arg(errorText));
             return;
         }

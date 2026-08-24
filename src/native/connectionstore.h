@@ -126,8 +126,7 @@ private:
     QString traduce(const zfsmgr::base::store::Warning& a) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
-                const QString& en = QString(),
-                const QString& zh = QString()) const;
+                const QString& en = QString()) const;
     QJsonObject loadTrustStoreJson(QString* error = nullptr) const;
     bool saveTrustStoreJson(const QJsonObject& root, QString* error = nullptr) const;
     bool upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const;

@@ -140,8 +140,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
-                                     QStringLiteral("Select a dataset in Advanced."),
-                                     QStringLiteral("请在高级页选择一个数据集。")));
+                                     QStringLiteral("Select a dataset in Advanced.")));
         return;
     }
     if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirBreakdown)) {
@@ -152,8 +151,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto002"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
-                                     QStringLiteral("You must select a dataset (not a snapshot)."),
-                                     QStringLiteral("必须选择数据集（不能是快照）。")));
+                                     QStringLiteral("You must select a dataset (not a snapshot).")));
         return;
     }
 
@@ -219,8 +217,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
 
     QDialog dlg(this);
     dlg.setWindowTitle(trk(QStringLiteral("t_advdir_auto003"), QStringLiteral("Crear dataset desde directorio"),
-                           QStringLiteral("Create dataset from directory"),
-                           QStringLiteral("从目录创建数据集")));
+                           QStringLiteral("Create dataset from directory")));
     dlg.setModal(true);
     dlg.resize(960, 820);
 
@@ -234,14 +231,14 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     form->setVerticalSpacing(6);
     int row = 0;
 
-    QLabel* pathLabel = new QLabel(trk(QStringLiteral("t_advdir_auto004"), QStringLiteral("Path"), QStringLiteral("Path"), QStringLiteral("路径")), formWidget);
+    QLabel* pathLabel = new QLabel(trk(QStringLiteral("t_advdir_auto004"), QStringLiteral("Path"), QStringLiteral("Path")), formWidget);
     QLineEdit* pathEdit = new QLineEdit(formWidget);
     pathEdit->setText(ds + QStringLiteral("/new_dataset"));
     form->addWidget(pathLabel, row, 0);
     form->addWidget(pathEdit, row, 1, 1, 3);
     row++;
 
-    QLabel* typeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto005"), QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), formWidget);
+    QLabel* typeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto005"), QStringLiteral("Tipo"), QStringLiteral("Type")), formWidget);
     QComboBox* typeCombo = new QComboBox(formWidget);
     typeCombo->addItem(QStringLiteral("filesystem"), QStringLiteral("filesystem"));
     typeCombo->setCurrentIndex(0);
@@ -250,7 +247,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     form->addWidget(typeCombo, row, 1);
     row++;
 
-    QLabel* blocksizeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto016"), QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
+    QLabel* blocksizeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto016"), QStringLiteral("Blocksize"), QStringLiteral("Blocksize")), formWidget);
     QLineEdit* blocksizeEdit = new QLineEdit(formWidget);
     form->addWidget(blocksizeLabel, row, 0);
     form->addWidget(blocksizeEdit, row, 1);
@@ -260,14 +257,14 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     QHBoxLayout* optsLay = new QHBoxLayout(optsWidget);
     optsLay->setContentsMargins(0, 0, 0, 0);
     optsLay->setSpacing(12);
-    QCheckBox* parentsChk = new QCheckBox(trk(QStringLiteral("t_advdir_auto017"), QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
+    QCheckBox* parentsChk = new QCheckBox(trk(QStringLiteral("t_advdir_auto017"), QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)")), optsWidget);
     parentsChk->setChecked(true);
     optsLay->addWidget(parentsChk);
     optsLay->addStretch(1);
     form->addWidget(optsWidget, row, 0, 1, 4);
     row++;
 
-    QLabel* extraLabel = new QLabel(trk(QStringLiteral("t_advdir_auto018"), QStringLiteral("Argumentos extra"), QStringLiteral("Extra args"), QStringLiteral("额外参数")), formWidget);
+    QLabel* extraLabel = new QLabel(trk(QStringLiteral("t_advdir_auto018"), QStringLiteral("Argumentos extra"), QStringLiteral("Extra args")), formWidget);
     QLineEdit* extraEdit = new QLineEdit(formWidget);
     form->addWidget(extraLabel, row, 0);
     form->addWidget(extraEdit, row, 1, 1, 3);
@@ -275,8 +272,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
 
     QLabel* encPassLabel = new QLabel(trk(QStringLiteral("t_create_ds_encpass_001"),
                                           QStringLiteral("Passphrase cifrado"),
-                                          QStringLiteral("Encryption passphrase"),
-                                          QStringLiteral("加密口令")),
+                                          QStringLiteral("Encryption passphrase")),
                                       formWidget);
     QLineEdit* encPassEdit = new QLineEdit(formWidget);
     encPassEdit->setEchoMode(QLineEdit::Password);
@@ -286,8 +282,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
 
     QLabel* encPass2Label = new QLabel(trk(QStringLiteral("t_create_ds_encpass_002"),
                                            QStringLiteral("Repetir passphrase"),
-                                           QStringLiteral("Repeat passphrase"),
-                                           QStringLiteral("重复口令")),
+                                           QStringLiteral("Repeat passphrase")),
                                        formWidget);
     QLineEdit* encPass2Edit = new QLineEdit(formWidget);
     encPass2Edit->setEchoMode(QLineEdit::Password);
@@ -297,7 +292,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
 
     root->addWidget(formWidget);
 
-    QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_advdir_auto019"), QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")), &dlg);
+    QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_advdir_auto019"), QStringLiteral("Propiedades"), QStringLiteral("Properties")), &dlg);
     QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
     propsGroupLay->setContentsMargins(6, 6, 6, 6);
     propsGroupLay->setSpacing(4);
@@ -364,8 +359,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                 QStringLiteral("Obligatorio: el dataset tiene que quedar montado "
                                                "en algún sitio para poder copiar dentro."),
                                 QStringLiteral("Required: the dataset must end up mounted "
-                                               "somewhere for the copy to have a destination."),
-                                QStringLiteral("必填：数据集必须挂载到某个位置，复制才有目标。")));
+                                               "somewhere for the copy to have a destination.")));
         }
         propsGrid->addWidget(lbl, r, cBase);
         PropEditor editor;
@@ -570,8 +564,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     QStringLiteral("No se pudieron listar directorios para %1:\n%2")
                         .arg(m_conns.profiles.value(connIdx).name, err),
                     QStringLiteral("Could not list directories for %1:\n%2")
-                        .arg(m_conns.profiles.value(connIdx).name, err),
-                    QStringLiteral("无法列出 %1 的目录：\n%2")
+                        .arg(m_conns.profiles.value(connIdx).name, err)
                         .arg(m_conns.profiles.value(connIdx).name, err)));
             return;
         }
@@ -607,8 +600,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     QGroupBox* dirsGroup = new QGroupBox(
         trk(QStringLiteral("t_advdir_tabs_title"),
             QStringLiteral("Directorios origen por conexión"),
-            QStringLiteral("Source directories by connection"),
-            QStringLiteral("按连接选择源目录")),
+            QStringLiteral("Source directories by connection")),
         &dlg);
     QVBoxLayout* dirsLay = new QVBoxLayout(dirsGroup);
     dirsLay->setContentsMargins(6, 6, 6, 6);
@@ -620,17 +612,14 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                            "subdirectorio con su nombre."),
             QStringLiteral("Check the directories to copy. If you check just one, its CONTENTS "
                            "go to the dataset root; if you check several, each goes into a "
-                           "subdirectory named after it."),
-            QStringLiteral("勾选要复制的目录。只勾选一个时，其内容会放到数据集根目录；勾选多个时，"
-                           "每个会放入以其名称命名的子目录。")),
+                           "subdirectory named after it.")),
         dirsGroup);
     dirsHint->setWordWrap(true);
     dirsLay->addWidget(dirsHint);
     QCheckBox* deleteSourceDirChk = new QCheckBox(
         trk(QStringLiteral("t_advdir_del_src01"),
             QStringLiteral("Borrar directorios fuente tras copiar"),
-            QStringLiteral("Delete source directories after copy"),
-            QStringLiteral("复制后删除源目录")),
+            QStringLiteral("Delete source directories after copy")),
         dirsGroup);
     deleteSourceDirChk->setChecked(false);
     dirsLay->addWidget(deleteSourceDirChk);
@@ -771,8 +760,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     QStringLiteral("No se han podido volver a marcar estos directorios; "
                                    "compruebe si siguen existiendo:\n\n%1"),
                     QStringLiteral("These directories could not be checked again; "
-                                   "check whether they still exist:\n\n%1"),
-                    QStringLiteral("无法重新勾选以下目录，请确认它们是否仍然存在：\n\n%1"))
+                                   "check whether they still exist:\n\n%1"))
                     .arg(unreachable.join(QStringLiteral("\n"))));
         }
     }
@@ -781,8 +769,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         QLabel* noConnLabel = new QLabel(
             trk(QStringLiteral("t_advdir_tabs_empty"),
                 QStringLiteral("No hay conexiones activas para seleccionar directorios."),
-                QStringLiteral("There are no active connections to select directories."),
-                QStringLiteral("没有可用于目录选择的活动连接。")),
+                QStringLiteral("There are no active connections to select directories.")),
             dirsGroup);
         noConnLabel->setWordWrap(true);
         dirsLay->addWidget(noConnLabel);
@@ -792,9 +779,9 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto020"), QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto020"), QStringLiteral("Cancelar"), QStringLiteral("Cancel")), QDialogButtonBox::RejectRole);
     QPushButton* createBtn = buttons->addButton(
-        trk(QStringLiteral("t_advdir_auto021"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
+        trk(QStringLiteral("t_advdir_auto021"), QStringLiteral("Crear"), QStringLiteral("Create")),
         QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
@@ -807,8 +794,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         if (path.isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto022"), QStringLiteral("Debe indicar el path del dataset."),
-                                     QStringLiteral("Dataset path is required."),
-                                     QStringLiteral("必须指定数据集路径。")));
+                                     QStringLiteral("Dataset path is required.")));
             return;
         }
         // El punto de montaje decide si esta acción puede funcionar siquiera: la copia
@@ -824,9 +810,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                    "él el dataset se crea pero no hay dónde escribir."),
                     QStringLiteral("Set the dataset mountpoint, as an absolute path.\n\nIt is "
                                    "where the directories get copied: without it the dataset is "
-                                   "created but there is nowhere to write."),
-                    QStringLiteral("请填写数据集的挂载点，使用绝对路径。\n\n目录会复制到该位置："
-                                   "没有它，数据集虽然会创建，但没有可写入的地方。")));
+                                   "created but there is nowhere to write.")));
             return;
         }
 
@@ -860,8 +844,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_tabs_required"),
                                      QStringLiteral("Debe marcar al menos un directorio origen."),
-                                     QStringLiteral("You must check at least one source directory."),
-                                     QStringLiteral("请至少勾选一个源目录。")));
+                                     QStringLiteral("You must check at least one source directory.")));
             return;
         }
         const QList<int> keys = checkedByConn.keys();
@@ -899,8 +882,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_tabs_required"),
                                      QStringLiteral("Debe marcar al menos un directorio origen."),
-                                     QStringLiteral("You must check at least one source directory."),
-                                     QStringLiteral("请至少勾选一个源目录。")));
+                                     QStringLiteral("You must check at least one source directory.")));
             return;
         }
 
@@ -933,16 +915,14 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                 QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_create_ds_encpass_req_001"),
                                          QStringLiteral("Debe indicar y repetir la passphrase de cifrado."),
-                                         QStringLiteral("You must enter and repeat the encryption passphrase."),
-                                         QStringLiteral("必须输入并重复加密口令。")));
+                                         QStringLiteral("You must enter and repeat the encryption passphrase.")));
                 return;
             }
             if (encPassEdit->text() != encPass2Edit->text()) {
                 QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_create_ds_encpass_req_002"),
                                          QStringLiteral("Las passphrases de cifrado no coinciden."),
-                                         QStringLiteral("Encryption passphrases do not match."),
-                                         QStringLiteral("加密口令不匹配。")));
+                                         QStringLiteral("Encryption passphrases do not match.")));
                 return;
             }
         }
@@ -1285,9 +1265,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                "cifrado por el canal seguro y no en la línea de órdenes."),
                 QStringLiteral("Creating an encrypted dataset requires the agent running on "
                                "the destination connection: that is what allows sending the "
-                               "passphrase over the secure channel instead of the command line."),
-                QStringLiteral("创建加密数据集需要目标连接上的代理处于运行状态：只有这样才能通过"
-                               "安全通道发送密码，而不是放在命令行中。")));
+                               "passphrase over the secure channel instead of the command line.")));
         return;
     }
     draft.rpcConnIdx = createArgv.isEmpty() ? -1 : ctx.connIdx;
@@ -1481,10 +1459,7 @@ bool MainWindow::applyFromDirCreateStep(int connIdx, const QStringList& rpcArgv,
                     QStringLiteral("The destination dataset was created but has no usable "
                                    "mountpoint (mountpoint=%1). This usually happens when "
                                    "the pool has mountpoint=none: set one on the dataset "
-                                   "before copying."),
-                    QStringLiteral("目标数据集已创建，但没有可用的挂载点（mountpoint=%1）。"
-                                   "通常是因为存储池的 mountpoint=none：请先为该数据集设置"
-                                   "挂载点再进行复制。"))
+                                   "before copying."))
                     .arg(mp.isEmpty() ? QStringLiteral("?") : mp);
             appLog(QStringLiteral("ERROR"),
                    QStringLiteral("%1: %2").arg(etiqueta, why));
@@ -1506,8 +1481,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),
-                                     QStringLiteral("Select a dataset in Advanced."),
-                                     QStringLiteral("请在高级页选择一个数据集。")));
+                                     QStringLiteral("Select a dataset in Advanced.")));
         return;
     }
     if (!requireFeature(curr.connIdx, zfsmgr::caps::Feature::DirToDir)) {
@@ -1518,8 +1492,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto026"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
-                                     QStringLiteral("You must select a dataset (not a snapshot)."),
-                                     QStringLiteral("必须选择数据集（不能是快照）。")));
+                                     QStringLiteral("You must select a dataset (not a snapshot).")));
         return;
     }
 
@@ -1532,8 +1505,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
 
     QDialog dlg(this);
     dlg.setWindowTitle(trk(QStringLiteral("t_advdir_auto027"), QStringLiteral("Exportar dataset a directorio"),
-                           QStringLiteral("Export dataset to directory"),
-                           QStringLiteral("导出数据集到目录")));
+                           QStringLiteral("Export dataset to directory")));
     dlg.setModal(true);
     dlg.resize(720, 180);
 
@@ -1545,8 +1517,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
         trk(QStringLiteral("t_advdir_auto028"), QStringLiteral("Se copiará el contenido de %1 a un directorio local. Puede elegir si destruir el dataset fuente.")
                 .arg(ds),
             QStringLiteral("Contents of %1 will be copied to a local directory. You can choose whether to destroy the source dataset.")
-                .arg(ds),
-            QStringLiteral("将把 %1 的内容复制到本地目录。您可以选择是否销毁源数据集。")
+                .arg(ds)
                 .arg(ds)),
         &dlg);
     intro->setWordWrap(true);
@@ -1554,12 +1525,11 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
 
     QHBoxLayout* dirRow = new QHBoxLayout();
     QLabel* dirLabel = new QLabel(trk(QStringLiteral("t_advdir_auto029"), QStringLiteral("Directorio local"),
-                                      QStringLiteral("Local directory"),
-                                      QStringLiteral("本地目录")),
+                                      QStringLiteral("Local directory")),
                                   &dlg);
     QLineEdit* dirEdit = new QLineEdit(&dlg);
     QPushButton* browseBtn = new QPushButton(
-        trk(QStringLiteral("t_advdir_auto030"), QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
+        trk(QStringLiteral("t_advdir_auto030"), QStringLiteral("Seleccionar..."), QStringLiteral("Select...")),
         &dlg);
     dirRow->addWidget(dirLabel, 0);
     dirRow->addWidget(dirEdit, 1);
@@ -1569,8 +1539,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     QCheckBox* deleteSourceDatasetChk = new QCheckBox(
         trk(QStringLiteral("t_advdir_del_ds001"),
             QStringLiteral("Borrar dataset fuente tras copiar"),
-            QStringLiteral("Delete source dataset after copy"),
-            QStringLiteral("复制后删除源数据集")),
+            QStringLiteral("Delete source dataset after copy")),
         &dlg);
     root->addWidget(deleteSourceDatasetChk);
 
@@ -1611,8 +1580,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
         const QString picked = QFileDialog::getExistingDirectory(
             &dlg,
             trk(QStringLiteral("t_advdir_auto031"), QStringLiteral("Seleccionar directorio local"),
-                QStringLiteral("Select local directory"),
-                QStringLiteral("选择本地目录")),
+                QStringLiteral("Select local directory")),
             dirEdit->text().trimmed());
         if (!picked.trimmed().isEmpty()) {
             dirEdit->setText(picked);
@@ -1620,16 +1588,15 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     });
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto032"), QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-    QPushButton* acceptBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto033"), QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto032"), QStringLiteral("Cancelar"), QStringLiteral("Cancel")), QDialogButtonBox::RejectRole);
+    QPushButton* acceptBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto033"), QStringLiteral("Aceptar"), QStringLiteral("Accept")), QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(acceptBtn, &QPushButton::clicked, &dlg, [&]() {
         if (dirEdit->text().trimmed().isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto034"), QStringLiteral("Debe seleccionar un directorio local."),
-                                     QStringLiteral("You must select a local directory."),
-                                     QStringLiteral("必须选择本地目录。")));
+                                     QStringLiteral("You must select a local directory.")));
             return;
         }
         dlg.accept();
@@ -1671,8 +1638,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
                                          QStringLiteral("El directorio de destino tiene que ser "
                                                         "una ruta absoluta."),
                                          QStringLiteral("The destination directory must be an "
-                                                        "absolute path."),
-                                         QStringLiteral("目标目录必须是绝对路径。")));
+                                                        "absolute path.")));
                 return;
             }
             cmd = mwhelpers::agentShellCommand(profile, argv);

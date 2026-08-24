@@ -232,34 +232,6 @@ The shell tool (zfsmgr-cli) ships INSIDE the
 Check with:  zfsmgr-cli --help
 Deleting the .app leaves the symlinks dangling; remove them with:
    sudo rm /usr/local/bin/zfsmgr-cli
-
-[ZH]
-这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
-在 macOS 上，你仍可通过本地安全例外来打开应用。
-
-建议步骤：
-1) 解压 .zip，并将应用移动到 /Applications（可选）。
-2) 移除应用包隔离属性：
-   xattr -dr com.apple.quarantine "/路径/ZFSMgr.app"
-3) 若系统仍然拦截：
-   系统设置 -> 隐私与安全性 -> “仍要打开”。
-   （在 macOS 15 及更高版本中，右键 -> 打开 已无法绕过 Gatekeeper，请使用上述设置路径。）
-
-   更好的做法：用 curl 而不是浏览器下载 .zip。隔离属性由浏览器添加，而非文件本身，
-   因此通过终端下载不会出现该警告。
-4)（可选）本地 ad-hoc 重签名以提高校验稳定性：
-   codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr.app"
-
-校验：
-   spctl -a -vv "/路径/ZFSMgr.app"
-   codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr.app"
-
-命令行工具 (zfsmgr-cli) 打包在 .app 内部，因为 macOS 没有安装程序。
-若要加入 PATH，请创建符号链接：
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-验证：  zfsmgr-cli --help
-删除 .app 后链接会失效，可用以下命令移除：
-   sudo rm /usr/local/bin/zfsmgr-cli
 EOF
 }
 

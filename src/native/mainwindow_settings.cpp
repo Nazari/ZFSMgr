@@ -116,8 +116,8 @@ QByteArray decodeBase64State(const QJsonObject& obj, const QString& key) {
 
 }
 
-QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
-    return I18nManager::instance().translateKey(m_language, key, es, en, zh);
+QString MainWindow::trk(const QString& key, const QString& es, const QString& en) const {
+    return I18nManager::instance().translateKey(m_language, key, es, en);
 }
 
 void MainWindow::loadUiSettings() {

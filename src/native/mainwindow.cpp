@@ -93,7 +93,6 @@ bool mountedStateFromAnyText(const QString& value, bool* mountedOut) {
     const QString s = value.trimmed().toLower();
     if (s == QStringLiteral("montado")
         || s == QStringLiteral("mounted")
-        || s == QStringLiteral("已挂载")
         || s == QStringLiteral("on")
         || s == QStringLiteral("yes")
         || s == QStringLiteral("true")
@@ -105,7 +104,6 @@ bool mountedStateFromAnyText(const QString& value, bool* mountedOut) {
     }
     if (s == QStringLiteral("desmontado")
         || s == QStringLiteral("unmounted")
-        || s == QStringLiteral("未挂载")
         || s == QStringLiteral("off")
         || s == QStringLiteral("no")
         || s == QStringLiteral("false")
@@ -232,12 +230,10 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         const QString envUserWin = qEnvironmentVariable("USERNAME").trimmed();
         userEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
         form->addRow(trk(QStringLiteral("t_usuario_d31f58"),
-                         QStringLiteral("Usuario"), QStringLiteral("User"),
-                         QStringLiteral("用户")),
+                         QStringLiteral("Usuario"), QStringLiteral("User")),
                      userEdit);
         form->addRow(trk(QStringLiteral("t_password_8be3c9"),
-                         QStringLiteral("Password"), QStringLiteral("Password"),
-                         QStringLiteral("密码")),
+                         QStringLiteral("Password"), QStringLiteral("Password")),
                      passEdit);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
         form->addWidget(buttons);
@@ -338,8 +334,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         appLog(QStringLiteral("INFO"), QStringLiteral("[startup] ensureLocalSudo: %1 ms").arg(startupTimer.elapsed()));
         updateStatus(trk(QStringLiteral("t_startup_refresh_001"),
                          QStringLiteral("Cargando conexiones..."),
-                         QStringLiteral("Loading connections..."),
-                         QStringLiteral("正在加载连接...")));
+                         QStringLiteral("Loading connections...")));
         // Diferido, no aquí: esto se ejecuta en el CONSTRUCTOR, así que el `w.show()`
         // de main.cpp no llega hasta que termina. El preámbulo del refresco monta un
         // túnel SSH por conexión, y con una máquina apagada o un enlace lento eso son
@@ -2819,8 +2814,7 @@ bool MainWindow::requireDaemonForMutation(int connIdx, const QString& what) {
                            "utilizable.\n\nInstale o actualice el agente desde el menú de la "
                            "conexión."),
             QStringLiteral("Cannot %1 on \"%2\": that connection has no usable agent.\n\n"
-                           "Install or update the agent from the connection menu."),
-            QStringLiteral("无法在“%2”上%1：该连接没有可用的代理。\n\n请从连接菜单安装或更新代理。"))
+                           "Install or update the agent from the connection menu."))
             .arg(what, nombre));
     return false;
 }
@@ -2890,35 +2884,29 @@ QString MainWindow::capabilityReasonText(zfsmgr::caps::Reason r) const {
     case R::DaemonNotReady:
         return trk(QStringLiteral("t_cap_daemon_down"),
                    QStringLiteral("el agente no está instalado o no está activo en esta conexión"),
-                   QStringLiteral("the agent is not installed or not running on this connection"),
-                   QStringLiteral("此连接上未安装或未运行代理"));
+                   QStringLiteral("the agent is not installed or not running on this connection"));
     case R::DaemonApiMismatch:
         return trk(QStringLiteral("t_cap_api_mismatch"),
                    QStringLiteral("la versión de API del agente no coincide con la que espera esta "
                                   "aplicación; reinstale el daemon"),
                    QStringLiteral("the agent API version does not match the one this application "
-                                  "expects; reinstall the daemon"),
-                   QStringLiteral("代理 API 版本与本应用程序期望的版本不匹配；请重新安装守护进程"));
+                                  "expects; reinstall the daemon"));
     case R::MissingTool:
         return trk(QStringLiteral("t_cap_missing_tool"),
                    QStringLiteral("falta una herramienta que el agente necesita en el equipo remoto"),
-                   QStringLiteral("a tool the agent needs is missing on the remote machine"),
-                   QStringLiteral("远程计算机上缺少代理所需的工具"));
+                   QStringLiteral("a tool the agent needs is missing on the remote machine"));
     case R::WindowsAgentPending:
         return trk(QStringLiteral("t_cap_win_agent_todo"),
                    QStringLiteral("el agente de Windows todavía no lo implementa"),
-                   QStringLiteral("the Windows agent does not implement it yet"),
-                   QStringLiteral("Windows 代理尚未实现该功能"));
+                   QStringLiteral("the Windows agent does not implement it yet"));
     case R::WindowsNeedsUnixShell:
         return trk(QStringLiteral("t_win_unix_na01"),
                    QStringLiteral("usa shell Unix y no está disponible en conexiones Windows"),
-                   QStringLiteral("it uses a Unix shell and is not available on Windows connections"),
-                   QStringLiteral("它使用 Unix shell，在 Windows 连接上不可用"));
+                   QStringLiteral("it uses a Unix shell and is not available on Windows connections"));
     case R::WindowsNotApplicable:
         return trk(QStringLiteral("t_cap_win_na"),
                    QStringLiteral("no es aplicable en Windows"),
-                   QStringLiteral("it does not apply on Windows"),
-                   QStringLiteral("不适用于 Windows"));
+                   QStringLiteral("it does not apply on Windows"));
     }
     return QString();
 }
@@ -2939,8 +2927,7 @@ bool MainWindow::requireFeature(int connIdx, zfsmgr::caps::Feature f) {
     }
     const QString msg = trk(QStringLiteral("t_cap_blocked_msg"),
                             QStringLiteral("Esta acción no está disponible: %1."),
-                            QStringLiteral("This action is not available: %1."),
-                            QStringLiteral("此操作不可用：%1。"))
+                            QStringLiteral("This action is not available: %1."))
                             .arg(reason);
     appLog(QStringLiteral("WARN"), msg);
     QMessageBox::warning(this, QStringLiteral("ZFSMgr"), msg);
@@ -2964,63 +2951,49 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
     return {
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
-            QStringLiteral("Connect"),
-            QStringLiteral("连接")),
+            QStringLiteral("Connect")),
         trk(QStringLiteral("t_disconnect_ctx001"),
             QStringLiteral("Desconectar"),
-            QStringLiteral("Disconnect"),
-            QStringLiteral("断开连接")),
+            QStringLiteral("Disconnect")),
         trk(QStringLiteral("t_refresh_conn_ctx001"),
             QStringLiteral("Refrescar"),
-            QStringLiteral("Refresh"),
-            QStringLiteral("刷新")),
+            QStringLiteral("Refresh")),
         QString(),
         trk(QStringLiteral("t_new_conn_ctx001"),
             QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection"),
-            QStringLiteral("新建连接")),
+            QStringLiteral("New Connection")),
         trk(QStringLiteral("t_edit_conn_ctx001"),
             QStringLiteral("Editar"),
-            QStringLiteral("Edit"),
-            QStringLiteral("编辑")),
+            QStringLiteral("Edit")),
         trk(QStringLiteral("t_del_conn_ctx001"),
             QStringLiteral("Borrar"),
-            QStringLiteral("Delete"),
-            QStringLiteral("删除")),
+            QStringLiteral("Delete")),
         trk(QStringLiteral("t_local_sudo_creds_ctx001"),
             QStringLiteral("Cambiar credenciales sudo local…"),
-            QStringLiteral("Change local sudo credentials…"),
-            QStringLiteral("修改本地 sudo 凭据…")),
+            QStringLiteral("Change local sudo credentials…")),
         QString(),
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
-            QStringLiteral("New Pool"),
-            QStringLiteral("新建存储池")),
+            QStringLiteral("New Pool")),
         QString(),
         trk(QStringLiteral("t_install_helpers_ctx001"),
             QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands"),
-            QStringLiteral("安装辅助命令")),
+            QStringLiteral("Install helper commands")),
         trk(QStringLiteral("t_install_daemon_ctx001"),
             QStringLiteral("Reinstalar/Actualizar daemon"),
-            QStringLiteral("Reinstall/Update daemon"),
-            QStringLiteral("重新安装/更新守护进程")),
+            QStringLiteral("Reinstall/Update daemon")),
         trk(QStringLiteral("t_repair_altmp_ctx001"),
             QStringLiteral("Reparar mountpoints temporales"),
-            QStringLiteral("Repair temporary mountpoints"),
-            QStringLiteral("修复临时挂载点")),
+            QStringLiteral("Repair temporary mountpoints")),
         trk(QStringLiteral("t_export_trust_store_ctx001"),
             QStringLiteral("Exportar trust-store a esta conexión"),
-            QStringLiteral("Export trust-store to this connection"),
-            QStringLiteral("将 trust-store 导出到此连接")),
+            QStringLiteral("Export trust-store to this connection")),
         trk(QStringLiteral("t_authorize_key_menu_001"),
             QStringLiteral("Autorizar clave SSH en..."),
-            QStringLiteral("Authorize SSH key on..."),
-            QStringLiteral("授权 SSH 密钥到...")),
+            QStringLiteral("Authorize SSH key on...")),
         trk(QStringLiteral("t_push_peers_ctx001"),
             QStringLiteral("Entregar credenciales de las demás máquinas…"),
-            QStringLiteral("Hand over the other machines' credentials…"),
-            QStringLiteral("移交其他计算机的凭据…")),
+            QStringLiteral("Hand over the other machines' credentials…")),
     };
 }
 
@@ -3028,12 +3001,10 @@ QStringList MainWindow::connectionRefreshMenuLabelsForTest() const {
     return {
         trk(QStringLiteral("t_refresh_this_conn_001"),
             QStringLiteral("Esta conexión"),
-            QStringLiteral("This connection"),
-            QStringLiteral("此连接")),
+            QStringLiteral("This connection")),
         trk(QStringLiteral("t_refresh_all_001"),
             QStringLiteral("Todas las conexiones"),
-            QStringLiteral("All connections"),
-            QStringLiteral("所有连接")),
+            QStringLiteral("All connections")),
     };
 }
 
@@ -3073,21 +3044,18 @@ QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bo
     if (menuState.canRefresh) {
         out.push_back(trk(QStringLiteral("t_pool_refresh_status001"),
                           QStringLiteral("Actualizar estado"),
-                          QStringLiteral("Refresh status"),
-                          QStringLiteral("刷新状态")));
+                          QStringLiteral("Refresh status")));
     }
     if (menuState.canImport) {
         out.push_back(trk(QStringLiteral("t_import_btn001"),
                           QStringLiteral("Importar"),
-                          QStringLiteral("Import"),
-                          QStringLiteral("导入")));
+                          QStringLiteral("Import")));
         out.push_back(QStringLiteral("Importar renombrando"));
     }
     if (menuState.canExport) {
         out.push_back(trk(QStringLiteral("t_export_btn001"),
                           QStringLiteral("Exportar"),
-                          QStringLiteral("Export"),
-                          QStringLiteral("导出")));
+                          QStringLiteral("Export")));
     }
     if (menuState.canHistory) {
         out.push_back(trk(QStringLiteral("t_pool_history_t1"), QStringLiteral("Historial")));

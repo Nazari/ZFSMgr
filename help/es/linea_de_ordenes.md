@@ -105,7 +105,7 @@ el idioma de la interfaz.
 
 ## El idioma
 
-`--lang es|en|zh`. Sin esa opción usa el que tenga configurado la interfaz gráfica
+`--lang es|en`. Sin esa opción usa el que tenga configurado la interfaz gráfica
 (`app.language` de `config.json`), para que las dos herramientas hablen igual.
 
 Lo que se traduce son los mensajes, la ayuda y las cabeceras en formato `text`. Lo que

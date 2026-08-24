@@ -127,8 +127,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_close_block_001"),
                 QStringLiteral("Hay una acción en ejecución. Cancele la acción antes de cerrar la aplicación."),
-                QStringLiteral("An action is running. Cancel it before closing the application."),
-                QStringLiteral("当前有操作正在执行。请先取消操作再关闭应用。")));
+                QStringLiteral("An action is running. Cancel it before closing the application.")));
         event->ignore();
         return;
     }
@@ -139,8 +138,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_close_refresh_block_001"),
                 QStringLiteral("Hay un refresco de conexiones en curso. Espere a que termine antes de cerrar la aplicación."),
-                QStringLiteral("A connection refresh is in progress. Wait for it to finish before closing the application."),
-                QStringLiteral("连接刷新正在进行中。请等待其完成后再关闭应用。")));
+                QStringLiteral("A connection refresh is in progress. Wait for it to finish before closing the application.")));
         event->ignore();
         return;
     }
@@ -158,9 +156,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
                     QStringLiteral("Hay %1 transferencia(s) ejecutándose en el daemon.\n"
                                    "¿Cerrar de todas formas? Seguirán en segundo plano."),
                     QStringLiteral("%1 transfer(s) are still running in the daemon.\n"
-                                   "Close anyway? They will keep running in the background."),
-                    QStringLiteral("守护进程中仍有 %1 个传输在执行。\n"
-                                   "仍要关闭吗？它们会在后台继续运行。"))
+                                   "Close anyway? They will keep running in the background."))
                     .arg(runningJobs),
                 QMessageBox::Yes | QMessageBox::No,
                 QMessageBox::No);
@@ -207,25 +203,21 @@ QString MainWindow::defaultStatusTextForCurrentState() const {
     if (!m_initialRefreshCompleted) {
         return trk(QStringLiteral("t_status_loading_001"),
                    QStringLiteral("Loading..."),
-                   QStringLiteral("Loading..."),
-                   QStringLiteral("加载中..."));
+                   QStringLiteral("Loading..."));
     }
     if (m_refreshInProgress) {
         return trk(QStringLiteral("t_status_refreshing_001"),
                    QStringLiteral("Refreshing connections..."),
-                   QStringLiteral("Refreshing connections..."),
-                   QStringLiteral("正在刷新连接..."));
+                   QStringLiteral("Refreshing connections..."));
     }
     if (m_actionsLocked || m_uiBusyDepth > 0) {
         return trk(QStringLiteral("t_status_busy_001"),
                    QStringLiteral("Working..."),
-                   QStringLiteral("Working..."),
-                   QStringLiteral("处理中..."));
+                   QStringLiteral("Working..."));
     }
     return trk(QStringLiteral("t_status_ready_001"),
                QStringLiteral("Ready"),
-               QStringLiteral("Ready"),
-               QStringLiteral("就绪"));
+               QStringLiteral("Ready"));
 }
 
 void MainWindow::updateBusyCursor() {

@@ -1107,8 +1107,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             permissionsNode,
             trk(QStringLiteral("t_perm_grants_root_001"),
                 QStringLiteral("Delegación"),
-                QStringLiteral("Delegation"),
-                QStringLiteral("委派")),
+                QStringLiteral("Delegation")),
             QStringLiteral("grants_root"),
             allGrants.size(),
             connIdx,
@@ -1117,27 +1116,23 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             auto* targetNode = new QTreeWidgetItem(grantsNode);
             QString who = trk(QStringLiteral("t_everyone_001"),
                               QStringLiteral("Everyone"),
-                              QStringLiteral("Everyone"),
-                              QStringLiteral("所有人"));
+                              QStringLiteral("Everyone"));
             if (grant.targetType == QStringLiteral("user")) {
                 who = trk(QStringLiteral("t_user_with_name_001"),
                           QStringLiteral("Usuario %1"),
-                          QStringLiteral("User %1"),
-                          QStringLiteral("用户 %1"))
+                          QStringLiteral("User %1"))
                           .arg(grant.targetName);
             } else if (grant.targetType == QStringLiteral("group")) {
                 who = trk(QStringLiteral("t_group_with_name_001"),
                           QStringLiteral("Grupo %1"),
-                          QStringLiteral("Group %1"),
-                          QStringLiteral("组 %1"))
+                          QStringLiteral("Group %1"))
                           .arg(grant.targetName);
             }
             targetNode->setText(
                 0,
                 trk(QStringLiteral("t_perm_scope_row_001"),
                     QStringLiteral("%1 Ámbito %2"),
-                    QStringLiteral("%1 Scope %2"),
-                    QStringLiteral("%1 范围 %2"))
+                    QStringLiteral("%1 Scope %2"))
                     .arg(who, grantScopeLabel(grant.scope)));
             targetNode->setData(0, kConnPermissionsNodeRole, true);
             targetNode->setData(0, kConnPermissionsKindRole, QStringLiteral("grant"));
@@ -1282,8 +1277,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         createOwnerNode,
         trk(QStringLiteral("t_perm_new_children_root_001"),
             QStringLiteral("Permisos por defecto"),
-            QStringLiteral("Default permissions"),
-            QStringLiteral("新子数据集默认权限")),
+            QStringLiteral("Default permissions")),
         QStringLiteral("create_root"),
         entry.createPermissions.size(),
         connIdx,
@@ -1292,8 +1286,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         0,
         trk(QStringLiteral("t_perm_new_children_tt_001"),
             QStringLiteral("Permisos que recibirá automáticamente quien cree nuevos subdatasets debajo de este dataset."),
-            QStringLiteral("Permissions automatically granted to whoever creates new child datasets below this dataset."),
-            QStringLiteral("在此数据集下创建新子数据集的用户将自动获得的权限。")));
+            QStringLiteral("Permissions automatically granted to whoever creates new child datasets below this dataset.")));
     for (int base = 0; base < allSetTokens.size(); base += propCols) {
         auto* rowNames = new QTreeWidgetItem(createNode);
         rowNames->setData(0, kConnPropRowRole, true);
@@ -1404,8 +1397,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             permissionsNode,
             trk(QStringLiteral("t_perm_sets_root_001"),
                 QStringLiteral("Conjuntos"),
-                QStringLiteral("Sets"),
-                QStringLiteral("集合")),
+                QStringLiteral("Sets")),
             QStringLiteral("sets_root"),
             entry.permissionSets.size(),
             connIdx,

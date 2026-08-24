@@ -32,7 +32,7 @@ Listado de cambios.
    El orden es primero PARIDAD DEMOSTRADA y después retirada, y la paridad hay que medirla contra rsync sobre el mismo árbol comparando propietarios, huecos y atributos uno a uno; no vale con que «parezca igual». Mientras tanto rsync se queda: hoy preserva cosas que el árbol pierde sin decirlo.
    El motivo para hacerlo es el mismo que llevó el árbol a Windows: con dos mecanismos, el menos usado acumula fallos que nadie ve.
 
-6. Revisión completa de la ayuda de la GUI Qt (help/es, help/en, help/zh). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
+6. Revisión completa de la ayuda de la GUI Qt (help/es, help/en). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
    Lo que ya se sabe y sirve de punto de partida:
    	- Las capturas manuales crearpool.png y creardataset.png son de abril y el capturador automático NO cubre esos diálogos. O se le añaden esos dos estados, o se retiran de la ayuda.
    	- En help/img/auto quedan tres huérfanas que ni se generan ni se usan: connection-gsa-menu.png, permissions-node.png y schedule-snapshots-node.png. Las dos últimas no se pueden generar hasta que se arregle lo del punto 9 del backlog antiguo (el nodo 'Datasets programados' exige dos opciones de visualización a la vez, y setShowPoolInfoNodeForTest está declarada en mainwindow.h SIN implementar: falla al enlazar, no al compilar).

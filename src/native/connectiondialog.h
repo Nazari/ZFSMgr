@@ -43,8 +43,7 @@ private:
     void browsePrivateKey();
     QString trk(const QString& key,
                 const QString& es = QString(),
-                const QString& en = QString(),
-                const QString& zh = QString()) const;
+                const QString& en = QString()) const;
 
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};

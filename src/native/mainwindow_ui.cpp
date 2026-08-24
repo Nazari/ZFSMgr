@@ -1406,36 +1406,31 @@ void MainWindow::buildUi() {
     QMenu* appMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_menu_main_001"),
             QStringLiteral("Menú"),
-            QStringLiteral("Menu"),
-            QStringLiteral("菜单")));
+            QStringLiteral("Menu")));
     // Idioma va en la BARRA, no dentro de «Menú». Es lo primero que busca quien abre la
     // aplicación en un idioma que no es el suyo, y enterrado en un submenú había que
     // encontrarlo antes de poder leer nada.
     QMenu* languageMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_lang_menu_001"),
             QStringLiteral("Idioma"),
-            QStringLiteral("Language"),
-            QStringLiteral("语言")));
+            QStringLiteral("Language")));
     auto* langGroup = new QActionGroup(this);
     langGroup->setExclusive(true);
     QAction* langEs = languageMenu->addAction(QStringLiteral("Español"));
     QAction* langEn = languageMenu->addAction(QStringLiteral("English"));
-    QAction* langZh = languageMenu->addAction(QStringLiteral("中文"));
     langEs->setCheckable(true);
     langEn->setCheckable(true);
-    langZh->setCheckable(true);
     langEs->setData(QStringLiteral("es"));
     langEn->setData(QStringLiteral("en"));
-    langZh->setData(QStringLiteral("zh"));
     langGroup->addAction(langEs);
     langGroup->addAction(langEn);
-    langGroup->addAction(langZh);
     const QString langNorm = m_language.trimmed().toLower();
     if (langNorm == QStringLiteral("en")) {
         langEn->setChecked(true);
-    } else if (langNorm == QStringLiteral("zh")) {
-        langZh->setChecked(true);
     } else {
+        // Cualquier otra cosa cae en castellano, y eso INCLUYE «zh»: hay configuraciones
+        // guardadas con el chino puesto, y sin esta rama el menú se quedaría sin ninguna
+        // marca —ningún idioma elegido— hasta que alguien tocara el selector.
         langEs->setChecked(true);
     }
     connect(langGroup, &QActionGroup::triggered, this, [this](QAction* act) {
@@ -1458,8 +1453,7 @@ void MainWindow::buildUi() {
     m_menuExitAction = appMenu->addAction(
         trk(QStringLiteral("t_menu_exit_001"),
             QStringLiteral("Salir"),
-            QStringLiteral("Exit"),
-            QStringLiteral("退出")));
+            QStringLiteral("Exit")));
     m_menuExitAction->setEnabled(!actionsLocked());
     connect(m_menuExitAction, &QAction::triggered, this, [this]() {
         if (actionsLocked()) {
@@ -1481,21 +1475,18 @@ void MainWindow::buildUi() {
     QMenu* settingsMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_settings_tab_001"),
             QStringLiteral("Ajustes"),
-            QStringLiteral("Settings"),
-            QStringLiteral("设置")));
+            QStringLiteral("Settings")));
 
     QMenu* logsMenu = settingsMenu->addMenu(
         trk(QStringLiteral("t_logs_menu_001"),
             QStringLiteral("Logs"),
-            QStringLiteral("Logs"),
-            QStringLiteral("日志")));
+            QStringLiteral("Logs")));
 
     // Nivel de log.
     QMenu* logLevelMenu = logsMenu->addMenu(
         trk(QStringLiteral("t_log_level_001"),
             QStringLiteral("Nivel de log"),
-            QStringLiteral("Log level"),
-            QStringLiteral("日志级别")));
+            QStringLiteral("Log level")));
     auto* logLevelGroup = new QActionGroup(this);
     logLevelGroup->setExclusive(true);
     for (const QString& level : {QStringLiteral("normal"), QStringLiteral("info"),
@@ -1540,8 +1531,7 @@ void MainWindow::buildUi() {
     QMenu* logLinesMenu = logsMenu->addMenu(
         trk(QStringLiteral("t_log_lines_001"),
             QStringLiteral("Número de líneas"),
-            QStringLiteral("Number of lines"),
-            QStringLiteral("行数")));
+            QStringLiteral("Number of lines")));
     auto* logLinesGroup = new QActionGroup(this);
     logLinesGroup->setExclusive(true);
     for (int lines : {100, 200, 500, 1000}) {
@@ -1568,8 +1558,7 @@ void MainWindow::buildUi() {
     QMenu* logSizeMenu = logsMenu->addMenu(
         trk(QStringLiteral("t_log_max_rot_001"),
             QStringLiteral("Tamaño máximo log rotativo"),
-            QStringLiteral("Max rotating log size"),
-            QStringLiteral("滚动日志最大大小")));
+            QStringLiteral("Max rotating log size")));
     auto* logSizeGroup = new QActionGroup(this);
     logSizeGroup->setExclusive(true);
     {
@@ -1609,8 +1598,7 @@ void MainWindow::buildUi() {
     QAction* clearLogsAct = logsMenu->addAction(
         trk(QStringLiteral("t_clear_001"),
             QStringLiteral("Limpiar"),
-            QStringLiteral("Clear"),
-            QStringLiteral("清空")));
+            QStringLiteral("Clear")));
     connect(clearLogsAct, &QAction::triggered, this, [this]() {
         logUiAction(QStringLiteral("Limpiar log (ajustes)"));
         clearAppLog();
@@ -1618,8 +1606,7 @@ void MainWindow::buildUi() {
     QAction* copyLogsAct = logsMenu->addAction(
         trk(QStringLiteral("t_copy_001"),
             QStringLiteral("Copiar"),
-            QStringLiteral("Copy"),
-            QStringLiteral("复制")));
+            QStringLiteral("Copy")));
     connect(copyLogsAct, &QAction::triggered, this, [this]() {
         logUiAction(QStringLiteral("Copiar log (ajustes)"));
         copyAppLogToClipboard();
@@ -1633,8 +1620,7 @@ void MainWindow::buildUi() {
     m_confirmActionsMenuAction = settingsMenu->addAction(
         trk(QStringLiteral("t_show_confirm_001"),
             QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
-            QStringLiteral("Show confirmation before executing actions"),
-            QStringLiteral("执行操作前显示确认")));
+            QStringLiteral("Show confirmation before executing actions")));
     m_confirmActionsMenuAction->setCheckable(true);
     m_confirmActionsMenuAction->setChecked(m_actionConfirmEnabled);
     connect(m_confirmActionsMenuAction, &QAction::toggled, this, [this](bool checked) {
@@ -1658,8 +1644,7 @@ void MainWindow::buildUi() {
     m_connectivityMatrixAction = helpMenu->addAction(
         trk(QStringLiteral("t_connectivity_menu_001"),
             QStringLiteral("Comprobar conectividad"),
-            QStringLiteral("Check connectivity"),
-            QStringLiteral("检查连通性")));
+            QStringLiteral("Check connectivity")));
     connect(m_connectivityMatrixAction, &QAction::triggered, this, [this]() {
         logUiAction(QStringLiteral("Comprobar conectividad (menú)"));
         openConnectivityMatrixDialog();
@@ -1678,8 +1663,7 @@ void MainWindow::buildUi() {
     QMenu* actionsHelpMenu = helpMenu->addMenu(
         trk(QStringLiteral("t_help_actions_001"),
             QStringLiteral("Acciones"),
-            QStringLiteral("Actions"),
-            QStringLiteral("操作")));
+            QStringLiteral("Actions")));
     struct HelpTopicItem {
         QString id;
         QString key;
@@ -1758,27 +1742,23 @@ void MainWindow::buildUi() {
     QAction* cfgFilesHelpAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_cfg_002"),
             QStringLiteral("Configuración y archivos"),
-            QStringLiteral("Configuration and files"),
-            QStringLiteral("配置与文件")));
+            QStringLiteral("Configuration and files")));
     connect(cfgFilesHelpAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("configuracion_archivos"),
                       trk(QStringLiteral("t_help_cfg_002"),
                           QStringLiteral("Configuración y archivos"),
-                          QStringLiteral("Configuration and files"),
-                          QStringLiteral("配置与文件")));
+                          QStringLiteral("Configuration and files")));
     });
 
     QAction* cliHelpAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_cli_001"),
             QStringLiteral("Línea de órdenes"),
-            QStringLiteral("Command line"),
-            QStringLiteral("命令行")));
+            QStringLiteral("Command line")));
     connect(cliHelpAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("linea_de_ordenes"),
                       trk(QStringLiteral("t_help_cli_001"),
                           QStringLiteral("Línea de órdenes"),
-                          QStringLiteral("Command line"),
-                          QStringLiteral("命令行")));
+                          QStringLiteral("Command line")));
     });
 
     QAction* aboutAct = helpMenu->addAction(
@@ -1828,8 +1808,7 @@ void MainWindow::buildUi() {
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
-            QStringLiteral("Source:(empty)"),
-            QStringLiteral("源：（空）")),
+            QStringLiteral("Source:(empty)")),
         connectionsTab);
     // Sin ajuste de línea ni altura mínima: es una sola línea, y con wordWrap una ruta
     // larga hacía crecer la banda de en medio a costa del árbol. Si no cabe, se elide y
@@ -1845,14 +1824,12 @@ void MainWindow::buildUi() {
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
-            QStringLiteral("Apply changes"),
-            QStringLiteral("应用更改")),
+            QStringLiteral("Apply changes")),
         connectionsTab);
     m_btnDiscardPendingChanges = new QPushButton(
         trk(QStringLiteral("t_discard_changes_001"),
             QStringLiteral("Vaciar lista"),
-            QStringLiteral("Empty list"),
-            QStringLiteral("清空列表")),
+            QStringLiteral("Empty list")),
         connectionsTab);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnApplyConnContentProps->setFont(baseUiFont);
@@ -1970,16 +1947,13 @@ void MainWindow::buildUi() {
     m_poolPropsTable->setColumnCount(3);
     m_poolPropsTable->setHorizontalHeaderLabels({trk(QStringLiteral("t_prop_col_001"),
                                                      QStringLiteral("Propiedad"),
-                                                     QStringLiteral("Property"),
-                                                     QStringLiteral("属性")),
+                                                     QStringLiteral("Property")),
                                                  trk(QStringLiteral("t_value_col_001"),
                                                      QStringLiteral("Valor"),
-                                                     QStringLiteral("Value"),
-                                                     QStringLiteral("值")),
+                                                     QStringLiteral("Value")),
                                                  trk(QStringLiteral("t_origin_col001"),
                                                      QStringLiteral("Origen"),
-                                                     QStringLiteral("Source"),
-                                                     QStringLiteral("来源"))});
+                                                     QStringLiteral("Source"))});
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -1993,18 +1967,15 @@ void MainWindow::buildUi() {
     poolPropBtns->setSpacing(6);
     m_poolStatusRefreshBtn = new QPushButton(trk(QStringLiteral("t_refresh_btn001"),
                                                  QStringLiteral("Actualizar"),
-                                                 QStringLiteral("Refresh"),
-                                                 QStringLiteral("刷新")),
+                                                 QStringLiteral("Refresh")),
                                              m_connPoolPropsPage);
     m_poolStatusImportBtn = new QPushButton(trk(QStringLiteral("t_import_btn001"),
                                                 QStringLiteral("Importar"),
-                                                QStringLiteral("Import"),
-                                                QStringLiteral("导入")),
+                                                QStringLiteral("Import")),
                                             m_connPoolPropsPage);
     m_poolStatusExportBtn = new QPushButton(trk(QStringLiteral("t_export_btn001"),
                                                 QStringLiteral("Exportar"),
-                                                QStringLiteral("Export"),
-                                                QStringLiteral("导出")),
+                                                QStringLiteral("Export")),
                                             m_connPoolPropsPage);
     m_poolStatusScrubBtn = new QPushButton(QStringLiteral("Scrub"), m_connPoolPropsPage);
     m_poolStatusDestroyBtn = new QPushButton(QStringLiteral("Destroy"), m_connPoolPropsPage);
@@ -2027,8 +1998,7 @@ void MainWindow::buildUi() {
     auto* poolStatusBox = new QGroupBox(
         trk(QStringLiteral("t_pool_status_box_001"),
             QStringLiteral("Estado del pool"),
-            QStringLiteral("Pool status"),
-            QStringLiteral("存储池状态")),
+            QStringLiteral("Pool status")),
         m_connPoolPropsPage);
     auto* poolStatusBoxLayout = new QVBoxLayout(poolStatusBox);
     poolStatusBoxLayout->setContentsMargins(6, 8, 6, 6);
@@ -2050,8 +2020,7 @@ void MainWindow::buildUi() {
     topTreeConfig.treeName = QStringLiteral("originDatasetTreeWidget");
     topTreeConfig.primaryColumnTitle = trk(QStringLiteral("t_unified_dataset_col001"),
                                            QStringLiteral("Conexión/Pool/Dataset"),
-                                           QStringLiteral("Connection/Pool/Dataset"),
-                                           QStringLiteral("连接/存储池/数据集"));
+                                           QStringLiteral("Connection/Pool/Dataset"));
     topTreeConfig.role = ConnectionDatasetTreePane::Role::Unified;
     topTreeConfig.groupPoolsByConnectionRoots = true;
     m_topDatasetTreeWidget = new ConnectionDatasetTreeWidget(topTreeConfig, m_topConnContentDelegate, m_connContentPage);
@@ -2106,8 +2075,7 @@ void MainWindow::buildUi() {
     statusLayout->setSpacing(6);
     auto* statusLabel = new QLabel(trk(QStringLiteral("t_status_col_001"),
                                        QStringLiteral("Estado"),
-                                       QStringLiteral("Status"),
-                                       QStringLiteral("状态")),
+                                       QStringLiteral("Status")),
                                    statusWrap);
     m_statusText = new QTextEdit(statusWrap);
     m_statusText->setFont(combinedLogFont);
@@ -2121,8 +2089,7 @@ void MainWindow::buildUi() {
     m_statusText->setFixedHeight(22);
     m_statusText->setPlainText(trk(QStringLiteral("t_status_loading_001"),
                                    QStringLiteral("Loading..."),
-                                   QStringLiteral("Loading..."),
-                                   QStringLiteral("加载中...")));
+                                   QStringLiteral("Loading...")));
     statusLayout->addWidget(statusLabel, 0);
     statusLayout->addWidget(m_statusText, 1);
 
@@ -2132,8 +2099,7 @@ void MainWindow::buildUi() {
     detailLayout->setSpacing(6);
     auto* detailLabel = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
                                        QStringLiteral("Progreso"),
-                                       QStringLiteral("Progress"),
-                                       QStringLiteral("进度")),
+                                       QStringLiteral("Progress")),
                                    detailWrap);
     m_lastDetailText = new QTextEdit(detailWrap);
     m_lastDetailText->setFont(combinedLogFont);
@@ -2156,8 +2122,7 @@ void MainWindow::buildUi() {
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
-                                        QStringLiteral("Application"),
-                                        QStringLiteral("应用")),
+                                        QStringLiteral("Application")),
                                     combinedLogTab);
     auto* appLogLayout = new QVBoxLayout(appLogBox);
     appLogLayout->setContentsMargins(6, 6, 6, 6);
@@ -2210,13 +2175,11 @@ void MainWindow::buildUi() {
     m_logsTabs->addTab(pendingChangesBox,
                        trk(QStringLiteral("t_jobs_tab_001"),
                            QStringLiteral("Transferencias"),
-                           QStringLiteral("Transfers"),
-                           QStringLiteral("传输")));
+                           QStringLiteral("Transfers")));
     m_logsTabs->addTab(combinedLogTab,
                        trk(QStringLiteral("t_combined_log001"),
                            QStringLiteral("Log combinado"),
-                           QStringLiteral("Combined log"),
-                           QStringLiteral("组合日志")));
+                           QStringLiteral("Combined log")));
 
     // ── Transfer Jobs tab ──────────────────────────────────────────────────
     {
@@ -2230,12 +2193,10 @@ void MainWindow::buildUi() {
         m_jobsTab = m_pendingChangesTab;
         auto* cancelBtn  = new QPushButton(trk(QStringLiteral("t_jobs_cancel_sel001"),
                                                 QStringLiteral("Cancelar seleccionado"),
-                                                QStringLiteral("Cancel selected"),
-                                                QStringLiteral("取消所选")), m_pendingChangesTab);
+                                                QStringLiteral("Cancel selected")), m_pendingChangesTab);
         auto* refreshBtn = new QPushButton(trk(QStringLiteral("t_jobs_refresh001"),
                                                 QStringLiteral("Refrescar"),
-                                                QStringLiteral("Refresh"),
-                                                QStringLiteral("刷新")), m_pendingChangesTab);
+                                                QStringLiteral("Refresh")), m_pendingChangesTab);
         if (m_pendingButtonsCol) {
             m_pendingButtonsCol->insertWidget(2, refreshBtn, 0, Qt::AlignLeft | Qt::AlignTop);
             m_pendingButtonsCol->insertWidget(3, cancelBtn, 0, Qt::AlignLeft | Qt::AlignTop);
@@ -2410,40 +2371,34 @@ void MainWindow::buildUi() {
                                    QStringLiteral("  •  %1 acción(es) de la lista, incluida su "
                                                   "copia guardada en disco"),
                                    QStringLiteral("  •  %1 action(s) from the list, including "
-                                                  "the copy saved on disk"),
-                                   QStringLiteral("  •  列表中的 %1 项操作，包括保存在磁盘上的副本"))
+                                                  "the copy saved on disk"))
                                    .arg(queuedActions);
                 }
                 if (propertyDrafts > 0) {
                     bullets << trk(QStringLiteral("t_empty_list_item_props001"),
                                    QStringLiteral("  •  cambios de propiedades sin aplicar en "
                                                   "%1 objeto(s)"),
-                                   QStringLiteral("  •  unapplied property changes on %1 object(s)"),
-                                   QStringLiteral("  •  %1 个对象上尚未应用的属性更改"))
+                                   QStringLiteral("  •  unapplied property changes on %1 object(s)"))
                                    .arg(propertyDrafts);
                 }
                 if (permissionDrafts > 0) {
                     bullets << trk(QStringLiteral("t_empty_list_item_perms001"),
                                    QStringLiteral("  •  cambios de permisos sin aplicar en "
                                                   "%1 dataset(s)"),
-                                   QStringLiteral("  •  unapplied permission changes on %1 dataset(s)"),
-                                   QStringLiteral("  •  %1 个数据集上尚未应用的权限更改"))
+                                   QStringLiteral("  •  unapplied permission changes on %1 dataset(s)"))
                                    .arg(permissionDrafts);
                 }
                 const auto choice = QMessageBox::question(
                     this,
                     trk(QStringLiteral("t_empty_list_title001"),
                         QStringLiteral("Vaciar la lista de cambios pendientes"),
-                        QStringLiteral("Empty the pending changes list"),
-                        QStringLiteral("清空待应用更改列表")),
+                        QStringLiteral("Empty the pending changes list")),
                     trk(QStringLiteral("t_empty_list_body001"),
                         QStringLiteral("Se va a descartar:\n\n%1\n\nNo afecta a lo ya "
                                        "ejecutado, y no se puede deshacer.\n\n¿Vaciar la lista?"),
                         QStringLiteral("The following will be discarded:\n\n%1\n\nThis does not "
                                        "affect what has already run, and cannot be undone.\n\n"
-                                       "Empty the list?"),
-                        QStringLiteral("将丢弃以下内容：\n\n%1\n\n这不会影响已执行的操作，且无法"
-                                       "撤销。\n\n是否清空列表？"))
+                                       "Empty the list?"))
                         .arg(bullets.join(QStringLiteral("\n"))),
                     QMessageBox::Yes | QMessageBox::No,
                     QMessageBox::No);

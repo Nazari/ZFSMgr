@@ -37,9 +37,8 @@ namespace {
 QString trkl(const QString& lang,
              const QString& key,
              const QString& es = QString(),
-             const QString& en = QString(),
-             const QString& zh = QString()) {
-    return I18nManager::instance().translateKey(lang, key, es, en, zh);
+             const QString& en = QString()) {
+    return I18nManager::instance().translateKey(lang, key, es, en);
 }
 
 class ToggleCheckEventFilter final : public QObject {
@@ -215,97 +214,83 @@ QString pseudoStepForSegment(const QString& segmentRaw, const QString& lang) {
             return trkl(lang,
                         QStringLiteral("t_psd_ssh_send01"),
                         QStringLiteral("Conectar por SSH al origen y enviar stream ZFS (`zfs send`)."),
-                        QStringLiteral("Connect over SSH to source and send ZFS stream (`zfs send`)."),
-                        QStringLiteral("通过 SSH 连接源端并发送 ZFS 数据流（`zfs send`）。"));
+                        QStringLiteral("Connect over SSH to source and send ZFS stream (`zfs send`)."));
         }
         if (s.contains(QStringLiteral("zfs recv"))) {
             return trkl(lang,
                         QStringLiteral("t_psd_ssh_recv01"),
                         QStringLiteral("Conectar por SSH al destino y recibir stream ZFS (`zfs recv`)."),
-                        QStringLiteral("Connect over SSH to target and receive ZFS stream (`zfs recv`)."),
-                        QStringLiteral("通过 SSH 连接目标端并接收 ZFS 数据流（`zfs recv`）。"));
+                        QStringLiteral("Connect over SSH to target and receive ZFS stream (`zfs recv`)."));
         }
         if (s.contains(QStringLiteral("zpool export"))) {
             return trkl(lang,
                         QStringLiteral("t_psd_ssh_exp01"),
                         QStringLiteral("Conectar por SSH y exportar pool (`zpool export`)."),
-                        QStringLiteral("Connect over SSH and export pool (`zpool export`)."),
-                        QStringLiteral("通过 SSH 连接并导出池（`zpool export`）。"));
+                        QStringLiteral("Connect over SSH and export pool (`zpool export`)."));
         }
         if (s.contains(QStringLiteral("zpool import"))) {
             return trkl(lang,
                         QStringLiteral("t_psd_ssh_imp01"),
                         QStringLiteral("Conectar por SSH e importar pool (`zpool import`)."),
-                        QStringLiteral("Connect over SSH and import pool (`zpool import`)."),
-                        QStringLiteral("通过 SSH 连接并导入池（`zpool import`）。"));
+                        QStringLiteral("Connect over SSH and import pool (`zpool import`)."));
         }
         return trkl(lang,
                     QStringLiteral("t_psd_ssh_exec01"),
                     QStringLiteral("Conectar por SSH y ejecutar comando remoto."),
-                    QStringLiteral("Connect over SSH and execute remote command."),
-                    QStringLiteral("通过 SSH 连接并执行远程命令。"));
+                    QStringLiteral("Connect over SSH and execute remote command."));
     }
     if (s.contains(QStringLiteral("pv -trab"))) {
         return trkl(lang,
                     QStringLiteral("t_psd_pv_prog01"),
                     QStringLiteral("Mostrar progreso de transferencia con `pv`."),
-                    QStringLiteral("Show transfer progress with `pv`."),
-                    QStringLiteral("用 `pv` 显示传输进度。"));
+                    QStringLiteral("Show transfer progress with `pv`."));
     }
     if (s.contains(QStringLiteral("zfs send"))) {
         return trkl(lang,
                     QStringLiteral("t_psd_send_gen01"),
                     QStringLiteral("Generar stream ZFS desde snapshot/dataset (`zfs send`)."),
-                    QStringLiteral("Generate ZFS stream from snapshot/dataset (`zfs send`)."),
-                    QStringLiteral("从快照/数据集生成 ZFS 数据流（`zfs send`）。"));
+                    QStringLiteral("Generate ZFS stream from snapshot/dataset (`zfs send`)."));
     }
     if (s.contains(QStringLiteral("zfs recv"))) {
         return trkl(lang,
                     QStringLiteral("t_psd_recv_app01"),
                     QStringLiteral("Aplicar stream ZFS en destino (`zfs recv`)."),
-                    QStringLiteral("Apply ZFS stream on target (`zfs recv`)."),
-                    QStringLiteral("在目标端应用 ZFS 数据流（`zfs recv`）。"));
+                    QStringLiteral("Apply ZFS stream on target (`zfs recv`)."));
     }
     if (s.contains(QStringLiteral("zfs rollback"))) {
         return trkl(lang,
                     QStringLiteral("t_psd_rollbck01"),
                     QStringLiteral("Revertir dataset al snapshot seleccionado (`zfs rollback`)."),
-                    QStringLiteral("Rollback dataset to selected snapshot (`zfs rollback`)."),
-                    QStringLiteral("将数据集回滚到选定快照（`zfs rollback`）。"));
+                    QStringLiteral("Rollback dataset to selected snapshot (`zfs rollback`)."));
     }
     if (s.contains(QStringLiteral("zfs mount")) || s.contains(QStringLiteral("zfs unmount"))) {
         return trkl(lang,
                     QStringLiteral("t_psd_mountop01"),
                     QStringLiteral("Montar/desmontar dataset ZFS."),
-                    QStringLiteral("Mount/unmount ZFS dataset."),
-                    QStringLiteral("挂载/卸载 ZFS 数据集。"));
+                    QStringLiteral("Mount/unmount ZFS dataset."));
     }
     if (s.contains(QStringLiteral("zfs set ")) || s.contains(QStringLiteral("zfs get "))) {
         return trkl(lang,
                     QStringLiteral("t_psd_zfsprop01"),
                     QStringLiteral("Modificar/consultar propiedades ZFS."),
-                    QStringLiteral("Modify/query ZFS properties."),
-                    QStringLiteral("修改/查询 ZFS 属性。"));
+                    QStringLiteral("Modify/query ZFS properties."));
     }
     if (s.contains(QStringLiteral("powershell "))) {
         return trkl(lang,
                     QStringLiteral("t_psd_ps_exec01"),
                     QStringLiteral("Ejecutar script PowerShell."),
-                    QStringLiteral("Execute PowerShell script."),
-                    QStringLiteral("执行 PowerShell 脚本。"));
+                    QStringLiteral("Execute PowerShell script."));
     }
     if (s.contains(QStringLiteral("sudo "))) {
         return trkl(lang,
                     QStringLiteral("t_psd_sudo_exec1"),
                     QStringLiteral("Elevar permisos con sudo y ejecutar comando."),
-                    QStringLiteral("Elevate with sudo and execute command."),
-                    QStringLiteral("通过 sudo 提权并执行命令。"));
+                    QStringLiteral("Elevate with sudo and execute command."));
     }
     return trkl(lang,
                 QStringLiteral("t_psd_subcmd_001"),
                 QStringLiteral("Ejecutar subcomando: %1"),
-                QStringLiteral("Execute subcommand: %1"),
-                QStringLiteral("执行子命令：%1")).arg(segment.left(120));
+                QStringLiteral("Execute subcommand: %1")).arg(segment.left(120));
 }
 
 QString formatCommandPreview(const QString& input, const QString& lang) {
@@ -355,14 +340,12 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
     out.push_back(trkl(lang,
                        QStringLiteral("t_psd_read_sum01"),
                        QStringLiteral("Resumen legible:"),
-                       QStringLiteral("Readable summary:"),
-                       QStringLiteral("可读摘要：")));
+                       QStringLiteral("Readable summary:")));
     if (pseudo.isEmpty()) {
         out.push_back(trkl(lang,
                            QStringLiteral("t_psd_exec_cmd01"),
                            QStringLiteral("  1. Ejecutar comando."),
-                           QStringLiteral("  1. Execute command."),
-                           QStringLiteral("  1. 执行命令。")));
+                           QStringLiteral("  1. Execute command.")));
     } else {
         for (int i = 0; i < pseudo.size(); ++i) {
             out.push_back(QStringLiteral("  %1. %2").arg(i + 1).arg(pseudo[i]));
@@ -374,8 +357,7 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
         out.push_back(trkl(lang,
                            QStringLiteral("t_psd_ps_dec001"),
                            QStringLiteral("PowerShell decodificado:"),
-                           QStringLiteral("Decoded PowerShell:"),
-                           QStringLiteral("解码后的 PowerShell：")));
+                           QStringLiteral("Decoded PowerShell:")));
         for (int i = 0; i < decodedBlocks.size(); ++i) {
             out.push_back(QStringLiteral("  [script %1]").arg(i + 1));
             out.push_back(QStringLiteral("  ") + decodedBlocks[i]);
@@ -386,8 +368,7 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
     out.push_back(trkl(lang,
                        QStringLiteral("t_psd_cmd_real01"),
                        QStringLiteral("Comando real (formateado):"),
-                       QStringLiteral("Actual command (formatted):"),
-                       QStringLiteral("实际命令（已格式化）：")));
+                       QStringLiteral("Actual command (formatted):")));
     out.push_back(QStringLiteral("  ") + pretty);
     return out.join(QStringLiteral("\n"));
 }
@@ -405,15 +386,13 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     dlg.resize(980, 520);
     dlg.setWindowTitle(trk(QStringLiteral("t_confirm_ej_001"),
                            QStringLiteral("Confirmar ejecución"),
-                           QStringLiteral("Confirm execution"),
-                           QStringLiteral("确认执行")));
+                           QStringLiteral("Confirm execution")));
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
     QLabel* intro = new QLabel(
         trk(QStringLiteral("t_confirm_cmds_001"),
             QStringLiteral("Se van a ejecutar estos comandos para la acción: %1").arg(actionName),
-            QStringLiteral("These commands will be executed for action: %1").arg(actionName),
-            QStringLiteral("将为该操作执行以下命令：%1").arg(actionName)),
+            QStringLiteral("These commands will be executed for action: %1").arg(actionName).arg(actionName)),
         &dlg);
     intro->setWordWrap(true);
     root->addWidget(intro);
@@ -437,8 +416,7 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QCheckBox* confirmCb = new QCheckBox(
         trk(QStringLiteral("t_confirm_before_exec_001"),
             QStringLiteral("Confirmar acciones antes de ejecutar"),
-            QStringLiteral("Confirm actions before executing"),
-            QStringLiteral("执行前确认操作")),
+            QStringLiteral("Confirm actions before executing")),
         &dlg);
     confirmCb->setChecked(m_actionConfirmEnabled);
     footer->addWidget(confirmCb);
@@ -447,13 +425,11 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
     QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                                 QStringLiteral("Cancelar"),
-                                                QStringLiteral("Cancel"),
-                                                QStringLiteral("取消")),
+                                                QStringLiteral("Cancel")),
                                             QDialogButtonBox::RejectRole);
     QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                             QStringLiteral("Aceptar"),
-                                            QStringLiteral("Accept"),
-                                            QStringLiteral("确认")),
+                                            QStringLiteral("Accept")),
                                         QDialogButtonBox::AcceptRole);
     footer->addWidget(box);
     root->addLayout(footer);
@@ -474,8 +450,7 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     if (!accepted) {
         appLog(QStringLiteral("INFO"), trk(QStringLiteral("t_acc_cancel_usr1"),
                                            QStringLiteral("Acción cancelada por el usuario: %1").arg(actionName),
-                                           QStringLiteral("Action canceled by user: %1").arg(actionName),
-                                           QStringLiteral("用户已取消操作：%1").arg(actionName)));
+                                           QStringLiteral("Action canceled by user: %1").arg(actionName).arg(actionName)));
     }
     return accepted;
 }
@@ -585,8 +560,7 @@ bool MainWindow::selectItemsDialog(const QString& title,
         if (isInvalid) {
             const QString tip = trk(QStringLiteral("t_invalid_dataset_name_001"),
                                     QStringLiteral("Nombre de dataset no válido: %1").arg(invalidReason),
-                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason),
-                                    QStringLiteral("无效的数据集名称：%1").arg(invalidReason));
+                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason).arg(invalidReason));
             cb->setToolTip(tip);
             label->setToolTip(tip);
             card->setToolTip(tip);
@@ -667,13 +641,11 @@ bool MainWindow::selectItemsDialog(const QString& title,
     QHBoxLayout* tools = new QHBoxLayout();
     QPushButton* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
                                               QStringLiteral("Seleccionar todo"),
-                                              QStringLiteral("Select all"),
-                                              QStringLiteral("全选")),
+                                              QStringLiteral("Select all")),
                                           &dlg);
     QPushButton* noneBtn = new QPushButton(trk(QStringLiteral("t_sel_none_001"),
                                                QStringLiteral("Deseleccionar todo"),
-                                               QStringLiteral("Clear all"),
-                                               QStringLiteral("全不选")),
+                                               QStringLiteral("Clear all")),
                                            &dlg);
     tools->addWidget(allBtn);
     tools->addWidget(noneBtn);
@@ -698,13 +670,11 @@ bool MainWindow::selectItemsDialog(const QString& title,
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
     QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                                 QStringLiteral("Cancelar"),
-                                                QStringLiteral("Cancel"),
-                                                QStringLiteral("取消")),
+                                                QStringLiteral("Cancel")),
                                             QDialogButtonBox::RejectRole);
     QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                             QStringLiteral("Aceptar"),
-                                            QStringLiteral("Accept"),
-                                            QStringLiteral("确认")),
+                                            QStringLiteral("Accept")),
                                         QDialogButtonBox::AcceptRole);
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
@@ -808,8 +778,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     if (nameColumn) {
         tree->setColumnCount(2);
         tree->setHeaderLabels({trk(QStringLiteral("t_col_directorio_001"),
-                                   QStringLiteral("Directorio"), QStringLiteral("Directory"),
-                                   QStringLiteral("目录")),
+                                   QStringLiteral("Directorio"), QStringLiteral("Directory")),
                                nameColumn->header});
         tree->setHeaderHidden(false);
         if (nameColumn->editable) {
@@ -888,8 +857,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
         if (!invalidReason.isEmpty()) {
             const QString tip = trk(QStringLiteral("t_invalid_dataset_name_001"),
                                     QStringLiteral("Nombre de dataset no válido: %1").arg(invalidReason),
-                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason),
-                                    QStringLiteral("无效的数据集名称：%1").arg(invalidReason));
+                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason).arg(invalidReason));
             node->setDisabled(true);
             // Fuera la casilla, no solo apagada: una casilla gris invita a intentar
             // marcarla. Hay que quitar la bandera Y el dato del estado, porque la vista
@@ -949,8 +917,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                 QStringLiteral("Solo se muestra para situar a los de dentro; "
                                                "no está entre los seleccionables."),
                                 QStringLiteral("Shown only to place the ones inside it; "
-                                               "not selectable."),
-                                QStringLiteral("仅用于定位其中的项目；不可选择。")));
+                                               "not selectable.")));
     }
 
     // ---- Columna del nombre de dataset ----
@@ -1066,8 +1033,7 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
                                   ? QString()
                                   : trk(QStringLiteral("t_sel_blocked_001"),
                                         QStringLiteral("No se puede aceptar: %1").arg(firstProblem),
-                                        QStringLiteral("Cannot accept: %1").arg(firstProblem),
-                                        QStringLiteral("无法确认：%1").arg(firstProblem)));
+                                        QStringLiteral("Cannot accept: %1").arg(firstProblem).arg(firstProblem)));
         }
     };
     // Doble clic en un directorio: arrastra a TODOS sus descendientes. Marcar rama a
@@ -1180,13 +1146,11 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     auto* tools = new QHBoxLayout();
     auto* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
                                        QStringLiteral("Seleccionar todo"),
-                                       QStringLiteral("Select all"),
-                                       QStringLiteral("全选")),
+                                       QStringLiteral("Select all")),
                                    &dlg);
     auto* noneBtn = new QPushButton(trk(QStringLiteral("t_sel_none_001"),
                                         QStringLiteral("Deseleccionar todo"),
-                                        QStringLiteral("Clear all"),
-                                        QStringLiteral("全不选")),
+                                        QStringLiteral("Clear all")),
                                     &dlg);
     tools->addWidget(allBtn);
     tools->addWidget(noneBtn);
@@ -1227,13 +1191,11 @@ bool MainWindow::selectTreeItemsDialog(const QString& title,
     auto* box = new QDialogButtonBox(&dlg);
     auto* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                          QStringLiteral("Cancelar"),
-                                         QStringLiteral("Cancel"),
-                                         QStringLiteral("取消")),
+                                         QStringLiteral("Cancel")),
                                      QDialogButtonBox::RejectRole);
     okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                      QStringLiteral("Aceptar"),
-                                     QStringLiteral("Accept"),
-                                     QStringLiteral("确认")),
+                                     QStringLiteral("Accept")),
                                  QDialogButtonBox::AcceptRole);
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
@@ -1361,18 +1323,15 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
     auto* tabs = new QTabWidget(&dlg);
     QPushButton* newGroupBtn = new QPushButton(trk(QStringLiteral("t_new_group_001"),
                                                    QStringLiteral("Nuevo grupo"),
-                                                   QStringLiteral("New group"),
-                                                   QStringLiteral("新建分组")),
+                                                   QStringLiteral("New group")),
                                                &dlg);
     QPushButton* renameGroupBtn = new QPushButton(trk(QStringLiteral("t_rename_group_001"),
                                                       QStringLiteral("Renombrar"),
-                                                      QStringLiteral("Rename"),
-                                                      QStringLiteral("重命名")),
+                                                      QStringLiteral("Rename")),
                                                   &dlg);
     QPushButton* deleteGroupBtn = new QPushButton(trk(QStringLiteral("t_delete_group_001"),
                                                       QStringLiteral("Eliminar"),
-                                                      QStringLiteral("Delete"),
-                                                      QStringLiteral("删除")),
+                                                      QStringLiteral("Delete")),
                                                   &dlg);
     tabsBar->addWidget(tabs, 1);
     auto* sideBtns = new QVBoxLayout();
@@ -1490,19 +1449,16 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         &dlg,
         trk(QStringLiteral("t_available_props_001"),
             QStringLiteral("Disponibles"),
-            QStringLiteral("Available"),
-            QStringLiteral("可用")),
+            QStringLiteral("Available")),
         trk(QStringLiteral("t_visible_props_title_001"),
             QStringLiteral("Visibles"),
-            QStringLiteral("Visible"),
-            QStringLiteral("可见")),
+            QStringLiteral("Visible")),
         visibleAvailable,
         visibleShown);
     tabs->addTab(visiblePage,
                  trk(QStringLiteral("t_visible_props_tab_001"),
                      QStringLiteral("Todas"),
-                     QStringLiteral("All"),
-                     QStringLiteral("全部")));
+                     QStringLiteral("All")));
 
     QVector<GroupTabState> groupTabs;
 
@@ -1560,12 +1516,10 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
             &dlg,
             trk(QStringLiteral("t_group_available_props_001"),
                 QStringLiteral("Todas"),
-                QStringLiteral("All"),
-                QStringLiteral("全部")),
+                QStringLiteral("All")),
             trk(QStringLiteral("t_group_visible_props_001"),
                 QStringLiteral("Propiedades del grupo"),
-                QStringLiteral("Group properties"),
-                QStringLiteral("分组属性")),
+                QStringLiteral("Group properties")),
             state.available,
             state.shown);
         tabs->addTab(state.page, state.name);
@@ -1642,12 +1596,10 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         const QString name = QInputDialog::getText(&dlg,
                                                    trk(QStringLiteral("t_new_group_001"),
                                                        QStringLiteral("Nuevo grupo"),
-                                                       QStringLiteral("New group"),
-                                                       QStringLiteral("新建分组")),
+                                                       QStringLiteral("New group")),
                                                    trk(QStringLiteral("t_group_name_001"),
                                                        QStringLiteral("Nombre del grupo"),
-                                                       QStringLiteral("Group name"),
-                                                       QStringLiteral("分组名称")),
+                                                       QStringLiteral("Group name")),
                                                    QLineEdit::Normal,
                                                    QString(),
                                                    &ok)
@@ -1661,8 +1613,7 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
                                      QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_group_exists_001"),
                                          QStringLiteral("Ya existe un grupo con ese nombre."),
-                                         QStringLiteral("A group with that name already exists."),
-                                         QStringLiteral("该名称的分组已存在。")));
+                                         QStringLiteral("A group with that name already exists.")));
                 return;
             }
         }
@@ -1680,12 +1631,10 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         const QString name = QInputDialog::getText(&dlg,
                                                    trk(QStringLiteral("t_rename_group_001"),
                                                        QStringLiteral("Renombrar grupo"),
-                                                       QStringLiteral("Rename group"),
-                                                       QStringLiteral("重命名分组")),
+                                                       QStringLiteral("Rename group")),
                                                    trk(QStringLiteral("t_group_name_001"),
                                                        QStringLiteral("Nombre del grupo"),
-                                                       QStringLiteral("Group name"),
-                                                       QStringLiteral("分组名称")),
+                                                       QStringLiteral("Group name")),
                                                    QLineEdit::Normal,
                                                    groupTabs[idx].name,
                                                    &ok)
@@ -1699,8 +1648,7 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
                                      QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_group_exists_001"),
                                          QStringLiteral("Ya existe un grupo con ese nombre."),
-                                         QStringLiteral("A group with that name already exists."),
-                                         QStringLiteral("该名称的分组已存在。")));
+                                         QStringLiteral("A group with that name already exists.")));
                 return;
             }
         }
@@ -1758,13 +1706,11 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
     QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                                 QStringLiteral("Cancelar"),
-                                                QStringLiteral("Cancel"),
-                                                QStringLiteral("取消")),
+                                                QStringLiteral("Cancel")),
                                             QDialogButtonBox::RejectRole);
     QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
                                             QStringLiteral("Aceptar"),
-                                            QStringLiteral("Accept"),
-                                            QStringLiteral("确认")),
+                                            QStringLiteral("Accept")),
                                         QDialogButtonBox::AcceptRole);
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);

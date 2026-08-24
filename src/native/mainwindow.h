@@ -1022,8 +1022,7 @@ private:
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
-                const QString& en = QString(),
-                const QString& zh = QString()) const;
+                const QString& en = QString()) const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);

@@ -331,7 +331,7 @@ Y un esquema equivocado se nombra: `zfsmgr://fc16` decía algo sobre un tramo ll
 
 ## El idioma
 
-`--lang es|en|zh`, y sin él **el mismo que use la interfaz gráfica** —`app.language` de
+`--lang es|en`, y sin él **el mismo que use la interfaz gráfica** —`app.language` de
 `config.json`—: dos sitios donde elegir idioma para el mismo programa serían dos sitios
 donde discrepar.
 

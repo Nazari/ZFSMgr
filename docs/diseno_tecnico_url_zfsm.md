@@ -66,7 +66,7 @@ sigue en español. `zfsm://` no lo es.
 
 ### Por qué los literales
 
-Aunque el árbol se vea en español o en chino: una URL es un **identificador**, no texto para leer. Si el literal dependiera del idioma
+Aunque el árbol se vea en español o en inglés: una URL es un **identificador**, no texto para leer. Si el literal dependiera del idioma
 de quien la escribió, la misma cosa tendría tres nombres y ninguno serviría para guardarla
 ni compararla.
 

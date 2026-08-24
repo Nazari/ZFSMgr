@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 I18N = ROOT / "i18n"
-FILES = [I18N / "es.json", I18N / "en.json", I18N / "zh.json"]
+FILES = [I18N / "es.json", I18N / "en.json"]
 LEGACY = I18N / "legacy_keys.json"
 
 

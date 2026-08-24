@@ -298,7 +298,6 @@ bool mountedStateFromText(const QString& value, bool* mountedOut) {
     const QString s = value.trimmed().toLower();
     if (s == QStringLiteral("montado")
         || s == QStringLiteral("mounted")
-        || s == QStringLiteral("已挂载")
         || s == QStringLiteral("on")
         || s == QStringLiteral("yes")
         || s == QStringLiteral("true")
@@ -310,7 +309,6 @@ bool mountedStateFromText(const QString& value, bool* mountedOut) {
     }
     if (s == QStringLiteral("desmontado")
         || s == QStringLiteral("unmounted")
-        || s == QStringLiteral("未挂载")
         || s == QStringLiteral("off")
         || s == QStringLiteral("no")
         || s == QStringLiteral("false")
@@ -356,32 +354,27 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
     using F = zfsmgr::base::gsa::Failure;
     switch (m.failure) {
         case F::RetentionNotAnInteger: {
-            struct { const char* prop; const char* clave; const char* es; const char* en; const char* zh; } kCuales[] = {
+            struct { const char* prop; const char* clave; const char* es; const char* en; } kCuales[] = {
                 {"org.fc16.gsa:horario", "t_gsa_invalid_hourly_001",
                  "La retención horaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
-                 "The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
-                 "%1 的每小时保留值无效。它必须是大于或等于 0 的整数。"},
+                 "The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
                 {"org.fc16.gsa:diario", "t_gsa_invalid_daily_001",
                  "La retención diaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
-                 "The daily retention for %1 is invalid. It must be an integer greater than or equal to 0.",
-                 "%1 的每日保留值无效。它必须是大于或等于 0 的整数。"},
+                 "The daily retention for %1 is invalid. It must be an integer greater than or equal to 0."},
                 {"org.fc16.gsa:semanal", "t_gsa_invalid_weekly_001",
                  "La retención semanal de %1 no es válida. Debe ser un entero mayor o igual que 0.",
-                 "The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
-                 "%1 的每周保留值无效。它必须是大于或等于 0 的整数。"},
+                 "The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
                 {"org.fc16.gsa:mensual", "t_gsa_invalid_monthly_001",
                  "La retención mensual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
-                 "The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
-                 "%1 的每月保留值无效。它必须是大于或等于 0 的整数。"},
+                 "The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
                 {"org.fc16.gsa:anual", "t_gsa_invalid_yearly_001",
                  "La retención anual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
-                 "The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0.",
-                 "%1 的每年保留值无效。它必须是大于或等于 0 的整数。"},
+                 "The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
             };
             for (const auto& c : kCuales) {
                 if (m.detail == c.prop) {
                     return trk(QString::fromLatin1(c.clave), QString::fromUtf8(c.es),
-                               QString::fromUtf8(c.en), QString::fromUtf8(c.zh)).arg(dataset);
+                               QString::fromUtf8(c.en)).arg(dataset);
                 }
             }
             return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.failure));
@@ -389,29 +382,24 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
         case F::EnabledWithNoRetention:
             return trk(QStringLiteral("t_gsa_requires_retention_001"),
                        QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),
-                       QStringLiteral("GSA scheduling for %1 is enabled but it does not have any retention greater than 0."),
-                       QStringLiteral("%1 的 GSA 计划已启用，但没有任何大于 0 的保留值。")).arg(dataset);
+                       QStringLiteral("GSA scheduling for %1 is enabled but it does not have any retention greater than 0.")).arg(dataset);
         case F::LevelWithNoTarget:
             return trk(QStringLiteral("t_gsa_level_dest_required_001"),
                        QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
-                       QStringLiteral("GSA scheduling for %1 has Level=on but no Destination."),
-                       QStringLiteral("%1 的 GSA 计划启用了层级同步，但未指定目标。")).arg(dataset);
+                       QStringLiteral("GSA scheduling for %1 has Level=on but no Destination.")).arg(dataset);
         case F::MalformedTarget:
             return trk(QStringLiteral("t_gsa_dest_format_001"),
                        QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
-                       QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format."),
-                       QStringLiteral("%1 的 GSA 目标必须使用 Con::Pool/Dataset 格式。")).arg(dataset);
+                       QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format.")).arg(dataset);
         case F::TargetHasNoConnection:
             return trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
                        QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
-                       QStringLiteral("The GSA destination for %1 references a missing connection: %2."),
-                       QStringLiteral("%1 的 GSA 目标引用了不存在的连接：%2。"))
+                       QStringLiteral("The GSA destination for %1 references a missing connection: %2."))
                 .arg(dataset, QString::fromStdString(m.detail));
         case F::ClashesWithRecursive:
             return trk(QStringLiteral("t_gsa_recursive_child_conflict_001"),
                        QStringLiteral("No se puede programar %1 porque %2 ya tiene una programación GSA recursiva."),
-                       QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."),
-                       QStringLiteral("无法为 %1 设置计划，因为 %2 已经有递归 GSA 计划。"))
+                       QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."))
                 .arg(dataset, QString::fromStdString(m.detail));
         case F::None_:
             break;
@@ -988,8 +976,7 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         if (row.prop == QStringLiteral("dataset")) {
             k->setText(trk(QStringLiteral("t_prop_name_001"),
                            QStringLiteral("Nombre"),
-                           QStringLiteral("Name"),
-                           QStringLiteral("名称")));
+                           QStringLiteral("Name")));
         }
         table->setItem(r, 0, k);
         const QString displayValue = gsaComparableValue(row.prop, row.value);
@@ -1782,8 +1769,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_seleccione_615ce3"),
                                  QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
-                                 QStringLiteral("Select an active dataset to apply changes."),
-                                 QStringLiteral("请选择一个活动数据集以应用更改。")));
+                                 QStringLiteral("Select an active dataset to apply changes.")));
         return;
     }
 
@@ -1857,7 +1843,6 @@ void MainWindow::applyDatasetPropertyChanges() {
         const QString s = v.trimmed().toLower();
         return s == QStringLiteral("montado")
                || s == QStringLiteral("mounted")
-               || s == QStringLiteral("已挂载")
                || s == QStringLiteral("on")
                || s == QStringLiteral("yes")
                || s == QStringLiteral("true")
@@ -2408,8 +2393,7 @@ void MainWindow::discardAllDraftEdits() {
                         }
                         const QString label = child->text(0).trimmed();
                         if (label == QStringLiteral("Permisos")
-                            || label == QStringLiteral("Permissions")
-                            || label == QStringLiteral("权限")) {
+                            || label == QStringLiteral("Permissions")) {
                             hasVisiblePermissionsNode = true;
                             break;
                         }

@@ -372,16 +372,14 @@ QString MainWindow::connectionStateColorReason(int connIdx) const {
     if (isConnectionDisconnected(connIdx)) {
         return trk(QStringLiteral("t_conn_color_reason_off_001"),
                    QStringLiteral("La conexión está marcada como desconectada."),
-                   QStringLiteral("The connection is marked as disconnected."),
-                   QStringLiteral("该连接已标记为断开。"));
+                   QStringLiteral("The connection is marked as disconnected."));
     }
     const QString stUp = st.status.trimmed().toUpper();
     if (stUp != QStringLiteral("OK")) {
         return st.detail.trimmed().isEmpty()
                    ? trk(QStringLiteral("t_conn_color_reason_err_001"),
                          QStringLiteral("La validación de la conexión ha fallado."),
-                         QStringLiteral("Connection validation failed."),
-                         QStringLiteral("连接校验失败。"))
+                         QStringLiteral("Connection validation failed."))
                    : st.detail.trimmed();
     }
     const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
@@ -394,14 +392,12 @@ QString MainWindow::connectionStateColorReason(int connIdx) const {
     if (zfsTooOld) {
         return trk(QStringLiteral("t_conn_color_reason_zfs_old_001"),
                    QStringLiteral("La versión de OpenZFS es demasiado antigua (mínimo recomendado: 2.3.3)."),
-                   QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."),
-                   QStringLiteral("OpenZFS 版本过旧（建议至少 2.3.3）。"));
+                   QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."));
     }
     if (!st.missingUnixCommands.isEmpty()) {
         return trk(QStringLiteral("t_conn_color_reason_cmds_001"),
                    QStringLiteral("Faltan comandos auxiliares requeridos: %1"),
-                   QStringLiteral("Required helper commands are missing: %1"),
-                   QStringLiteral("缺少必需的辅助命令：%1"))
+                   QStringLiteral("Required helper commands are missing: %1"))
             .arg(st.missingUnixCommands.join(QStringLiteral(", ")));
     }
     return QString();
@@ -895,12 +891,10 @@ void MainWindow::openConnectivityMatrixDialog() {
         QMessageBox::information(this,
                                  trk(QStringLiteral("t_connectivity_title_001"),
                                      QStringLiteral("Conectividad"),
-                                     QStringLiteral("Connectivity"),
-                                     QStringLiteral("连通性")),
+                                     QStringLiteral("Connectivity")),
                                  trk(QStringLiteral("t_connectivity_empty_001"),
                                      QStringLiteral("No hay conexiones definidas."),
-                                     QStringLiteral("There are no defined connections."),
-                                     QStringLiteral("没有已定义的连接。")));
+                                     QStringLiteral("There are no defined connections.")));
         return;
     }
 
@@ -948,55 +942,47 @@ void MainWindow::openConnectivityMatrixDialog() {
             if (merged.contains(QStringLiteral("sshpass no disponible"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_sshpass_001"),
                            QStringLiteral("Motivo: en la conexión origen no está instalado sshpass y el destino requiere autenticación por contraseña."),
-                           QStringLiteral("Reason: sshpass is not installed on the source connection and the target requires password authentication."),
-                           QStringLiteral("原因：源连接未安装 sshpass，而目标需要密码认证。"));
+                           QStringLiteral("Reason: sshpass is not installed on the source connection and the target requires password authentication."));
             }
             if (merged.contains(QStringLiteral("rsync no disponible"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("ZFSMGR_RSYNC_MISSING"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_rsync_001"),
                            QStringLiteral("Motivo: rsync no está disponible en origen o destino."),
-                           QStringLiteral("Reason: rsync is not available on source or target."),
-                           QStringLiteral("原因：源端或目标端不可用 rsync。"));
+                           QStringLiteral("Reason: rsync is not available on source or target."));
             }
             if (merged.contains(QStringLiteral("permission denied"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("publickey"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("authentication"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_auth_001"),
                            QStringLiteral("Motivo: fallo de autenticación SSH hacia el destino."),
-                           QStringLiteral("Reason: SSH authentication to the target failed."),
-                           QStringLiteral("原因：到目标的 SSH 认证失败。"));
+                           QStringLiteral("Reason: SSH authentication to the target failed."));
             }
             if (merged.contains(QStringLiteral("could not resolve hostname"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("name or service not known"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_dns_001"),
                            QStringLiteral("Motivo: no se puede resolver el nombre del host destino."),
-                           QStringLiteral("Reason: the target hostname cannot be resolved."),
-                           QStringLiteral("原因：无法解析目标主机名。"));
+                           QStringLiteral("Reason: the target hostname cannot be resolved."));
             }
             if (merged.contains(QStringLiteral("connection refused"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_refused_001"),
                            QStringLiteral("Motivo: el puerto SSH destino rechaza la conexión."),
-                           QStringLiteral("Reason: the target SSH port refused the connection."),
-                           QStringLiteral("原因：目标 SSH 端口拒绝了连接。"));
+                           QStringLiteral("Reason: the target SSH port refused the connection."));
             }
             if (merged.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("operation timed out"), Qt::CaseInsensitive)) {
                 return trk(QStringLiteral("t_connectivity_reason_timeout_001"),
                            QStringLiteral("Motivo: tiempo de espera agotado al conectar con el destino."),
-                           QStringLiteral("Reason: timed out while connecting to the target."),
-                           QStringLiteral("原因：连接目标时超时。"));
+                           QStringLiteral("Reason: timed out while connecting to the target."));
             }
             if (!merged.isEmpty()) {
                 return trk(QStringLiteral("t_connectivity_reason_raw_001"),
                            QStringLiteral("Motivo: %1"),
-                           QStringLiteral("Reason: %1"),
-                           QStringLiteral("原因：%1"))
+                           QStringLiteral("Reason: %1"))
                     .arg(merged.left(300));
             }
             return trk(QStringLiteral("t_connectivity_reason_exit_001"),
                        QStringLiteral("Motivo: la comprobación terminó con código %1."),
-                       QStringLiteral("Reason: the probe finished with exit code %1."),
-                       QStringLiteral("原因：探测以退出码 %1 结束。"))
+                       QStringLiteral("Reason: the probe finished with exit code %1."))
                 .arg(rc);
         };
         if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
@@ -1011,8 +997,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
                                  QStringLiteral("La conexión origen o destino no está en estado OK."),
-                                 QStringLiteral("The source or target connection is not in OK state."),
-                                 QStringLiteral("源连接或目标连接不是 OK 状态。"));
+                                 QStringLiteral("The source or target connection is not in OK state."));
             result.detail = result.tooltip;
             return result;
         }
@@ -1020,8 +1005,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
             result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                  QStringLiteral("Misma máquina."),
-                                 QStringLiteral("Same machine."),
-                                 QStringLiteral("同一台机器。"));
+                                 QStringLiteral("Same machine."));
             result.detail = result.tooltip;
             result.ok = true;
             return result;
@@ -1037,8 +1021,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                     result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
                     result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                          QStringLiteral("Misma máquina."),
-                                         QStringLiteral("Same machine."),
-                                         QStringLiteral("同一台机器。"));
+                                         QStringLiteral("Same machine."));
                     result.detail = result.tooltip;
                     result.ok = true;
                     return result;
@@ -1047,8 +1030,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                 result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
                 result.tooltip = trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
                                      QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
-                                     QStringLiteral("Local has no equivalent SSH connection for remote probing."),
-                                     QStringLiteral("本地连接没有可用于远程探测的等效 SSH 连接。"));
+                                     QStringLiteral("Local has no equivalent SSH connection for remote probing."));
                 result.detail = result.tooltip;
                 return result;
             }
@@ -1057,8 +1039,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_target_001"),
                                  QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
-                                 QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
-                                 QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。"));
+                                 QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."));
             result.detail = result.tooltip;
             return result;
         }
@@ -1089,8 +1070,7 @@ void MainWindow::openConnectivityMatrixDialog() {
         if (sshProbeOk) {
             tooltipLines << trk(QStringLiteral("t_connectivity_ok_001"),
                                 QStringLiteral("Conectividad SSH verificada hacia %1."),
-                                QStringLiteral("SSH connectivity verified to %1."),
-                                QStringLiteral("到 %1 的 SSH 连通性已验证。"))
+                                QStringLiteral("SSH connectivity verified to %1."))
                                 .arg(targetLabel);
             const QString rsyncCmd = connectivityMatrixRsyncProbe(effectiveDst);
             if (!rsyncCmd.trimmed().isEmpty()) {
@@ -1107,8 +1087,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                     rsyncState = QStringLiteral("✓");
                     tooltipLines << trk(QStringLiteral("t_connectivity_rsync_ok_001"),
                                         QStringLiteral("rsync disponible en origen y destino."),
-                                        QStringLiteral("rsync available on source and target."),
-                                        QStringLiteral("源端和目标端均可用 rsync。"));
+                                        QStringLiteral("rsync available on source and target."));
                 } else {
                     rsyncState = QStringLiteral("✗");
                     tooltipLines << explainFailure(rsyncDetail.isEmpty() ? rsyncMerged : rsyncDetail, rsyncOk ? 0 : -1);
@@ -1139,8 +1118,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                             QString(),
                             trk(QStringLiteral("t_connectivity_probe_log_001"),
                                 QStringLiteral("Log del probe:"),
-                                QStringLiteral("Probe log:"),
-                                QStringLiteral("探测日志：")),
+                                QStringLiteral("Probe log:")),
                             (sshDetail.isEmpty() ? sshMerged : sshDetail).trimmed(),
                             QString(),
                             QStringLiteral("ssh -vvv:"),
@@ -1152,8 +1130,7 @@ void MainWindow::openConnectivityMatrixDialog() {
     QDialog dlg(this);
     dlg.setWindowTitle(trk(QStringLiteral("t_connectivity_title_001"),
                            QStringLiteral("Conectividad"),
-                           QStringLiteral("Connectivity"),
-                           QStringLiteral("连通性")));
+                           QStringLiteral("Connectivity")));
     dlg.resize(760, 500);
     auto* layout = new QVBoxLayout(&dlg);
 
@@ -1171,9 +1148,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                            "otro usuario, así que este resultado es orientativo para ellas."),
             QStringLiteral("Checked from each connection's SSH session, with its credentials. "
                            "Transfers between machines are opened by the agent, which runs as a "
-                           "different user, so this result is only indicative for them."),
-            QStringLiteral("从每个连接的 SSH 会话使用其凭据进行检查。机器间的传输由代理发起，"
-                           "而代理以其他用户身份运行，因此该结果仅供参考。")),
+                           "different user, so this result is only indicative for them.")),
         &dlg);
     scopeLabel->setWordWrap(true);
     layout->addWidget(scopeLabel);
@@ -1196,8 +1171,7 @@ void MainWindow::openConnectivityMatrixDialog() {
     auto* detailLabel = new QLabel(
         trk(QStringLiteral("t_connectivity_detail_title_001"),
             QStringLiteral("Detalle de la casilla seleccionada"),
-            QStringLiteral("Selected cell detail"),
-            QStringLiteral("所选单元格详情")),
+            QStringLiteral("Selected cell detail")),
         &dlg);
     auto* detailView = new QPlainTextEdit(&dlg);
     detailView->setReadOnly(true);
@@ -1205,8 +1179,7 @@ void MainWindow::openConnectivityMatrixDialog() {
     detailView->setPlaceholderText(
         trk(QStringLiteral("t_connectivity_detail_ph_001"),
             QStringLiteral("Seleccione una celda para ver su detalle."),
-            QStringLiteral("Select a cell to view its detail."),
-            QStringLiteral("选择一个单元格以查看详情。")));
+            QStringLiteral("Select a cell to view its detail.")));
     beginUiBusy();
     m_connectivityMatrixInProgress = true;
     updateConnectivityMatrixButtonState();
@@ -1268,77 +1241,64 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     QAction* aConnect = menu.addAction(
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
-            QStringLiteral("Connect"),
-            QStringLiteral("连接")));
+            QStringLiteral("Connect")));
     QAction* aDisconnect = menu.addAction(
         trk(QStringLiteral("t_disconnect_ctx001"),
             QStringLiteral("Desconectar"),
-            QStringLiteral("Disconnect"),
-            QStringLiteral("断开连接")));
+            QStringLiteral("Disconnect")));
     QAction* aRefresh = menu.addAction(
         trk(QStringLiteral("t_refresh_conn_ctx001"),
             QStringLiteral("Refrescar"),
-            QStringLiteral("Refresh"),
-            QStringLiteral("刷新")));
+            QStringLiteral("Refresh")));
     menu.addSeparator();
     QAction* aNewConn = menu.addAction(
         trk(QStringLiteral("t_new_conn_ctx001"),
             QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection"),
-            QStringLiteral("新建连接")));
+            QStringLiteral("New Connection")));
     QAction* aEdit = menu.addAction(
         trk(QStringLiteral("t_edit_conn_ctx001"),
             QStringLiteral("Editar"),
-            QStringLiteral("Edit"),
-            QStringLiteral("编辑")));
+            QStringLiteral("Edit")));
     QAction* aDelete = menu.addAction(
         trk(QStringLiteral("t_del_conn_ctx001"),
             QStringLiteral("Borrar"),
-            QStringLiteral("Delete"),
-            QStringLiteral("删除")));
+            QStringLiteral("Delete")));
     // Solo para Local: es la única conexión que no se puede editar, así que sin esto
     // una contraseña de sudo mal introducida se quedaba guardada para siempre —el
     // arranque solo la pide cuando el campo está vacío— y no había forma de corregirla.
     QAction* aLocalSudoCreds = menu.addAction(
         trk(QStringLiteral("t_local_sudo_creds_ctx001"),
             QStringLiteral("Cambiar credenciales sudo local…"),
-            QStringLiteral("Change local sudo credentials…"),
-            QStringLiteral("修改本地 sudo 凭据…")));
+            QStringLiteral("Change local sudo credentials…")));
     menu.addSeparator();
     QAction* aNewPool = menu.addAction(
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
-            QStringLiteral("New Pool"),
-            QStringLiteral("新建存储池")));
+            QStringLiteral("New Pool")));
     menu.addSeparator();
     QAction* aInstallHelpers = menu.addAction(
         trk(QStringLiteral("t_install_helpers_ctx001"),
             QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands"),
-            QStringLiteral("安装辅助命令")));
+            QStringLiteral("Install helper commands")));
     QAction* aInstallDaemon = menu.addAction(
         trk(QStringLiteral("t_install_daemon_ctx001"),
             QStringLiteral("Reinstalar/Actualizar daemon"),
-            QStringLiteral("Reinstall/Update daemon"),
-            QStringLiteral("重新安装/更新守护进程")));
+            QStringLiteral("Reinstall/Update daemon")));
     QAction* aRepairAltMountpoints = menu.addAction(
         trk(QStringLiteral("t_repair_altmp_ctx001"),
             QStringLiteral("Reparar mountpoints temporales"),
-            QStringLiteral("Repair temporary mountpoints"),
-            QStringLiteral("修复临时挂载点")));
+            QStringLiteral("Repair temporary mountpoints")));
     QAction* aExportTrustStore = menu.addAction(
         trk(QStringLiteral("t_export_trust_store_ctx001"),
             QStringLiteral("Exportar trust-store a esta conexión"),
-            QStringLiteral("Export trust-store to this connection"),
-            QStringLiteral("将 trust-store 导出到此连接")));
+            QStringLiteral("Export trust-store to this connection")));
     const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
                                && m_conns.profiles[connIdx].connType.compare(
                                       QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
     QMenu* aAuthorizeKeyMenu = menu.addMenu(
         trk(QStringLiteral("t_authorize_key_menu_001"),
             QStringLiteral("Autorizar clave SSH en..."),
-            QStringLiteral("Authorize SSH key on..."),
-            QStringLiteral("授权 SSH 密钥到...")));
+            QStringLiteral("Authorize SSH key on...")));
     QList<QPair<int, QAction*>> authorizeKeyActions;
     if (isThisSshConn && !isDisconnected && !actionsLocked()) {
         for (int i = 0; i < m_conns.profiles.size(); ++i) {
@@ -1371,8 +1331,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     QAction* aPushPeers = menu.addAction(
         trk(QStringLiteral("t_push_peers_ctx001"),
             QStringLiteral("Entregar credenciales de las demás máquinas…"),
-            QStringLiteral("Hand over the other machines' credentials…"),
-            QStringLiteral("移交其他计算机的凭据…")));
+            QStringLiteral("Hand over the other machines' credentials…")));
     aPushPeers->setEnabled(hasConn && !isDisconnected && !actionsLocked());
     menu.addSeparator();
 
@@ -1416,30 +1375,25 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     if (isSplitTree) {
         aCloseSplit = menu.addAction(trk(QStringLiteral("t_ctx_close001"),
         QStringLiteral("Cerrar"),
-        QStringLiteral("Close"),
-        QStringLiteral("关闭")));
+        QStringLiteral("Close")));
     } else {
         QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
         aSplitRight = splitMenu->addAction(
             trk(QStringLiteral("t_split_right_001"),
                 QStringLiteral("Derecha"),
-                QStringLiteral("Right"),
-                QStringLiteral("向右")));
+                QStringLiteral("Right")));
         aSplitLeft = splitMenu->addAction(
             trk(QStringLiteral("t_split_left_001"),
                 QStringLiteral("Izquierda"),
-                QStringLiteral("Left"),
-                QStringLiteral("向左")));
+                QStringLiteral("Left")));
         aSplitBelow = splitMenu->addAction(
             trk(QStringLiteral("t_split_below_001"),
                 QStringLiteral("Abajo"),
-                QStringLiteral("Below"),
-                QStringLiteral("向下")));
+                QStringLiteral("Below")));
         aSplitAbove = splitMenu->addAction(
             trk(QStringLiteral("t_split_above_001"),
                 QStringLiteral("Arriba"),
-                QStringLiteral("Above"),
-                QStringLiteral("向上")));
+                QStringLiteral("Above")));
     }
 
     endBusy();
@@ -1463,8 +1417,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         beginTransientUiBusy(
             trk(QStringLiteral("t_connecting_conn_busy_001"),
                 QStringLiteral("Conectando %1..."),
-                QStringLiteral("Connecting %1..."),
-                QStringLiteral("正在连接 %1...")).arg(m_conns.profiles[connIdx].name));
+                QStringLiteral("Connecting %1...")).arg(m_conns.profiles[connIdx].name));
         setConnectionDisconnected(connIdx, false);
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_conns.profiles[connIdx].name));
         rebuildConnectionsTable();
@@ -1529,15 +1482,13 @@ void MainWindow::refreshAllConnections() {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_acci_n_en__6facd2"),
                    QStringLiteral("Acción en curso: refresh bloqueado"),
-                   QStringLiteral("Action in progress: refresh blocked"),
-                   QStringLiteral("操作进行中：刷新被阻止")));
+                   QStringLiteral("Action in progress: refresh blocked")));
         return;
     }
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_refrescar__7f8af2"),
                QStringLiteral("Refrescar todas las conexiones"),
-               QStringLiteral("Refresh all connections"),
-               QStringLiteral("刷新所有连接")));
+               QStringLiteral("Refresh all connections")));
     if (m_conns.profiles.isEmpty()) {
         if (!m_initialRefreshCompleted) {
             m_initialRefreshCompleted = true;
@@ -1613,8 +1564,7 @@ void MainWindow::refreshSelectedConnection() {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_acci_n_en__6facd2"),
                    QStringLiteral("Acción en curso: refresh bloqueado"),
-                   QStringLiteral("Action in progress: refresh blocked"),
-                   QStringLiteral("操作进行中：刷新被阻止")));
+                   QStringLiteral("Action in progress: refresh blocked")));
         return;
     }
     const int idx = currentConnectionIndexFromUi();
@@ -1940,8 +1890,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
                        .arg(total));
             updateStatus(trk(QStringLiteral("t_daemon_autoupdate_progress_001"),
                              QStringLiteral("Actualizando el daemon de «%1» (%2 de %3)…"),
-                             QStringLiteral("Updating the daemon on \"%1\" (%2 of %3)…"),
-                             QStringLiteral("正在更新“%1”上的守护进程（%2/%3）…"))
+                             QStringLiteral("Updating the daemon on \"%1\" (%2 of %3)…"))
                              .arg(connName)
                              .arg(n + 1)
                              .arg(total));
@@ -2030,8 +1979,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
         auto* noPools = new QTreeWidgetItem();
         noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
                                 QStringLiteral("Sin Pools"),
-                                QStringLiteral("No Pools"),
-                                QStringLiteral("无存储池")));
+                                QStringLiteral("No Pools")));
         QFont f = noPools->font(0);
         f.setItalic(true);
         noPools->setFont(0, f);
@@ -2144,8 +2092,7 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         const QString connPrefix =
             trk(QStringLiteral("t_tree_connection_prefix_001"),
                 QStringLiteral("Conexión"),
-                QStringLiteral("Connection"),
-                QStringLiteral("连接"));
+                QStringLiteral("Connection"));
         connRoot->setText(0, QStringLiteral("%1 %2").arg(connPrefix, connName));
         connRoot->setBackground(0, QBrush(connectionStateRowColor(connIdx)));
         connRoot->setToolTip(0, connectionStateTooltipHtml(connIdx));
@@ -2361,13 +2308,12 @@ void MainWindow::updatePoolManagementBoxTitle() {
     const int idx = selectedConnectionIndexForPoolManagement();
     const QString connText = (idx >= 0 && idx < m_conns.profiles.size())
                                  ? m_conns.profiles[idx].name
-                                 : trk(QStringLiteral("t_empty_brkt_01"), QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
+                                 : trk(QStringLiteral("t_empty_brkt_01"), QStringLiteral("[vacío]"), QStringLiteral("[empty]"));
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setTitle(
             trk(QStringLiteral("t_pool_mgmt_of01"),
                 QStringLiteral("Gestión de Pools de %1"),
-                QStringLiteral("Pool Management of %1"),
-                QStringLiteral("%1 的池管理"))
+                QStringLiteral("Pool Management of %1"))
                 .arg(connText));
     }
 }
@@ -2434,12 +2380,10 @@ void MainWindow::refreshConnectionByIndex(int idx) {
                 : QStringLiteral("?");
             const QString prefix = trk(QStringLiteral("t_tree_connection_prefix_001"),
                                        QStringLiteral("Conexión"),
-                                       QStringLiteral("Connection"),
-                                       QStringLiteral("连接"));
+                                       QStringLiteral("Connection"));
             const QString loadingHint = trk(QStringLiteral("t_loading_001"),
                                             QStringLiteral("Cargando…"),
-                                            QStringLiteral("Loading…"),
-                                            QStringLiteral("加载中…"));
+                                            QStringLiteral("Loading…"));
             connRootItem->setText(0, QStringLiteral("%1 %2 [%3]").arg(prefix, connName, loadingHint));
             QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         }
@@ -2690,8 +2634,7 @@ void MainWindow::createConnection() {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_conn_name_unique_01"),
                                          QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
-                                         QStringLiteral("Connection name already exists. It must be unique."),
-                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                                         QStringLiteral("Connection name already exists. It must be unique.")));
                 return;
             }
         }
@@ -2708,8 +2651,7 @@ void MainWindow::createConnection() {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_conn_create_er1"),
                                   QStringLiteral("No se pudo crear conexión:\n%1"),
-                                  QStringLiteral("Could not create connection:\n%1"),
-                                  QStringLiteral("无法创建连接：\n%1")).arg(err));
+                                  QStringLiteral("Could not create connection:\n%1")).arg(err));
         return;
     }
     loadConnections();
@@ -2775,8 +2717,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_repair_altmp_fail001"),
                 QStringLiteral("No se pudo consultar el estado: %1"),
-                QStringLiteral("Could not query state: %1"),
-                QStringLiteral("无法查询状态：%1")).arg(mwhelpers::oneLine(failure)));
+                QStringLiteral("Could not query state: %1")).arg(mwhelpers::oneLine(failure)));
         return;
     }
 
@@ -2791,8 +2732,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_repair_altmp_none001"),
                 QStringLiteral("No hay datasets con mountpoint temporal pendiente en \"%1\"."),
-                QStringLiteral("No datasets are left on a temporary mountpoint on \"%1\"."),
-                QStringLiteral("“%1”上没有停留在临时挂载点的数据集。")).arg(p.name));
+                QStringLiteral("No datasets are left on a temporary mountpoint on \"%1\".")).arg(p.name));
         return;
     }
 
@@ -2803,8 +2743,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
                            "Se desmontarán antes de restaurarlo."),
             QStringLiteral("Found %1 dataset(s) whose mountpoint was relocated by an interrupted "
                            "sync:\n\n%2\n\nRestore their original mountpoint?\n"
-                           "They will be unmounted first."),
-            QStringLiteral("发现 %1 个数据集的挂载点因同步中断而被重定位：\n\n%2\n\n是否恢复其原始挂载点？\n将先卸载它们。"))
+                           "They will be unmounted first."))
             .arg(stranded.size())
             .arg(stranded.join(QLatin1Char('\n')));
     if (QMessageBox::question(this, QStringLiteral("ZFSMgr"), detail,
@@ -2845,8 +2784,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
                 QStringLiteral("Restaurados %1, fallidos %2.\nLos que fallaron conservan la marca y "
                                "se pueden reintentar.\n%3"),
                 QStringLiteral("Restored %1, failed %2.\nThose that failed keep their marker and can "
-                               "be retried.\n%3"),
-                QStringLiteral("已恢复 %1 个，失败 %2 个。\n失败的仍保留标记，可以重试。\n%3"))
+                               "be retried.\n%3"))
                 .arg(repaired)
                 .arg(failed)
                 .arg(mwhelpers::oneLine(applyFail)));
@@ -2855,8 +2793,7 @@ void MainWindow::repairAltMountpointsForSelectedConnection() {
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_repair_altmp_ok001"),
                 QStringLiteral("Restaurados %1 dataset(s)."),
-                QStringLiteral("Restored %1 dataset(s)."),
-                QStringLiteral("已恢复 %1 个数据集。")).arg(repaired));
+                QStringLiteral("Restored %1 dataset(s).")).arg(repaired));
     }
     refreshConnectionByIndex(connIdx);
 }
@@ -2876,8 +2813,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_trust_export_local_001"),
                 QStringLiteral("La conexión Local ya usa el trust-store local."),
-                QStringLiteral("The Local connection already uses the local trust-store."),
-                QStringLiteral("本地连接已使用本地 trust-store。")));
+                QStringLiteral("The Local connection already uses the local trust-store.")));
         return;
     }
 
@@ -2897,8 +2833,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_trust_export_missing_001"),
                 QStringLiteral("No existe trust-store.json local para exportar."),
-                QStringLiteral("There is no local trust-store.json to export."),
-                QStringLiteral("没有可导出的本地 trust-store.json。")));
+                QStringLiteral("There is no local trust-store.json to export.")));
         return;
     }
     const QByteArray payload = trustFile.readAll();
@@ -2908,8 +2843,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_trust_export_empty_001"),
                 QStringLiteral("trust-store.json está vacío."),
-                QStringLiteral("trust-store.json is empty."),
-                QStringLiteral("trust-store.json 为空。")));
+                QStringLiteral("trust-store.json is empty.")));
         return;
     }
 
@@ -2925,10 +2859,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("The local portable trust-store will be copied to \"%1\".\n\n"
                            "The previous remote file will be kept as a backup if it exists. "
                            "The remote machine will be able to use these certificates when ZFSMgr is unlocked with the same master password.\n\n"
-                           "Continue?"),
-            QStringLiteral("本地便携 trust-store 将复制到“%1”。\n\n"
-                           "如果远端文件已存在，将保留备份。使用相同主密码解锁 ZFSMgr 后，远端机器即可使用这些证书。\n\n"
-                           "是否继续？"))
+                           "Continue?"))
             .arg(p.name),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
@@ -2993,8 +2924,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
     } busyGuard{this};
     updateStatus(trk(QStringLiteral("t_trust_export_status_001"),
                      QStringLiteral("Exportando trust-store..."),
-                     QStringLiteral("Exporting trust-store..."),
-                     QStringLiteral("正在导出 trust-store...")));
+                     QStringLiteral("Exporting trust-store...")));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
 
     QString out;
@@ -3011,8 +2941,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_trust_export_fail_001"),
                 QStringLiteral("No se pudo exportar trust-store a \"%1\".\n\n%2"),
-                QStringLiteral("Could not export trust-store to \"%1\".\n\n%2"),
-                QStringLiteral("无法将 trust-store 导出到“%1”。\n\n%2"))
+                QStringLiteral("Could not export trust-store to \"%1\".\n\n%2"))
                 .arg(p.name,
                      detail.isEmpty() ? QStringLiteral("rc=%1").arg(rc) : detail));
         return;
@@ -3025,8 +2954,7 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
         QStringLiteral("ZFSMgr"),
         trk(QStringLiteral("t_trust_export_ok_001"),
             QStringLiteral("trust-store exportado a \"%1\"."),
-            QStringLiteral("trust-store exported to \"%1\"."),
-            QStringLiteral("trust-store 已导出到“%1”。"))
+            QStringLiteral("trust-store exported to \"%1\"."))
             .arg(p.name));
 }
 
@@ -3051,8 +2979,7 @@ void MainWindow::offerLocalSudoCredentialFix() {
                 QStringLiteral("La contraseña de sudo guardada para la conexión Local no es válida.\n\n"
                                "¿Quiere introducirla de nuevo ahora?"),
                 QStringLiteral("The stored sudo password for the Local connection is not valid.\n\n"
-                               "Do you want to enter it again now?"),
-                QStringLiteral("为本地连接保存的 sudo 密码无效。\n\n现在要重新输入吗？")),
+                               "Do you want to enter it again now?")),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::Yes);
         if (answer == QMessageBox::Yes) {
@@ -3085,15 +3012,13 @@ void MainWindow::changeLocalSudoCredentials() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_local_sudo_win_na001"),
                 QStringLiteral("En Windows no se usa sudo."),
-                QStringLiteral("sudo is not used on Windows."),
-                QStringLiteral("Windows 上不使用 sudo。")));
+                QStringLiteral("sudo is not used on Windows.")));
         return;
     }
 
     const QString title = trk(QStringLiteral("t_local_sudo_dlg_t001"),
                               QStringLiteral("Credenciales sudo de la conexión Local"),
-                              QStringLiteral("Local connection sudo credentials"),
-                              QStringLiteral("本地连接的 sudo 凭据"));
+                              QStringLiteral("Local connection sudo credentials"));
     // Se repite hasta que la contraseña funcione o el usuario cancele: aceptar una que
     // no funciona es exactamente lo que dejaba la conexión Local sin arreglo.
     while (true) {
@@ -3105,17 +3030,14 @@ void MainWindow::changeLocalSudoCredentials() {
         passEdit->setEchoMode(QLineEdit::Password);
         passEdit->setPlaceholderText(trk(QStringLiteral("t_local_pwd_ph_001"),
                                          QStringLiteral("Password local sudo"),
-                                         QStringLiteral("Local sudo password"),
-                                         QStringLiteral("本地 sudo 密码")));
+                                         QStringLiteral("Local sudo password")));
         form->addRow(trk(QStringLiteral("t_usuario_2c1e3d"),
                          QStringLiteral("Usuario"),
-                         QStringLiteral("User"),
-                         QStringLiteral("用户")),
+                         QStringLiteral("User")),
                      userEdit);
         form->addRow(trk(QStringLiteral("t_password_8be3c9"),
                          QStringLiteral("Password"),
-                         QStringLiteral("Password"),
-                         QStringLiteral("密码")),
+                         QStringLiteral("Password")),
                      passEdit);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
         form->addRow(buttons);
@@ -3133,8 +3055,7 @@ void MainWindow::changeLocalSudoCredentials() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_local_sudo_req1"),
                     QStringLiteral("Usuario y password sudo son obligatorios."),
-                    QStringLiteral("Sudo user and password are required."),
-                    QStringLiteral("必须提供 sudo 用户和密码。")));
+                    QStringLiteral("Sudo user and password are required.")));
             continue;
         }
         QString sudoDetail;
@@ -3145,8 +3066,7 @@ void MainWindow::changeLocalSudoCredentials() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_local_sudo_bad1"),
                     QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
-                    QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
-                    QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoDetail));
+                    QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again.")).arg(sudoDetail));
             continue;
         }
         if (sudoCheck == mwhelpers::SudoCheck::CouldNotCheck) {
@@ -3157,8 +3077,7 @@ void MainWindow::changeLocalSudoCredentials() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_local_sudo_unchecked2"),
                     QStringLiteral("No se pudo comprobar la contraseña:\n%1\n\n¿Guardarla de todos modos?"),
-                    QStringLiteral("The password could not be verified:\n%1\n\nSave it anyway?"),
-                    QStringLiteral("无法验证密码：\n%1\n\n仍要保存吗？")).arg(sudoDetail),
+                    QStringLiteral("The password could not be verified:\n%1\n\nSave it anyway?")).arg(sudoDetail),
                 QMessageBox::Yes | QMessageBox::No,
                 QMessageBox::Yes);
             if (proceed != QMessageBox::Yes) {
@@ -3176,8 +3095,7 @@ void MainWindow::changeLocalSudoCredentials() {
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_local_sudo_save_err1"),
                     QStringLiteral("No se pudieron guardar las credenciales locales.\n%1"),
-                    QStringLiteral("Could not save the local credentials.\n%1"),
-                    QStringLiteral("无法保存本地凭据。\n%1")).arg(storeErr));
+                    QStringLiteral("Could not save the local credentials.\n%1")).arg(storeErr));
             return;
         }
         m_conns.profiles[idx] = updated;
@@ -3196,8 +3114,7 @@ void MainWindow::changeLocalSudoCredentials() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_local_sudo_ok1"),
                 QStringLiteral("Credenciales sudo locales actualizadas y comprobadas."),
-                QStringLiteral("Local sudo credentials updated and verified."),
-                QStringLiteral("本地 sudo 凭据已更新并验证。")));
+                QStringLiteral("Local sudo credentials updated and verified.")));
         return;
     }
 }
@@ -3217,8 +3134,7 @@ void MainWindow::editConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_conn_local_builtin_01"),
                 QStringLiteral("La conexión local integrada no se puede editar."),
-                QStringLiteral("Built-in local connection cannot be edited."),
-                QStringLiteral("内置本地连接不可编辑。")));
+                QStringLiteral("Built-in local connection cannot be edited.")));
         return;
     }
     const bool redirectedLocal = isConnectionRedirectedToLocal(idx);
@@ -3228,8 +3144,7 @@ void MainWindow::editConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_conn_redirect_l2"),
                 QStringLiteral("La conexión está redirigida a 'Local' y no se puede editar."),
-                QStringLiteral("This connection is redirected to 'Local' and cannot be edited."),
-                QStringLiteral("该连接已重定向到“本地”，不可编辑。")));
+                QStringLiteral("This connection is redirected to 'Local' and cannot be edited.")));
         return;
     }
     ConnectionDialog dlg(m_language, this);
@@ -3249,8 +3164,7 @@ void MainWindow::editConnection() {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_conn_name_unique_01"),
                                          QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
-                                         QStringLiteral("Connection name already exists. It must be unique."),
-                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                                         QStringLiteral("Connection name already exists. It must be unique.")));
                 return;
             }
         }
@@ -3261,8 +3175,7 @@ void MainWindow::editConnection() {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_conn_update_er"),
                                   QStringLiteral("No se pudo actualizar conexión:\n%1"),
-                                  QStringLiteral("Could not update connection:\n%1"),
-                                  QStringLiteral("无法更新连接：\n%1")).arg(err));
+                                  QStringLiteral("Could not update connection:\n%1")).arg(err));
         return;
     }
     loadConnections();
@@ -3290,8 +3203,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_helper_conn_disc_01"),
                 QStringLiteral("La conexión está desconectada."),
-                QStringLiteral("The connection is disconnected."),
-                QStringLiteral("该连接已断开。")));
+                QStringLiteral("The connection is disconnected.")));
         return;
     }
     if (idx >= m_conns.states.size()) {
@@ -3314,8 +3226,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_helper_none_missing_01"),
                 QStringLiteral("No faltan comandos auxiliares en esta conexión."),
-                QStringLiteral("No helper commands are missing on this connection."),
-                QStringLiteral("该连接不缺少辅助命令。")));
+                QStringLiteral("No helper commands are missing on this connection.")));
         return;
     }
     if (!st.helperInstallSupported || st.helperInstallCommandPreview.trimmed().isEmpty()) {
@@ -3324,8 +3235,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_helper_not_supported_01"),
                 QStringLiteral("No hay instalación asistida disponible para esta conexión.\n\n%1"),
-                QStringLiteral("Assisted installation is not available for this connection.\n\n%1"),
-                QStringLiteral("此连接不可用辅助安装。\n\n%1"))
+                QStringLiteral("Assisted installation is not available for this connection.\n\n%1"))
                 .arg(st.helperInstallReason.trimmed().isEmpty() ? QStringLiteral("-") : st.helperInstallReason.trimmed()));
         return;
     }
@@ -3334,16 +3244,14 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     dlg.setWindowTitle(
         trk(QStringLiteral("t_helper_install_title_01"),
             QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands"),
-            QStringLiteral("安装辅助命令")));
+            QStringLiteral("Install helper commands")));
     dlg.resize(760, 520);
 
     auto* layout = new QVBoxLayout(&dlg);
     auto* summary = new QLabel(
         trk(QStringLiteral("t_helper_install_summary_01"),
             QStringLiteral("Se va a preparar la conexión \"%1\" para instalar los comandos auxiliares que faltan."),
-            QStringLiteral("Connection \"%1\" will be prepared to install the missing helper commands."),
-            QStringLiteral("将为连接 \"%1\" 准备缺失的辅助命令安装。")).arg(p.name),
+            QStringLiteral("Connection \"%1\" will be prepared to install the missing helper commands.")).arg(p.name),
         &dlg);
     summary->setWordWrap(true);
     layout->addWidget(summary);
@@ -3374,8 +3282,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     auto* previewLabel = new QLabel(
         trk(QStringLiteral("t_helper_cmd_preview_01"),
             QStringLiteral("Comando remoto previsto"),
-            QStringLiteral("Planned remote command"),
-            QStringLiteral("计划执行的远程命令")),
+            QStringLiteral("Planned remote command")),
         &dlg);
     layout->addWidget(previewLabel);
 
@@ -3386,8 +3293,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     auto* refreshAfter = new QCheckBox(
         trk(QStringLiteral("t_helper_refresh_after_01"),
             QStringLiteral("Refrescar conexión al terminar"),
-            QStringLiteral("Refresh connection when finished"),
-            QStringLiteral("完成后刷新连接")),
+            QStringLiteral("Refresh connection when finished")),
         &dlg);
     refreshAfter->setChecked(true);
     layout->addWidget(refreshAfter);
@@ -3396,14 +3302,12 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     QPushButton* cancelBtn = buttons->addButton(
         trk(QStringLiteral("t_helper_cancel_01"),
             QStringLiteral("Cancelar"),
-            QStringLiteral("Cancel"),
-            QStringLiteral("取消")),
+            QStringLiteral("Cancel")),
         QDialogButtonBox::RejectRole);
     buttons->addButton(
         trk(QStringLiteral("t_helper_install_btn_01"),
             QStringLiteral("Instalar"),
-            QStringLiteral("Install"),
-            QStringLiteral("安装")),
+            QStringLiteral("Install")),
         QDialogButtonBox::AcceptRole);
     Q_UNUSED(cancelBtn);
     layout->addWidget(buttons);
@@ -3419,8 +3323,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     updateStatus(
         trk(QStringLiteral("t_helper_install_busy_01"),
             QStringLiteral("Instalando comandos auxiliares en %1..."),
-            QStringLiteral("Installing helper commands on %1..."),
-            QStringLiteral("正在 %1 上安装辅助命令...")).arg(p.name));
+            QStringLiteral("Installing helper commands on %1...")).arg(p.name));
     QString detail;
     const bool ok = executeConnectionCommand(idx, QStringLiteral("Instalar auxiliares"), installCmd, 1800000, &detail);
     endUiBusy();
@@ -3432,8 +3335,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_helper_install_fail_01"),
                 QStringLiteral("No se pudieron instalar los comandos auxiliares en \"%1\".\n\n%2"),
-                QStringLiteral("Could not install helper commands on \"%1\".\n\n%2"),
-                QStringLiteral("无法在 \"%1\" 上安装辅助命令。\n\n%2"))
+                QStringLiteral("Could not install helper commands on \"%1\".\n\n%2"))
                 .arg(p.name, detail));
         if (refreshAfter->isChecked()) {
             refreshConnectionByIndex(idx);
@@ -3450,8 +3352,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         QStringLiteral("ZFSMgr"),
         trk(QStringLiteral("t_helper_install_ok_01"),
             QStringLiteral("La instalación terminó correctamente en \"%1\"."),
-            QStringLiteral("The installation finished successfully on \"%1\"."),
-            QStringLiteral("\"%1\" 上的安装已成功完成。"))
+            QStringLiteral("The installation finished successfully on \"%1\"."))
             .arg(p.name));
 }
 
@@ -3477,8 +3378,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_daemon_install_confirm_001"),
                 QStringLiteral("ZFSMgr instalará o actualizará el daemon en \"%1\" y lo arrancará con el scheduler nativo.\n\n¿Continuar?"),
-                QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"),
-                QStringLiteral("ZFSMgr 将在 \"%1\" 上安装或更新守护进程，并使用原生调度启动。\n\n是否继续？"))
+                QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"))
                 .arg(p.name),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
@@ -3511,8 +3411,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             const QString reason =
                 trk(QStringLiteral("t_daemon_win_native_missing_001"),
                     QStringLiteral("No se encontró el binario nativo del daemon para Windows en este equipo."),
-                    QStringLiteral("No native Windows daemon binary found on this machine."),
-                    QStringLiteral("当前机器缺少适用于 Windows 的原生守护进程二进制文件。"));
+                    QStringLiteral("No native Windows daemon binary found on this machine."));
             appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
             if (interactive) {
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
@@ -3587,8 +3486,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             const QString reason =
                 trk(QStringLiteral("t_daemon_win_upload_fail_001"),
                     QStringLiteral("No se pudo subir el daemon a la máquina Windows: %1"),
-                    QStringLiteral("Could not upload the daemon to the Windows machine: %1"),
-                    QStringLiteral("无法将守护进程上传到 Windows 计算机：%1"))
+                    QStringLiteral("Could not upload the daemon to the Windows machine: %1"))
                     .arg(detail.isEmpty() ? QStringLiteral("scp falló") : mwhelpers::oneLine(detail));
             appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
             if (interactive) {
@@ -3643,8 +3541,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 const QString reason = trk(
                                            QStringLiteral("t_daemon_native_read_fail_001"),
                                            QStringLiteral("No se pudo leer el binario nativo del daemon (%1)."),
-                                           QStringLiteral("Could not read native daemon binary (%1)."),
-                                           QStringLiteral("无法读取原生守护进程二进制文件（%1）。"))
+                                           QStringLiteral("Could not read native daemon binary (%1)."))
                                            .arg(localAgentPath);
                 appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
                 if (interactive) {
@@ -3658,8 +3555,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 const QString reason = trk(
                                            QStringLiteral("t_daemon_native_empty_001"),
                                            QStringLiteral("El binario nativo del daemon está vacío (%1)."),
-                                           QStringLiteral("Native daemon binary is empty (%1)."),
-                                           QStringLiteral("原生守护进程二进制文件为空（%1）。"))
+                                           QStringLiteral("Native daemon binary is empty (%1)."))
                                            .arg(localAgentPath);
                 appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
                 if (interactive) {
@@ -3697,9 +3593,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                             QStringLiteral("The bundled agent for this platform is %1, but this "
                                            "build expects %2. It will be installed anyway, but "
                                            "the connection will stay flagged as outdated until "
-                                           "that platform's agent is rebuilt."),
-                            QStringLiteral("此平台随附的代理为 %1，而当前版本需要 %2。仍会安装，"
-                                           "但在重新编译该平台的代理之前，连接会一直被标记为过期。"))
+                                           "that platform's agent is rebuilt."))
                             .arg(bundled, expected);
                     appLog(QStringLiteral("WARN"),
                            QStringLiteral("Daemon deploy %1: %2").arg(p.name, warn));
@@ -3714,9 +3608,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                        QStringLiteral("No se encontró binario nativo del daemon para %1/%2 en este equipo. "
                                                       "No se instala fallback script porque no soporta daemon-rpc TLS."),
                                        QStringLiteral("No native daemon binary found for %1/%2 on this machine. "
-                                                      "Script fallback is not installed because it does not support daemon-rpc TLS."),
-                                       QStringLiteral("当前机器缺少适用于 %1/%2 的原生守护进程二进制文件。"
-                                                      "不会安装脚本回退，因为其不支持 daemon-rpc TLS。"))
+                                                      "Script fallback is not installed because it does not support daemon-rpc TLS."))
                                        .arg(platformId, remoteArchHint.isEmpty() ? QStringLiteral("?") : remoteArchHint);
             appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
             if (interactive) {
@@ -3834,8 +3726,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
 
     updateStatus(trk(QStringLiteral("t_daemon_installing_001"),
                      QStringLiteral("Instalando/Actualizando daemon..."),
-                     QStringLiteral("Installing/Updating daemon..."),
-                     QStringLiteral("正在安装/更新守护进程...")));
+                     QStringLiteral("Installing/Updating daemon...")));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString detail;
     const bool ok = executeConnectionCommand(idx,
@@ -3860,8 +3751,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                     QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\": sudo rechazó "
                                    "la contraseña.\n\nRevísela en Editar conexión.\n\n%2"),
                     QStringLiteral("Could not install/update the daemon on \"%1\": sudo rejected the "
-                                   "password.\n\nCheck it in Edit connection.\n\n%2"),
-                    QStringLiteral("无法在 \"%1\" 上安装/更新守护进程：sudo 拒绝了该密码。\n\n请在“编辑连接”中检查。\n\n%2"))
+                                   "password.\n\nCheck it in Edit connection.\n\n%2"))
                     .arg(p.name, detail.simplified().left(500)));
         } else if (interactive) {
             QMessageBox::warning(
@@ -3869,8 +3759,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_daemon_install_fail_001"),
                     QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\".\n\n%2"),
-                    QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"),
-                    QStringLiteral("无法在 \"%1\" 上安装/更新守护进程。\n\n%2"))
+                    QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"))
                     .arg(p.name, detail.simplified().left(500)));
         } else {
             appLog(QStringLiteral("WARN"),
@@ -3915,10 +3804,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                "To allow the daemon to detect pools available for import, "
                                "grant it Full Disk Access on the remote Mac:\n\n"
                                "System Settings → Privacy & Security → "
-                               "Full Disk Access → zfsmgr-agent"),
-                QStringLiteral("守护进程已安装在 \"%1\" 上。\n\n"
-                               "为使守护进程能检测可导入的存储池，请在远程 Mac 上授予完整磁盘访问权限：\n\n"
-                               "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                               "Full Disk Access → zfsmgr-agent"))
                 .arg(p.name));
     }
     return true;
@@ -3940,8 +3826,7 @@ void MainWindow::deleteConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_conn_local_builtin_02"),
                 QStringLiteral("La conexión local integrada no se puede borrar."),
-                QStringLiteral("Built-in local connection cannot be deleted."),
-                QStringLiteral("内置本地连接不可删除。")));
+                QStringLiteral("Built-in local connection cannot be deleted.")));
         return;
     }
     const bool redirectedLocal = isConnectionRedirectedToLocal(idx);
@@ -3951,16 +3836,14 @@ void MainWindow::deleteConnection() {
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_conn_redirect_l3"),
                 QStringLiteral("La conexión está redirigida a 'Local' y no se puede borrar."),
-                QStringLiteral("This connection is redirected to 'Local' and cannot be deleted."),
-                QStringLiteral("该连接已重定向到“本地”，不可删除。")));
+                QStringLiteral("This connection is redirected to 'Local' and cannot be deleted.")));
         return;
     }
     const auto confirm = QMessageBox::question(
         this,
-        trk(QStringLiteral("t_del_conn_tit1"), QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection"), QStringLiteral("删除连接")),
+        trk(QStringLiteral("t_del_conn_tit1"), QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection")),
         trk(QStringLiteral("t_del_conn_q001"), QStringLiteral("¿Borrar conexión \"%1\"?"),
-            QStringLiteral("Delete connection \"%1\"?"),
-            QStringLiteral("删除连接“%1”？")).arg(m_conns.profiles[idx].name),
+            QStringLiteral("Delete connection \"%1\"?")).arg(m_conns.profiles[idx].name),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm != QMessageBox::Yes) {
@@ -3971,8 +3854,7 @@ void MainWindow::deleteConnection() {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_del_conn_err1"),
                                   QStringLiteral("No se pudo borrar conexión:\n%1"),
-                                  QStringLiteral("Could not delete connection:\n%1"),
-                                  QStringLiteral("无法删除连接：\n%1")).arg(err));
+                                  QStringLiteral("Could not delete connection:\n%1")).arg(err));
         return;
     }
     // Invalidate in-flight async refresh callbacks that may still be reporting
@@ -4014,9 +3896,7 @@ void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
                 QStringLiteral("No se encontró clave pública SSH en \"%1\".\n\n"
                                "Genera una con: ssh-keygen -t ed25519"),
                 QStringLiteral("No SSH public key found on \"%1\".\n\n"
-                               "Generate one with: ssh-keygen -t ed25519"),
-                QStringLiteral("在 \"%1\" 上未找到 SSH 公钥。\n\n"
-                               "请使用以下命令生成：ssh-keygen -t ed25519"))
+                               "Generate one with: ssh-keygen -t ed25519"))
                 .arg(sp.name));
         return;
     }
@@ -4040,8 +3920,7 @@ void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_auth_key_install_fail_001"),
                 QStringLiteral("No se pudo instalar la clave en \"%1\":\n\n%2"),
-                QStringLiteral("Could not install the key on \"%1\":\n\n%2"),
-                QStringLiteral("无法在 \"%1\" 上安装密钥：\n\n%2"))
+                QStringLiteral("Could not install the key on \"%1\":\n\n%2"))
                 .arg(dp.name, detail));
         return;
     }
@@ -4054,9 +3933,7 @@ void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
                            "ya no necesitarán contraseña."),
             QStringLiteral("Public key from \"%1\" installed on \"%2\".\n\n"
                            "Direct transfers between these connections "
-                           "will no longer require a password."),
-            QStringLiteral("已将 \"%1\" 的公钥安装到 \"%2\"。\n\n"
-                           "这两个连接之间的直接传输将不再需要密码。"))
+                           "will no longer require a password."))
             .arg(sp.name, dp.name));
 }
 
@@ -4105,10 +3982,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
             QStringLiteral("\"%1\" is about to receive the credentials of: %2.\n\n"
                            "This is not a list of names: they are the private keys that let "
                            "that machine talk to the others as if it were you. Only do this "
-                           "with your own machines.\n\nContinue?"),
-            QStringLiteral("即将向「%1」移交以下凭据：%2。\n\n"
-                           "这不是名称列表：它们是让那台计算机以您的身份与其他计算机通信的私钥。"
-                           "请仅对您自己的计算机执行此操作。\n\n是否继续？"))
+                           "with your own machines.\n\nContinue?"))
             .arg(nombreDestino, nombres.join(QStringLiteral(", "))),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (choice != QMessageBox::Yes) {
@@ -4125,8 +3999,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_push_peers_failed001"),
                                  QStringLiteral("No se pudieron entregar las credenciales:\n%1"),
-                                 QStringLiteral("Could not hand over the credentials:\n%1"),
-                                 QStringLiteral("无法移交凭据：\n%1"))
+                                 QStringLiteral("Could not hand over the credentials:\n%1"))
                                  .arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
         return;
     }
@@ -4137,8 +4010,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_push_peers_ok001"),
                                  QStringLiteral("Entregadas %1 credenciales a «%2»."),
-                                 QStringLiteral("Handed over %1 credentials to \"%2\"."),
-                                 QStringLiteral("已向「%2」移交 %1 项凭据。"))
+                                 QStringLiteral("Handed over %1 credentials to \"%2\"."))
                                  .arg(nombres.size())
                                  .arg(nombreDestino));
 }

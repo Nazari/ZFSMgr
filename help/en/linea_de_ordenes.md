@@ -106,7 +106,7 @@ interface language.
 
 ## Language
 
-`--lang es|en|zh`. Without it, the one the graphical interface uses (`app.language` in
+`--lang es|en`. Without it, the one the graphical interface uses (`app.language` in
 `config.json`), so both tools speak alike.
 
 What gets translated: messages, the help, and the headers in `text` format. What does

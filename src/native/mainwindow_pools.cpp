@@ -238,8 +238,7 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
 
     beginTransientUiBusy(trk(QStringLiteral("t_pool_refresh_status_busy001"),
                              QStringLiteral("Actualizando estado del pool..."),
-                             QStringLiteral("Refreshing pool status..."),
-                             QStringLiteral("正在刷新池状态...")));
+                             QStringLiteral("Refreshing pool status...")));
     struct BusyGuard final {
         MainWindow* self{nullptr};
         ~BusyGuard() {
@@ -273,12 +272,10 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         QMessageBox::warning(this,
                              trk(QStringLiteral("t_pool_refresh_status_fail_t1"),
                                  QStringLiteral("Refresh status"),
-                                 QStringLiteral("Refresh status"),
-                                 QStringLiteral("刷新状态")),
+                                 QStringLiteral("Refresh status")),
                              trk(QStringLiteral("t_pool_refresh_status_fail_q1"),
                                  QStringLiteral("No se pudo obtener el estado del pool %1.\n%2"),
-                                 QStringLiteral("Could not get status for pool %1.\n%2"),
-                                 QStringLiteral("无法获取池 %1 的状态。\n%2"))
+                                 QStringLiteral("Could not get status for pool %1.\n%2"))
                                  .arg(trimmedPool, errText));
         return;
     }
@@ -538,13 +535,12 @@ void MainWindow::importPoolFromRow(int row) {
     }
     dlg.setWindowTitle(trk(QStringLiteral("t_import_pool_w1"),
                            QStringLiteral("Importar pool: %1"),
-                           QStringLiteral("Import pool: %1"),
-                           QStringLiteral("导入池：%1")).arg(poolName));
+                           QStringLiteral("Import pool: %1")).arg(poolName));
     dlg.setModal(true);
     auto* lay = new QVBoxLayout(&dlg);
 
     auto* flagsBox = new QGroupBox(
-        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
+        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags")), &dlg);
     auto* flagsLay = new QGridLayout(flagsBox);
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
     QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
@@ -565,7 +561,7 @@ void MainWindow::importPoolFromRow(int row) {
     lay->addWidget(flagsBox);
 
     auto* fieldsBox = new QGroupBox(
-        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
+        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values")), &dlg);
     auto* form = new QFormLayout(fieldsBox);
     QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
     QLineEdit* altrootEd = new QLineEdit(fieldsBox);
@@ -603,8 +599,7 @@ void MainWindow::importPoolFromRow(int row) {
                     QStringLiteral("ZFSMgr"),
                     trk(QStringLiteral("t_import_pool_name_used_001"),
                         QStringLiteral("Ya existe un pool con ese nombre en esa conexión."),
-                        QStringLiteral("A pool with that name already exists in that connection."),
-                        QStringLiteral("该连接中已存在同名存储池。")));
+                        QStringLiteral("A pool with that name already exists in that connection.")));
                 return;
             }
         }
@@ -720,8 +715,7 @@ void MainWindow::importPoolFromRow(int row) {
     beginTransientUiBusy(
         trk(QStringLiteral("t_pool_import_busy_001"),
             QStringLiteral("Importando pool..."),
-            QStringLiteral("Importing pool..."),
-            QStringLiteral("正在导入存储池...")));
+            QStringLiteral("Importing pool...")));
     QString errorText;
     const bool imported = executePoolCommand(idx,
                                              poolName,
@@ -784,10 +778,7 @@ void MainWindow::importPoolFromRow(int row) {
                     QStringLiteral("Daemon-based import failed on \"%1\" and it may be caused by macOS permissions.\n\n"
                                    "On the remote Mac, grant Full Disk Access to zfsmgr-agent:\n\n"
                                    "System Settings → Privacy & Security → "
-                                   "Full Disk Access → zfsmgr-agent"),
-                    QStringLiteral("在 \"%1\" 上通过守护进程导入失败，可能是 macOS 权限导致。\n\n"
-                                   "请在远程 Mac 上为 zfsmgr-agent 授予完整磁盘访问权限：\n\n"
-                                   "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                                   "Full Disk Access → zfsmgr-agent"))
                     .arg(connName));
         }
         QMessageBox::critical(this,
@@ -890,13 +881,12 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     }
     dlg.setWindowTitle(trk(QStringLiteral("t_import_pool_w1"),
                            QStringLiteral("Importar pool: %1"),
-                           QStringLiteral("Import pool: %1"),
-                           QStringLiteral("导入池：%1")).arg(poolName));
+                           QStringLiteral("Import pool: %1")).arg(poolName));
     dlg.setModal(true);
     auto* lay = new QVBoxLayout(&dlg);
 
     auto* flagsBox = new QGroupBox(
-        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
+        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags")), &dlg);
     auto* flagsLay = new QGridLayout(flagsBox);
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
     QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
@@ -917,7 +907,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     lay->addWidget(flagsBox);
 
     auto* fieldsBox = new QGroupBox(
-        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
+        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values")), &dlg);
     auto* form = new QFormLayout(fieldsBox);
     QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
     QLineEdit* altrootEd = new QLineEdit(fieldsBox);
@@ -1056,8 +1046,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                                                 "y «_-.:»."),
                                  QStringLiteral("The new pool name is not valid: it must start "
                                                 "with a letter and may only contain letters, "
-                                                "digits and \"_-.:\"."),
-                                 QStringLiteral("新的存储池名称无效：必须以字母开头，且只能包含字母、数字和「_-.:」。")));
+                                                "digits and \"_-.:\".")));
         return;
     }
     // Se busca solo el verbo, no "ruta + espacio + verbo": agentShellCommand entrecomilla
@@ -1073,8 +1062,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     beginTransientUiBusy(
         trk(QStringLiteral("t_pool_import_busy_001"),
             QStringLiteral("Importando pool..."),
-            QStringLiteral("Importing pool..."),
-            QStringLiteral("正在导入存储池...")));
+            QStringLiteral("Importing pool...")));
     QString errorText;
     const bool imported = executePoolCommand(idx,
                                              poolName,
@@ -1137,10 +1125,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                     QStringLiteral("Daemon-based import failed on \"%1\" and it may be caused by macOS permissions.\n\n"
                                    "On the remote Mac, grant Full Disk Access to zfsmgr-agent:\n\n"
                                    "System Settings → Privacy & Security → "
-                                   "Full Disk Access → zfsmgr-agent"),
-                    QStringLiteral("在 \"%1\" 上通过守护进程导入失败，可能是 macOS 权限导致。\n\n"
-                                   "请在远程 Mac 上为 zfsmgr-agent 授予完整磁盘访问权限：\n\n"
-                                   "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                                   "Full Disk Access → zfsmgr-agent"))
                     .arg(connName));
         }
         QMessageBox::critical(this,

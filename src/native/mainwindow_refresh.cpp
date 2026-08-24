@@ -85,8 +85,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_inicio_ref_521ce1"),
                QStringLiteral("Inicio refresh: %1 [%2]"),
-               QStringLiteral("Refresh start: %1 [%2]"),
-               QStringLiteral("开始刷新：%1 [%2]")).arg(profile.name, profile.connType));
+               QStringLiteral("Refresh start: %1 [%2]")).arg(profile.name, profile.connType));
     QElapsedTimer refreshTimer;
     refreshTimer.start();
     qint64 phaseCheckpointMs = 0;
@@ -205,13 +204,11 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             state.status = QStringLiteral("ERROR");
             state.detail = trk(QStringLiteral("t_local_sudo_req1"),
                                QStringLiteral("Usuario y password sudo son obligatorios."),
-                               QStringLiteral("Sudo user and password are required."),
-                               QStringLiteral("必须提供 sudo 用户和密码。"));
+                               QStringLiteral("Sudo user and password are required."));
             appLog(QStringLiteral("NORMAL"),
                    trk(QStringLiteral("t_fin_refres_5a87d4"),
                        QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
-                       QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                       QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+                       QStringLiteral("Refresh end: %1 -> ERROR (%2)")).arg(profile.name, state.detail));
             return state;
         }
     }
@@ -220,26 +217,22 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
                            QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
-                           QStringLiteral("Connection type not supported yet in cppqt"),
-                           QStringLiteral("cppqt 尚不支持该连接类型"));
+                           QStringLiteral("Connection type not supported yet in cppqt"));
         appLog(QStringLiteral("NORMAL"),
                trk(QStringLiteral("t_fin_refres_5a87d4"),
                    QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
-                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+                   QStringLiteral("Refresh end: %1 -> ERROR (%2)")).arg(profile.name, state.detail));
         return state;
     }
     if (!localMode && (profile.host.isEmpty() || profile.username.isEmpty())) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_host_usuar_97cc58"),
                            QStringLiteral("Host/usuario no definido"),
-                           QStringLiteral("Host/user not defined"),
-                           QStringLiteral("主机/用户未定义"));
+                           QStringLiteral("Host/user not defined"));
         appLog(QStringLiteral("NORMAL"),
                trk(QStringLiteral("t_fin_refres_5a87d4"),
                    QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
-                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+                   QStringLiteral("Refresh end: %1 -> ERROR (%2)")).arg(profile.name, state.detail));
         return state;
     }
 
@@ -329,8 +322,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             appLog(QStringLiteral("NORMAL"),
                    trk(QStringLiteral("t_fin_refres_5a87d4"),
                        QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
-                       QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                       QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+                       QStringLiteral("Refresh end: %1 -> ERROR (%2)")).arg(profile.name, state.detail));
             return state;
         }
         state.status = QStringLiteral("OK");
@@ -1176,8 +1168,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_fin_refres_6eead9"),
                QStringLiteral("Fin refresh: %1 -> OK (%2)"),
-               QStringLiteral("Refresh end: %1 -> OK (%2)"),
-               QStringLiteral("刷新结束：%1 -> OK (%2)")).arg(p.name, state.detail));
+               QStringLiteral("Refresh end: %1 -> OK (%2)")).arg(p.name, state.detail));
     if (!refreshCacheKey.isEmpty() && !isWinConn) {
         RefreshRuntimeCacheEntry fresh;
         fresh.loadedAt = QDateTime::currentDateTimeUtc();

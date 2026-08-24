@@ -760,64 +760,54 @@ QString MainWindow::transportNoticeText(const BT::WarningNote& a) const {
                        QStringLiteral("No se pudo leer el material TLS del daemon local en %1. "
                                       "Reinstale el daemon desde el menú de la conexión."),
                        QStringLiteral("Could not read the local daemon's TLS material at %1. "
-                                      "Reinstall the daemon from the connection menu."),
-                       QStringLiteral("无法在 %1 读取本地守护进程的 TLS 材料。请从连接菜单重新安装守护进程。"))
+                                      "Reinstall the daemon from the connection menu."))
                 .arg(ruta);
         case A::LocalTlsNeedsSudo:
             return trk(QStringLiteral("t_notice_tls_nosudo"),
                        QStringLiteral("No se pudo leer el material TLS del daemon local: faltan "
                                       "credenciales de sudo."),
                        QStringLiteral("Could not read the local daemon's TLS material: sudo "
-                                      "credentials are missing."),
-                       QStringLiteral("无法读取本地守护进程的 TLS 材料：缺少 sudo 凭据。"));
+                                      "credentials are missing."));
         case A::LocalTlsCannotBeRead:
             return trk(QStringLiteral("t_notice_tls_readfail"),
                        QStringLiteral("No se pudo leer el material TLS del daemon local: %1"),
-                       QStringLiteral("Could not read the local daemon's TLS material: %1"),
-                       QStringLiteral("无法读取本地守护进程的 TLS 材料：%1"))
+                       QStringLiteral("Could not read the local daemon's TLS material: %1"))
                 .arg(detalle);
         case A::LocalTlsIncomplete:
             return trk(QStringLiteral("t_notice_tls_partial"),
                        QStringLiteral("El material TLS del daemon local llegó incompleto."),
-                       QStringLiteral("The local daemon's TLS material arrived incomplete."),
-                       QStringLiteral("本地守护进程的 TLS 材料不完整。"));
+                       QStringLiteral("The local daemon's TLS material arrived incomplete."));
         case A::SshHostUnverified:
             return trk(QStringLiteral("t_notice_hostkey"),
                        QStringLiteral("Falló la verificación del host SSH."),
-                       QStringLiteral("SSH host verification failed."),
-                       QStringLiteral("SSH 主机验证失败。"));
+                       QStringLiteral("SSH host verification failed."));
         case A::NoSshpass:
             return trk(QStringLiteral("t_notice_nosshpass"),
                        QStringLiteral("Hay contraseña guardada, pero no está sshpass: se usará "
                                       "SSH no interactivo."),
                        QStringLiteral("A password is stored, but sshpass is missing: "
-                                      "non-interactive SSH will be used."),
-                       QStringLiteral("已保存密码，但缺少 sshpass：将使用非交互式 SSH。"));
+                                      "non-interactive SSH will be used."));
         case A::MultiplexingFailed:
             return trk(QStringLiteral("t_notice_muxfail"),
                        QStringLiteral("El SSH multiplexado falló; se reintenta sin ControlMaster."),
-                       QStringLiteral("Multiplexed SSH failed; retrying without ControlMaster."),
-                       QStringLiteral("复用的 SSH 失败；正在不使用 ControlMaster 重试。"));
+                       QStringLiteral("Multiplexed SSH failed; retrying without ControlMaster."));
         case A::MultiplexingDisabled:
             return trk(QStringLiteral("t_notice_muxoff"),
                        QStringLiteral("El SSH multiplexado queda desactivado para esta conexión "
                                       "en esta sesión."),
                        QStringLiteral("Multiplexed SSH is disabled for this connection in this "
-                                      "session."),
-                       QStringLiteral("本会话中此连接已停用 SSH 复用。"));
+                                      "session."));
         case A::TunnelNotAcceptingSshDied:
             return trk(QStringLiteral("t_notice_tunnel_died"),
                        QStringLiteral("El túnel SSH no aceptó conexiones: el ssh terminó (%1 ms)."),
-                       QStringLiteral("The SSH tunnel accepted no connections: ssh exited (%1 ms)."),
-                       QStringLiteral("SSH 隧道未接受连接：ssh 已退出（%1 毫秒）。"))
+                       QStringLiteral("The SSH tunnel accepted no connections: ssh exited (%1 ms)."))
                 .arg(detalle);
         case A::TunnelNotAcceptingTimedOut:
             return trk(QStringLiteral("t_notice_tunnel_timeout"),
                        QStringLiteral("El túnel SSH no aceptó conexiones: se agotó la espera "
                                       "(%1 ms)."),
                        QStringLiteral("The SSH tunnel accepted no connections: the wait timed out "
-                                      "(%1 ms)."),
-                       QStringLiteral("SSH 隧道未接受连接：等待超时（%1 毫秒）。"))
+                                      "(%1 ms)."))
                 .arg(detalle);
     }
     return QString();
@@ -838,94 +828,76 @@ QString MainWindow::transportFailureText(const BT::FailureReason& m) const {
         case F::TunnelBusy:
             return trk(QStringLiteral("t_rpcfail_busy"),
                        QStringLiteral("el túnel se está montando para esta conexión"),
-                       QStringLiteral("the tunnel is being set up for this connection"),
-                       QStringLiteral("正在为此连接建立隧道"));
+                       QStringLiteral("the tunnel is being set up for this connection"));
         case F::OffTheTunnelThread:
             return trk(QStringLiteral("t_rpcfail_thread"),
                        QStringLiteral("RPC pedido fuera del hilo de los túneles"),
-                       QStringLiteral("RPC requested outside the tunnel thread"),
-                       QStringLiteral("在隧道线程之外请求了 RPC"));
+                       QStringLiteral("RPC requested outside the tunnel thread"));
         case F::EmptyArguments:
             return trk(QStringLiteral("t_rpcfail_noargs"),
                        QStringLiteral("no se dijo qué ejecutar"),
-                       QStringLiteral("nothing to run was given"),
-                       QStringLiteral("未指定要执行的内容"));
+                       QStringLiteral("nothing to run was given"));
         case F::ConnectionNotSsh:
             return trk(QStringLiteral("t_rpcfail_nossh"),
                        QStringLiteral("la conexión no es SSH"),
-                       QStringLiteral("the connection is not SSH"),
-                       QStringLiteral("该连接不是 SSH"));
+                       QStringLiteral("the connection is not SSH"));
         case F::Cooling:
             return trk(QStringLiteral("t_rpcfail_backoff"),
                        QStringLiteral("en espera tras un fallo reciente (%1 s)"),
-                       QStringLiteral("waiting after a recent failure (%1 s)"),
-                       QStringLiteral("最近一次失败后等待中（%1 秒）"))
+                       QStringLiteral("waiting after a recent failure (%1 s)"))
                 .arg(detalle);
         case F::MaterialCannotBeRead:
             return con(trk(QStringLiteral("t_rpcfail_tlsread"),
                            QStringLiteral("no se pudo leer el material TLS del daemon"),
-                           QStringLiteral("could not read the daemon's TLS material"),
-                           QStringLiteral("无法读取守护进程的 TLS 材料")));
+                           QStringLiteral("could not read the daemon's TLS material")));
         case F::MaterialIncomplete:
             return trk(QStringLiteral("t_rpcfail_tlspartial"),
                        QStringLiteral("el material TLS del daemon llegó incompleto"),
-                       QStringLiteral("the daemon's TLS material arrived incomplete"),
-                       QStringLiteral("守护进程的 TLS 材料不完整"));
+                       QStringLiteral("the daemon's TLS material arrived incomplete"));
         case F::ClientKeyUnavailable:
             return trk(QStringLiteral("t_rpcfail_nokey"),
                        QStringLiteral("no hay clave TLS de cliente, ni guardada ni en la otra máquina"),
-                       QStringLiteral("no client TLS key, neither stored nor on the other machine"),
-                       QStringLiteral("没有客户端 TLS 密钥：本地未保存，对方也没有"));
+                       QStringLiteral("no client TLS key, neither stored nor on the other machine"));
         case F::InvalidCertificates:
             return trk(QStringLiteral("t_rpcfail_badcerts"),
                        QStringLiteral("los certificados TLS del daemon no son válidos"),
-                       QStringLiteral("the daemon's TLS certificates are not valid"),
-                       QStringLiteral("守护进程的 TLS 证书无效"));
+                       QStringLiteral("the daemon's TLS certificates are not valid"));
         case F::InvalidClientKey:
             return trk(QStringLiteral("t_rpcfail_badkey"),
                        QStringLiteral("la clave TLS de cliente no es válida"),
-                       QStringLiteral("the client TLS key is not valid"),
-                       QStringLiteral("客户端 TLS 密钥无效"));
+                       QStringLiteral("the client TLS key is not valid"));
         case F::TunnelCannotBeBuilt:
             return trk(QStringLiteral("t_rpcfail_notunnel"),
                        QStringLiteral("no se pudo montar el túnel SSH hasta el daemon"),
-                       QStringLiteral("could not set up the SSH tunnel to the daemon"),
-                       QStringLiteral("无法建立到守护进程的 SSH 隧道"));
+                       QStringLiteral("could not set up the SSH tunnel to the daemon"));
         case F::ConnectionRefused:
             return con(trk(QStringLiteral("t_rpcfail_refused"),
                            QStringLiteral("el daemon no aceptó la conexión"),
-                           QStringLiteral("the daemon did not accept the connection"),
-                           QStringLiteral("守护进程未接受连接")));
+                           QStringLiteral("the daemon did not accept the connection")));
         case F::CertificateMismatch:
             return trk(QStringLiteral("t_rpcfail_pinning"),
                        QStringLiteral("el certificado que presenta el daemon no es el fijado"),
-                       QStringLiteral("the certificate the daemon presents is not the pinned one"),
-                       QStringLiteral("守护进程出示的证书与已固定的不符"));
+                       QStringLiteral("the certificate the daemon presents is not the pinned one"));
         case F::SendFailed:
             return trk(QStringLiteral("t_rpcfail_send"),
                        QStringLiteral("no se pudo enviar la petición"),
-                       QStringLiteral("the request could not be sent"),
-                       QStringLiteral("无法发送请求"));
+                       QStringLiteral("the request could not be sent"));
         case F::TunnelCutWhileWaiting:
             return trk(QStringLiteral("t_rpcfail_cut"),
                        QStringLiteral("el túnel se cortó mientras se esperaba respuesta"),
-                       QStringLiteral("the tunnel dropped while waiting for an answer"),
-                       QStringLiteral("等待响应时隧道中断"));
+                       QStringLiteral("the tunnel dropped while waiting for an answer"));
         case F::HandshakeFailed:
             return con(trk(QStringLiteral("t_rpcfail_handshake"),
                            QStringLiteral("falló el saludo TLS con el daemon"),
-                           QStringLiteral("the TLS handshake with the daemon failed"),
-                           QStringLiteral("与守护进程的 TLS 握手失败")));
+                           QStringLiteral("the TLS handshake with the daemon failed")));
         case F::InvalidAnswer:
             return con(trk(QStringLiteral("t_rpcfail_badresp"),
                            QStringLiteral("el daemon no devolvió una respuesta válida"),
-                           QStringLiteral("the daemon did not return a valid answer"),
-                           QStringLiteral("守护进程未返回有效响应")));
+                           QStringLiteral("the daemon did not return a valid answer")));
         case F::Unspecified:
             return trk(QStringLiteral("t_rpcfail_unknown"),
                        QStringLiteral("falló sin decir por qué"),
-                       QStringLiteral("failed without saying why"),
-                       QStringLiteral("失败但未说明原因"));
+                       QStringLiteral("failed without saying why"));
     }
     return QString();
 }
@@ -1567,8 +1539,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         m_transport.log(TransportSession::Level::Normal,
                trk(QStringLiteral("t_no_se_pudo_874fae"),
                    QStringLiteral("No se pudo iniciar comando local"),
-                   QStringLiteral("Could not start local command"),
-                   QStringLiteral("无法启动本地命令")));
+                   QStringLiteral("Could not start local command")));
         updateStatus(QStringLiteral("%1 (ERROR: start)").arg(displayLabel));
         m_activeLocalProcess = nullptr;
         m_activeLocalPid = -1;
@@ -1701,8 +1672,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         if (m_cancelActionRequested) {
             m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_canceling_act001"),
                                                  QStringLiteral("Cancelando acción en curso..."),
-                                                 QStringLiteral("Canceling running action..."),
-                                                 QStringLiteral("正在取消执行中的操作...")));
+                                                 QStringLiteral("Canceling running action...")));
             terminateProcessTree(m_activeLocalPid);
             proc.terminate();
             if (!proc.waitForFinished(800)) {
@@ -1711,8 +1681,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             }
             m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_acc_cancel_usr2"),
                                                  QStringLiteral("Acción cancelada por el usuario."),
-                                                 QStringLiteral("Action canceled by user."),
-                                                 QStringLiteral("操作已被用户取消。")));
+                                                 QStringLiteral("Action canceled by user.")));
             updateStatus(QStringLiteral("%1 (CANCELADO)").arg(displayLabel));
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
@@ -1746,9 +1715,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                                       "fallado sin cerrar la tubería. Revise el registro."),
                        QStringLiteral("%1: the transfer has moved no data for %2 s. Aborting: "
                                       "the usual cause is the receiving end failing without "
-                                      "closing the pipe. Check the log."),
-                       QStringLiteral("%1：传输已有 %2 秒没有数据流动，现已中止。常见原因是接收端"
-                                      "失败但未关闭管道。请查看日志。"))
+                                      "closing the pipe. Check the log."))
                        .arg(displayLabel)
                        .arg((stalledInSilence ? lastProgressLine.elapsed()
                                               : stallTimer.elapsed()) / 1000));

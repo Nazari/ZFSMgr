@@ -278,15 +278,15 @@ void MainWindow::writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* i
     }
     const QStringList propLabels = {
         trk(QStringLiteral("t_fb_perms_001"), QStringLiteral("permisos"),
-            QStringLiteral("permissions"), QStringLiteral("权限")),
+            QStringLiteral("permissions")),
         trk(QStringLiteral("t_fb_owner_001"), QStringLiteral("propietario"),
-            QStringLiteral("owner"), QStringLiteral("所有者")),
+            QStringLiteral("owner")),
         trk(QStringLiteral("t_fb_group_001"), QStringLiteral("grupo"),
-            QStringLiteral("group"), QStringLiteral("组")),
+            QStringLiteral("group")),
         trk(QStringLiteral("t_fb_size_001"), QStringLiteral("tamaño"),
-            QStringLiteral("size"), QStringLiteral("大小")),
+            QStringLiteral("size")),
         trk(QStringLiteral("t_fb_mtime_001"), QStringLiteral("modificado"),
-            QStringLiteral("modified"), QStringLiteral("修改时间")),
+            QStringLiteral("modified")),
     };
 
     item->setData(0, kConnFileBrowserPropsRole, values);

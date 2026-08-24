@@ -22,7 +22,7 @@ std::string normaliza(const std::string& idioma) {
     const std::string t = toLowerAscii(trim(idioma));
     if (t.size() >= 2) {
         const std::string dos = t.substr(0, 2);
-        if (dos == "es" || dos == "en" || dos == "zh") {
+        if (dos == "es" || dos == "en") {
             return dos;
         }
     }

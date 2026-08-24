@@ -282,9 +282,7 @@ QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const
                               "necesita transmitir el flujo por una tubería, y el agente de Windows "
                               "todavía no lo implementa."),
                QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
-                              "to stream through a pipe, and the Windows agent does not implement that yet."),
-               QStringLiteral("当任一端为 Windows 时，机器间的%1不可用：它需要通过管道传输数据流，"
-                              "而 Windows 代理尚未实现该功能。"))
+                              "to stream through a pipe, and the Windows agent does not implement that yet."))
         .arg(actionLabel);
 }
 
@@ -387,8 +385,7 @@ void MainWindow::actionSendSnapshot() {
         box.setWindowTitle(QStringLiteral("ZFSMgr"));
         box.setText(trk(QStringLiteral("t_resume_title001"),
                         QStringLiteral("En %1 hay una transferencia sin terminar."),
-                        QStringLiteral("There is an unfinished transfer on %1."),
-                        QStringLiteral("%1 上有一次未完成的传输。"))
+                        QStringLiteral("There is an unfinished transfer on %1."))
                         .arg(resumeHolder.isEmpty() ? recvTarget : resumeHolder));
         box.setInformativeText(trk(QStringLiteral("t_resume_body001"),
             QStringLiteral("Se puede continuar desde donde se quedó, sin reenviar lo que ya "
@@ -404,17 +401,11 @@ void MainWindow::actionSendSnapshot() {
                            "ZFS refuses a fresh stream.\n\nNote: this continues the dataset that was left "
                            "half-received. If the copy covered a whole hierarchy, datasets that had "
                            "not started yet are NOT sent here; repeat the copy afterwards to "
-                           "complete them."),
-            QStringLiteral("可以从中断处继续，无需重新发送已经传输的部分。\n\n"
-                           "若要从头开始，请先在目标端丢弃已接收的数据：\n"
-                           "    zfs recv -A %1\n只要它还在，ZFS 就会拒绝新的数据流。\n\n注意：这里继续的是被"
-                           "中断的那个数据集。若复制涉及整个层级，尚未开始的数据集不会在此发送；"
-                           "之后请重复一次复制以补齐。"))
+                           "complete them."))
                                    .arg(resumeHolder.isEmpty() ? recvTarget : resumeHolder));
         QPushButton* bResume = box.addButton(trk(QStringLiteral("t_resume_go001"),
                                                  QStringLiteral("Continuar"),
-                                                 QStringLiteral("Resume"),
-                                                 QStringLiteral("继续")),
+                                                 QStringLiteral("Resume")),
                                              QMessageBox::AcceptRole);
         box.addButton(QMessageBox::Cancel);
         box.setDefaultButton(bResume);
@@ -499,10 +490,7 @@ void MainWindow::actionSendSnapshot() {
                                "From Windows, copying between machines always goes through the "
                                "agent, and that path could not be set up. Check on both "
                                "connection cards that the agent is installed and running, and "
-                               "that the API version matches."),
-                QStringLiteral("无法准备复制。\n\n"
-                               "在 Windows 上，机器间复制始终通过代理进行，而该路径无法建立。"
-                               "请在两个连接的卡片中确认代理已安装、正在运行，且 API 版本一致。")));
+                               "that the API version matches.")));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Enviar cancelada: cliente Windows sin camino por agente. El "
                               "camino por shell no es utilizable desde aquí."));
@@ -544,10 +532,7 @@ void MainWindow::actionSendSnapshot() {
                                "that path could not be set up. Check on both connection cards "
                                "that the agent is installed, running and with an up-to-date API "
                                "version.")
-                    .arg(sp.name, dp.name),
-                QStringLiteral("无法准备 %1 与 %2 之间的复制。\n\n"
-                               "机器间复制使用两端的代理作业，而该路径无法建立。"
-                               "请在两个连接的卡片中确认代理已安装、正在运行且 API 版本为最新。")
+                    .arg(sp.name, dp.name)
                     .arg(sp.name, dp.name)));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Enviar cancelada: sin camino por trabajo entre %1 y %2. Los "
@@ -561,8 +546,7 @@ void MainWindow::actionSendSnapshot() {
     appLog(QStringLiteral("INFO"),
            trk(QStringLiteral("t_copiar_mod_b1d73e"),
                QStringLiteral("Enviar: modo local remoto (origen y destino en la misma conexión)"),
-               QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
-               QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
+               QStringLiteral("Copy: remote-local mode (source and target on same connection)")));
     const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
     if (typedPipe.isEmpty()) {
         QMessageBox::warning(
@@ -575,9 +559,7 @@ void MainWindow::actionSendSnapshot() {
                 QStringLiteral("Could not prepare the copy on %1.\n\n"
                                "Copying within one machine is done by the agent. Check that it "
                                "is installed, running and up to date.")
-                    .arg(sp.name),
-                QStringLiteral("无法在 %1 上准备复制。\n\n"
-                               "同一台机器内的复制由代理完成。请确认其已安装、正在运行且为最新版本。")
+                    .arg(sp.name)
                     .arg(sp.name)));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Enviar cancelada en %1: sin --zfs-pipe-local.").arg(sp.name));
@@ -616,11 +598,7 @@ void MainWindow::actionSendSnapshot() {
                                "Copying between machines needs the agent on both ends, and the "
                                "target's could not be reached. Check on the connection card that "
                                "it is installed and running; if it comes from an earlier version, "
-                               "reinstall it from the context menu."),
-                QStringLiteral("无法准备与 %1 之间的复制。\n\n"
-                               "机器间复制需要两端都有代理，而目标端的代理无法访问。请在连接"
-                               "卡片中确认它已安装并正在运行；若来自较早版本，请从右键菜单"
-                               "重新安装。"))
+                               "reinstall it from the context menu."))
                 .arg(isWindowsConnection(dp) ? dp.name : sp.name));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Enviar cancelada: sin camino daemon-a-daemon y un extremo es "
@@ -775,8 +753,7 @@ void MainWindow::actionCloneSnapshot() {
                                  QStringLiteral("Un clon se hace DE una instantánea y hacia un "
                                                 "dataset que no lo sea."),
                                  QStringLiteral("A clone is made FROM a snapshot into a dataset "
-                                                "that is not one."),
-                                 QStringLiteral("克隆是从快照创建到非快照的数据集。")));
+                                                "that is not one.")));
         return;
     }
     QString cmd = mwhelpers::cadenaDeArgv(QStringLiteral("zfs"), argvClon);
@@ -885,8 +862,7 @@ void MainWindow::actionDiffSnapshot() {
             trk(QStringLiteral("t_diff_sin_daemon_001"),
                 QStringLiteral("No se puede comparar en esta conexión: no tiene un agente "
                                "utilizable."),
-                QStringLiteral("Cannot diff on this connection: it has no usable agent."),
-                QStringLiteral("无法在此连接上比较：没有可用的代理。")));
+                QStringLiteral("Cannot diff on this connection: it has no usable agent.")));
         return;
     }
     const QString remoteCmd =
@@ -1074,8 +1050,7 @@ void MainWindow::actionLevelSnapshot() {
     if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty() || !dst.snapshotName.isEmpty()) {
         appLog(QStringLiteral("INFO"), trk(QStringLiteral("t_nivelar_om_fd38a5"),
                                            QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
-                                           QStringLiteral("Level skipped: incomplete selection (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
-                                           QStringLiteral("同步快照已跳过：选择不完整（src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5）"))
+                                           QStringLiteral("Level skipped: incomplete selection (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"))
                                       .arg(src.valid ? QStringLiteral("1") : QStringLiteral("0"))
                                       .arg(dst.valid ? QStringLiteral("1") : QStringLiteral("0"))
                                       .arg(src.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
@@ -1090,10 +1065,7 @@ void MainWindow::actionLevelSnapshot() {
                                "- En Destino: un dataset (sin snapshot)"),
                 QStringLiteral("To Level you must select:\n"
                                "- Source: a dataset or snapshot\n"
-                               "- Target: a dataset (without snapshot)"),
-                QStringLiteral("执行“同步快照”前请先选择：\n"
-                               "- 源：数据集或快照\n"
-                               "- 目标：数据集（不带快照）")));
+                               "- Target: a dataset (without snapshot)")));
         return;
     }
     QString transferVersionReason;
@@ -1106,8 +1078,7 @@ void MainWindow::actionLevelSnapshot() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_load_sn01"),
                                  QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
-                                 QStringLiteral("Could not load snapshots for Level."),
-                                 QStringLiteral("无法加载用于同步快照的快照列表。")));
+                                 QStringLiteral("Could not load snapshots for Level.")));
         return;
     }
     const QStringList srcSnaps = datasetSnapshotsFromModel(src.connIdx, src.poolName, src.datasetName);
@@ -1121,8 +1092,7 @@ void MainWindow::actionLevelSnapshot() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_load_sn01"),
                                  QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
-                                 QStringLiteral("Could not load snapshots for Level."),
-                                 QStringLiteral("无法加载用于同步快照的快照列表。")));
+                                 QStringLiteral("Could not load snapshots for Level.")));
         return;
     }
 
@@ -1165,16 +1135,14 @@ void MainWindow::actionLevelSnapshot() {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_level_no_src01"),
                                      QStringLiteral("Origen no tiene snapshots para Nivelar."),
-                                     QStringLiteral("Source has no snapshots to Level."),
-                                     QStringLiteral("源数据集没有可用于同步的快照。")));
+                                     QStringLiteral("Source has no snapshots to Level.")));
         return;
     }
     if (dstSnaps.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_no_dst01"),
                                  QStringLiteral("Destino no tiene snapshots. Nivelar siempre se hace con diferencial desde el snapshot más reciente de destino."),
-                                 QStringLiteral("Target has no snapshots. Level always uses a differential send from target latest snapshot."),
-                                 QStringLiteral("目标数据集没有快照。“同步快照”始终要求从目标最新快照开始做增量发送。")));
+                                 QStringLiteral("Target has no snapshots. Level always uses a differential send from target latest snapshot.")));
         return;
     }
 
@@ -1184,8 +1152,7 @@ void MainWindow::actionLevelSnapshot() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_tgt_abs01"),
                                  QStringLiteral("El snapshot objetivo (%1) no existe en origen.").arg(targetSnapName),
-                                 QStringLiteral("Target snapshot (%1) does not exist in source.").arg(targetSnapName),
-                                 QStringLiteral("目标快照（%1）在源端不存在。").arg(targetSnapName)));
+                                 QStringLiteral("Target snapshot (%1) does not exist in source.").arg(targetSnapName).arg(targetSnapName)));
         return;
     }
     const QString targetGuid = snapshotGuidFor(src.connIdx, src.poolName, *srcCacheIt, src.datasetName, targetSnapName);
@@ -1195,8 +1162,7 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("No se pudo obtener el GUID del snapshot objetivo (%1).\nNo se permite comparar por nombre.")
                                      .arg(targetSnapName),
                                  QStringLiteral("Could not resolve GUID for target snapshot (%1).\nName-based comparison is not allowed.")
-                                     .arg(targetSnapName),
-                                 QStringLiteral("无法获取目标快照（%1）的 GUID。\n不允许按名称比较。")
+                                     .arg(targetSnapName)
                                      .arg(targetSnapName)));
         return;
     }
@@ -1209,8 +1175,7 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("No se pudo obtener el GUID del snapshot más reciente en destino (%1).\nNo se permite comparar por nombre.")
                                      .arg(dstLatestSnap),
                                  QStringLiteral("Could not resolve GUID for target latest snapshot (%1).\nName-based comparison is not allowed.")
-                                     .arg(dstLatestSnap),
-                                 QStringLiteral("无法获取目标端最新快照（%1）的 GUID。\n不允许按名称比较。")
+                                     .arg(dstLatestSnap)
                                      .arg(dstLatestSnap)));
         return;
     }
@@ -1224,8 +1189,7 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("El snapshot más reciente de destino (guid=%1) no existe en origen.\nNo se puede nivelar con diferencial.")
                                      .arg(dstLatestGuid),
                                  QStringLiteral("Target latest snapshot (guid=%1) does not exist in source.\nCannot level with differential send.")
-                                     .arg(dstLatestGuid),
-                                 QStringLiteral("目标最新快照（guid=%1）在源端不存在，无法执行增量同步。")
+                                     .arg(dstLatestGuid)
                                      .arg(dstLatestGuid)));
         return;
     }
@@ -1235,8 +1199,7 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("Destino tiene un snapshot más moderno (guid=%1) que el snapshot objetivo (guid=%2).\nNivelar cancelado.")
                                      .arg(dstLatestGuid, targetGuid),
                                  QStringLiteral("Target has a newer snapshot (guid=%1) than target snapshot to send (guid=%2).\nLevel canceled.")
-                                     .arg(dstLatestGuid, targetGuid),
-                                 QStringLiteral("目标端存在比要发送目标快照（guid=%2）更“新”的快照（guid=%1），已取消同步。")
+                                     .arg(dstLatestGuid, targetGuid)
                                      .arg(dstLatestGuid, targetGuid)));
         return;
     }
@@ -1246,8 +1209,7 @@ void MainWindow::actionLevelSnapshot() {
                                      QStringLiteral("Destino ya está nivelado en el snapshot objetivo (guid=%1).")
                                          .arg(targetGuid),
                                      QStringLiteral("Target is already leveled at target snapshot (guid=%1).")
-                                         .arg(targetGuid),
-                                     QStringLiteral("目标已处于目标快照（guid=%1），无需同步。")
+                                         .arg(targetGuid)
                                          .arg(targetGuid)));
         return;
     }
@@ -1326,10 +1288,7 @@ void MainWindow::actionLevelSnapshot() {
                                "that path could not be set up. Check on both connection cards "
                                "that the agent is installed, running and with an up-to-date API "
                                "version.")
-                    .arg(sp.name, dp.name),
-                QStringLiteral("无法准备 %1 与 %2 之间的同步。\n\n"
-                               "机器间同步使用两端的代理作业，而该路径无法建立。"
-                               "请在两个连接的卡片中确认代理已安装、正在运行且 API 版本为最新。")
+                    .arg(sp.name, dp.name)
                     .arg(sp.name, dp.name)));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Nivelar cancelado: sin camino por trabajo entre %1 y %2.")
@@ -1339,8 +1298,7 @@ void MainWindow::actionLevelSnapshot() {
     appLog(QStringLiteral("INFO"),
            trk(QStringLiteral("t_nivelar_mo_2edd21"),
                QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
-               QStringLiteral("Level: remote-local mode (source and target on same connection)"),
-               QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
+               QStringLiteral("Level: remote-local mode (source and target on same connection)")));
     const QStringList typedPipe = daemonizeLocalSendRecvArgs(src.connIdx, sendRawCmd, recvRawCmd);
     if (typedPipe.isEmpty()) {
         QMessageBox::warning(
@@ -1353,9 +1311,7 @@ void MainWindow::actionLevelSnapshot() {
                 QStringLiteral("Could not prepare the level on %1.\n\n"
                                "Levelling within one machine is done by the agent. Check that it "
                                "is installed, running and up to date.")
-                    .arg(sp.name),
-                QStringLiteral("无法在 %1 上准备同步。\n\n"
-                               "同一台机器内的同步由代理完成。请确认其已安装、正在运行且为最新版本。")
+                    .arg(sp.name)
                     .arg(sp.name)));
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Nivelar cancelado en %1: sin --zfs-pipe-local.").arg(sp.name));
@@ -1414,8 +1370,7 @@ void MainWindow::actionSyncDatasets() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_no_se_pudi_4f5238"),
                                  QStringLiteral("No se pudieron leer mountpoints para sincronizar."),
-                                 QStringLiteral("Could not read mountpoints for synchronization."),
-                                 QStringLiteral("无法读取用于同步的挂载点。")));
+                                 QStringLiteral("Could not read mountpoints for synchronization.")));
         return;
     }
     const bool srcRootMounted = isMountedValueTrue(srcMounted);
@@ -1520,8 +1475,7 @@ void MainWindow::actionSyncDatasets() {
         dlg.resize(900, 560);
         dlg.setWindowTitle(trk(QStringLiteral("t_sync_opts_title_001"),
                                QStringLiteral("Opciones de sincronización"),
-                               QStringLiteral("Synchronization options"),
-                               QStringLiteral("同步选项")));
+                               QStringLiteral("Synchronization options")));
         auto* root = new QVBoxLayout(&dlg);
         auto* form = new QFormLayout();
         auto* srcEd = new QLineEdit(QStringLiteral("%1::%2")
@@ -1544,29 +1498,25 @@ void MainWindow::actionSyncDatasets() {
         if (!deleteSupported) {
             deleteCb->setToolTip(trk(QStringLiteral("t_sync_delete_disabled_tar_001"),
                                      QStringLiteral("No disponible con modo tar."),
-                                     QStringLiteral("Not available with tar mode."),
-                                     QStringLiteral("tar 模式下不可用。")));
+                                     QStringLiteral("Not available with tar mode.")));
         }
-        form->addRow(trk(QStringLiteral("t_origin_001"), QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")), srcEd);
-        form->addRow(trk(QStringLiteral("t_dest_001"), QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")), dstEd);
+        form->addRow(trk(QStringLiteral("t_origin_001"), QStringLiteral("Origen"), QStringLiteral("Source")), srcEd);
+        form->addRow(trk(QStringLiteral("t_dest_001"), QStringLiteral("Destino"), QStringLiteral("Target")), dstEd);
         form->addRow(trk(QStringLiteral("t_sync_opts_params_001"),
                          QStringLiteral("Parámetros"),
-                         QStringLiteral("Parameters"),
-                         QStringLiteral("参数")),
+                         QStringLiteral("Parameters")),
                      deleteCb);
         root->addLayout(form);
 
         auto* checkRow = new QHBoxLayout();
         auto* checkBtn = new QPushButton(trk(QStringLiteral("t_sync_check_001"),
                                              QStringLiteral("Check"),
-                                             QStringLiteral("Check"),
-                                             QStringLiteral("检查")),
+                                             QStringLiteral("Check")),
                                          &dlg);
         auto* cancelCheckBtn = new QPushButton(
             trk(QStringLiteral("t_sync_cancel_check_001"),
                 QStringLiteral("Cancel check"),
-                QStringLiteral("Cancel check"),
-                QStringLiteral("取消检查")),
+                QStringLiteral("Cancel check")),
             &dlg);
         cancelCheckBtn->setEnabled(false);
         checkRow->addWidget(checkBtn);
@@ -1578,8 +1528,7 @@ void MainWindow::actionSyncDatasets() {
         outBox->setReadOnly(true);
         outBox->setPlaceholderText(trk(QStringLiteral("t_sync_check_output_ph_001"),
                                        QStringLiteral("Salida de dry-run..."),
-                                       QStringLiteral("Dry-run output..."),
-                                       QStringLiteral("dry-run 输出...")));
+                                       QStringLiteral("Dry-run output...")));
         root->addWidget(outBox, 1);
 
         bool checkRunning = false;
@@ -1596,8 +1545,7 @@ void MainWindow::actionSyncDatasets() {
                 outBox->setPlainText(
                     trk(QStringLiteral("t_sync_dryrun_na_001"),
                         QStringLiteral("Dry-run no disponible para este modo de sincronización."),
-                        QStringLiteral("Dry-run is not available for this synchronization mode."),
-                        QStringLiteral("此同步模式不支持 dry-run。")));
+                        QStringLiteral("Dry-run is not available for this synchronization mode.")));
                 return;
             }
             checkRunning = true;
@@ -1607,8 +1555,7 @@ void MainWindow::actionSyncDatasets() {
             deleteCb->setEnabled(false);
             outBox->setPlainText(trk(QStringLiteral("t_sync_dryrun_running_001"),
                                      QStringLiteral("Ejecutando dry-run..."),
-                                     QStringLiteral("Running dry-run..."),
-                                     QStringLiteral("正在执行 dry-run...")));
+                                     QStringLiteral("Running dry-run...")));
             QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             QApplication::setOverrideCursor(Qt::WaitCursor);
 
@@ -1637,8 +1584,7 @@ void MainWindow::actionSyncDatasets() {
                     live += QStringLiteral("$ %1\n\n").arg(maskSecrets(cmd));
                     live += trk(QStringLiteral("t_sync_dryrun_running_002"),
                                 QStringLiteral("Ejecutando dry-run..."),
-                                QStringLiteral("Running dry-run..."),
-                                QStringLiteral("正在执行 dry-run..."));
+                                QStringLiteral("Running dry-run..."));
                     if (!out.trimmed().isEmpty()) {
                         live += QStringLiteral("\n\nstdout:\n") + maskSecrets(out.trimmed());
                     }
@@ -1676,8 +1622,7 @@ void MainWindow::actionSyncDatasets() {
             if (!started) {
                 rendered += trk(QStringLiteral("t_sync_dryrun_start_fail_001"),
                                 QStringLiteral("No se pudo ejecutar dry-run."),
-                                QStringLiteral("Could not execute dry-run."),
-                                QStringLiteral("无法执行 dry-run。"));
+                                QStringLiteral("Could not execute dry-run."));
                 if (!err.trimmed().isEmpty()) {
                     rendered += QStringLiteral("\n\nstderr:\n") + maskSecrets(err.trimmed());
                 }
@@ -1687,13 +1632,11 @@ void MainWindow::actionSyncDatasets() {
             if (cancelled) {
                 rendered += trk(QStringLiteral("t_sync_dryrun_cancelled_001"),
                                 QStringLiteral("Dry-run cancelado por el usuario."),
-                                QStringLiteral("Dry-run cancelled by user."),
-                                QStringLiteral("dry-run 已由用户取消。"));
+                                QStringLiteral("Dry-run cancelled by user."));
             } else if (timedOut) {
                 rendered += trk(QStringLiteral("t_sync_dryrun_timeout_001"),
                                 QStringLiteral("Dry-run cancelado por timeout."),
-                                QStringLiteral("Dry-run cancelled due to timeout."),
-                                QStringLiteral("dry-run 因超时而取消。"));
+                                QStringLiteral("Dry-run cancelled due to timeout."));
             } else {
                 rendered += QStringLiteral("exit=%1").arg(rc);
             }
@@ -1723,8 +1666,7 @@ void MainWindow::actionSyncDatasets() {
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_no_se_pudo_07b2ca"),
                                      QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\nOrigen: %1\nDestino: %2"),
-                                     QStringLiteral("Could not resolve effective mountpoint for synchronization.\nSource: %1\nTarget: %2"),
-                                     QStringLiteral("无法解析用于同步的有效挂载点。\n源：%1\n目标：%2"))
+                                     QStringLiteral("Could not resolve effective mountpoint for synchronization.\nSource: %1\nTarget: %2"))
                                      .arg(srcEffectiveMp, dstEffectiveMp));
             return;
         }
@@ -1747,8 +1689,7 @@ void MainWindow::actionSyncDatasets() {
                                      QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_sync_native_unavail_001"),
                                          QStringLiteral("Sincronizar en Windows necesita el agente instalado y al día en esta conexión."),
-                                         QStringLiteral("Sync on Windows needs the agent installed and up to date on this connection."),
-                                         QStringLiteral("在 Windows 上同步需要本连接已安装并更新到最新的代理。")));
+                                         QStringLiteral("Sync on Windows needs the agent installed and up to date on this connection.")));
                 return;
             }
             if (!showSyncOptionsDialog(true, buildNativeSyncCommand, &useDelete)) {
@@ -1781,8 +1722,7 @@ void MainWindow::actionSyncDatasets() {
             appLog(QStringLiteral("WARN"),
                    trk(QStringLiteral("t_sincroniza_6ccd2e"),
                        QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
-                       QStringLiteral("Sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
-                       QStringLiteral("Windows 上同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
+                       QStringLiteral("Sync on Windows uses tar/ssh fallback (codec=%1, no --delete).")).arg(streamCodecName(codec)));
             queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
             return;
         }
@@ -1828,8 +1768,7 @@ void MainWindow::actionSyncDatasets() {
             appLog(QStringLiteral("INFO"),
                    trk(QStringLiteral("t_sincroniza_d0a688"),
                        QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"),
-                       QStringLiteral("Sync: remote-local mode (rsync, same connection)"),
-                       QStringLiteral("同步：远端本地模式（rsync，同一连接）")));
+                       QStringLiteral("Sync: remote-local mode (rsync, same connection)")));
         }
         const QString command = buildRsyncSyncCommand(useDelete, false);
         queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
@@ -1879,10 +1818,7 @@ void MainWindow::actionSyncDatasets() {
                                                 "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
                                  QStringLiteral("Source and target must be mounted to synchronize,\nor canmount=off with mounted subdatasets.\n"
                                                 "Linux, macOS and FreeBSD can also use a temporary alternate mount.\n"
-                                                "Source mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
-                                 QStringLiteral("源和目标必须已挂载才能同步，\n或设置 canmount=off 且子数据集已挂载。\n"
-                                                "在 Linux、macOS 和 FreeBSD 上也可使用临时替代挂载。\n"
-                                                "源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
+                                                "Source mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"))
                                  .arg(srcMounted, srcCanmount, dstMounted, dstCanmount));
         return;
     }
@@ -1891,8 +1827,7 @@ void MainWindow::actionSyncDatasets() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_no_se_pudi_e1c0c7"),
                                  QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."),
-                                 QStringLiteral("Could not load datasets for subdataset synchronization."),
-                                 QStringLiteral("无法加载用于子数据集同步的数据集。")));
+                                 QStringLiteral("Could not load datasets for subdataset synchronization.")));
         return;
     }
     const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
@@ -1903,8 +1838,7 @@ void MainWindow::actionSyncDatasets() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_no_hay_cac_c8370a"),
                                  QStringLiteral("No hay caché de datasets para sincronización por subdatasets."),
-                                 QStringLiteral("No dataset cache for subdataset synchronization."),
-                                 QStringLiteral("没有用于子数据集同步的数据集缓存。")));
+                                 QStringLiteral("No dataset cache for subdataset synchronization.")));
         return;
     }
 
@@ -1956,16 +1890,14 @@ void MainWindow::actionSyncDatasets() {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_no_se_pued_8dace0"),
                                  QStringLiteral("No se puede sincronizar por subdatasets.\n%1"),
-                                 QStringLiteral("Cannot synchronize by subdatasets.\n%1"),
-                                 QStringLiteral("无法按子数据集同步。\n%1")).arg(details.trimmed()));
+                                 QStringLiteral("Cannot synchronize by subdatasets.\n%1")).arg(details.trimmed()));
         return;
     }
     if (syncPairs.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_no_hay_sub_86be11"),
                                      QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."),
-                                     QStringLiteral("No equivalent mounted subdatasets to synchronize."),
-                                     QStringLiteral("没有可同步的等效已挂载子数据集。")));
+                                     QStringLiteral("No equivalent mounted subdatasets to synchronize.")));
         return;
     }
 
@@ -1999,8 +1931,7 @@ void MainWindow::actionSyncDatasets() {
         appLog(QStringLiteral("WARN"),
                trk(QStringLiteral("t_sincroniza_86c64e"),
                    QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
-                   QStringLiteral("Subdataset sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
-                   QStringLiteral("Windows 上子数据集同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
+                   QStringLiteral("Subdataset sync on Windows uses tar/ssh fallback (codec=%1, no --delete).")).arg(streamCodecName(codec)));
         queueSyncCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
                              .arg(src.datasetName, dst.datasetName)
                              .arg(syncPairs.size()),

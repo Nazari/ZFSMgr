@@ -29,7 +29,6 @@
     <file alias="help/img/auto/pool-context-menu-importable.png">../help/img/auto/pool-context-menu-importable.png</file>
     <file alias="i18n/es.json">../i18n/es.json</file>
     <file alias="i18n/en.json">../i18n/en.json</file>
-    <file alias="i18n/zh.json">../i18n/zh.json</file>
     <file alias="i18n/legacy_keys.json">../i18n/legacy_keys.json</file>
     <file alias="help/es/manual_rapido.md">../help/es/manual_rapido.md</file>
     <file alias="help/es/atajos_estados.md">../help/es/atajos_estados.md</file>
@@ -65,22 +64,5 @@
     <file alias="help/en/linea_de_ordenes.md">../help/en/linea_de_ordenes.md</file>
     <file alias="help/en/accion_diff.md">../help/en/accion_diff.md</file>
     <file alias="help/en/conexiones_windows.md">../help/en/conexiones_windows.md</file>
-    <file alias="help/zh/manual_rapido.md">../help/zh/manual_rapido.md</file>
-    <file alias="help/zh/atajos_estados.md">../help/zh/atajos_estados.md</file>
-    <file alias="help/zh/accion_enviar.md">../help/zh/accion_enviar.md</file>
-    <file alias="help/zh/accion_clonar.md">../help/zh/accion_clonar.md</file>
-    <file alias="help/zh/accion_sincronizar.md">../help/zh/accion_sincronizar.md</file>
-    <file alias="help/zh/accion_nivelar.md">../help/zh/accion_nivelar.md</file>
-    <file alias="help/zh/accion_diff.md">../help/zh/accion_diff.md</file>
-    <file alias="help/zh/accion_desglosar.md">../help/zh/accion_desglosar.md</file>
-    <file alias="help/zh/accion_ensamblar.md">../help/zh/accion_ensamblar.md</file>
-    <file alias="help/zh/accion_desde_dir.md">../help/zh/accion_desde_dir.md</file>
-    <file alias="help/zh/accion_hacia_dir.md">../help/zh/accion_hacia_dir.md</file>
-    <file alias="help/zh/menus_contextuales.md">../help/zh/menus_contextuales.md</file>
-    <file alias="help/zh/propiedades_inline_columnas.md">../help/zh/propiedades_inline_columnas.md</file>
-    <file alias="help/zh/logs_aplicacion.md">../help/zh/logs_aplicacion.md</file>
-    <file alias="help/zh/configuracion_archivos.md">../help/zh/configuracion_archivos.md</file>
-    <file alias="help/zh/linea_de_ordenes.md">../help/zh/linea_de_ordenes.md</file>
-    <file alias="help/zh/conexiones_windows.md">../help/zh/conexiones_windows.md</file>
   </qresource>
 </RCC>

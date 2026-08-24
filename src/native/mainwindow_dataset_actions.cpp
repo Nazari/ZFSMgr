@@ -429,9 +429,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
                 QStringLiteral("Hay una conexión redirigida a Local en config.json, pero no tiene usuario/password.\n"
                                "Edite esa conexión o complete sus credenciales."),
                 QStringLiteral("There is a connection redirected to Local in config.json, but it has no user/password.\n"
-                               "Edit that connection or complete its credentials."),
-                QStringLiteral("config.json 中存在重定向到本机的连接，但缺少用户/密码。\n"
-                               "请编辑该连接并补全凭据。")));
+                               "Edit that connection or complete its credentials.")));
         appLog(QStringLiteral("WARN"), QStringLiteral("Credenciales sudo locales no disponibles: redirección configurada sin credenciales"));
         return false;
     }
@@ -450,8 +448,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     if (!m_transport.askCredentials(
             trk(QStringLiteral("t_local_sudo_dlg1"),
                 QStringLiteral("Credenciales sudo locales"),
-                QStringLiteral("Local sudo credentials"),
-                QStringLiteral("本地 sudo 凭据")),
+                QStringLiteral("Local sudo credentials")),
             usuarioPedido, clavePedida)) {
         return false;
     }
@@ -460,8 +457,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_local_sudo_req1"),
                                  QStringLiteral("Usuario y password sudo son obligatorios."),
-                                 QStringLiteral("Sudo user and password are required."),
-                                 QStringLiteral("必须提供 sudo 用户和密码。")));
+                                 QStringLiteral("Sudo user and password are required.")));
         return false;
     }
     m_localSudoUsername = usuarioPedido.trimmed();
@@ -604,8 +600,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_pool_suspended_block_001"),
                 QStringLiteral("El pool está en estado suspended. No se permiten operaciones."),
-                QStringLiteral("Pool is suspended. Operations are disabled."),
-                QStringLiteral("存储池处于 suspended 状态，已禁用操作。")));
+                QStringLiteral("Pool is suspended. Operations are disabled.")));
         return false;
     }
     const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
@@ -638,8 +633,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
                 trk(QStringLiteral("t_win_unix_na01"), QStringLiteral("La acción \"%1\" usa shell Unix y no está disponible en conexiones Windows por ahora.")
                         .arg(actionName),
                     QStringLiteral("Action \"%1\" uses Unix shell and is not available on Windows connections yet.")
-                        .arg(actionName),
-                    QStringLiteral("操作“%1”依赖 Unix shell，当前在 Windows 连接中不可用。")
+                        .arg(actionName)
                         .arg(actionName)));
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Acción no soportada en Windows: %1 (%2)").arg(actionName, p.name));
@@ -745,8 +739,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
             appLog(QStringLiteral("NORMAL"),
                    trk(QStringLiteral("t_action_cancelled_001"),
                        QStringLiteral("%1 cancelado por el usuario."),
-                       QStringLiteral("%1 canceled by user."),
-                       QStringLiteral("%1 已被用户取消。"))
+                       QStringLiteral("%1 canceled by user."))
                        .arg(actionName));
             updateStatus(QStringLiteral("%1 (CANCELADO)").arg(actionName));
             setActionsLocked(false);
@@ -814,8 +807,7 @@ bool MainWindow::executeDatasetAction(const QString& side,
         updateStatus(QStringLiteral("%1 (ERROR) %2::%3").arg(actionName, p.name, ctx.datasetName));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_action_fail001"), QStringLiteral("%1 falló:\n%2"),
-                                  QStringLiteral("%1 failed:\n%2"),
-                                  QStringLiteral("%1 失败：\n%2"))
+                                  QStringLiteral("%1 failed:\n%2"))
                                   .arg(actionName, failureDetail));
         // Refrescar TAMBIÉN al fallar. Una orden puede fallar después de haber cambiado
         // cosas —crear el dataset y fallar al montarlo, borrar unos snapshots y morir en
@@ -1180,8 +1172,7 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_action_fail001"),
                     QStringLiteral("%1 falló:\n%2"),
-                    QStringLiteral("%1 failed:\n%2"),
-                    QStringLiteral("%1 失败：\n%2"))
+                    QStringLiteral("%1 failed:\n%2"))
                     .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
         }
         return false;
@@ -1207,8 +1198,7 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
     }
     if (mp.isEmpty()) {
         return trk(QStringLiteral("t_diag_mp_fail01"), QStringLiteral("No se pudo resolver el mountpoint para diagnóstico."),
-                   QStringLiteral("Could not resolve mountpoint for diagnostics."),
-                   QStringLiteral("无法解析用于诊断的挂载点。"));
+                   QStringLiteral("Could not resolve mountpoint for diagnostics."));
     }
 
     QString out;
@@ -1250,8 +1240,7 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
         isWindowsConnection(p) ? diagCmd : mwhelpers::withUnixSearchPathCommand(diagCmd);
     if (!runSsh(p, withSudo(p, effectiveDiagCmd), 15000, out, err, rc)) {
         return trk(QStringLiteral("t_diag_run_fail1"), QStringLiteral("No se pudo ejecutar el diagnóstico remoto."),
-                   QStringLiteral("Could not execute remote diagnostics."),
-                   QStringLiteral("无法执行远程诊断。"));
+                   QStringLiteral("Could not execute remote diagnostics."));
     }
     if (rc != 0 && out.trimmed().isEmpty()) {
         return err.trimmed().isEmpty() ? QStringLiteral("diagnostic exit %1").arg(rc) : err.trimmed();
@@ -1672,8 +1661,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
                 this,
                 QStringLiteral("ZFSMgr"),
                 trk(QStringLiteral("t_mount_pre_fail1"), QStringLiteral("No se puede montar %1.\n%2").arg(ctx.datasetName, reason),
-                    QStringLiteral("Cannot mount %1.\n%2").arg(ctx.datasetName, reason),
-                    QStringLiteral("无法挂载 %1。\n%2").arg(ctx.datasetName, reason)));
+                    QStringLiteral("Cannot mount %1.\n%2").arg(ctx.datasetName, reason).arg(ctx.datasetName, reason)));
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Precheck montar falló %1::%2 -> %3")
                        .arg(p.name, ctx.datasetName, reason));
@@ -1730,31 +1718,27 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
     if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("mountpoint"), parentMountpoint)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_mp_fail1"), QStringLiteral("No se pudo comprobar mountpoint del padre %1").arg(parent),
-                                 QStringLiteral("Could not verify parent mountpoint %1").arg(parent),
-                                 QStringLiteral("无法检查父数据集 mountpoint：%1").arg(parent)));
+                                 QStringLiteral("Could not verify parent mountpoint %1").arg(parent).arg(parent)));
         return false;
     }
     QString parentCanmount;
     if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("canmount"), parentCanmount)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_cm_fail1"), QStringLiteral("No se pudo comprobar canmount del padre %1").arg(parent),
-                                 QStringLiteral("Could not verify parent canmount %1").arg(parent),
-                                 QStringLiteral("无法检查父数据集 canmount：%1").arg(parent)));
+                                 QStringLiteral("Could not verify parent canmount %1").arg(parent).arg(parent)));
         return false;
     }
     QString parentMounted;
     if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("mounted"), parentMounted)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_mntfail1"), QStringLiteral("No se pudo comprobar estado mounted del padre %1").arg(parent),
-                                 QStringLiteral("Could not verify parent mounted state %1").arg(parent),
-                                 QStringLiteral("无法检查父数据集挂载状态：%1").arg(parent)));
+                                 QStringLiteral("Could not verify parent mounted state %1").arg(parent).arg(parent)));
         return false;
     }
     if (!mwhelpers::parentAllowsChildMount(parentMountpoint, parentCanmount, parentMounted)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_notmnt1"), QStringLiteral("El dataset padre %1 no está montado, móntelo antes por favor").arg(parent),
-                                 QStringLiteral("Parent dataset %1 is not mounted, mount it first").arg(parent),
-                                 QStringLiteral("父数据集 %1 未挂载，请先挂载").arg(parent)));
+                                 QStringLiteral("Parent dataset %1 is not mounted, mount it first").arg(parent).arg(parent)));
         return false;
     }
     return true;
@@ -1769,8 +1753,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     if (!ensureDatasetsLoaded(ctx.connIdx, ctx.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mp_conf_chk01"), QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
-                                 QStringLiteral("Could not validate mountpoint conflicts."),
-                                 QStringLiteral("无法检查挂载点冲突。")));
+                                 QStringLiteral("Could not validate mountpoint conflicts.")));
         return false;
     }
     const QString key = datasetCacheKey(ctx.connIdx, ctx.poolName);
@@ -1778,8 +1761,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     if (cacheIt == m_conns.poolDatasetCache.constEnd() || !cacheIt->loaded) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mp_conf_chk01"), QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
-                                 QStringLiteral("Could not validate mountpoint conflicts."),
-                                 QStringLiteral("无法检查挂载点冲突。")));
+                                 QStringLiteral("Could not validate mountpoint conflicts.")));
         return false;
     }
     // Copy the record map instead of holding a reference into m_conns.poolDatasetCache: the
@@ -1816,8 +1798,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
                 trk(QStringLiteral("t_mp_conf_int001"), QStringLiteral("Conflicto de mountpoint dentro de la selección.\nMountpoint: %1\nDatasets:\n%2")
                         .arg(it.key(), dsList.join('\n')),
                     QStringLiteral("Mountpoint conflict inside selection.\nMountpoint: %1\nDatasets:\n%2")
-                        .arg(it.key(), dsList.join('\n')),
-                    QStringLiteral("所选项内部存在挂载点冲突。\n挂载点：%1\n数据集：\n%2")
+                        .arg(it.key(), dsList.join('\n'))
                         .arg(it.key(), dsList.join('\n'))));
             return false;
         }
@@ -1849,8 +1830,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     if (mountedRows.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mounted_rd_err1"), QStringLiteral("No se pudo leer datasets montados."),
-                                 QStringLiteral("Could not read mounted datasets."),
-                                 QStringLiteral("无法读取已挂载数据集。")));
+                                 QStringLiteral("Could not read mounted datasets.")));
         return false;
     }
 
@@ -1874,8 +1854,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
             trk(QStringLiteral("t_mount_single01"), QStringLiteral("No se permite montar más de un dataset en el mismo directorio.\nMountpoint: %1\nMontado: %2\nSolicitado: %3")
                     .arg(c.mountpoint, c.mountedDataset, c.requestedDataset),
                 QStringLiteral("Only one mounted dataset per directory is allowed.\nMountpoint: %1\nMounted: %2\nRequested: %3")
-                    .arg(c.mountpoint, c.mountedDataset, c.requestedDataset),
-                QStringLiteral("同一目录不允许挂载多个数据集。\n挂载点：%1\n已挂载：%2\n请求：%3")
+                    .arg(c.mountpoint, c.mountedDataset, c.requestedDataset)
                     .arg(c.mountpoint, c.mountedDataset, c.requestedDataset)));
         return false;
     }

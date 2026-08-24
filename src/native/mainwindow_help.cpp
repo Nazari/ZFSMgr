@@ -19,9 +19,6 @@ QString normalizeLang(const QString& lang) {
     if (l.startsWith(QStringLiteral("en"))) {
         return QStringLiteral("en");
     }
-    if (l.startsWith(QStringLiteral("zh"))) {
-        return QStringLiteral("zh");
-    }
     return QStringLiteral("es");
 }
 

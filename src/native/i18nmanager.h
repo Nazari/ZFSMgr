@@ -11,8 +11,7 @@ public:
     QString translateKey(const QString& language,
                          const QString& key,
                          const QString& fallbackEs = QString(),
-                         const QString& fallbackEn = QString(),
-                         const QString& fallbackZh = QString());
+                         const QString& fallbackEn = QString());
     bool areJsonCatalogsAvailable(QStringList* missingLanguages = nullptr) const;
 
 private:

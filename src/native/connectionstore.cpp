@@ -191,7 +191,7 @@ void ConnectionStore::setMasterPassword(const QString& password) {
 
 void ConnectionStore::setLanguage(const QString& language) {
     const QString l = language.trimmed().toLower();
-    if (l == QStringLiteral("en") || l == QStringLiteral("zh")) {
+    if (l == QStringLiteral("en")) {
         m_language = l;
     } else {
         m_language = QStringLiteral("es");
@@ -200,9 +200,8 @@ void ConnectionStore::setLanguage(const QString& language) {
 
 QString ConnectionStore::trk(const QString& key,
                              const QString& es,
-                             const QString& en,
-                             const QString& zh) const {
-    return I18nManager::instance().translateKey(m_language, key, es, en, zh);
+                             const QString& en) const {
+    return I18nManager::instance().translateKey(m_language, key, es, en);
 }
 
 
@@ -228,102 +227,83 @@ QString ConnectionStore::traduce(const BS::Warning& a) const {
         case M::ConfigCannotBeOpened:
             return trk(QStringLiteral("t_cfg_json_read_open_err"),
                        QStringLiteral("No se pudo abrir config.json"),
-                       QStringLiteral("Could not open config.json"),
-                       QStringLiteral("无法打开 config.json"));
+                       QStringLiteral("Could not open config.json"));
         case M::ConfigNotValid:
             return trk(QStringLiteral("t_cfg_json_parse_err"),
                        QStringLiteral("config.json no es válido"),
-                       QStringLiteral("config.json is invalid"),
-                       QStringLiteral("config.json 无效"));
+                       QStringLiteral("config.json is invalid"));
         case M::ConfigDirCannotBeCreated:
             return trk(QStringLiteral("t_cfg_json_dir_err"),
                        QStringLiteral("No se pudo crear el directorio de configuración"),
-                       QStringLiteral("Could not create configuration directory"),
-                       QStringLiteral("无法创建配置目录"));
+                       QStringLiteral("Could not create configuration directory"));
         case M::ConfigCannotBeWritten:
             return trk(QStringLiteral("t_cfg_json_write_open_err"),
                        QStringLiteral("No se pudo escribir config.json"),
-                       QStringLiteral("Could not write config.json"),
-                       QStringLiteral("无法写入 config.json"));
+                       QStringLiteral("Could not write config.json"));
         case M::TrustCannotBeOpened:
             return trk(QStringLiteral("t_trust_json_read_open_err"),
                        QStringLiteral("No se pudo abrir trust-store.json"),
-                       QStringLiteral("Could not open trust-store.json"),
-                       QStringLiteral("无法打开 trust-store.json"));
+                       QStringLiteral("Could not open trust-store.json"));
         case M::TrustNotValid:
             return trk(QStringLiteral("t_trust_json_parse_err"),
                        QStringLiteral("trust-store.json no es válido"),
-                       QStringLiteral("trust-store.json is invalid"),
-                       QStringLiteral("trust-store.json 无效"));
+                       QStringLiteral("trust-store.json is invalid"));
         case M::TrustCannotBeWritten:
             return trk(QStringLiteral("t_trust_json_write_open_err"),
                        QStringLiteral("No se pudo escribir trust-store.json"),
-                       QStringLiteral("Could not write trust-store.json"),
-                       QStringLiteral("无法写入 trust-store.json"));
+                       QStringLiteral("Could not write trust-store.json"));
         case M::MasterPasswordRequired:
             return trk(QStringLiteral("t_cstore_auto003"),
                        QStringLiteral("Password maestro requerido"),
-                       QStringLiteral("Master password required"),
-                       QStringLiteral("需要主密码"));
+                       QStringLiteral("Master password required"));
         case M::MasterPasswordRequiredToEncrypt:
             return trk(QStringLiteral("t_cstore_tls_mp_required_001"),
                        QStringLiteral("Password maestro requerido para cifrar %1"),
-                       QStringLiteral("Master password required to encrypt %1"),
-                       QStringLiteral("需要主密码才能加密 %1")).arg(campo);
+                       QStringLiteral("Master password required to encrypt %1")).arg(campo);
         case M::NewMasterPasswordEmpty:
             return trk(QStringLiteral("t_cstore_auto016"),
                        QStringLiteral("Nuevo password maestro vacío"),
-                       QStringLiteral("New master password is empty"),
-                       QStringLiteral("新主密码为空"));
+                       QStringLiteral("New master password is empty"));
         case M::CannotEncrypt:
             return trk(QStringLiteral("t_cstore_tls_enc_fail_001"),
                        QStringLiteral("No se pudo cifrar %1: %2"),
-                       QStringLiteral("Could not encrypt %1: %2"),
-                       QStringLiteral("无法加密 %1：%2")).arg(campo, detalle);
+                       QStringLiteral("Could not encrypt %1: %2")).arg(campo, detalle);
         case M::CannotDecrypt:
             return QStringLiteral("%1.%2: %3").arg(
                 conexion, campo,
                 detalle.trimmed().isEmpty()
                     ? trk(QStringLiteral("t_cstore_auto_tls_dec_001"),
                           QStringLiteral("no se pudo descifrar"),
-                          QStringLiteral("could not decrypt"),
-                          QStringLiteral("无法解密"))
+                          QStringLiteral("could not decrypt"))
                     : detalle);
         case M::WrongField:
             return trk(QStringLiteral("t_cstore_auto002"),
                        QStringLiteral("%1: %2 incorrecto"),
-                       QStringLiteral("%1: invalid %2"),
-                       QStringLiteral("%1：%2 无效")).arg(conexion, campo);
+                       QStringLiteral("%1: invalid %2")).arg(conexion, campo);
         case M::EmptyId:
             return trk(QStringLiteral("t_cstore_auto012"),
                        QStringLiteral("ID vacío"),
-                       QStringLiteral("Empty ID"),
-                       QStringLiteral("ID 为空"));
+                       QStringLiteral("Empty ID"));
         case M::NameRequired:
             return trk(QStringLiteral("t_cstore_auto006"),
                        QStringLiteral("Nombre requerido"),
-                       QStringLiteral("Name required"),
-                       QStringLiteral("需要名称"));
+                       QStringLiteral("Name required"));
         case M::HostRequired:
             return trk(QStringLiteral("t_cstore_auto007"),
                        QStringLiteral("Host requerido"),
-                       QStringLiteral("Host required"),
-                       QStringLiteral("需要主机"));
+                       QStringLiteral("Host required"));
         case M::UserRequired:
             return trk(QStringLiteral("t_cstore_auto008"),
                        QStringLiteral("Usuario requerido"),
-                       QStringLiteral("User required"),
-                       QStringLiteral("需要用户"));
+                       QStringLiteral("User required"));
         case M::DuplicateName:
             return trk(QStringLiteral("t_conn_name_unique_01"),
                        QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
-                       QStringLiteral("Connection name already exists. It must be unique."),
-                       QStringLiteral("连接名称已存在，必须唯一。"));
+                       QStringLiteral("Connection name already exists. It must be unique."));
         case M::ConnectionNotSaved:
             return trk(QStringLiteral("t_cstore_json_upsert_err"),
                        QStringLiteral("No se pudo guardar la conexión"),
-                       QStringLiteral("Could not save the connection"),
-                       QStringLiteral("无法保存该连接"));
+                       QStringLiteral("Could not save the connection"));
         case M::PsrpProfileConverted:
             return QStringLiteral("%1: %2").arg(
                 conexion,
@@ -331,9 +311,7 @@ QString ConnectionStore::traduce(const BS::Warning& a) const {
                     QStringLiteral("usaba PSRP, que ya no está soportado. Se ha convertido a "
                                    "SSH en el puerto 22; revise usuario, clave y acceso SSH."),
                     QStringLiteral("used PSRP, which is no longer supported. It has been "
-                                   "converted to SSH on port 22; check user, key and SSH access."),
-                    QStringLiteral("此前使用 PSRP，该方式已不再支持。已转换为端口 22 上的 "
-                                   "SSH；请检查用户、密钥与 SSH 访问。")));
+                                   "converted to SSH on port 22; check user, key and SSH access.")));
     }
     return QString();
 }

@@ -77,7 +77,7 @@ void uso() {
                  "                        connections list: id, name, type, os, user,\n"
                  "                        host, port, sudo, tls, connected\n"
                  "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
-                 "  --lang es|en|zh       Idioma de los mensajes. Sin él, el que use la\n"
+                 "  --lang es|en          Idioma de los mensajes. Sin él, el que use la\n"
                  "                        interfaz gráfica (app.language de config.json).\n"
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
                  "                        transporte con cada máquina\n"

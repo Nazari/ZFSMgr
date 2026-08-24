@@ -28,9 +28,8 @@ namespace {
 QString trk(const QString& lang,
             const QString& key,
             const QString& es = QString(),
-            const QString& en = QString(),
-            const QString& zh = QString()) {
-    return I18nManager::instance().translateKey(lang, key, es, en, zh);
+            const QString& en = QString()) {
+    return I18nManager::instance().translateKey(lang, key, es, en);
 }
 
 QPalette createMacFusionDarkPalette() {
@@ -220,7 +219,7 @@ int main(int argc, char* argv[]) {
         const QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
         const QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
         auto validLang = [](const QString& v) -> bool {
-            return v == QStringLiteral("es") || v == QStringLiteral("en") || v == QStringLiteral("zh");
+            return v == QStringLiteral("es") || v == QStringLiteral("en");
         };
         const QString appLang = appObj.value(QStringLiteral("language")).toString().trimmed().toLower();
         const QString uiLang = uiObj.value(QStringLiteral("language")).toString().trimmed().toLower();
@@ -270,9 +269,7 @@ int main(int argc, char* argv[]) {
             if (QFileInfo::exists(store.configPath()) && !QFile::remove(store.configPath())) {
                 removeErr = trk(language,
                                 QStringLiteral("t_reset_ini_err001"),
-                                QStringLiteral("No se pudo borrar config.json."),
-                                QStringLiteral("Could not delete config.json."),
-                                QStringLiteral("无法删除 config.json。"));
+                                QStringLiteral("No se pudo borrar config.json."));
             }
             const QDir cfgDir(store.configDir());
             const QStringList connFiles = cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files);
@@ -281,9 +278,7 @@ int main(int argc, char* argv[]) {
                 if (!QFile::remove(p) && removeErr.isEmpty()) {
                     removeErr = trk(language,
                                     QStringLiteral("t_reset_ini_err_conn"),
-                                    QStringLiteral("No se pudo borrar %1.").arg(f),
-                                    QStringLiteral("Could not delete %1.").arg(f),
-                                    QStringLiteral("无法删除 %1。").arg(f));
+                                    QStringLiteral("No se pudo borrar %1.").arg(f));
                 }
             }
             if (!removeErr.isEmpty()) {
@@ -318,9 +313,7 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_sudo_req1"),
-                        QStringLiteral("Usuario y password sudo son obligatorios."),
-                        QStringLiteral("Sudo user and password are required."),
-                        QStringLiteral("必须提供 sudo 用户和密码。")));
+                        QStringLiteral("Usuario y password sudo son obligatorios.")));
                 return false;
             }
             // Comprobar la contraseña ANTES de guardarla. Guardar una equivocada dejaba
@@ -335,9 +328,7 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_sudo_bad1"),
-                        QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
-                        QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again."),
-                        QStringLiteral("本地 sudo 密码无效。\n%1\n\n请重新输入。")).arg(sudoDetail));
+                        QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla.")).arg(sudoDetail));
                 return false;
             }
             // No se pudo comprobar: se avisa y se sigue. Bloquear aquí dejaría al
@@ -351,12 +342,7 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("t_local_sudo_unchecked1"),
                         QStringLiteral("No se pudo comprobar la contraseña de sudo local:\n%1\n\n"
                                        "Se guarda de todos modos. Si las operaciones locales fallan, "
-                                       "use «Cambiar credenciales sudo local…» en el menú de la conexión Local."),
-                        QStringLiteral("Could not verify the local sudo password:\n%1\n\n"
-                                       "It will be saved anyway. If local operations fail, use "
-                                       "\"Change local sudo credentials…\" in the Local connection menu."),
-                        QStringLiteral("无法验证本地 sudo 密码：\n%1\n\n仍将保存。如果本地操作失败，"
-                                       "请使用本地连接菜单中的“修改本地 sudo 凭据…”。")).arg(sudoDetail));
+                                       "use «Cambiar credenciales sudo local…» en el menú de la conexión Local.")).arg(sudoDetail));
             }
             ConnectionProfile local;
             local.id = QStringLiteral("local");
@@ -385,9 +371,7 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_conn_create_err001"),
-                        QStringLiteral("No se pudo crear la conexión Local en config.json.\n%1"),
-                        QStringLiteral("Could not create Local connection in config.json.\n%1"),
-                        QStringLiteral("无法在 config.json 中创建本地连接。\n%1")).arg(localErr));
+                        QStringLiteral("No se pudo crear la conexión Local en config.json.\n%1")).arg(localErr));
                 return false;
             }
             requireLocalSudoAtStartup = false;
@@ -398,17 +382,13 @@ int main(int argc, char* argv[]) {
             store.setMasterPassword(dlg.changeOldPassword());
             if (!store.validateMasterPassword(err)) {
                 const QString msg = trk(language, QStringLiteral("t_password_m_397f2a"),
-                                        QStringLiteral("Password maestro actual incorrecto.\n%1"),
-                                        QStringLiteral("Current master password is invalid.\n%1"),
-                                        QStringLiteral("当前主密码错误。\n%1")).arg(err);
+                                        QStringLiteral("Password maestro actual incorrecto.\n%1")).arg(err);
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
             if (!store.rotateMasterPassword(dlg.changeOldPassword(), dlg.changeNewPassword(), err)) {
                 const QString msg = trk(language, QStringLiteral("t_no_se_pudo_204a1d"),
-                                        QStringLiteral("No se pudo cambiar el password maestro.\n%1"),
-                                        QStringLiteral("Could not change master password.\n%1"),
-                                        QStringLiteral("无法修改主密码。\n%1")).arg(err);
+                                        QStringLiteral("No se pudo cambiar el password maestro.\n%1")).arg(err);
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
@@ -416,9 +396,7 @@ int main(int argc, char* argv[]) {
             store.setMasterPassword(masterPassword);
             if (!store.encryptStoredPasswords(err)) {
                 const QString msg = trk(language, QStringLiteral("t_no_se_pudi_17885e"),
-                                        QStringLiteral("No se pudieron migrar passwords guardados.\n%1"),
-                                        QStringLiteral("Could not migrate stored passwords.\n%1"),
-                                        QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
+                                        QStringLiteral("No se pudieron migrar passwords guardados.\n%1")).arg(err);
                     QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                     continue;
                 }
@@ -437,9 +415,7 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("ZFSMgr"),
                         trk(language,
                             QStringLiteral("t_new_pwd_empty1"),
-                            QStringLiteral("El nuevo password no puede estar vacío."),
-                            QStringLiteral("New password cannot be empty."),
-                            QStringLiteral("新密码不能为空。")));
+                            QStringLiteral("El nuevo password no puede estar vacío.")));
                     continue;
                 }
                 if (masterPassword != confirm) {
@@ -448,9 +424,7 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("ZFSMgr"),
                         trk(language,
                             QStringLiteral("t_pwd_confirm01"),
-                            QStringLiteral("La confirmación no coincide."),
-                            QStringLiteral("Confirmation does not match."),
-                            QStringLiteral("两次输入不一致。")));
+                            QStringLiteral("La confirmación no coincide.")));
                     continue;
                 }
             }
@@ -459,9 +433,7 @@ int main(int argc, char* argv[]) {
             if (store.validateMasterPassword(err)) {
                 if (!store.encryptStoredPasswords(err)) {
                     const QString msg = trk(language, QStringLiteral("t_no_se_pudi_17885e"),
-                                            QStringLiteral("No se pudieron migrar passwords guardados.\n%1"),
-                                            QStringLiteral("Could not migrate stored passwords.\n%1"),
-                                            QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
+                                            QStringLiteral("No se pudieron migrar passwords guardados.\n%1")).arg(err);
                     QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                     continue;
                 }
@@ -472,9 +444,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             const QString msg = trk(language, QStringLiteral("t_password_m_07a72a"),
-                                    QStringLiteral("Password maestro incorrecto.\n%1"),
-                                    QStringLiteral("Invalid master password.\n%1"),
-                                    QStringLiteral("主密码错误。\n%1")).arg(err);
+                                    QStringLiteral("Password maestro incorrecto.\n%1")).arg(err);
             QMessageBox::warning(
                 nullptr,
                 QStringLiteral("ZFSMgr"),

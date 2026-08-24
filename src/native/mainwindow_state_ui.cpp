@@ -158,14 +158,12 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
     if (!srcDs) {
         return deny(trk(QStringLiteral("t_avail_no_origin001"),
                         QStringLiteral("No hay origen marcado."),
-                        QStringLiteral("No source marked."),
-                        QStringLiteral("尚未标记源。")));
+                        QStringLiteral("No source marked.")));
     }
     if (!dstDs) {
         return deny(trk(QStringLiteral("t_avail_no_dest001"),
                         QStringLiteral("No hay destino."),
-                        QStringLiteral("No target."),
-                        QStringLiteral("没有目标。")));
+                        QStringLiteral("No target.")));
     }
 
     const bool srcSnap = !src.snapshotName.trimmed().isEmpty();
@@ -228,16 +226,13 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
 
     const QString needsSnapshotSrc = trk(QStringLiteral("t_avail_need_snap_src001"),
         QStringLiteral("El origen tiene que ser un snapshot."),
-        QStringLiteral("The source must be a snapshot."),
-        QStringLiteral("源必须是快照。"));
+        QStringLiteral("The source must be a snapshot."));
     const QString needsDatasetDst = trk(QStringLiteral("t_avail_need_ds_dst001"),
         QStringLiteral("El destino tiene que ser un dataset, no un snapshot."),
-        QStringLiteral("The target must be a dataset, not a snapshot."),
-        QStringLiteral("目标必须是数据集，不能是快照。"));
+        QStringLiteral("The target must be a dataset, not a snapshot."));
     const QString needsSamePool = trk(QStringLiteral("t_avail_same_pool001"),
         QStringLiteral("Origen y destino tienen que estar en el mismo pool."),
-        QStringLiteral("Source and target must be in the same pool."),
-        QStringLiteral("源和目标必须位于同一存储池。"));
+        QStringLiteral("Source and target must be in the same pool."));
 
     // Enviar
     out.send.enabled = st.sendEnabled && versionOk && streamingOk;
@@ -247,14 +242,12 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                               ? streamingUnavailableReason(
                                     trk(QStringLiteral("t_avail_lbl_copy001"),
                                         QStringLiteral("Enviar snapshot"),
-                                        QStringLiteral("Send snapshot"),
-                                        QStringLiteral("发送快照")))
+                                        QStringLiteral("Send snapshot")))
                         : !srcSnap   ? needsSnapshotSrc
                         : dstSnap    ? needsDatasetDst
                                      : trk(QStringLiteral("t_avail_copy_generic001"),
                                            QStringLiteral("Enviar necesita un snapshot en el origen y un dataset en el destino."),
-                                           QStringLiteral("Send needs a snapshot as source and a dataset as target."),
-                                           QStringLiteral("复制需要以快照为源、以数据集为目标。"));
+                                           QStringLiteral("Send needs a snapshot as source and a dataset as target."));
     }
 
     // Clone
@@ -283,14 +276,12 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
     if (!out.move.enabled) {
         out.move.reason = !srcDatasetOnly ? trk(QStringLiteral("t_avail_move_src_ds001"),
                                                 QStringLiteral("Mover necesita un dataset como origen, no un snapshot."),
-                                                QStringLiteral("Move needs a dataset as source, not a snapshot."),
-                                                QStringLiteral("移动需要以数据集为源，而不是快照。"))
+                                                QStringLiteral("Move needs a dataset as source, not a snapshot."))
                         : !dstDatasetOnly ? needsDatasetDst
                         : !samePool       ? needsSamePool
                         : moveIntoSelf    ? trk(QStringLiteral("t_avail_move_self001"),
                                                 QStringLiteral("No se puede mover un dataset dentro de sí mismo."),
-                                                QStringLiteral("A dataset cannot be moved inside itself."),
-                                                QStringLiteral("数据集不能移动到其自身之下。"))
+                                                QStringLiteral("A dataset cannot be moved inside itself."))
                                           : QString();
     }
 
@@ -302,12 +293,10 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                               ? streamingUnavailableReason(
                                     trk(QStringLiteral("t_avail_lbl_level001"),
                                         QStringLiteral("Nivelar snapshot"),
-                                        QStringLiteral("Level snapshot"),
-                                        QStringLiteral("同步快照")))
+                                        QStringLiteral("Level snapshot")))
                                       : trk(QStringLiteral("t_avail_level_generic001"),
                                             QStringLiteral("Nivelar necesita un snapshot en el origen y su dataset en el destino."),
-                                            QStringLiteral("Level needs a snapshot as source and its dataset as target."),
-                                            QStringLiteral("同步快照需要以快照为源、以其数据集为目标。"));
+                                            QStringLiteral("Level needs a snapshot as source and its dataset as target."));
     }
     out.sync.enabled = st.syncEnabled && versionOk;
     if (!out.sync.enabled) {
@@ -315,18 +304,15 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                         : (srcSnap || dstSnap)
                               ? trk(QStringLiteral("t_sync_disable_reason_snapshot_001"),
                                     QStringLiteral("Sync requiere datasets en Origen y Destino (sin snapshot)."),
-                                    QStringLiteral("Sync requires datasets in Source and Target (no snapshot selected)."),
-                                    QStringLiteral("Sync 要求源和目标都选择数据集（不能选择快照）。"))
+                                    QStringLiteral("Sync requires datasets in Source and Target (no snapshot selected)."))
                         : (sameConn && samePool
                            && src.datasetName.trimmed() == dst.datasetName.trimmed())
                               ? trk(QStringLiteral("t_sync_disable_reason_same_001"),
                                     QStringLiteral("Sync requiere Origen y Destino diferentes."),
-                                    QStringLiteral("Sync requires Source and Target to be different."),
-                                    QStringLiteral("Sync 要求源和目标必须不同。"))
+                                    QStringLiteral("Sync requires Source and Target to be different."))
                               : trk(QStringLiteral("t_sync_disable_reason_mounted_001"),
                                     QStringLiteral("Sync inmediato requiere ambos datasets montados (si no, se usará fallback según plataforma al ejecutar)."),
-                                    QStringLiteral("Immediate Sync requires both datasets mounted (otherwise platform fallback will be used at execution time)."),
-                                    QStringLiteral("立即 Sync 要求两个数据集都已挂载（否则执行时会按平台使用回退方案）。"));
+                                    QStringLiteral("Immediate Sync requires both datasets mounted (otherwise platform fallback will be used at execution time)."));
     }
 
     // Diff
@@ -339,12 +325,10 @@ MainWindow::transferActionAvailabilityFor(const DatasetSelectionContext& src,
                         : (src.datasetName.trimmed() != dst.datasetName.trimmed())
                               ? trk(QStringLiteral("t_avail_diff_same_ds001"),
                                     QStringLiteral("Diff compara dos puntos del MISMO dataset."),
-                                    QStringLiteral("Diff compares two points of the SAME dataset."),
-                                    QStringLiteral("Diff 比较同一数据集的两个时间点。"))
+                                    QStringLiteral("Diff compares two points of the SAME dataset."))
                               : trk(QStringLiteral("t_avail_diff_same_snap001"),
                                     QStringLiteral("Origen y destino son el mismo snapshot."),
-                                    QStringLiteral("Source and target are the same snapshot."),
-                                    QStringLiteral("源和目标是同一个快照。"));
+                                    QStringLiteral("Source and target are the same snapshot."));
     }
     return out;
 }
@@ -368,8 +352,7 @@ void MainWindow::updateConnectionActionsState() {
         if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_conns.profiles.size()) {
             return trk(QStringLiteral("t_empty_sel_001"),
                        QStringLiteral("(vacío)"),
-                       QStringLiteral("(empty)"),
-                       QStringLiteral("（空）"));
+                       QStringLiteral("(empty)"));
         }
         const QString base = c.snapshotName.isEmpty()
                                  ? c.datasetName
@@ -380,8 +363,7 @@ void MainWindow::updateConnectionActionsState() {
         const QString originText =
             trk(QStringLiteral("t_conn_origin_sel1"),
                 QStringLiteral("Origen: %1"),
-                QStringLiteral("Source: %1"),
-                QStringLiteral("源：%1"))
+                QStringLiteral("Source: %1"))
                 .arg(fmtSel(m_connActionOrigin));
         // Acortado a lo que quepa: comparte fila con Estado y Progreso, y un nombre largo
         // no puede robarles sitio ni forzar una segunda línea.
@@ -400,9 +382,7 @@ void MainWindow::updateConnectionActionsState() {
                                "las acciones que lo toman como destino."),
                 QStringLiteral("Mark a source by right-clicking a dataset or snapshot. Then "
                                "right-clicking another node offers the actions that use it "
-                               "as the target."),
-                QStringLiteral("在数据集或快照上点右键以标记源。之后在另一个节点上点右键，"
-                               "即可看到以该节点为目标的操作。")));
+                               "as the target.")));
         m_connOriginSelectionLabel->setStyleSheet(QStringLiteral("QLabel { color: #000000; }"));
     }
 }
@@ -442,8 +422,7 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
                          QStringLiteral("Operación no permitida: la conexión %1 usa OpenZFS %2 (< 2.3.3).")
                              .arg(badConn, badVer),
                          QStringLiteral("Operation not allowed: connection %1 uses OpenZFS %2 (< 2.3.3).")
-                             .arg(badConn, badVer),
-                         QStringLiteral("不允许的操作：连接 %1 使用 OpenZFS %2（低于 2.3.3）。")
+                             .arg(badConn, badVer)
                              .arg(badConn, badVer));
     }
     return false;
@@ -471,8 +450,7 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
                                  errorText.isEmpty()
                                      ? trk(QStringLiteral("t_pending_move_failed_001"),
                                            QStringLiteral("No se pudo añadir el movimiento pendiente."),
-                                           QStringLiteral("Could not queue the pending move."),
-                                           QStringLiteral("无法加入待处理移动。"))
+                                           QStringLiteral("Could not queue the pending move."))
                                      : errorText);
             return;
         }
