@@ -4,27 +4,26 @@
 #include <utility>
 #include <vector>
 
-// JSON sin Qt y sin dependencias externas.
+// JSON without Qt and without external dependencies.
 //
-// Existe para poder sacar `ConnectionStore` de Qt sin cambiar el formato de los ficheros
-// que ya están en las máquinas: `config.json` y `trust-store.json` los escribió
-// `QJsonDocument` y deben seguir leyéndose y escribiéndose IGUAL.
+// It exists so that `ConnectionStore` could be pulled out of Qt without changing the format
+// of the files already sitting on people's machines: `config.json` and `trust-store.json`
+// were written by `QJsonDocument` and must go on being read and written THE SAME.
 //
-// Por eso la serialización imita a `QJsonDocument::Indented` hasta en sus rarezas:
-// cuatro espacios por nivel, claves ordenadas, salto de línea final y —esta es la que
-// sorprende— un array vacío escrito como «[\n        ]», no como «[]». Reproducirlo
-// importa: si no, cada guardado reescribiría el fichero entero y ensuciaría las copias
-// de seguridad sin que haya cambiado nada.
+// That is why the serialisation imitates `QJsonDocument::Indented` down to its oddities:
+// four spaces per level, sorted keys, a trailing newline and —this is the surprising one— an
+// empty array written as «[\n        ]», not as «[]». Reproducing it matters: otherwise every
+// save would rewrite the whole file and dirty the backups without anything having changed.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::json {
 
 class Value;
 
-// El objeto es un vector ORDENADO de pares, no un mapa. Dos motivos: un
-// `std::map<std::string, Value>` con `Value` todavía incompleto no está garantizado por
-// el estándar, y así el orden de las claves —que es parte del formato de salida— queda
-// explícito en vez de depender del comparador de un contenedor.
+// The object is an ORDERED vector of pairs, not a map. Two reasons: a
+// `std::map<std::string, Value>` with `Value` still incomplete is not guaranteed by the
+// standard, and this way the order of the keys —which is part of the output format— is
+// explicit instead of depending on a container's comparator.
 using Object = std::vector<std::pair<std::string, Value>>;
 using Array = std::vector<Value>;
 
@@ -47,15 +46,15 @@ public:
     bool isObject() const { return m_type == Type::Object; }
     bool isArray() const { return m_type == Type::Array; }
     bool isString() const { return m_type == Type::String; }
-    // Int y Double son el MISMO tipo en JSON. Se distinguen dentro para poder escribir
-    // «47653» y no «47653.0», que es lo que hace Qt y lo que espera quien lea el fichero
-    // a mano.
+    // Int and Double are the SAME type in JSON. They are told apart internally so that
+    // «47653» can be written and not «47653.0», which is what Qt does and what whoever reads
+    // the file by hand expects.
     bool isNumber() const { return m_type == Type::Int || m_type == Type::Double; }
     bool isBool() const { return m_type == Type::Bool; }
 
-    // Accesos tolerantes: devuelven el valor por omisión si el tipo no es el esperado,
-    // igual que hacía la capa de Qt. Un fichero de configuración editado a mano no debe
-    // hacer caer la aplicación.
+    // Forgiving accessors: they return the default value when the type is not the expected
+    // one, exactly as the Qt layer did. A configuration file edited by hand must not bring
+    // the application down.
     bool toBool(bool porOmision = false) const;
     long long toInt(long long porOmision = 0) const;
     double toDouble(double porOmision = 0.0) const;
@@ -63,7 +62,7 @@ public:
     const Array& toArray() const;
     const Object& toObject() const;
 
-    // Búsqueda por clave en un objeto. Devuelve un Value nulo si no está.
+    // Lookup by key in an object. Returns a null Value when it is not there.
     const Value& operator[](const std::string& key) const;
     bool contains(const std::string& key) const;
 
@@ -84,11 +83,11 @@ private:
 
 // Analiza. Devuelve false y describe el fallo en `error` si lo hay.
 //
-// Acepta exactamente JSON: sin comas de más, sin comentarios, sin comillas simples. Un
-// fichero corrupto debe fallar aquí y no producir una configuración a medias.
+// It accepts exactly JSON: no trailing commas, no comments, no single quotes. A corrupt file
+// must fail here rather than produce a half-formed configuration.
 bool parse(const std::string& text, Value& out, std::string* error = nullptr);
 
-// Como QJsonDocument::Indented, incluido el salto de línea final.
+// Like QJsonDocument::Indented, trailing newline included.
 std::string toIndented(const Value& v);
 // Sin espacios ni saltos. Para lo que viaja por el cable, no para los ficheros.
 std::string toCompact(const Value& v);

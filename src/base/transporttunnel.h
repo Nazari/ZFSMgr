@@ -8,30 +8,30 @@
 #include <string>
 #include <vector>
 
-// El RPC por el túnel `ssh -L`, que es el camino normal cuando hay daemon.
+// RPC over the `ssh -L` tunnel, which is the normal path whenever there is a daemon.
 //
-// Tercera tanda de la mudanza, y la delicada: por aquí pasan las mutaciones. Todo lo que
-// hay aquí existe para responder a una sola pregunta con precisión —**¿pudo la orden haber
-// llegado al otro lado?**—, porque de ella depende si se puede reintentar. Reenviar un
-// `--dump-*` no cuesta nada; reenviar un `--job-submit` lanza la misma transfer dos
-// veces sobre los mismos datos.
+// The third batch of the move, and the delicate one: mutations come through here. Everything
+// in this file exists to answer a single question precisely —**could the command have
+// reached the other side?**—, because whether a retry is allowed depends on it. Resending a
+// `--dump-*` costs nothing; resending a `--job-submit` launches the same transfer twice over
+// the same data.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::transport {
 
-// Trae el material TLS del daemon REMOTO: primero de la caché en memoria, luego del perfil
-// guardado, y solo si no hay, por SSH.
+// Fetches the REMOTE daemon's TLS material: first from the in-memory cache, then from the
+// saved profile, and only when there is none, over SSH.
 //
-// `forceRefresh` salta las dos primeras, que es lo que hay que hacer cuando el material
-// guardado ha dejado de valer.
+// `forceRefresh` skips the first two, which is what has to happen when the saved material
+// has stopped being valid.
 struct RemoteTlsMaterial {
     std::string serverCertPem;
     std::string clientCertPem;
     std::string clientKeyPem;
     std::uint16_t daemonPort{47653};
-    // Si vino de la máquina remota —y por tanto conviene guardarlo— y si la clave privada
-    // venía dentro. Lo segundo importa porque el daemon deja de entregarla una vez
-    // aprovisionado.
+    // Whether it came from the remote machine —and is therefore worth saving— and whether
+    // the private key came with it. The second matters because the daemon stops handing it
+    // over once provisioned.
     bool fetchedFromRemote{false};
     bool clientKeyFetchedFromRemote{false};
 };
@@ -40,27 +40,28 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   RemoteTlsMaterial& out,
                                   FailureReason* failureReason = nullptr);
 
-// Vacía la caché en memoria del material TLS remoto. Hace falta cuando se reaprovisiona
-// una conexión: si no, se seguiría hablando con el certificado viejo hasta cinco minutos.
+// Empties the in-memory cache of remote TLS material. Needed when a connection is
+// re-provisioned: otherwise the old certificate would go on being used for up to five
+// minutes.
 void clearRemoteDaemonTlsCache();
-// Solo la de una conexión, que es lo que hace falta al reaprovisionarla: vaciar la de
-// todas obligaría a las demás máquinas a una ida y vuelta por SSH sin motivo.
+// Only one connection's, which is what re-provisioning it needs: emptying everyone's would
+// force the other machines into an SSH round trip for no reason.
 void clearRemoteDaemonTlsCacheForConnection(const ConnectionProfile& p);
 
-// Intenta levantar el servicio del daemon en la otra máquina. Devuelve si la orden llegó a
-// ejecutarse, NO si el daemon revivió: eso se sabe reintentando.
+// Tries to bring the daemon's service up on the other machine. It returns whether the
+// command got to run, NOT whether the daemon came back: that is learned by retrying.
 bool tryReviveRemoteDaemonService(const ConnectionProfile& p);
 
-// Cierra todos los túneles vivos de la sesión.
+// Closes every live tunnel in the session.
 void closeAllTunnels(TransportSession& ses);
-// Cierra el de una conexión concreta, si lo hay.
+// Closes the one belonging to a specific connection, when there is one.
 void closeTunnelForConnection(TransportSession& ses, const ConnectionProfile& p);
 
-// El RPC por el túnel.
+// The RPC over the tunnel.
 //
-// `commandMayHaveRunOut` distingue «no se pudo enviar» de «se envió y no hubo respuesta».
-// Es la diferencia que impide reenviar una mutación destructiva dos veces, y se marca
-// ANTES de escribir el primer byte: una escritura parcial también llega.
+// `commandMayHaveRunOut` tells «it could not be sent» apart from «it was sent and there was
+// no answer». That is the distinction that keeps a destructive mutation from being resent
+// twice, and it is set BEFORE the first byte is written: a partial write arrives too.
 bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
                                    const ConnectionProfile& p,
                                    const std::vector<std::string>& agentArgs,

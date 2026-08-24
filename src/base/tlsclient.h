@@ -3,29 +3,29 @@
 #include <functional>
 #include <string>
 
-// Cliente TLS con autenticación mutua, sobre OpenSSL y sin Qt.
+// A TLS client with mutual authentication, over OpenSSL and without Qt.
 //
-// Es la tercera pieza que ataba el transporte a Qt, y la única que había que escribir:
-// el agente ya tenía el lado SERVIDOR con OpenSSL, y la ejecución de procesos también
-// existía. Esto es su contraparte.
+// It was the third piece tying the transport to Qt, and the only one that had to be written:
+// the agent already had the SERVER side with OpenSSL, and process execution existed too.
+// This is its counterpart.
 //
-// **LA VALIDACIÓN ES POR FIJACIÓN DE CERTIFICADO, NO POR CA**, y no es un atajo. Es la
-// misma decisión que ya tomó la versión con Qt, y su motivo está medido: en macOS,
-// SecureTransport nunca validaba la cadena («The root CA certificate is not trusted for
-// this purpose») ni siquiera con subjectAltName, extendedKeyUsage, keyUsage y
-// basicConstraints correctos. Como el certificado del daemon se trae POR SSH y se guarda,
-// comparar contra ESE certificado exacto es más estricto que confiar en una cadena.
+// **VALIDATION IS BY CERTIFICATE PINNING, NOT BY CA**, and that is not a shortcut. It is the
+// same decision the Qt version already made, and its reason is measured: on macOS,
+// SecureTransport never validated the chain («The root CA certificate is not trusted for
+// this purpose»), not even with correct subjectAltName, extendedKeyUsage, keyUsage and
+// basicConstraints. Since the daemon's certificate is fetched OVER SSH and stored, comparing
+// against THAT exact certificate is stricter than trusting a chain.
 //
-// La autenticación mutua se mantiene entera: el cliente envía su certificado y el daemon
-// lo exige con SSL_VERIFY_PEER.
+// Mutual authentication is kept intact: the client sends its certificate and the daemon
+// requires it with SSL_VERIFY_PEER.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
 struct TlsClientConfig {
     std::string host;
     unsigned short port{0};
-    // El certificado del daemon, en PEM. Es contra ESTE contra el que se compara.
+    // The daemon's certificate, in PEM. THIS is what gets compared against.
     std::string serverCertPem;
     std::string clientCertPem;
     std::string clientKeyPem;
@@ -33,46 +33,46 @@ struct TlsClientConfig {
     int ioTimeoutMs{30000};
 };
 
-// En qué punto falló. Se devuelve APARTE del texto porque quien llama toma decisiones
-// distintas según cuál sea, y decidirlas buscando subcadenas en un mensaje es frágil: no
-// llegar a conectar y que el saludo TLS falle apuntan a causas opuestas —transporte frente
-// a certificados—, y confundirlos lleva a reaprovisionar el TLS para arreglar un túnel.
+// At which point it failed. Returned SEPARATELY from the text because the caller makes
+// different decisions depending on which one it is, and making them by searching for
+// substrings in a message is fragile: never connecting and the TLS handshake failing point at
+// opposite causes —transport versus certificates—, and confusing them leads to
+// re-provisioning TLS in order to fix a tunnel.
 enum class TlsFailure {
     None,
-    BadMaterial,  // el PEM que se nos dio no es válido
-    Connect,      // no se llegó a abrir el socket
-    Handshake,    // TLS falló
-    Pinning,      // el certificado NO es el esperado. Nunca es un fallo pasajero.
+    BadMaterial,  // the PEM we were handed is not valid
+    Connect,      // the socket never opened
+    Handshake,    // TLS failed
+    Pinning,      // the certificate is NOT the expected one. Never a transient failure.
     Write,
     Read,
 };
 
-// Enganches para quien necesita más que «manda y espera».
+// Hooks for whoever needs more than «send and wait».
 struct TlsRequestHooks {
-    // Se llama JUSTO ANTES de escribir el primer byte. Es el punto a partir del cual la
-    // orden puede haber llegado al otro lado, y por tanto a partir del cual REENVIARLA
-    // sería ejecutarla dos veces. Va antes y no después porque una escritura parcial
-    // también llega.
+    // Called JUST BEFORE the first byte is written. It is the point from which the command
+    // may have reached the other side, and therefore the point from which RESENDING it would
+    // be running it twice. Before and not after, because a partial write arrives too.
     std::function<void()> onBeforeWrite;
 
-    // Se llama mientras se espera la respuesta, cada pocos cientos de milisegundos.
-    // **Devolver false ABANDONA la espera.** Es lo que permite salir en cuanto el proceso
-    // del túnel muere, en vez de aguardar al plazo entero.
+    // Called while waiting for the answer, every few hundred milliseconds.
+    // **Returning false ABANDONS the wait.** It is what allows leaving the moment the tunnel
+    // process dies, instead of sitting out the whole timeout.
     std::function<bool()> keepWaiting;
 };
 
-// Manda una petición y devuelve la respuesta hasta el primer salto de línea, que es el
-// protocolo del daemon: una línea JSON de ida, una de vuelta.
+// Sends a request and returns the answer up to the first newline, which is the daemon's
+// protocol: one JSON line out, one back.
 //
-// Devuelve false y describe el fallo en `error` si no se pudo conectar, si el certificado
-// presentado NO es el esperado, o si la conversación se cortó. Ante cualquier duda, false:
-// quien llama debe poder distinguir «no se pudo» de «respondió que no».
+// It returns false and describes the failure in `error` when it could not connect, when the
+// certificate presented is NOT the expected one, or when the conversation was cut. When in
+// any doubt, false: the caller must be able to tell «it could not» from «it answered no».
 bool tlsRequestLine(const TlsClientConfig& cfg,
                     const std::string& requestLine,
                     std::string& responseLine,
                     std::string& error);
 
-// La misma, diciendo además en qué punto falló y admitiendo enganches.
+// The same one, also saying at which point it failed and accepting hooks.
 bool tlsRequestLine(const TlsClientConfig& cfg,
                     const std::string& requestLine,
                     std::string& responseLine,
@@ -80,11 +80,11 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
                     TlsFailure& failure,
                     const TlsRequestHooks& hooks);
 
-// ¿Es esto un certificado / una clave privada de verdad?
+// Is this really a certificate / a private key?
 //
-// Se comprueba ANTES de montar nada. Descubrirlo dentro del saludo TLS costaría el túnel
-// entero —casi un segundo— y, peor, el fallo se leería como un problema de red cuando lo
-// que pasa es que el material guardado no sirve.
+// Checked BEFORE anything is built. Finding out inside the TLS handshake would cost the whole
+// tunnel —almost a second— and, worse, the failure would read as a network problem when what
+// is going on is that the stored material is unusable.
 bool pemCertificateIsValid(const std::string& pem);
 bool pemPrivateKeyIsValid(const std::string& pem);
 

@@ -2,41 +2,41 @@
 
 #include <string>
 
-// Cifrado de los campos sensibles de la configuración, sin Qt.
+// Encryption of the configuration's sensitive fields, without Qt.
 //
-// El formato es `encv1$<sal>$<token>`, con las dos partes en base64url sin relleno. El
-// token es **Fernet**: byte de versión 0x80, marca de tiempo de 8 bytes big-endian, IV
-// de 16, texto cifrado con AES-128-CBC y HMAC-SHA256 de 32 al final. La clave sale de
-// PBKDF2-HMAC-SHA256 con 390.000 iteraciones sobre una sal de 16 bytes PROPIA DE CADA
-// VALOR, y los 32 bytes resultantes se parten en firma (16) y cifrado (16), como manda
-// la especificación de Fernet.
+// The format is `encv1$<salt>$<token>`, both halves in base64url without padding. The token
+// is **Fernet**: version byte 0x80, an 8-byte big-endian timestamp, a 16-byte IV, ciphertext
+// under AES-128-CBC and a 32-byte HMAC-SHA256 at the end. The key comes from
+// PBKDF2-HMAC-SHA256 with 390,000 iterations over a 16-byte salt that is PER VALUE, and the
+// resulting 32 bytes are split into signing (16) and encryption (16), as the Fernet
+// specification requires.
 //
-// **El formato no se toca.** Hay ficheros ya escritos así en las máquinas de los
-// usuarios; cualquier cambio exigiría una migración.
+// **The format is not to be touched.** There are files already written this way on users'
+// machines; any change would require a migration.
 //
-// Sobre el coste: 390.000 iteraciones son unos 40 ms por derivación, y con sal por valor
-// eso se paga en CADA campo cifrado —hasta cinco por conexión— tanto al cargar como al
-// guardar. Con un puñado de conexiones no se nota; se deja así a propósito porque una
-// sal única por fichero sería más rápida pero menos conservadora, y cambiarla obligaría
-// a migrar.
+// On the cost: 390,000 iterations are about 40 ms per derivation, and with a per-value salt
+// that is paid on EVERY encrypted field —up to five per connection— both on load and on
+// save. With a handful of connections it does not show; it is left this way on purpose,
+// because a single per-file salt would be faster but less conservative, and changing it
+// would force a migration.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
 class SecretCipher {
 public:
     static bool isEncrypted(const std::string& value);
 
-    // `masterPassword` vacía es un error: cifrar con clave vacía daría una falsa
-    // sensación de protección.
+    // An empty `masterPassword` is an error: encrypting with an empty key would give a
+    // false sense of protection.
     static bool encryptEncv1(const std::string& plaintext,
                              const std::string& masterPassword,
                              std::string& output,
                              std::string& error);
 
-    // Verifica el HMAC ANTES de mirar la versión y de descifrar, y compara las firmas en
-    // tiempo constante. Si falla, `output` queda vacío: quien llame NO debe usar la
-    // entrada cifrada como si fuera el valor en claro.
+    // It verifies the HMAC BEFORE looking at the version and before decrypting, and it
+    // compares the signatures in constant time. On failure, `output` is left empty: the
+    // caller must NOT use the encrypted input as though it were the plaintext value.
     static bool decryptEncv1(const std::string& input,
                              const std::string& masterPassword,
                              std::string& output,

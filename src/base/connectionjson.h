@@ -6,103 +6,106 @@
 #include "json.h"
 #include "storewarnings.h"
 
-// Traducción entre `ConnectionProfile` y el JSON que se guarda en disco, sin Qt.
+// Translation between `ConnectionProfile` and the JSON stored on disk, without Qt.
 //
-// Es el pegamento de `ConnectionStore`, y lo que decide qué acaba escrito en
-// `config.json` y en `trust-store.json`. El formato no cambia: hay ficheros ya escritos
-// así. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// It is the glue of `ConnectionStore`, and what decides what ends up written into
+// `config.json` and `trust-store.json`. The format does not change: there are files already
+// written that way. See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::connjson {
 
-// Puerto SSH por omisión cuando no hay uno válido guardado.
+// Default SSH port when there is no valid one stored.
 int ensurePort(const std::string& connType, int port);
 
-// «local» por identificador o por tipo de conexión.
+// «local» either by id or by connection type.
 bool isLocalProfile(const ConnectionProfile& p);
 
-// La conexión local en Unix va SIEMPRE con sudo: sin él no se puede leer ni la mitad de
-// lo que la aplicación necesita. En Windows no aplica porque allí no hay sudo.
+// The local connection on Unix ALWAYS goes with sudo: without it not even half of what the
+// application needs can be read. It does not apply on Windows, where there is no sudo.
 bool shouldForceLocalSudo(const ConnectionProfile& p);
 
 bool profileHasDaemonTls(const ConnectionProfile& p);
 
-// Abre con la maestra los cinco campos que van cifrados: usuario, contraseña y el trío
-// TLS del daemon. Devuelve false si alguno se quedó cerrado.
+// Opens with the master password the five fields that travel encrypted: user, password and
+// the daemon's TLS trio. Returns false when any of them stayed shut.
 //
-// **Un campo que no se pudo abrir CONSERVA su texto cifrado**, y por eso se avisa: quien
-// lo reciba no debe usarlo como si fuera el valor en claro. Cada fallo va en `avisos` con
-// su motivo, su conexión y su campo, sin texto: lo redacta quien tenga catálogo.
+// **A field that could not be opened KEEPS its ciphertext**, which is why it warns: whoever
+// receives it must not use it as though it were the plaintext value. Each failure goes into
+// `warnings` with its reason, its connection and its field, with no text: whoever has a
+// catalogue does the wording.
 //
-// Estaba escrito dos veces —la interfaz recogía avisos tipificados y el intérprete se los
-// tragaba en silencio— y por eso la misma configuración se describía distinto según por
-// dónde se mirara.
-bool openSecrets(ConnectionProfile& p, const std::string& maestra, store::Warnings& avisos);
+// This was written twice —the interface collected typed warnings and the shell swallowed
+// them silently— and that is why the same configuration was described differently depending
+// on which way you looked at it.
+bool openSecrets(ConnectionProfile& p, const std::string& master, store::Warnings& warnings);
 
-// El perfil «Local» de ESTA máquina: se corrige si está y se sintetiza si no.
+// The «Local» profile of THIS machine: corrected when present, synthesised when absent.
 //
-// Se corrigen siempre el sistema operativo, el identificador de máquina y si eleva, porque
-// un perfil guardado desde otra compilación —o copiado de otro equipo— trae los del sitio
-// equivocado y entonces el programa cree que está hablando con otra cosa.
+// The operating system, the machine id and whether it elevates are always corrected, because
+// a profile saved from another build —or copied from another computer— brings the wrong
+// machine's, and then the program believes it is talking to something else.
 //
-// `maquinaUid` lo da quien llama: averiguarlo es leer el registro en Windows o `ioreg` en
-// macOS, y eso no baja aquí. Vacío = se conserva el que hubiera.
-void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid);
+// `machineUid` is supplied by the caller: finding it out means reading the registry on
+// Windows or running `ioreg` on macOS, and that does not come down here. Empty = whatever
+// was there is kept.
+void ensureLocalProfile(std::vector<ConnectionProfile>& profiles, const std::string& machineUid);
 
-// Funde en cada perfil el material TLS que viva en el almacén de confianza, indexando por
-// identificador.
+// Merges into each profile whatever TLS material lives in the trust store, indexing by id.
 //
-// **Manda el ALMACÉN, no el perfil**, y esto es una decisión, no un detalle: el almacén es
-// donde se persiste el material que se negocia con cada daemon, y lo que quede en
-// `config.json` es de antes de que existiera —hay una migración que lo saca de ahí—. Las
-// dos mitades del programa hacían esto al revés la una de la otra: la interfaz dejaba
-// ganar al almacén y el intérprete al perfil, así que con material viejo todavía en
-// `config.json` una usaba el fresco y la otra el rancio.
+// **The STORE wins, not the profile**, and that is a decision, not a detail: the store is
+// where the material negotiated with each daemon is persisted, and whatever is left in
+// `config.json` predates it —there is a migration that pulls it out of there—. The two
+// halves of the program did this the opposite way from each other: the interface let the
+// store win and the shell let the profile win, so with old material still in `config.json`
+// one used the fresh one and the other the stale one.
 //
-// Una entrada del almacén SIN conexión que le corresponda se añade como conexión. Es
-// material TLS negociado con una máquina que sigue ahí: descartarlo obligaría a
-// renegociarlo por SSH, y en un host donde /etc/zfsmgr es solo de root eso es pedir sudo.
-// Las locales no, que se sintetizan aparte.
-void mergeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value& trust,
-                     const std::string& maestra, store::Warnings& avisos);
+// A store entry with NO matching connection is added as a connection. It is TLS material
+// negotiated with a machine that is still there: discarding it would force renegotiating it
+// over SSH, and on a host where /etc/zfsmgr is root-only that means asking for sudo. Local
+// ones are excluded, since those are synthesised separately.
+void mergeTrustStore(std::vector<ConnectionProfile>& profiles, const json::Value& trust,
+                     const std::string& master, store::Warnings& warnings);
 
-// PSRP se retiró como transporte: no admite el daemon, porque el RPC viaja por un túnel
-// `ssh -L` y sin SSH no hay túnel. Un perfil guardado con PSRP no puede quedarse como
-// está —fallaría de forma opaca— ni desaparecer sin más, así que se convierte a SSH.
+// PSRP was withdrawn as a transport: it cannot carry the daemon, because the RPC travels
+// through an `ssh -L` tunnel and without SSH there is no tunnel. A profile saved with PSRP
+// can neither stay as it is —it would fail opaquely— nor simply vanish, so it is converted
+// to SSH.
 //
-// El puerto es la parte que se olvida: 5986 es WinRM, y dejarlo convierte una conexión
-// rota en una conexión rota SIN explicación, que es peor que la de partida.
+// The port is the part that gets forgotten: 5986 is WinRM, and leaving it turns a broken
+// connection into a broken connection WITH NO explanation, which is worse than where it
+// started.
 bool migratePsrpProfileToSsh(ConnectionProfile& p);
 
-// Si `raw` es el hexadecimal ASCII de un UUID, devuelve el UUID; si no, vacío.
+// When `raw` is the ASCII hex of a UUID, returns the UUID; otherwise, empty.
 //
-// Imita a `QByteArray::fromHex`, que **se salta los caracteres no hexadecimales** en vez
-// de fallar, y que ante una cantidad impar de dígitos actúa como si llevara un '0'
-// delante. No es un capricho: hay identificadores guardados que dependen de eso.
+// It imitates `QByteArray::fromHex`, which **skips non-hex characters** instead of failing,
+// and which on an odd number of digits behaves as though there were a leading '0'. Not a
+// whim: there are stored ids that depend on it.
 std::string decodeHexAsciiIfUuid(const std::string& raw);
 
-// `uidLocal` es el identificador de ESTA máquina. Se pasa como argumento en vez de
-// consultarlo aquí porque averiguarlo cuesta entre 400 y 600 ms —lanza `ioreg` en macOS
-// o lee el registro en Windows— y eso es justo lo que no puede vivir en la capa base.
-// Solo se usa como respaldo para el perfil local cuando no hay nada guardado.
+// `localUid` is THIS machine's id. It is passed as an argument rather than looked up here
+// because finding it out costs between 400 and 600 ms —it launches `ioreg` on macOS or reads
+// the registry on Windows— and that is exactly what cannot live in the base layer. It is
+// only used as a fallback for the local profile when nothing is stored.
 std::string normalizeMachineUidForStorage(const ConnectionProfile& p,
                                           std::string raw,
-                                          const std::string& uidLocal);
+                                          const std::string& localUid);
 
-// `config.json`: los datos de conexión y la contraseña. SIN el material TLS, que vive
-// aparte en el almacén de confianza.
-json::Value connectionToJson(const ConnectionProfile& p, const std::string& uidLocal);
+// `config.json`: the connection data and the password. WITHOUT the TLS material, which
+// lives apart in the trust store.
+json::Value connectionToJson(const ConnectionProfile& p, const std::string& localUid);
 
-// `trust-store.json`: lo mismo SIN contraseña y CON el material TLS.
-json::Value connectionTrustToJson(const ConnectionProfile& p, const std::string& uidLocal);
+// `trust-store.json`: the same WITHOUT the password and WITH the TLS material.
+json::Value connectionTrustToJson(const ConnectionProfile& p, const std::string& localUid);
 
-// Lee de cualquiera de los dos: los campos ausentes se quedan con su valor por omisión.
-ConnectionProfile connectionFromJson(const json::Value& obj, const std::string& uidLocal);
+// Reads from either of the two: absent fields keep their default value.
+ConnectionProfile connectionFromJson(const json::Value& obj, const std::string& localUid);
 
-// Posición de una conexión por identificador, sin distinguir mayúsculas. -1 si no está.
+// Position of a connection by id, case-insensitively. -1 when it is not there.
 long long indexOfConnectionById(const json::Array& connections, const std::string& id);
 
-// Inserta o sustituye por identificador. Devuelve false si el perfil no tiene ninguno.
+// Inserts or replaces by id. Returns false when the profile has none.
 bool upsertConnectionJson(json::Array& connections,
                           const ConnectionProfile& p,
-                          const std::string& uidLocal);
+                          const std::string& localUid);
 
 }  // namespace zfsmgr::base::connjson

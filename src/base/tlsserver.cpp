@@ -158,7 +158,7 @@ bool serve(const std::string& bind, int puerto, const std::string& rutaCert,
            const std::function<bool(const std::string&, std::string&)>& atiende,
            const std::function<bool()>& sigueVivo, std::string& error,
            const std::function<void()>& alEscuchar,
-           const std::function<bool(const std::string&, const Escritor&)>& atiendeChorro) {
+           const std::function<bool(const std::string&, const Writer&)>& atiendeChorro) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -260,7 +260,7 @@ bool serve(const std::string& bind, int puerto, const std::string& rutaCert,
             }
             bool yaContestado = false;
             if (!peticion.empty() && atiendeChorro) {
-                const Escritor escribe = [ssl](const char* datos, std::size_t cuantos) {
+                const Writer escribe = [ssl](const char* datos, std::size_t cuantos) {
                     std::size_t puesto = 0;
                     while (puesto < cuantos) {
                         const int n = SSL_write(ssl, datos + puesto,

@@ -2,39 +2,39 @@
 
 #include <string>
 
-// Qué sistema operativo corre en un extremo, a partir de lo que ese extremo responde.
+// Which operating system runs on an endpoint, from what that endpoint answers.
 //
-// **Aquí solo se INTERPRETA texto.** Quién lanza el proceso y cómo llega su salida es cosa
-// de quien llame: el daemon lo lee de su propio disco, la interfaz lo trae por SSH del otro
-// lado. Esa separación es justo lo que faltaba, y por eso había tres versiones distintas de
-// lo mismo:
+// **Only text is INTERPRETED here.** Who launches the process and how its output arrives is
+// the caller's business: the daemon reads it off its own disk, the interface brings it over
+// SSH from the other side. That separation is exactly what was missing, and it is why there
+// were three different versions of the same thing:
 //
-//   - `daemon_main.cpp:detectOsLine()` abría `/etc/os-release` y lo parseaba en C++.
-//   - `connectiondialog.cpp` y `mainwindow_refresh.cpp` mandaban un
-//     `sh -lc '. /etc/os-release; printf "%s %s" "$NAME" "$VERSION_ID"'` cada una.
+//   - `daemon_main.cpp:detectOsLine()` opened `/etc/os-release` and parsed it in C++.
+//   - `connectiondialog.cpp` and `mainwindow_refresh.cpp` each sent a
+//     `sh -lc '. /etc/os-release; printf "%s %s" "$NAME" "$VERSION_ID"'`.
 //
-// Las dos de Qt delegaban en el intérprete un trabajo que la del daemon ya hacía sin él, y
-// además discrepaban en los bordes: el `printf` de shell deja un espacio suelto cuando
-// `VERSION_ID` no está —Arch y Gentoo no la traen—, y no quita las comillas del valor, que
-// `/etc/os-release` sí lleva. La del daemon sí hacía ambas cosas.
+// The two Qt ones delegated to a shell a job the daemon's already did without one, and on
+// top of that they disagreed at the edges: the shell `printf` leaves a stray space when
+// `VERSION_ID` is absent —Arch and Gentoo do not carry it—, and it does not strip the quotes
+// around the value, which `/etc/os-release` does use. The daemon's did both.
 //
-// Con el parseo aquí, lo que viaja por SSH pasa a ser `cat /etc/os-release`: un mandato sin
-// nada que interpretar, en vez de un guion.
+// With the parsing here, what travels over SSH becomes `cat /etc/os-release`: a command with
+// nothing to interpret, instead of a script.
 namespace zfsmgr::base::osinfo {
 
-// El contenido de `/etc/os-release` → «Fedora Linux 42».
+// The contents of `/etc/os-release` → «Fedora Linux 42».
 //
-// Devuelve vacío si el fichero no dice nada útil, para que quien llame ponga su respaldo
-// («Linux» a secas) y no una cadena a medias.
+// Empty when the file says nothing useful, so that the caller supplies its own fallback
+// («Linux» on its own) rather than a half-finished string.
 //
-// Quita las comillas de los valores: el formato las admite —`NAME="Fedora Linux"`— y
-// dejarlas puestas se veía en la ficha de la conexión.
-std::string fromOsRelease(const std::string& contenido);
+// It strips the quotes from the values: the format allows them —`NAME="Fedora Linux"`— and
+// leaving them in showed up on the connection's card.
+std::string fromOsRelease(const std::string& contents);
 
-// La salida de `system_profiler SPSoftwareDataType` → «macOS 15.5 (24F74)».
+// The output of `system_profiler SPSoftwareDataType` → «macOS 15.5 (24F74)».
 //
-// Se busca la línea «System Version:» y se devuelve lo que va detrás. Antes lo hacía un
-// `sed -n "s/^ *System Version: //p" | head -1` dentro del guion remoto.
-std::string fromSystemProfiler(const std::string& salida);
+// The «System Version:» line is looked for and whatever follows is returned. This used to be
+// a `sed -n "s/^ *System Version: //p" | head -1` inside the remote script.
+std::string fromSystemProfiler(const std::string& output);
 
 }  // namespace zfsmgr::base::osinfo

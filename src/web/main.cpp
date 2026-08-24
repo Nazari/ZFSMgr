@@ -5715,7 +5715,7 @@ int main(int argc, char** argv) {
     // servir después— porque resolver qué fichero es cuesta varias llamadas al agente y no
     // se puede hacer con la respuesta ya empezada.
     const auto atiendeChorro = [&](const std::string& crudo,
-                                   const B::tlsserver::Escritor& escribe) {
+                                   const B::tlsserver::Writer& escribe) {
         std::string respuestaCorta;
         if (!atiende(crudo, respuestaCorta)) {
             return false;

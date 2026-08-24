@@ -3,51 +3,51 @@
 #include <string>
 #include <vector>
 
-// Utilidades de cadena para la capa sin Qt.
+// String utilities for the Qt-free layer.
 //
-// Existen para poder sacar lógica del cliente sin arrastrar Qt con ella. Son las
-// operaciones concretas que usaba el código portado —ni una más—: recortar, sustituir
-// literales, formatear con marcadores posicionales y citar para el shell.
+// They exist so that client logic could be pulled out without dragging Qt along with it.
+// They are the specific operations the ported code used —not one more—: trimming, replacing
+// literals, formatting with positional markers and quoting for the shell.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
-// Quita espacios en blanco por los dos extremos, como QString::trimmed().
+// Strips whitespace from both ends, like QString::trimmed().
 std::string trim(const std::string& s);
 
-// Sustituye TODAS las apariciones de `from` en `s`. No hace nada si `from` está vacío,
-// que si no sería un bucle infinito.
+// Replaces EVERY occurrence of `from` in `s`. It does nothing when `from` is empty, which
+// would otherwise be an infinite loop.
 void replaceAll(std::string& s, const std::string& from, const std::string& to);
 
-// Formatea sustituyendo %1..%99 por los argumentos, en UNA sola pasada.
+// Formats by replacing %1..%99 with the arguments, in ONE single pass.
 //
-// La pasada única no es un detalle de implementación, es la semántica: QString::arg()
-// con varios argumentos NO vuelve a mirar dentro de lo que acaba de insertar, así que
-// un argumento que contenga «%2» se queda literal. Sustituir en cadena rompería
-// cualquier cadena con un porcentaje dentro —contraseñas, rutas de Windows— y sería un
-// fallo difícil de ver. Comprobado contra Qt: `API='%2%1'`.
+// The single pass is not an implementation detail, it is the semantics: QString::arg() with
+// several arguments does NOT look again inside what it has just inserted, so an argument
+// containing «%2» stays literal. Substituting in a chain would break any string with a
+// percent sign inside it —passwords, Windows paths— and it would be a hard failure to spot.
+// Verified against Qt: `API='%2%1'`.
 //
-// Un marcador cuyo número exceda los argumentos dados se deja tal cual, también como Qt.
+// A marker whose number exceeds the arguments given is left as-is, again like Qt.
 std::string format(const std::string& tmpl, const std::vector<std::string>& args);
 
-// Cita para pasar como UN argumento a un shell POSIX. La comilla simple se cierra, se
-// escapa entrecomillada y se reabre: '"'"' — es la única forma de meterla dentro.
+// Quotes for passing as ONE argument to a POSIX shell. The single quote is closed, escaped
+// in quotes and reopened: '"'"' — the only way of getting one inside.
 std::string shSingleQuote(const std::string& s);
 
-// --- Operaciones que en Qt son métodos de QString.
+// --- Operations that in Qt are methods of QString.
 //
-// Van como funciones libres a propósito: envolver std::string en una clase con la API
-// de QString haría el puerto más cómodo hoy y dejaría al proyecto con un clon casero de
-// QString, que es justo lo contrario del objetivo.
+// Free functions on purpose: wrapping std::string in a class with QString's API would make
+// the port more comfortable today and leave the project with a home-made QString clone,
+// which is the exact opposite of the goal.
 
-// Colapsa cada tira de espacios en uno solo y recorta, como QString::simplified().
+// Collapses each run of whitespace into one and trims, like QString::simplified().
 std::string simplify(const std::string& s);
 
-// SOLO ASCII, y el nombre lo dice a propósito. Qt cambia también la caja de las letras
-// acentuadas; aquí no, y es lo que se quiere: se usan para comparar valores de
-// propiedad («yes», «on»), GUID y nombres de verbo, todos ASCII. Una conversión con
-// reglas de idioma introduce sorpresas —la I turca es el ejemplo clásico— justo donde
-// se está tomando una decisión.
+// ASCII ONLY, and the name says so on purpose. Qt also changes the case of accented
+// letters; here it does not, and that is what is wanted: these are used to compare property
+// values («yes», «on»), GUIDs and verb names, all ASCII. A conversion with language rules
+// introduces surprises —the Turkish I is the classic example— right where a decision is
+// being made.
 std::string toLowerAscii(const std::string& s);
 std::string toUpperAscii(const std::string& s);
 
@@ -55,54 +55,55 @@ bool contains(const std::string& s, const std::string& sub);
 bool startsWith(const std::string& s, const std::string& pre);
 bool endsWith(const std::string& s, const std::string& suf);
 
-// Devuelven -1 cuando no hay coincidencia, como QString::indexOf().
+// They return -1 when there is no match, like QString::indexOf().
 long long indexOf(const std::string& s, const std::string& sub);
 long long lastIndexOf(const std::string& s, const std::string& sub);
 
-// Recortes por CARACTERES, no por bytes, y tolerantes con posiciones fuera de rango.
+// Cuts by CHARACTERS, not by bytes, and forgiving with out-of-range positions.
 //
-// Contar bytes aquí sería un fallo real, no una imprecisión: `left(s, 220)` es lo que
-// recorta las líneas del registro, y cortar a mitad de un carácter UTF-8 deja bytes
-// inválidos. Se detectó comparando contra Qt con «áÉ». Coincide con Qt en todo el plano
-// básico; solo diverge en caracteres fuera de él, donde Qt cuenta unidades UTF-16.
+// Counting bytes here would be a real bug, not an imprecision: `left(s, 220)` is what trims
+// the log lines, and cutting in the middle of a UTF-8 character leaves invalid bytes. It was
+// found by comparing against Qt with «áÉ». It matches Qt across the whole basic plane; it
+// only diverges on characters outside it, where Qt counts UTF-16 units.
 std::string left(const std::string& s, std::size_t nChars);
 std::string mid(const std::string& s, std::size_t posChars);
 std::string mid(const std::string& s, std::size_t posChars, std::size_t nChars);
 
-// Índice del byte donde empieza el carácter número `nChars`, o el tamaño si se pasa.
+// Index of the byte where character number `nChars` starts, or the size when it overruns.
 std::size_t byteOfChar(const std::string& s, std::size_t nChars);
 
-// Caja consciente de UTF-8, para cuando el texto NO es ASCII y la decisión depende de
-// ello. El caso que lo obligó: `looksLikeSudoAuthFailure` compara contra frases con
-// acento, y con «SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO» la versión ASCII devolvía
-// que no había fallo de contraseña. Un rechazo se habría clasificado como «no se pudo
-// comprobar», que es el fallo que los comentarios de esa función dicen haber sufrido ya.
+// UTF-8-aware case, for when the text is NOT ASCII and the decision depends on it. The case
+// that forced it: `looksLikeSudoAuthFailure` compares against phrases with accents, and with
+// «SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO» the ASCII version answered that there was no
+// password failure. A rejection would have been classified as «could not check», which is
+// the very failure that function's comments say it has already suffered.
 //
-// Cubre ASCII, el suplemento Latin-1 y Latin Extended-A: español, francés, alemán,
-// portugués y buena parte del este de Europa. NO cubre griego, cirílico, la I turca ni
-// la expansión ß->SS; ahí devuelve el carácter sin tocar. Contrastado contra Qt en todo
-// el rango U+0000..U+017F.
+// It covers ASCII, the Latin-1 supplement and Latin Extended-A: Spanish, French, German,
+// Portuguese and much of Eastern Europe. It does NOT cover Greek, Cyrillic, the Turkish I or
+// the ß->SS expansion; there it returns the character untouched. Checked against Qt across
+// the whole U+0000..U+017F range.
 std::string toLowerUtf8(const std::string& s);
 std::string toUpperUtf8(const std::string& s);
 
-// ¿Es letra el carácter que empieza en el byte `pos`? ASCII más los mismos rangos
-// latinos de arriba.
+// Is the character starting at byte `pos` a letter? ASCII plus the same Latin ranges as
+// above.
 bool isLetterAt(const std::string& s, std::size_t pos);
 
-// Base64 estándar (RFC 4648) con relleno. `base64Decode` devuelve false si aparece un
-// carácter que no pertenece al alfabeto; los espacios se ignoran y el relleno corta.
+// Standard base64 (RFC 4648) with padding. `base64Decode` returns false when a character
+// outside the alphabet turns up; whitespace is ignored and padding ends the input.
 std::string base64Encode(const std::string& data);
 
-// Un tamaño en bytes, en la forma en que lo escribe `zfs`: una cifra decimal por debajo de
-// 10 y ninguna por encima —«9.5G», «500G»—. Lo que no sea un número se devuelve tal cual,
-// que es lo que hace falta cuando la fuente ya dio un texto.
+// A size in bytes, spelled the way `zfs` spells it: one decimal digit below 10 and none
+// above —«9.5G», «500G»—. Anything that is not a number is returned as-is, which is what is
+// needed when the source already gave text.
 //
-// Vive aquí porque la escriben dos clientes. Estaba dentro de la tabla del intérprete, y la
-// ventana iba a necesitar la misma para enseñar lo que ahora le da el agente en bytes.
+// It lives here because more than one client writes it. It used to be inside the shell's
+// table, and the window was going to need the same one to show what the agent now gives it
+// in bytes.
 std::string humanSize(const std::string& v);
 bool base64Decode(const std::string& text, std::string& out);
 
-// `skipEmpty` imita Qt::SkipEmptyParts, que es como se usa en casi todo el código.
+// `skipEmpty` imitates Qt::SkipEmptyParts, which is how it is used almost everywhere.
 std::vector<std::string> split(const std::string& s, const std::string& sep, bool skipEmpty);
 std::string join(const std::vector<std::string>& parts, const std::string& sep);
 

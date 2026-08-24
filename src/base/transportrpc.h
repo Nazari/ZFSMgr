@@ -9,26 +9,26 @@
 #include <string>
 #include <vector>
 
-// La parte del transporte que **ejecuta**: una orden por SSH y el RPC contra el daemon de
-// esta máquina.
+// The part of the transport that **executes**: a command over SSH, and the RPC against this
+// machine's daemon.
 //
-// Segunda tanda de la mudanza. Se separa de `transportcmd.h` porque aquí sí hay E/S —se
-// lanza un proceso, se abre un socket—, y eso cambia cómo se verifica: lo de allí se
-// contrasta byte a byte contra la versión con Qt, y esto hay que probarlo contra una
-// máquina.
+// The second batch of the move. It is split from `transportcmd.h` because here there is I/O
+// —a process is launched, a socket is opened—, and that changes how it gets verified: what
+// lives there is checked byte for byte against the Qt version, and this has to be tested
+// against a machine.
 //
-// Lo que NO está aquí, y va en la tercera tanda, es el túnel `ssh -L`: mantiene procesos
-// vivos entre llamadas, necesita un puerto libre y depende de que alguien deje respirar a
-// la interfaz mientras se monta.
+// What is NOT here, and goes in the third batch, is the `ssh -L` tunnel: it keeps processes
+// alive between calls, needs a free port, and depends on somebody letting the interface
+// breathe while it is being built.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::transport {
 
-// Ejecuta una orden por SSH y devuelve lo que salió. **No registra nada**: es el camino
-// que usan los hilos de vigilancia en segundo plano, donde escribir en el registro desde
-// fuera del hilo de la interfaz era el problema, no la solución.
+// Runs a command over SSH and returns what came out. **It logs nothing**: it is the path
+// the background watchdog threads use, where writing to the log from outside the interface
+// thread was the problem, not the solution.
 //
-// `timeoutMs <= 0` toma 15 s, que es el valor que tenía la versión con Qt.
+// `timeoutMs <= 0` takes 15 s, which is the value the Qt version had.
 bool runSshRaw(const ConnectionProfile& p,
                const std::string& remoteCmd,
                int timeoutMs,
@@ -36,26 +36,26 @@ bool runSshRaw(const ConnectionProfile& p,
                std::string& err,
                int& rc);
 
-// A qué dirección hay que conectarse dado lo que dice `AGENT_BIND` en agent.conf.
+// Which address to connect to, given what `AGENT_BIND` says in agent.conf.
 //
-// Existe porque la dirección de ESCUCHA no sirve como dirección de CONEXIÓN: el daemon
-// puede escuchar en `0.0.0.0` o en `::`, que significan «en todas», y a eso no se conecta
-// nadie. Lo mismo si el valor no es una dirección válida. En los tres casos se va a
-// `127.0.0.1`, que es donde el daemon local está de todas formas.
+// It exists because the LISTEN address is no use as a CONNECT address: the daemon may listen
+// on `0.0.0.0` or on `::`, which mean «on all of them», and nobody connects to that. Same
+// when the value is not a valid address. In all three cases it falls back to `127.0.0.1`,
+// which is where the local daemon is anyway.
 std::string bindAddressToConnectHost(const std::string& bindAddress);
 
-// Lo que costó la llamada y por qué falló, para que quien llame pueda registrarlo. Se
-// devuelve en vez de escribirlo aquí: esta capa no sabe dónde está el registro.
+// What the call cost and why it failed, so the caller can log it. Returned rather than
+// written here: this layer does not know where the log is.
 struct LocalRpcDiag {
     long long elapsedMs{0};
-    FailureReason failure;  // vacío si fue bien
+    FailureReason failure;  // empty when it went well
 };
 
-// El RPC contra el daemon de ESTA máquina: una línea JSON de ida, una de vuelta, por TLS
-// con autenticación mutua y **validando por fijación del certificado**, no por CA.
+// The RPC against THIS machine's daemon: one JSON line out, one back, over TLS with mutual
+// authentication and **validating by certificate pinning**, not by CA.
 //
-// El material TLS llega por parámetro y no se lee del disco: vive bajo /etc/zfsmgr con
-// permisos de root, así que quien lo tiene ya tuvo que elevarse para leerlo.
+// The TLS material arrives as a parameter and is not read from disk: it lives under
+// /etc/zfsmgr with root permissions, so whoever holds it already had to elevate to read it.
 bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
                       const std::string& serverCertPem,
                       const std::string& clientCertPem,
@@ -67,23 +67,23 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
                       int& rc,
                       LocalRpcDiag* diag = nullptr);
 
-// --- Resolución de nombres, solo para poder CONTARLO.
+// --- Name resolution, only so it can be REPORTED.
 //
-// No se usa para conectar —de eso se encarga `ssh`—, sino para dejar dicho en el registro
-// a qué se resolvió un nombre. Existe porque los `*.local` van por mDNS y los fallos de
-// ahí son de los que se diagnostican mal: parecen «la máquina no responde».
+// It is not used to connect —`ssh` takes care of that—, but to put on record what a name
+// resolved to. It exists because `*.local` names go over mDNS and failures there are the
+// kind that get misdiagnosed: they look like «the machine is not answering».
 struct HostResolution {
     bool ok{false};
     std::string error;
-    // «IPv4:192.168.1.33», tal y como se escribe en el registro.
+    // «IPv4:192.168.1.33», exactly as it is written into the log.
     std::vector<std::string> addresses;
 };
 HostResolution resolveHostAddresses(const std::string& host);
 
-// --- El material TLS del daemon de ESTA máquina.
+// --- The TLS material of THIS machine's daemon.
 //
-// Vive bajo /etc/zfsmgr con permisos de root, así que puede hacer falta elevar para
-// leerlo; se cachea cinco minutos para no pedir credenciales en cada orden.
+// It lives under /etc/zfsmgr with root permissions, so elevating may be needed to read it;
+// it is cached for five minutes so as not to ask for credentials on every command.
 bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
                                   std::string& serverCertPem,
                                   std::string& clientCertPem,
@@ -91,14 +91,15 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
                                   std::uint16_t& daemonPort);
 void clearLocalDaemonTlsCache();
 
-// --- Los dos caminos de alto nivel.
+// --- The two high-level paths.
 
-// Intenta el RPC tipado del agente contra una conexión SSH. Devuelve false si hay que caer
-// al camino de siempre.
+// Tries the agent's typed RPC against an SSH connection. Returns false when it has to fall
+// back to the usual path.
 //
-// **Devuelve TRUE con rc=124 en un caso muy concreto**: cuando una MUTACIÓN llegó al daemon
-// y no hubo respuesta. Es «true» porque no hay que reintentar por SSH —sería ejecutar la
-// misma orden destructiva por segunda vez—, y el mensaje se lo dice al usuario.
+// **It returns TRUE with rc=124 in one very specific case**: when a MUTATION reached the
+// daemon and there was no answer. It is «true» because it must not be retried over SSH —that
+// would be running the same destructive command a second time—, and the message says so to
+// the user.
 bool tryAgentRpcOverSsh(TransportSession& ses,
                         const ConnectionProfile& p,
                         const std::vector<std::string>& agentArgs,
@@ -110,11 +111,12 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
                         const std::function<void(const std::string&)>& onStderrLine = {},
                         bool echoOutputToLog = true);
 
-// Ejecuta una orden en la máquina. Si `allowAgentRpc`, intenta primero el RPC tipado del
-// agente y solo cae a SSH en crudo si no se puede.
+// Runs a command on the machine. With `allowAgentRpc`, it tries the agent's typed RPC first
+// and only falls back to raw SSH when it cannot.
 //
-// **El plazo es de INACTIVIDAD, no total**: se reinicia con cada trozo que llega. Una
-// transfer de horas no puede morir por durar; sí debe morir si se queda muda.
+// **The timeout is one of INACTIVITY, not a total**: it restarts with every chunk that
+// arrives. A transfer that takes hours must not die for taking long; it must die when it
+// goes silent.
 bool runSsh(TransportSession& ses,
             const ConnectionProfile& p,
             const std::string& remoteCmd,
