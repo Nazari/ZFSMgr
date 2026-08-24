@@ -2062,7 +2062,10 @@ void MainWindow::buildUi() {
     m_lastDetailText->setAcceptRichText(false);
     m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
     m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // Sin barra horizontal tampoco. El campo mide 22 px de alto y la barra se comía la
+    // mitad, dejando el texto cortado por abajo para poder desplazar una línea que ya
+    // está entera en el tooltip y en el log. Lo que no cabe, no cabe.
+    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_lastDetailText->setFixedHeight(22);

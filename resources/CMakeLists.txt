@@ -508,6 +508,10 @@ target_compile_definitions(zfsmgr_core PUBLIC
 
 qt_add_executable(zfsmgr-gui
     ../src/native/main.cpp
+    # La lectura de secretos por descriptor la comparte con el intérprete: es la misma
+    # regla —nunca por argumento ni por entorno— y copiarla sería garantizar que las dos
+    # se separen.
+    ../src/cli/secretinput.cpp
 )
 
 target_link_libraries(zfsmgr-gui PRIVATE zfsmgr_core)

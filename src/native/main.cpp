@@ -2,6 +2,8 @@
 #include "i18nmanager.h"
 #include "masterpassworddialog.h"
 #include "mainwindow.h"
+
+#include "cli/secretinput.h"
 #include "mainwindow_helpers.h"
 
 #include <QApplication>
@@ -211,7 +213,33 @@ int main(int argc, char* argv[]) {
                 .arg(missingI18n.join(QStringLiteral(", "))));
     }
 
+    // --password-fd <n>: la contraseña maestra entra por un descriptor, igual que en el
+    // intérprete. NUNCA por argumento ni por variable de entorno: las dos cosas salen en
+    // `ps` para cualquier usuario de la máquina.
+    //
+    // Sirve para arrancar sin ventana de por medio —una prueba, un arranque de sesión— y
+    // para gestores de secretos:
+    //
+    //     zfsmgr-gui --password-fd 3  3< <(pass show zfsmgr)
+    //
+    // Si el descriptor no se puede leer o la contraseña no vale, NO se sale: se cae al
+    // diálogo de siempre. Un arranque desatendido que falla y deja la aplicación cerrada
+    // sin decir nada es peor que preguntar.
     QString masterPassword;
+    int masterPasswordFd = -1;
+    {
+        const QStringList args = QCoreApplication::arguments();
+        for (int i = 1; i < args.size(); ++i) {
+            if (args.at(i) == QStringLiteral("--password-fd") && i + 1 < args.size()) {
+                bool ok = false;
+                const int fd = args.at(i + 1).toInt(&ok);
+                if (ok && fd >= 0) {
+                    masterPasswordFd = fd;
+                }
+                ++i;
+            }
+        }
+    }
     QString language = QStringLiteral("es");
     ConnectionStore store(QStringLiteral("ZFSMgr"));
     {
@@ -253,7 +281,25 @@ int main(int argc, char* argv[]) {
         }
         requireLocalSudoAtStartup = !hasLocalConnWithCreds;
     }
-    while (true) {
+    // Con descriptor y sin nada que crear, se prueba antes de enseñar el diálogo.
+    bool unattendedAccepted = false;
+    if (masterPasswordFd >= 0 && !firstRunCreateIni) {
+        std::string secret;
+        std::string readErr;
+        if (zfsmgr::cli::leerSecretoDeDescriptor(masterPasswordFd, secret, readErr)) {
+            masterPassword = QString::fromStdString(secret);
+            store.setMasterPassword(masterPassword);
+            QString err;
+            if (store.validateMasterPassword(err) && store.encryptStoredPasswords(err)) {
+                unattendedAccepted = true;
+            } else {
+                masterPassword.clear();
+                store.setMasterPassword(QString());
+            }
+        }
+        std::fill(secret.begin(), secret.end(), '\0');
+    }
+    while (!unattendedAccepted) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
         dlg.setFirstRunCreationMode(firstRunCreateIni);
