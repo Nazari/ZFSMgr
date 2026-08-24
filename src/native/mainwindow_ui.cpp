@@ -931,6 +931,7 @@ void MainWindow::buildDatasetPane(int paneIdx) {
                     // Marcar otra cosa en el árbol descarta el snapshot que hubiera
                     // marcado en la pestaña: es de otro dataset.
                     m_datasetPanes[paneIdx].snapshotSel.clear();
+                    m_datasetPanes[paneIdx].detailForceConnection = false;
                     updatePaneDetail(paneIdx);
                 });
     }
