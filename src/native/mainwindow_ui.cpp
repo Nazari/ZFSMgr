@@ -723,15 +723,106 @@ public:
 
 }  // namespace
 
+// Lo que hay editado y sin aplicar, enumerado.
+//
+// Es lo que van a hacer Aplicar y Descartar, sacado de las mismas dos fuentes que ellos
+// recorren: los borradores de propiedades y los de permisos. Sin esta lista los botones se
+// encendían sin decir por qué —una delegación de permisos encolada no salía en ninguna
+// parte—, y aplicar a ciegas lo que uno no recuerda haber tocado no es aplicar.
 void MainWindow::updatePendingChangesList() {
-    // Ya no hay nada pendiente que pintar, y esta lista es AHORA la de trabajos.
-    //
-    // Dejarla como estaba no era inofensivo: vaciaba la lista y la repoblaba desde un modelo
-    // que ya nadie alimenta, así que cada llamada —y hay siete— habría borrado los trabajos
-    // en marcha de la vista. Se corta aquí, en un solo sitio, en vez de perseguir los siete
-    // llamantes: lo que queda del modelo de pendientes se retirará entero después, y
-    // entonces esta función desaparece con él.
-    return;
+    if (!m_pendingChangesList) {
+        return;
+    }
+    const QSignalBlocker blocker(m_pendingChangesList);
+    m_pendingChangesList->clear();
+
+    const auto connLabel = [this](int connIdx) {
+        return (connIdx >= 0 && connIdx < m_conns.profiles.size())
+                   ? m_conns.profiles.at(connIdx).name
+                   : QStringLiteral("?");
+    };
+
+    for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
+        for (auto it = item.draft.valuesByProp.constBegin();
+             it != item.draft.valuesByProp.constEnd(); ++it) {
+            m_pendingChangesList->addItem(
+                QStringLiteral("%1 · %2 · %3 = %4")
+                    .arg(connLabel(item.connIdx), item.objectName, it.key(), it.value()));
+        }
+        for (auto it = item.draft.inheritByProp.constBegin();
+             it != item.draft.inheritByProp.constEnd(); ++it) {
+            m_pendingChangesList->addItem(
+                QStringLiteral("%1 · %2 · %3 → %4")
+                    .arg(connLabel(item.connIdx), item.objectName, it.key(),
+                         it.value() ? trk(QStringLiteral("t_pending_inherit_001"),
+                                          QStringLiteral("heredada"),
+                                          QStringLiteral("inherited"))
+                                    : trk(QStringLiteral("t_pending_local_001"),
+                                          QStringLiteral("local"),
+                                          QStringLiteral("local"))));
+        }
+    }
+
+    // De los permisos se enumera lo que CAMBIA respecto a lo que hay en la máquina: una
+    // delegación nueva, o una a la que se le han marcado o desmarcado permisos. Listar
+    // todas las del dataset diría que se va a tocar lo que no se toca.
+    for (const PendingPermissionDraftEntry& item : dirtyDatasetPermissionsEntriesFromModel()) {
+        const auto scopeLabel = [this](const QString& scope) {
+            const QString sc = scope.trimmed().toLower();
+            if (sc == QStringLiteral("local")) {
+                return trk(QStringLiteral("t_perm_scope_local_001"),
+                           QStringLiteral("Local"), QStringLiteral("Local"));
+            }
+            if (sc == QStringLiteral("descendant")) {
+                return trk(QStringLiteral("t_perm_scope_desc_001"),
+                           QStringLiteral("Descendientes"), QStringLiteral("Descendants"));
+            }
+            return trk(QStringLiteral("t_perm_scope_localdesc_001"),
+                       QStringLiteral("Local y descendientes"),
+                       QStringLiteral("Local and descendants"));
+        };
+        const auto originalFor = [](const QVector<DatasetPermissionGrant>& originals,
+                                    const DatasetPermissionGrant& g) -> const DatasetPermissionGrant* {
+            for (const DatasetPermissionGrant& o : originals) {
+                if (o.scope == g.scope && o.targetType == g.targetType
+                    && o.targetName == g.targetName) {
+                    return &o;
+                }
+            }
+            return nullptr;
+        };
+        struct Pair {
+            const QVector<DatasetPermissionGrant>* now;
+            const QVector<DatasetPermissionGrant>* before;
+        };
+        const QVector<Pair> pairs = {
+            {&item.entry.localGrants, &item.entry.originalLocalGrants},
+            {&item.entry.descendantGrants, &item.entry.originalDescendantGrants},
+            {&item.entry.localDescendantGrants, &item.entry.originalLocalDescendantGrants}};
+        for (const Pair& pair : pairs) {
+            for (const DatasetPermissionGrant& g : *pair.now) {
+                const DatasetPermissionGrant* before = originalFor(*pair.before, g);
+                if (before && before->permissions == g.permissions) {
+                    continue;
+                }
+                QString who = g.targetName.trimmed();
+                if (who.isEmpty()) {
+                    who = trk(QStringLiteral("t_everyone_001"),
+                              QStringLiteral("Everyone"), QStringLiteral("Everyone"));
+                }
+                m_pendingChangesList->addItem(
+                    QStringLiteral("%1 · %2 · %3 %4 (%5): %6")
+                        .arg(connLabel(item.connIdx), item.datasetName,
+                             trk(QStringLiteral("t_pending_perms_001"),
+                                 QStringLiteral("permisos"), QStringLiteral("permissions")),
+                             who, scopeLabel(g.scope),
+                             g.permissions.isEmpty()
+                                 ? trk(QStringLiteral("t_pending_none_001"),
+                                       QStringLiteral("(ninguno)"), QStringLiteral("(none)"))
+                                 : g.permissions.join(QStringLiteral(", "))));
+            }
+        }
+    }
 }
 
 void MainWindow::startPendingApplyAnimation() {
@@ -1807,33 +1898,22 @@ void MainWindow::buildUi() {
     m_pendingButtonsCol = pendingButtonsCol;
     pendingButtonsCol->addStretch(1);
     pendingChangesBody->addLayout(pendingButtonsCol, 0);
-    // Esta lista era la de cambios pendientes. Ahora enseña los TRABAJOS en marcha.
+    // Esta lista enseña los TRABAJOS en marcha, y por eso se llama por su nombre.
     //
-    // No es un reaprovechamiento oportunista del hueco: es que la lista de pendientes ya no
-    // tiene nada que enseñar —las acciones se ejecutan al pulsarlas— y lo que sí necesita un
-    // sitio fijo a la vista es lo que está corriendo ahora mismo en los daemons. Antes eso
-    // vivía en una pestaña aparte, «Transferencias», que se retira: dos listas para lo mismo
-    // en pestañas distintas era el reparto anterior, no una decisión.
-    //
-    // Aplicar y Deshacer ya no están en esta columna: se fueron a la banda de Estado y
-    // Progreso, encima de los árboles, que es donde se edita. Aquí quedan Refrescar y
-    // Cancelar, que sí son de los trabajos.
-    m_pendingChangesList = new QListWidget(pendingChangesBox);
-    // Un solo widget con dos nombres, a propósito y por poco tiempo: el código que pinta los
-    // trabajos escribe en `m_jobsListWidget` y está probado; el que coloca y dimensiona este
-    // panel escribe en `m_pendingChangesList`. Apuntando los dos al mismo sitio, los
-    // trabajos aparecen aquí sin tocar ninguna de las dos partes. Queda por unificar el
-    // nombre cuando se retire lo que resta del modelo de pendientes.
-    m_jobsListWidget = m_pendingChangesList;
-    m_pendingChangesList->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_pendingChangesList->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesList->setMinimumHeight(0);
-    m_pendingChangesList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
-    m_pendingChangesList->setIconSize(QSize(14, 14));
-    m_pendingChangesList->setSpacing(1);
-    m_pendingChangesList->setContextMenuPolicy(Qt::CustomContextMenu);
-    pendingChangesBody->addWidget(m_pendingChangesList, 1);
+    // Durante un tiempo `m_pendingChangesList` y `m_jobsListWidget` apuntaron al mismo
+    // widget: la lista de pendientes se había quedado sin nada que enseñar y el hueco lo
+    // ocuparon los trabajos. Vuelven a ser dos, porque vuelve a haber dos cosas que
+    // enseñar: lo que está corriendo y lo que está editado sin aplicar.
+    m_jobsListWidget = new QListWidget(pendingChangesBox);
+    m_jobsListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_jobsListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_jobsListWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_jobsListWidget->setMinimumHeight(0);
+    m_jobsListWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
+    m_jobsListWidget->setIconSize(QSize(14, 14));
+    m_jobsListWidget->setSpacing(1);
+    m_jobsListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    pendingChangesBody->addWidget(m_jobsListWidget, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);
@@ -2093,18 +2173,6 @@ void MainWindow::buildUi() {
     // media línea lo que ya se ve entero.
     stateProgressLayout->addWidget(statusWrap, 1);
     stateProgressLayout->addWidget(detailWrap, 3);
-    // Aplicar y Deshacer, aquí y no en cada panel.
-    //
-    // Estaban en `leftPane`, que está oculto desde que su pestaña se quedó sin contenido:
-    // o sea que no se veían. Con la edición de propiedades en las columnas C1...C10 del
-    // árbol eso ya era un agujero —se podía cambiar un valor y no había con qué
-    // aplicarlo—; con la tabla del detalle se nota a la primera.
-    //
-    // Van en la banda de abajo y no dentro de cada panel porque el borrador es UNO: el
-    // mismo `m_propsToken`/`m_propsDataset` para los dos árboles. Dos parejas de botones
-    // dirían que hay dos lotes de cambios, y no los hay.
-    stateProgressLayout->addWidget(m_btnApplyConnContentProps, 0);
-    stateProgressLayout->addWidget(m_btnDiscardPendingChanges, 0);
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
@@ -2224,10 +2292,46 @@ void MainWindow::buildUi() {
         connect(m_jobPollTimer, &QTimer::timeout, this, &MainWindow::pollDaemonJobs);
     }
 
+    // Abajo, dos cajas al 50%: lo EDITADO sin aplicar y lo que está CORRIENDO.
+    //
+    // Aplicar y Descartar se encendían sin que se viera qué iban a aplicar: una
+    // delegación de permisos encolada no salía en ninguna parte. Los botones van con la
+    // lista, que es lo que da sentido a pulsarlos; estaban en la banda de Estado y
+    // Progreso, que es información, no acciones.
+    m_pendingBox = new QGroupBox(trk(QStringLiteral("t_pending_box_001"),
+                                     QStringLiteral("Cambios sin aplicar"),
+                                     QStringLiteral("Unapplied changes")),
+                                 central);
+    m_pendingBox->setObjectName(QStringLiteral("zfsmgrPendingBox"));
+    auto* pendingBoxLayout = new QHBoxLayout(m_pendingBox);
+    pendingBoxLayout->setContentsMargins(6, 2, 6, 4);
+    pendingBoxLayout->setSpacing(6);
+    auto* pendingBtnCol = new QVBoxLayout();
+    pendingBtnCol->setContentsMargins(0, 0, 0, 0);
+    pendingBtnCol->setSpacing(4);
+    const int applyWidth = qMax(m_btnApplyConnContentProps->sizeHint().width(),
+                                m_btnDiscardPendingChanges->sizeHint().width());
+    m_btnApplyConnContentProps->setMinimumWidth(applyWidth);
+    m_btnDiscardPendingChanges->setMinimumWidth(applyWidth);
+    pendingBtnCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingBtnCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingBtnCol->addStretch(1);
+    m_pendingChangesList = new QListWidget(m_pendingBox);
+    m_pendingChangesList->setObjectName(QStringLiteral("pendingChangesList"));
+    m_pendingChangesList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_pendingChangesList->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesList->setMinimumHeight(0);
+    m_pendingChangesList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
+    m_pendingChangesList->setSpacing(1);
+    pendingBoxLayout->addLayout(pendingBtnCol, 0);
+    pendingBoxLayout->addWidget(m_pendingChangesList, 1);
+
     auto* bottomTabsPane = new QWidget(central);
-    auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
+    auto* bottomTabsLayout = new QHBoxLayout(bottomTabsPane);
     bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
-    bottomTabsLayout->setSpacing(0);
+    bottomTabsLayout->setSpacing(6);
+    bottomTabsLayout->addWidget(m_pendingBox, 1);
     bottomTabsLayout->addWidget(m_transfersBox, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
