@@ -17,6 +17,9 @@
 
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreewidget.h"
+#include "mainwindow_connectiondatasettreedelegate.h"
+
+#include "commands/gsa.h"
 
 #include <QAbstractItemView>
 #include <QHeaderView>
@@ -32,8 +35,25 @@
 
 namespace {
 
-// Las tres tablas se parecen lo bastante como para que configurarlas a mano tres veces
-// fuera una invitación a que se separaran sin querer.
+// Los mismos números que en el árbol y en `mainwindow_filebrowser.cpp`: son roles de
+// item, y no hay una cabecera común donde vivan.
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr int kConnContentNodeRole = Qt::UserRole + 19;
+constexpr int kConnSnapshotGroupNodeRole = Qt::UserRole + 42;
+constexpr int kConnSnapshotItemRole = Qt::UserRole + 43;
+constexpr int kConnSnapshotGuidRole = Qt::UserRole + 48;
+constexpr int kConnSnapshotGroupIdRole = Qt::UserRole + 49;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
+// Estos son propios del detalle: describen las delegaciones de la pestaña de permisos.
+constexpr int kPaneGrantScopeRole = Qt::UserRole + 27;
+constexpr int kPaneGrantTargetTypeRole = Qt::UserRole + 28;
+constexpr int kPaneGrantTargetNameRole = Qt::UserRole + 29;
+constexpr int kPanePermTokenRole = Qt::UserRole + 30;
+constexpr int kPaneGrantNodeRole = Qt::UserRole + 32;
+
 // Las tablas del detalle se parecen lo bastante como para que configurarlas a mano una
 // por una fuera una invitación a que se separaran sin querer.
 //
@@ -239,6 +259,73 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                              trk(QStringLiteral("t_content_node_001"),
                                  QStringLiteral("Contenido"),
                                  QStringLiteral("Content")));
+
+    // Snapshots: eran el nodo «@» del árbol, con sus grupos —Horarios, Diarios...— y
+    // debajo de cada snapshot otro nivel más de nodos. Cuatro niveles de despliegue por
+    // encima de un dataset para llegar a una instantánea, en la misma columna donde se
+    // navegan los datasets.
+    //
+    // Los items llevan LOS MISMOS roles que llevaban en el árbol, y por eso el menú
+    // contextual de siempre —borrar, revertir, clonar, holds, las seis acciones de
+    // transferencia— funciona aquí sin tocarlo: el delegado resuelve conexión, pool y
+    // dataset leyendo los roles del item, no mirando de qué árbol viene.
+    pane.datasetSnapsTree = new QTreeWidget(pane.datasetTabs);
+    pane.datasetSnapsTree->setObjectName(isOrigin ? QStringLiteral("originSnapsTree")
+                                                  : QStringLiteral("destinationSnapsTree"));
+    // DOS columnas, y la segunda oculta.
+    //
+    // La 1 no se enseña pero no está vacía: guarda el nombre del snapshot en
+    // `Qt::UserRole`, que es de donde lo lee el menú contextual del delegado. Es el mismo
+    // reparto que en el árbol, y por eso las acciones funcionan aquí sin tocarlas.
+    //
+    // Se probó a enseñar además creación, usado y referenciado: esas propiedades se leen
+    // de la máquina cuando se marca el snapshot, así que la tabla salía con tres columnas
+    // en blanco. Enseñar columnas que casi siempre están vacías es peor que no tenerlas.
+    pane.datasetSnapsTree->setColumnCount(2);
+    pane.datasetSnapsTree->setHeaderLabels(
+        {trk(QStringLiteral("t_snap_col_name_001"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot")),
+         QString()});
+    pane.datasetSnapsTree->setColumnHidden(1, true);
+    pane.datasetSnapsTree->setUniformRowHeights(true);
+    if (QHeaderView* header = pane.datasetSnapsTree->header()) {
+        header->setStretchLastSection(true);
+    }
+    pane.datasetSnapsTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(pane.datasetSnapsTree, &QWidget::customContextMenuRequested, this,
+            [this, paneIdx](const QPoint& pos) {
+                DatasetPane& p = m_datasetPanes[paneIdx];
+                if (!p.datasetSnapsTree || !p.delegate) {
+                    return;
+                }
+                if (QTreeWidgetItem* item = p.datasetSnapsTree->itemAt(pos)) {
+                    p.delegate->showGeneralMenu(p.datasetSnapsTree, paneIdx == 1, item, pos);
+                }
+            });
+    // Marcar un snapshot aquí es marcarlo COMO ORIGEN o COMO DESTINO del panel, igual que
+    // marcarlo en el árbol cuando estaba dentro. Sin esto, las cinco acciones de
+    // transferencia que parten de una instantánea se quedarían sin forma de elegirla.
+    connect(pane.datasetSnapsTree, &QTreeWidget::itemSelectionChanged, this,
+            [this, paneIdx]() {
+                DatasetPane& p = m_datasetPanes[paneIdx];
+                if (!p.datasetSnapsTree) {
+                    return;
+                }
+                QTreeWidgetItem* item = p.datasetSnapsTree->currentItem();
+                if (!item || !item->data(0, kConnSnapshotItemRole).toBool()) {
+                    return;
+                }
+                p.snapshotSel = item->data(1, Qt::UserRole).toString();
+                setSelectedDataset(paneIdx == 0 ? QStringLiteral("origin") : QStringLiteral("dest"),
+                                   item->data(0, Qt::UserRole).toString(),
+                                   p.snapshotSel);
+                // Y que el detalle pase a hablar del snapshot: sus propiedades, su
+                // contenido y sus holds, no los del dataset que lo contiene.
+                updatePaneDetail(paneIdx);
+            });
+    pane.datasetTabs->addTab(pane.datasetSnapsTree,
+                             trk(QStringLiteral("t_detail_tab_snaps_001"),
+                                 QStringLiteral("Snapshots"),
+                                 QStringLiteral("Snapshots")));
 
     pane.datasetPermsTree = new QTreeWidget(pane.datasetTabs);
     pane.datasetPermsTree->setObjectName(isOrigin ? QStringLiteral("originDatasetPermsTree")
@@ -495,14 +582,18 @@ void MainWindow::updatePaneDetail(int paneIdx) {
     const int connIdx = ctx.valid ? ctx.connIdx : pane.connIdx;
     const QString poolName = ctx.poolName.trimmed();
     const QString dataset = ctx.datasetName.trimmed();
+    // El snapshot puede venir de dos sitios: del árbol —ya no, desde que salió de él— o
+    // de la pestaña «Snapshots». Lo segundo es lo que hay ahora.
+    const QString snapshot = ctx.snapshotName.trimmed().isEmpty() ? pane.snapshotSel
+                                                                  : ctx.snapshotName.trimmed();
 
     if (!dataset.isEmpty() && connIdx >= 0 && !poolName.isEmpty()) {
-        const QString objectName = ctx.snapshotName.trimmed().isEmpty()
+        const QString objectName = snapshot.isEmpty()
                                        ? dataset
-                                       : QStringLiteral("%1@%2").arg(dataset, ctx.snapshotName.trimmed());
+                                       : QStringLiteral("%1@%2").arg(dataset, snapshot);
         pane.detailStack->setCurrentWidget(pane.datasetTabs);
         pane.detailTitle->setText(objectName);
-        const bool isSnapshot = !ctx.snapshotName.trimmed().isEmpty();
+        const bool isSnapshot = !snapshot.isEmpty();
         // La pestaña que no aplica NO se enseña, en vez de enseñarse apagada.
         //
         // Un snapshot no delega permisos y un dataset no tiene holds. Estaban las tres
@@ -524,17 +615,18 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                 page->hide();
             }
         };
-        showTab(pane.datasetPermsTree, !isSnapshot, 2,
+        showTab(pane.datasetPermsTree, !isSnapshot, 3,
                 trk(QStringLiteral("t_detail_tab_perms_001"),
                     QStringLiteral("Permisos"),
                     QStringLiteral("Permissions")));
-        showTab(pane.datasetHoldsTable, isSnapshot, 3,
+        showTab(pane.datasetHoldsTable, isSnapshot, 4,
                 trk(QStringLiteral("t_detail_tab_holds_001"),
                     QStringLiteral("Holds"),
                     QStringLiteral("Holds")));
         fillPanePermissions(paneIdx, connIdx, poolName, dataset);
-        fillPaneHolds(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
-        fillPaneContent(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
+        fillPaneHolds(paneIdx, connIdx, poolName, dataset, snapshot);
+        fillPaneContent(paneIdx, connIdx, poolName, dataset, snapshot);
+        fillPaneSnapshots(paneIdx, connIdx, poolName, dataset, snapshot);
         // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
         // El estado del borrador —qué propiedad se ha cambiado, cuál era su valor
         // original, si estaba heredada— es uno solo: `m_propsToken`, `m_propsDataset`,
@@ -586,19 +678,7 @@ void MainWindow::updatePaneDetail(int paneIdx) {
 // cada `m_connPropColumnsSetting` columnas. Con veintitantos permisos delegables eso eran
 // cinco bloques que había que leer en zigzag. Aquí cada permiso es una fila con su marca.
 
-namespace {
-// Los mismos números que en `mainwindow_filebrowser.cpp` y en el árbol: son roles de
-// item, no hay una cabecera común donde vivan.
-constexpr int kConnIdxRole = Qt::UserRole + 10;
-constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
-constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
-constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
-constexpr int kPaneGrantScopeRole = Qt::UserRole + 27;
-constexpr int kPaneGrantTargetTypeRole = Qt::UserRole + 28;
-constexpr int kPaneGrantTargetNameRole = Qt::UserRole + 29;
-constexpr int kPaneGrantNodeRole = Qt::UserRole + 32;
-constexpr int kPanePermTokenRole = Qt::UserRole + 30;
-}  // namespace
+
 
 void MainWindow::fillPanePermissions(int paneIdx, int connIdx, const QString& poolName,
                                      const QString& datasetName) {
@@ -858,4 +938,113 @@ void MainWindow::fillPaneContent(int paneIdx, int connIdx, const QString& poolNa
     auto* placeholder = new QTreeWidgetItem(root);
     placeholder->setText(0, QStringLiteral("..."));
     placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
+}
+
+// Los snapshots del dataset, agrupados por su clase como lo estaban en el árbol.
+//
+// El reparto en Horarios, Diarios, Semanales... lo decide la capa base —`groupSnapshots()`,
+// la misma regla que usa el intérprete—; aquí solo se dibuja. Un snapshot sin clase
+// —creado a mano— va suelto, sin grupo.
+void MainWindow::fillPaneSnapshots(int paneIdx, int connIdx, const QString& poolName,
+                                   const QString& datasetName, const QString& currentSnapshot) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    QTreeWidget* tree = pane.datasetSnapsTree;
+    if (!tree) {
+        return;
+    }
+    const QSignalBlocker blocker(tree);
+    tree->clear();
+    if (connIdx < 0 || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
+        return;
+    }
+    const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
+    if (!dsInfo) {
+        return;
+    }
+    const QStringList snaps = dsInfo->runtime.directSnapshots;
+    if (snaps.isEmpty()) {
+        auto* none = new QTreeWidgetItem(tree);
+        none->setText(0, trk(QStringLiteral("t_snap_none_001"),
+                             QStringLiteral("Sin snapshots"),
+                             QStringLiteral("No snapshots")));
+        QFont f = none->font(0);
+        f.setItalic(true);
+        none->setFont(0, f);
+        none->setFlags(none->flags() & ~Qt::ItemIsSelectable);
+        return;
+    }
+
+    QTreeWidgetItem* selected = nullptr;
+    const auto addSnapshot = [&](QTreeWidgetItem* parent, const QString& snapName) {
+        auto* snapItem = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(tree);
+        snapItem->setText(0, snapName);
+        // Los mismos roles que en el árbol: es lo que hace que el menú contextual del
+        // delegado funcione aquí sin cambiarlo.
+        snapItem->setData(0, Qt::UserRole, datasetName);
+        snapItem->setData(1, Qt::UserRole, snapName);
+        snapItem->setData(0, kConnSnapshotItemRole, true);
+        snapItem->setData(0, kConnContentNodeRole, true);
+        snapItem->setData(0, kConnIdxRole, connIdx);
+        snapItem->setData(0, kPoolNameRole, poolName);
+        snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
+        const QString fullName = QStringLiteral("%1@%2").arg(datasetName, snapName);
+        if (const DSInfo* snapInfo = findDsInfo(connIdx, poolName, fullName)) {
+            snapItem->setData(0, kConnSnapshotGuidRole,
+                              snapInfo->runtime.properties.value(QStringLiteral("guid")).trimmed());
+        }
+        if (!currentSnapshot.isEmpty() && snapName == currentSnapshot) {
+            selected = snapItem;
+        }
+    };
+
+    std::vector<std::string> nombres;
+    nombres.reserve(static_cast<std::size_t>(snaps.size()));
+    for (const QString& sn : snaps) {
+        nombres.push_back(sn.trimmed().toStdString());
+    }
+    const auto classLabel = [this](const QString& klass) {
+        if (klass == QStringLiteral("hourly")) {
+            return trk(QStringLiteral("t_ctx_snap_group_hourly"), QStringLiteral("Horarios"), QStringLiteral("Hourly"));
+        }
+        if (klass == QStringLiteral("daily")) {
+            return trk(QStringLiteral("t_ctx_snap_group_daily"), QStringLiteral("Diarios"), QStringLiteral("Daily"));
+        }
+        if (klass == QStringLiteral("weekly")) {
+            return trk(QStringLiteral("t_ctx_snap_group_weekly"), QStringLiteral("Semanales"), QStringLiteral("Weekly"));
+        }
+        if (klass == QStringLiteral("monthly")) {
+            return trk(QStringLiteral("t_ctx_snap_group_monthly"), QStringLiteral("Mensuales"), QStringLiteral("Monthly"));
+        }
+        if (klass == QStringLiteral("yearly")) {
+            return trk(QStringLiteral("t_ctx_snap_group_yearly"), QStringLiteral("Anuales"), QStringLiteral("Yearly"));
+        }
+        return klass;
+    };
+    for (const auto& grupo : zfsmgr::base::gsa::groupSnapshots(nombres)) {
+        const QString klass = QString::fromStdString(grupo.first);
+        if (klass.isEmpty()) {
+            for (const std::string& snapName : grupo.second) {
+                addSnapshot(nullptr, QString::fromStdString(snapName));
+            }
+            continue;
+        }
+        auto* groupNode = new QTreeWidgetItem(tree);
+        groupNode->setText(0, classLabel(klass));
+        groupNode->setData(0, kConnContentNodeRole, true);
+        groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
+        groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
+        groupNode->setData(0, kConnIdxRole, connIdx);
+        groupNode->setData(0, kPoolNameRole, poolName);
+        groupNode->setFlags(groupNode->flags() & ~Qt::ItemIsUserCheckable);
+        QFont bold = groupNode->font(0);
+        bold.setBold(true);
+        groupNode->setFont(0, bold);
+        for (const std::string& snapName : grupo.second) {
+            addSnapshot(groupNode, QString::fromStdString(snapName));
+        }
+        groupNode->setExpanded(true);
+    }
+    if (selected) {
+        tree->setCurrentItem(selected);
+    }
 }

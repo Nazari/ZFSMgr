@@ -927,7 +927,12 @@ void MainWindow::buildDatasetPane(int paneIdx) {
 
     if (ConnectionDatasetTreePane* treePane = pane.treeWidget->pane()) {
         connect(treePane, &ConnectionDatasetTreePane::selectionChanged, this,
-                [this, paneIdx]() { updatePaneDetail(paneIdx); });
+                [this, paneIdx]() {
+                    // Marcar otra cosa en el árbol descarta el snapshot que hubiera
+                    // marcado en la pestaña: es de otro dataset.
+                    m_datasetPanes[paneIdx].snapshotSel.clear();
+                    updatePaneDetail(paneIdx);
+                });
     }
 
     connect(pane.connCombo, &QComboBox::currentIndexChanged, this,

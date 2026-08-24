@@ -661,6 +661,8 @@ private:
                        const QString& datasetName, const QString& snapshotName);
     void fillPaneContent(int paneIdx, int connIdx, const QString& poolName,
                          const QString& datasetName, const QString& snapshotName);
+    void fillPaneSnapshots(int paneIdx, int connIdx, const QString& poolName,
+                           const QString& datasetName, const QString& currentSnapshot);
     void updatePaneDetailForTree(QTreeWidget* tree);
     QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
     QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
@@ -1238,6 +1240,11 @@ private:
         QTableWidget* datasetDetailTable{nullptr};
         QTreeWidget* datasetPermsTree{nullptr};
         QTreeWidget* datasetContentTree{nullptr};
+        QTreeWidget* datasetSnapsTree{nullptr};
+        // El snapshot marcado en la pestaña «Snapshots», si hay alguno. El árbol ya no
+        // los lleva dentro, así que sin esto el detalle no tendría forma de saber que lo
+        // que se está mirando es una instantánea y no su dataset.
+        QString snapshotSel;
         QTableWidget* datasetHoldsTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];
