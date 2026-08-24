@@ -983,7 +983,13 @@ QWidget* MainWindow::buildPaneLog(int paneIdx, QWidget* parent) {
     pane.logTerminalView = makeView(pane.logTabs);
     pane.logTerminalView->setObjectName(isOrigin ? QStringLiteral("originConnLogView")
                                                  : QStringLiteral("destinationConnLogView"));
-    pane.logTabs->addTab(pane.logTerminalView, QStringLiteral("Terminal"));
+    // «Log», no «Terminal». Se llamaba así porque enseñaba lo que salía por el terminal
+    // de la sesión SSH; pero lo que uno busca ahí es el log de esa conexión, y con el
+    // nombre de la máquina al lado el rótulo lo dice entero.
+    pane.logTabs->addTab(pane.logTerminalView,
+                         trk(QStringLiteral("t_pane_log_tab_001"),
+                             QStringLiteral("Log"),
+                             QStringLiteral("Log")));
 
     auto* daemonPage = new QWidget(pane.logTabs);
     auto* daemonLayout = new QVBoxLayout(daemonPage);
@@ -1039,8 +1045,12 @@ void MainWindow::updatePaneLog(int paneIdx) {
         const QString name = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
                                  ? m_conns.profiles.at(pane.connIdx).name
                                  : QString();
-        pane.logTabs->setTabText(0, name.isEmpty() ? QStringLiteral("Terminal")
-                                                   : QStringLiteral("Terminal · %1").arg(name));
+        const QString logLabel = trk(QStringLiteral("t_pane_log_tab_001"),
+                                     QStringLiteral("Log"),
+                                     QStringLiteral("Log"));
+        pane.logTabs->setTabText(0, name.isEmpty()
+                                        ? logLabel
+                                        : QStringLiteral("%1 · %2").arg(logLabel, name));
     }
 }
 
