@@ -429,7 +429,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         // que la lectura directa de arriba basta. Si ha fallado no queda camino
         // alternativo: no hay sudo ni intérprete POSIX que ejecute el guion de abajo, y
         // lanzarlo daría un error que no dice nada. Se explica lo que pasa.
-        ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsUnreadable, cfg.tlsCertPath, {}});
+        ses.warning(Nivel::Warn, {}, {Warning::LocalTlsUnreadable, cfg.tlsCertPath, {}});
         return false;
 #else
         // Mismo guion y mismos marcadores que el camino remoto, para poder reutilizar su
