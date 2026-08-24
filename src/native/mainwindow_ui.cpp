@@ -1142,12 +1142,15 @@ void MainWindow::updatePaneLog(int paneIdx) {
         const QString name = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
                                  ? m_conns.profiles.at(pane.connIdx).name
                                  : QString();
-        const QString logLabel = trk(QStringLiteral("t_pane_log_tab_001"),
-                                     QStringLiteral("Log"),
-                                     QStringLiteral("Log"));
-        pane.logTabs->setTabText(0, name.isEmpty()
-                                        ? logLabel
-                                        : QStringLiteral("%1 · %2").arg(logLabel, name));
+        // Las DOS pestañas llevan el nombre de la máquina: con dos paneles abiertos sobre
+        // dos conexiones hay cuatro pestañas a la vista, y «Daemon» a secas no dice de cuál.
+        const auto withConn = [&name](const QString& label) {
+            return name.isEmpty() ? label : QStringLiteral("%1 · %2").arg(label, name);
+        };
+        pane.logTabs->setTabText(0, withConn(trk(QStringLiteral("t_pane_log_tab_001"),
+                                                 QStringLiteral("Log"),
+                                                 QStringLiteral("Log"))));
+        pane.logTabs->setTabText(1, withConn(QStringLiteral("Daemon")));
     }
 }
 
