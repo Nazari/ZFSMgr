@@ -111,7 +111,7 @@ std::string snapshotClass(const std::string& nombre);
 // Pero esa nomenclatura es de antes de que existiera `zfsm://`, y en pantalla convive mal
 // con las direcciones que usa el resto del programa. Así que se GUARDA como siempre y se
 // ENSEÑA como URL. Estas dos funciones son la conversión, y viven aquí —junto a lo que lee
-// y isValid el destino— para que no acabe habiendo una copia por cliente.
+// y valida el destino— para que no acabe habiendo una copia por cliente.
 
 // «Conexión::Pool/Dataset» → «zfsm://Conexión/Pool/Dataset». Devuelve el texto tal cual si
 // no tiene la forma esperada: enseñar algo raro es mejor que esconderlo.

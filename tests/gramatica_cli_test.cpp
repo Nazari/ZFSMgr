@@ -2,7 +2,7 @@
 //
 // Comprueba dos cosas distintas:
 //
-//  1. Que cada línea se parse como se cree —qué es el destino y qué es cada ranura—. Son
+//  1. Que cada línea se analiza como se cree —qué es el destino y qué es cada ranura—. Son
 //     justo los casos que la versión escrita a mano resolvía con reglas de precedencia y
 //     que fallaban en silencio: `get compression` preguntaba por el dataset
 //     `tank/datos/compression`; `trim <pool> <disco>` mandaba el disco donde iba el pool.
@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
     // --- NINGUNA orden del catálogo puede quedarse sin su producción.
     //
     // El léxico reconoce los verbos con una tabla; si alguien añade una orden al catálogo y
-    // olvida la fila, la línea se parse como «orden desconocida» y el usuario recibe un
+    // olvida la fila, la línea se analiza como «orden desconocida» y el usuario recibe un
     // error raro. Esto lo caza aquí, que es donde se quiere que se cace.
     for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
         const auto a = analizaLinea(std::string(o.nombre) + " --on /x/y");

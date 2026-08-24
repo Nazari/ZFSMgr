@@ -2483,7 +2483,7 @@ int main() {
         }
     }
 
-    // --- transportcmd: la parte del transporte que decide y parse texto.
+    // --- transportcmd: la parte del transporte que decide y analiza texto.
     //
     // Estos valores esperados NO estan inventados: salen de contrastar la traduccion
     // contra la version con Qt sobre 9.279 casos, con control negativo para comprobar

@@ -95,7 +95,7 @@ NotApplicable check(Action a, const Endpoint& origen, const Endpoint& destino) {
             // **Mover NO es copiar y destruir.** Es un `zfs rename`, que ZFS solo deja
             // dentro del mismo pool: el dataset cambia de sitio en el árbol sin que se
             // muevan los datos, y por eso es instantáneo y no hay nada que destruir
-            // después. La interfaz de Qt hace exactamente esto —lo enqueue como cambio
+            // después. La interfaz de Qt hace exactamente esto —lo encola como cambio
             // pendiente— y aquí se replican sus mismas condiciones.
             //
             // Este documento decía «Send + destruir el origen». Era falso, y se vio al

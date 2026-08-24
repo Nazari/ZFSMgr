@@ -280,7 +280,7 @@ Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
         return trim(out);
     };
 
-    // Se compone el mismo TSV que parse la regla, para que la decisión esté escrita una
+    // Se compone el mismo TSV que analiza la regla, para que la decisión esté escrita una
     // sola vez y probada aparte.
     std::string tsv = diana + "\t" + testigoDe(diana) + "\n";
     std::string hijos;

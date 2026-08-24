@@ -92,14 +92,14 @@ struct DirectoryEntry {
     bool directorio{false};
 };
 
-// Las entries, ordenadas por nombre. Un JSON ilegible SÍ es un error; una lista vacía no:
+// Las entradas, ordenadas por nombre. Un JSON ilegible SÍ es un error; una lista vacía no:
 // un directorio vacío es una respuesta legítima.
 bool directoryContents(const std::string& salida, std::vector<DirectoryEntry>& out,
                            std::string& error);
 
 // Un dispositivo de bloque, de `--dump-block-devices`.
 //
-// `alias` distingue las entries que son un NOMBRE ALTERNATIVO —los `by-id`— de las que son
+// `alias` distingue las entradas que son un NOMBRE ALTERNATIVO —los `by-id`— de las que son
 // el dispositivo: las primeras solo traen ruta y a qué apuntan. No es un adorno: un pool
 // creado con `/dev/sdb` se rompe si mañana el kernel llama `sdc` a ese disco, y con el alias
 // no.

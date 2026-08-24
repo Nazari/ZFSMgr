@@ -43,7 +43,7 @@ std::vector<std::string> argvDestroy(const std::string& object, bool force,
 
 // `--mutate-zfs-rollback <snapshot> <0|1> <scope>`
 //
-// **Rollback DISCARDS everything written after that snapshot.** There is no useful «Only»
+// **Rollback DISCARDS everything written after that snapshot.** There is no useful «Solo»
 // scope here when later snapshots exist: ZFS refuses until it is told it may take those too,
 // so a caller that does not pass `Descendants` will see a ZFS error instead of a question.
 // The argv is returned all the same: deciding whether to ask is the client's call.

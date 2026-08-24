@@ -1122,7 +1122,7 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
 // Los permisos delegados: `#permissions`, o la orden `allow` sin argumentos.
 //
 // `zfs allow` NO tiene salida tabulada: escribe un bloque para leer, con secciones y
-// entradas indentadas. Se parse aquí para poder darlo en las tres formas, que es lo que
+// entradas indentadas. Se analiza aquí para poder darlo en las tres formas, que es lo que
 // permite que un guion compruebe quién tiene qué sin leer prosa.
 //
 //     ---- Permissions on fc16/work ----
@@ -3418,7 +3418,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
                Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
-    // Cada línea es «JOB={…json…}», que se parse con el JSON de la capa base.
+    // Cada línea es «JOB={…json…}», que se analiza con el JSON de la capa base.
     for (const std::string& linea : B::split(out, "\n", true)) {
         if (!B::startsWith(linea, "JOB=")) {
             continue;

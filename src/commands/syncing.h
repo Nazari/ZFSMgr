@@ -62,7 +62,7 @@ Failure check(const Endpoint& source, const Endpoint& target);
 // The whole check, mountpoints included. Returns both paths.
 //
 // The mountpoints are THE fact: without them there is nothing to compare. A dataset with
-// `canmount=off`, or mounted where there is no absolute path, is not synced through here
+// `canmount=off`, or montados where there is no absolute path, is not synced through here
 // even though it exists.
 Plan makePlan(const Endpoint& source, const Endpoint& target);
 

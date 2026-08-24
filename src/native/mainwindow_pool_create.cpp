@@ -420,7 +420,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // El descubrimiento de discos, por RPC tipado.
     //
     // Aquí había TRES guiones —`lsblk` en Linux, `diskutil` en macOS, `Get-Partition` en
-    // Windows— que producían un formato común de columnas que se parse más abajo. El
+    // Windows— que producían un formato común de columnas que se analiza más abajo. El
     // agente ya sabe hacerlo en las tres plataformas y contesta JSON, así que lo único que
     // queda aquí es traducir su respuesta a esas mismas columnas: el análisis de abajo
     // —alias `by-id`, rutas resueltas, deduplicado— no se toca.

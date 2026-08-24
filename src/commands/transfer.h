@@ -266,7 +266,7 @@ Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
 // Requiere daemon en LAS DOS puntas. El camino del tar solo lo pedía en el destino, así que
 // esto no lo sustituye: lo adelanta cuando se puede.
 //
-// `comoTrabajo` decide si el envío se enqueue en el daemon —la ventana lo quiere así: no la
+// `comoTrabajo` decide si el envío se encola en el daemon —la ventana lo quiere así: no la
 // bloquea, se puede cancelar y sigue si se cierra— o si se espera a que termine, que es lo
 // que hace el intérprete porque su orden ya devolvía el resultado y un guion detrás cuenta
 // con que los ficheros estén.

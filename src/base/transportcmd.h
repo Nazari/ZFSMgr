@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-// La parte del transporte que **decide y parse texto**, sin tocar red ni procesos.
+// La parte del transporte que **decide y analiza texto**, sin tocar red ni procesos.
 //
 // Es la primera tanda de la mudanza del transporte a la capa base. Se separa así a
 // propósito: todo lo que hay aquí es una función pura —entra texto o un perfil, sale una

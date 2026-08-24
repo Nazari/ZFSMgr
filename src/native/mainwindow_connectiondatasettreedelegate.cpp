@@ -3160,7 +3160,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 }
             }
             // Va por el mismo carril que las demás mutaciones de dataset: la orden se
-            // enqueue y `daemonMutationPlanForCommand` la convierte en RPC tipado —«promote»
+            // encola y `daemonMutationPlanForCommand` la convierte en RPC tipado —«promote»
             // ya está en su lista de permitidas—.
             //
             // Aquí no había NINGUNA comprobación: sin daemon, la conversión no ocurría y el
@@ -3601,7 +3601,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             // corriente, sin pedir la frase, y al aplicarlo fallaba. mountDataset pide la
             // clave y ejecuta `zfs load-key && zfs mount` con la frase por entrada
             // estándar; también comprueba que el padre esté montado y que no haya
-            // conflictos de punto de montaje. En el caso normal enqueue igual que antes.
+            // conflictos de punto de montaje. En el caso normal encola igual que antes.
             //
             // Se ignora el valor devuelto a propósito: mountDataset devuelve false
             // aunque encole bien, porque su otro llamante es la casilla «Montado» del
@@ -3620,7 +3620,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwCtx.poolName = actx.poolName;
             mwCtx.datasetName = actx.datasetName;
             // Por umountDataset, igual que Montar va por mountDataset: pregunta si hay
-            // hijos montados debajo y enqueue con el diagnóstico de «target is busy».
+            // hijos montados debajo y encola con el diagnóstico de «target is busy».
             m_mainWindow->umountDataset(QStringLiteral("conncontent"), mwCtx);
             return;
         }

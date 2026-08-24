@@ -45,7 +45,7 @@ std::vector<std::string> datasetList(const std::string& objeto);
 std::vector<std::string> descendantNames(const std::string& objeto);
 // Los directorios que Desglosar puede convertir en datasets. Contesta «__MP__=<punto>» y
 // luego una ruta relativa por línea. Vale en las dos plataformas: resuelve el punto de
-// montaje con los mounts REALES, que en Windows es una letra de unidad.
+// montaje con los montajes REALES, que en Windows es una letra de unidad.
 std::vector<std::string> breakdownList(const std::string& dataset);
 std::vector<std::string> datasetProperties(const std::string& objeto);
 std::vector<std::string> datasetProperty(const std::string& propiedad,
@@ -95,7 +95,7 @@ std::vector<std::string> fileContents(const std::string& ruta, unsigned long lon
 // ── El propio agente ─────────────────────────────────────────────────────────
 
 std::vector<std::string> health();
-// El daemonLog del daemon: desde qué byte y cuántos como mucho. Cero y cero es entero.
+// El registro del daemon: desde qué byte y cuántos como mucho. Cero y cero es entero.
 //
 // Son BYTES, no líneas, aunque el nombre del verbo no lo diga: el daemon hace `seek` sobre
 // el fichero. Confundirlo con líneas es lo que hace que un cliente pida «las últimas 200» y
@@ -139,7 +139,7 @@ std::vector<std::string> permissionsBatch(const std::string& cargaB64);
 
 // ── Trabajos ─────────────────────────────────────────────────────────────────
 
-// Encolar: el verbo va DELANTE de la orden que se enqueue, no detrás.
+// Encolar: el verbo va DELANTE de la orden que se encola, no detrás.
 //
 // El daemon solo acepta encolar unas pocas mutaciones —las largas—, así que una lista vacía
 // o una orden que no sea de esas devuelve vacío en vez de mandar algo que va a rebotar.

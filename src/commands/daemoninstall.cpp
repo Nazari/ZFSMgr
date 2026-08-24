@@ -133,7 +133,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
     }
     if (plataforma == "freebsd") {
         return "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; " + despliegue
-               // Sin OpenSSL el daemon se install y no arranca, y el motivo real queda en
+               // Sin OpenSSL el daemon se instala y no arranca, y el motivo real queda en
                // un error del cargador que no dice qué falta.
                + "ldd_missing=$(ldd " + bin + " 2>&1 | grep 'not found' || true); "
                  "if [ -n \"$ldd_missing\" ]; then "

@@ -5601,7 +5601,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         // refrescar la conexión. Si el dataset se monta por fuera —o desde otra ventana—
         // el árbol se queda con el valor de la última vez que se listó. Visto en Windows:
         // el disco montado y visible en el Explorador, las propiedades diciendo
-        // mounted=yes, y el árbol insistiendo en «Contenido no disponible: el dataset no
+        // montados=yes, y el árbol insistiendo en «Contenido no disponible: el dataset no
         // está montado».
         //
         // El refresco sí consulta los montajes de verdad (--dump-zfs-mount) y los guarda

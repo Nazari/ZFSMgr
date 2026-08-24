@@ -123,7 +123,7 @@ private:
                         return false;
                     }
                     // Pares suplentes: un carácter fuera del plano básico se escribe
-                    // como DOS escapes \u, y unirlos es cosa de quien parse.
+                    // como DOS escapes \u, y unirlos es cosa de quien analiza.
                     if (cp >= 0xD800 && cp <= 0xDBFF && m_i + 1 < m_t.size() && m_t[m_i] == '\\'
                         && m_t[m_i + 1] == 'u') {
                         const std::size_t guarda = m_i;

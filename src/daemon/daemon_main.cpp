@@ -8203,7 +8203,7 @@ static void loadPersistedJobsAtStartup() {
     const std::string raw((std::istreambuf_iterator<char>(f)),
                           std::istreambuf_iterator<char>());
 
-    // Se parse con el JSON de la capa base, que el agente ya enlaza.
+    // Se analiza con el JSON de la capa base, que el agente ya enlaza.
     //
     // Antes había aquí un analizador a mano con dos fallos que se sumaban:
     //
