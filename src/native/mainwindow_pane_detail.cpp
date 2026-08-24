@@ -24,6 +24,8 @@
 #include <QAbstractItemView>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -53,6 +55,46 @@ constexpr int kPaneGrantTargetTypeRole = Qt::UserRole + 28;
 constexpr int kPaneGrantTargetNameRole = Qt::UserRole + 29;
 constexpr int kPanePermTokenRole = Qt::UserRole + 30;
 constexpr int kPaneGrantNodeRole = Qt::UserRole + 32;
+
+
+// La raya que separa los dos juegos de columnas de una fila doblada.
+//
+// Con «Propiedad | Valor | Propiedad | Valor» las cuatro columnas se leen como una sola
+// tira de cuatro y hay que contar para saber qué valor es de qué propiedad. La rejilla de
+// la tabla pinta todas las separaciones iguales, así que la del medio —la que de verdad
+// separa un grupo del siguiente— no se distingue de las de dentro de un grupo.
+//
+// Aquí se repinta más gruesa y más oscura solo en esa frontera: la última columna de cada
+// juego, salvo la del final de la fila, que no separa nada.
+class PairGroupBorderDelegate final : public QStyledItemDelegate {
+public:
+    PairGroupBorderDelegate(int perItem, QObject* parent)
+        : QStyledItemDelegate(parent), m_perItem(perItem) {}
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        QStyledItemDelegate::paint(painter, option, index);
+        if (!painter || !index.isValid() || m_perItem <= 0) {
+            return;
+        }
+        const int col = index.column();
+        if ((col + 1) % m_perItem != 0) {
+            return;
+        }
+        if (!index.model() || col + 1 >= index.model()->columnCount()) {
+            return;
+        }
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, false);
+        const QColor border = option.palette.color(QPalette::Mid).darker(140);
+        const QRect r = option.rect;
+        painter->fillRect(QRect(r.right() - 1, r.top(), 2, r.height()), border);
+        painter->restore();
+    }
+
+private:
+    int m_perItem{2};
+};
 
 // Las tablas del detalle se parecen lo bastante como para que configurarlas a mano una
 // por una fuera una invitación a que se separaran sin querer.
@@ -95,6 +137,9 @@ QTableWidget* makeDetailTable(QWidget* parent, const QStringList& headers, int p
             if (perPair > 2 && (col % perPair) == 2) {
                 table->setColumnWidth(col, 90);
             }
+        }
+        if (pairs > 1) {
+            table->setItemDelegate(new PairGroupBorderDelegate(perPair, table));
         }
     }
     return table;
