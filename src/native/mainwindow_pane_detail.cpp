@@ -24,6 +24,7 @@
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QMenu>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QTableWidget>
@@ -175,6 +176,52 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                              trk(QStringLiteral("t_detail_tab_perms_001"),
                                  QStringLiteral("Permisos"),
                                  QStringLiteral("Permissions")));
+    // Holds: solo tiene sentido para un snapshot, así que la pestaña se apaga cuando lo
+    // marcado es un dataset. Estaban también en el árbol, como nodo «Holds (n)» con sus
+    // filas de propiedades en las columnas C1...C10.
+    pane.datasetHoldsTable = makeDetailTable(pane.datasetTabs,
+                                             {trk(QStringLiteral("t_hold_col_tag_001"),
+                                                  QStringLiteral("Hold"),
+                                                  QStringLiteral("Hold")),
+                                              trk(QStringLiteral("t_hold_col_ts_001"),
+                                                  QStringLiteral("Fecha"),
+                                                  QStringLiteral("Timestamp"))});
+    pane.datasetHoldsTable->setObjectName(isOrigin ? QStringLiteral("originDatasetHoldsTable")
+                                                   : QStringLiteral("destinationDatasetHoldsTable"));
+    pane.datasetHoldsTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(pane.datasetHoldsTable, &QWidget::customContextMenuRequested, this,
+            [this, paneIdx](const QPoint& pos) {
+                DatasetPane& p = m_datasetPanes[paneIdx];
+                QTableWidget* table = p.datasetHoldsTable;
+                if (!table) {
+                    return;
+                }
+                QTableWidgetItem* cell = table->itemAt(pos);
+                if (!cell) {
+                    return;
+                }
+                QTableWidgetItem* tagCell = table->item(cell->row(), 0);
+                if (!tagCell) {
+                    return;
+                }
+                QMenu menu(table);
+                QAction* release = menu.addAction(trk(QStringLiteral("t_release_hold_title001"),
+                                                      QStringLiteral("Liberar"),
+                                                      QStringLiteral("Release")));
+                if (menu.exec(table->viewport()->mapToGlobal(pos)) != release) {
+                    return;
+                }
+                releaseSnapshotHoldNamed(table->property("zfsmgr.holdsConnIdx").toInt(),
+                                         table->property("zfsmgr.holdsPool").toString(),
+                                         table->property("zfsmgr.holdsDataset").toString(),
+                                         table->property("zfsmgr.holdsSnapshot").toString(),
+                                         tagCell->text());
+            });
+    pane.datasetTabs->addTab(pane.datasetHoldsTable,
+                             trk(QStringLiteral("t_detail_tab_holds_001"),
+                                 QStringLiteral("Holds"),
+                                 QStringLiteral("Holds")));
+
     // Los permisos se leen al ABRIR su pestaña, no al marcar el dataset. Leerlos con la
     // selección sería una llamada remota por cada movimiento del cursor; abrir la pestaña
     // es un gesto deliberado y ahí sí toca preguntar a la máquina. Es el mismo trato que
@@ -368,7 +415,16 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                                        : QStringLiteral("%1@%2").arg(dataset, ctx.snapshotName.trimmed());
         pane.detailStack->setCurrentWidget(pane.datasetTabs);
         pane.detailTitle->setText(objectName);
+        const bool isSnapshot = !ctx.snapshotName.trimmed().isEmpty();
+        // Cada pestaña solo para lo que le toca: un snapshot no delega permisos y un
+        // dataset no tiene holds. Apagarlas dice por qué está vacía sin tener que abrirla.
+        pane.datasetTabs->setTabEnabled(pane.datasetTabs->indexOf(pane.datasetPermsTree), !isSnapshot);
+        pane.datasetTabs->setTabEnabled(pane.datasetTabs->indexOf(pane.datasetHoldsTable), isSnapshot);
+        if (!pane.datasetTabs->isTabEnabled(pane.datasetTabs->currentIndex())) {
+            pane.datasetTabs->setCurrentWidget(pane.datasetDetailTable);
+        }
         fillPanePermissions(paneIdx, connIdx, poolName, dataset);
+        fillPaneHolds(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
         // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
         // El estado del borrador —qué propiedad se ha cambiado, cuál era su valor
         // original, si estaba heredada— es uno solo: `m_propsToken`, `m_propsDataset`,
@@ -588,4 +644,36 @@ void MainWindow::commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* tokenNo
     }
     mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
     updateApplyPropsButtonState();
+}
+
+// Los holds de un snapshot. Se leen aquí y no al abrir la pestaña —al revés que los
+// permisos— porque `ensureDatasetSnapshotHoldsLoaded()` responde de caché salvo la
+// primera vez, y la lista es de dos columnas: no hay nada que ahorrar difiriéndola.
+void MainWindow::fillPaneHolds(int paneIdx, int connIdx, const QString& poolName,
+                               const QString& datasetName, const QString& snapshotName) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    QTableWidget* table = pane.datasetHoldsTable;
+    if (!table) {
+        return;
+    }
+    table->setRowCount(0);
+    table->setProperty("zfsmgr.holdsConnIdx", connIdx);
+    table->setProperty("zfsmgr.holdsPool", poolName);
+    table->setProperty("zfsmgr.holdsDataset", datasetName);
+    table->setProperty("zfsmgr.holdsSnapshot", snapshotName);
+    if (connIdx < 0 || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()
+        || snapshotName.trimmed().isEmpty()) {
+        return;
+    }
+    const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
+    if (!ensureDatasetSnapshotHoldsLoaded(connIdx, poolName, objectName)) {
+        return;
+    }
+    for (const auto& hold : datasetSnapshotHolds(connIdx, poolName, objectName)) {
+        const int r = table->rowCount();
+        table->insertRow(r);
+        table->setItem(r, 0, new QTableWidgetItem(hold.first));
+        table->setItem(r, 1, new QTableWidgetItem(hold.second));
+    }
+    table->resizeColumnToContents(0);
 }

@@ -649,9 +649,14 @@ private:
     void populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName);
     QWidget* buildPaneDetail(int paneIdx, QWidget* parent);
     void updatePaneDetail(int paneIdx);
+    void releaseSnapshotHoldNamed(int connIdx, const QString& poolName,
+                                  const QString& datasetName, const QString& snapshotName,
+                                  const QString& holdName);
     void fillPanePermissions(int paneIdx, int connIdx, const QString& poolName,
                              const QString& datasetName);
     void commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* grantNode);
+    void fillPaneHolds(int paneIdx, int connIdx, const QString& poolName,
+                       const QString& datasetName, const QString& snapshotName);
     void updatePaneDetailForTree(QTreeWidget* tree);
     QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
     QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
@@ -1220,6 +1225,7 @@ private:
         QTabWidget* datasetTabs{nullptr};
         QTableWidget* datasetDetailTable{nullptr};
         QTreeWidget* datasetPermsTree{nullptr};
+        QTableWidget* datasetHoldsTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];
     QSplitter* m_datasetPanesSplit{nullptr};

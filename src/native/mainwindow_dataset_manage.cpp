@@ -833,3 +833,88 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
                         : QStringLiteral("Borrar %1").arg(target)));
     updateApplyPropsButtonState();
 }
+
+// Soltar un hold de un snapshot, dicho por su nombre y no por el nodo del árbol donde se
+// pulsó. Vivía dentro del delegado, resolviendo el hold subiendo por los padres del item:
+// eso ataba la acción a que los holds estuvieran DIBUJADOS en el árbol. Ahora también se
+// llega desde la pestaña Holds del detalle, así que lo que resuelve el nodo se queda en el
+// delegado y el trabajo está aquí.
+void MainWindow::releaseSnapshotHoldNamed(int connIdx,
+                                          const QString& poolName,
+                                          const QString& datasetName,
+                                          const QString& snapshotName,
+                                          const QString& holdName) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()
+        || datasetName.trimmed().isEmpty() || snapshotName.trimmed().isEmpty()
+        || holdName.trimmed().isEmpty()) {
+        return;
+    }
+    const auto confirm = QMessageBox::question(
+        this,
+        trk(QStringLiteral("t_release_hold_title001"),
+                          QStringLiteral("Release")),
+        trk(QStringLiteral("t_release_hold_confirm001"),
+                          QStringLiteral("¿Liberar hold \"%1\" del snapshot \"%2@%3\"?")
+                              .arg(holdName, datasetName, snapshotName)),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = connIdx;
+    ctx.poolName = poolName;
+    ctx.datasetName = datasetName;
+    ctx.snapshotName = snapshotName;
+    auto shQuote = [](QString s) {
+        s.replace('\'', QStringLiteral("'\"'\"'"));
+        return QStringLiteral("'%1'").arg(s);
+    };
+    const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
+    const QString cmd = QStringLiteral("zfs release %1 %2").arg(shQuote(holdName), shQuote(objectName));
+    ConnectionProfile cp = m_conns.profiles[connIdx];
+    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!ensureLocalSudoCredentials(cp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Release hold cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    // Sin agente NO se ejecuta. Aquí `queueCmd` se quedaba con la orden `zfs` en crudo y
+    // salía por SSH con sudo; ahora se corta y se dice por qué.
+    if (!requireDaemonForMutation(connIdx, QStringLiteral("soltar un hold"))) {
+        return;
+    }
+    QString queueCmd = cmd;
+    {
+        QStringList arr;
+        arr.push_back(QStringLiteral("release"));
+        arr.push_back(holdName);
+        arr.push_back(objectName);
+        const QString payloadB64 = QString::fromUtf8(
+            mwhelpers::agentArgv(arr).toUtf8());
+        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
+                       .arg(mwhelpers::shSingleQuote(payloadB64));
+    }
+    const QString fullCmd = sshExecFromLocal(
+        cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
+    const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+    QString errorText;
+    if (!runShellActionNow(PendingShellActionDraft{
+            QStringLiteral("%1::%2").arg(connLabel, poolName),
+            QStringLiteral("Release hold %1 en %2").arg(holdName, objectName),
+            fullCmd,
+            45000,
+            false,
+            {},
+            ctx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+                         QStringLiteral("Cambio pendiente añadido: %1::%2  Release hold %3 en %4")
+                             .arg(connLabel, poolName, holdName, objectName));
+    updateApplyPropsButtonState();
+}

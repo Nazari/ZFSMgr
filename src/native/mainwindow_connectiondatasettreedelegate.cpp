@@ -1116,74 +1116,7 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
         || connIdx < 0 || connIdx >= m_mainWindow->m_conns.profiles.size() || poolName.isEmpty()) {
         return;
     }
-    const auto confirm = QMessageBox::question(
-        m_mainWindow,
-        m_mainWindow->trk(QStringLiteral("t_release_hold_title001"),
-                          QStringLiteral("Release")),
-        m_mainWindow->trk(QStringLiteral("t_release_hold_confirm001"),
-                          QStringLiteral("¿Liberar hold \"%1\" del snapshot \"%2@%3\"?")
-                              .arg(holdName, datasetName, snapshotName)),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return;
-    }
-    MainWindow::DatasetSelectionContext ctx;
-    ctx.valid = true;
-    ctx.connIdx = connIdx;
-    ctx.poolName = poolName;
-    ctx.datasetName = datasetName;
-    ctx.snapshotName = snapshotName;
-    auto shQuote = [](QString s) {
-        s.replace('\'', QStringLiteral("'\"'\"'"));
-        return QStringLiteral("'%1'").arg(s);
-    };
-    const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
-    const QString cmd = QStringLiteral("zfs release %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    ConnectionProfile cp = m_mainWindow->m_conns.profiles[connIdx];
-    if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
-        cp.useSudo = true;
-        if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
-            m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Release hold cancelada: faltan credenciales sudo locales"));
-            return;
-        }
-    }
-    // Sin agente NO se ejecuta. Aquí `queueCmd` se quedaba con la orden `zfs` en crudo y
-    // salía por SSH con sudo; ahora se corta y se dice por qué.
-    if (!m_mainWindow->requireDaemonForMutation(connIdx, QStringLiteral("soltar un hold"))) {
-        return;
-    }
-    QString queueCmd = cmd;
-    {
-        QStringList arr;
-        arr.push_back(QStringLiteral("release"));
-        arr.push_back(holdName);
-        arr.push_back(objectName);
-        const QString payloadB64 = QString::fromUtf8(
-            mwhelpers::agentArgv(arr).toUtf8());
-        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
-                       .arg(mwhelpers::shSingleQuote(payloadB64));
-    }
-    const QString fullCmd = m_mainWindow->sshExecFromLocal(
-        cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
-    const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-    QString errorText;
-    if (!m_mainWindow->runShellActionNow(MainWindow::PendingShellActionDraft{
-            QStringLiteral("%1::%2").arg(connLabel, poolName),
-            QStringLiteral("Release hold %1 en %2").arg(holdName, objectName),
-            fullCmd,
-            45000,
-            false,
-            {},
-            ctx,
-            MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    m_mainWindow->appLog(QStringLiteral("NORMAL"),
-                         QStringLiteral("Cambio pendiente añadido: %1::%2  Release hold %3 en %4")
-                             .arg(connLabel, poolName, holdName, objectName));
-    m_mainWindow->updateApplyPropsButtonState();
+    m_mainWindow->releaseSnapshotHoldNamed(connIdx, poolName, datasetName, snapshotName, holdName);
 }
 
 void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTreeWidgetItem* item) {
