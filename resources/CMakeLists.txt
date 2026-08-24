@@ -328,6 +328,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow_ui_logic.cpp
     ../src/native/connectioncapabilities.cpp
     ../src/native/mainwindow_ui.cpp
+    ../src/native/mainwindow_pane_detail.cpp
     ../src/native/mainwindow_dialogs.cpp
     ../src/native/mainwindow_connections.cpp
     ../src/native/mainwindow_pools.cpp

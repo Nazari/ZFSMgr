@@ -916,8 +916,21 @@ QWidget* MainWindow::buildDatasetPane(int paneIdx, QWidget* parent) {
         tree->setProperty("zfsmgr.isSplitTree", true);
         installConnContentTreeHeaderContextMenu(tree);
     }
+    // Árbol arriba y detalle abajo, con partidor: el reparto lo decide quien mire, que
+    // para eso depende de si está leyendo propiedades o navegando.
+    pane.split = new QSplitter(Qt::Vertical, holder);
+    pane.split->setChildrenCollapsible(false);
+    pane.split->addWidget(pane.treeWidget);
+    pane.split->addWidget(buildPaneDetail(paneIdx, pane.split));
+    pane.split->setStretchFactor(0, 3);
+    pane.split->setStretchFactor(1, 2);
     holderLayout->addWidget(head, 0);
-    holderLayout->addWidget(pane.treeWidget, 1);
+    holderLayout->addWidget(pane.split, 1);
+
+    if (ConnectionDatasetTreePane* treePane = pane.treeWidget->pane()) {
+        connect(treePane, &ConnectionDatasetTreePane::selectionChanged, this,
+                [this, paneIdx]() { updatePaneDetail(paneIdx); });
+    }
 
     connect(pane.connCombo, &QComboBox::currentIndexChanged, this,
             [this, paneIdx](int) { onPaneConnectionChosen(paneIdx); });
@@ -1028,6 +1041,7 @@ void MainWindow::rebuildDatasetPane(int paneIdx) {
         return;
     }
     populatePaneTree(pane.treeWidget->tree(), pane.connIdx, pane.poolName);
+    updatePaneDetail(paneIdx);
 }
 
 void MainWindow::rebuildDatasetPanes() {

@@ -646,6 +646,11 @@ private:
     void rebuildDatasetPane(int paneIdx);
     void rebuildDatasetPanes();
     void populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName);
+    QWidget* buildPaneDetail(int paneIdx, QWidget* parent);
+    void updatePaneDetail(int paneIdx);
+    void updatePaneDetailForTree(QTreeWidget* tree);
+    QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
+    QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
     void appendPaneTreeRootedAtPool(QTreeWidget* tree, int connIdx, const QString& poolName,
                                     const QString& rootDataset, const QString& displayRoot);
     void installConnContentTreeHeaderContextMenu(QTreeWidget* tree);
@@ -1196,6 +1201,16 @@ private:
         // Mientras se rellenan los desplegables, sus señales no deben rehacer el árbol:
         // rellenar dispara currentIndexChanged aunque la elección del usuario no cambie.
         bool refilling{false};
+        // El detalle de lo seleccionado, debajo del árbol y separado por un partidor.
+        // Enseña una de tres cosas según qué haya marcado: la conexión del panel cuando
+        // no hay nada marcado, el pool, o el dataset.
+        QSplitter* split{nullptr};
+        QLabel* detailTitle{nullptr};
+        QStackedWidget* detailStack{nullptr};
+        QTableWidget* connDetailTable{nullptr};
+        QTableWidget* poolDetailTable{nullptr};
+        QPlainTextEdit* poolDetailStatus{nullptr};
+        QTableWidget* datasetDetailTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];
     QSplitter* m_datasetPanesSplit{nullptr};
