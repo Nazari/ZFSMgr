@@ -2170,12 +2170,9 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
     if (isConnectionRoot) {
-        logContextMenuPerf(m_mainWindow,
-                           QStringLiteral("general.redirect"),
-                           QStringLiteral("connection root connIdx=%1").arg(connIdx),
-                           timer.elapsed());
+        // Ya no hay nodos raíz de conexión en los árboles: la conexión se elige en el
+        // desplegable del panel y se gestiona desde el menú «Conexiones» de la barra.
         endBusy();
-        m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos), tree);
         return;
     }
     if (item->parent() && item->parent()->data(0, kIsConnectionRootRole).toBool()

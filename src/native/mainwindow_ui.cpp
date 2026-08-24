@@ -1019,7 +1019,9 @@ void MainWindow::onPaneConnectionChosen(int paneIdx) {
     // Al cambiar de conexión el pool anterior no tiene por qué existir en la nueva: se
     // vuelve a «todos» y que el relleno decida.
     pane.poolName.clear();
-    if (paneIdx == 0 && pane.connIdx >= 0) {
+    // Los dos paneles marcan cuál es la conexión de trabajo, no solo el de origen: es
+    // sobre ella sobre la que actúa el menú «Conexiones», y sus rótulos la nombran.
+    if (pane.connIdx >= 0) {
         m_topDetailConnIdx = pane.connIdx;
     }
     refillDatasetPaneCombos();
@@ -1188,6 +1190,23 @@ void MainWindow::buildUi() {
         }
         close();
     });
+
+    // ── Conexiones ───────────────────────────────────────────────────────────
+    //
+    // Gestionar conexiones estaba en el menú contextual del nodo raíz de conexión del
+    // árbol. Ese nodo desapareció al pasar la conexión al desplegable de cada panel, así
+    // que se quedó sin puerta; y la barra es además su sitio, porque crear una conexión o
+    // refrescarlas todas no es una acción SOBRE algo marcado en el árbol.
+    QMenu* connectionsMenu = menuBar()->addMenu(
+        trk(QStringLiteral("t_menu_connections_001"),
+            QStringLiteral("Conexiones"),
+            QStringLiteral("Connections")));
+    connectionsMenu->setObjectName(QStringLiteral("connectionsMenu"));
+    // Se rellena al abrirlo, no aquí: los rótulos llevan dentro el nombre de la conexión
+    // sobre la que actúan, y lo que se puede hacer con ella depende de su estado.
+    connect(connectionsMenu, &QMenu::aboutToShow, this,
+            [this, connectionsMenu]() { fillConnectionsMenu(connectionsMenu); });
+    fillConnectionsMenu(connectionsMenu);
 
     // ── Ajustes ──────────────────────────────────────────────────────────────
     //

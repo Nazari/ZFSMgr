@@ -556,6 +556,18 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("Idioma volvió a la barra: ")
                             + topLevel().join(QStringLiteral(", "))));
 
+        // 1b. Gestionar conexiones vive en su propio menú de la barra, no en el menú
+        // contextual de un nodo del árbol: ese nodo ya no existe. Se rellena al abrirlo,
+        // así que hay que provocar la señal antes de mirar dentro.
+        QMenu* connections = menuNamed(QStringLiteral("Connections"));
+        QVERIFY2(connections, qPrintable(QStringLiteral("no hay menú Conexiones en la barra: ")
+                                         + topLevel().join(QStringLiteral(", "))));
+        Q_EMIT connections->aboutToShow();
+        QVERIFY(hasAction(connections, QStringLiteral("New Connection")));
+        QVERIFY(hasAction(connections, QStringLiteral("Refresh all")));
+        QVERIFY(hasAction(connections, QStringLiteral("New Pool")));
+        QVERIFY(hasAction(connections, QStringLiteral("daemon")));
+
         // 2. Comprobar conectividad vive en Ayuda, y separada por una barra.
         QMenu* help = menuNamed(QStringLiteral("Ayuda"));
         if (!help) help = menuNamed(QStringLiteral("Help"));

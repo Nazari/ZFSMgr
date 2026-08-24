@@ -40,6 +40,7 @@ class QPoint;
 class QPlainTextEdit;
 class QProcess;
 class QPushButton;
+class QMenu;
 class QAction;
 class QCloseEvent;
 class QTableWidget;
@@ -419,7 +420,7 @@ private:
     QString connectionStateColorReason(int connIdx) const;
     QString connectionStateTooltipHtml(int connIdx) const;
     void openConnectivityMatrixDialog();
-    void showConnectionContextMenu(int connIdx, const QPoint& globalPos, QTreeWidget* sourceTree = nullptr);
+    void fillConnectionsMenu(QMenu* menu);
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
     struct DatasetTreeRenderOptions {

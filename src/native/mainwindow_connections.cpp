@@ -290,21 +290,19 @@ bool isLocalHostForUi(const QString& host) {
 
 } // namespace
 
+// La conexión sobre la que actúan las acciones que no dicen cuál —editar, borrar,
+// refrescar, nuevo pool—.
+//
+// Antes salía de subir por el árbol unificado hasta la raíz de conexión que contuviera lo
+// marcado. Ya no hay raíces de conexión: la conexión de trabajo es la del panel que se
+// tocó el último, que es lo que mantiene `m_topDetailConnIdx`; si aún no se ha tocado
+// ninguno, la del panel de origen.
 int MainWindow::currentConnectionIndexFromUnifiedTree() const {
-    if (!m_connContentTree
-        || !m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()
-        || !m_connContentTree->isVisible()) {
-        return -1;
+    if (m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_conns.profiles.size()) {
+        return m_topDetailConnIdx;
     }
-    QTreeWidgetItem* item = m_connContentTree->currentItem();
-    while (item && !item->data(0, kIsConnectionRootRole).toBool()
-           && !item->data(0, kIsPoolRootRole).toBool()) {
-        item = item->parent();
-    }
-    if (!item) {
-        return -1;
-    }
-    return item->data(0, kConnIdxRole).toInt();
+    const int originIdx = m_datasetPanes[0].connIdx;
+    return (originIdx >= 0 && originIdx < m_conns.profiles.size()) ? originIdx : -1;
 }
 
 int MainWindow::currentConnectionIndexFromUi() const {
@@ -315,22 +313,21 @@ int MainWindow::currentConnectionIndexFromUi() const {
     return -1;
 }
 
+// Llevar el panel de origen a una conexión concreta. Marcaba su nodo raíz en el árbol
+// unificado; ahora mueve el desplegable, que es donde se elige.
 void MainWindow::setCurrentConnectionInUi(int connIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    if (m_connContentTree
-        && m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
-        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
-            if (!root || !root->data(0, kIsConnectionRootRole).toBool()) {
-                continue;
-            }
-            if (root->data(0, kConnIdxRole).toInt() == connIdx) {
-                m_connContentTree->setCurrentItem(root);
-                break;
-            }
-        }
+    m_topDetailConnIdx = connIdx;
+    DatasetPane& pane = m_datasetPanes[0];
+    if (!pane.connCombo || pane.connIdx == connIdx) {
+        return;
+    }
+    const QString wantedId = m_conns.profiles.at(connIdx).id.trimmed();
+    const int row = pane.connCombo->findData(wantedId);
+    if (row >= 0) {
+        pane.connCombo->setCurrentIndex(row);
     }
 }
 
@@ -1221,12 +1218,29 @@ void MainWindow::openConnectivityMatrixDialog() {
     dlg.exec();
 }
 
-void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos, QTreeWidget* sourceTree) {
-    const auto endBusy = [this]() { endUiBusy(); };
-    const bool hasConn = (connIdx >= 0 && connIdx < m_conns.profiles.size());
-    if (hasConn) {
-        setCurrentConnectionInUi(connIdx);
+// El menú «Conexiones» de la barra.
+//
+// Todo esto vivía en el menú contextual del nodo raíz de conexión del árbol. Ese nodo ya
+// no existe —la conexión se elige en el desplegable de encima de cada panel—, así que
+// gestionar conexiones se había quedado sin puerta. Y tenerlo en la barra es además donde
+// corresponde: crear una conexión o refrescarlas todas no es una acción SOBRE algo del
+// árbol, que es para lo que sirve un menú contextual.
+//
+// Se rellena cada vez que se abre, no una vez al arrancar: los rótulos llevan dentro el
+// nombre de la conexión sobre la que actúan, y qué se puede hacer con ella depende de si
+// está conectada, de si es la Local y de si hay una acción en marcha.
+void MainWindow::fillConnectionsMenu(QMenu* menu) {
+    if (!menu) {
+        return;
     }
+    menu->clear();
+
+    // Sobre qué conexión actúa: la del panel que se haya tocado el último. Sin esto
+    // habría que elegir entre origen y destino a ciegas, y la elección sería invisible;
+    // por eso además el nombre va dentro de cada rótulo.
+    const int connIdx = m_topDetailConnIdx;
+    const bool hasConn = (connIdx >= 0 && connIdx < m_conns.profiles.size());
+    const QString connName = hasConn ? m_conns.profiles.at(connIdx).name.trimmed() : QString();
     const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
     const zfsmgr::uilogic::ConnectionContextMenuState menuState =
         zfsmgr::uilogic::buildConnectionContextMenuState(
@@ -1237,202 +1251,210 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             hasConn && isConnectionRedirectedToLocal(connIdx),
             hasConn && isWindowsConnection(connIdx));
 
-    QMenu menu(this);
-    QAction* aConnect = menu.addAction(
-        trk(QStringLiteral("t_connect_ctx_001"),
-            QStringLiteral("Conectar"),
-            QStringLiteral("Connect")));
-    QAction* aDisconnect = menu.addAction(
-        trk(QStringLiteral("t_disconnect_ctx001"),
-            QStringLiteral("Desconectar"),
-            QStringLiteral("Disconnect")));
-    QAction* aRefresh = menu.addAction(
-        trk(QStringLiteral("t_refresh_conn_ctx001"),
-            QStringLiteral("Refrescar"),
-            QStringLiteral("Refresh")));
-    menu.addSeparator();
-    QAction* aNewConn = menu.addAction(
-        trk(QStringLiteral("t_new_conn_ctx001"),
-            QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection")));
-    QAction* aEdit = menu.addAction(
-        trk(QStringLiteral("t_edit_conn_ctx001"),
-            QStringLiteral("Editar"),
-            QStringLiteral("Edit")));
-    QAction* aDelete = menu.addAction(
-        trk(QStringLiteral("t_del_conn_ctx001"),
-            QStringLiteral("Borrar"),
-            QStringLiteral("Delete")));
-    // Solo para Local: es la única conexión que no se puede editar, así que sin esto
-    // una contraseña de sudo mal introducida se quedaba guardada para siempre —el
-    // arranque solo la pide cuando el campo está vacío— y no había forma de corregirla.
-    QAction* aLocalSudoCreds = menu.addAction(
-        trk(QStringLiteral("t_local_sudo_creds_ctx001"),
-            QStringLiteral("Cambiar credenciales sudo local…"),
-            QStringLiteral("Change local sudo credentials…")));
-    menu.addSeparator();
-    QAction* aNewPool = menu.addAction(
-        trk(QStringLiteral("t_new_pool_ctx_001"),
-            QStringLiteral("Nuevo Pool"),
-            QStringLiteral("New Pool")));
-    menu.addSeparator();
-    QAction* aInstallHelpers = menu.addAction(
-        trk(QStringLiteral("t_install_helpers_ctx001"),
-            QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands")));
-    QAction* aInstallDaemon = menu.addAction(
-        trk(QStringLiteral("t_install_daemon_ctx001"),
-            QStringLiteral("Reinstalar/Actualizar daemon"),
-            QStringLiteral("Reinstall/Update daemon")));
-    QAction* aRepairAltMountpoints = menu.addAction(
-        trk(QStringLiteral("t_repair_altmp_ctx001"),
-            QStringLiteral("Reparar mountpoints temporales"),
-            QStringLiteral("Repair temporary mountpoints")));
-    QAction* aExportTrustStore = menu.addAction(
-        trk(QStringLiteral("t_export_trust_store_ctx001"),
-            QStringLiteral("Exportar trust-store a esta conexión"),
-            QStringLiteral("Export trust-store to this connection")));
-    const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
-                               && m_conns.profiles[connIdx].connType.compare(
-                                      QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
-    QMenu* aAuthorizeKeyMenu = menu.addMenu(
-        trk(QStringLiteral("t_authorize_key_menu_001"),
-            QStringLiteral("Autorizar clave SSH en..."),
-            QStringLiteral("Authorize SSH key on...")));
-    QList<QPair<int, QAction*>> authorizeKeyActions;
-    if (isThisSshConn && !isDisconnected && !actionsLocked()) {
-        for (int i = 0; i < m_conns.profiles.size(); ++i) {
-            if (i == connIdx) {
-                continue;
-            }
-            if (m_conns.profiles[i].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-                continue;
-            }
-            if (isConnectionDisconnected(i)) {
-                continue;
-            }
-            QAction* a = aAuthorizeKeyMenu->addAction(m_conns.profiles[i].name);
-            authorizeKeyActions.append({i, a});
+    // Con el nombre dentro cuando lo hay: «Editar» a secas no dice sobre cuál.
+    const auto onConn = [&connName](const QString& text) {
+        return connName.isEmpty() ? text : QStringLiteral("%1 «%2»").arg(text, connName);
+    };
+
+    QAction* a = menu->addAction(trk(QStringLiteral("t_new_conn_ctx001"),
+                                     QStringLiteral("Nueva Conexión"),
+                                     QStringLiteral("New Connection")));
+    a->setEnabled(menuState.canNewConnection);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Nueva conexión (menú Conexiones)"));
+        createConnection();
+    });
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_edit_conn_ctx001"),
+                                   QStringLiteral("Editar"),
+                                   QStringLiteral("Edit"))));
+    a->setEnabled(menuState.canEditDelete);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Editar conexión (menú Conexiones)"));
+        editConnection();
+    });
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_del_conn_ctx001"),
+                                   QStringLiteral("Borrar"),
+                                   QStringLiteral("Delete"))));
+    a->setEnabled(menuState.canEditDelete);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Borrar conexión (menú Conexiones)"));
+        deleteConnection();
+    });
+
+    menu->addSeparator();
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_connect_ctx_001"),
+                                   QStringLiteral("Conectar"),
+                                   QStringLiteral("Connect"))));
+    a->setEnabled(menuState.canConnect);
+    connect(a, &QAction::triggered, this, [this, connIdx]() {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
+            return;
         }
-    }
-    aAuthorizeKeyMenu->setEnabled(isThisSshConn && !isDisconnected && !actionsLocked()
-                                  && !authorizeKeyActions.isEmpty());
-
-    // Entregarle a esta máquina las credenciales de las DEMÁS.
-    //
-    // Es lo que le permite a su daemon llamar a otro por su cuenta, sin cliente de por
-    // medio: la nivelación GSA contra otra máquina lo necesita. Y con ello viaja la clave
-    // `self`, el nombre con el que ESTE cliente llama a esa máquina.
-    //
-    // Esa clave es la que faltaba y la que no se ve fallar: sin ella, una nivelación contra
-    // un dataset de la propia máquina no reconoce el destino como propio, se va por el
-    // camino remoto y registra «no hay credenciales del par» —siendo el par uno mismo—.
-    // Hasta ahora solo el intérprete sabía escribirla; la interfaz no tenía forma.
-    QAction* aPushPeers = menu.addAction(
-        trk(QStringLiteral("t_push_peers_ctx001"),
-            QStringLiteral("Entregar credenciales de las demás máquinas…"),
-            QStringLiteral("Hand over the other machines' credentials…")));
-    aPushPeers->setEnabled(hasConn && !isDisconnected && !actionsLocked());
-    menu.addSeparator();
-
-    aConnect->setEnabled(menuState.canConnect);
-    aDisconnect->setEnabled(menuState.canDisconnect);
-    const bool canInstallHelpers =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].helperInstallSupported;
-    aInstallHelpers->setEnabled(canInstallHelpers);
-    // Sin !isDisconnected a propósito: reinstalar el daemon es justamente lo que hace
-    // falta cuando una conexión ha quedado marcada como desconectada, y exigir que
-    // estuviera conectada dejaba esa recuperación fuera de alcance.
-    // La conexión Local también lleva daemon: el despliegue envía el binario por la
-    // entrada estándar y en local eso funciona igual que por SSH. Excluirla dejaba la
-    // aplicación señalando que su daemon necesita atención sin ofrecer forma de
-    // arreglarlo, y desde que no hay respaldo por shell eso la deja inservible.
-    const bool daemonInstallable = hasConn && !actionsLocked();
-    aInstallDaemon->setEnabled(daemonInstallable);
-    // Also available on the local connection: a local dataset can be left stranded too.
-    aRepairAltMountpoints->setEnabled(hasConn && !actionsLocked() && !isDisconnected
-                                      && !isWindowsConnection(connIdx));
-    aExportTrustStore->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx));
-    aRefresh->setEnabled(menuState.canRefreshThis);
-    aEdit->setEnabled(menuState.canEditDelete);
-    aDelete->setEnabled(menuState.canEditDelete);
-    // Se ofrece incluso con la conexión desconectada: una contraseña equivocada es
-    // precisamente lo que puede haberla dejado así.
-    aLocalSudoCreds->setVisible(hasConn && isLocalConnection(connIdx));
-    aLocalSudoCreds->setEnabled(hasConn && isLocalConnection(connIdx) && !actionsLocked());
-    aNewConn->setEnabled(menuState.canNewConnection);
-    aNewPool->setEnabled(menuState.canNewPool);
-
-    endBusy();
-    QAction* chosen = menu.exec(globalPos);
-    if (!chosen) {
-        return;
-    }
-    if (chosen == aConnect && hasConn) {
-        logUiAction(QStringLiteral("Conectar conexión (menú conexiones)"));
+        logUiAction(QStringLiteral("Conectar conexión (menú Conexiones)"));
         beginTransientUiBusy(
             trk(QStringLiteral("t_connecting_conn_busy_001"),
                 QStringLiteral("Conectando %1..."),
                 QStringLiteral("Connecting %1...")).arg(m_conns.profiles[connIdx].name));
         setConnectionDisconnected(connIdx, false);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_conns.profiles[connIdx].name));
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Conexión marcada como conectada: %1").arg(m_conns.profiles[connIdx].name));
         rebuildConnectionsTable();
         populateAllPoolsTables();
         refreshConnectionByIndex(connIdx);
         endTransientUiBusy();
-    } else if (chosen == aDisconnect && hasConn) {
+    });
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_disconnect_ctx001"),
+                                   QStringLiteral("Desconectar"),
+                                   QStringLiteral("Disconnect"))));
+    a->setEnabled(menuState.canDisconnect);
+    connect(a, &QAction::triggered, this, [this, connIdx]() {
+        if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
+            return;
+        }
         setConnectionDisconnected(connIdx, true);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_conns.profiles[connIdx].name));
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Conexión marcada como desconectada: %1").arg(m_conns.profiles[connIdx].name));
         rebuildConnectionsTable();
         populateAllPoolsTables();
-    } else if (chosen == aRefresh) {
-        logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
+    });
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_refresh_conn_ctx001"),
+                                   QStringLiteral("Refrescar"),
+                                   QStringLiteral("Refresh"))));
+    a->setEnabled(menuState.canRefreshThis);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Refrescar conexión (menú Conexiones)"));
         refreshSelectedConnection();
-    } else if (chosen == aEdit) {
-        logUiAction(QStringLiteral("Editar conexión (menú conexiones)"));
-        editConnection();
-    } else if (chosen == aDelete) {
-        logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
-        deleteConnection();
-    } else if (chosen == aLocalSudoCreds) {
-        logUiAction(QStringLiteral("Cambiar credenciales sudo local (menú conexiones)"));
-        changeLocalSudoCredentials();
-    } else if (chosen == aInstallHelpers) {
-        logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
+    });
+
+    a = menu->addAction(trk(QStringLiteral("t_refresh_all_conns_001"),
+                            QStringLiteral("Refrescar todas"),
+                            QStringLiteral("Refresh all")));
+    a->setEnabled(menuState.canRefreshAll);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Refrescar todas (menú Conexiones)"));
+        refreshAllConnections();
+    });
+
+    menu->addSeparator();
+
+    a = menu->addAction(onConn(trk(QStringLiteral("t_new_pool_ctx_001"),
+                                   QStringLiteral("Nuevo Pool"),
+                                   QStringLiteral("New Pool"))));
+    a->setEnabled(menuState.canNewPool);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Nuevo pool (menú Conexiones)"));
+        createPoolForSelectedConnection();
+    });
+
+    menu->addSeparator();
+
+    a = menu->addAction(trk(QStringLiteral("t_install_helpers_ctx001"),
+                            QStringLiteral("Instalar comandos auxiliares"),
+                            QStringLiteral("Install helper commands")));
+    a->setEnabled(hasConn && !actionsLocked() && !isDisconnected
+                  && connIdx < m_conns.states.size()
+                  && m_conns.states[connIdx].helperInstallSupported);
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Instalar comandos auxiliares (menú Conexiones)"));
         installHelperCommandsForSelectedConnection();
-    } else if (chosen == aInstallDaemon) {
-        logUiAction(QStringLiteral("Reinstalar/Actualizar daemon (menú conexiones)"));
+    });
+
+    a = menu->addAction(trk(QStringLiteral("t_install_daemon_ctx001"),
+                            QStringLiteral("Reinstalar/Actualizar daemon"),
+                            QStringLiteral("Reinstall/Update daemon")));
+    // Sin !isDisconnected a propósito: reinstalar el daemon es justamente lo que hace
+    // falta cuando una conexión ha quedado marcada como desconectada, y exigir que
+    // estuviera conectada dejaba esa recuperación fuera de alcance. La Local también
+    // lleva daemon: el despliegue le envía el binario por la entrada estándar.
+    a->setEnabled(hasConn && !actionsLocked());
+    connect(a, &QAction::triggered, this, [this, connIdx]() {
+        logUiAction(QStringLiteral("Reinstalar/Actualizar daemon (menú Conexiones)"));
         if (connIdx >= 0 && connIdx < m_conns.profiles.size()) {
             (void)installOrUpdateDaemonForConnectionInternal(connIdx, true);
         }
-    } else if (chosen == aRepairAltMountpoints) {
-        logUiAction(QStringLiteral("Reparar mountpoints temporales (menú conexiones)"));
+    });
+
+    a = menu->addAction(trk(QStringLiteral("t_repair_altmp_ctx001"),
+                            QStringLiteral("Reparar mountpoints temporales"),
+                            QStringLiteral("Repair temporary mountpoints")));
+    a->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isWindowsConnection(connIdx));
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Reparar mountpoints temporales (menú Conexiones)"));
         repairAltMountpointsForSelectedConnection();
-    } else if (chosen == aExportTrustStore) {
-        logUiAction(QStringLiteral("Exportar trust-store (menú conexiones)"));
+    });
+
+    a = menu->addAction(trk(QStringLiteral("t_export_trust_store_ctx001"),
+                            QStringLiteral("Exportar trust-store a esta conexión"),
+                            QStringLiteral("Export trust-store to this connection")));
+    a->setEnabled(hasConn && !actionsLocked() && !isDisconnected && !isLocalConnection(connIdx));
+    connect(a, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Exportar trust-store (menú Conexiones)"));
         exportTrustStoreToSelectedConnection();
-    } else if (chosen == aPushPeers) {
-        logUiAction(QStringLiteral("Entregar credenciales de pares (menú conexiones)"));
-        pushPeerCredentialsToConnection(connIdx);
-    } else if (chosen == aNewConn) {
-        logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
-        createConnection();
-    } else if (chosen == aNewPool) {
-        logUiAction(QStringLiteral("Nuevo pool (menú conexiones)"));
-        createPoolForSelectedConnection();
-    } else {
-        for (const auto& [dstIdx, a] : authorizeKeyActions) {
-            if (chosen == a) {
-                logUiAction(QStringLiteral("Autorizar clave SSH (menú conexiones)"));
-                authorizePublicKeyOnConnection(connIdx, dstIdx);
-                break;
+    });
+
+    const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
+                               && m_conns.profiles[connIdx].connType.compare(
+                                      QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    QMenu* authorizeKeyMenu = menu->addMenu(
+        trk(QStringLiteral("t_authorize_key_menu_001"),
+            QStringLiteral("Autorizar clave SSH en..."),
+            QStringLiteral("Authorize SSH key on...")));
+    int authorizeTargets = 0;
+    if (isThisSshConn && !isDisconnected && !actionsLocked()) {
+        for (int i = 0; i < m_conns.profiles.size(); ++i) {
+            if (i == connIdx
+                || m_conns.profiles[i].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0
+                || isConnectionDisconnected(i)) {
+                continue;
             }
+            QAction* target = authorizeKeyMenu->addAction(m_conns.profiles[i].name);
+            ++authorizeTargets;
+            connect(target, &QAction::triggered, this, [this, connIdx, i]() {
+                logUiAction(QStringLiteral("Autorizar clave SSH (menú Conexiones)"));
+                authorizePublicKeyOnConnection(connIdx, i);
+            });
         }
     }
-}
+    authorizeKeyMenu->setEnabled(authorizeTargets > 0);
 
+    // Entregarle a esta máquina las credenciales de las DEMÁS.
+    //
+    // Es lo que le permite a su daemon llamar a otro por su cuenta, sin cliente de por
+    // medio: la nivelación GSA contra otra máquina lo necesita. Y con ello viaja la clave
+    // `self`, el nombre con el que ESTE cliente llama a esa máquina. Sin ella, una
+    // nivelación contra un dataset de la propia máquina no reconoce el destino como
+    // propio, se va por el camino remoto y registra «no hay credenciales del par»
+    // —siendo el par uno mismo—.
+    a = menu->addAction(trk(QStringLiteral("t_push_peers_ctx001"),
+                            QStringLiteral("Entregar credenciales de las demás máquinas…"),
+                            QStringLiteral("Hand over the other machines' credentials…")));
+    a->setEnabled(hasConn && !isDisconnected && !actionsLocked());
+    connect(a, &QAction::triggered, this, [this, connIdx]() {
+        logUiAction(QStringLiteral("Entregar credenciales de pares (menú Conexiones)"));
+        pushPeerCredentialsToConnection(connIdx);
+    });
+
+    // Solo para Local: es la única conexión que no se puede editar, así que sin esto una
+    // contraseña de sudo mal introducida se quedaba guardada para siempre —el arranque
+    // solo la pide cuando el campo está vacío— y no había forma de corregirla. Se ofrece
+    // incluso desconectada: una contraseña equivocada es lo que puede haberla dejado así.
+    if (hasConn && isLocalConnection(connIdx)) {
+        menu->addSeparator();
+        a = menu->addAction(trk(QStringLiteral("t_local_sudo_creds_ctx001"),
+                                QStringLiteral("Cambiar credenciales sudo local…"),
+                                QStringLiteral("Change local sudo credentials…")));
+        a->setEnabled(!actionsLocked());
+        connect(a, &QAction::triggered, this, [this]() {
+            logUiAction(QStringLiteral("Cambiar credenciales sudo local (menú Conexiones)"));
+            changeLocalSudoCredentials();
+        });
+    }
+}
 
 
 void MainWindow::refreshAllConnections() {
