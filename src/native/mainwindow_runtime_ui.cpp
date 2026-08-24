@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QGroupBox>
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QListWidget>
@@ -66,7 +67,7 @@ MainWindow::~MainWindow() {
     quiesceObject(m_connContentTree);
     quiesceObject(m_connContentPropsTable);
     quiesceObject(m_pendingChangesList);
-    quiesceObject(m_logsTabs);
+    quiesceObject(m_transfersBox);
 }
 
 void MainWindow::updateStatus(const QString& text) {

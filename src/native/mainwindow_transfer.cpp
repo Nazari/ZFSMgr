@@ -2044,16 +2044,8 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
            QStringLiteral("Job async lanzado: %1 (%2 → %3, job=%4)")
                .arg(sp.name, srcSnap, recvTarget, jobId));
 
-    // Open jobs tab and start poll timer
-    // Por puntero, no por texto: comparar contra el literal español dejaba de encontrar
-    // la pestaña en cuanto se tradujo, y entonces no se saltaba a ella al lanzar el
-    // trabajo. Por índice fijo tampoco: basta con añadir una pestaña delante.
-    if (m_logsTabs && m_jobsTab) {
-        const int jobsIndex = m_logsTabs->indexOf(m_jobsTab);
-        if (jobsIndex >= 0) {
-            m_logsTabs->setCurrentIndex(jobsIndex);
-        }
-    }
+    // Ya no hay que traer ninguna pestaña al frente: la caja de Transferencias es lo
+    // único que queda abajo y está siempre a la vista.
     updateJobsListWidget();
     if (m_jobPollTimer && !m_jobPollTimer->isActive())
         m_jobPollTimer->start();

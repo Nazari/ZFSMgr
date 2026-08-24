@@ -1787,11 +1787,7 @@ void MainWindow::buildUi() {
     auto* pendingButtonsCol = new QVBoxLayout();
     pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
     pendingButtonsCol->setSpacing(4);
-    m_btnApplyConnContentProps->setParent(pendingChangesBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    m_btnDiscardPendingChanges->setParent(pendingChangesBox);
-    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
-    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
     m_pendingButtonsCol = pendingButtonsCol;
     pendingButtonsCol->addStretch(1);
     pendingChangesBody->addLayout(pendingButtonsCol, 0);
@@ -1803,10 +1799,9 @@ void MainWindow::buildUi() {
     // vivía en una pestaña aparte, «Transferencias», que se retira: dos listas para lo mismo
     // en pestañas distintas era el reparto anterior, no una decisión.
     //
-    // Los botones Aplicar y Deshacer de la columna izquierda SE QUEDAN: siguen sirviendo a
-    // las propiedades y los permisos, que se editan en el árbol y sí se aplican en lote. No
-    // hay ninguna tabla junto a la que ponerlos —`m_connContentPropsTable` nunca llegó a
-    // asignarse, es un miembro muerto—, así que este panel sigue siendo su sitio.
+    // Aplicar y Deshacer ya no están en esta columna: se fueron a la banda de Estado y
+    // Progreso, encima de los árboles, que es donde se edita. Aquí quedan Refrescar y
+    // Cancelar, que sí son de los trabajos.
     m_pendingChangesList = new QListWidget(pendingChangesBox);
     // Un solo widget con dos nombres, a propósito y por poco tiempo: el código que pinta los
     // trabajos escribe en `m_jobsListWidget` y está probado; el que coloca y dimensiona este
@@ -2003,8 +1998,13 @@ void MainWindow::buildUi() {
     syncConnContentPropertyColumnsFor(m_bottomConnContentTree,
                                       connContentTokenForTree(m_bottomConnContentTree));
 
-    m_logsTabs = new QTabWidget(central);
-    m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
+    // Una CAJA con su título dentro, no una pestaña.
+    //
+    // Abajo queda una sola cosa —las transferencias—, y una barra de pestañas con una
+    // pestaña sola gasta una fila entera para no ofrecer ninguna elección. El título de
+    // un QGroupBox va dentro del borde y ese alto se lo queda la lista.
+    m_transfersBox = new QGroupBox(central);
+    m_transfersBox->setObjectName(QStringLiteral("zfsmgrTransfersBox"));
 
     // Aquí se construía la pestaña «Ajustes»: un QGroupBox «Logs» con tres desplegables,
     // la casilla de confirmación y los botones de Limpiar y Copiar. Todo eso vive ahora en
@@ -2013,7 +2013,7 @@ void MainWindow::buildUi() {
     // pestañas de abajo.
 
 
-    auto* combinedLogTab = new QWidget(m_logsTabs);
+    auto* combinedLogTab = new QWidget(central);
     auto* logLayout = new QVBoxLayout(combinedLogTab);
     logLayout->setContentsMargins(6, 6, 6, 6);
     logLayout->setSpacing(4);
@@ -2130,10 +2130,13 @@ void MainWindow::buildUi() {
     m_pendingChangesTab = pendingChangesBox;
     // La pestaña ya no es «Cambios pendientes»: no hay nada pendiente. Enseña lo que está
     // corriendo ahora mismo, que es lo que uno quiere tener a la vista mientras trabaja.
-    m_logsTabs->addTab(pendingChangesBox,
-                       trk(QStringLiteral("t_jobs_tab_001"),
-                           QStringLiteral("Transferencias"),
-                           QStringLiteral("Transfers")));
+    m_transfersBox->setTitle(trk(QStringLiteral("t_jobs_tab_001"),
+                                 QStringLiteral("Transferencias"),
+                                 QStringLiteral("Transfers")));
+    auto* transfersLayout = new QVBoxLayout(m_transfersBox);
+    transfersLayout->setContentsMargins(6, 2, 6, 4);
+    transfersLayout->setSpacing(0);
+    transfersLayout->addWidget(pendingChangesBox, 1);
     // Sin pestaña de «Log combinado». Enseñaba el log de la aplicación mezclado con el de
     // todas las conexiones; los de cada conexión están ahora bajo su panel, y el de la
     // aplicación sigue escribiéndose en disco y se copia desde Ajustes ▸ Logs. El widget
@@ -2157,8 +2160,11 @@ void MainWindow::buildUi() {
                                                 QStringLiteral("Refrescar"),
                                                 QStringLiteral("Refresh")), m_pendingChangesTab);
         if (m_pendingButtonsCol) {
-            m_pendingButtonsCol->insertWidget(2, refreshBtn, 0, Qt::AlignLeft | Qt::AlignTop);
-            m_pendingButtonsCol->insertWidget(3, cancelBtn, 0, Qt::AlignLeft | Qt::AlignTop);
+            // En 0 y 1, ARRIBA del estirador. Iban en 2 y 3 porque delante estaban Aplicar
+            // y Deshacer; al mudarse esos dos, los índices dejaron a los botones detrás
+            // del estirador y se pegaban al fondo de la caja, con el hueco encima.
+            m_pendingButtonsCol->insertWidget(0, refreshBtn, 0, Qt::AlignLeft | Qt::AlignTop);
+            m_pendingButtonsCol->insertWidget(1, cancelBtn, 0, Qt::AlignLeft | Qt::AlignTop);
         }
 
         connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::pollDaemonJobs);
@@ -2192,19 +2198,11 @@ void MainWindow::buildUi() {
         connect(m_jobPollTimer, &QTimer::timeout, this, &MainWindow::pollDaemonJobs);
     }
 
-    // Por nombre, no por índice: al meter «Cambios pendientes» delante, el 1 dejó de ser
-    // el log combinado.
-    m_logsTabs->setCurrentIndex(0);
-
     auto* bottomTabsPane = new QWidget(central);
     auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
     bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
-    bottomTabsLayout->setSpacing(6);
-    if (m_logsTabs->tabBar()) {
-        // El estilo va SOLO en la barra de pestañas, no en toda la aplicación.
-        m_logsTabs->tabBar()->setStyle(new CountedTabStyle(m_logsTabs->tabBar()->style()));
-    }
-    bottomTabsLayout->addWidget(m_logsTabs, 1);
+    bottomTabsLayout->setSpacing(0);
+    bottomTabsLayout->addWidget(m_transfersBox, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
     m_verticalMainSplit->setChildrenCollapsible(true);

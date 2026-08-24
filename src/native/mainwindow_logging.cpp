@@ -615,9 +615,6 @@ void MainWindow::trimLogWidget(QPlainTextEdit* widget) {
 }
 
 void MainWindow::syncConnectionLogTabs() {
-    if (!m_logsTabs) {
-        return;
-    }
     QSet<QString> wanted;
     for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (isConnectionDisconnected(i)) {

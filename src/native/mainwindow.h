@@ -1166,7 +1166,7 @@ private:
 
     QTextEdit* m_statusText{nullptr};
     QTextEdit* m_lastDetailText{nullptr};
-    QTabWidget* m_logsTabs{nullptr};
+    QGroupBox* m_transfersBox{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QListWidget* m_pendingChangesList{nullptr};
     // La columna de botones del panel de abajo. Se guarda para poder colgar allí los de
