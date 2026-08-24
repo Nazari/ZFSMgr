@@ -267,10 +267,14 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
     }
 }
 
-// Las columnas 4 en adelante no tienen rótulo fijo (son C1, C2, ... compartidas con los
-// datasets), así que cada celda lleva el nombre de la propiedad en su tooltip y la fila
-// entera lo lleva completo. Lo que no cabe en las columnas NO se pierde: sigue en el
-// tooltip de la fila.
+// En qué columna empiezan las cinco propiedades de un fichero.
+//
+// En el árbol principal iban de la 4 en adelante, que eran las columnas C1, C2...
+// compartidas con los datasets y sin rótulo propio. La pestaña «Contenido» del detalle
+// tiene columnas suyas, con nombre, y empiezan en la 1: lo dice con una propiedad del
+// árbol en vez de con un número repartido por dos sitios.
+//
+// Lo que no cabe en las columnas NO se pierde: sigue en el tooltip de la fila.
 void MainWindow::writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* item,
                                            const QStringList& values) {
     if (!tree || !item) {
@@ -297,7 +301,8 @@ void MainWindow::writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* i
     }
     item->setToolTip(0, tip.join(QLatin1Char('\n')));
     for (int i = 0; i < values.size(); ++i) {
-        const int col = 4 + i;
+        const QVariant base = tree->property("zfsmgr.fbPropBaseColumn");
+        const int col = (base.isValid() ? base.toInt() : 4) + i;
         if (col >= tree->columnCount()) {
             break;  // lo que no cabe sigue estando en el tooltip de la fila
         }

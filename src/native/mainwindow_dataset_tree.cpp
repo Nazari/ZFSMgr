@@ -3534,27 +3534,6 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             cachedPerms && cachedPerms->loaded) {
             perms = *cachedPerms;
         }
-        // Sin montar no cuelga NADA del dataset por el lado del contenido: ni el nodo
-        // «Contenido» ni un aviso en su lugar. El estado de montaje ya se ve en la propia
-        // fila, así que la línea explicativa solo añadía ruido en un árbol con muchos
-        // datasets desmontados.
-        if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
-            auto* contentNode = new QTreeWidgetItem(item);
-            contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
-                                        QStringLiteral("Contenido"),
-                                        QStringLiteral("Content")));
-            contentNode->setIcon(0, contentNodeIcon());
-            contentNode->setData(0, kConnFileBrowserNodeRole, true);
-            contentNode->setData(0, kConnFileBrowserPathRole, effectiveMp);
-            contentNode->setData(0, kConnFileBrowserLoadedRole, false);
-            contentNode->setData(0, kConnIdxRole, connIdx);
-            contentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
-            contentNode->setFlags(contentNode->flags() & ~Qt::ItemIsUserCheckable);
-            contentNode->setExpanded(false);
-            auto* placeholder = new QTreeWidgetItem(contentNode);
-            placeholder->setText(0, QStringLiteral("..."));
-            placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
-        }
         if (!snaps.isEmpty()) {
             auto* snapshotsNode = new QTreeWidgetItem(item);
             snapshotsNode->setText(0, QStringLiteral("@"));
@@ -3603,52 +3582,6 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                                .arg(QString::number(connIdx), poolName, fullSnapshotName));
                 }
                 snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
-                // El contenido de un snapshot se lee por <mountpoint>/.zfs/snapshot/<snap>,
-                // y ese directorio solo existe si el dataset está MONTADO. Con el dataset
-                // desmontado no se crea el nodo ni ningún aviso en su lugar, igual que en
-                // el propio dataset.
-                if (isMounted && !effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
-                    // Separador según la plataforma. En Windows el punto de montaje es
-                    // `Z:\subds1` y concatenar «/.zfs/snapshot/» dejaba una ruta con los
-                    // dos separadores mezclados: `Z:\subds1/.zfs/snapshot/snap`. Windows
-                    // suele tolerarlo, pero depender de eso es innecesario.
-                    const bool snapWin = isWindowsConnection(connIdx);
-                    // Sin separador final antes de concatenar: la lista de montajes de
-                    // Windows devuelve «Z:/subds1/», con barra, y pegarle «\.zfs\...»
-                    // dejaba «Z:\subds1\\.zfs\snapshot\snap», con separador doble.
-                    // Windows lo tolera unas veces y otras no, que es justo el peor
-                    // comportamiento posible: un snapshot se veía y el siguiente salía
-                    // vacío sin decir por qué.
-                    QString snapBase = effectiveMp;
-                    while (snapBase.size() > 1
-                           && (snapBase.endsWith(QLatin1Char('/')) || snapBase.endsWith(QLatin1Char('\\')))) {
-                        // Ojo con «Z:\» y «/»: la raíz sí lleva separador y no se toca.
-                        const QString withoutSep = snapBase.left(snapBase.size() - 1);
-                        if (withoutSep.endsWith(QLatin1Char(':')) || withoutSep.isEmpty()) {
-                            break;
-                        }
-                        snapBase = withoutSep;
-                    }
-                    const QString snapPath =
-                        snapWin
-                            ? (snapBase + QStringLiteral("\\.zfs\\snapshot\\") + snapName.trimmed())
-                            : (snapBase + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed());
-                    auto* snapContentNode = new QTreeWidgetItem(snapItem);
-                    snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
-                                                    QStringLiteral("Contenido"),
-                                                    QStringLiteral("Content")));
-                    snapContentNode->setIcon(0, contentNodeIcon());
-                    snapContentNode->setData(0, kConnFileBrowserNodeRole, true);
-                    snapContentNode->setData(0, kConnFileBrowserPathRole, snapPath);
-                    snapContentNode->setData(0, kConnFileBrowserLoadedRole, false);
-                    snapContentNode->setData(0, kConnIdxRole, connIdx);
-                    snapContentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
-                    snapContentNode->setFlags(snapContentNode->flags() & ~Qt::ItemIsUserCheckable);
-                    snapContentNode->setExpanded(false);
-                    auto* snapPlaceholder = new QTreeWidgetItem(snapContentNode);
-                    snapPlaceholder->setText(0, QStringLiteral("..."));
-                    snapPlaceholder->setFlags(snapPlaceholder->flags() & ~Qt::ItemIsUserCheckable);
-                }
             };
 
             // El reparto lo decide la capa base, no el árbol.

@@ -659,6 +659,8 @@ private:
     void commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* grantNode);
     void fillPaneHolds(int paneIdx, int connIdx, const QString& poolName,
                        const QString& datasetName, const QString& snapshotName);
+    void fillPaneContent(int paneIdx, int connIdx, const QString& poolName,
+                         const QString& datasetName, const QString& snapshotName);
     void updatePaneDetailForTree(QTreeWidget* tree);
     QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
     QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
@@ -1235,6 +1237,7 @@ private:
         QTabWidget* datasetTabs{nullptr};
         QTableWidget* datasetDetailTable{nullptr};
         QTreeWidget* datasetPermsTree{nullptr};
+        QTreeWidget* datasetContentTree{nullptr};
         QTableWidget* datasetHoldsTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];

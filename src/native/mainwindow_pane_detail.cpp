@@ -200,6 +200,46 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                                  QStringLiteral("Propiedades"),
                                  QStringLiteral("Properties")));
 
+    // Contenido: el navegador de ficheros del dataset —o del snapshot, por su .zfs—.
+    //
+    // Era un nodo «Contenido» colgando de cada dataset del árbol, que al desplegarse
+    // llenaba de ficheros el mismo sitio donde están los datasets. Un árbol de datasets
+    // con directorios dentro deja de poder leerse de un vistazo, que es para lo que sirve.
+    // Aquí tiene columnas propias con su rótulo, en vez de las C1...C10 sin nombre.
+    pane.datasetContentTree = new QTreeWidget(pane.datasetTabs);
+    pane.datasetContentTree->setObjectName(isOrigin ? QStringLiteral("originContentTree")
+                                                    : QStringLiteral("destinationContentTree"));
+    pane.datasetContentTree->setColumnCount(6);
+    pane.datasetContentTree->setHeaderLabels(
+        {trk(QStringLiteral("t_fb_col_name_001"), QStringLiteral("Nombre"), QStringLiteral("Name")),
+         trk(QStringLiteral("t_fb_perms_001"), QStringLiteral("permisos"), QStringLiteral("permissions")),
+         trk(QStringLiteral("t_fb_owner_001"), QStringLiteral("propietario"), QStringLiteral("owner")),
+         trk(QStringLiteral("t_fb_group_001"), QStringLiteral("grupo"), QStringLiteral("group")),
+         trk(QStringLiteral("t_fb_size_001"), QStringLiteral("tamaño"), QStringLiteral("size")),
+         trk(QStringLiteral("t_fb_mtime_001"), QStringLiteral("modificado"), QStringLiteral("modified"))});
+    pane.datasetContentTree->setProperty("zfsmgr.fbPropBaseColumn", 1);
+    pane.datasetContentTree->setUniformRowHeights(true);
+    pane.datasetContentTree->setRootIsDecorated(true);
+    if (QHeaderView* header = pane.datasetContentTree->header()) {
+        header->setStretchLastSection(false);
+        header->setSectionResizeMode(0, QHeaderView::Stretch);
+        pane.datasetContentTree->setColumnWidth(1, 90);
+        pane.datasetContentTree->setColumnWidth(2, 90);
+        pane.datasetContentTree->setColumnWidth(3, 90);
+        pane.datasetContentTree->setColumnWidth(4, 80);
+        pane.datasetContentTree->setColumnWidth(5, 130);
+    }
+    // El listado de un directorio se pide al abrirlo, no antes: un dataset puede tener
+    // miles de ficheros y nadie los quiere todos por haberlo marcado.
+    connect(pane.datasetContentTree, &QTreeWidget::itemExpanded, this,
+            [this, paneIdx](QTreeWidgetItem* item) {
+                populateFileBrowserNode(m_datasetPanes[paneIdx].datasetContentTree, item);
+            });
+    pane.datasetTabs->addTab(pane.datasetContentTree,
+                             trk(QStringLiteral("t_content_node_001"),
+                                 QStringLiteral("Contenido"),
+                                 QStringLiteral("Content")));
+
     pane.datasetPermsTree = new QTreeWidget(pane.datasetTabs);
     pane.datasetPermsTree->setObjectName(isOrigin ? QStringLiteral("originDatasetPermsTree")
                                                   : QStringLiteral("destinationDatasetPermsTree"));
@@ -484,16 +524,17 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                 page->hide();
             }
         };
-        showTab(pane.datasetPermsTree, !isSnapshot, 1,
+        showTab(pane.datasetPermsTree, !isSnapshot, 2,
                 trk(QStringLiteral("t_detail_tab_perms_001"),
                     QStringLiteral("Permisos"),
                     QStringLiteral("Permissions")));
-        showTab(pane.datasetHoldsTable, isSnapshot, 2,
+        showTab(pane.datasetHoldsTable, isSnapshot, 3,
                 trk(QStringLiteral("t_detail_tab_holds_001"),
                     QStringLiteral("Holds"),
                     QStringLiteral("Holds")));
         fillPanePermissions(paneIdx, connIdx, poolName, dataset);
         fillPaneHolds(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
+        fillPaneContent(paneIdx, connIdx, poolName, dataset, ctx.snapshotName.trimmed());
         // De los dos paneles solo uno está vivo a la vez, y es el que se acaba de tocar.
         // El estado del borrador —qué propiedad se ha cambiado, cuál era su valor
         // original, si estaba heredada— es uno solo: `m_propsToken`, `m_propsDataset`,
@@ -546,6 +587,12 @@ void MainWindow::updatePaneDetail(int paneIdx) {
 // cinco bloques que había que leer en zigzag. Aquí cada permiso es una fila con su marca.
 
 namespace {
+// Los mismos números que en `mainwindow_filebrowser.cpp` y en el árbol: son roles de
+// item, no hay una cabecera común donde vivan.
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr int kPaneGrantScopeRole = Qt::UserRole + 27;
 constexpr int kPaneGrantTargetTypeRole = Qt::UserRole + 28;
 constexpr int kPaneGrantTargetNameRole = Qt::UserRole + 29;
@@ -745,4 +792,70 @@ void MainWindow::fillPaneHolds(int paneIdx, int connIdx, const QString& poolName
         table->setItem(r, 1, new QTableWidgetItem(hold.second));
     }
     table->resizeColumnToContents(0);
+}
+
+// El navegador de ficheros de lo que esté marcado: el punto de montaje del dataset, o el
+// directorio del snapshot dentro de `.zfs/snapshot`.
+//
+// Solo se pone la raíz; los ficheros se piden al abrir cada directorio. Un dataset puede
+// tener miles y nadie los quiere todos por haberlo marcado.
+void MainWindow::fillPaneContent(int paneIdx, int connIdx, const QString& poolName,
+                                 const QString& datasetName, const QString& snapshotName) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    QTreeWidget* tree = pane.datasetContentTree;
+    if (!tree) {
+        return;
+    }
+    const QSignalBlocker blocker(tree);
+    tree->clear();
+    if (connIdx < 0 || poolName.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
+        return;
+    }
+    const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
+    if (!dsInfo) {
+        return;
+    }
+    const QString mountpoint = dsInfo->runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
+    const QString mounted = dsInfo->runtime.properties.value(QStringLiteral("mounted")).trimmed();
+    QString path = effectiveMountPath(connIdx, poolName, datasetName, mountpoint, mounted);
+    const bool isWindows = isWindowsConnection(connIdx);
+    if (!snapshotName.trimmed().isEmpty()) {
+        // El snapshot se navega por el `.zfs` del dataset, no por un punto de montaje
+        // suyo: no lo tiene. Se le quita el separador final al del dataset, salvo si ES
+        // la raíz —«/» o «Z:\»—, que sí lo lleva.
+        QString base = path;
+        while (base.size() > 1
+               && (base.endsWith(QLatin1Char('/')) || base.endsWith(QLatin1Char('\\')))) {
+            const QString withoutSep = base.left(base.size() - 1);
+            if (withoutSep.endsWith(QLatin1Char(':')) || withoutSep.isEmpty()) {
+                break;
+            }
+            base = withoutSep;
+        }
+        path = isWindows
+                   ? (base + QStringLiteral("\\.zfs\\snapshot\\") + snapshotName.trimmed())
+                   : (base + QStringLiteral("/.zfs/snapshot/") + snapshotName.trimmed());
+    }
+    if (path.isEmpty() || path == QStringLiteral("none")
+        || (snapshotName.trimmed().isEmpty() && mounted != QStringLiteral("yes"))) {
+        auto* note = new QTreeWidgetItem(tree);
+        note->setText(0, trk(QStringLiteral("t_fb_not_mounted_001"),
+                             QStringLiteral("Sin montar: no hay contenido que enseñar"),
+                             QStringLiteral("Not mounted: no content to show")));
+        QFont f = note->font(0);
+        f.setItalic(true);
+        note->setFont(0, f);
+        note->setFlags(note->flags() & ~Qt::ItemIsSelectable);
+        return;
+    }
+    auto* root = new QTreeWidgetItem(tree);
+    root->setText(0, path);
+    root->setData(0, kConnFileBrowserNodeRole, true);
+    root->setData(0, kConnFileBrowserPathRole, path);
+    root->setData(0, kConnFileBrowserLoadedRole, false);
+    root->setData(0, kConnIdxRole, connIdx);
+    root->setFlags(root->flags() & ~Qt::ItemIsUserCheckable);
+    auto* placeholder = new QTreeWidgetItem(root);
+    placeholder->setText(0, QStringLiteral("..."));
+    placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
 }
