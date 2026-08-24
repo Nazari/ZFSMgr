@@ -117,7 +117,7 @@ std::size_t columnas(const std::string& s) {
     return n;
 }
 
-// El byte donde empieza el carácter anterior a `pos`. Borrar un byte partiría una letra
+// El byte donde empieza el carácter anterior a `pos`. Delete un byte partiría una letra
 // acentuada por la mitad y dejaría basura en la línea.
 std::size_t bytesAtras(const std::string& s, std::size_t pos) {
     if (pos == 0) {

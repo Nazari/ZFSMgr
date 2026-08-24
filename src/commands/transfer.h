@@ -7,46 +7,46 @@
 #include "connectionprofile.h"
 #include "transportsession.h"
 
-// Mover DATOS entre dos extremos: por dónde van los bytes y desde dónde se reanuda.
+// Moving DATA between two endpoints: which way the bytes go, and where a resume starts from.
 //
-// Aquí NO hay transfer: hay las DECISIONES de una transfer. Vive en la capa base
-// porque la interfaz de Qt y el servidor web tienen que tomar las mismas —cuál de los tres
-// caminos, y por qué no se puede cuando no se puede— y una segunda copia de esas reglas se
-// desincroniza en el primer arreglo.
+// There is NO transfer here: there are the DECISIONS of a transfer. It lives in the base
+// layer because every client has to make the same ones —which of the three routes, and why
+// it cannot be done when it cannot— and a second copy of those rules drifts apart at the
+// first fix.
 //
-// Ver docs/diseno_tecnico_transferencias.md. Esta es la fase 0: los tipos y la elección,
-// que se pueden probar sin mover un solo byte.
+// See docs/diseno_tecnico_transferencias.md. This is phase 0: the types and the choice,
+// which can be tested without moving a single byte.
 namespace zfsmgr::base::transfer {
 
-// Por dónde van los bytes. El orden de la enumeración ES el de preferencia.
+// Which way the bytes go. The order of the enum IS the order of preference.
 //
-// **Esta lista salió de LEER el código, y corrigió el diseño**: allí se habían apuntado tres
-// caminos con el respaldo por tar dentro. No es así. El tar es cosa de Sincronizar —que
-// mueve FICHEROS con rsync y tar, no `zfs send`— y Send no lo tiene: cuando no hay
-// tubería que montar, se para y lo dice.
+// **This list came out of READING the code, and it corrected the design**: the design had
+// noted three routes with the tar fallback among them. It is not so. The tar belongs to Sync
+// —which moves FILES with rsync and tar, not `zfs send`— and Send does not have it: when
+// there is no pipeline to build, it stops and says so.
 enum class Route {
-    // Lo lanza `--job-submit` y lo sostiene el daemon. Sobrevive a que se cierre el
-    // cliente, y es el ÚNICO que le sirve al servidor web.
-    TrabajoAsincrono,
-    // `--zfs-recv-listen` en el destino y `--zfs-send-to-peer` en el origen. Sin shell y
-    // sin que los bytes pasen por el cliente, pero lo sostiene quien lo lanzó.
-    DaemonADaemon,
-    // `ssh origen 'zfs send' | ssh destino 'zfs recv'`, en sus variantes. No necesita
-    // daemon en ningún extremo: es lo que queda cuando no hay.
-    TuberiaSsh,
+    // Launched by `--job-submit` and held up by the daemon. It survives the client being
+    // closed, and it is the ONLY one usable by a client that cannot wait.
+    AsyncJob,
+    // `--zfs-recv-listen` at the target and `--zfs-send-to-peer` at the source. No shell, and
+    // the bytes do not pass through the client, but whoever launched it holds it up.
+    DaemonToDaemon,
+    // `ssh source 'zfs send' | ssh target 'zfs recv'`, in its variants. It needs no daemon at
+    // either end: it is what is left when there is none.
+    SshPipeline,
     None_,
 };
 
-// Por qué no se puede. TIPIFICADO porque es lo que hay que enseñar: «no disponible» sin
-// decir cuál de los seis motivos es deja al usuario probando combinaciones.
+// Why it cannot be done. TYPED because it is what has to be shown: «unavailable» without
+// saying which of the six reasons it is leaves the user trying combinations.
 enum class Failure {
     None_,
     SameObject,
     SourceIsNotSnapshot,
     TargetIsNotDataset,
-    WindowsEndpoint,          // el agente de Windows no transmite por tubería todavía
-    SinTrabajos,             // hace falta el camino asíncrono y algún extremo no lo admite
-    ZfsDemasiadoViejo,       // por debajo de 2.3.3 no se transfiere
+    WindowsEndpoint,       // the Windows agent does not stream over a pipeline yet
+    NoJobSupport,          // the async route is required and one end does not take it
+    ZfsTooOld,             // below 2.3.3 nothing is transferred
 };
 
 const char* keyOf(Route c);
@@ -54,291 +54,295 @@ const char* keyOf(Failure f);
 std::string labelOf(Route c);
 std::string labelOf(Failure f);
 
-// Lo que hay que saber de un extremo para decidir. No se consulta nada desde aquí: lo trae
-// quien llama, que es el que tiene la sesión de transporte.
+// What has to be known about an endpoint in order to decide. Nothing is queried from here:
+// the caller brings it, since the caller is the one holding the transport session.
 struct Endpoint {
-    std::string conexion;
-    std::string objeto;          // dataset, o dataset@instantánea en el origen
-    bool esWindows{false};
-    bool tieneDaemon{false};
-    bool admiteTrabajos{false};  // `JOBS_SUPPORT=1` en su `--health`
-    std::string versionZfs;      // «2.3.3», «2.2.99-1», … vacía si no se sabe
+    std::string connection;
+    std::string object;          // dataset, or dataset@snapshot at the source
+    bool isWindows{false};
+    bool hasDaemon{false};
+    bool supportsJobs{false};    // `JOBS_SUPPORT=1` in its `--health`
+    std::string zfsVersion;      // «2.3.3», «2.2.99-1», … empty when unknown
 
-    bool isSnapshot() const { return objeto.find('@') != std::string::npos; }
+    bool isSnapshot() const { return object.find('@') != std::string::npos; }
     std::string dataset() const {
-        const std::size_t i = objeto.find('@');
-        return i == std::string::npos ? objeto : objeto.substr(0, i);
+        const std::size_t i = object.find('@');
+        return i == std::string::npos ? object : object.substr(0, i);
     }
 };
 
-// ¿Esta versión de OpenZFS puede transferir?
+// Can this version of OpenZFS transfer?
 //
-// Por debajo de **2.3.3** no. Es una regla del proyecto, no de ZFS, y estaba escrita dentro
-// de la ventana. Una versión vacía o que no se entiende NO bloquea: no saber la versión es
-// distinto de saber que es vieja, y bloquear por no saber dejaría sin copiar a una máquina
-// que quizá puede.
+// Below **2.3.3**, no. That is a rule of this project, not of ZFS, and it used to be written
+// inside the window. An empty or unparseable version does NOT block: not knowing the version
+// is different from knowing it is old, and blocking on not knowing would rule out a machine
+// that may well be able to.
 bool versionSupportsTransfer(const std::string& version);
 
-// Las banderas de `zfs send`, en el orden en que las escribe el programa.
+// The `zfs send` flags, in the order the program writes them.
 struct SendOptions {
-    bool w{false};   // crudo: manda el dataset cifrado tal cual, sin descifrarlo
-    bool L{false};   // bloques grandes
-    bool e{false};   // «embedded»: aprovecha los bloques ya comprimidos
-    bool c{false};   // comprimido
-    bool R{false};   // toda la jerarquía, con sus instantáneas
+    bool w{false};   // raw: sends the encrypted dataset as-is, without decrypting it
+    bool L{false};   // large blocks
+    bool e{false};   // «embedded»: takes advantage of already-compressed blocks
+    bool c{false};   // compressed
+    bool R{false};   // the whole hierarchy, snapshots included
 };
 
-// «-wLR», o vacío si no hay ninguna. Vacío y no «-»: un guion con un «-» suelto en medio
-// es un argumento que `zfs` no entiende.
+// «-wLR», or empty when there is none. Empty and not «-»: a lone «-» in the middle of a
+// command line is an argument `zfs` does not understand.
 std::string sendFlags(const SendOptions& o);
 
-// Los caminos que se pueden probar, EN ORDEN, y no uno solo.
+// The routes worth trying, IN ORDER, and not just one.
 //
-// Porque así es como funciona: se intenta el primero y, si no se puede montar, se cae al
-// siguiente. Y eso se decide en marcha —el `recv-listen` puede fallar en el destino— no
-// aquí. Lo que se decide aquí es cuáles tiene sentido intentar.
+// Because that is how it works: the first is attempted and, when it cannot be built, it falls
+// through to the next. And that gets decided while running —`recv-listen` may fail at the
+// target— not here. What is decided here is which ones are worth attempting.
 struct Plan {
-    std::vector<Route> caminos;
-    Failure fallo{Failure::None_};
+    std::vector<Route> routes;
+    Failure failure{Failure::None_};
 
-    bool sePuede() const { return !caminos.empty(); }
+    bool ok() const { return !routes.empty(); }
 };
 
-// Qué caminos tiene sentido probar entre estos dos extremos.
+// Which routes are worth trying between these two endpoints.
 //
-// `exigeAsincrono` lo pone quien NO puede sostener la transfer mientras dure: el
-// servidor web atiende de una en una y una petición no puede durar cuatro horas, así que
-// para él solo vale el camino por trabajos. La interfaz puede esperar y no lo exige.
-Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincrono);
+// `requiresAsync` is set by whoever CANNOT hold the transfer up for its duration: a client
+// that serves one request at a time cannot have a request last four hours, so only the job
+// route works for it. An interface that can wait does not require it.
+Plan makePlan(const Endpoint& source, const Endpoint& target, bool requiresAsync);
 
-// El testigo de reanudación que ZFS dejó en el destino, si hay alguno.
+// The resume token ZFS left at the target, if there is one.
 //
-// **Se busca en el objetivo Y en sus descendientes**, y ese detalle no es un adorno: las
-// copias van con `-R`, o sea toda la jerarquía en un solo flujo, y al cortarse ZFS deja el
-// testigo en el dataset que estaba recibiendo en ese momento, que casi nunca es la raíz.
-// Medido cortando una copia de 3,4 GB: el padre quedó completo y el testigo apareció en el
-// hijo. Mirar solo la raíz decía «no hay nada que reanudar» con 247 MB ya transferidos.
+// **It is looked for on the target AND on its descendants**, and that detail is no ornament:
+// sends go with `-R`, that is, the whole hierarchy in a single stream, and when it is cut ZFS
+// leaves the token on the dataset that was receiving at that moment, which is almost never
+// the root. Measured by cutting a 3.4 GB send: the parent came out complete and the token
+// appeared on the child. Looking only at the root said «there is nothing to resume» with 247
+// MB already transferred.
 struct Resume {
-    std::string testigo;
-    std::string quienLoTiene;   // el dataset donde estaba
+    std::string token;
+    std::string heldBy;      // the dataset it was on
 
-    bool hay() const { return !testigo.empty(); }
+    bool any() const { return !token.empty(); }
 };
 
-// La REGLA de cuál gana, separada de ir a buscarlos.
+// The RULE of which one wins, kept apart from going to fetch them.
 //
-// Recibe líneas «dataset<TAB>testigo», con «-» donde no hay ninguno. Quien las junta es
-// `findResumeToken`, más abajo; aquí solo se decide, y por eso se puede probar sin máquina.
-Resume resumeToken(const std::string& objetivo, const std::string& salidaTsv);
+// It takes «dataset<TAB>token» lines, with «-» where there is none. Who gathers them is
+// `findResumeToken`, below; here it is only decided, which is why it can be tested with no
+// machine at hand.
+Resume resumeToken(const std::string& target, const std::string& tsvOutput);
 
-// La dirección con la que el ORIGEN ve a este equipo, sacada de lo que devuelve
-// `echo $SSH_CLIENT`. Vacía si no vale.
+// The address the SOURCE sees this machine at, pulled out of what `echo $SSH_CLIENT`
+// returns. Empty when it is unusable.
 //
-// **Admite IPv6 CON zona**: sshd puede contestar `fe80::d11d:24e3:5547:cbd6%enp1s0f0`, que
-// es justo lo que devolvió la máquina de pruebas. Una validación de solo hexadecimal y
-// puntos lo rechazaba y dejaba la copia sin dirección a la que volver.
-std::string sshClientAddress(const std::string& salida);
+// **It accepts IPv6 WITH a zone**: sshd can answer `fe80::d11d:24e3:5547:cbd6%enp1s0f0`,
+// which is exactly what the test machine returned. A validation of hex and dots only rejected
+// it and left the send with no address to come back to.
+std::string sshClientAddress(const std::string& output);
 
-// ── Cómo se compone la orden de copiar ───────────────────────────────────────
+// ── How the send command is composed ─────────────────────────────────────────
 
-// Dónde se recibe de verdad.
+// Where it is actually received.
 //
-// No es el dataset sobre el que se pulsó: se le añade el NOMBRE DEL ORIGEN, para que copiar
-// «datos» sobre «respaldos» deje «respaldos/datos» y no vuelque encima. Salvo que el destino
-// ya acabe en ese nombre, en cuyo caso se toma tal cual — o si no, copiar dos veces al mismo
-// sitio crearía «respaldos/datos/datos».
+// Not the dataset that was clicked on: the SOURCE'S NAME is appended, so that sending «data»
+// onto «backups» leaves «backups/data» and does not pour over it. Unless the target already
+// ends in that name, in which case it is taken as-is — otherwise sending twice to the same
+// place would create «backups/data/data».
 //
-// Ese detalle es también el que hace que buscar el testigo de reanudación sobre el dataset
-// pulsado no encuentre nada: hay que buscarlo sobre ESTE.
-std::string actualDestination(const std::string& origenDataset, const std::string& destinoElegido);
+// That same detail is what makes looking for the resume token on the clicked dataset find
+// nothing: it has to be looked for on THIS one.
+std::string actualDestination(const std::string& sourceDataset, const std::string& chosenTarget);
 
-// `zfs send [banderas] <instantánea>` y `zfs recv -Fus <destino>`, sin envolver.
+// `zfs send [flags] <snapshot>` and `zfs recv -Fus <target>`, unwrapped.
 //
-// El `-Fus` del receptor no es decorativo: la «s» es lo que hace que un corte deje un envío
-// EN SUSPENSO con su testigo, en vez de basura. Sin ella no habría reanudación posible y
-// cada corte obligaría a mandarlo todo otra vez.
-std::string sendCommand(const std::string& instantanea, const std::string& banderas);
-std::string receiveCommand(const std::string& destino);
+// The receiver's `-Fus` is not decorative: the «s» is what makes a cut leave a send SUSPENDED
+// with its token instead of garbage. Without it there would be no resuming, and every cut
+// would force sending everything again.
+std::string sendCommand(const std::string& snapshot, const std::string& flags);
+std::string receiveCommand(const std::string& target);
 
-// Aquí vivían `Montaje` y `montajeDe`: cuál de las tres formas de juntar los dos lados
-// tocaba —tubería local, remoto a remoto directo, o pasando los bytes por este equipo—.
+// `Montaje` and `montajeDe` used to live here: which of the three ways of joining the two
+// sides applied —local pipeline, remote to remote directly, or passing the bytes through this
+// machine—.
 //
-// Se retiraron cuando Send y Nivelar dejaron de tener respaldos por shell. Las tres
-// formas eran formas de encadenar `ssh` y tuberías; con la transfer hecha por un
-// trabajo del daemon no hay nada que montar: el receptor abre un puerto y el emisor se
-// conecta. La regla no se ha perdido, ha dejado de existir.
+// They were withdrawn when Send and Level stopped having shell fallbacks. The three ways were
+// ways of chaining `ssh` and pipes; with the transfer done by a daemon job there is nothing
+// to build: the receiver opens a port and the sender connects. The rule has not been lost, it
+// has ceased to exist.
 
-// ── El camino asíncrono: un trabajo en el daemon ─────────────────────────────
+// ── The async route: a job in the daemon ─────────────────────────────────────
 //
-// Es el único que le sirve al servidor web, porque lo sostiene el daemon y no quien lo
-// lanzó. Son tres pasos: el receptor abre un puerto, se averigua con qué dirección tiene
-// que volver el emisor, y el emisor arranca el envío y devuelve un identificador.
+// It is the only one usable by a client that cannot wait, because the daemon holds it up and
+// not whoever launched it. Three steps: the receiver opens a port, the address the sender has
+// to come back to is worked out, and the sender starts the send and returns an id.
 
-// Lo que contesta `--zfs-recv-listen`: en qué puerto espera y con qué testigo.
+// What `--zfs-recv-listen` answers: which port it waits on and with which token.
 struct ReceiverListen {
-    int puerto{0};
-    std::string testigo;
+    int port{0};
+    std::string token;
 
-    // El testigo son 64 caracteres. Una respuesta con otra longitud no es que venga
-    // recortada: es que no es la respuesta que se esperaba, y seguir con ella dejaría al
-    // emisor hablando con quien no debe.
-    bool vale() const { return puerto > 0 && testigo.size() == 64; }
+    // The token is 64 characters. An answer of any other length is not a truncated one: it is
+    // not the answer that was expected, and going on with it would leave the sender talking to
+    // the wrong party.
+    bool ok() const { return port > 0 && token.size() == 64; }
 };
 
-ReceiverListen readListen(const std::string& salida);
-std::string readJobId(const std::string& salida);
+ReceiverListen readListen(const std::string& output);
+std::string readJobId(const std::string& output);
 
-// Por qué no arrancó el trabajo. Los cinco puntos donde puede romperse, separados, porque
-// cada uno lleva a un sitio distinto: uno es del receptor, otro de la red, otro del emisor.
+// Why the job did not start. The five points where it can break, kept apart, because each one
+// leads somewhere different: one is the receiver's, another the network's, another the
+// sender's.
 enum class JobFailure {
     None_,
-    ReceptorNoEscucha,
-    RespuestaDeEscuchaNoVale,
-    SinDireccionDeVuelta,
-    EmisorNoArranco,
-    SinIdentificador,
+    ReceiverNotListening,
+    BadListenAnswer,
+    NoReturnAddress,
+    SenderDidNotStart,
+    NoJobId,
 };
 
 std::string labelOf(JobFailure f);
 
 struct Job {
     std::string id;
-    JobFailure fallo{JobFailure::None_};
-    std::string detalle;
+    JobFailure failure{JobFailure::None_};
+    std::string detail;
 
-    bool ok() const { return fallo == JobFailure::None_ && !id.empty(); }
+    bool ok() const { return failure == JobFailure::None_ && !id.empty(); }
 };
 
-// Cómo se le habla al agente de una máquina. **Lo pone quien llama, y no es un capricho.**
+// How the agent of a machine is spoken to. **The caller supplies it, and not out of whim.**
 //
-// Una conexión LOCAL no se alcanza igual que una remota: el RPC por túnel rechaza de
-// entrada todo lo que no sea SSH, así que para la local hay que ir por el socket del daemon
-// con su material TLS. Cada cliente ya sabe hacerlo —la interfaz con `runAgentCommand`, el
-// servidor web con `llamaAgente`— y meter aquí esa distinción obligaría a subir a la capa
-// base el descubrimiento del TLS local, que es de otro sitio.
+// A LOCAL connection is not reached the same way as a remote one: the tunnelled RPC rejects
+// outright anything that is not SSH, so the local one has to go through the daemon's socket
+// with its TLS material. Each client already knows how to do that, and putting that
+// distinction in here would force local-TLS discovery up into the base layer, where it does
+// not belong.
 //
-// Se perdió al extraer esto de la ventana y lo cazó la primera prueba de verdad: el trabajo
-// no arrancaba porque el destino era «Local» y se le estaba hablando como si fuera remoto.
-using LlamadaAlAgente = std::function<bool(const ConnectionProfile& maquina,
+// It got lost when this was extracted out of the window, and the first real test caught it:
+// the job did not start because the target was «Local» and it was being spoken to as if it
+// were remote.
+using AgentCall = std::function<bool(const ConnectionProfile& machine,
                                            const std::vector<std::string>& args, int timeoutMs,
-                                           std::string& salida, std::string& err, int& rc)>;
+                                           std::string& output, std::string& err, int& rc)>;
 
-// Arranca el trabajo. Devuelve en cuanto lo tiene lanzado: NO espera a que termine, que es
-// justo el motivo de que exista.
+// Starts the job. It returns as soon as it is launched: it does NOT wait for it to finish,
+// which is precisely why it exists.
 //
-// Con `testigoReanudacion` puesto, la instantánea, la base y las banderas van vacías a
-// propósito: `zfs send -t` lleva dentro qué continuar y no admite que se le contradiga.
-Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
-                     const ConnectionProfile& origen, const ConnectionProfile& destino,
-                     const std::string& instantanea, const std::string& destinoDelRecv,
-                     const std::string& desdeInstantanea, const std::string& banderas,
-                     const std::string& testigoReanudacion, bool mismaConexion, bool verboso);
+// With `resumeToken` set, the snapshot, the base and the flags go empty on purpose: `zfs send
+// -t` carries inside it what to continue, and it will not be contradicted.
+Job launchJob(TransportSession& ses, const AgentCall& call,
+                     const ConnectionProfile& source, const ConnectionProfile& target,
+                     const std::string& snapshot, const std::string& recvTarget,
+                     const std::string& fromSnapshot, const std::string& flags,
+                     const std::string& resumeToken, bool sameConnection, bool verbose);
 
-// ── Lo que sí va a preguntar a las máquinas ──────────────────────────────────
+// ── The part that does go and ask the machines ───────────────────────────────
 
-// Con qué dirección ve el ORIGEN a este equipo.
+// The same three-step dance, but carrying a FILE TREE instead of a snapshot: the target
+// listens, the address the source sees it at is worked out, and the source sends.
 //
-// Se le PREGUNTA a él en vez de deducirlo: la máquina puede tener varias interfaces, estar
-// detrás de NAT o llegar por VPN, y solo el otro extremo sabe por dónde entró la conexión.
-// Con qué dirección tiene que conectar el ORIGEN para llegar al DESTINO.
+// **What it is for: «FromDir» with no shell pipeline.** That action used to move the data with
+// `ssh source 'tar -c' | ssh target 'agent --mutate-advanced-fromdir'`, that is, passing ALL
+// the content through the driver's machine: copying 100 GB from one machine to another moved
+// 200 GB through the one in the middle. Here it goes daemon to daemon.
 //
-// Vacío si no se puede averiguar. Lo usan el flujo de `zfs send` y el árbol de ficheros;
-// ver el comentario de la implementación para el caso de la conexión Local, que es el que
-// se pierde en cuanto alguien copia esta regla en vez de llamarla.
-// El mismo baile de tres pasos, pero llevando un ÁRBOL DE FICHEROS en vez de una
-// instantánea: el destino escucha, se averigua con qué dirección lo ve el origen, y el
-// origen envía.
+// And along the way it gains what the `zfs send` stream already had: it is a job, so there is
+// progress, it can be cancelled and it survives the window being closed. The copy is also
+// incremental —it skips what is already identical, comparing size and mtime—, whereas the tar
+// resent the whole tree on every pass.
 //
-// **Para qué sirve: «Desde Dir» sin tubería de shell.** Esa acción movía los datos con
-// `ssh origen 'tar -c' | ssh destino 'agente --mutate-advanced-fromdir'`, o sea pasando
-// TODO el contenido por la máquina de quien manda: copiar 100 GB de una máquina a otra
-// movía 200 GB por la de en medio. Aquí van de daemon a daemon.
+// The target directory has to EXIST: the receiver checks and fails when it does not. To
+// create it there is `advanced::argvFromDirPrepare`, which also mounts the dataset and
+// resolves its real mountpoint.
 //
-// Y de paso se gana lo que ya tenía el flujo de `zfs send`: es un trabajo, así que hay
-// progreso, se puede cancelar y sobrevive a que se cierre la ventana. Además la copia es
-// incremental —salta lo que ya está igual comparando tamaño y fecha—, mientras que el tar
-// reenviaba el árbol entero en cada pasada.
+// It requires a daemon at BOTH ends. The tar path only asked for one at the target, so this
+// does not replace it: it takes precedence when it can.
 //
-// El directorio de destino tiene que EXISTIR: el receptor lo comprueba y falla si no. Para
-// crearlo está `advanced::argvFromDirPrepare`, que además monta el dataset y resuelve su
-// punto de montaje real.
+// `asJob` decides whether the send is queued in the daemon —the window wants it that way: it
+// does not block, it can be cancelled and it goes on if the window closes— or whether it
+// waits for it to finish, which is what the shell does, because its command already returned
+// the result and a script behind it counts on the files being there.
 //
-// Requiere daemon en LAS DOS puntas. El camino del tar solo lo pedía en el destino, así que
-// esto no lo sustituye: lo adelanta cuando se puede.
-//
-// `comoTrabajo` decide si el envío se encola en el daemon —la ventana lo quiere así: no la
-// bloquea, se puede cancelar y sigue si se cierra— o si se espera a que termine, que es lo
-// que hace el intérprete porque su orden ya devolvía el resultado y un guion detrás cuenta
-// con que los ficheros estén.
-//
-// **Ojo con cómo se comprueba el resultado.** Con `comoTrabajo` falso no hay identificador
-// que devolver, así que `ok()` —que exige uno— diría que no aunque todo haya ido bien: ahí
-// lo que se mira es `fallo`. `ok()` significa «hay un trabajo al que seguirle la pista», no
-// «salió bien».
-Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
-                            const ConnectionProfile& origen, const ConnectionProfile& destino,
-                            const std::string& directorioOrigen,
-                            const std::string& directorioDestino, bool mismaConexion,
-                            bool verboso, bool comoTrabajo, bool borrarEnDestino = false,
-                            bool enSeco = false, std::string* salidaDelEnvio = nullptr);
+// **Careful with how the result is checked.** With `asJob` false there is no id to return, so
+// `ok()` —which requires one— would say no even when everything went well: there, what to
+// look at is `failure`. `ok()` means «there is a job to keep track of», not «it went well».
+Job launchTreeJob(TransportSession& ses, const AgentCall& call,
+                            const ConnectionProfile& source, const ConnectionProfile& target,
+                            const std::string& sourceDirectory,
+                            const std::string& targetDirectory, bool sameConnection,
+                            bool verbose, bool asJob, bool deleteAtTarget = false,
+                            bool dryRun = false, std::string* sendOutput = nullptr);
 
-std::string whereItConnects(TransportSession& ses, const ConnectionProfile& origen,
-                              const ConnectionProfile& destino, bool mismaConexion,
-                              bool verboso);
-
-std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& origen,
-                             bool verboso);
-
-// El testigo de reanudación que haya en el destino o en sus descendientes.
+// Which address the SOURCE has to connect to in order to reach the TARGET.
 //
-// Son N+1 consultas —una por dataset—, que es lo que hace hoy la interfaz. Se conserva tal
-// cual a propósito: esta fase no cambia comportamiento. Con un verbo que leyera una
-// propiedad de forma recursiva sería una sola, y está anotado en el diseño.
-Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
-                         const std::string& objetivo, bool verboso);
+// Empty when it cannot be worked out. Both the `zfs send` stream and the file tree use it;
+// see the comment on the implementation for the Local-connection case, which is the one that
+// gets lost the moment somebody copies this rule instead of calling it.
+std::string whereItConnects(TransportSession& ses, const ConnectionProfile& source,
+                              const ConnectionProfile& target, bool sameConnection,
+                              bool verbose);
+
+// Which address the SOURCE sees this machine at.
+//
+// It is ASKED rather than deduced: the machine may have several interfaces, sit behind NAT or
+// arrive over a VPN, and only the other end knows which way the connection came in.
+std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& source,
+                             bool verbose);
+
+// Whichever resume token is on the target or on its descendants.
+//
+// That is N+1 queries —one per dataset—, which is what the interface does today. It is kept
+// as-is on purpose: this phase changes no behaviour. With a verb that read a property
+// recursively it would be a single one, and that is noted in the design.
+Resume findResumeToken(TransportSession& ses, const ConnectionProfile& target,
+                         const std::string& objective, bool verbose);
 
 // ---------------------------------------------------------------------------
-// Nivelar: poner el destino al día del origen SIN volver a mandarlo todo.
+// Levelling: bringing the target up to date with the source WITHOUT sending it all again.
 //
-// **No es copiar.** Send manda un flujo completo y recibe en «<destino>/<hoja>»; nivelar
-// manda un INCREMENTAL —`zfs send -I <base> <objetivo>`— y recibe en el dataset destino
-// tal cual. Confundirlos no es un matiz: con el destino ya poblado, el flujo completo llega
-// con `zfs recv -Fus` y arrastra lo que el origen no tenga.
+// **It is not sending.** Send ships a complete stream and receives into «<target>/<leaf>»;
+// levelling ships an INCREMENTAL —`zfs send -I <base> <objective>`— and receives into the
+// target dataset as-is. Confusing them is not a nuance: with the target already populated,
+// the complete stream arrives with `zfs recv -Fus` and takes down whatever the source does
+// not have.
 //
-// La base común NO se busca por nombre, se busca por GUID. Dos instantáneas pueden
-// llamarse igual en las dos máquinas sin tener nada que ver —basta con que las hayan creado
-// por separado— y enviar un incremental contra una base falsa es enviar contra otra
-// historia. El GUID ya viene en `--dump-zfs-list-all`, así que no cuesta ninguna consulta.
+// The common base is NOT looked up by name, it is looked up by GUID. Two snapshots can share
+// a name on both machines without being related —having been created separately is enough—
+// and sending an incremental against a false base is sending against a different history. The
+// GUID already comes in `--dump-zfs-list-all`, so it costs no extra query.
 //
-// Las tres negativas son de seguridad y vienen de la interfaz de Qt, que las tiene desde el
-// principio: sin ellas, nivelar puede tirar trabajo del destino sin avisar.
+// The three refusals are safety ones and come from the Qt interface, which has had them from
+// the start: without them, levelling can throw away work at the target without warning.
 struct Snapshot {
-    std::string nombre;   // corto, sin «dataset@»
+    std::string name;   // short, without the «dataset@»
     std::string guid;
 };
 
 enum class LevelFailure {
     None_,
-    ObjetivoNoEstaEnOrigen,
-    DestinoSinInstantaneas,
-    BaseNoEstaEnOrigen,
-    DestinoMasNuevo,
-    YaNivelado,
+    TargetNotAtSource,
+    TargetHasNoSnapshots,
+    BaseNotAtSource,
+    TargetIsNewer,
+    AlreadyLevel,
 };
 
 struct LevelPlan {
-    std::string base;       // desde dónde: el «-I» del envío
-    std::string objetivo;   // hasta dónde
-    LevelFailure fallo{LevelFailure::None_};
-    bool sePuede() const { return fallo == LevelFailure::None_; }
+    std::string base;        // where from: the send's «-I»
+    std::string objective;   // how far
+    LevelFailure failure{LevelFailure::None_};
+    bool ok() const { return failure == LevelFailure::None_; }
 };
 
-// Las dos listas van EN ORDEN DE CREACIÓN, que es como las da `zfs list -t snapshot`. El
-// orden es el que decide qué es «más nuevo», así que darlas ordenadas de otra forma no
-// devuelve un error: devuelve una respuesta equivocada.
-LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
-                          const std::vector<Snapshot>& destino,
-                          const std::string& objetivo);
+// Both lists go IN CREATION ORDER, which is how `zfs list -t snapshot` gives them. The order
+// is what decides what «newer» means, so handing them in sorted any other way does not return
+// an error: it returns a wrong answer.
+LevelPlan makeLevelPlan(const std::vector<Snapshot>& source,
+                          const std::vector<Snapshot>& target,
+                          const std::string& objective);
 
 std::string labelOf(LevelFailure f);
 

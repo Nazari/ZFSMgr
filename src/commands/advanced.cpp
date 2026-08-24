@@ -24,8 +24,8 @@ std::vector<std::string> argvBreakdown(const std::string& dataset,
     }
     std::vector<std::string> argv{"--mutate-advanced-breakdown", ds};
     for (const Breakdown& p : pares) {
-        const std::string sub = zfsmgr::base::trim(p.subdirectorio);
-        const std::string nuevo = zfsmgr::base::trim(p.datasetNuevo);
+        const std::string sub = zfsmgr::base::trim(p.subdirectory);
+        const std::string nuevo = zfsmgr::base::trim(p.newDataset);
         // Los dos, o ninguno: el verbo los lee de dos en dos, así que un par a medias
         // desplazaría todos los siguientes y el daemon acabaría creando un dataset con el
         // nombre de un directorio.
@@ -187,14 +187,14 @@ std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& or
     std::map<std::string, int> cuantosConEseNombre;
     std::vector<std::string> nombres(origenes.size());
     for (std::size_t i = 0; i < origenes.size(); ++i) {
-        nombres[i] = nombreDeLaRuta(origenes[i].ruta, origenes[i].windows);
+        nombres[i] = nombreDeLaRuta(origenes[i].path, origenes[i].windows);
         ++cuantosConEseNombre[nombres[i]];
     }
 
     std::set<std::string> yaUsados;
     for (std::size_t i = 0; i < origenes.size(); ++i) {
         std::string base = nombres[i];
-        const std::string maquina = zfsmgr::base::trim(origenes[i].maquina);
+        const std::string maquina = zfsmgr::base::trim(origenes[i].machine);
         // Una ruta que es solo el separador —«/», «C:\»— no deja nombre detrás. Sin esto,
         // ese origen se iría a la raíz mientras los demás van a su subdirectorio, y dos así
         // se pisarían.

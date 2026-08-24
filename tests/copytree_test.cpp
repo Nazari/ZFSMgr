@@ -356,19 +356,19 @@ private Q_SLOTS:
         std::string err;
         QVERIFY2(AR::walk(src_.string(), e, err), err.c_str());
         std::map<std::string, AR::EntryKind> porRuta;
-        for (const auto& x : e) porRuta[x.ruta] = x.tipo;
+        for (const auto& x : e) porRuta[x.path] = x.kind;
         QCOMPARE(porRuta.count("sub"), size_t(1));
-        QVERIFY(porRuta["sub"] == AR::EntryKind::Directorio);
-        QVERIFY(porRuta["a.txt"] == AR::EntryKind::Fichero);
-        QVERIFY(porRuta["enlace"] == AR::EntryKind::Enlace);
+        QVERIFY(porRuta["sub"] == AR::EntryKind::Directory);
+        QVERIFY(porRuta["a.txt"] == AR::EntryKind::File);
+        QVERIFY(porRuta["enlace"] == AR::EntryKind::Symlink);
         // El segundo nombre del mismo fichero llega como enlace duro, no como copia: es
         // la diferencia entre sincronizar un arbol y duplicarlo. Y cual de los dos es «el
         // fichero» NO depende del orden del directorio: es el primero por orden
         // alfabetico, para que los dos extremos describan el arbol igual.
-        QVERIFY(porRuta["duro.txt"] == AR::EntryKind::EnlaceDuro);
+        QVERIFY(porRuta["duro.txt"] == AR::EntryKind::HardLink);
         for (const auto& x : e) {
-            if (x.ruta == "duro.txt") {
-                QCOMPARE(QString::fromStdString(x.destino), QStringLiteral("a.txt"));
+            if (x.path == "duro.txt") {
+                QCOMPARE(QString::fromStdString(x.target), QStringLiteral("a.txt"));
             }
         }
     }
@@ -387,12 +387,12 @@ private Q_SLOTS:
         std::string err;
         QVERIFY2(AR::walk(src_.string(), e, err), err.c_str());
         for (const auto& x : e) {
-            QVERIFY2(x.ruta.rfind("$RECYCLE.BIN", 0) != 0, x.ruta.c_str());
-            QVERIFY2(x.ruta.rfind("System Volume Information", 0) != 0, x.ruta.c_str());
+            QVERIFY2(x.path.rfind("$RECYCLE.BIN", 0) != 0, x.path.c_str());
+            QVERIFY2(x.path.rfind("System Volume Information", 0) != 0, x.path.c_str());
         }
         bool hayElDelUsuario = false;
         for (const auto& x : e) {
-            if (x.ruta == "mio/$RECYCLE.BIN/dato.txt") hayElDelUsuario = true;
+            if (x.path == "mio/$RECYCLE.BIN/dato.txt") hayElDelUsuario = true;
         }
         QVERIFY2(hayElDelUsuario, "lo del usuario mas abajo si va");
     }
@@ -403,7 +403,7 @@ private Q_SLOTS:
         std::string err;
         QVERIFY(AR::walk(src_.string(), e, err));
         for (const auto& x : e) {
-            QVERIFY2(x.ruta.find('\\') == std::string::npos,
+            QVERIFY2(x.path.find('\\') == std::string::npos,
                      "una ruta con barra invertida no casaria en el otro extremo");
         }
     }
@@ -417,9 +417,9 @@ private Q_SLOTS:
         QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), e.size());
         for (size_t i = 0; i < e.size(); ++i) {
-            QCOMPARE(QString::fromStdString(vuelta[i].ruta), QString::fromStdString(e[i].ruta));
-            QCOMPARE(vuelta[i].tamano, e[i].tamano);
-            QCOMPARE(vuelta[i].fecha, e[i].fecha);
+            QCOMPARE(QString::fromStdString(vuelta[i].path), QString::fromStdString(e[i].path));
+            QCOMPARE(vuelta[i].size, e[i].size);
+            QCOMPARE(vuelta[i].mtime, e[i].mtime);
         }
     }
 
@@ -427,44 +427,44 @@ private Q_SLOTS:
         // Las longitudes van explicitas justo por esto: un nombre puede llevar dentro un
         // salto de linea, y partir por lineas dejaria el manifiesto descolocado.
         std::vector<AR::Entry> e(1);
-        e[0].ruta = "raro\ncon salto.txt";
-        e[0].tipo = AR::EntryKind::Fichero;
-        e[0].tamano = 7;
+        e[0].path = "raro\ncon salto.txt";
+        e[0].kind = AR::EntryKind::File;
+        e[0].size = 7;
         std::vector<AR::Entry> vuelta;
         std::string err;
         QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), size_t(1));
-        QCOMPARE(QString::fromStdString(vuelta[0].ruta), QString::fromStdString(e[0].ruta));
+        QCOMPARE(QString::fromStdString(vuelta[0].path), QString::fromStdString(e[0].path));
     }
 
     void elPlanSaltaLoQueYaEstaIgual() {
         std::vector<AR::Entry> o(1), d(1);
-        o[0].ruta = d[0].ruta = "a.txt";
-        o[0].tamano = d[0].tamano = 10;
-        o[0].fecha = d[0].fecha = 1000;
+        o[0].path = d[0].path = "a.txt";
+        o[0].size = d[0].size = 10;
+        o[0].mtime = d[0].mtime = 1000;
         const AR::Plan p = AR::makePlan(o, d, false);
-        QCOMPARE(p.operaciones.size(), size_t(0));
-        QCOMPARE(p.iguales, uint64_t(1));
+        QCOMPARE(p.operations.size(), size_t(0));
+        QCOMPARE(p.unchanged, uint64_t(1));
         QCOMPARE(p.bytes, uint64_t(0));
     }
 
     void unaFechaDistintaLoVuelveACopiar() {
         std::vector<AR::Entry> o(1), d(1);
-        o[0].ruta = d[0].ruta = "a.txt";
-        o[0].tamano = d[0].tamano = 10;
-        o[0].fecha = 1001;
-        d[0].fecha = 1000;
+        o[0].path = d[0].path = "a.txt";
+        o[0].size = d[0].size = 10;
+        o[0].mtime = 1001;
+        d[0].mtime = 1000;
         const AR::Plan p = AR::makePlan(o, d, false);
-        QCOMPARE(p.operaciones.size(), size_t(1));
-        QVERIFY(p.operaciones[0].accion == AR::Action::Send);
+        QCOMPARE(p.operations.size(), size_t(1));
+        QVERIFY(p.operations[0].action == AR::Action::Send);
         QCOMPARE(p.bytes, uint64_t(10));
     }
 
     void sinBorradoNoSeBorraNada() {
         std::vector<AR::Entry> o;
         std::vector<AR::Entry> d(1);
-        d[0].ruta = "sobra.txt";
-        QCOMPARE(AR::makePlan(o, d, false).operaciones.size(), size_t(0));
+        d[0].path = "sobra.txt";
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(0));
     }
 
     void conBorradoSeVaDeDentroHaciaFuera() {
@@ -472,43 +472,43 @@ private Q_SLOTS:
         // falla y el motivo no explica por que.
         std::vector<AR::Entry> o;
         std::vector<AR::Entry> d(2);
-        d[0].ruta = "dir";
-        d[0].tipo = AR::EntryKind::Directorio;
-        d[1].ruta = "dir/dentro.txt";
+        d[0].path = "dir";
+        d[0].kind = AR::EntryKind::Directory;
+        d[1].path = "dir/dentro.txt";
         const AR::Plan p = AR::makePlan(o, d, true);
-        QCOMPARE(p.operaciones.size(), size_t(2));
-        QCOMPARE(QString::fromStdString(p.operaciones[0].entrada.ruta),
+        QCOMPARE(p.operations.size(), size_t(2));
+        QCOMPARE(QString::fromStdString(p.operations[0].entry.path),
                  QStringLiteral("dir/dentro.txt"));
-        QCOMPARE(QString::fromStdString(p.operaciones[1].entrada.ruta), QStringLiteral("dir"));
+        QCOMPARE(QString::fromStdString(p.operations[1].entry.path), QStringLiteral("dir"));
     }
 
     void unEnlaceQueCambiaDeDestinoSeRehace() {
         std::vector<AR::Entry> o(1), d(1);
-        o[0].ruta = d[0].ruta = "l";
-        o[0].tipo = d[0].tipo = AR::EntryKind::Enlace;
-        o[0].destino = "a.txt";
-        d[0].destino = "b.txt";
+        o[0].path = d[0].path = "l";
+        o[0].kind = d[0].kind = AR::EntryKind::Symlink;
+        o[0].target = "a.txt";
+        d[0].target = "b.txt";
         const AR::Plan p = AR::makePlan(o, d, false);
-        QCOMPARE(p.operaciones.size(), size_t(1));
-        QVERIFY(p.operaciones[0].accion == AR::Action::Enlazar);
+        QCOMPARE(p.operations.size(), size_t(1));
+        QVERIFY(p.operations[0].action == AR::Action::Symlink_);
     }
 
     void laCabeceraSobreviveAlViajeDeIdaYVuelta() {
         AR::Operation o;
-        o.accion = AR::Action::Send;
-        o.entrada.ruta = "sub/a.txt";
-        o.entrada.destino = "";
-        o.entrada.modo = 0644;
-        o.entrada.fecha = 1700000000;
-        o.entrada.tamano = 12345;
+        o.action = AR::Action::Send;
+        o.entry.path = "sub/a.txt";
+        o.entry.target = "";
+        o.entry.mode = 0644;
+        o.entry.mtime = 1700000000;
+        o.entry.size = 12345;
         AR::Operation vuelta;
         size_t lr = 0, ld = 0;
         std::string err;
         QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, err), err.c_str());
-        QVERIFY(vuelta.accion == AR::Action::Send);
-        QCOMPARE(vuelta.entrada.tamano, uint64_t(12345));
-        QCOMPARE(vuelta.entrada.fecha, int64_t(1700000000));
-        QCOMPARE(lr, o.entrada.ruta.size());
+        QVERIFY(vuelta.action == AR::Action::Send);
+        QCOMPARE(vuelta.entry.size, uint64_t(12345));
+        QCOMPARE(vuelta.entry.mtime, int64_t(1700000000));
+        QCOMPARE(lr, o.entry.path.size());
         QCOMPARE(ld, size_t(0));
     }
 
@@ -549,7 +549,7 @@ private Q_SLOTS:
         QCOMPARE(literales, uint64_t(0));
         // Y en UNA sola instruccion: los bloques seguidos se juntan.
         QCOMPARE(ins.size(), size_t(1));
-        QVERIFY(ins[0].tipo == AR::InstructionKind::Send);
+        QVERIFY(ins[0].kind == AR::InstructionKind::Send);
     }
 
     void unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones() {
@@ -631,11 +631,11 @@ private Q_SLOTS:
 
         std::string rehecho;
         for (const auto& in : ins) {
-            if (in.tipo == AR::InstructionKind::Literal) {
-                rehecho += in.datos;
+            if (in.kind == AR::InstructionKind::Literal) {
+                rehecho += in.data;
             } else {
-                for (uint64_t k = 0; k < in.cuantos; ++k) {
-                    const size_t off = size_t(in.bloque + k) * tb;
+                for (uint64_t k = 0; k < in.howMany; ++k) {
+                    const size_t off = size_t(in.block + k) * tb;
                     rehecho += viejo.substr(off, std::min(tb, viejo.size() - off));
                 }
             }
@@ -665,11 +665,11 @@ private Q_SLOTS:
 
         std::string rehecho;
         for (const auto& in : ins) {
-            if (in.tipo == AR::InstructionKind::Literal) {
-                rehecho += in.datos;
+            if (in.kind == AR::InstructionKind::Literal) {
+                rehecho += in.data;
             } else {
-                for (uint64_t k = 0; k < in.cuantos; ++k) {
-                    const size_t off = size_t(in.bloque + k) * tb;
+                for (uint64_t k = 0; k < in.howMany; ++k) {
+                    const size_t off = size_t(in.block + k) * tb;
                     rehecho += datos.substr(off, std::min(tb, datos.size() - off));
                 }
             }
@@ -689,8 +689,8 @@ private Q_SLOTS:
         QVERIFY2(AR::parseSignatures(AR::serializeSignatures(fi), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), fi.size());
         for (size_t i = 0; i < fi.size(); ++i) {
-            QCOMPARE(vuelta[i].debil, fi[i].debil);
-            QCOMPARE(memcmp(vuelta[i].fuerte, fi[i].fuerte, 16), 0);
+            QCOMPARE(vuelta[i].weak, fi[i].weak);
+            QCOMPARE(memcmp(vuelta[i].strong, fi[i].strong, 16), 0);
         }
     }
 

@@ -65,42 +65,42 @@ std::string conBarras(const std::string& s) {
 
 char letraDe(EntryKind t) {
     switch (t) {
-        case EntryKind::Directorio: return 'd';
-        case EntryKind::Fichero:    return 'f';
-        case EntryKind::Enlace:     return 'l';
-        case EntryKind::EnlaceDuro: return 'h';
+        case EntryKind::Directory: return 'd';
+        case EntryKind::File:    return 'f';
+        case EntryKind::Symlink:     return 'l';
+        case EntryKind::HardLink: return 'h';
     }
     return 'f';
 }
 
 bool tipoDe(char c, EntryKind& out) {
     switch (c) {
-        case 'd': out = EntryKind::Directorio; return true;
-        case 'f': out = EntryKind::Fichero;    return true;
-        case 'l': out = EntryKind::Enlace;     return true;
-        case 'h': out = EntryKind::EnlaceDuro; return true;
+        case 'd': out = EntryKind::Directory; return true;
+        case 'f': out = EntryKind::File;    return true;
+        case 'l': out = EntryKind::Symlink;     return true;
+        case 'h': out = EntryKind::HardLink; return true;
         default:  return false;
     }
 }
 
 char letraDe(Action a) {
     switch (a) {
-        case Action::CrearDirectorio: return 'D';
+        case Action::MakeDirectory: return 'D';
         case Action::Send:          return 'F';
-        case Action::Enlazar:         return 'L';
-        case Action::EnlazarDuro:     return 'H';
-        case Action::Borrar:          return 'X';
+        case Action::Symlink_:         return 'L';
+        case Action::HardLink_:     return 'H';
+        case Action::Delete:          return 'X';
     }
     return 'F';
 }
 
 bool accionDe(char c, Action& out) {
     switch (c) {
-        case 'D': out = Action::CrearDirectorio; return true;
+        case 'D': out = Action::MakeDirectory; return true;
         case 'F': out = Action::Send;          return true;
-        case 'L': out = Action::Enlazar;         return true;
-        case 'H': out = Action::EnlazarDuro;     return true;
-        case 'X': out = Action::Borrar;          return true;
+        case 'L': out = Action::Symlink_;         return true;
+        case 'H': out = Action::HardLink_;     return true;
+        case 'X': out = Action::Delete;          return true;
         default:  return false;
     }
 }
@@ -173,11 +173,11 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
         // fichero real en la lista y el fichero acababa marcado como enlace duro de sí
         // mismo. Sincronizar así habría destrozado cualquier árbol con enlaces dentro.
         Entry en;
-        en.ruta = conBarras(p.lexically_relative(base).generic_string());
-        if (en.ruta.empty() || en.ruta == ".") {
+        en.path = conBarras(p.lexically_relative(base).generic_string());
+        if (en.path.empty() || en.path == ".") {
             continue;
         }
-        if (esDelVolumen(en.ruta)) {
+        if (esDelVolumen(en.path)) {
             std::error_code eV;
             if (it->is_directory(eV)) {
                 it.disable_recursion_pending();
@@ -188,9 +188,9 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
         std::error_code e3;
         const bool esEnlace = fs::is_symlink(p, e3);
         if (esEnlace) {
-            en.tipo = EntryKind::Enlace;
+            en.kind = EntryKind::Symlink;
             std::error_code e4;
-            en.destino = conBarras(fs::read_symlink(p, e4).generic_string());
+            en.target = conBarras(fs::read_symlink(p, e4).generic_string());
             salida.push_back(en);
             // No se desciende por un enlace: se copia el enlace, no lo que hay al otro lado.
             if (it->is_directory(e4)) {
@@ -201,9 +201,9 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
 
         std::error_code e5;
         if (fs::is_directory(p, e5)) {
-            en.tipo = EntryKind::Directorio;
+            en.kind = EntryKind::Directory;
             bool okF = false;
-            en.fecha = fechaDe(p, okF);
+            en.mtime = fechaDe(p, okF);
 #ifndef _WIN32
             if (unSoloSistema && haySt) {
                 struct stat st {};
@@ -228,20 +228,20 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
             // `--devices`/`--specials`.
             continue;
         }
-        en.tipo = EntryKind::Fichero;
+        en.kind = EntryKind::File;
         std::error_code e7;
-        en.tamano = static_cast<std::uint64_t>(fs::file_size(p, e7));
+        en.size = static_cast<std::uint64_t>(fs::file_size(p, e7));
         if (e7) {
-            en.tamano = 0;
+            en.size = 0;
         }
         bool okF = false;
-        en.fecha = fechaDe(p, okF);
+        en.mtime = fechaDe(p, okF);
 #ifndef _WIN32
         struct stat st {};
         if (::lstat(p.c_str(), &st) == 0) {
-            en.modo = static_cast<std::uint32_t>(st.st_mode & 07777);
+            en.mode = static_cast<std::uint32_t>(st.st_mode & 07777);
             if (st.st_nlink > 1) {
-                identidad.emplace(en.ruta,
+                identidad.emplace(en.path,
                                   std::make_pair(static_cast<std::uint64_t>(st.st_dev),
                                                  static_cast<std::uint64_t>(st.st_ino)));
             }
@@ -251,7 +251,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
     }
 
     std::sort(salida.begin(), salida.end(),
-              [](const Entry& a, const Entry& b) { return a.ruta < b.ruta; });
+              [](const Entry& a, const Entry& b) { return a.path < b.path; });
 
 #ifndef _WIN32
     // Los enlaces duros se resuelven AHORA, sobre la lista ya ordenada, no durante el
@@ -265,18 +265,18 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
     // sí coincide en los dos lados.
     std::map<std::pair<std::uint64_t, std::uint64_t>, std::string> primero;
     for (Entry& e : salida) {
-        const auto it = identidad.find(e.ruta);
+        const auto it = identidad.find(e.path);
         if (it == identidad.end()) {
             continue;
         }
         const auto ya = primero.find(it->second);
         if (ya == primero.end()) {
-            primero.emplace(it->second, e.ruta);
+            primero.emplace(it->second, e.path);
             continue;
         }
-        e.tipo = EntryKind::EnlaceDuro;
-        e.destino = ya->second;
-        e.tamano = 0;
+        e.kind = EntryKind::HardLink;
+        e.target = ya->second;
+        e.size = 0;
     }
 #endif
     return true;
@@ -285,20 +285,20 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
 std::string serializeManifest(const std::vector<Entry>& entradas) {
     std::string out;
     for (const Entry& e : entradas) {
-        out += letraDe(e.tipo);
+        out += letraDe(e.kind);
         out += ' ';
-        out += std::to_string(e.tamano);
+        out += std::to_string(e.size);
         out += ' ';
-        out += std::to_string(e.fecha);
+        out += std::to_string(e.mtime);
         out += ' ';
-        out += std::to_string(e.modo);
+        out += std::to_string(e.mode);
         out += ' ';
-        out += std::to_string(e.ruta.size());
+        out += std::to_string(e.path.size());
         out += ' ';
-        out += std::to_string(e.destino.size());
+        out += std::to_string(e.target.size());
         out += '\n';
-        out += e.ruta;
-        out += e.destino;
+        out += e.path;
+        out += e.target;
     }
     out += "E\n";
     return out;
@@ -332,7 +332,7 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
             return false;
         }
         Entry e;
-        if (!tipoDe(letra, e.tipo)) {
+        if (!tipoDe(letra, e.kind)) {
             error = "tipo desconocido en el manifiesto: " + std::string(1, letra);
             return false;
         }
@@ -340,11 +340,11 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
             error = "manifiesto truncado en los nombres";
             return false;
         }
-        e.tamano = tam;
-        e.fecha = fecha;
-        e.modo = modo;
-        e.ruta = texto.substr(i, lr);
-        e.destino = texto.substr(i + lr, ld);
+        e.size = tam;
+        e.mtime = fecha;
+        e.mode = modo;
+        e.path = texto.substr(i, lr);
+        e.target = texto.substr(i + lr, ld);
         i += lr + ld;
         salida.push_back(e);
     }
@@ -357,52 +357,52 @@ Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destin
     Plan plan;
     std::map<std::string, const Entry*> enDestino;
     for (const Entry& e : destino) {
-        enDestino.emplace(e.ruta, &e);
+        enDestino.emplace(e.path, &e);
     }
 
     std::vector<std::string> vistas;
     vistas.reserve(origen.size());
     for (const Entry& e : origen) {
-        vistas.push_back(e.ruta);
-        const auto it = enDestino.find(e.ruta);
+        vistas.push_back(e.path);
+        const auto it = enDestino.find(e.path);
         const Entry* alli = (it == enDestino.end()) ? nullptr : it->second;
 
-        switch (e.tipo) {
-            case EntryKind::Directorio:
-                if (alli == nullptr || alli->tipo != EntryKind::Directorio) {
-                    plan.operaciones.push_back({Action::CrearDirectorio, e});
+        switch (e.kind) {
+            case EntryKind::Directory:
+                if (alli == nullptr || alli->kind != EntryKind::Directory) {
+                    plan.operations.push_back({Action::MakeDirectory, e});
                 } else {
-                    ++plan.iguales;
+                    ++plan.unchanged;
                 }
                 break;
-            case EntryKind::Enlace:
-                if (alli == nullptr || alli->tipo != EntryKind::Enlace || alli->destino != e.destino) {
-                    plan.operaciones.push_back({Action::Enlazar, e});
+            case EntryKind::Symlink:
+                if (alli == nullptr || alli->kind != EntryKind::Symlink || alli->target != e.target) {
+                    plan.operations.push_back({Action::Symlink_, e});
                 } else {
-                    ++plan.iguales;
+                    ++plan.unchanged;
                 }
                 break;
-            case EntryKind::EnlaceDuro:
+            case EntryKind::HardLink:
                 // Un enlace duro se rehace siempre que no esté ya como tal: comprobar que
                 // los dos nombres comparten inodo EN EL DESTINO costaría otro manifiesto,
                 // y rehacerlo es barato porque no mueve datos.
-                if (alli == nullptr || alli->tipo != EntryKind::EnlaceDuro
-                    || alli->destino != e.destino) {
-                    plan.operaciones.push_back({Action::EnlazarDuro, e});
+                if (alli == nullptr || alli->kind != EntryKind::HardLink
+                    || alli->target != e.target) {
+                    plan.operations.push_back({Action::HardLink_, e});
                 } else {
-                    ++plan.iguales;
+                    ++plan.unchanged;
                 }
                 break;
-            case EntryKind::Fichero:
+            case EntryKind::File:
                 // La misma regla que `copytree` en local: tamaño y fecha. La fecha va en
                 // segundos enteros porque es lo único que dos sistemas de ficheros
                 // distintos pueden comparar; ver el comentario de `Entry::fecha`.
-                if (alli != nullptr && alli->tipo == EntryKind::Fichero && alli->tamano == e.tamano
-                    && alli->fecha == e.fecha) {
-                    ++plan.iguales;
+                if (alli != nullptr && alli->kind == EntryKind::File && alli->size == e.size
+                    && alli->mtime == e.mtime) {
+                    ++plan.unchanged;
                 } else {
-                    plan.operaciones.push_back({Action::Send, e});
-                    plan.bytes += e.tamano;
+                    plan.operations.push_back({Action::Send, e});
+                    plan.bytes += e.size;
                 }
                 break;
         }
@@ -417,51 +417,51 @@ Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destin
     }
     std::vector<Entry> sobran;
     for (const Entry& e : destino) {
-        if (enOrigen.find(e.ruta) == enOrigen.end()) {
+        if (enOrigen.find(e.path) == enOrigen.end()) {
             sobran.push_back(e);
         }
     }
     // De más hondo a menos hondo: un directorio se borra DESPUÉS de lo que tiene dentro.
     std::sort(sobran.begin(), sobran.end(), [](const Entry& a, const Entry& b) {
-        const std::size_t ha = hondura(a.ruta);
-        const std::size_t hb = hondura(b.ruta);
+        const std::size_t ha = hondura(a.path);
+        const std::size_t hb = hondura(b.path);
         if (ha != hb) {
             return ha > hb;
         }
-        return a.ruta > b.ruta;
+        return a.path > b.path;
     });
     for (const Entry& e : sobran) {
-        plan.operaciones.push_back({Action::Borrar, e});
+        plan.operations.push_back({Action::Delete, e});
     }
     return plan;
 }
 
 std::string describe(const Operation& o) {
-    switch (o.accion) {
-        case Action::CrearDirectorio: return "cd+++++++++ " + o.entrada.ruta + "/";
-        case Action::Send:          return ">f+++++++++ " + o.entrada.ruta;
-        case Action::Enlazar:         return "cL+++++++++ " + o.entrada.ruta + " -> "
-                                             + o.entrada.destino;
-        case Action::EnlazarDuro:     return "hf+++++++++ " + o.entrada.ruta + " => "
-                                             + o.entrada.destino;
-        case Action::Borrar:          return "*deleting   " + o.entrada.ruta;
+    switch (o.action) {
+        case Action::MakeDirectory: return "cd+++++++++ " + o.entry.path + "/";
+        case Action::Send:          return ">f+++++++++ " + o.entry.path;
+        case Action::Symlink_:         return "cL+++++++++ " + o.entry.path + " -> "
+                                             + o.entry.target;
+        case Action::HardLink_:     return "hf+++++++++ " + o.entry.path + " => "
+                                             + o.entry.target;
+        case Action::Delete:          return "*deleting   " + o.entry.path;
     }
     return {};
 }
 
 std::string headerOf(const Operation& o) {
     std::string h;
-    h += letraDe(o.accion);
+    h += letraDe(o.action);
     h += ' ';
-    h += std::to_string(o.entrada.modo);
+    h += std::to_string(o.entry.mode);
     h += ' ';
-    h += std::to_string(o.entrada.fecha);
+    h += std::to_string(o.entry.mtime);
     h += ' ';
-    h += std::to_string(o.entrada.tamano);
+    h += std::to_string(o.entry.size);
     h += ' ';
-    h += std::to_string(o.entrada.ruta.size());
+    h += std::to_string(o.entry.path.size());
     h += ' ';
-    h += std::to_string(o.entrada.destino.size());
+    h += std::to_string(o.entry.target.size());
     h += '\n';
     return h;
 }
@@ -480,14 +480,14 @@ bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largo
         error = "cabecera ilegible: " + linea;
         return false;
     }
-    if (!accionDe(letra, salida.accion)) {
+    if (!accionDe(letra, salida.action)) {
         error = "acción desconocida: " + std::string(1, letra);
         return false;
     }
-    salida.entrada = Entry{};
-    salida.entrada.modo = modo;
-    salida.entrada.fecha = fecha;
-    salida.entrada.tamano = tam;
+    salida.entry = Entry{};
+    salida.entry.mode = modo;
+    salida.entry.mtime = fecha;
+    salida.entry.size = tam;
     largoRuta = lr;
     largoDestino = ld;
     return true;
@@ -582,10 +582,10 @@ bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Si
             break;
         }
         Signature fi;
-        fi.debil = rollingSum(buf.data(), n);
+        fi.weak = rollingSum(buf.data(), n);
         unsigned char h[SHA256_DIGEST_LENGTH];
         SHA256(buf.data(), n, h);
-        std::memcpy(fi.fuerte, h, sizeof(fi.fuerte));
+        std::memcpy(fi.strong, h, sizeof(fi.strong));
         salida.push_back(fi);
         if (n < tamBloque) {
             break;  // el último bloque puede ser corto
@@ -600,9 +600,9 @@ std::string serializeSignatures(const std::vector<Signature>& f) {
     out.reserve(f.size() * (4 + 16));
     for (const Signature& x : f) {
         for (int i = 0; i < 4; ++i) {
-            out.push_back(static_cast<char>((x.debil >> (8 * i)) & 0xff));
+            out.push_back(static_cast<char>((x.weak >> (8 * i)) & 0xff));
         }
-        out.append(reinterpret_cast<const char*>(x.fuerte), sizeof(x.fuerte));
+        out.append(reinterpret_cast<const char*>(x.strong), sizeof(x.strong));
     }
     return out;
 }
@@ -615,12 +615,12 @@ bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, s
     }
     for (std::size_t i = 0; i < datos.size(); i += 20) {
         Signature f;
-        f.debil = 0;
+        f.weak = 0;
         for (int k = 0; k < 4; ++k) {
-            f.debil |= static_cast<std::uint32_t>(static_cast<unsigned char>(datos[i + k]))
+            f.weak |= static_cast<std::uint32_t>(static_cast<unsigned char>(datos[i + k]))
                        << (8 * k);
         }
-        std::memcpy(f.fuerte, datos.data() + i + 4, sizeof(f.fuerte));
+        std::memcpy(f.strong, datos.data() + i + 4, sizeof(f.strong));
         salida.push_back(f);
     }
     return true;
@@ -644,7 +644,7 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
     // Suma débil → qué bloques la tienen. Varios pueden compartirla; por eso el hash fuerte.
     std::unordered_map<std::uint32_t, std::vector<std::size_t>> porDebil;
     for (std::size_t i = 0; i < firmas.size(); ++i) {
-        porDebil[firmas[i].debil].push_back(i);
+        porDebil[firmas[i].weak].push_back(i);
     }
 
     // El buffer lleva SIEMPRE al menos una ventana entera por delante mientras quede
@@ -678,8 +678,8 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
             return;
         }
         Instruction in;
-        in.tipo = InstructionKind::Literal;
-        in.datos = literal;
+        in.kind = InstructionKind::Literal;
+        in.data = literal;
         bytesLiterales += literal.size();
         salida.push_back(std::move(in));
         literal.clear();
@@ -723,9 +723,9 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
             // una para todos. Medido: 300 KB de un solo byte repetido daban 37
             // instrucciones; con esto, una.
             std::vector<std::size_t> candidatos = it->second;
-            if (!salida.empty() && salida.back().tipo == InstructionKind::Send) {
+            if (!salida.empty() && salida.back().kind == InstructionKind::Send) {
                 const std::size_t siguiente =
-                    static_cast<std::size_t>(salida.back().bloque + salida.back().cuantos);
+                    static_cast<std::size_t>(salida.back().block + salida.back().howMany);
                 for (std::size_t k = 0; k < candidatos.size(); ++k) {
                     if (candidatos[k] == siguiente) {
                         std::swap(candidatos[0], candidatos[k]);
@@ -734,20 +734,20 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
                 }
             }
             for (const std::size_t idx : candidatos) {
-                if (std::memcmp(firmas[idx].fuerte, h, sizeof(firmas[idx].fuerte)) != 0) {
+                if (std::memcmp(firmas[idx].strong, h, sizeof(firmas[idx].strong)) != 0) {
                     continue;
                 }
                 sueltaLiteral();
                 // Bloques seguidos se juntan en una sola instrucción: un fichero que no ha
                 // cambiado nada se resuelve con UNA, no con una por bloque.
-                if (!salida.empty() && salida.back().tipo == InstructionKind::Send
-                    && salida.back().bloque + salida.back().cuantos == idx) {
-                    ++salida.back().cuantos;
+                if (!salida.empty() && salida.back().kind == InstructionKind::Send
+                    && salida.back().block + salida.back().howMany == idx) {
+                    ++salida.back().howMany;
                 } else {
                     Instruction in;
-                    in.tipo = InstructionKind::Send;
-                    in.bloque = idx;
-                    in.cuantos = 1;
+                    in.kind = InstructionKind::Send;
+                    in.block = idx;
+                    in.howMany = 1;
                     salida.push_back(in);
                 }
                 ini += ventana;

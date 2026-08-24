@@ -8,9 +8,9 @@ namespace zfsmgr::base::transfer {
 
 const char* keyOf(Route c) {
     switch (c) {
-        case Route::TrabajoAsincrono: return "trabajo";
-        case Route::DaemonADaemon:    return "daemon-a-daemon";
-        case Route::TuberiaSsh:       return "tuberia-ssh";
+        case Route::AsyncJob: return "trabajo";
+        case Route::DaemonToDaemon:    return "daemon-a-daemon";
+        case Route::SshPipeline:       return "tuberia-ssh";
         case Route::None_:          return "ninguno";
     }
     return "ninguno";
@@ -23,17 +23,17 @@ const char* keyOf(Failure f) {
         case Failure::SourceIsNotSnapshot: return "origen-no-instantanea";
         case Failure::TargetIsNotDataset:    return "destino-no-dataset";
         case Failure::WindowsEndpoint:        return "extremo-windows";
-        case Failure::SinTrabajos:           return "sin-trabajos";
-        case Failure::ZfsDemasiadoViejo:     return "zfs-viejo";
+        case Failure::NoJobSupport:           return "sin-trabajos";
+        case Failure::ZfsTooOld:     return "zfs-viejo";
     }
     return "";
 }
 
 std::string labelOf(Route c) {
     switch (c) {
-        case Route::TrabajoAsincrono: return "como trabajo en el daemon";
-        case Route::DaemonADaemon:    return "de daemon a daemon";
-        case Route::TuberiaSsh:       return "por una tubería SSH";
+        case Route::AsyncJob: return "como trabajo en el daemon";
+        case Route::DaemonToDaemon:    return "de daemon a daemon";
+        case Route::SshPipeline:       return "por una tubería SSH";
         case Route::None_:          return "ninguno";
     }
     return {};
@@ -52,10 +52,10 @@ std::string labelOf(Failure f) {
         case Failure::WindowsEndpoint:
             return "no está disponible cuando algún extremo es Windows: hace falta "
                    "transmitir por una tubería, y el agente de Windows todavía no lo hace";
-        case Failure::SinTrabajos:
+        case Failure::NoJobSupport:
             return "hace falta que los dos daemons admitan trabajos en segundo plano, "
                    "porque quien lo pide no puede esperar a que termine";
-        case Failure::ZfsDemasiadoViejo:
+        case Failure::ZfsTooOld:
             return "alguno de los extremos usa un OpenZFS anterior al 2.3.3";
     }
     return {};
@@ -116,24 +116,24 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
 
     // Lo que no depende del camino va primero: no tiene sentido hablar de daemons cuando el
     // problema es que se está copiando algo sobre sí mismo.
-    if (origen.conexion == destino.conexion && origen.objeto == destino.objeto) {
-        p.fallo = Failure::SameObject;
+    if (origen.connection == destino.connection && origen.object == destino.object) {
+        p.failure = Failure::SameObject;
         return p;
     }
     if (!origen.isSnapshot()) {
-        p.fallo = Failure::SourceIsNotSnapshot;
+        p.failure = Failure::SourceIsNotSnapshot;
         return p;
     }
     if (destino.isSnapshot()) {
-        p.fallo = Failure::TargetIsNotDataset;
+        p.failure = Failure::TargetIsNotDataset;
         return p;
     }
 
     // La versión de ZFS antes que el camino: da igual por dónde vayan los bytes si el
     // formato del flujo no se entiende en el otro lado.
-    if (!versionSupportsTransfer(origen.versionZfs)
-        || !versionSupportsTransfer(destino.versionZfs)) {
-        p.fallo = Failure::ZfsDemasiadoViejo;
+    if (!versionSupportsTransfer(origen.zfsVersion)
+        || !versionSupportsTransfer(destino.zfsVersion)) {
+        p.failure = Failure::ZfsTooOld;
         return p;
     }
 
@@ -144,31 +144,31 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
     // retiró MSYS2. Encolarlo igualmente hacía que PowerShell devolviera su objeto de error
     // en XML y el usuario viera un «<Objs Version="1.1.0.1">…» que no guarda ninguna
     // relación aparente con la copia que había pedido.
-    if (origen.esWindows || destino.esWindows) {
-        p.fallo = Failure::WindowsEndpoint;
+    if (origen.isWindows || destino.isWindows) {
+        p.failure = Failure::WindowsEndpoint;
         return p;
     }
 
-    const bool hayLosDosDaemons = origen.tieneDaemon && destino.tieneDaemon;
-    const bool hayTrabajos = hayLosDosDaemons && origen.admiteTrabajos && destino.admiteTrabajos;
+    const bool hayLosDosDaemons = origen.hasDaemon && destino.hasDaemon;
+    const bool hayTrabajos = hayLosDosDaemons && origen.supportsJobs && destino.supportsJobs;
 
     if (hayTrabajos) {
-        p.caminos.push_back(Route::TrabajoAsincrono);
+        p.routes.push_back(Route::AsyncJob);
     }
     if (exigeAsincrono) {
         // Para quien no puede esperar, los otros dos no son un respaldo: son otra cosa que
         // no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
-        if (p.caminos.empty()) {
-            p.fallo = Failure::SinTrabajos;
+        if (p.routes.empty()) {
+            p.failure = Failure::NoJobSupport;
         }
         return p;
     }
     if (hayLosDosDaemons) {
-        p.caminos.push_back(Route::DaemonADaemon);
+        p.routes.push_back(Route::DaemonToDaemon);
     }
     // La tubería SSH no necesita daemon en ningún extremo: manda `zfs send` y `zfs recv`
     // por SSH. Es lo que queda cuando no hay daemon, y por eso siempre entra en la lista.
-    p.caminos.push_back(Route::TuberiaSsh);
+    p.routes.push_back(Route::SshPipeline);
     return p;
 }
 
@@ -194,14 +194,14 @@ Resume resumeToken(const std::string& objetivo, const std::string& salidaTsv) {
     // El del propio objetivo manda sobre los de sus descendientes.
     for (const auto& kv : conTestigo) {
         if (kv.first == diana) {
-            r.testigo = kv.second;
-            r.quienLoTiene = kv.first;
+            r.token = kv.second;
+            r.heldBy = kv.first;
             return r;
         }
     }
     if (!conTestigo.empty()) {
-        r.testigo = conTestigo.front().second;
-        r.quienLoTiene = conTestigo.front().first;
+        r.token = conTestigo.front().second;
+        r.heldBy = conTestigo.front().first;
     }
     return r;
 }
@@ -343,9 +343,9 @@ ReceiverListen readListen(const std::string& salida) {
     for (const std::string& linea : split(salida, "\n", true)) {
         const std::string l = trim(linea);
         if (startsWith(l, "PORT=")) {
-            e.puerto = std::atoi(trim(l.substr(5)).c_str());
+            e.port = std::atoi(trim(l.substr(5)).c_str());
         } else if (startsWith(l, "TOKEN=")) {
-            e.testigo = trim(l.substr(6));
+            e.token = trim(l.substr(6));
         }
     }
     return e;
@@ -365,15 +365,15 @@ std::string labelOf(JobFailure f) {
     switch (f) {
         case JobFailure::None_:
             return {};
-        case JobFailure::ReceptorNoEscucha:
+        case JobFailure::ReceiverNotListening:
             return "el daemon del destino no pudo ponerse a escuchar";
-        case JobFailure::RespuestaDeEscuchaNoVale:
+        case JobFailure::BadListenAnswer:
             return "el destino contestó algo que no es un puerto y un testigo";
-        case JobFailure::SinDireccionDeVuelta:
+        case JobFailure::NoReturnAddress:
             return "no se pudo averiguar con qué dirección ve el origen a este equipo";
-        case JobFailure::EmisorNoArranco:
+        case JobFailure::SenderDidNotStart:
             return "el daemon del origen no arrancó el envío";
-        case JobFailure::SinIdentificador:
+        case JobFailure::NoJobId:
             return "el origen arrancó el envío pero no dijo con qué identificador seguirlo";
     }
     return {};
@@ -399,7 +399,7 @@ std::string whereItConnects(TransportSession& ses, const ConnectionProfile& orig
     return trim(destino.host);
 }
 
-Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchJob(TransportSession& ses, const AgentCall& llama,
                      const ConnectionProfile& origen, const ConnectionProfile& destino,
                      const std::string& instantanea, const std::string& destinoDelRecv,
                      const std::string& desdeInstantanea, const std::string& banderas,
@@ -412,14 +412,14 @@ Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
     int rc = -1;
     if (!llama(destino, {"--zfs-recv-listen", destinoDelRecv, "1"}, 12000, salida, err, rc)
         || rc != 0) {
-        t.fallo = JobFailure::ReceptorNoEscucha;
-        t.detalle = trim(err.empty() ? salida : err);
+        t.failure = JobFailure::ReceiverNotListening;
+        t.detail = trim(err.empty() ? salida : err);
         return t;
     }
     const ReceiverListen escucha = readListen(salida);
-    if (!escucha.vale()) {
-        t.fallo = JobFailure::RespuestaDeEscuchaNoVale;
-        t.detalle = trim(salida);
+    if (!escucha.ok()) {
+        t.failure = JobFailure::BadListenAnswer;
+        t.detail = trim(salida);
         return t;
     }
 
@@ -427,7 +427,7 @@ Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
     const std::string haciaDonde = whereItConnects(ses, origen, destino, mismaConexion,
                                                      verboso);
     if (haciaDonde.empty()) {
-        t.fallo = JobFailure::SinDireccionDeVuelta;
+        t.failure = JobFailure::NoReturnAddress;
         return t;
     }
 
@@ -438,8 +438,8 @@ Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
         "--zfs-send-to-peer-async",
         reanudando ? std::string() : instantanea,
         haciaDonde,
-        std::to_string(escucha.puerto),
-        escucha.testigo,
+        std::to_string(escucha.port),
+        escucha.token,
         reanudando ? std::string() : trim(desdeInstantanea),
         reanudando ? std::string() : trim(banderas),
         trim(testigoReanudacion),
@@ -451,19 +451,19 @@ Job launchJob(TransportSession& ses, const LlamadaAlAgente& llama,
     err.clear();
     rc = -1;
     if (!llama(quienEnvia, args, 10000, salida, err, rc) || rc != 0) {
-        t.fallo = JobFailure::EmisorNoArranco;
-        t.detalle = trim(err.empty() ? salida : err);
+        t.failure = JobFailure::SenderDidNotStart;
+        t.detail = trim(err.empty() ? salida : err);
         return t;
     }
     t.id = readJobId(salida);
     if (t.id.empty()) {
-        t.fallo = JobFailure::SinIdentificador;
-        t.detalle = trim(salida);
+        t.failure = JobFailure::NoJobId;
+        t.detail = trim(salida);
     }
     return t;
 }
 
-Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
+Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
                             const ConnectionProfile& origen, const ConnectionProfile& destino,
                             const std::string& directorioOrigen,
                             const std::string& directorioDestino, bool mismaConexion,
@@ -471,8 +471,8 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
                             std::string* salidaDelEnvio) {
     Job t;
     if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
-        t.fallo = JobFailure::ReceptorNoEscucha;
-        t.detalle = "falta el directorio de origen o el de destino";
+        t.failure = JobFailure::ReceiverNotListening;
+        t.detail = "falta el directorio de origen o el de destino";
         return t;
     }
 
@@ -484,14 +484,14 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
     int rc = -1;
     if (!llama(destino, {"--tree-recv-listen", directorioDestino}, 30000, salida, err, rc)
         || rc != 0) {
-        t.fallo = JobFailure::ReceptorNoEscucha;
-        t.detalle = trim(err.empty() ? salida : err);
+        t.failure = JobFailure::ReceiverNotListening;
+        t.detail = trim(err.empty() ? salida : err);
         return t;
     }
     const ReceiverListen escucha = readListen(salida);
-    if (!escucha.vale()) {
-        t.fallo = JobFailure::RespuestaDeEscuchaNoVale;
-        t.detalle = trim(salida);
+    if (!escucha.ok()) {
+        t.failure = JobFailure::BadListenAnswer;
+        t.detail = trim(salida);
         return t;
     }
 
@@ -501,7 +501,7 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
     const std::string haciaDonde = whereItConnects(ses, origen, destino, mismaConexion,
                                                      verboso);
     if (haciaDonde.empty()) {
-        t.fallo = JobFailure::SinDireccionDeVuelta;
+        t.failure = JobFailure::NoReturnAddress;
         return t;
     }
 
@@ -517,8 +517,8 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
     args.push_back("--tree-send-to-peer");
     args.push_back(directorioOrigen);
     args.push_back(haciaDonde);
-    args.push_back(std::to_string(escucha.puerto));
-    args.push_back(escucha.testigo);
+    args.push_back(std::to_string(escucha.port));
+    args.push_back(escucha.token);
     if (borrarEnDestino) {
         args.push_back("--delete");
     }
@@ -534,8 +534,8 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
     // declararía fallida mientras sigue moviendo datos.
     const int plazo = comoTrabajo ? 60000 : 0;
     if (!llama(quienEnvia, args, plazo, salida, err, rc) || rc != 0) {
-        t.fallo = JobFailure::EmisorNoArranco;
-        t.detalle = trim(err.empty() ? salida : err);
+        t.failure = JobFailure::SenderDidNotStart;
+        t.detail = trim(err.empty() ? salida : err);
         return t;
     }
     if (salidaDelEnvio != nullptr) {
@@ -546,8 +546,8 @@ Job launchTreeJob(TransportSession& ses, const LlamadaAlAgente& llama,
     }
     t.id = readJobId(salida);
     if (t.id.empty()) {
-        t.fallo = JobFailure::SinIdentificador;
-        t.detalle = trim(salida);
+        t.failure = JobFailure::NoJobId;
+        t.detail = trim(salida);
     }
     return t;
 }
@@ -556,17 +556,17 @@ std::string labelOf(LevelFailure f) {
     switch (f) {
         case LevelFailure::None_:
             return {};
-        case LevelFailure::ObjetivoNoEstaEnOrigen:
+        case LevelFailure::TargetNotAtSource:
             return "la instantánea de origen ya no está en su dataset";
-        case LevelFailure::DestinoSinInstantaneas:
+        case LevelFailure::TargetHasNoSnapshots:
             return "el destino no tiene ninguna instantánea: no hay base común desde la que "
                    "seguir; para llevarlo entero, copie";
-        case LevelFailure::BaseNoEstaEnOrigen:
+        case LevelFailure::BaseNotAtSource:
             return "la última instantánea del destino no existe en el origen: son historias "
                    "distintas y no hay incremental posible";
-        case LevelFailure::DestinoMasNuevo:
+        case LevelFailure::TargetIsNewer:
             return "el destino tiene una instantánea más moderna que la que se quiere enviar";
-        case LevelFailure::YaNivelado:
+        case LevelFailure::AlreadyLevel:
             return "el destino ya está nivelado en esa instantánea";
     }
     return {};
@@ -576,21 +576,21 @@ LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
                           const std::vector<Snapshot>& destino,
                           const std::string& objetivo) {
     LevelPlan plan;
-    plan.objetivo = objetivo;
+    plan.objective = objetivo;
 
     std::size_t iObjetivo = origen.size();
     for (std::size_t i = 0; i < origen.size(); ++i) {
-        if (origen[i].nombre == objetivo) {
+        if (origen[i].name == objetivo) {
             iObjetivo = i;
             break;
         }
     }
     if (iObjetivo == origen.size()) {
-        plan.fallo = LevelFailure::ObjetivoNoEstaEnOrigen;
+        plan.failure = LevelFailure::TargetNotAtSource;
         return plan;
     }
     if (destino.empty()) {
-        plan.fallo = LevelFailure::DestinoSinInstantaneas;
+        plan.failure = LevelFailure::TargetHasNoSnapshots;
         return plan;
     }
 
@@ -609,18 +609,18 @@ LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
         }
     }
     if (iBase == origen.size()) {
-        plan.fallo = LevelFailure::BaseNoEstaEnOrigen;
+        plan.failure = LevelFailure::BaseNotAtSource;
         return plan;
     }
     if (iBase > iObjetivo) {
-        plan.fallo = LevelFailure::DestinoMasNuevo;
+        plan.failure = LevelFailure::TargetIsNewer;
         return plan;
     }
     if (iBase == iObjetivo) {
-        plan.fallo = LevelFailure::YaNivelado;
+        plan.failure = LevelFailure::AlreadyLevel;
         return plan;
     }
-    plan.base = origen[iBase].nombre;
+    plan.base = origen[iBase].name;
     return plan;
 }
 

@@ -975,8 +975,8 @@ int main() {
         namespace TR = zfsmgr::base::transfer;
         auto ext = [](const char* c, const char* o, bool win, bool dae, bool job) {
             TR::Endpoint e;
-            e.conexion = c; e.objeto = o;
-            e.esWindows = win; e.tieneDaemon = dae; e.admiteTrabajos = job;
+            e.connection = c; e.object = o;
+            e.isWindows = win; e.hasDaemon = dae; e.supportsJobs = job;
             return e;
         };
         const TR::Endpoint snapOk = ext("local", "p/d@lunes", false, true, true);
@@ -985,10 +985,10 @@ int main() {
         // El caso bueno: los dos con daemon y con trabajos. Se pueden probar los TRES, y
         // en ese orden.
         const TR::Plan buena = TR::makePlan(snapOk, dsOk, false);
-        comprobar(buena.sePuede() && buena.caminos.size() == 3, "transferencia: los tres caminos");
-        comprobar(buena.caminos.at(0) == TR::Route::TrabajoAsincrono
-                      && buena.caminos.at(1) == TR::Route::DaemonADaemon
-                      && buena.caminos.at(2) == TR::Route::TuberiaSsh,
+        comprobar(buena.ok() && buena.routes.size() == 3, "transferencia: los tres caminos");
+        comprobar(buena.routes.at(0) == TR::Route::AsyncJob
+                      && buena.routes.at(1) == TR::Route::DaemonToDaemon
+                      && buena.routes.at(2) == TR::Route::SshPipeline,
                   "transferencia: y en orden de preferencia");
 
         // **La tuberia SSH no necesita daemon en ningun extremo**: manda `zfs send` y
@@ -997,39 +997,39 @@ int main() {
         const TR::Endpoint sinNada = ext("unibody", "t/copias", false, false, false);
         const TR::Plan pelada = TR::makePlan(ext("local", "p/d@x", false, false, false), sinNada,
                                            false);
-        comprobar(pelada.sePuede() && pelada.caminos.size() == 1
-                      && pelada.caminos.at(0) == TR::Route::TuberiaSsh,
+        comprobar(pelada.ok() && pelada.routes.size() == 1
+                      && pelada.routes.at(0) == TR::Route::SshPipeline,
                   "transferencia: sin daemon en ninguno, queda la tuberia SSH");
 
         // Con daemon en los dos pero sin trabajos: se cae el asincrono y quedan dos.
         const TR::Endpoint sinJobs = ext("unibody", "t/copias", false, true, false);
         const TR::Plan dos = TR::makePlan(snapOk, sinJobs, false);
-        comprobar(dos.caminos.size() == 2 && dos.caminos.at(0) == TR::Route::DaemonADaemon,
+        comprobar(dos.routes.size() == 2 && dos.routes.at(0) == TR::Route::DaemonToDaemon,
                   "transferencia: sin trabajos, la interfaz aun tiene dos caminos");
 
         // Y para quien NO puede esperar, los otros dos no son un respaldo: son otra cosa
         // que no puede hacer. Mejor decir que no que empezar algo que se va a cortar.
-        comprobar(TR::makePlan(snapOk, sinJobs, true).fallo == TR::Failure::SinTrabajos,
+        comprobar(TR::makePlan(snapOk, sinJobs, true).failure == TR::Failure::NoJobSupport,
                   "transferencia: quien no puede esperar solo tiene el asincrono");
-        comprobar(TR::makePlan(snapOk, sinJobs, true).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, sinJobs, true).routes.empty(),
                   "transferencia: y no se le ofrece ninguno");
-        comprobar(TR::makePlan(snapOk, dsOk, true).caminos.size() == 1,
+        comprobar(TR::makePlan(snapOk, dsOk, true).routes.size() == 1,
                   "transferencia: con trabajos en los dos, si");
 
         // EL ORDEN de los noes. Windows corta TODO, no solo un camino: los dos primeros
         // necesitan tuberia y el tercero es un guion POSIX que alli no se ejecuta.
         const TR::Endpoint win = ext("oldlau", "wp/d", true, true, true);
-        comprobar(TR::makePlan(snapOk, win, false).fallo == TR::Failure::WindowsEndpoint,
+        comprobar(TR::makePlan(snapOk, win, false).failure == TR::Failure::WindowsEndpoint,
                   "transferencia: Windows corta aunque tenga daemon y trabajos");
-        comprobar(TR::makePlan(snapOk, win, false).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, win, false).routes.empty(),
                   "transferencia: y no deja ningun camino que probar");
         // Y lo que no depende del camino corta antes que Windows.
-        comprobar(TR::makePlan(ext("local", "p/d", false, true, true), win, false).fallo
+        comprobar(TR::makePlan(ext("local", "p/d", false, true, true), win, false).failure
                       == TR::Failure::SourceIsNotSnapshot,
                   "transferencia: «el origen no es instantanea» manda sobre Windows");
-        comprobar(TR::makePlan(snapOk, snapOk, false).fallo == TR::Failure::SameObject,
+        comprobar(TR::makePlan(snapOk, snapOk, false).failure == TR::Failure::SameObject,
                   "transferencia: el mismo objeto, lo primero de todo");
-        comprobar(TR::makePlan(snapOk, ext("unibody", "t/c@ya", false, true, true), false).fallo
+        comprobar(TR::makePlan(snapOk, ext("unibody", "t/c@ya", false, true, true), false).failure
                       == TR::Failure::TargetIsNotDataset,
                   "transferencia: no se recibe SOBRE una instantanea");
 
@@ -1037,7 +1037,7 @@ int main() {
         std::set<std::string> textos;
         for (const TR::Failure f : {TR::Failure::SameObject, TR::Failure::SourceIsNotSnapshot,
                                   TR::Failure::TargetIsNotDataset, TR::Failure::WindowsEndpoint,
-                                  TR::Failure::SinTrabajos}) {
+                                  TR::Failure::NoJobSupport}) {
             comprobar(!TR::labelOf(f).empty(), "transferencia: el motivo tiene texto");
             textos.insert(TR::labelOf(f));
         }
@@ -1054,14 +1054,14 @@ int main() {
             "t/copias/uno\t-\n"
             "t/copias/dos\t1-e7c3a...-token\n";
         const auto rHijo = TR::resumeToken("t/copias", enElHijo);
-        comprobar(rHijo.hay(), "transferencia: el testigo se encuentra en el DESCENDIENTE");
-        igual(rHijo.quienLoTiene, "t/copias/dos", "transferencia: y se dice en cual estaba");
+        comprobar(rHijo.any(), "transferencia: el testigo se encuentra en el DESCENDIENTE");
+        igual(rHijo.heldBy, "t/copias/dos", "transferencia: y se dice en cual estaba");
 
         // El del propio objetivo manda sobre los de sus descendientes.
         const std::string enLosDos =
             "t/copias\tTESTIGO-RAIZ\n"
             "t/copias/dos\tTESTIGO-HIJO\n";
-        igual(TR::resumeToken("t/copias", enLosDos).quienLoTiene, "t/copias",
+        igual(TR::resumeToken("t/copias", enLosDos).heldBy, "t/copias",
               "transferencia: el del objetivo manda sobre el del hijo");
 
         // --- lo que contestan los dos extremos al lanzar un trabajo
@@ -1075,20 +1075,20 @@ int main() {
                 "PORT=41235\n"
                 "TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
             const auto e = TR::readListen(bueno);
-            comprobar(e.vale() && e.puerto == 41235, "escucha: puerto y testigo");
-            igual(std::to_string(e.testigo.size()), "64", "escucha: el testigo mide 64");
+            comprobar(e.ok() && e.port == 41235, "escucha: puerto y testigo");
+            igual(std::to_string(e.token.size()), "64", "escucha: el testigo mide 64");
 
-            comprobar(!TR::readListen("PORT=41235\nTOKEN=corto\n").vale(),
+            comprobar(!TR::readListen("PORT=41235\nTOKEN=corto\n").ok(),
                       "escucha: un testigo corto NO vale");
             comprobar(!TR::readListen("TOKEN=0123456789abcdef0123456789abcdef"
-                                      "0123456789abcdef0123456789abcdef\n").vale(),
+                                      "0123456789abcdef0123456789abcdef\n").ok(),
                       "escucha: sin puerto tampoco");
             comprobar(!TR::readListen("PORT=0\nTOKEN=0123456789abcdef0123456789abcdef"
-                                      "0123456789abcdef0123456789abcdef\n").vale(),
+                                      "0123456789abcdef0123456789abcdef\n").ok(),
                       "escucha: el puerto cero no es un puerto");
-            comprobar(!TR::readListen("").vale(), "escucha: sin respuesta, nada");
+            comprobar(!TR::readListen("").ok(), "escucha: sin respuesta, nada");
             // Lineas de mas no estorban: el daemon puede escribir avisos por delante.
-            comprobar(TR::readListen("INFO algo\n" + bueno).vale(),
+            comprobar(TR::readListen("INFO algo\n" + bueno).ok(),
                       "escucha: lo que no reconoce se salta");
 
             igual(TR::readJobId("JOB_ID=2a538be8659bd62d\n"), "2a538be8659bd62d",
@@ -1103,9 +1103,9 @@ int main() {
             // emisor— y confundirlos manda a mirar donde no es.
             std::set<std::string> ft;
             for (const TR::JobFailure f :
-                 {TR::JobFailure::ReceptorNoEscucha, TR::JobFailure::RespuestaDeEscuchaNoVale,
-                  TR::JobFailure::SinDireccionDeVuelta, TR::JobFailure::EmisorNoArranco,
-                  TR::JobFailure::SinIdentificador}) {
+                 {TR::JobFailure::ReceiverNotListening, TR::JobFailure::BadListenAnswer,
+                  TR::JobFailure::NoReturnAddress, TR::JobFailure::SenderDidNotStart,
+                  TR::JobFailure::NoJobId}) {
                 comprobar(!TR::labelOf(f).empty(), "trabajo: el fallo tiene texto");
                 ft.insert(TR::labelOf(f));
             }
@@ -1173,10 +1173,10 @@ int main() {
         // Y entra en el plan ANTES que el camino: da igual por donde vayan los bytes si el
         // formato del flujo no se entiende en el otro lado.
         TR::Endpoint viejo = ext("unibody", "t/copias", false, true, true);
-        viejo.versionZfs = "2.2.7";
-        comprobar(TR::makePlan(snapOk, viejo, false).fallo == TR::Failure::ZfsDemasiadoViejo,
+        viejo.zfsVersion = "2.2.7";
+        comprobar(TR::makePlan(snapOk, viejo, false).failure == TR::Failure::ZfsTooOld,
                   "transferencia: un extremo con ZFS viejo corta el plan");
-        comprobar(TR::makePlan(snapOk, viejo, false).caminos.empty(),
+        comprobar(TR::makePlan(snapOk, viejo, false).routes.empty(),
                   "transferencia: y no deja ningun camino");
 
         // --- las banderas de `zfs send`
@@ -1215,13 +1215,13 @@ int main() {
               "sshclient: y un caracter que no toca lo descarta entero");
 
         // «-» es «no hay», no un testigo que se llama asi.
-        comprobar(!TR::resumeToken("t/copias", "t/copias\t-\n").hay(),
+        comprobar(!TR::resumeToken("t/copias", "t/copias\t-\n").any(),
                   "transferencia: «-» es que no hay ninguno");
-        comprobar(!TR::resumeToken("t/copias", "").hay(),
+        comprobar(!TR::resumeToken("t/copias", "").any(),
                   "transferencia: y sin salida tampoco hay");
         // Que el dataset no salga NO significa que no haya nada a medias: significa que aun
         // no existe, que es lo normal en una copia nueva.
-        comprobar(!TR::resumeToken("t/nuevo", "t/copias\t-\n").hay(),
+        comprobar(!TR::resumeToken("t/nuevo", "t/copias\t-\n").any(),
                   "transferencia: un destino que aun no existe no tiene testigo");
     }
 
@@ -1477,45 +1477,45 @@ int main() {
             // El caso normal: el destino llego hasta «martes», se manda de ahi a «jueves».
             const TRN::LevelPlan ok =
                 TRN::makeLevelPlan(orig, {{"lunes", "111"}, {"martes", "222"}}, "jueves");
-            comprobar(ok.sePuede(), "nivelar: hay incremental");
+            comprobar(ok.ok(), "nivelar: hay incremental");
             comprobar(ok.base == "martes", "nivelar: la base es la ultima del destino");
-            comprobar(ok.objetivo == "jueves", "nivelar: hasta la pedida");
+            comprobar(ok.objective == "jueves", "nivelar: hasta la pedida");
 
             // El GUID manda sobre el nombre. Aqui el destino tiene un «martes» que NO es el
             // del origen —lo creo otro—, asi que no hay base comun aunque el nombre coincida.
             const TRN::LevelPlan impostor =
                 TRN::makeLevelPlan(orig, {{"martes", "999"}}, "jueves");
-            comprobar(impostor.fallo == TRN::LevelFailure::BaseNoEstaEnOrigen,
+            comprobar(impostor.failure == TRN::LevelFailure::BaseNotAtSource,
                       "nivelar: un nombre igual con otro guid NO es base comun");
 
             // Sin snapshots en el destino no hay desde donde seguir.
-            comprobar(TRN::makeLevelPlan(orig, {}, "jueves").fallo
-                          == TRN::LevelFailure::DestinoSinInstantaneas,
+            comprobar(TRN::makeLevelPlan(orig, {}, "jueves").failure
+                          == TRN::LevelFailure::TargetHasNoSnapshots,
                       "nivelar: destino vacio no se nivela, se copia");
 
             // El destino va POR DELANTE de lo que se quiere enviar: se para.
-            comprobar(TRN::makeLevelPlan(orig, {{"miercoles", "333"}}, "martes").fallo
-                          == TRN::LevelFailure::DestinoMasNuevo,
+            comprobar(TRN::makeLevelPlan(orig, {{"miercoles", "333"}}, "martes").failure
+                          == TRN::LevelFailure::TargetIsNewer,
                       "nivelar: no se pisa un destino mas moderno");
 
             // Ya esta al dia: no hay nada que mandar, y decirlo es mejor que mandar cero.
-            comprobar(TRN::makeLevelPlan(orig, {{"jueves", "444"}}, "jueves").fallo
-                          == TRN::LevelFailure::YaNivelado,
+            comprobar(TRN::makeLevelPlan(orig, {{"jueves", "444"}}, "jueves").failure
+                          == TRN::LevelFailure::AlreadyLevel,
                       "nivelar: ya nivelado");
 
             // Y la que se pide tiene que existir en el origen.
-            comprobar(TRN::makeLevelPlan(orig, {{"lunes", "111"}}, "viernes").fallo
-                          == TRN::LevelFailure::ObjetivoNoEstaEnOrigen,
+            comprobar(TRN::makeLevelPlan(orig, {{"lunes", "111"}}, "viernes").failure
+                          == TRN::LevelFailure::TargetNotAtSource,
                       "nivelar: el objetivo tiene que existir");
 
             // Cada motivo con su texto, y ninguno repetido: es lo que se pinta.
             std::set<std::string> textosN;
             const std::vector<TRN::LevelFailure> fallos = {
-                TRN::LevelFailure::ObjetivoNoEstaEnOrigen,
-                TRN::LevelFailure::DestinoSinInstantaneas,
-                TRN::LevelFailure::BaseNoEstaEnOrigen,
-                TRN::LevelFailure::DestinoMasNuevo,
-                TRN::LevelFailure::YaNivelado};
+                TRN::LevelFailure::TargetNotAtSource,
+                TRN::LevelFailure::TargetHasNoSnapshots,
+                TRN::LevelFailure::BaseNotAtSource,
+                TRN::LevelFailure::TargetIsNewer,
+                TRN::LevelFailure::AlreadyLevel};
             for (const TRN::LevelFailure f : fallos) {
                 const std::string t = TRN::labelOf(f);
                 comprobar(!t.empty(), "nivelar: el motivo tiene texto");
@@ -1970,7 +1970,7 @@ int main() {
             std::filesystem::remove_all(dirC);
         }
 
-        // --- Borrar: de los DOS ficheros, o la conexion RESUCITA.
+        // --- Delete: de los DOS ficheros, o la conexion RESUCITA.
         //
         // Desde que una entrada huerfana del almacen se convierte en conexion, dejar la
         // suya atras no es suciedad: es que vuelve a la lista en el siguiente arranque.
@@ -2878,74 +2878,74 @@ int main() {
                                        {"org.fc16.gsa:horario", ""}},
                                       p, m),
                   "gsa: se leen las propiedades");
-        comprobar(p.activado && p.diario == 7 && p.horario == 0,
+        comprobar(p.enabled && p.daily == 7 && p.hourly == 0,
                   "gsa: vacío es 0 y «on» es activado");
-        comprobar(G::fromProperties({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.activado,
+        comprobar(G::fromProperties({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.enabled,
                   "gsa: el nombre de la propiedad no distingue mayúsculas");
-        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.activado,
+        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.enabled,
                   "gsa: un booleano que no se entiende es «off», que es lo conservador");
         comprobar(!G::fromProperties({{"org.fc16.gsa:diario", "7d"}}, p, m),
                   "gsa: «7d» NO es una retención");
-        comprobar(m.fallo == G::Failure::RetencionNoEntera && m.detalle == "org.fc16.gsa:diario",
+        comprobar(m.failure == G::Failure::RetentionNotAnInteger && m.detail == "org.fc16.gsa:diario",
                   "gsa: y se dice cuál de las cinco");
         comprobar(!G::fromProperties({{"org.fc16.gsa:anual", "-1"}}, p, m),
                   "gsa: una retención negativa tampoco");
 
         // Ida y vuelta: lo escrito se vuelve a leer igual.
         G::Schedule q;
-        q.activado = true; q.recursivo = true; q.diario = 7; q.destino = "oldlau::tank/copias";
+        q.enabled = true; q.recursive = true; q.daily = 7; q.target = "oldlau::tank/copias";
         G::Schedule vuelta;
         comprobar(G::fromProperties(G::toProperties(q), vuelta, m),
                   "gsa: lo escrito se vuelve a leer");
-        comprobar(vuelta.activado && vuelta.recursivo && vuelta.diario == 7
-                      && vuelta.destino == "oldlau::tank/copias",
+        comprobar(vuelta.enabled && vuelta.recursive && vuelta.daily == 7
+                      && vuelta.target == "oldlau::tank/copias",
                   "gsa: y llega igual");
 
         // Las reglas, una a una, con su control.
         G::Schedule base;
-        base.activado = true; base.diario = 7;
+        base.enabled = true; base.daily = 7;
         comprobar(G::isValid("tank/datos", base, siempreExiste, m), "gsa: la mínima válida vale");
 
-        G::Schedule sinRet = base; sinRet.diario = 0;
+        G::Schedule sinRet = base; sinRet.daily = 0;
         comprobar(!G::isValid("tank/datos", sinRet, siempreExiste, m),
                   "gsa: activada y sin retenciones NO vale");
-        comprobar(m.fallo == G::Failure::ActivadaSinRetencion && m.dataset == "tank/datos",
+        comprobar(m.failure == G::Failure::EnabledWithNoRetention && m.dataset == "tank/datos",
                   "gsa: con su motivo y su dataset");
 
-        G::Schedule apagadaSinRet = sinRet; apagadaSinRet.activado = false;
+        G::Schedule apagadaSinRet = sinRet; apagadaSinRet.enabled = false;
         comprobar(G::isValid("tank/datos", apagadaSinRet, siempreExiste, m),
                   "gsa: apagada y sin retenciones SÍ vale: no hace nada");
 
-        G::Schedule nivelar = base; nivelar.nivelar = true;
+        G::Schedule nivelar = base; nivelar.level = true;
         comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: nivelar sin destino NO vale");
-        comprobar(m.fallo == G::Failure::NivelarSinDestino, "gsa: y lo dice");
+        comprobar(m.failure == G::Failure::LevelWithNoTarget, "gsa: y lo dice");
 
-        nivelar.destino = "tank/copias";
+        nivelar.target = "tank/copias";
         comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: un destino sin «::» NO vale");
-        comprobar(m.fallo == G::Failure::DestinoMalFormado, "gsa: y lo dice");
+        comprobar(m.failure == G::Failure::MalformedTarget, "gsa: y lo dice");
 
-        nivelar.destino = "oldlau::tank/copias";
+        nivelar.target = "oldlau::tank/copias";
         comprobar(G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: con conexión que existe, vale");
         comprobar(!G::isValid("tank/datos", nivelar, nuncaExiste, m),
                   "gsa: si la conexión no existe, NO vale");
-        comprobar(m.fallo == G::Failure::DestinoSinConexion && m.detalle == "oldlau",
+        comprobar(m.failure == G::Failure::TargetHasNoConnection && m.detail == "oldlau",
                   "gsa: y se nombra la conexión que falta");
 
         // Y el conjunto.
-        G::Schedule rec = base; rec.recursivo = true;
+        G::Schedule rec = base; rec.recursive = true;
         std::vector<G::Entry> juego{{"tank/datos", rec}, {"tank/datos/hijo", base}};
         comprobar(!G::isValidSet(juego, m), "gsa: un hijo bajo una recursiva choca");
-        comprobar(m.fallo == G::Failure::ChocaConRecursiva && m.dataset == "tank/datos/hijo"
-                      && m.detalle == "tank/datos",
+        comprobar(m.failure == G::Failure::ClashesWithRecursive && m.dataset == "tank/datos/hijo"
+                      && m.detail == "tank/datos",
                   "gsa: y se dice quién con quién");
         comprobar(G::isValidSet({{"tank/datos", base}, {"tank/datos/hijo", base}}, m),
                   "gsa: sin recursiva no chocan");
         comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/otro", base}}, m),
                   "gsa: y un hermano tampoco");
-        G::Schedule apagada = base; apagada.activado = false;
+        G::Schedule apagada = base; apagada.enabled = false;
         comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/datos/hijo", apagada}}, m),
                   "gsa: con el hijo apagado no hay choque: no hace instantáneas");
         // Y que «datosviejos» no cuente como hijo de «datos» por empezar igual.

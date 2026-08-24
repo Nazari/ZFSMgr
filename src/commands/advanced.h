@@ -3,176 +3,178 @@
 #include <string>
 #include <vector>
 
-// Las cuatro acciones que mueven CONTENIDO entre datasets y directorios.
+// The four actions that move CONTENT between datasets and directories.
 //
-//   Desglosar   un subdirectorio se convierte en un dataset hijo que ocupa su lugar
-//   Ensamblar   lo contrario: un dataset hijo vuelve a ser un directorio
-//   Hacia Dir   el contenido del dataset se vuelca en un directorio llano
-//   Desde Dir   un directorio —quizá de otra máquina— se vuelca DENTRO del dataset
+//   Breakdown   a subdirectory becomes a child dataset that takes its place
+//   Assemble    the opposite: a child dataset goes back to being a directory
+//   ToDir       the dataset's content is poured into a plain directory
+//   FromDir     a directory —perhaps on another machine— is poured INTO the dataset
 //
-// **Qué hace este módulo y por qué existe.** Aquí se compone el argv de cada una y viven
-// sus reglas. Antes cada cliente lo armaba por su cuenta: el intérprete en `cli/shell.cpp`,
-// el servidor en `web/main.cpp` y la interfaz en `native/mainwindow_advanced*.cpp`. Tres
-// veces la misma orden, y con ella tres veces —o ninguna— sus reglas.
+// **What this module does and why it exists.** This is where each one's argv is composed and
+// where their rules live. Each client used to assemble it on its own: the shell in
+// `cli/shell.cpp`, the server in `web/main.cpp` and the interface in
+// `native/mainwindow_advanced*.cpp`. The same command three times, and with it its rules
+// three times —or not at all—.
 //
-// No es una preocupación teórica. La regla de `assemble` de más abajo se descubrió
-// EJECUTANDO, después de que la operación dijera que había funcionado sin hacer nada, y
-// acabó escrita en un comentario del intérprete, otra vez en el del servidor, y resuelta de
-// una tercera manera en la interfaz. Un sitio donde ponerla es lo que faltaba.
+// This is not a theoretical worry. The `assemble` rule below was discovered by RUNNING it,
+// after the operation reported success having done nothing, and it ended up written in a
+// comment in the shell, again in the server's, and solved a third way in the interface. A
+// single place to put it was what was missing.
 namespace zfsmgr::commands::advanced {
 
-// --- Desglosar ---------------------------------------------------------------
+// --- Breakdown ---------------------------------------------------------------
 //
-// Cada par dice: QUÉ subdirectorio y QUÉ dataset hijo pasa a ocupar su sitio.
+// Each pair says: WHICH subdirectory, and WHICH child dataset takes its place.
 struct Breakdown {
-    std::string subdirectorio;  // relativo al punto de montaje del dataset
-    std::string datasetNuevo;   // relativo al dataset padre
+    std::string subdirectory;  // relative to the dataset's mountpoint
+    std::string newDataset;    // relative to the parent dataset
 };
 
 // `--mutate-advanced-breakdown <dataset> <subdir> <nuevo> [<subdir> <nuevo>...]`
 //
-// Devuelve vacío si no hay ningún par utilizable: el verbo con solo el dataset detrás no
-// hace nada, y mandarlo sería pedirle al daemon que decida algo que aquí ya se sabe.
+// Empty when there is no usable pair: the verb with nothing but the dataset behind it does
+// nothing, and sending it would be asking the daemon to decide something already known here.
 std::vector<std::string> argvBreakdown(const std::string& dataset,
-                                       const std::vector<Breakdown>& pares);
+                                       const std::vector<Breakdown>& pairs);
 
-// --- Ensamblar ---------------------------------------------------------------
+// --- Assemble ----------------------------------------------------------------
 
-// El nombre COMPLETO de un hijo, a partir de lo que haya escrito quien llama.
+// A child's FULL name, from whatever the caller wrote.
 //
-// **Esta es la regla que cuesta descubrir.** El agente comprueba cada hijo con
-// `zfs list <hijo>`, así que un nombre relativo —«fotos» en vez de «tank/datos/fotos»— no
-// existe para él. Y no fallaba: la operación se saldaba con «ya absorbido» y **rc=0**, o
-// sea que decía que sí y no había hecho nada. Se vio en vivo, no leyendo.
+// **This is the rule that takes finding.** The agent checks each child with
+// `zfs list <child>`, so a relative name —«photos» instead of «tank/data/photos»— does not
+// exist as far as it is concerned. And it did not fail: the operation settled with «already
+// absorbed» and **rc=0**, that is, it said yes and had done nothing. It was seen by running,
+// not by reading.
 //
-// Un nombre que ya lleve barra se respeta tal cual: puede ser un nieto
-// («tank/datos/fotos/2024») y completarlo otra vez lo rompería.
-std::string childWithFullName(const std::string& dataset, const std::string& hijo);
+// A name that already carries a slash is honoured as-is: it may be a grandchild
+// («tank/data/photos/2024»), and completing it again would break it.
+std::string childWithFullName(const std::string& dataset, const std::string& child);
 
-// `--mutate-advanced-assemble <dataset> <hijo-completo> [<hijo-completo>...]`
+// `--mutate-advanced-assemble <dataset> <full-child> [<full-child>...]`
 //
-// Los hijos pasan por `childWithFullName`. Vacío si no queda ninguno.
+// The children go through `childWithFullName`. Empty when none is left.
 std::vector<std::string> argvAssemble(const std::string& dataset,
-                                       const std::vector<std::string>& hijos);
+                                       const std::vector<std::string>& children);
 
-// --- Hacia Dir ---------------------------------------------------------------
+// --- ToDir -------------------------------------------------------------------
 //
 // `--mutate-advanced-todir <dataset> <directorio> <0|1>`
 //
-// El último argumento es si se DESTRUYE el dataset de origen al terminar. Va como «0» o «1»
-// y no como bandera con nombre porque así lo lee el verbo; que sea un booleano en esta
-// interfaz y no una cadena es justo lo que evita que alguien mande «true» y destruya, o «no»
-// y también destruya.
-std::vector<std::string> argvToDir(const std::string& dataset, const std::string& directorio,
-                                      bool destruyeOrigen);
+// The last argument is whether the source dataset is DESTROYED when it finishes. It goes as
+// «0» or «1» and not as a named flag because that is how the verb reads it; that it is a
+// boolean in this interface and not a string is precisely what stops someone sending «true»
+// and destroying, or «no» and destroying too.
+std::vector<std::string> argvToDir(const std::string& dataset, const std::string& directory,
+                                      bool destroySource);
 
-// ¿Sirve esta ruta como destino de «Hacia Dir»?
+// Is this path usable as a «ToDir» target?
 //
-// Tiene que ser absoluta. Una relativa la interpretaría el daemon desde SU directorio de
-// trabajo, que no es el de quien la escribió: el volcado acabaría en un sitio que nadie
-// eligió.
-bool isValidDestinationPath(const std::string& directorio);
+// It has to be absolute. A relative one would be interpreted by the daemon from ITS working
+// directory, which is not the one belonging to whoever wrote it: the dump would end up
+// somewhere nobody chose.
+bool isValidDestinationPath(const std::string& directory);
 
-// --- Desde Dir ---------------------------------------------------------------
+// --- FromDir -----------------------------------------------------------------
 //
-// **Es la única de las cuatro que no puede ser un RPC**, y no por descuido: el verbo del
-// agente lee un tar por la entrada estándar, y el canal RPC no tiene entrada estándar. Así
-// que se arma una tubería con las dos puntas por SSH y la máquina de quien manda en medio,
-// que es la que tiene las credenciales de las dos. Lo dice el propio daemon en el comentario
-// de `runMutateAdvancedFromDir`.
+// **It is the only one of the four that cannot be an RPC**, and not by oversight: the
+// agent's verb reads a tar off standard input, and the RPC channel has no standard input. So
+// a pipeline is built with both ends over SSH and the machine of whoever is driving in the
+// middle, since that is the one holding both sets of credentials. The daemon says so itself
+// in the comment on `runMutateAdvancedFromDir`.
 //
-// Lo que sí es de aquí son sus REGLAS, que hasta ahora vivían dentro de una función de la
-// interfaz y no las tenía nadie más.
+// What does belong here are its RULES, which until now lived inside an interface function
+// and belonged to nobody else.
 
-// ¿Vale este subdirectorio relativo como destino dentro del dataset?
+// Is this relative subdirectory usable as a target inside the dataset?
 //
-// Lo comprobaba solo el daemon, y **después de que el tar ya estuviera corriendo**: para
-// entonces la mitad del contenido puede haber salido de la máquina de origen. Aquí se
-// comprueba antes de abrir la tubería.
+// Only the daemon checked it, and **after the tar was already running**: by then half the
+// content may have left the source machine. Here it is checked before the pipe is opened.
 //
-// Vacío SÍ vale: significa la raíz del dataset.
+// Empty IS valid: it means the root of the dataset.
 bool isValidRelativeSubdir(const std::string& rel);
 
 // `--mutate-advanced-fromdir <dataset> [<rel>]`
 //
-// El `rel` solo se pone si no está vacío: el verbo lo trata como opcional y mandarle una
-// cadena vacía detrás es pedirle que decida qué significa.
+// `rel` is only added when it is not empty: the verb treats it as optional, and sending it
+// an empty string behind is asking it to decide what that means.
 std::vector<std::string> argvFromDir(const std::string& dataset, const std::string& rel);
 
-// De dónde sale un contenido: el directorio y la máquina en la que está.
+// Where a content comes from: the directory and the machine it is on.
 struct FromDirSource {
-    std::string ruta;      // tal como lo dio quien llama
-    std::string maquina;   // el nombre de la conexión de la que sale
-    bool windows{false};   // si sus separadores son «\\»
+    std::string path;      // exactly as the caller gave it
+    std::string machine;   // the name of the connection it comes from
+    bool windows{false};   // whether its separators are «\\»
 };
 
-// Dónde cae cada origen DENTRO del dataset: un subdirectorio relativo por origen, en el
-// mismo orden. Vacío significa la raíz.
+// Where each source lands INSIDE the dataset: one relative subdirectory per source, in the
+// same order. Empty means the root.
 //
-// La regla:
-//   - un solo origen   -> su CONTENIDO va a la raíz del dataset;
-//   - varios           -> cada uno a un subdirectorio con el nombre de su directorio;
-//   - si dos coinciden -> se antepone el nombre de su máquina.
+// The rule:
+//   - a single source  -> its CONTENT goes to the root of the dataset;
+//   - several          -> each to a subdirectory named after its directory;
+//   - if two collide   -> its machine's name is prefixed.
 //
-// **Y el resultado se garantiza ÚNICO**, que es lo que no se cumplía. Anteponer la máquina
-// solo desempata cuando las máquinas son distintas: dos directorios llamados «docs» de la
-// MISMA conexión daban los dos «fc16-docs», y el segundo tar se extraía encima del primero.
-// En una operación cuyo trabajo es copiar, eso es perder datos sin decir nada.
+// **And the result is GUARANTEED UNIQUE**, which is what did not hold. Prefixing the machine
+// only breaks the tie when the machines differ: two directories called «docs» on the SAME
+// connection both produced «fc16-docs», and the second tar extracted on top of the first. In
+// an operation whose job is copying, that is losing data without saying so.
 //
-// El nombre resultante se limpia además de lo que no puede ser un nombre de directorio: un
-// nombre de conexión con una barra dentro habría creado un nivel de más, y un «..» habría
-// sacado el volcado fuera del dataset —lo habría parado el daemon, pero con el tar ya en
-// marcha—.
-std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& origenes);
+// The resulting name is also stripped of whatever cannot be a directory name: a connection
+// name with a slash inside would have created an extra level, and a «..» would have taken
+// the dump outside the dataset —the daemon would have stopped it, but with the tar already
+// running—.
+std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& sources);
 
 // `--mutate-advanced-fromdir-prepare <dataset> [<rel>]`
 //
-// La PRIMERA MITAD de Desde Dir: montar, resolver el punto de montaje, crear el
-// subdirectorio y decir en qué ruta absoluta quedó. Sin el tar.
+// The FIRST HALF of FromDir: mount, resolve the mountpoint, create the subdirectory and say
+// which absolute path it ended up at. Without the tar.
 //
-// **Es lo que permite hacer Desde Dir sin tubería de shell.** `--tree-recv-listen`, el
-// receptor del árbol entre daemons, exige que el directorio ya exista; por eso el servidor
-// web solo sabe volcar a la raíz del dataset. Con esto delante, el árbol también sirve para
-// un subdirectorio, y entonces los datos van de máquina a máquina en vez de pasar por el
-// equipo de quien manda.
+// **This is what makes FromDir possible with no shell pipeline.** `--tree-recv-listen`, the
+// receiver of the daemon-to-daemon tree, requires the directory to exist already; that is
+// why one client only knew how to dump into the root of the dataset. With this in front, the
+// tree also works for a subdirectory, and then the data goes machine to machine instead of
+// passing through the driver's own computer.
 std::vector<std::string> argvFromDirPrepare(const std::string& dataset, const std::string& rel);
 
-// La ruta que contesta ese verbo: una línea «DST=<ruta absoluta>». Vacío si no la trae.
-std::string preparedPath(const std::string& salida);
+// The path that verb answers with: one «DST=<absolute path>» line. Empty when it is absent.
+std::string preparedPath(const std::string& output);
 
-// ¿Puede esta pareja hacer Desde Dir por el árbol entre daemons, sin tubería?
+// Can this pair do FromDir over the daemon-to-daemon tree, with no pipeline?
 //
-// Hacen falta las DOS puntas con daemon: el destino para preparar y escuchar, y el origen
-// para enviar. El camino del tar solo pide daemon en el destino —al origen le basta SSH—,
-// así que esto NO lo sustituye: lo adelanta cuando se puede y deja el otro de respaldo.
+// BOTH ends need a daemon: the target to prepare and listen, the source to send. The tar
+// path only asks for a daemon at the target —SSH is enough at the source—, so this does NOT
+// replace it: it takes precedence when it can and leaves the other as the fallback.
 //
-// La otra razón para conservar el respaldo no se ve desde aquí: el árbol abre un puerto
-// efímero en el destino y el origen conecta a él. Donde haya un cortafuegos entre las dos
-// máquinas, SSH pasa y esto no.
-bool canUseTreeTransfer(bool origenTieneDaemon, bool destinoTieneDaemon);
+// The other reason for keeping the fallback is not visible from here: the tree opens an
+// ephemeral port at the target and the source connects to it. Wherever there is a firewall
+// between the two machines, SSH gets through and this does not.
+bool canUseTreeTransfer(bool sourceHasDaemon, bool targetHasDaemon);
 
-// ── Subárboles de ficheros ───────────────────────────────────────────────────
+// ── File subtrees ────────────────────────────────────────────────────────────
 
-// Las rutas que nombra un `#content/...`, expandiendo la notación de llaves.
+// The paths a `#content/...` names, expanding the brace notation.
 //
-//     ""                 -> {""}            todo el árbol
+//     ""                 -> {""}            the whole tree
 //     "sub"              -> {"sub"}
 //     "{a,b,dir}"        -> {"a", "b", "dir"}
 //     "docs/{2024,2025}" -> {"docs/2024", "docs/2025"}
 //
-// Las llaves se expanden AQUÍ y no en el analizador de URL a propósito: convertir una URL
-// en varias cambiaría el contrato de `parseZfsmUrl` para todos sus usuarios, y esto solo lo
-// necesita quien trabaja con árboles de ficheros.
+// The braces are expanded HERE and not in the URL parser on purpose: turning one URL into
+// several would change the contract of `parseZfsmUrl` for all of its users, and only whoever
+// works with file trees needs this.
 //
-// Una llave vacía, sin cerrar o anidada devuelve la lista vacía: es un error de escritura y
-// adivinar qué se quiso decir es peor que decirlo.
-std::vector<std::string> contentPaths(const std::string& ruta);
+// A brace group that is empty, unclosed or nested returns an empty list: it is a typing
+// mistake, and guessing what was meant is worse than saying so.
+std::vector<std::string> contentPaths(const std::string& path);
 
-// ¿Se queda esta ruta relativa DENTRO del árbol del que cuelga?
+// Does this relative path stay INSIDE the tree it hangs from?
 //
-// Vacía sí: es la raíz. Absoluta no, y con `..` tampoco —ni al principio ni en medio—:
-// `sub/../../etc` sale del punto de montaje, y quien lo ejecuta es un proceso que corre
-// como root. El daemon no lo comprueba para rsync: solo exige que la ruta sea absoluta.
-bool isValidContentPath(const std::string& ruta);
+// Empty does: it is the root. Absolute does not, and neither does one with `..` —not at the
+// start nor in the middle—: `sub/../../etc` leaves the mountpoint, and what runs it is a
+// process running as root. The daemon does not check this for rsync: it only requires the
+// path to be absolute.
+bool isValidContentPath(const std::string& path);
 
 }  // namespace zfsmgr::commands::advanced

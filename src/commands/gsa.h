@@ -6,129 +6,129 @@
 #include <utility>
 #include <vector>
 
-// Las instantáneas PROGRAMADAS (GSA): qué son y qué es válido.
+// SCHEDULED snapshots (GSA): what they are and what is valid.
 //
-// La programación de un dataset no vive en un fichero del programa: son PROPIEDADES DE
-// USUARIO del propio dataset, con prefijo `org.fc16.gsa:`. Quien las ejecuta es otro
-// agente —`/usr/local/libexec/zfsmgr-gsa.sh`, con su temporizador— y ni la interfaz ni el
-// intérprete intervienen en eso: los dos se limitan a leer y escribir propiedades.
+// A dataset's schedule does not live in a file belonging to this program: it is made of USER
+// PROPERTIES on the dataset itself, prefixed `org.fc16.gsa:`. What runs them is a different
+// agent —`/usr/local/libexec/zfsmgr-gsa.sh`, with its timer— and neither the interface nor
+// the shell takes part in that: both do nothing but read and write properties.
 //
-// **Por qué esto está en la capa base y no en la interfaz.** Las reglas vivían dentro de
-// `MainWindow::validatePendingGsaDrafts`, en Qt, y en ningún sitio más. En cuanto el
-// intérprete quisiera programar —y ya puede: `set org.fc16.gsa:diario=7` funciona hoy—
-// habría que reescribirlas, y serían dos copias que se separan. Este repositorio ya ha
-// pagado esa factura tres veces: la tabla de propiedades de ZFS, los motivos del
-// transporte y las banderas de `zfs send`.
+// **Why this is in the base layer and not in the interface.** The rules lived inside
+// `MainWindow::validatePendingGsaDrafts`, in Qt, and nowhere else. The moment the shell
+// wanted to schedule anything —and it already can: `set org.fc16.gsa:diario=7` works today—
+// they would have to be rewritten, and there would be two copies drifting apart. This
+// repository has already paid that bill three times: the ZFS property table, the transport
+// reasons and the `zfs send` flags.
 //
-// Aquí no hay mensajes: hay MOTIVOS TIPADOS. Cada interfaz los redacta como le toca —la
-// gráfica con sus tres idiomas, el intérprete con los suyos— y ninguna puede inventarse
-// una regla que la otra no tenga.
+// There are no messages here: there are TYPED REASONS. Each interface words them as it must
+// —the graphical one in its three languages, the shell in its own— and neither can invent a
+// rule the other does not have.
 //
-// Ver docs/propuesta_gsa_cli.md.
+// See docs/propuesta_gsa_cli.md.
 namespace zfsmgr::base::gsa {
 
-// El prefijo de las propiedades. Los nombres van en castellano porque así están en las
-// máquinas ya instaladas y renombrarlos rompería sus programaciones.
-extern const char* const kPrefijo;
+// The property prefix. The names themselves are in Spanish because that is how they are on
+// machines already out there, and renaming them would break their schedules.
+extern const char* const kPropertyPrefix;
 
 struct Schedule {
-    bool activado{false};
-    bool recursivo{false};
-    bool nivelar{false};
-    int horario{0};
-    int diario{0};
-    int semanal{0};
-    int mensual{0};
-    int anual{0};
-    std::string destino;   // «Conexión::Pool/Dataset»
+    bool enabled{false};
+    bool recursive{false};
+    bool level{false};
+    int hourly{0};
+    int daily{0};
+    int weekly{0};
+    int monthly{0};
+    int yearly{0};
+    std::string target;   // «Connection::Pool/Dataset»
 
-    bool sinRetenciones() const {
-        return horario <= 0 && diario <= 0 && semanal <= 0 && mensual <= 0 && anual <= 0;
+    bool hasNoRetentions() const {
+        return hourly <= 0 && daily <= 0 && weekly <= 0 && monthly <= 0 && yearly <= 0;
     }
 };
 
 enum class Failure {
     None_,
-    RetencionNoEntera,      // detalle: la propiedad culpable
-    ActivadaSinRetencion,
-    NivelarSinDestino,
-    DestinoMalFormado,      // sin «::»
-    DestinoSinConexion,     // detalle: el nombre de la conexión que falta
-    ChocaConRecursiva,      // detalle: el dataset que ya la tiene
+    RetentionNotAnInteger,   // detail: the offending property
+    EnabledWithNoRetention,
+    LevelWithNoTarget,
+    MalformedTarget,         // no «::» in it
+    TargetHasNoConnection,   // detail: the name of the missing connection
+    ClashesWithRecursive,    // detail: the dataset that already has one
 };
 
 struct Reason {
-    Failure fallo{Failure::None_};
-    std::string dataset;   // a quién le pasa
-    std::string detalle;   // la propiedad, la conexión ausente o el otro dataset
+    Failure failure{Failure::None_};
+    std::string dataset;   // who it happens to
+    std::string detail;    // the property, the missing connection, or the other dataset
 };
 
-// Propiedades tal y como las devuelve `zfs get` → estructura. Insensible a mayúsculas en
-// el nombre de la propiedad, como lo era la interfaz.
+// Properties exactly as `zfs get` returns them → structure. Case-insensitive on the
+// property name, as the interface was.
 //
-// Devuelve false solo si una retención no es un entero >= 0; el resto de valores no puede
-// fallar aquí (un booleano que no se reconoce es «off», que es lo conservador).
+// It returns false only when a retention is not an integer >= 0; the remaining values cannot
+// fail here (an unrecognised boolean is «off», which is the conservative reading).
 bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
-                      Reason& porQue);
+                      Reason& why);
 
-// Estructura → las propiedades que hay que escribir, con su prefijo.
+// Structure → the properties that have to be written, prefix included.
 std::map<std::string, std::string> toProperties(const Schedule& p);
 
-// Una programación, por sí sola. `conexionExiste` la resuelve quien llama: la lista de
-// conexiones es del cliente, no de esta capa.
+// One schedule, on its own. `connectionExists` is resolved by the caller: the list of
+// connections belongs to the client, not to this layer.
 bool isValid(const std::string& dataset, const Schedule& p,
-            const std::function<bool(const std::string&)>& conexionExiste, Reason& porQue);
+            const std::function<bool(const std::string&)>& connectionExists, Reason& why);
 
-// El conjunto: dos programaciones ACTIVADAS del mismo pool no pueden solaparse si una es
-// recursiva. Se comprueba aparte porque no es una propiedad de ninguna de las dos.
+// The set as a whole: two ENABLED schedules in the same pool cannot overlap when one of them
+// is recursive. Checked apart because it is not a property of either one.
 struct Entry {
     std::string dataset;
-    Schedule prog;
+    Schedule schedule;
 };
-bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue);
+bool isValidSet(const std::vector<Entry>& fromTheSamePool, Reason& why);
 
-// ¿`dataset` es `ancestro` o cuelga de él?
-bool isSameOrDescendant(const std::string& dataset, const std::string& ancestro);
+// Is `dataset` the same as `ancestor`, or does it hang from it?
+bool isSameOrDescendant(const std::string& dataset, const std::string& ancestor);
 
-// El castellano de reserva del motivo, para quien no tenga catálogo propio.
+// The fallback Spanish wording of the reason, for whoever has no catalogue of their own.
 std::string labelOf(Failure f);
 
-// A qué CLASE pertenece una instantánea por su nombre: «hourly», «daily», «weekly»,
-// «monthly», «yearly» —o lo que ponga, que las clases no son un conjunto cerrado—. Vacío
-// si no la hizo el planificador.
+// Which CLASS a snapshot belongs to, by its name: «hourly», «daily», «weekly», «monthly»,
+// «yearly» —or whatever it says, since the classes are not a closed set—. Empty when the
+// scheduler did not make it.
 //
-// El nombre lo escribe `gsaCreateSnapshot` como «GSA-<clase>-<fecha>-<hora>», así que la
-// clase es lo que va entre el primer y el segundo guion.
-std::string snapshotClass(const std::string& nombre);
+// The name is written by `gsaCreateSnapshot` as «GSA-<class>-<date>-<time>», so the class is
+// whatever sits between the first and the second hyphen.
+std::string snapshotClass(const std::string& name);
 
-// ── El destino, en las dos formas que tiene ──────────────────────────────────
+// ── The target, in the two shapes it has ─────────────────────────────────────
 //
-// **Guardado en ZFS va como «Conexión::Pool/Dataset»**, y eso no se puede cambiar: está
-// escrito en las propiedades de datasets que ya existen, y el planificador del daemon lo
-// parte por «::» (`daemon_main.cpp`). Cambiar el formato rompería las programaciones
-// puestas y la interfaz que las escribió.
+// **Stored in ZFS it goes as «Connection::Pool/Dataset»**, and that cannot change: it is
+// written into the properties of datasets that already exist, and the daemon's scheduler
+// splits it on «::» (`daemon_main.cpp`). Changing the format would break the schedules
+// already out there and the interface that wrote them.
 //
-// Pero esa nomenclatura es de antes de que existiera `zfsm://`, y en pantalla convive mal
-// con las direcciones que usa el resto del programa. Así que se GUARDA como siempre y se
-// ENSEÑA como URL. Estas dos funciones son la conversión, y viven aquí —junto a lo que lee
-// y valida el destino— para que no acabe habiendo una copia por cliente.
+// But that notation predates `zfsm://`, and on screen it sits badly next to the addresses
+// the rest of the program uses. So it is STORED as always and SHOWN as a URL. These two
+// functions are the conversion, and they live here —next to what reads and validates the
+// target— so that there does not end up being one copy per client.
 
-// «Conexión::Pool/Dataset» → «zfsm://Conexión/Pool/Dataset». Devuelve el texto tal cual si
-// no tiene la forma esperada: enseñar algo raro es mejor que esconderlo.
-std::string destinationAsUrl(const std::string& destino);
+// «Connection::Pool/Dataset» → «zfsm://Connection/Pool/Dataset». Returns the text as-is when
+// it does not have the expected shape: showing something odd beats hiding it.
+std::string destinationAsUrl(const std::string& target);
 
-// La vuelta. Admite las DOS formas en la entrada —una URL o el formato de siempre— porque
-// quien teclea a mano puede escribir cualquiera de las dos y las dos se entienden.
-std::string destinationFromUrl(const std::string& texto);
+// The way back. It accepts BOTH shapes on input —a URL or the long-standing format— because
+// whoever types it by hand may write either, and both are understood.
+std::string destinationFromUrl(const std::string& text);
 
-// Las instantáneas de un dataset, ORDENADAS para enseñarlas: primero las manuales, en el
-// orden en que llegaron, y después las programadas agrupadas por clase, con las clases
-// conocidas en orden de periodo —de la hora al año— y las desconocidas al final.
+// A dataset's snapshots, ORDERED for display: first the manual ones, in the order they
+// arrived, and then the scheduled ones grouped by class, with the known classes in order of
+// period —from hourly to yearly— and the unknown ones last.
 //
-// Devuelve pares (clase, instantáneas); la clase vacía es el grupo de las manuales, que
-// va siempre primero y solo si hay alguna. Vive aquí y no dentro del árbol porque es una
-// REGLA, no dibujo: el intérprete querrá la misma cuando liste instantáneas.
+// Returns (class, snapshots) pairs; the empty class is the manual group, which always goes
+// first and only when there is one. It lives here and not inside the tree because it is a
+// RULE, not painting: the shell will want the same one when it lists snapshots.
 std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
-    const std::vector<std::string>& nombres);
+    const std::vector<std::string>& names);
 
 }  // namespace zfsmgr::base::gsa

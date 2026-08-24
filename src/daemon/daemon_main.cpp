@@ -6132,29 +6132,29 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             fallo = "se cortó la conexión leyendo un nombre";
             break;
         }
-        op.entrada.ruta = nombres.substr(0, lr);
-        op.entrada.destino = nombres.substr(lr, ld);
+        op.entry.path = nombres.substr(0, lr);
+        op.entry.target = nombres.substr(lr, ld);
 
         // La ruta viene del OTRO extremo, así que se comprueba antes de tocar el disco: sin
         // esto, un «../..» en el manifiesto escribiría fuera del árbol que se sincroniza.
         const std::filesystem::path destino =
-            (base / std::filesystem::path(op.entrada.ruta)).lexically_normal();
+            (base / std::filesystem::path(op.entry.path)).lexically_normal();
         const std::string dTxt = destino.generic_string();
         const std::string bTxt = base.lexically_normal().generic_string();
         if (dTxt.rfind(bTxt, 0) != 0) {
-            fallo = "ruta fuera del árbol: " + op.entrada.ruta;
+            fallo = "ruta fuera del árbol: " + op.entry.path;
             break;
         }
 
         std::error_code ec;
         bool bienOp = true;
-        switch (op.accion) {
-            case AR::Action::CrearDirectorio:
+        switch (op.action) {
+            case AR::Action::MakeDirectory:
                 std::filesystem::create_directories(destino, ec);
                 // `create_directories` sobre uno que ya está no es un error, pero devuelve
                 // falso sin código: solo se mira el código.
-                bienOp = anota(ec, "crear el directorio", op.entrada.ruta);
-                AR::setMode(destino.string(), op.entrada.modo);
+                bienOp = anota(ec, "crear el directorio", op.entry.path);
+                AR::setMode(destino.string(), op.entry.mode);
                 break;
             case AR::Action::Send: {
                 std::filesystem::create_directories(destino.parent_path(), ec);
@@ -6170,11 +6170,11 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 if (f == nullptr) {
                     ++fallidas;
                     if (primerMotivo.empty()) {
-                        primerMotivo = "no se pudo escribir «" + op.entrada.ruta + "»";
+                        primerMotivo = "no se pudo escribir «" + op.entry.path + "»";
                     }
                 }
                 std::vector<char> buf(65536);
-                std::uint64_t quedan = op.entrada.tamano;
+                std::uint64_t quedan = op.entry.size;
                 bool bien = true;
                 while (quedan > 0) {
                     const std::size_t trozo =
@@ -6188,7 +6188,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                         f = nullptr;
                         ++fallidas;
                         if (primerMotivo.empty()) {
-                            primerMotivo = "no se pudo escribir entero «" + op.entrada.ruta + "»";
+                            primerMotivo = "no se pudo escribir entero «" + op.entry.path + "»";
                         }
                     }
                     quedan -= trozo;
@@ -6199,40 +6199,40 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     bienOp = false;
                 }
                 if (!bien) {
-                    fallo = "se cortó la conexión escribiendo " + op.entrada.ruta;
+                    fallo = "se cortó la conexión escribiendo " + op.entry.path;
                     break;
                 }
                 if (!bienOp) {
                     break;  // sale del `case`, no del bucle: la cuenta ya está hecha
                 }
-                AR::setMode(destino.string(), op.entrada.modo);
+                AR::setMode(destino.string(), op.entry.mode);
                 // La fecha, SIEMPRE. Sin ella la próxima pasada lo traería otra vez entero.
-                AR::setMtime(destino.string(), op.entrada.fecha);
+                AR::setMtime(destino.string(), op.entry.mtime);
                 break;
             }
-            case AR::Action::Enlazar: {
+            case AR::Action::Symlink_: {
                 std::error_code borrado;
                 std::filesystem::remove(destino, borrado);
-                std::filesystem::create_symlink(op.entrada.destino, destino, ec);
+                std::filesystem::create_symlink(op.entry.target, destino, ec);
                 // En Windows crear un enlace simbólico necesita SeCreateSymbolicLinkPrivilege
                 // o el modo de desarrollador. Cuando no lo hay, esto falla y hay que DECIRLO:
                 // callarlo dejaba el enlace pendiente en todas las pasadas siguientes
                 // mientras el trabajo se apuntaba como terminado.
-                bienOp = anota(ec, "crear el enlace simbólico", op.entrada.ruta);
+                bienOp = anota(ec, "crear el enlace simbólico", op.entry.path);
                 break;
             }
-            case AR::Action::EnlazarDuro: {
+            case AR::Action::HardLink_: {
                 const std::filesystem::path orig =
-                    (base / std::filesystem::path(op.entrada.destino)).lexically_normal();
+                    (base / std::filesystem::path(op.entry.target)).lexically_normal();
                 std::error_code borrado;
                 std::filesystem::remove(destino, borrado);
                 std::filesystem::create_hard_link(orig, destino, ec);
-                bienOp = anota(ec, "crear el enlace duro", op.entrada.ruta);
+                bienOp = anota(ec, "crear el enlace duro", op.entry.path);
                 break;
             }
-            case AR::Action::Borrar:
+            case AR::Action::Delete:
                 std::filesystem::remove_all(destino, ec);
-                bienOp = anota(ec, "borrar", op.entrada.ruta);
+                bienOp = anota(ec, "borrar", op.entry.path);
                 break;
         }
         if (!fallo.empty()) {
@@ -6355,18 +6355,18 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     // la vuelta de red cuestan más que mandarlos enteros.
     std::map<std::string, const AR::Entry*> suyasPorRuta;
     for (const AR::Entry& e : suyas) {
-        suyasPorRuta.emplace(e.ruta, &e);
+        suyasPorRuta.emplace(e.path, &e);
     }
     std::vector<std::string> pidoFirmas;
     if (!enSeco) {
-        for (const AR::Operation& o : plan.operaciones) {
-            if (o.accion != AR::Action::Send || o.entrada.tamano < AR::kMinimoParaDelta) {
+        for (const AR::Operation& o : plan.operations) {
+            if (o.action != AR::Action::Send || o.entry.size < AR::kMinSizeForDelta) {
                 continue;
             }
-            const auto it = suyasPorRuta.find(o.entrada.ruta);
-            if (it != suyasPorRuta.end() && it->second->tipo == AR::EntryKind::Fichero
-                && it->second->tamano > 0) {
-                pidoFirmas.push_back(o.entrada.ruta);
+            const auto it = suyasPorRuta.find(o.entry.path);
+            if (it != suyasPorRuta.end() && it->second->kind == AR::EntryKind::File
+                && it->second->size > 0) {
+                pidoFirmas.push_back(o.entry.path);
             }
         }
     }
@@ -6432,7 +6432,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     }
 
     std::string informe;
-    for (const AR::Operation& o : plan.operaciones) {
+    for (const AR::Operation& o : plan.operations) {
         informe += AR::describe(o);
         informe += '\n';
     }
@@ -6442,9 +6442,9 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         (void)mandaTodo(sock, "E\n");
         closeTransferSocket(sock);
         r.rc = 0;
-        r.out = informe + "PENDIENTES=" + std::to_string(plan.operaciones.size())
+        r.out = informe + "PENDIENTES=" + std::to_string(plan.operations.size())
                 + "\nBYTES=" + std::to_string(plan.bytes)
-                + "\nIGUALES=" + std::to_string(plan.iguales) + "\n";
+                + "\nIGUALES=" + std::to_string(plan.unchanged) + "\n";
         return r;
     }
 
@@ -6452,10 +6452,10 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     bool bien = true;
     std::uint64_t bytesLiteralesTotal = 0;
     std::uint64_t bytesAhorrados = 0;
-    for (const AR::Operation& o : plan.operaciones) {
+    for (const AR::Operation& o : plan.operations) {
         // ¿Hay firmas de este fichero? Entonces va como PARCHE y no entero.
-        const auto itF = (o.accion == AR::Action::Send)
-                             ? firmas.find(o.entrada.ruta)
+        const auto itF = (o.action == AR::Action::Send)
+                             ? firmas.find(o.entry.path)
                              : firmas.end();
         if (itF != firmas.end()) {
             const std::size_t tamBloque = itF->second.first;
@@ -6464,31 +6464,31 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             std::string errD;
             std::string hashEntero;
             const std::string rutaLocal =
-                (std::filesystem::path(raiz) / std::filesystem::path(o.entrada.ruta)).string();
+                (std::filesystem::path(raiz) / std::filesystem::path(o.entry.path)).string();
             if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales,
                           errD)
                 && AR::fileHash(rutaLocal, hashEntero, errD)) {
                 bytesLiteralesTotal += literales;
-                bytesAhorrados += (o.entrada.tamano > literales) ? (o.entrada.tamano - literales)
+                bytesAhorrados += (o.entry.size > literales) ? (o.entry.size - literales)
                                                                  : 0;
                 AR::Operation parche = o;
-                std::string cab = "P " + std::to_string(o.entrada.modo) + " "
-                                  + std::to_string(o.entrada.fecha) + " "
-                                  + std::to_string(o.entrada.tamano) + " "
-                                  + std::to_string(o.entrada.ruta.size()) + " "
+                std::string cab = "P " + std::to_string(o.entry.mode) + " "
+                                  + std::to_string(o.entry.mtime) + " "
+                                  + std::to_string(o.entry.size) + " "
+                                  + std::to_string(o.entry.path.size()) + " "
                                   + std::to_string(hashEntero.size()) + "\n";
-                bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entrada.ruta)
+                bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entry.path)
                        && mandaTodo(sock, hashEntero);
                 for (const AR::Instruction& in : instrucciones) {
                     if (!bien) {
                         break;
                     }
-                    if (in.tipo == AR::InstructionKind::Send) {
-                        bien = mandaTodo(sock, "C " + std::to_string(in.bloque) + " "
-                                                   + std::to_string(in.cuantos) + "\n");
+                    if (in.kind == AR::InstructionKind::Send) {
+                        bien = mandaTodo(sock, "C " + std::to_string(in.block) + " "
+                                                   + std::to_string(in.howMany) + "\n");
                     } else {
-                        bien = mandaTodo(sock, "L " + std::to_string(in.datos.size()) + "\n")
-                               && mandaTodo(sock, in.datos);
+                        bien = mandaTodo(sock, "L " + std::to_string(in.data.size()) + "\n")
+                               && mandaTodo(sock, in.data);
                     }
                 }
                 if (bien) {
@@ -6501,22 +6501,22 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             }
             // Si el delta no se pudo calcular, se manda entero: es lento, no es incorrecto.
         }
-        if (!mandaTodo(sock, AR::headerOf(o)) || !mandaTodo(sock, o.entrada.ruta)
-            || !mandaTodo(sock, o.entrada.destino)) {
+        if (!mandaTodo(sock, AR::headerOf(o)) || !mandaTodo(sock, o.entry.path)
+            || !mandaTodo(sock, o.entry.target)) {
             bien = false;
             break;
         }
-        if (o.accion != AR::Action::Send) {
+        if (o.action != AR::Action::Send) {
             continue;
         }
-        const std::string rutaLocal = (base / std::filesystem::path(o.entrada.ruta)).string();
+        const std::string rutaLocal = (base / std::filesystem::path(o.entry.path)).string();
         std::FILE* f = std::fopen(rutaLocal.c_str(), "rb");
         if (f == nullptr) {
             bien = false;
             break;
         }
         std::vector<char> buf(65536);
-        std::uint64_t quedan = o.entrada.tamano;
+        std::uint64_t quedan = o.entry.size;
         while (quedan > 0 && bien) {
             const std::size_t trozo =
                 static_cast<std::size_t>(std::min<std::uint64_t>(quedan, buf.size()));
@@ -6560,7 +6560,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     r.rc = 0;
     r.out = informe + "APLICADAS=" + respuesta.substr(3)
             + "\nBYTES=" + std::to_string(plan.bytes)
-            + "\nIGUALES=" + std::to_string(plan.iguales);
+            + "\nIGUALES=" + std::to_string(plan.unchanged);
     if (bytesAhorrados > 0) {
         // Lo que el delta ha evitado mandar. Es el único número que dice si sirvió.
         r.out += "\nAHORRADOS=" + std::to_string(bytesAhorrados)

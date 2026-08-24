@@ -63,27 +63,27 @@ const char* const kAnual = "org.fc16.gsa:anual";
 
 }  // namespace
 
-const char* const kPrefijo = "org.fc16.gsa:";
+const char* const kPropertyPrefix = "org.fc16.gsa:";
 
 bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
                       Reason& porQue) {
     porQue = Reason{};
     Schedule p;
-    p.activado = esOn(valorDe(props, kActivado));
-    p.recursivo = esOn(valorDe(props, kRecursivo));
-    p.nivelar = esOn(valorDe(props, kNivelar));
-    p.destino = trim(valorDe(props, kDestino));
-    if (p.destino == "-") {
-        p.destino.clear();
+    p.enabled = esOn(valorDe(props, kActivado));
+    p.recursive = esOn(valorDe(props, kRecursivo));
+    p.level = esOn(valorDe(props, kNivelar));
+    p.target = trim(valorDe(props, kDestino));
+    if (p.target == "-") {
+        p.target.clear();
     }
     const std::pair<const char*, int*> retenciones[] = {
-        {kHorario, &p.horario}, {kDiario, &p.diario},   {kSemanal, &p.semanal},
-        {kMensual, &p.mensual}, {kAnual, &p.anual},
+        {kHorario, &p.hourly}, {kDiario, &p.daily},   {kSemanal, &p.weekly},
+        {kMensual, &p.monthly}, {kAnual, &p.yearly},
     };
     for (const auto& r : retenciones) {
         if (!enteroNoNegativo(valorDe(props, r.first), *r.second)) {
-            porQue.fallo = Failure::RetencionNoEntera;
-            porQue.detalle = r.first;
+            porQue.failure = Failure::RetentionNotAnInteger;
+            porQue.detail = r.first;
             return false;
         }
     }
@@ -93,15 +93,15 @@ bool fromProperties(const std::map<std::string, std::string>& props, Schedule& o
 
 std::map<std::string, std::string> toProperties(const Schedule& p) {
     return {
-        {kActivado, p.activado ? "on" : "off"},
-        {kRecursivo, p.recursivo ? "on" : "off"},
-        {kNivelar, p.nivelar ? "on" : "off"},
-        {kDestino, p.destino},
-        {kHorario, std::to_string(p.horario)},
-        {kDiario, std::to_string(p.diario)},
-        {kSemanal, std::to_string(p.semanal)},
-        {kMensual, std::to_string(p.mensual)},
-        {kAnual, std::to_string(p.anual)},
+        {kActivado, p.enabled ? "on" : "off"},
+        {kRecursivo, p.recursive ? "on" : "off"},
+        {kNivelar, p.level ? "on" : "off"},
+        {kDestino, p.target},
+        {kHorario, std::to_string(p.hourly)},
+        {kDiario, std::to_string(p.daily)},
+        {kSemanal, std::to_string(p.weekly)},
+        {kMensual, std::to_string(p.monthly)},
+        {kAnual, std::to_string(p.yearly)},
     };
 }
 
@@ -113,30 +113,30 @@ bool isValid(const std::string& dataset, const Schedule& p,
     // El destino se comprueba si NIVELAR está puesto —que lo exige— o si hay destino
     // escrito estando la programación activada. Un destino escrito con la programación
     // apagada no molesta a nadie.
-    const bool hayQueMirarDestino = p.nivelar || (p.activado && !p.destino.empty());
-    if (p.nivelar && p.destino.empty()) {
-        porQue.fallo = Failure::NivelarSinDestino;
+    const bool hayQueMirarDestino = p.level || (p.enabled && !p.target.empty());
+    if (p.level && p.target.empty()) {
+        porQue.failure = Failure::LevelWithNoTarget;
         return false;
     }
     if (hayQueMirarDestino) {
-        const std::size_t dosPuntos = p.destino.find("::");
+        const std::size_t dosPuntos = p.target.find("::");
         if (dosPuntos == std::string::npos) {
-            porQue.fallo = Failure::DestinoMalFormado;
-            porQue.detalle = p.destino;
+            porQue.failure = Failure::MalformedTarget;
+            porQue.detail = p.target;
             return false;
         }
-        const std::string conexion = trim(p.destino.substr(0, dosPuntos));
+        const std::string conexion = trim(p.target.substr(0, dosPuntos));
         if (conexionExiste && !conexionExiste(conexion)) {
-            porQue.fallo = Failure::DestinoSinConexion;
-            porQue.detalle = conexion;
+            porQue.failure = Failure::TargetHasNoConnection;
+            porQue.detail = conexion;
             return false;
         }
     }
     // Activada y sin ninguna retención es una programación que no guarda nada: hace la
     // instantánea y la borra. Casi siempre es un olvido, y callarlo deja al usuario
     // creyendo que tiene copias.
-    if (p.activado && p.sinRetenciones()) {
-        porQue.fallo = Failure::ActivadaSinRetencion;
+    if (p.enabled && p.hasNoRetentions()) {
+        porQue.failure = Failure::EnabledWithNoRetention;
         return false;
     }
     porQue.dataset.clear();
@@ -155,7 +155,7 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
     // solaparse con ella no significa nada.
     std::vector<const Entry*> vivas;
     for (const Entry& e : delMismoPool) {
-        if (e.prog.activado) {
+        if (e.schedule.enabled) {
             vivas.push_back(&e);
         }
     }
@@ -166,16 +166,16 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
             if (trim(a.dataset) == trim(b.dataset)) {
                 continue;
             }
-            if (a.prog.recursivo && isSameOrDescendant(b.dataset, a.dataset)) {
-                porQue.fallo = Failure::ChocaConRecursiva;
+            if (a.schedule.recursive && isSameOrDescendant(b.dataset, a.dataset)) {
+                porQue.failure = Failure::ClashesWithRecursive;
                 porQue.dataset = b.dataset;
-                porQue.detalle = a.dataset;
+                porQue.detail = a.dataset;
                 return false;
             }
-            if (b.prog.recursivo && isSameOrDescendant(a.dataset, b.dataset)) {
-                porQue.fallo = Failure::ChocaConRecursiva;
+            if (b.schedule.recursive && isSameOrDescendant(a.dataset, b.dataset)) {
+                porQue.failure = Failure::ClashesWithRecursive;
                 porQue.dataset = a.dataset;
-                porQue.detalle = b.dataset;
+                porQue.detail = b.dataset;
                 return false;
             }
         }
@@ -187,17 +187,17 @@ std::string labelOf(Failure f) {
     switch (f) {
         case Failure::None_:
             return "sin fallo";
-        case Failure::RetencionNoEntera:
+        case Failure::RetentionNotAnInteger:
             return "la retención no es un entero mayor o igual que 0";
-        case Failure::ActivadaSinRetencion:
+        case Failure::EnabledWithNoRetention:
             return "la programación está activada y no guarda ninguna instantánea";
-        case Failure::NivelarSinDestino:
+        case Failure::LevelWithNoTarget:
             return "nivelar está puesto y no hay destino";
-        case Failure::DestinoMalFormado:
+        case Failure::MalformedTarget:
             return "el destino tiene que ser «Conexión::Pool/Dataset»";
-        case Failure::DestinoSinConexion:
+        case Failure::TargetHasNoConnection:
             return "el destino nombra una conexión que no existe";
-        case Failure::ChocaConRecursiva:
+        case Failure::ClashesWithRecursive:
             return "ya hay una programación recursiva que lo cubre";
     }
     return "sin fallo";

@@ -73,7 +73,7 @@ private Q_SLOTS:
 
     // El extractor decide si una orden se DESVÍA al RPC. Los verbos que el daemon no
     // sirve por ahí no deben desviarse nunca: hacerlo garantiza un "unknown command".
-    // Borrar un dataset falló exactamente así —«unknown command: --mutate-shell-generic»—
+    // Delete un dataset falló exactamente así —«unknown command: --mutate-shell-generic»—
     // porque runAgentCommand sí lo comprobaba y este camino heredado no.
     void agentArgExtractionSkipsCliOnlyVerbs() {
         const QStringList cliOnly = {

@@ -2195,7 +2195,7 @@ bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& rai
             // Un valor que no es un entero está PUESTO en la máquina: no se puede corregir
             // desde aquí, pero callarlo dejaría una fila que miente.
             std::fprintf(stderr, TC("t_sch_valor_malo", "aviso: %s tiene %s con un valor que no es un "
-                         "número; se ignora esa programación\n"), kv.first.c_str(), m.detalle.c_str());
+                         "número; se ignora esa programación\n"), kv.first.c_str(), m.detail.c_str());
             continue;
         }
         out.push_back({kv.first, p});
@@ -2217,12 +2217,12 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero, Tipo::Entero,
                Tipo::Cadena};
     for (const auto& f : filas) {
-        const B::gsa::Schedule& p = f.second.prog;
-        t.filas.push_back({f.first, f.second.dataset, p.activado ? "true" : "false",
-                           p.recursivo ? "true" : "false", std::to_string(p.horario),
-                           std::to_string(p.diario), std::to_string(p.semanal),
-                           std::to_string(p.mensual), std::to_string(p.anual),
-                           p.destino.empty() ? "-" : p.destino});
+        const B::gsa::Schedule& p = f.second.schedule;
+        t.filas.push_back({f.first, f.second.dataset, p.enabled ? "true" : "false",
+                           p.recursive ? "true" : "false", std::to_string(p.hourly),
+                           std::to_string(p.daily), std::to_string(p.weekly),
+                           std::to_string(p.monthly), std::to_string(p.yearly),
+                           p.target.empty() ? "-" : p.target});
     }
     return t;
 }
@@ -2640,7 +2640,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     B::gsa::Schedule actual;
     for (const B::gsa::Entry& en : aqui) {
         if (en.dataset == destino.dataset) {
-            actual = en.prog;
+            actual = en.schedule;
         }
     }
 
@@ -2693,7 +2693,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         if (v.empty()) {
             return true;
         }
-        std::map<std::string, std::string> uno{{std::string(B::gsa::kPrefijo) + "diario", v}};
+        std::map<std::string, std::string> uno{{std::string(B::gsa::kPropertyPrefix) + "diario", v}};
         B::gsa::Schedule tmp;
         B::gsa::Reason m;
         if (!B::gsa::fromProperties(uno, tmp, m)) {
@@ -2701,22 +2701,22 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
                          "para --%s\n"), v.c_str(), opcion);
             return false;
         }
-        campo = tmp.diario;
+        campo = tmp.daily;
         return true;
     };
-    if (!retencion("hourly", nueva.horario) || !retencion("daily", nueva.diario)
-        || !retencion("weekly", nueva.semanal) || !retencion("monthly", nueva.mensual)
-        || !retencion("yearly", nueva.anual)) {
+    if (!retencion("hourly", nueva.hourly) || !retencion("daily", nueva.daily)
+        || !retencion("weekly", nueva.weekly) || !retencion("monthly", nueva.monthly)
+        || !retencion("yearly", nueva.yearly)) {
         return false;
     }
-    if (pet.tiene("--recursive")) { nueva.recursivo = true; }
-    if (pet.tiene("--no-recursive")) { nueva.recursivo = false; }
-    if (pet.tiene("--level")) { nueva.nivelar = true; }
-    if (pet.tiene("--no-level")) { nueva.nivelar = false; }
-    if (!pet.valor("to").empty()) { nueva.destino = pet.valor("to"); }
+    if (pet.tiene("--recursive")) { nueva.recursive = true; }
+    if (pet.tiene("--no-recursive")) { nueva.recursive = false; }
+    if (pet.tiene("--level")) { nueva.level = true; }
+    if (pet.tiene("--no-level")) { nueva.level = false; }
+    if (!pet.valor("to").empty()) { nueva.target = pet.valor("to"); }
     // Fijar cualquier valor la ACTIVA: programar algo apagado no significa nada. `--off`
     // es lo que la apaga, y por eso se aplica al final.
-    nueva.activado = !pet.tiene("--off");
+    nueva.enabled = !pet.tiene("--off");
 
     // Y ahora las reglas, ANTES de escribir. Primero la programación en sí.
     const auto conexionExiste = [&](const std::string& nombre) {
@@ -2725,9 +2725,9 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     B::gsa::Reason motivo;
     if (!B::gsa::isValid(destino.dataset, nueva, conexionExiste, motivo)) {
         std::fprintf(stderr, "%s: %s\n", destino.dataset.c_str(),
-                     B::gsa::labelOf(motivo.fallo).c_str());
-        if (!motivo.detalle.empty()) {
-            std::fprintf(stderr, "  %s\n", motivo.detalle.c_str());
+                     B::gsa::labelOf(motivo.failure).c_str());
+        if (!motivo.detail.empty()) {
+            std::fprintf(stderr, "  %s\n", motivo.detail.c_str());
         }
         return false;
     }
@@ -2740,7 +2740,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         bool sustituido = false;
         for (B::gsa::Entry& en : delPool) {
             if (en.dataset == destino.dataset) {
-                en.prog = nueva;
+                en.schedule = nueva;
                 sustituido = true;
             }
         }
@@ -2749,7 +2749,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         }
         if (!B::gsa::isValidSet(delPool, motivo)) {
             std::fprintf(stderr, "%s: %s (%s)\n", motivo.dataset.c_str(),
-                         B::gsa::labelOf(motivo.fallo).c_str(), motivo.detalle.c_str());
+                         B::gsa::labelOf(motivo.failure).c_str(), motivo.detail.c_str());
             return false;
         }
     }
@@ -3057,7 +3057,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                 /*comoTrabajo=*/false, /*borrarEnDestino=*/false, /*enSeco=*/false,
                 &salidaEnvio);
             // `fallo` y no `ok()`: sin encolar no hay identificador, y `ok()` exige uno.
-            if (hecho.fallo == TR::JobFailure::None_) {
+            if (hecho.failure == TR::JobFailure::None_) {
                 std::fputs(salidaEnvio.c_str(), stdout);
                 return true;
             }
@@ -3067,7 +3067,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
             std::fprintf(stderr,
                          TC("t_fromdir_arbol_no", "el árbol entre daemons no pudo (%s); se sigue "
                                                   "por la tubería\n"),
-                         TR::labelOf(hecho.fallo).c_str());
+                         TR::labelOf(hecho.failure).c_str());
         }
     }
 
@@ -3221,7 +3221,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     // de una máquina remota a Local dejaba al emisor conectándose consigo mismo. La capa
     // base pregunta al origen con qué dirección nos ve, que es la única que le sirve para
     // volver, y ese caso es justo el que se perdía al tener dos copias.
-    TR::LlamadaAlAgente llama = [&](const B::ConnectionProfile& maquina,
+    TR::AgentCall llama = [&](const B::ConnectionProfile& maquina,
                                     const std::vector<std::string>& args, int timeoutMs,
                                     std::string& out, std::string& err, int& rc) {
         std::string motivo;
@@ -3233,8 +3233,8 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                          base, banderasSend, /*testigoReanudacion=*/std::string(), mismaMaquina,
                          e.ses->verboso);
     if (!trabajo.ok()) {
-        const std::string detalle = B::trim(trabajo.detalle);
-        std::fprintf(stderr, "%s%s%s\n", TR::labelOf(trabajo.fallo).c_str(),
+        const std::string detalle = B::trim(trabajo.detail);
+        std::fprintf(stderr, "%s%s%s\n", TR::labelOf(trabajo.failure).c_str(),
                      detalle.empty() ? "" : ": ", detalle.c_str());
         e.ultimoRc = 1;
         return false;
@@ -4259,9 +4259,9 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 e.ses->transporte, llama, src, dst, par.first, B::trim(AV::preparedPath(prepOut)),
                 /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
                 &salidaEnvio);
-            if (hecho.fallo != TR::JobFailure::None_) {
-                std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.fallo).c_str(),
-                             hecho.detalle.c_str());
+            if (hecho.failure != TR::JobFailure::None_) {
+                std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.failure).c_str(),
+                             hecho.detail.c_str());
                 todoBien = false;
                 break;
             }

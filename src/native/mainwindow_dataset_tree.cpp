@@ -1526,14 +1526,14 @@ QStringList MainWindow::scheduledDatasetsForPool(int connIdx,
             continue;
         }
         for (auto vit = item.draft.valuesByProp.cbegin(); vit != item.draft.valuesByProp.cend(); ++vit) {
-            if (vit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPrefijo),
+            if (vit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPropertyPrefix),
                                                Qt::CaseInsensitive)) {
                 porDataset[datasetName].insert(vit.key().trimmed(), vit.value());
             }
         }
         for (auto iit = item.draft.inheritByProp.cbegin(); iit != item.draft.inheritByProp.cend(); ++iit) {
             if (iit.value()
-                && iit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPrefijo),
+                && iit.key().trimmed().startsWith(QString::fromLatin1(zfsmgr::base::gsa::kPropertyPrefix),
                                                   Qt::CaseInsensitive)) {
                 porDataset[datasetName].remove(iit.key().trimmed());
             }

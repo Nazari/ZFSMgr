@@ -1398,8 +1398,8 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                     QStringLiteral("Desde Dir falló en %1: %2\n%3")
                         .arg(ruta,
                              QString::fromStdString(
-                                 zfsmgr::base::transfer::labelOf(lanzado.fallo)),
-                             QString::fromStdString(lanzado.detalle)));
+                                 zfsmgr::base::transfer::labelOf(lanzado.failure)),
+                             QString::fromStdString(lanzado.detail)));
                 return;
             }
             ActiveDaemonJob job;

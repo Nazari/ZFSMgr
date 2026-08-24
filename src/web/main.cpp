@@ -561,9 +561,9 @@ bool montajeDeDataset(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perf
         return false;
     }
     for (const L::Entry& e : L::entries(salida)) {
-        if (e.nombre == ds) {
-            montado = (e.montado == "yes");
-            punto = e.puntoMontaje;
+        if (e.name == ds) {
+            montado = (e.mounted == "yes");
+            punto = e.mountpoint;
             break;
         }
     }
@@ -654,11 +654,11 @@ std::string panelConexiones(const std::vector<B::ConnectionProfile>& perfiles,
 std::string panelPools(const std::string& conn, const std::vector<L::Pool>& pools) {
     std::vector<std::vector<std::string>> filas;
     for (const L::Pool& p : pools) {
-        filas.push_back({enlace("/c/" + conn + "/" + p.nombre, p.nombre),
-                         H::escapaHtml(p.salud.empty() ? p.estado : p.salud),
-                         H::escapaHtml(p.tamano),
-                         H::escapaHtml(p.libre),
-                         H::escapaHtml(p.uso)});
+        filas.push_back({enlace("/c/" + conn + "/" + p.name, p.name),
+                         H::escapaHtml(p.health.empty() ? p.state : p.health),
+                         H::escapaHtml(p.size),
+                         H::escapaHtml(p.free),
+                         H::escapaHtml(p.used)});
     }
     return tabla({T("t_tree_pool_prefix_001", "Pool"), T("t_web_salud_d302f9", "Salud"), T("t_poolcrt_auto018", "Tamaño"), T("t_web_libre_a68851", "Libre"), T("t_web_uso_2483c7", "Uso")}, filas);
 }
@@ -1087,14 +1087,14 @@ Arbol construyeArbol(const std::vector<L::Entry>& entradas, const std::string& r
     Arbol a;
     for (const L::Entry& e : entradas) {
         if (e.isSnapshot()) {
-            a.snapshots[e.nombre.substr(0, e.nombre.find('@'))].push_back(e);
+            a.snapshots[e.name.substr(0, e.name.find('@'))].push_back(e);
             continue;
         }
-        a.porNombre[e.nombre] = e;
-        if (e.nombre == raiz) {
+        a.porNombre[e.name] = e;
+        if (e.name == raiz) {
             continue;
         }
-        a.hijos[e.nombre.substr(0, e.nombre.find_last_of('/'))].push_back(e);
+        a.hijos[e.name.substr(0, e.name.find_last_of('/'))].push_back(e);
     }
     return a;
 }
@@ -1176,8 +1176,8 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
     }
     h += enlaceDeNodo(urlDe(conn, raiz, nodo, View::Resumen), corto, sel == nodo);
     if (itE != arbol.porNombre.end()) {
-        h += " <span class=\"tenue\">" + H::escapaHtml(bytesLegibles(itE->second.usado));
-        if (itE->second.montado != "yes") {
+        h += " <span class=\"tenue\">" + H::escapaHtml(bytesLegibles(itE->second.used));
+        if (itE->second.mounted != "yes") {
             h += " · sin montar";
         }
         const auto itS = arbol.snapshots.find(nodo);
@@ -1191,7 +1191,7 @@ std::string ramaDelArbol(const std::string& conn, const std::string& raiz, const
     }
     h += "</summary><div class=\"rama\">";
     for (const L::Entry& hijo : itH->second) {
-        h += ramaDelArbol(conn, raiz, hijo.nombre, arbol, sel, profundidad + 1);
+        h += ramaDelArbol(conn, raiz, hijo.name, arbol, sel, profundidad + 1);
     }
     h += "</div></details>";
     return h;
@@ -1231,11 +1231,11 @@ std::string panelArbol(const std::vector<B::ConnectionProfile>& perfiles,
                  "pools)</span></div>";
         } else {
             for (const L::Pool& pool : pools) {
-                const bool esteP = (pool.nombre == raiz);
+                const bool esteP = (pool.name == raiz);
                 h += std::string("<details") + (esteP ? " open" : "") + "><summary>";
-                h += enlaceDeNodo("/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(pool.nombre),
-                                  pool.nombre, esteP && sel == raiz);
-                const std::string salud = pool.salud.empty() ? pool.estado : pool.salud;
+                h += enlaceDeNodo("/c/" + H::haciaUrl(conn) + "/" + H::haciaUrl(pool.name),
+                                  pool.name, esteP && sel == raiz);
+                const std::string salud = pool.health.empty() ? pool.state : pool.health;
                 if (!salud.empty()) {
                     h += " <span class=\"tenue\">" + H::escapaHtml(salud) + "</span>";
                 }
@@ -1246,7 +1246,7 @@ std::string panelArbol(const std::vector<B::ConnectionProfile>& perfiles,
                     const auto itR = arbol.hijos.find(raiz);
                     if (itR != arbol.hijos.end()) {
                         for (const L::Entry& hijo : itR->second) {
-                            h += ramaDelArbol(conn, raiz, hijo.nombre, arbol, sel, 1);
+                            h += ramaDelArbol(conn, raiz, hijo.name, arbol, sel, 1);
                         }
                     }
                 } else if (!esteP) {
@@ -1397,14 +1397,14 @@ DX::Endpoint origenDe(const H::Peticion& p) {
 // El aviso de qué hay marcado. Sale en TODAS las páginas mientras haya origen: una marca
 // invisible es una marca que se olvida, y la siguiente acción de dos extremos sorprende.
 std::string avisoDeOrigen(const DX::Endpoint& origen) {
-    if (origen.vacio()) {
+    if (origen.empty()) {
         return {};
     }
     // Como URL y no como «conexión::objeto»: es la misma cosa que nombra el árbol y la
     // barra de direcciones, y tener dos nomenclaturas para lo mismo obliga a traducir de
     // cabeza cada vez.
     return "<div class=\"origen\">" + H::escapaHtml(T("t_web_origen_marcado", "Origen marcado"))
-           + ": <strong>zfsm://" + H::escapaHtml(origen.conexion + "/" + origen.objeto)
+           + ": <strong>zfsm://" + H::escapaHtml(origen.connection + "/" + origen.object)
            + "</strong> "
            + enlace("/origen?quitar=1", T("t_web_quitar_origen", "quitar")) + "</div>";
 }
@@ -1436,7 +1436,7 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                      + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
                                   + "&raiz=" + H::haciaUrl(raiz) + "&que=sincronizar-desde-origen",
                               etiqueta)
-                     + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                     + " <span class=\"tenue\">" + H::escapaHtml(origen.object) + " → "
                      + H::escapaHtml(sel) + "</span></div>";
             } else {
                 h += "<div class=\"engris\">" + H::escapaHtml(etiqueta)
@@ -1453,13 +1453,13 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                  + enlace("/confirmar?c=" + H::haciaUrl(conn) + "&o=" + H::haciaUrl(sel)
                               + "&raiz=" + H::haciaUrl(raiz) + "&que=mover-desde-origen",
                           etiqueta)
-                 + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                 + " <span class=\"tenue\">" + H::escapaHtml(origen.object) + " → "
                  + H::escapaHtml(DX::moveDestination(origen, destino)) + "</span></div>";
             continue;
         }
         const bool esDeTransferencia = (a == DX::Action::Send || a == DX::Action::Level);
         if (esDeTransferencia && porQue == DX::NotApplicable::NotInTheWebYet) {
-            if (plan.sePuede()) {
+            if (plan.ok()) {
                 h += "<div>"
                      + boton(conn, sel, raiz,
                              a == DX::Action::Send ? "copiar-desde-origen"
@@ -1470,12 +1470,12 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
                                  + H::escapaHtml(T("t_web_con_hijos",
                                                    "con sus descendientes"))
                                  + "</label> ")
-                     + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                     + " <span class=\"tenue\">" + H::escapaHtml(origen.object) + " → "
                      + H::escapaHtml(sel) + "</span></div>";
                 continue;
             }
             h += "<div class=\"engris\">" + H::escapaHtml(etiqueta) + " <span class=\"tenue\">— "
-                 + H::escapaHtml(TR::labelOf(plan.fallo)) + "</span></div>";
+                 + H::escapaHtml(TR::labelOf(plan.failure)) + "</span></div>";
             continue;
         }
         if (porQue != DX::NotApplicable::None_) {
@@ -1485,7 +1485,7 @@ std::string accionesDeDosExtremos(const std::string& conn, const std::string& ra
         }
         if (a == DX::Action::Diff) {
             h += "<div>" + enlace(urlDe(conn, raiz, sel, View::Diff), etiqueta)
-                 + " <span class=\"tenue\">" + H::escapaHtml(origen.objeto) + " → "
+                 + " <span class=\"tenue\">" + H::escapaHtml(origen.object) + " → "
                  + H::escapaHtml(sel) + "</span></div>";
             continue;
         }
@@ -1524,8 +1524,8 @@ std::vector<std::string> hijosDirectosDe(const Arbol& arbol, const std::string& 
         return out;
     }
     for (const L::Entry& hijo : it->second) {
-        const std::size_t barra = hijo.nombre.rfind('/');
-        out.push_back(barra == std::string::npos ? hijo.nombre : hijo.nombre.substr(barra + 1));
+        const std::size_t barra = hijo.name.rfind('/');
+        out.push_back(barra == std::string::npos ? hijo.name : hijo.name.substr(barra + 1));
     }
     return out;
 }
@@ -1536,9 +1536,9 @@ std::string accionesDeDataset(const std::string& conn, const std::string& raiz,
                               SY::Failure falloSync, const std::string& testigo,
                               const std::vector<std::string>& hijos, bool esWindows,
                               const std::vector<std::string>& maquinas) {
-    const bool montado = e != nullptr && e->montado == "yes";
-    const bool cifrado = e != nullptr && !e->cifrado.empty() && e->cifrado != "off"
-                         && e->cifrado != "-";
+    const bool montado = e != nullptr && e->mounted == "yes";
+    const bool cifrado = e != nullptr && !e->encryption.empty() && e->encryption != "off"
+                         && e->encryption != "-";
     std::string h;
 
     std::string ds1;
@@ -1807,7 +1807,7 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
         const auto its = arbol.snapshots.find(objeto.substr(0, objeto.find('@')));
         if (its != arbol.snapshots.end()) {
             for (const L::Entry& s : its->second) {
-                if (s.nombre == objeto) {
+                if (s.name == objeto) {
                     e = &s;
                     break;
                 }
@@ -1818,22 +1818,22 @@ std::string resumenDelNodo(const std::string& objeto, const Arbol& arbol) {
         return "<p class=\"vacio\">(ese nodo no está en el listado)</p>";
     }
     std::vector<std::pair<std::string, std::string>> datos = {
-        {T("t_poolcrt_auto004", "Nombre"), e->nombre},
+        {T("t_poolcrt_auto004", "Nombre"), e->name},
         {"GUID", e->guid},
-        {T("t_web_usado_7f0217", "Usado"), bytesLegibles(e->usado)},
-        {"Referenciado", bytesLegibles(e->referenciado)},
-        {"Compresión", e->compresion},
-        {"Cifrado", e->cifrado},
-        {T("t_web_creacion_4e62d9", "Creación"), fechaLegible(e->creacion)},
+        {T("t_web_usado_7f0217", "Usado"), bytesLegibles(e->used)},
+        {"Referenciado", bytesLegibles(e->referenced)},
+        {"Compresión", e->compression},
+        {"Cifrado", e->encryption},
+        {T("t_web_creacion_4e62d9", "Creación"), fechaLegible(e->creation)},
     };
     if (!e->isSnapshot()) {
-        datos.push_back({"Montado", e->montado});
-        datos.push_back({T("t_web_punto_de_monta_70570c", "Punto de montaje"), e->puntoMontaje});
+        datos.push_back({"Montado", e->mounted});
+        datos.push_back({T("t_web_punto_de_monta_70570c", "Punto de montaje"), e->mountpoint});
         datos.push_back({"canmount", e->canmount});
-        const auto ith = arbol.hijos.find(e->nombre);
+        const auto ith = arbol.hijos.find(e->name);
         datos.push_back({"Datasets hijos",
                          std::to_string(ith == arbol.hijos.end() ? 0 : ith->second.size())});
-        const auto its = arbol.snapshots.find(e->nombre);
+        const auto its = arbol.snapshots.find(e->name);
         datos.push_back({"Instantáneas",
                          std::to_string(its == arbol.snapshots.end() ? 0 : its->second.size())});
     }
@@ -1879,13 +1879,13 @@ std::string paginaTrabajoLanzado(const std::string& conn, const std::string& ori
         cuerpo += "<p>" + H::escapaHtml(B::format(plantilla, {origen, destino})) + "</p>";
         cuerpo += "<p class=\"tenue\">" + H::escapaHtml(T("t_web_job_id", "Identificador"))
                   + ": <code>" + H::escapaHtml(t.id) + "</code></p>";
-        if (reanuda.hay()) {
+        if (reanuda.any()) {
             cuerpo += "<div class=\"pendiente\">"
                       + H::escapaHtml(B::format(
                             T("t_web_job_reanuda",
                               "Se ha continuado una transferencia que quedó a medias en %1, en "
                               "vez de mandarlo todo otra vez."),
-                            {reanuda.quienLoTiene}))
+                            {reanuda.heldBy}))
                       + "</div>";
         }
         cuerpo += "<p>"
@@ -1893,9 +1893,9 @@ std::string paginaTrabajoLanzado(const std::string& conn, const std::string& ori
                            T("t_jobs_tab_001", "Transferencias"))
                   + "</p>";
     } else {
-        cuerpo += "<p>" + H::escapaHtml(TR::labelOf(t.fallo)) + "</p>";
-        if (!t.detalle.empty()) {
-            cuerpo += "<pre>" + H::escapaHtml(t.detalle) + "</pre>";
+        cuerpo += "<p>" + H::escapaHtml(TR::labelOf(t.failure)) + "</p>";
+        if (!t.detail.empty()) {
+            cuerpo += "<pre>" + H::escapaHtml(t.detail) + "</pre>";
         }
     }
     cuerpo += "<p>" + enlace("/c/" + H::haciaUrl(conn), T("t_web_volver_a_e70d48", "Volver a "))
@@ -2150,13 +2150,13 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
     std::vector<std::string> cortos;
     std::map<std::string, const L::Entry*> porCorto;
     for (const L::Entry& e : itS->second) {
-        const std::string corto = e.nombre.substr(e.nombre.find('@') + 1);
+        const std::string corto = e.name.substr(e.name.find('@') + 1);
         cortos.push_back(corto);
         porCorto[corto] = &e;
     }
     // Las retenciones de TODAS las de este dataset, de una sola consulta. Es lo que
     // convierte esta lista en útil: una instantánea retenida NO se puede destruir, y
-    // enterarse al pulsar «Borrar» es enterarse tarde.
+    // enterarse al pulsar «Delete» es enterarse tarde.
     const auto holds = leeHolds(salidaHolds);
     std::string h;
     for (const auto& grupo : B::gsa::groupSnapshots(cortos)) {
@@ -2180,9 +2180,9 @@ std::string panelInstantaneas(const std::string& conn, const std::string& raiz,
             filas.push_back(
                 {enlace(urlDe(conn, raiz, entera, View::Resumen), corto),
                  it == porCorto.end() ? std::string()
-                                      : H::escapaHtml(bytesLegibles(it->second->usado)),
+                                      : H::escapaHtml(bytesLegibles(it->second->used)),
                  it == porCorto.end() ? std::string()
-                                      : H::escapaHtml(fechaLegible(it->second->creacion)),
+                                      : H::escapaHtml(fechaLegible(it->second->creation)),
                  retenida,
                  // Retenida no se borra: ZFS lo impide. Se ofrece el enlace a sus
                  // retenciones en vez del de borrar, que solo llevaría a un error.
@@ -2541,8 +2541,8 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
     // editable en general no lo es en un dataset montado de solo lectura.
     std::string readonlyDelObjeto = "off";
     for (const L::Property& pr : props) {
-        if (pr.nombre == "readonly") {
-            readonlyDelObjeto = pr.valor;
+        if (pr.name == "readonly") {
+            readonlyDelObjeto = pr.value;
             break;
         }
     }
@@ -2553,21 +2553,21 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
     for (const L::Property& pr : props) {
         // Las «capacidades» de un pool son sus propiedades `feature@…`, no otra consulta:
         // `zpool get all` ya las trae mezcladas con las demás y separarlas es un filtro.
-        const bool esCapacidad = B::startsWith(pr.nombre, "feature@");
+        const bool esCapacidad = B::startsWith(pr.name, "feature@");
         if (esCapacidad != soloCapacidades) {
             continue;
         }
         ++cuantas;
         // `readonly` a sí misma no se le aplica: si estuviera en «on» no habría forma de
         // volver a ponerla en «off» desde aquí.
-        const std::string ro = (pr.nombre == "readonly") ? std::string("off") : readonlyDelObjeto;
+        const std::string ro = (pr.name == "readonly") ? std::string("off") : readonlyDelObjeto;
         const bool sePuede = editables
-                             && ZP::isInlineEditable(pr.nombre, tipoDataset, pr.origen, ro,
+                             && ZP::isInlineEditable(pr.name, tipoDataset, pr.source, ro,
                                                     plataforma);
         h += "<tr><th class=\"prop\">"
-             + H::escapaHtml(soloCapacidades ? pr.nombre.substr(8) : pr.nombre) + "</th><td>";
+             + H::escapaHtml(soloCapacidades ? pr.name.substr(8) : pr.name) + "</th><td>";
         if (!sePuede) {
-            h += H::escapaHtml(pr.valor);
+            h += H::escapaHtml(pr.value);
         } else {
             h += "<form class=\"enlinea\" method=\"post\" action=\"/accion\">"
                  + campoTestigo(testigo)
@@ -2576,32 +2576,32 @@ std::string panelPropiedades(const std::string& conn, const std::string& raiz,
                  + "<input type=\"hidden\" name=\"raiz\" value=\"" + H::escapaHtml(raiz) + "\">"
                  + "<input type=\"hidden\" name=\"volver\" value=\"props\">"
                  + "<input type=\"hidden\" name=\"que\" value=\"set\">"
-                 + "<input type=\"hidden\" name=\"prop\" value=\"" + H::escapaHtml(pr.nombre) + "\">";
+                 + "<input type=\"hidden\" name=\"prop\" value=\"" + H::escapaHtml(pr.name) + "\">";
             // Con lista cerrada, un desplegable; sin ella, un campo. Un desplegable no
             // deja escribir «lz4x» donde solo cabe «lz4», y de paso enseña qué hay.
-            const std::vector<std::string>& valores = ZP::valuesOf(pr.nombre);
+            const std::vector<std::string>& valores = ZP::valuesOf(pr.name);
             if (!valores.empty()) {
                 h += "<select name=\"valor\">";
                 bool estaElActual = false;
                 for (const std::string& v : valores) {
-                    const bool sel = (v == pr.valor);
+                    const bool sel = (v == pr.value);
                     estaElActual = estaElActual || sel;
                     h += "<option" + std::string(sel ? " selected" : "") + " value=\""
                          + H::escapaHtml(v) + "\">" + H::escapaHtml(v) + "</option>";
                 }
                 // El valor de AHORA, si no está en la lista, se añade y sale elegido: si no,
                 // el desplegable enseñaría otro y un descuido lo cambiaría sin querer.
-                if (!estaElActual && !pr.valor.empty()) {
-                    h += "<option selected value=\"" + H::escapaHtml(pr.valor) + "\">"
-                         + H::escapaHtml(pr.valor) + "</option>";
+                if (!estaElActual && !pr.value.empty()) {
+                    h += "<option selected value=\"" + H::escapaHtml(pr.value) + "\">"
+                         + H::escapaHtml(pr.value) + "</option>";
                 }
                 h += "</select>";
             } else {
-                h += "<input name=\"valor\" value=\"" + H::escapaHtml(pr.valor) + "\">";
+                h += "<input name=\"valor\" value=\"" + H::escapaHtml(pr.value) + "\">";
             }
             h += "<button type=\"submit\">Aplicar</button></form>";
         }
-        h += "</td><td class=\"tenue\">" + H::escapaHtml(pr.origen) + "</td></tr>";
+        h += "</td><td class=\"tenue\">" + H::escapaHtml(pr.source) + "</td></tr>";
     }
     h += "</tbody></table>";
     if (cuantas == 0) {
@@ -2729,20 +2729,20 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
                     + "<input type=\"hidden\" name=\"raiz\" value=\"" + H::escapaHtml(raiz) + "\">"
                     + "<input type=\"hidden\" name=\"volver\" value=\"gsa\">"
                     + "<input type=\"hidden\" name=\"que\" value=\"programar\">";
-    f += "<div class=\"fila\">" + casilla("activado", T("t_web_activada_ae4df8", "Activada"), mia.prog.activado)
-         + casilla("recursivo", T("t_web_recursiva_cubr_6c95e7", "Recursiva (cubre los descendientes)"), mia.prog.recursivo)
+    f += "<div class=\"fila\">" + casilla("activado", T("t_web_activada_ae4df8", "Activada"), mia.prog.enabled)
+         + casilla("recursivo", T("t_web_recursiva_cubr_6c95e7", "Recursiva (cubre los descendientes)"), mia.prog.recursive)
          + "</div>";
-    f += "<div class=\"fila\">" + numero("horario", T("t_web_horarias_5399f3", "Horarias"), mia.prog.horario)
-         + numero("diario", T("t_web_diarias_31be0d", "Diarias"), mia.prog.diario)
-         + numero("semanal", T("t_ctx_snap_group_weekly", "Semanales"), mia.prog.semanal)
-         + numero("mensual", T("t_ctx_snap_group_monthly", "Mensuales"), mia.prog.mensual)
-         + numero("anual", T("t_ctx_snap_group_yearly", "Anuales"), mia.prog.anual) + "</div>";
+    f += "<div class=\"fila\">" + numero("horario", T("t_web_horarias_5399f3", "Horarias"), mia.prog.hourly)
+         + numero("diario", T("t_web_diarias_31be0d", "Diarias"), mia.prog.daily)
+         + numero("semanal", T("t_ctx_snap_group_weekly", "Semanales"), mia.prog.weekly)
+         + numero("mensual", T("t_ctx_snap_group_monthly", "Mensuales"), mia.prog.monthly)
+         + numero("anual", T("t_ctx_snap_group_yearly", "Anuales"), mia.prog.yearly) + "</div>";
     f += "<p class=\"tenue\">Cada número es cuántas se guardan de esa clase. Un cero es «no "
          "hagas ninguna», no «guárdalas todas».</p>";
-    f += "<div class=\"fila\">" + casilla("nivelar", T("t_web_nivelar_con_el_e446c5", "Nivelar con el destino"), mia.prog.nivelar)
+    f += "<div class=\"fila\">" + casilla("nivelar", T("t_web_nivelar_con_el_e446c5", "Nivelar con el destino"), mia.prog.level)
          + "<label class=\"campo\">" + H::escapaHtml(T("t_web_destino_c1a0f9", "Destino"))
          + " <input name=\"destino\" placeholder=\"zfsm://máquina/pool/dataset\" value=\""
-         + H::escapaHtml(B::gsa::destinationAsUrl(mia.prog.destino)) + "\"></label></div>";
+         + H::escapaHtml(B::gsa::destinationAsUrl(mia.prog.target)) + "\"></label></div>";
     f += "<button type=\"submit\">Guardar</button></form>";
     if (mia.local) {
         f += boton(conn, sel, raiz, "desprogramar", T("t_web_quitarla_de_478a25", "Quitarla de aquí"), testigo, std::string(),
@@ -2760,11 +2760,11 @@ std::string panelProgramacion(const std::string& conn, const std::string& raiz,
         }
         const B::gsa::Schedule& p = kv.second.prog;
         filas.push_back({enlace(urlDe(conn, raiz, kv.first, View::Schedule), kv.first),
-                         p.activado ? "sí" : "no", p.recursivo ? "sí" : "no",
-                         std::to_string(p.horario), std::to_string(p.diario),
-                         std::to_string(p.semanal), std::to_string(p.mensual),
-                         std::to_string(p.anual),
-                         p.nivelar ? H::escapaHtml(B::gsa::destinationAsUrl(p.destino))
+                         p.enabled ? "sí" : "no", p.recursive ? "sí" : "no",
+                         std::to_string(p.hourly), std::to_string(p.daily),
+                         std::to_string(p.weekly), std::to_string(p.monthly),
+                         std::to_string(p.yearly),
+                         p.level ? H::escapaHtml(B::gsa::destinationAsUrl(p.target))
                                    : std::string()});
     }
     h += "<div class=\"grupotit\">Programaciones puestas por debajo</div>";
@@ -2821,7 +2821,7 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
     const bool porRsync = mismaConexion && !B::transport::isWindowsConnection(perfilDestino);
     if (porRsync) {
         const std::string carga =
-            SY::rsyncPayload({{plan.rutaOrigen, plan.rutaDestino}}, borrar, enSeco, "", "");
+            SY::rsyncPayload({{plan.sourcePath, plan.targetPath}}, borrar, enSeco, "", "");
         if (carga.empty()) {
             err = "no se pudo construir la orden de sincronización";
             return false;
@@ -2846,11 +2846,11 @@ bool sincroniza(zfsmgr::cli::Sesion& ses, const B::ConnectionProfile& perfilOrig
                int timeoutMs, std::string& salidaL, std::string& errL, int& rcL) {
             return llamaAgente(ses, maquina, args, salidaL, errL, rcL, nullptr, timeoutMs);
         },
-        perfilOrigen, perfilDestino, plan.rutaOrigen, plan.rutaDestino, mismaConexion, verboso,
+        perfilOrigen, perfilDestino, plan.sourcePath, plan.targetPath, mismaConexion, verboso,
         /*comoTrabajo=*/!enSeco, borrar, enSeco, &salidaEnvio);
-    if (hecho.fallo != TR::JobFailure::None_) {
-        err = TR::labelOf(hecho.fallo)
-              + (hecho.detalle.empty() ? std::string() : ": " + hecho.detalle);
+    if (hecho.failure != TR::JobFailure::None_) {
+        err = TR::labelOf(hecho.failure)
+              + (hecho.detail.empty() ? std::string() : ": " + hecho.detail);
         return false;
     }
     salida = salidaEnvio;
@@ -2882,7 +2882,7 @@ std::string paginaConfirmarSincronizar(const std::string& conn, const std::strin
                       "Se va a sincronizar «%1» → «%2» en «%3». Copia por ficheros: lo que "
                       "cambie en el origen se escribe encima del destino. Entre máquinas "
                       "viaja por el canal entre daemons, sin rsync."),
-                    {origen.objeto, destino, conn}))
+                    {origen.object, destino, conn}))
               + "</p>";
     if (borrar) {
         cuerpo += "<p class=\"peligro\">"
@@ -2970,7 +2970,7 @@ std::string paginaConfirmar(const std::string& conn, const std::string& objeto,
                             "Se va a MOVER «%1» a «%2», dentro de «%3». Es un renombrado: "
                             "los datos no se copian, pero cambia la ruta de montaje de ese "
                             "dataset y de todo lo que cuelgue de él."),
-                          {origen.objeto, DX::moveDestination(origen, DX::Endpoint{conn, objeto}),
+                          {origen.object, DX::moveDestination(origen, DX::Endpoint{conn, objeto}),
                            conn});
     } else if (que == "pool-destroy") {
         texto = B::format(T("t_web_conf_destroypool",
@@ -3155,11 +3155,11 @@ std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::R
             cuerpo += " (código " + std::to_string(res.rc) + ")";
         }
         cuerpo += "</p>";
-        if (!res.detalle.empty()) {
-            cuerpo += "<pre>" + H::escapaHtml(res.detalle) + "</pre>";
+        if (!res.detail.empty()) {
+            cuerpo += "<pre>" + H::escapaHtml(res.detail) + "</pre>";
         }
     }
-    if (res.versionAtrasada) {
+    if (res.versionBehind) {
         cuerpo += "<div class=\"pendiente\">El agente empaquetado para esa plataforma es "
                   + H::escapaHtml(res.version) + " y este cliente espera "
                   + H::escapaHtml(B::agentversion::laEsperada())
@@ -3170,7 +3170,7 @@ std::string paginaInstalacion(const std::string& conn, const B::daemoninstall::R
     // arranca, contesta STATUS=OK y no ve los discos, así que no encuentra ningún pool que
     // importar. Todo parece bien salvo el resultado, que es la peor forma de fallar; por
     // eso se dice al instalar y no cuando la lista salga vacía.
-    if (res.esMac && res.ok()) {
+    if (res.isMac && res.ok()) {
         cuerpo += "<div class=\"pendiente\">En macOS queda un paso a mano: concederle "
                   "«Acceso total al disco» al agente en Configuración del Sistema → "
                   "Privacidad y Seguridad, añadiendo <code>/usr/local/libexec/zfsmgr-agent</code>. "
@@ -3654,16 +3654,16 @@ int main(int argc, char** argv) {
                     std::string errA;
                     L::pools(salidaD, pools, errA);
                     for (const L::Pool& po : pools) {
-                        recursos.push_back({"/dav/" + conn + "/" + po.nombre + "/", po.nombre, true, 0});
+                        recursos.push_back({"/dav/" + conn + "/" + po.name + "/", po.name, true, 0});
                     }
                 } else {
                     // Los hijos DIRECTOS: `--dump-zfs-list-all` es recursivo, y meter los
                     // nietos aquí haría que el explorador enseñara el árbol entero aplanado.
                     std::string puntoMontaje;
                     for (const L::Entry& e : L::entries(salidaD)) {
-                        if (e.nombre == dataset) {
-                            if (e.montado == "yes") {
-                                puntoMontaje = e.puntoMontaje;
+                        if (e.name == dataset) {
+                            if (e.mounted == "yes") {
+                                puntoMontaje = e.mountpoint;
                             }
                             continue;
                         }
@@ -3672,11 +3672,11 @@ int main(int argc, char** argv) {
                         if (e.isSnapshot() || !dentro.empty()) {
                             continue;
                         }
-                        const std::string resto = e.nombre.substr(dataset.size() + 1);
+                        const std::string resto = e.name.substr(dataset.size() + 1);
                         if (resto.find('/') != std::string::npos) {
                             continue;
                         }
-                        recursos.push_back({"/dav/" + conn + "/" + e.nombre + "/", resto, true, 0});
+                        recursos.push_back({"/dav/" + conn + "/" + e.name + "/", resto, true, 0});
                     }
                     // Y los FICHEROS, si el dataset está montado. Por verbo tipado: la ruta
                     // viene de un navegador y no puede acabar dentro de una cadena de shell.
@@ -4118,16 +4118,16 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 B::gsa::Schedule prog;
-                prog.activado = (p.campo("activado") == "1");
-                prog.recursivo = (p.campo("recursivo") == "1");
-                prog.nivelar = (p.campo("nivelar") == "1");
+                prog.enabled = (p.campo("activado") == "1");
+                prog.recursive = (p.campo("recursivo") == "1");
+                prog.level = (p.campo("nivelar") == "1");
                 // Se teclea como URL y se GUARDA como siempre: el planificador del daemon
                 // parte el valor por «::» y está escrito así en datasets que ya existen.
-                prog.destino = B::gsa::destinationFromUrl(p.campo("destino"));
+                prog.target = B::gsa::destinationFromUrl(p.campo("destino"));
                 const std::pair<const char*, int*> ret[] = {
-                    {"horario", &prog.horario}, {"diario", &prog.diario},
-                    {"semanal", &prog.semanal}, {"mensual", &prog.mensual},
-                    {"anual", &prog.anual},
+                    {"horario", &prog.hourly}, {"diario", &prog.daily},
+                    {"semanal", &prog.weekly}, {"mensual", &prog.monthly},
+                    {"anual", &prog.yearly},
                 };
                 bool numerosBien = true;
                 for (const auto& c : ret) {
@@ -4161,10 +4161,10 @@ int main(int argc, char** argv) {
                 if (!B::gsa::isValid(objeto, prog, existe, porQue)) {
                     r.codigo = 400;
                     r.cuerpo = paginaError("no se puede guardar: "
-                                               + B::gsa::labelOf(porQue.fallo)
-                                               + (porQue.detalle.empty()
+                                               + B::gsa::labelOf(porQue.failure)
+                                               + (porQue.detail.empty()
                                                       ? std::string()
-                                                      : " («" + porQue.detalle + "»)"),
+                                                      : " («" + porQue.detail + "»)"),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -4178,8 +4178,8 @@ int main(int argc, char** argv) {
             } else if (que == "copiar-desde-origen" || que == "nivelar-desde-origen") {
                 const DX::Endpoint origen = origenDe(p);
                 const B::ConnectionProfile* perfilOrigen =
-                    origen.vacio() ? nullptr
-                                   : zfsmgr::cli::buscarConexion(conns, origen.conexion);
+                    origen.empty() ? nullptr
+                                   : zfsmgr::cli::buscarConexion(conns, origen.connection);
                 if (perfilOrigen == nullptr) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_sin_origen_marcado",
@@ -4195,23 +4195,23 @@ int main(int argc, char** argv) {
                 const Salud sO = saludDe(*perfilOrigen);
                 const Salud sD = saludDe(*perfil);
                 TR::Endpoint eO;
-                eO.conexion = origen.conexion;
-                eO.objeto = origen.objeto;
-                eO.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
-                eO.tieneDaemon = sO.vivo;
-                eO.admiteTrabajos = sO.admiteTrabajos;
-                eO.versionZfs = sO.versionZfs;
+                eO.connection = origen.connection;
+                eO.object = origen.object;
+                eO.isWindows = B::transport::isWindowsConnection(*perfilOrigen);
+                eO.hasDaemon = sO.vivo;
+                eO.supportsJobs = sO.admiteTrabajos;
+                eO.zfsVersion = sO.versionZfs;
                 TR::Endpoint eD;
-                eD.conexion = conn;
-                eD.objeto = objeto;
-                eD.esWindows = B::transport::isWindowsConnection(*perfil);
-                eD.tieneDaemon = sD.vivo;
-                eD.admiteTrabajos = sD.admiteTrabajos;
-                eD.versionZfs = sD.versionZfs;
+                eD.connection = conn;
+                eD.object = objeto;
+                eD.isWindows = B::transport::isWindowsConnection(*perfil);
+                eD.hasDaemon = sD.vivo;
+                eD.supportsJobs = sD.admiteTrabajos;
+                eD.zfsVersion = sD.versionZfs;
                 const TR::Plan plan = TR::makePlan(eO, eD, /*exigeAsincrono=*/true);
-                if (!plan.sePuede()) {
+                if (!plan.ok()) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError(TR::labelOf(plan.fallo), sesion.testigo());
+                    r.cuerpo = paginaError(TR::labelOf(plan.failure), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
@@ -4245,11 +4245,11 @@ int main(int argc, char** argv) {
                             return false;
                         }
                         for (const L::Entry& e : L::entries(sal)) {
-                            const std::size_t i = e.nombre.find('@');
-                            if (i == std::string::npos || e.nombre.substr(0, i) != ds) {
+                            const std::size_t i = e.name.find('@');
+                            if (i == std::string::npos || e.name.substr(0, i) != ds) {
                                 continue;
                             }
-                            out.push_back({e.nombre.substr(i + 1), e.guid});
+                            out.push_back({e.name.substr(i + 1), e.guid});
                         }
                         return true;
                     };
@@ -4266,13 +4266,13 @@ int main(int argc, char** argv) {
                         return true;
                     }
                     const std::string objetivoCorto =
-                        origen.objeto.substr(origen.objeto.find('@') + 1);
+                        origen.object.substr(origen.object.find('@') + 1);
                     const TR::LevelPlan pn =
                         TR::makeLevelPlan(deOrigen, deDestino, objetivoCorto);
-                    if (!pn.sePuede()) {
+                    if (!pn.ok()) {
                         r.codigo = 400;
                         r.cuerpo = paginaError(T("t_web_e_nivelar", "no se puede nivelar: ")
-                                                   + TR::labelOf(pn.fallo),
+                                                   + TR::labelOf(pn.failure),
                                                sesion.testigo());
                         respuesta = H::componer(r);
                         return true;
@@ -4285,7 +4285,7 @@ int main(int argc, char** argv) {
                                                       false);
                 TR::SendOptions opciones;
                 opciones.R = (p.campo("rec") == "1");
-                const TR::LlamadaAlAgente llama =
+                const TR::AgentCall llama =
                     [&](const B::ConnectionProfile& maquina,
                         const std::vector<std::string>& args, int timeoutMs, std::string& out,
                         std::string& errL, int& rcL) {
@@ -4293,10 +4293,10 @@ int main(int argc, char** argv) {
                                            timeoutMs);
                     };
                 const auto lanzado = TR::launchJob(
-                    sesionZfs->transporte, llama, *perfilOrigen, *perfil, origen.objeto, destino,
-                    desdeInstantanea, TR::sendFlags(opciones), reanuda.testigo,
-                    origen.conexion == conn, op.verboso);
-                r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, destino, lanzado, reanuda,
+                    sesionZfs->transporte, llama, *perfilOrigen, *perfil, origen.object, destino,
+                    desdeInstantanea, TR::sendFlags(opciones), reanuda.token,
+                    origen.connection == conn, op.verboso);
+                r.cuerpo = paginaTrabajoLanzado(conn, origen.object, destino, lanzado, reanuda,
                                                 sesion.testigo(),
                                                 esNivelar ? QueTrabajo::Level
                                                           : QueTrabajo::Send);
@@ -4306,8 +4306,8 @@ int main(int argc, char** argv) {
             } else if (que == "sincronizar-desde-origen") {
                 const DX::Endpoint origen = origenDe(p);
                 const B::ConnectionProfile* perfilOrigen =
-                    origen.vacio() ? nullptr
-                                   : zfsmgr::cli::buscarConexion(conns, origen.conexion);
+                    origen.empty() ? nullptr
+                                   : zfsmgr::cli::buscarConexion(conns, origen.connection);
                 if (perfilOrigen == nullptr) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_sin_origen_marcado",
@@ -4320,23 +4320,23 @@ int main(int argc, char** argv) {
                 // Se vuelve a planear AQUÍ, montajes incluidos: entre que se vio la pasada
                 // en seco y se pulsó, alguien pudo desmontar cualquiera de los dos.
                 SY::Endpoint eO;
-                eO.conexion = origen.conexion;
-                eO.objeto = origen.objeto;
-                eO.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
-                eO.tieneDaemon = saludDe(*perfilOrigen).vivo;
+                eO.connection = origen.connection;
+                eO.object = origen.object;
+                eO.isWindows = B::transport::isWindowsConnection(*perfilOrigen);
+                eO.hasDaemon = saludDe(*perfilOrigen).vivo;
                 SY::Endpoint eD;
-                eD.conexion = conn;
-                eD.objeto = objeto;
-                eD.esWindows = B::transport::isWindowsConnection(*perfil);
-                eD.tieneDaemon = saludDe(*perfil).vivo;
-                montajeDeDataset(*sesionZfs, *perfilOrigen, eO.objeto, eO.montado,
-                                 eO.puntoMontaje);
-                montajeDeDataset(*sesionZfs, *perfil, eD.objeto, eD.montado, eD.puntoMontaje);
+                eD.connection = conn;
+                eD.object = objeto;
+                eD.isWindows = B::transport::isWindowsConnection(*perfil);
+                eD.hasDaemon = saludDe(*perfil).vivo;
+                montajeDeDataset(*sesionZfs, *perfilOrigen, eO.object, eO.mounted,
+                                 eO.mountpoint);
+                montajeDeDataset(*sesionZfs, *perfil, eD.object, eD.mounted, eD.mountpoint);
                 const SY::Plan planS = SY::makePlan(eO, eD);
-                if (!planS.sePuede()) {
+                if (!planS.ok()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
-                                               + SY::labelOf(planS.fallo),
+                                               + SY::labelOf(planS.failure),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -4345,16 +4345,16 @@ int main(int argc, char** argv) {
                 std::string errS;
                 std::string idT;
                 const bool okS = sincroniza(*sesionZfs, *perfilOrigen, *perfil, planS,
-                                            origen.conexion == conn, p.campo("del") == "1",
+                                            origen.connection == conn, p.campo("del") == "1",
                                             /*enSeco=*/false, op.verboso, salS, errS, idT);
                 TR::Job t;
                 if (okS) {
                     t.id = idT;
                 } else {
-                    t.fallo = TR::JobFailure::SinIdentificador;
-                    t.detalle = B::trim(errS).empty() ? B::trim(salS) : B::trim(errS);
+                    t.failure = TR::JobFailure::NoJobId;
+                    t.detail = B::trim(errS).empty() ? B::trim(salS) : B::trim(errS);
                 }
-                r.cuerpo = paginaTrabajoLanzado(conn, origen.objeto, objeto, t, TR::Resume{},
+                r.cuerpo = paginaTrabajoLanzado(conn, origen.object, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Sync);
                 r.codigo = okS ? 200 : 502;
                 respuesta = H::componer(r);
@@ -4425,7 +4425,7 @@ int main(int argc, char** argv) {
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = INST::argvClone(origen.objeto, objeto + "/" + nombre);
+                verbo = INST::argvClone(origen.object, objeto + "/" + nombre);
             } else if (que == "dar-permiso" || que == "quitar-permiso") {
                 if (objeto.find('@') != std::string::npos) {
                     r.codigo = 400;
@@ -4606,13 +4606,13 @@ int main(int argc, char** argv) {
                 // La carga la compone la capa base, la misma que usa el intérprete. Aquí solo
                 // se decide a quién y se comprueba que haya algo que entregar.
                 const PR::Handover entrega = PR::composeHandover(conns.perfiles, conn);
-                if (!entrega.sePuede()) {
+                if (!entrega.ok()) {
                     r.codigo = 400;
-                    r.cuerpo = paginaError(PR::labelOf(entrega.fallo), sesion.testigo());
+                    r.cuerpo = paginaError(PR::labelOf(entrega.failure), sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
                 }
-                verbo = PET::setPeers(entrega.cargaB64);
+                verbo = PET::setPeers(entrega.payloadB64);
             } else if (que == "escucha-pares") {
                 // El «objeto» es la dirección. Se valida con la MISMA lista que ofrece la
                 // vista y que aplica el daemon: aquí solo se evita mandar algo que se sabe
@@ -4739,8 +4739,8 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 SY::Plan plan;
-                plan.rutaOrigen = dirOrigen;
-                plan.rutaDestino = puntoDestino;
+                plan.sourcePath = dirOrigen;
+                plan.targetPath = puntoDestino;
                 std::string salF;
                 std::string errF;
                 std::string idF;
@@ -4753,8 +4753,8 @@ int main(int argc, char** argv) {
                 if (okF) {
                     t.id = idF;
                 } else {
-                    t.fallo = TR::JobFailure::SinIdentificador;
-                    t.detalle = B::trim(errF).empty() ? B::trim(salF) : B::trim(errF);
+                    t.failure = TR::JobFailure::NoJobId;
+                    t.detail = B::trim(errF).empty() ? B::trim(salF) : B::trim(errF);
                 }
                 r.cuerpo = paginaTrabajoLanzado(conn, dirOrigen, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Sync);
@@ -4834,8 +4834,8 @@ int main(int argc, char** argv) {
                 if (!idT.empty()) {
                     t.id = idT;
                 } else {
-                    t.fallo = TR::JobFailure::SinIdentificador;
-                    t.detalle = B::trim(errT).empty() ? B::trim(salT) : B::trim(errT);
+                    t.failure = TR::JobFailure::NoJobId;
+                    t.detail = B::trim(errT).empty() ? B::trim(salT) : B::trim(errT);
                 }
                 r.cuerpo = paginaTrabajoLanzado(conn, objeto, objeto, t, TR::Resume{},
                                                 sesion.testigo(), QueTrabajo::Send);
@@ -5067,8 +5067,8 @@ int main(int argc, char** argv) {
                 const B::ConnectionProfile* perfilS =
                     zfsmgr::cli::buscarConexion(conns, cS);
                 const B::ConnectionProfile* perfilOS =
-                    origenS.vacio() ? nullptr
-                                    : zfsmgr::cli::buscarConexion(conns, origenS.conexion);
+                    origenS.empty() ? nullptr
+                                    : zfsmgr::cli::buscarConexion(conns, origenS.connection);
                 if (perfilS == nullptr || perfilOS == nullptr) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_sin_origen_marcado",
@@ -5079,24 +5079,24 @@ int main(int argc, char** argv) {
                     return true;
                 }
                 SY::Endpoint eO;
-                eO.conexion = origenS.conexion;
-                eO.objeto = origenS.objeto;
-                eO.esWindows = B::transport::isWindowsConnection(*perfilOS);
-                eO.tieneDaemon = saludDe(*perfilOS).vivo;
+                eO.connection = origenS.connection;
+                eO.object = origenS.object;
+                eO.isWindows = B::transport::isWindowsConnection(*perfilOS);
+                eO.hasDaemon = saludDe(*perfilOS).vivo;
                 SY::Endpoint eD;
-                eD.conexion = cS;
-                eD.objeto = oS;
-                eD.esWindows = B::transport::isWindowsConnection(*perfilS);
-                eD.tieneDaemon = saludDe(*perfilS).vivo;
+                eD.connection = cS;
+                eD.object = oS;
+                eD.isWindows = B::transport::isWindowsConnection(*perfilS);
+                eD.hasDaemon = saludDe(*perfilS).vivo;
                 // Los montajes cuestan una consulta por extremo, y por eso se preguntan
                 // AQUÍ y no al pintar el menú de acciones.
-                montajeDeDataset(*sesionZfs, *perfilOS, eO.objeto, eO.montado, eO.puntoMontaje);
-                montajeDeDataset(*sesionZfs, *perfilS, eD.objeto, eD.montado, eD.puntoMontaje);
+                montajeDeDataset(*sesionZfs, *perfilOS, eO.object, eO.mounted, eO.mountpoint);
+                montajeDeDataset(*sesionZfs, *perfilS, eD.object, eD.mounted, eD.mountpoint);
                 const SY::Plan planS = SY::makePlan(eO, eD);
-                if (!planS.sePuede()) {
+                if (!planS.ok()) {
                     r.codigo = 400;
                     r.cuerpo = paginaError(T("t_web_e_sync", "no se puede sincronizar: ")
-                                               + SY::labelOf(planS.fallo),
+                                               + SY::labelOf(planS.failure),
                                            sesion.testigo());
                     respuesta = H::componer(r);
                     return true;
@@ -5106,7 +5106,7 @@ int main(int argc, char** argv) {
                 std::string errS;
                 std::string sinUso;
                 const bool okSeco = sincroniza(*sesionZfs, *perfilOS, *perfilS, planS,
-                                               origenS.conexion == cS, borrar,
+                                               origenS.connection == cS, borrar,
                                                /*enSeco=*/true, op.verboso, salS, errS, sinUso);
                 r.cuerpo = paginaConfirmarSincronizar(
                     cS, oS, origenS, campoConsulta("raiz"), borrar, !okSeco,
@@ -5374,7 +5374,7 @@ int main(int argc, char** argv) {
         const std::string poolDeLaRaiz = objeto.substr(0, objeto.find('/'));
         if (poolsDeLaMaquina.empty()) {
             L::Pool solo;
-            solo.nombre = poolDeLaRaiz;
+            solo.name = poolDeLaRaiz;
             poolsDeLaMaquina.push_back(solo);
         }
 
@@ -5400,41 +5400,41 @@ int main(int argc, char** argv) {
         // Sin origen marcado no hay nada que sincronizar; «el mismo objeto» es el motivo
         // que ya se pinta para las demás en ese caso.
         SY::Failure falloSync = SY::Failure::SameObject;
-        if (!origenMarcado.vacio()) {
+        if (!origenMarcado.empty()) {
             const B::ConnectionProfile* perfilOrigen =
-                zfsmgr::cli::buscarConexion(conns, origenMarcado.conexion);
+                zfsmgr::cli::buscarConexion(conns, origenMarcado.connection);
             if (perfilOrigen != nullptr) {
                 const Salud sOrigen = saludDe(*perfilOrigen);
                 const Salud sDestino = saludDe(*perfil);
                 TR::Endpoint eOrigen;
-                eOrigen.conexion = origenMarcado.conexion;
-                eOrigen.objeto = origenMarcado.objeto;
-                eOrigen.esWindows = B::transport::isWindowsConnection(*perfilOrigen);
-                eOrigen.tieneDaemon = sOrigen.vivo;
-                eOrigen.admiteTrabajos = sOrigen.admiteTrabajos;
-                eOrigen.versionZfs = sOrigen.versionZfs;
+                eOrigen.connection = origenMarcado.connection;
+                eOrigen.object = origenMarcado.object;
+                eOrigen.isWindows = B::transport::isWindowsConnection(*perfilOrigen);
+                eOrigen.hasDaemon = sOrigen.vivo;
+                eOrigen.supportsJobs = sOrigen.admiteTrabajos;
+                eOrigen.zfsVersion = sOrigen.versionZfs;
                 TR::Endpoint eDestino;
-                eDestino.conexion = conn;
-                eDestino.objeto = sel;
-                eDestino.esWindows = B::transport::isWindowsConnection(*perfil);
-                eDestino.tieneDaemon = sDestino.vivo;
-                eDestino.admiteTrabajos = sDestino.admiteTrabajos;
-                eDestino.versionZfs = sDestino.versionZfs;
+                eDestino.connection = conn;
+                eDestino.object = sel;
+                eDestino.isWindows = B::transport::isWindowsConnection(*perfil);
+                eDestino.hasDaemon = sDestino.vivo;
+                eDestino.supportsJobs = sDestino.admiteTrabajos;
+                eDestino.zfsVersion = sDestino.versionZfs;
                 planTransfer = TR::makePlan(eOrigen, eDestino, /*exigeAsincrono=*/true);
 
                 // Sincronizar tiene su propia regla: no comparte camino con las de
                 // transfer porque no manda bloques, compara ficheros. Aquí solo la
                 // parte barata; los montajes se miran al pulsar.
                 SY::Endpoint sO;
-                sO.conexion = origenMarcado.conexion;
-                sO.objeto = origenMarcado.objeto;
-                sO.esWindows = eOrigen.esWindows;
-                sO.tieneDaemon = sOrigen.vivo;
+                sO.connection = origenMarcado.connection;
+                sO.object = origenMarcado.object;
+                sO.isWindows = eOrigen.isWindows;
+                sO.hasDaemon = sOrigen.vivo;
                 SY::Endpoint sD;
-                sD.conexion = conn;
-                sD.objeto = sel;
-                sD.esWindows = eDestino.esWindows;
-                sD.tieneDaemon = sDestino.vivo;
+                sD.connection = conn;
+                sD.object = sel;
+                sD.isWindows = eDestino.isWindows;
+                sD.hasDaemon = sDestino.vivo;
                 falloSync = SY::check(sO, sD);
             }
         }
@@ -5565,7 +5565,7 @@ int main(int argc, char** argv) {
                 if (itS != arbol.snapshots.end() && !itS->second.empty()) {
                     std::vector<std::string> objetos;
                     for (const L::Entry& e : itS->second) {
-                        objetos.push_back(e.nombre);
+                        objetos.push_back(e.name);
                     }
                     const std::vector<std::string> args = PET::holdsOf(objetos);
                     if (pide(args, 30000)) {
@@ -5586,7 +5586,7 @@ int main(int argc, char** argv) {
                 break;
             case View::Contenido: {
                 const std::string punto =
-                    entradaSel != nullptr ? B::trim(entradaSel->puntoMontaje) : std::string();
+                    entradaSel != nullptr ? B::trim(entradaSel->mountpoint) : std::string();
                 if (punto.empty() || punto == "none" || punto == "-") {
                     loCargado = "<p class=\"vacio\">«" + H::escapaHtml(sel)
                                 + "» no tiene punto de montaje.</p>";
@@ -5630,9 +5630,9 @@ int main(int argc, char** argv) {
                 // Los dos extremos en el orden que quiere `zfs diff`: primero el más
                 // antiguo. Va el ORIGEN marcado contra el destino elegido, que es
                 // exactamente lo que la regla acaba de dar por bueno.
-                if (pideOFalla(PET::diffBetween(origenMarcado.objeto, sel),
+                if (pideOFalla(PET::diffBetween(origenMarcado.object, sel),
                                "la comparación")) {
-                    loCargado = panelDiff(salida, origenMarcado.objeto, sel);
+                    loCargado = panelDiff(salida, origenMarcado.object, sel);
                 }
                 break;
         }

@@ -4,179 +4,179 @@
 #include <string>
 #include <vector>
 
-// Sincronizar un árbol de ficheros ENTRE DOS MÁQUINAS, por el socket entre daemons.
+// Syncing a file tree BETWEEN TWO MACHINES, over the daemon-to-daemon socket.
 //
-// Es el hermano remoto de `copytree`. Existe porque entre máquinas no había forma decente
-// de sincronizar con un extremo Windows: rsync no está allí, y el respaldo por tar copia
-// pero NO borra ni sabe simular, así que no sincroniza. Ver la evaluación en
+// It is the remote sibling of `copytree`. It exists because between machines there was no
+// decent way to sync with a Windows endpoint: rsync is not there, and the tar fallback
+// copies but does NOT delete and cannot simulate, so it does not sync. See the assessment in
 // docs/diseno_tecnico_transferencias.md.
 //
-// **Por qué no rsync.** rsync entre máquinas lo lanzaría el daemon del origen, que
-// necesitaría SSH propio contra el destino —clave o contraseña suyas, no las del cliente—
-// y rsync instalado en los dos lados. Por el socket entre daemons no hace falta ninguna de
-// las dos cosas: a cada daemon se le habla por su canal mTLS, y el socket de datos se
-// autentica con un testigo de un solo uso.
+// **Why not rsync.** rsync between machines would be launched by the source's daemon, which
+// would need SSH of its own against the target —its key or its password, not the client's—
+// and rsync installed on both sides. Over the daemon-to-daemon socket neither is needed:
+// each daemon is spoken to over its mTLS channel, and the data socket authenticates with a
+// single-use token.
 //
-// **El reparto**: aquí está todo lo que se puede comprobar sin tocar la red —recorrer,
-// comparar, decidir qué hacer, y el formato de cable—. Los sockets los pone el daemon,
-// que ya tiene el relé montado y endurecido.
+// **The split**: everything that can be worked out without touching the network lives here
+// —walking, comparing, deciding what to do, and the wire format—. The sockets are the
+// daemon's job, since it already has the relay built and hardened.
 namespace zfsmgr::remotetree {
 
 enum class EntryKind {
-    Directorio,
-    Fichero,
-    Enlace,      // simbólico; viaja su destino, no su contenido
-    EnlaceDuro,  // otra ruta del MISMO fichero, ya enviada antes
+    Directory,
+    File,
+    Symlink,      // symbolic; its target travels, not its contents
+    HardLink,     // another path to the SAME file, already sent earlier
 };
 
 struct Entry {
-    // Relativa a la raíz, y SIEMPRE con «/». Windows usa «\» en disco, pero el cable no:
-    // si cada extremo mandara su separador, ninguna comparación casaría.
-    std::string ruta;
-    EntryKind tipo{EntryKind::Fichero};
-    std::uint64_t tamano{0};
-    // Segundos desde el epoch, enteros.
+    // Relative to the root, and ALWAYS with «/». Windows uses «\» on disk, but the wire does
+    // not: if each end sent its own separator, no comparison would ever match.
+    std::string path;
+    EntryKind kind{EntryKind::File};
+    std::uint64_t size{0};
+    // Whole seconds since the epoch.
     //
-    // **No es pereza, es lo único comparable.** NTFS guarda 100 ns, ext4 nanosegundos y
-    // HFS+ un segundo: comparar la marca exacta entre dos de ellos da «distinto» siempre,
-    // y cada pasada volvería a copiar el árbol entero. Es la misma granularidad que usa
-    // `rsync --modify-window=1`, y tiene su misma consecuencia: un cambio dentro del mismo
-    // segundo que además conserve el tamaño no se detecta.
-    std::int64_t fecha{0};
-    std::uint32_t modo{0};
-    // Para `Enlace`, a dónde apunta. Para `EnlaceDuro`, la ruta hermana ya enviada.
-    std::string destino;
+    // **Not laziness: the only thing that compares.** NTFS keeps 100 ns, ext4 nanoseconds and
+    // HFS+ one second: comparing the exact stamp between any two of them says «different»
+    // every time, and every pass would copy the whole tree again. It is the same granularity
+    // `rsync --modify-window=1` uses, and it has the same consequence: a change within the
+    // same second that also preserves the size goes undetected.
+    std::int64_t mtime{0};
+    std::uint32_t mode{0};
+    // For `Symlink`, where it points. For `HardLink`, the sibling path already sent.
+    std::string target;
 };
 
-// Recorre `raiz` y devuelve su contenido, ordenado por ruta.
+// Walks `root` and returns its contents, sorted by path.
 //
-// Los enlaces duros se detectan por (dispositivo, inodo) y se devuelven como `EnlaceDuro`
-// apuntando a la primera ruta que los trajo. En Windows NO se detectan y van como ficheros
-// sueltos: la API existe pero es cara, y allí son raros. Se dice aquí para que quien lea el
-// resultado no crea que se han preservado.
-bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
-             bool unSoloSistema = false);
+// Hard links are detected by (device, inode) and returned as `HardLink` pointing at the first
+// path that brought them in. On Windows they are NOT detected and travel as separate files:
+// the API exists but is expensive, and they are rare there. It is said here so that whoever
+// reads the result does not believe they were preserved.
+bool walk(const std::string& root, std::vector<Entry>& output, std::string& error,
+             bool oneFileSystem = false);
 
-// El manifiesto: qué tiene ya el destino. Una línea por entrada.
-std::string serializeManifest(const std::vector<Entry>& entradas);
-bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
+// The manifest: what the target already has. One line per entry.
+std::string serializeManifest(const std::vector<Entry>& entries);
+bool parseManifest(const std::string& text, std::vector<Entry>& output,
                        std::string& error);
 
 enum class Action {
-    CrearDirectorio,
+    MakeDirectory,
     Send,
-    Enlazar,
-    EnlazarDuro,
-    Borrar,
+    Symlink_,
+    HardLink_,
+    Delete,
 };
 
 struct Operation {
-    Action accion{Action::Send};
-    Entry entrada;
+    Action action{Action::Send};
+    Entry entry;
 };
 
 struct Plan {
-    std::vector<Operation> operaciones;
-    std::uint64_t bytes{0};      // lo que habría que transferir
-    std::uint64_t iguales{0};    // lo que ya estaba bien y no se toca
+    std::vector<Operation> operations;
+    std::uint64_t bytes{0};      // what would have to be transferred
+    std::uint64_t unchanged{0};  // what was already right and is left alone
 };
 
-// Qué hay que hacer para que el destino quede como el origen.
+// What has to happen for the target to end up like the source.
 //
-// El borrado va AL FINAL y de más hondo a menos hondo, para que un directorio se borre
-// después de su contenido. Si se hiciera al revés, borrar un directorio con cosas dentro
-// falla y el error no explica por qué.
-Plan makePlan(const std::vector<Entry>& origen, const std::vector<Entry>& destino,
-            bool borraLoQueSobra);
+// Deletions go LAST and deepest-first, so a directory is deleted after its contents. The
+// other way round, deleting a directory with things inside fails and the error does not
+// explain why.
+Plan makePlan(const std::vector<Entry>& source, const std::vector<Entry>& target,
+            bool deleteExtraneous);
 
-// Una línea legible por operación, al estilo de `rsync -i`. Es lo que ve quien pide la
-// pasada en seco, así que dice QUÉ y sobre qué, no cuántos.
+// One readable line per operation, in the style of `rsync -i`. It is what whoever asks for a
+// dry run sees, so it says WHAT and on what, not how many.
 std::string describe(const Operation& o);
 
-// La cabecera de una operación en el cable: una línea de texto y, si es un fichero, sus
-// bytes en crudo detrás.
+// The header of one operation on the wire: a line of text and, when it is a file, its raw
+// bytes behind it.
 //
-// Formato: `<letra> <modo> <fecha> <tamaño> <largoRuta> <largoDestino>\n` y a continuación
-// la ruta y el destino pegados, sin separador. Las longitudes van explícitas porque un
-// nombre de fichero puede llevar dentro saltos de línea y espacios.
+// Format: `<letter> <mode> <mtime> <size> <pathLen> <targetLen>\n` followed by the path and
+// the target run together, with no separator. The lengths are explicit because a file name
+// can carry newlines and spaces inside it.
 std::string headerOf(const Operation& o);
-bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largoRuta,
-                     std::size_t& largoDestino, std::string& error);
+bool parseHeader(const std::string& line, Operation& output, std::size_t& pathLen,
+                     std::size_t& targetLen, std::string& error);
 
 // ---------------------------------------------------------------------------
-// Transferencia DELTA: mandar solo lo que cambió dentro de un fichero.
+// DELTA transfer: sending only what changed inside a file.
 //
-// Es el algoritmo de rsync, y NO xdelta. xdelta calcula la diferencia entre dos ficheros
-// que están los dos en la misma máquina; aquí ninguna de las dos las tiene, que es el
-// problema entero. El de rsync está pensado justo para esta forma:
+// This is rsync's algorithm, and NOT xdelta. xdelta computes the difference between two
+// files that are both on the same machine; here neither machine has both, which is the whole
+// problem. rsync's is designed for exactly this shape:
 //
-//   1. El DESTINO parte su copia en bloques y manda, por bloque, una suma débil rodante y
-//      un hash fuerte.
-//   2. El ORIGEN desliza una ventana byte a byte sobre su versión. La suma débil se
-//      actualiza en O(1) por byte —ese es el truco—, y cuando coincide con alguna conocida
-//      se confirma con el hash fuerte.
-//   3. Manda instrucciones: «copia N bloques tuyos desde el índice i» o «aquí van estos
+//   1. The TARGET splits its copy into blocks and sends, per block, a weak rolling sum and a
+//      strong hash.
+//   2. The SOURCE slides a window byte by byte over its version. The weak sum updates in
+//      O(1) per byte —that is the trick—, and when it matches a known one it is confirmed
+//      with the strong hash.
+//   3. It sends instructions: «copy N of your blocks from index i» or «here come these
 //      bytes».
 //
-// Byte a byte y no bloque a bloque a propósito: si alguien inserta un byte al principio del
-// fichero, comparar bloques alineados no reconocería ni uno solo, y la ventana deslizante
-// los reconoce todos desplazados.
+// Byte by byte and not block by block on purpose: if someone inserts one byte at the start of
+// the file, comparing aligned blocks would recognise not a single one, whereas the sliding
+// window recognises all of them, shifted.
 // ---------------------------------------------------------------------------
 
-// A partir de qué tamaño compensa. Por debajo, las firmas y la vuelta de red cuestan más
-// que mandar el fichero entero; rsync aplica un umbral por lo mismo.
-constexpr std::uint64_t kMinimoParaDelta = 1024 * 1024;
+// The size above which it pays off. Below it, the signatures and the network round trip cost
+// more than sending the whole file; rsync applies a threshold for the same reason.
+constexpr std::uint64_t kMinSizeForDelta = 1024 * 1024;
 
 struct Signature {
-    std::uint32_t debil{0};
-    // SHA-256 recortado. Recortar está bien porque el hash fuerte solo confirma una
-    // coincidencia que la suma débil ya propuso, y además al final se comprueba el fichero
-    // ENTERO: una colisión aquí se detecta allí en vez de corromper en silencio.
-    unsigned char fuerte[16]{};
+    std::uint32_t weak{0};
+    // Truncated SHA-256. Truncating is fine because the strong hash only confirms a match the
+    // weak sum already proposed, and because the WHOLE file is checked at the end: a
+    // collision here is caught there instead of corrupting silently.
+    unsigned char strong[16]{};
 };
 
-// Cuánto mide un bloque para un fichero de ese tamaño. Por tramos y no por raíz cuadrada:
-// es predecible, y que los dos extremos calculen lo MISMO es más importante que afinarlo.
-std::size_t blockSize(std::uint64_t tamanoFichero);
+// How big a block is for a file of that size. In bands and not by square root: it is
+// predictable, and both ends computing the SAME thing matters more than tuning it.
+std::size_t blockSize(std::uint64_t fileSize);
 
-// La suma rodante de rsync sobre un trozo.
-std::uint32_t rollingSum(const unsigned char* datos, std::size_t n);
+// rsync's rolling sum over a chunk.
+std::uint32_t rollingSum(const unsigned char* data, std::size_t n);
 
-std::string strongHashHex(const unsigned char* datos, std::size_t n);
-// El hash del fichero entero, para comprobar que lo reconstruido es lo que tenía que ser.
-bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error);
+std::string strongHashHex(const unsigned char* data, std::size_t n);
+// The hash of the whole file, to check that what was reconstructed is what it had to be.
+bool fileHash(const std::string& path, std::string& hexOut, std::string& error);
 
-bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Signature>& salida,
+bool signaturesOf(const std::string& path, std::size_t blockSz, std::vector<Signature>& output,
               std::string& error);
 std::string serializeSignatures(const std::vector<Signature>& f);
-bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, std::string& error);
+bool parseSignatures(const std::string& data, std::vector<Signature>& output, std::string& error);
 
 enum class InstructionKind { Send, Literal };
 
 struct Instruction {
-    InstructionKind tipo{InstructionKind::Literal};
-    std::uint64_t bloque{0};   // Send: primer bloque del destino
-    std::uint64_t cuantos{0};  // Send: cuántos bloques seguidos
-    std::string datos;         // Literal: los bytes
+    InstructionKind kind{InstructionKind::Literal};
+    std::uint64_t block{0};    // Send: the target's first block
+    std::uint64_t howMany{0};  // Send: how many consecutive blocks
+    std::string data;          // Literal: the bytes
 };
 
-// Qué hay que mandar para que el destino reconstruya `ruta` a partir de lo que ya tiene.
+// What has to be sent for the target to reconstruct `path` from what it already has.
 //
-// `bytesLiterales` es lo que de verdad viajaría: si sale casi igual al tamaño del fichero,
-// el delta no ha servido de nada y quien llama puede preferir mandarlo entero.
-bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::size_t tamBloque,
-           std::vector<Instruction>& salida, std::uint64_t& bytesLiterales, std::string& error);
+// `literalBytes` is what would actually travel: when it comes out close to the file's size,
+// the delta bought nothing and the caller may prefer to send the file whole.
+bool delta(const std::string& path, const std::vector<Signature>& signatures, std::size_t blockSz,
+           std::vector<Instruction>& output, std::uint64_t& literalBytes, std::string& error);
 
-// Poner en el destino la fecha y el modo que traía el origen.
+// Putting on the target the mtime and the mode the source carried.
 //
-// La fecha hay que ponerla SIEMPRE tras escribir un fichero: si se deja la del momento de
-// la copia, la siguiente pasada lo verá distinto y lo volverá a traer entero. Es la
-// diferencia entre sincronizar y copiar una y otra vez.
-bool setMtime(const std::string& ruta, std::int64_t segundos);
-bool setMode(const std::string& ruta, std::uint32_t modo);
+// The mtime has to be set ALWAYS after writing a file: leaving the one from the moment of the
+// copy makes the next pass see it as different and fetch it whole again. It is the difference
+// between syncing and copying over and over.
+bool setMtime(const std::string& path, std::int64_t seconds);
+bool setMode(const std::string& path, std::uint32_t mode);
 
-// La fecha de un fichero en segundos desde el epoch, tal y como la ve el sistema.
-// Expuesta para poder comprobar que lo escrito quedó con la fecha que tenía que quedar.
-std::int64_t fileMtime(const std::string& ruta, bool& ok);
+// A file's mtime in seconds since the epoch, as the system sees it.
+// Exposed so it can be checked that what was written ended up with the mtime it had to have.
+std::int64_t fileMtime(const std::string& path, bool& ok);
 
 }  // namespace zfsmgr::remotetree

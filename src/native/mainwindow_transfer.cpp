@@ -306,9 +306,9 @@ QString MainWindow::transferResumeTokenFor(int connIdx, const QString& dataset,
         m_transport, toBaseProfile(m_conns.profiles.at(connIdx)),
         dataset.trimmed().toStdString(), false);
     if (holderOut) {
-        *holderOut = QString::fromStdString(r.quienLoTiene);
+        *holderOut = QString::fromStdString(r.heldBy);
     }
-    return QString::fromStdString(r.testigo);
+    return QString::fromStdString(r.token);
 }
 
 bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
@@ -2094,8 +2094,8 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
         appLog(QStringLiteral("WARN"),
                QStringLiteral("Job async: %1 (%2) — fallback síncrono")
                    .arg(QString::fromStdString(
-                            zfsmgr::base::transfer::labelOf(lanzado.fallo)),
-                        QString::fromStdString(lanzado.detalle)));
+                            zfsmgr::base::transfer::labelOf(lanzado.failure)),
+                        QString::fromStdString(lanzado.detail)));
         return false;
     }
     const QString jobId = QString::fromStdString(lanzado.id);
