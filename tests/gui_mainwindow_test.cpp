@@ -6,6 +6,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QComboBox>
+#include <QSplitter>
 #include <QTreeWidget>
 #include <QMenu>
 #include <QTabWidget>
@@ -228,6 +229,20 @@ private Q_SLOTS:
         QVERIFY(window.findChild<QComboBox*>(QStringLiteral("destinationPoolCombo")) != nullptr);
         QVERIFY2(window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified")) == nullptr,
                  "el árbol unificado con todas las conexiones dentro ya no existe");
+
+        // UN solo partidor para los dos paneles, con sus tres filas. Se comprueba el
+        // número de secciones porque es lo que se rompe al «añadir un divisor aquí»: dos
+        // partidores, uno por panel, y el reparto vertical de los dos lados se descuadra.
+        auto* rows = window.findChild<QSplitter*>(QStringLiteral("zfsmgrPaneRowsSplit"));
+        QVERIFY2(rows, "no hay partidor compartido de filas");
+        QCOMPARE(rows->orientation(), Qt::Vertical);
+        QCOMPARE(rows->count(), 3);
+        QVERIFY2(!window.findChild<QSplitter*>(QStringLiteral("zfsmgrDatasetPanesSplit")),
+                 "entre los dos paneles no debe haber divisor: el ancho va al 50%");
+
+        // Cada panel con su log de conexión debajo.
+        QVERIFY(window.findChild<QPlainTextEdit*>(QStringLiteral("originConnLogView")) != nullptr);
+        QVERIFY(window.findChild<QPlainTextEdit*>(QStringLiteral("destinationConnLogView")) != nullptr);
 
 
         auto* logView = window.findChild<QPlainTextEdit*>(QStringLiteral("applicationLogView"));

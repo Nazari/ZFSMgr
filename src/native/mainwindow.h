@@ -638,7 +638,9 @@ private:
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
-    QWidget* buildDatasetPane(int paneIdx, QWidget* parent);
+    void buildDatasetPane(int paneIdx);
+    QWidget* buildPaneLog(int paneIdx, QWidget* parent);
+    void updatePaneLog(int paneIdx);
     void refillDatasetPaneCombos();
     void onPaneConnectionChosen(int paneIdx);
     void onPanePoolChosen(int paneIdx);
@@ -1210,10 +1212,18 @@ private:
         // Mientras se rellenan los desplegables, sus señales no deben rehacer el árbol:
         // rellenar dispara currentIndexChanged aunque la elección del usuario no cambie.
         bool refilling{false};
-        // El detalle de lo seleccionado, debajo del árbol y separado por un partidor.
+        // El panel es una COLUMNA repartida en tres filas —árbol, detalle y log—, pero
+        // las tres no viven juntas: cada una va en su fila del partidor compartido, que
+        // es lo que hace que mover el divisor mueva los dos paneles a la vez.
+        QWidget* treeBox{nullptr};
+        QWidget* detailBox{nullptr};
+        QWidget* logBox{nullptr};
+        QTabWidget* logTabs{nullptr};
+        QPlainTextEdit* logTerminalView{nullptr};
+        QPlainTextEdit* logDaemonView{nullptr};
+        // El detalle de lo seleccionado, debajo del árbol.
         // Enseña una de tres cosas según qué haya marcado: la conexión del panel cuando
         // no hay nada marcado, el pool, o el dataset.
-        QSplitter* split{nullptr};
         QLabel* detailTitle{nullptr};
         QStackedWidget* detailStack{nullptr};
         QTableWidget* connDetailTable{nullptr};
@@ -1228,10 +1238,13 @@ private:
         QTableWidget* datasetHoldsTable{nullptr};
     };
     DatasetPane m_datasetPanes[2];
-    QSplitter* m_datasetPanesSplit{nullptr};
+    // UN solo partidor para los dos paneles: tres filas —árboles, detalles, logs— y
+    // dentro de cada fila las dos columnas al 50%, sin divisor entre ellas. Antes cada
+    // panel tenía el suyo, así que el reparto vertical de la izquierda y el de la derecha
+    // se descuadraban en cuanto se tocaba uno.
+    QSplitter* m_paneRowsSplit{nullptr};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
-    QMap<QString, QPointer<QWidget>> m_connectionLogTabs;
     struct ConnCompactState {
         bool valid{false};
         QString date, time, conn, level;

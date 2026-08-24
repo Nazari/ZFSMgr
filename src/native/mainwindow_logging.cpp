@@ -641,60 +641,21 @@ void MainWindow::syncConnectionLogTabs() {
             }
             continue;
         }
-        auto* tab = new QWidget(m_logsTabs);
-        auto* lay = new QVBoxLayout(tab);
-        lay->setContentsMargins(0, 0, 0, 0);
-        lay->setSpacing(0);
-
-        auto* innerTabs = new QTabWidget(tab);
-        auto* terminalPage = new QWidget(innerTabs);
-        auto* terminalLay = new QVBoxLayout(terminalPage);
-        terminalLay->setContentsMargins(0, 0, 0, 0);
-        terminalLay->setSpacing(0);
-        auto* terminalView = new QPlainTextEdit(terminalPage);
+        // Dos visores SIN pestaña y sin enseñar: son los dueños del texto.
+        //
+        // Antes cada conexión tenía su pestaña al pie de la ventana, con Terminal y Daemon
+        // dentro. Los logs se ven ahora bajo el panel de la conexión elegida, y esos
+        // visores comparten ESTE documento en vez de tener el suyo. Que el dueño no se
+        // enseñe es lo que permite que la misma conexión esté abierta en los dos paneles
+        // sin duplicar el texto ni repartir las líneas entre dos sitios.
+        auto* terminalView = new QPlainTextEdit(this);
+        terminalView->hide();
         terminalView->setReadOnly(true);
-        terminalView->setLineWrapMode(QPlainTextEdit::NoWrap);
-        terminalView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        terminalView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        if (m_logView) {
-            terminalView->setFont(m_logView->font());
-        }
-        terminalLay->addWidget(terminalView, 1);
-        innerTabs->addTab(terminalPage, QStringLiteral("Terminal"));
-
-        auto* gsaPage = new QWidget(innerTabs);
-        auto* gsaLay = new QVBoxLayout(gsaPage);
-        gsaLay->setContentsMargins(0, 0, 0, 0);
-        gsaLay->setSpacing(0);
-        auto* daemonBtnRow = new QWidget(gsaPage);
-        auto* daemonBtnLay = new QHBoxLayout(daemonBtnRow);
-        daemonBtnLay->setContentsMargins(4, 2, 4, 2);
-        auto* heartbeatBtn = new QPushButton(QStringLiteral("Heartbeat"), daemonBtnRow);
-        daemonBtnLay->addWidget(heartbeatBtn);
-        daemonBtnLay->addStretch(1);
-        gsaLay->addWidget(daemonBtnRow, 0);
-        auto* gsaView = new QPlainTextEdit(gsaPage);
+        auto* gsaView = new QPlainTextEdit(this);
+        gsaView->hide();
         gsaView->setReadOnly(true);
-        gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
-        gsaView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        gsaView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        if (m_logView) {
-            gsaView->setFont(m_logView->font());
-        }
-        gsaLay->addWidget(gsaView, 1);
-        innerTabs->addTab(gsaPage, QStringLiteral("Daemon"));
-        {
-            const QString capturedId = p.id;
-            connect(heartbeatBtn, &QPushButton::clicked, this, [this, capturedId]() {
-                runDaemonHeartbeat(capturedId);
-            });
-        }
-
-        lay->addWidget(innerTabs, 1);
-        m_logsTabs->addTab(tab, p.name);
         m_connectionLogViews.insert(p.id, terminalView);
         m_connectionGsaLogViews.insert(p.id, gsaView);
-        m_connectionLogTabs.insert(p.id, tab);
         refreshConnectionDaemonLogAsync(i);
     }
 
@@ -703,35 +664,37 @@ void MainWindow::syncConnectionLogTabs() {
             ++it;
             continue;
         }
-        QWidget* tab = m_connectionLogTabs.value(it.key(), nullptr);
-        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
-        if (idx >= 0) {
-            m_logsTabs->removeTab(idx);
+        // Los paneles enseñan el documento de este visor: hay que soltarlo ANTES de
+        // destruirlo, o se quedan apuntando a memoria liberada. No lo avisa nada.
+        for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
+            DatasetPane& pane = m_datasetPanes[paneIdx];
+            if (pane.logTerminalView && it.value()
+                && pane.logTerminalView->document() == it.value()->document()) {
+                pane.logTerminalView->setDocument(new QTextDocument(pane.logTerminalView));
+            }
+            QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr);
+            if (pane.logDaemonView && gsaOwner
+                && pane.logDaemonView->document() == gsaOwner->document()) {
+                pane.logDaemonView->setDocument(new QTextDocument(pane.logDaemonView));
+            }
         }
-        if (tab) {
-            tab->deleteLater();
+        if (QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr)) {
+            gsaOwner->deleteLater();
+        }
+        if (it.value()) {
+            it.value()->deleteLater();
         }
         m_connectionGsaLogViews.remove(it.key());
-        m_connectionLogTabs.remove(it.key());
         m_connCompactState.remove(it.key());
         m_connGsaCompactState.remove(it.key());
         m_connectionDaemonLogOffset.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
-    for (int i = 0; i < m_conns.profiles.size(); ++i) {
-        if (isConnectionDisconnected(i)) {
-            continue;
-        }
-        const QString id = m_conns.profiles[i].id;
-        if (!wanted.contains(id)) {
-            continue;
-        }
-        QWidget* tab = m_connectionLogTabs.value(id, nullptr);
-        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
-        if (idx >= 0) {
-            m_logsTabs->setTabText(idx, m_conns.profiles[i].name);
-        }
+    // Y que los dos paneles vuelvan a apuntar al documento que les toca: puede que el
+    // suyo se acabe de crear en este mismo recorrido.
+    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
+        updatePaneLog(paneIdx);
     }
 }
 

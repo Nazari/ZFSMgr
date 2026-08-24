@@ -855,11 +855,15 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
 // desplegar el pool y bajar; y para transferir entre dos máquinas, tener las dos
 // desplegadas a la vez en la misma columna.
 
-QWidget* MainWindow::buildDatasetPane(int paneIdx, QWidget* parent) {
+void MainWindow::buildDatasetPane(int paneIdx) {
     DatasetPane& pane = m_datasetPanes[paneIdx];
     const bool isOrigin = (paneIdx == 0);
 
-    auto* holder = new QWidget(parent);
+    // La caja del árbol: su cabecera de desplegables y el árbol. El detalle y el log son
+    // hermanos suyos en OTRAS filas del partidor, no hijos: es lo que permite que el
+    // divisor sea uno solo para los dos paneles.
+    pane.treeBox = new QWidget();
+    auto* holder = pane.treeBox;
     auto* holderLayout = new QVBoxLayout(holder);
     holderLayout->setContentsMargins(0, 0, 0, 0);
     holderLayout->setSpacing(3);
@@ -916,16 +920,10 @@ QWidget* MainWindow::buildDatasetPane(int paneIdx, QWidget* parent) {
         tree->setProperty("zfsmgr.isSplitTree", true);
         installConnContentTreeHeaderContextMenu(tree);
     }
-    // Árbol arriba y detalle abajo, con partidor: el reparto lo decide quien mire, que
-    // para eso depende de si está leyendo propiedades o navegando.
-    pane.split = new QSplitter(Qt::Vertical, holder);
-    pane.split->setChildrenCollapsible(false);
-    pane.split->addWidget(pane.treeWidget);
-    pane.split->addWidget(buildPaneDetail(paneIdx, pane.split));
-    pane.split->setStretchFactor(0, 3);
-    pane.split->setStretchFactor(1, 2);
     holderLayout->addWidget(head, 0);
-    holderLayout->addWidget(pane.split, 1);
+    holderLayout->addWidget(pane.treeWidget, 1);
+    pane.detailBox = buildPaneDetail(paneIdx, nullptr);
+    pane.logBox = buildPaneLog(paneIdx, nullptr);
 
     if (ConnectionDatasetTreePane* treePane = pane.treeWidget->pane()) {
         connect(treePane, &ConnectionDatasetTreePane::selectionChanged, this,
@@ -936,7 +934,108 @@ QWidget* MainWindow::buildDatasetPane(int paneIdx, QWidget* parent) {
             [this, paneIdx](int) { onPaneConnectionChosen(paneIdx); });
     connect(pane.poolCombo, &QComboBox::currentIndexChanged, this,
             [this, paneIdx](int) { onPanePoolChosen(paneIdx); });
-    return holder;
+}
+
+
+// El log de la conexión del panel, debajo de su detalle.
+//
+// Antes los logs de TODAS las conexiones estaban en pestañas al pie de la ventana, junto
+// al log combinado. Mirar el de una máquina era buscar su pestaña; y con dos paneles
+// abiertos sobre dos máquinas, ir y volver entre dos pestañas.
+//
+// Los dos visores NO son dueños de su texto: enseñan el documento del visor que sí lo es
+// —el que `syncConnectionLogTabs()` crea por conexión y al que escribe
+// `appendConnectionLog()`—. `QPlainTextEdit::setDocument()` permite que dos vistas
+// compartan documento, que es lo que hace falta para que la misma conexión pueda estar
+// elegida en los dos paneles a la vez sin duplicar el texto ni perder líneas.
+QWidget* MainWindow::buildPaneLog(int paneIdx, QWidget* parent) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    const bool isOrigin = (paneIdx == 0);
+    auto* box = new QWidget(parent);
+    auto* layout = new QVBoxLayout(box);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    pane.logTabs = new QTabWidget(box);
+    pane.logTabs->setDocumentMode(true);
+    if (pane.logTabs->tabBar()) {
+        pane.logTabs->tabBar()->setExpanding(false);
+    }
+
+    const auto makeView = [this](QWidget* owner) {
+        auto* view = new QPlainTextEdit(owner);
+        view->setReadOnly(true);
+        view->setLineWrapMode(QPlainTextEdit::NoWrap);
+        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            view->setFont(m_logView->font());
+        }
+        return view;
+    };
+
+    pane.logTerminalView = makeView(pane.logTabs);
+    pane.logTerminalView->setObjectName(isOrigin ? QStringLiteral("originConnLogView")
+                                                 : QStringLiteral("destinationConnLogView"));
+    pane.logTabs->addTab(pane.logTerminalView, QStringLiteral("Terminal"));
+
+    auto* daemonPage = new QWidget(pane.logTabs);
+    auto* daemonLayout = new QVBoxLayout(daemonPage);
+    daemonLayout->setContentsMargins(0, 0, 0, 0);
+    daemonLayout->setSpacing(2);
+    auto* btnRow = new QWidget(daemonPage);
+    auto* btnLayout = new QHBoxLayout(btnRow);
+    btnLayout->setContentsMargins(4, 2, 4, 2);
+    auto* heartbeatBtn = new QPushButton(QStringLiteral("Heartbeat"), btnRow);
+    connect(heartbeatBtn, &QPushButton::clicked, this, [this, paneIdx]() {
+        const DatasetPane& p = m_datasetPanes[paneIdx];
+        if (p.connIdx >= 0 && p.connIdx < m_conns.profiles.size()) {
+            runDaemonHeartbeat(m_conns.profiles.at(p.connIdx).id);
+        }
+    });
+    btnLayout->addWidget(heartbeatBtn, 0);
+    btnLayout->addStretch(1);
+    pane.logDaemonView = makeView(daemonPage);
+    daemonLayout->addWidget(btnRow, 0);
+    daemonLayout->addWidget(pane.logDaemonView, 1);
+    pane.logTabs->addTab(daemonPage, QStringLiteral("Daemon"));
+
+    layout->addWidget(pane.logTabs, 1);
+    return box;
+}
+
+void MainWindow::updatePaneLog(int paneIdx) {
+    DatasetPane& pane = m_datasetPanes[paneIdx];
+    if (!pane.logTerminalView || !pane.logDaemonView) {
+        return;
+    }
+    const QString connId = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
+                               ? m_conns.profiles.at(pane.connIdx).id
+                               : QString();
+    const auto attach = [](QPlainTextEdit* view, QPlainTextEdit* owner) {
+        if (!view) {
+            return;
+        }
+        // Sin dueño —conexión desconectada, o log aún sin crear— un documento propio y
+        // vacío. Dejarle el anterior enseñaría el log de otra máquina bajo este panel, que
+        // es peor que no enseñar nada.
+        QTextDocument* doc = owner ? owner->document() : nullptr;
+        if (view->document() == doc) {
+            return;
+        }
+        view->setDocument(doc ? doc : new QTextDocument(view));
+    };
+    attach(pane.logTerminalView, connId.isEmpty() ? nullptr
+                                                  : m_connectionLogViews.value(connId, nullptr));
+    attach(pane.logDaemonView, connId.isEmpty() ? nullptr
+                                                : m_connectionGsaLogViews.value(connId, nullptr));
+    if (pane.logTabs) {
+        const QString name = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
+                                 ? m_conns.profiles.at(pane.connIdx).name
+                                 : QString();
+        pane.logTabs->setTabText(0, name.isEmpty() ? QStringLiteral("Terminal")
+                                                   : QStringLiteral("Terminal · %1").arg(name));
+    }
 }
 
 // Rellena los dos desplegables sin perder lo que hubiera elegido el usuario.
@@ -1089,6 +1188,7 @@ void MainWindow::rebuildDatasetPanes() {
     refillDatasetPaneCombos();
     for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
         rebuildDatasetPane(paneIdx);
+        updatePaneLog(paneIdx);
     }
 }
 
@@ -1845,13 +1945,35 @@ void MainWindow::buildUi() {
     auto* connContentLayout = new QVBoxLayout(m_connContentPage);
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
-    m_datasetPanesSplit = new QSplitter(Qt::Horizontal, m_connContentPage);
-    m_datasetPanesSplit->setObjectName(QStringLiteral("zfsmgrDatasetPanesSplit"));
-    m_datasetPanesSplit->setChildrenCollapsible(false);
-    m_datasetPanesSplit->addWidget(buildDatasetPane(0, m_datasetPanesSplit));
-    m_datasetPanesSplit->addWidget(buildDatasetPane(1, m_datasetPanesSplit));
-    m_datasetPanesSplit->setStretchFactor(0, 1);
-    m_datasetPanesSplit->setStretchFactor(1, 1);
+    buildDatasetPane(0);
+    buildDatasetPane(1);
+    // Tres filas y UN divisor por frontera, compartido por los dos paneles: árboles,
+    // detalles y logs. Cada fila reparte su ancho al 50% con un layout, no con un
+    // partidor: entre el panel izquierdo y el derecho no hay nada que arrastrar, y así el
+    // reparto horizontal no puede quedarse descuadrado.
+    //
+    // Antes cada panel llevaba su propio partidor vertical, de modo que subir el detalle
+    // de la izquierda dejaba el de la derecha donde estaba y las dos columnas dejaban de
+    // leerse en paralelo, que es justo para lo que sirven dos paneles.
+    const auto makeRow = [](QWidget* left, QWidget* right) {
+        auto* row = new QWidget();
+        auto* layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+        layout->addWidget(left, 1);
+        layout->addWidget(right, 1);
+        return row;
+    };
+    m_paneRowsSplit = new QSplitter(Qt::Vertical, m_connContentPage);
+    m_paneRowsSplit->setObjectName(QStringLiteral("zfsmgrPaneRowsSplit"));
+    m_paneRowsSplit->setChildrenCollapsible(false);
+    m_paneRowsSplit->setHandleWidth(4);
+    m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].treeBox, m_datasetPanes[1].treeBox));
+    m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].detailBox, m_datasetPanes[1].detailBox));
+    m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].logBox, m_datasetPanes[1].logBox));
+    m_paneRowsSplit->setStretchFactor(0, 5);
+    m_paneRowsSplit->setStretchFactor(1, 4);
+    m_paneRowsSplit->setStretchFactor(2, 2);
     // Los nombres de siempre siguen apuntando a los mismos dos árboles: origen es el
     // panel izquierdo y destino el derecho. El resto del código pide «el árbol de
     // origen» y «el de destino» por estos miembros, y así no tiene que enterarse de
@@ -1863,7 +1985,7 @@ void MainWindow::buildUi() {
     m_bottomDatasetTreeWidget = m_datasetPanes[1].treeWidget;
     m_bottomConnContentTree = m_bottomDatasetTreeWidget->tree();
     // Las acciones se exponen por menú contextual del árbol.
-    connContentLayout->addWidget(m_datasetPanesSplit, 1);
+    connContentLayout->addWidget(m_paneRowsSplit, 1);
     m_btnApplyConnContentProps->setEnabled(false);
     if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
     m_connPropsStack->addWidget(m_connContentPage);
@@ -1946,10 +2068,10 @@ void MainWindow::buildUi() {
     m_lastDetailText->setFixedHeight(22);
     detailLayout->addWidget(detailLabel, 0);
     detailLayout->addWidget(m_lastDetailText, 1);
-    // El origen comparte fila con Estado y Progreso en vez de ocupar una tira propia:
-    // eran tres franjas apiladas encima del árbol y ahora es una. Va el último y sin
-    // estirar, que es lo que menos ancho roba a los otros dos.
-    stateProgressLayout->addWidget(m_connOriginSelectionLabel, 1);
+    // Sin el rótulo de «Origen»: decía qué había marcado como origen cuando origen y
+    // destino se elegían dentro del mismo árbol. Con un panel para cada papel, lo dice el
+    // propio panel —su desplegable arriba y su selección dentro— y el rótulo repetía a
+    // media línea lo que ya se ve entero.
     stateProgressLayout->addWidget(statusWrap, 1);
     stateProgressLayout->addWidget(detailWrap, 3);
     // Aplicar y Deshacer, aquí y no en cada panel.
@@ -1987,11 +2109,6 @@ void MainWindow::buildUi() {
     leftPane->setMinimumHeight(0);
     leftPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     leftPane->setMaximumWidth(QWIDGETSIZE_MAX);
-    auto* topBottomPane = new QWidget(topArea);
-    auto* topBottomLayout = new QVBoxLayout(topBottomPane);
-    topBottomLayout->setContentsMargins(0, 0, 0, 0);
-    topBottomLayout->setSpacing(2);
-    topBottomLayout->addWidget(stateProgressRow, 0);
     // `leftPane` NO se añade: contiene la pestaña de Conexiones, que se quedó sin un solo
     // widget cuando la lista de cambios pendientes se mudó a las pestañas de abajo —los
     // árboles viven en m_connContentPage, en el panel de arriba—. Con estiramiento 1
@@ -1999,18 +2116,14 @@ void MainWindow::buildUi() {
     // su alto guardado: eso era la banda enorme y vacía. Se oculta en vez de borrarse
     // porque sigue siendo el padre de widgets que ya se reubicaron.
     leftPane->hide();
-    const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + 2;
-    topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
 
-    // UN SOLO divisor horizontal, y la banda de Origen/Estado/Progreso baja con las
-    // pestañas.
+    // Estado y Progreso, ENCIMA de los árboles.
     //
-    // Antes había dos: uno entre el árbol y la banda, y otro entre la banda y las
-    // pestañas. El de arriba no se podía arrastrar —la banda tiene techo de una fila, así
-    // que no había nada que repartir— y quedaba como un asa muerta en medio de la
-    // ventana. Ahora la banda va pegada a las pestañas, en su mismo panel, y el único
-    // divisor separa el árbol de todo lo demás, que es el reparto que de verdad se toca.
-    topBottomPane->setMaximumHeight(stateProgressRow->sizeHint().height() + 8);
+    // Estaban al pie, pegados a las pestañas de log. Ahí abajo cuentan lo que está
+    // pasando arriba, y quedaban a un palmo del sitio donde se mira: se pulsaba una
+    // acción en el árbol y la respuesta aparecía al otro extremo de la ventana. Van sin
+    // estirar, así que ocupan una línea y ni un píxel más.
+    topLayout->addWidget(stateProgressRow, 0);
     topLayout->addWidget(m_rightStack, 1);
     loadPersistedAppLogToView();
 
@@ -2021,10 +2134,11 @@ void MainWindow::buildUi() {
                        trk(QStringLiteral("t_jobs_tab_001"),
                            QStringLiteral("Transferencias"),
                            QStringLiteral("Transfers")));
-    m_logsTabs->addTab(combinedLogTab,
-                       trk(QStringLiteral("t_combined_log001"),
-                           QStringLiteral("Log combinado"),
-                           QStringLiteral("Combined log")));
+    // Sin pestaña de «Log combinado». Enseñaba el log de la aplicación mezclado con el de
+    // todas las conexiones; los de cada conexión están ahora bajo su panel, y el de la
+    // aplicación sigue escribiéndose en disco y se copia desde Ajustes ▸ Logs. El widget
+    // se construye igual porque es a donde escribe `appLog()`, pero no se enseña.
+    combinedLogTab->hide();
 
     // ── Transfer Jobs tab ──────────────────────────────────────────────────
     {
@@ -2080,7 +2194,7 @@ void MainWindow::buildUi() {
 
     // Por nombre, no por índice: al meter «Cambios pendientes» delante, el 1 dejó de ser
     // el log combinado.
-    m_logsTabs->setCurrentIndex(qMax(0, m_logsTabs->indexOf(combinedLogTab)));
+    m_logsTabs->setCurrentIndex(0);
 
     auto* bottomTabsPane = new QWidget(central);
     auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
@@ -2090,8 +2204,6 @@ void MainWindow::buildUi() {
         // El estilo va SOLO en la barra de pestañas, no en toda la aplicación.
         m_logsTabs->tabBar()->setStyle(new CountedTabStyle(m_logsTabs->tabBar()->style()));
     }
-    // La banda primero y sin estirar; las pestañas se quedan con el resto.
-    bottomTabsLayout->addWidget(topBottomPane, 0);
     bottomTabsLayout->addWidget(m_logsTabs, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
@@ -2122,13 +2234,6 @@ void MainWindow::buildUi() {
     if (m_verticalMainSplit) {
         m_verticalMainSplit->setOrientation(Qt::Vertical);
     }
-    // La altura de la banda sale del CONTENIDO y de nada más.
-    //
-    // Antes se tomaba del divisor que la contenía —el alto que tuviera al guardarse— y se
-    // fijaba como mínimo, así que el alto de ayer era el suelo de hoy y no bajaba nunca.
-    // Ese divisor ya no existe: la banda va en el panel de las pestañas con estiramiento
-    // cero, o sea que ocupa exactamente lo que necesita.
-    topBottomPane->setMinimumHeight(qMax(1, topBottomPane->sizeHint().height()));
 
     // Y el REPARTO del divisor, que es lo que de verdad dejaba el hueco.
     //

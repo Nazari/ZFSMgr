@@ -258,7 +258,6 @@ void MainWindow::applyLanguageLive() {
 
     m_connectionLogViews.clear();
     m_connectionGsaLogViews.clear();
-    m_connectionLogTabs.clear();
     if (QWidget* old = takeCentralWidget()) {
         old->deleteLater();
     }
