@@ -1241,6 +1241,10 @@ void MainWindow::onPaneConnectionChosen(int paneIdx) {
     }
     refillDatasetPaneCombos();
     rebuildDatasetPane(paneIdx);
+    // Y el log de abajo, que es de la conexión y no del pool: sin esta línea el panel
+    // cambiaba de máquina y seguía enseñando —y rotulando— el log de la anterior. Solo se
+    // corregía en el siguiente refresco completo, que es cuando se rehacen los dos paneles.
+    updatePaneLog(paneIdx);
 }
 
 bool MainWindow::isPoolImportableForConnection(int connIdx, const QString& poolName) const {
