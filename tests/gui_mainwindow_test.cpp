@@ -332,7 +332,7 @@ private Q_SLOTS:
     // que llevaban meses sin comprobar nada, y su sujeto —las casillas de «mostrar el
     // nodo X en línea»— ya no existe.
 
-    void connectionContextMenuGroupsRefreshAndGsa() {
+    void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
@@ -342,10 +342,21 @@ private Q_SLOTS:
 
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
 
-        const QStringList topLevel = window.connectionContextMenuTopLevelLabelsForTest();
-        QVERIFY(topLevel.contains(QStringLiteral("Refresh")));
+        // Los rótulos salen del menú «Conexiones» DE VERDAD, no de una lista copiada: por
+        // eso ahora se comprueba que estén los que tiene que haber, y que no aparezca lo
+        // que se agrupó dentro de un submenú.
+        const QStringList topLevel = window.connectionsMenuLabelsForTest();
+        QVERIFY(topLevel.contains(QStringLiteral("New Connection")));
         QVERIFY(!topLevel.contains(QStringLiteral("GSA")));
-        QVERIFY(!topLevel.contains(QStringLiteral("Refresh all connections")));
+        // «Refrescar» de esta conexión lleva el nombre dentro, así que se busca por prefijo.
+        bool hasRefresh = false;
+        for (const QString& label : topLevel) {
+            if (label.startsWith(QStringLiteral("Refresh"))) {
+                hasRefresh = true;
+                break;
+            }
+        }
+        QVERIFY(hasRefresh);
 
         const QStringList refreshLabels = window.connectionRefreshMenuLabelsForTest();
         QCOMPARE(refreshLabels.size(), 2);

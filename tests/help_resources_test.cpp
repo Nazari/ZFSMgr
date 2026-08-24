@@ -1,8 +1,13 @@
-// Comprueba que TODOS los temas de ayuda están dentro del recurso y no vacíos, en los
-// tres idiomas. Es la comprobación que faltaba: añadir un tema exige tocar el .qrc, y
-// olvidarlo no rompe la compilación — solo hace que el menú abra «Ayuda no disponible».
+// Comprueba que TODO lo que la ayuda necesita está dentro del recurso: los temas en los
+// dos idiomas, y las IMÁGENES que cada tema cita.
+//
+// Añadir un tema o una captura exige tocar el .qrc, y olvidarlo no rompe la compilación:
+// solo hace que el menú abra «Ayuda no disponible», o que salga un hueco donde debería
+// estar la captura. Eso es justo lo que no se ve revisando el código.
 #include <QCoreApplication>
 #include <QFile>
+#include <QRegularExpression>
+#include <QSet>
 #include <QStringList>
 #include <QTextStream>
 int main(int argc, char** argv) {
@@ -15,14 +20,47 @@ int main(int argc, char** argv) {
         "menus_contextuales", "propiedades_inline_columnas"};
     QTextStream out(stdout);
     int fallos = 0;
+    // Las imágenes se citan como `qrc:/help/img/...` y se cargan por `:/help/img/...`.
+    const QRegularExpression rxImagen(QStringLiteral(R"(\]\((qrc:)?(/help/img/[^)\s]+)\))"));
+    QSet<QString> imagenesVistas;
     for (const QString& l : {QStringLiteral("es"), QStringLiteral("en")}) {
         for (const QString& t : temas) {
             const QString p = QStringLiteral(":/help/%1/%2.md").arg(l, t);
             QFile f(p);
-            const bool ok = f.open(QIODevice::ReadOnly) && f.size() > 200;
-            if (!ok) { out << "FALTA " << p << " (" << f.size() << " bytes)\n"; ++fallos; }
+            if (!f.open(QIODevice::ReadOnly)) {
+                out << "FALTA " << p << " (no abre)\n";
+                ++fallos;
+                continue;
+            }
+            const QByteArray datos = f.readAll();
+            if (datos.size() <= 200) {
+                out << "FALTA " << p << " (" << datos.size() << " bytes)\n";
+                ++fallos;
+                continue;
+            }
+            const QString texto = QString::fromUtf8(datos);
+            auto it = rxImagen.globalMatch(texto);
+            while (it.hasNext()) {
+                const QString ruta = QStringLiteral(":") + it.next().captured(2);
+                if (imagenesVistas.contains(ruta)) {
+                    continue;
+                }
+                imagenesVistas.insert(ruta);
+                if (!QFile::exists(ruta)) {
+                    out << "IMAGEN QUE NO ESTÁ EN EL RECURSO: " << ruta << " (citada en " << p
+                        << ")\n";
+                    ++fallos;
+                }
+            }
         }
     }
-    out << (fallos ? QStringLiteral("FALLOS: %1\n").arg(fallos) : QStringLiteral("los 51 temas cargan\n"));
+    if (imagenesVistas.isEmpty()) {
+        out << "NINGUNA imagen citada: la ayuda perdió sus capturas\n";
+        ++fallos;
+    }
+    out << (fallos ? QStringLiteral("FALLOS: %1\n").arg(fallos)
+                   : QStringLiteral("%1 temas y %2 imágenes cargan\n")
+                         .arg(temas.size() * 2)
+                         .arg(imagenesVistas.size()));
     return fallos ? 1 : 0;
 }

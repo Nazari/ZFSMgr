@@ -1,171 +1,132 @@
 # Quick manual
 
-ZFSMgr manages connections and ZFS actions from a unified tree.
+ZFSMgr works with **two panes**: the left one is the SOURCE and the right one the
+DESTINATION. Position is not a layout preference: it is what decides the role each selection
+plays in transfer actions.
 
 ## Overview
 
 ![Main window](qrc:/help/img/auto/main-window.png)
 
-- Top area: a single unified tree spanning the full width and nearly the full height.
-- Middle band, a **single line**: `Source`, `Status` and `Progress`.
-- Bottom area: tabs (`Transfers`, `Settings`, `Combined log`).
-  `Terminal` and `Daemon` are not here: they are sub-tabs **of each connection**, inside
-  the `Combined log`.
+Top to bottom:
 
+- **Menu bar**: `Menu`, `Connections`, `Settings`, `Help`.
+- **Status and Progress**, on one line: what is happening and the last message.
+- **The two panes**, each in three rows separated by splitters:
+  - **Dropdowns** for connection and pool.
+  - **Tree** of pools and datasets.
+  - **Detail** of whatever is selected, with its tabs.
+  - **Log** of that pane's connection, with `Log` and `Daemon`.
+- At the bottom, two boxes: **Unapplied changes** and **Transfers**.
 
-The `Actions` box with its six buttons is gone: `Send`, `Move`, `Clone`, `Sync`, `Level`
-and `Diff` are requested from the target node's context menu (see `Context menus`).
-`Transfers` is the first tab at the bottom.
+The splitters are **shared by both panes**: moving the boundary between tree and detail moves
+it on both sides at once, so the two columns stay readable side by side. There is no splitter
+between the left and right panes: the width is split in half.
 
-## Unified tree
+## Choosing what you see
 
-- Tree reference:
+Each pane has two dropdowns:
 
-![Unified tree](qrc:/help/img/auto/top-tree.png)
+- **Connection**: the machine. Changing it changes that pane's tree, detail and log.
+- **Pool**: `(all pools)` shows every pool on that connection; picking one roots the tree in
+  it.
 
-- Connections are always visible as root nodes, even when disconnected.
-- If a connection is disconnected:
-  - the connection root stays visible
-  - it shows no children (including auxiliary nodes)
-- If a connection needs daemon attention, its name shows `(*)`, and the reason is spelled
-  out in the `Info` → `Daemon` node.
-- If daemon-rpc is waiting after a TLS problem, the reason appears in brackets next to the
-  connection name. ZFSMgr does **not** reinstall the daemon or rebuild the TLS material on
-  its own: it flags it and waits for you to ask from the context menu. That is deliberate —
-  re-provisioning just because a TLS handshake failed can lock you out of a connection that
-  was fine.
-- `Connection` and `Pool` nodes are shown in bold with a type prefix.
-- The pool root is merged with the pool root dataset:
-  - it keeps the pool icon
-  - it also acts as the root dataset
-  - avoids duplicated `pool/pool`
-- Imported pools may show:
-  - `Pool Information`
-    - includes `Devices` (vdev/disk hierarchy from `zpool status -P`)
-  - `Scheduled datasets`
-- A pool in suspended state shows `(Suspended)` next to its name and blocks most of its operations.
+If you pick a **pool that is not imported** — marked `[Importable]` — the import dialog opens
+with its options. A pool that is not imported has no datasets to show, so picking it is
+asking for it to be imported.
 
-## Inline nodes
+## The tree
 
-- Datasets show `Dataset properties`.
-- Snapshots show `Snapshot properties`.
-- Non-snapshot datasets may also show `Permissions`.
-- Datasets with snapshots show an `@` node grouping manual and GSA snapshots.
-- Connections show auxiliary nodes:
-  - `Connection properties` (inline, with edit permissions by connection type)
-  - `Info`
-    - `General` (status and connection metadata)
-    - `Daemon`
-    - `Commands`
+It holds **pools and datasets, and nothing else**. Properties, permissions, content and
+snapshots live in the detail below.
 
-- Inline properties can be edited directly in the tree.
-- If a property supports inheritance, it shows `Inh.` and stays in draft mode until changes are applied.
-- `Permissions` also works in draft mode.
-- `Scheduled datasets` uses `org.fc16.gsa:*` properties.
+- A pool that is not imported is marked `[Importable]`.
+- A suspended pool is marked `(Suspended)` and most of its operations are blocked.
+- The pool root node is merged with the pool's root dataset: it keeps the pool icon and also
+  acts as the root dataset, so `pool/pool` is not duplicated.
 
-## Source and target selection
+## The detail
 
-- Only the **source** is marked: right-click a dataset or snapshot → `Mark as source`.
-- The **target is not marked**. It is the node whose context menu you open to request the
-  action, just like pasting.
-- The `Source:` line in the top band remembers what is marked; its tooltip shows it in
-  full when the name does not fit.
-- The tree's visual selection and the marked source are independent.
+![Detail tabs](qrc:/help/img/auto/detail-tabs.png)
 
-## Context menus
+Below each tree, with the full path of what you are looking at on top:
+`Local / tank1 / user`. The first two segments are **links**:
 
-- On a connection root:
-  - the old connection context menu is available
-- On the merged pool root:
-  - a `Pool` submenu appears first
-  - then the dataset actions follow
-- The `Pool` submenu contains:
-  - `Refresh status`
-  - `Import`
-  - `Import with rename`
-  - `Export`
-  - `History`
-  - `Management`:
-    - `Sync`
-    - `Scrub`
-    - `Upgrade`
-    - `Reguid`
-    - `Trim`
-    - `Initialize`
-    - `Clear`
-    - `Destroy`
-- Dataset/snapshot actions still include:
-  - `Create dataset/snapshot/vol`
-  - `Rename`
-  - `Delete`
-  - `Encryption`
-  - `Schedule automatic snapshots`
-  - `Rollback`
-  - `New Hold`
-  - `Release`
-  - `Break down`
-  - `Assemble`
-  - `From Dir`
-  - `To Dir`
+- **The connection** brings up its card — the profile fields and the diagnosis: status,
+  colour reason, operating system, OpenZFS version, daemon, package manager.
+- **The pool** brings up its own: its properties and its `zpool status`.
+
+They are clicked without losing the tree selection, and selecting anything else goes back to
+the object.
+
+With a **dataset** selected there are four tabs:
+
+- `Properties` — editable. Closed-value ones show as a dropdown, and inheritable ones carry
+  an `Inherited` checkbox.
+- `Content` — the files under the mountpoint. Each directory is fetched when opened.
+- `Snapshots` — grouped by class: `Hourly`, `Daily`, `Weekly`, `Monthly`, `Yearly`;
+  hand-made ones stand alone.
+- `Permissions` — the delegations, each with its permissions and checkboxes.
+
+With a **snapshot** selected, `Permissions` is replaced by `Holds`: a snapshot delegates no
+permissions and a dataset has no holds, so the tab that does not apply is not shown.
+
+## Choosing source and destination
+
+- The **source** is what is selected in the left pane; the **destination**, what is selected
+  in the right one.
+- Selecting a snapshot in the `Snapshots` tab counts the same as selecting it in the tree.
+- Actions — `Send`, `Clone`, `Sync`, `Level`, `Diff` — are requested from the destination's
+  context menu, the way pasting works.
+
+## Unapplied changes
+
+Actions run when you press them. What **is** edited in batches are **properties** and
+**permissions**: they pile up as drafts and are applied with `Apply changes`.
+
+The bottom-left box lists exactly what those buttons will do, one per line. `Discard changes`
+throws them away, saying first what will be lost.
+
+Drafts **are lost when you close without applying them**: nothing survives the application
+closing.
 
 ## Transfers
 
-This tab used to be `Pending changes` and held commands waiting for you to press
-`Apply changes`. **Not any more.** Actions run when you press them, and the tab now shows the
-**jobs in flight**: what is running, its progress, and a button to cancel it.
+The bottom-right box shows the **jobs running** in the daemons: what is running and its
+progress. `Refresh` asks again, and `Cancel selected` stops the selected one.
 
-What is still edited in batches are **properties** and **permissions**: they pile up as
-drafts and are applied with `Apply changes`. Those are edits to a state, with a natural end;
-an action like `Break down` or `To dir` is not.
+## Logs
 
-What follows from the list being gone:
+Under each pane, the log of **its** connection, with two tabs:
 
-- Nothing survives closing the application: if you did not run it, it did not happen. The
-  list used to be stored on disk, with each action's command inside it.
-- There is nothing to remember to apply. An action requested and not applied used to look
-  done.
-- Property and permission drafts **are** lost if you close without applying them.
+- `Log · <machine>` — what has been run on that machine.
+- `Daemon · <machine>` — its daemon's log, with a `Heartbeat` button to ping it.
 
+If the same connection is chosen in both panes, both show the same log without duplicating
+it.
 
-## Connectivity and logs
+The application log is not shown in the window: it is written to disk and copied from
+`Settings ▸ Logs`.
 
-- `Check connectivity` is in the main app menu (not under `Logs`).
-- The `Logs` top menu was removed.
-- The `Settings` tab now contains:
-  - log level
-  - number of lines
-  - max rotating log size
-  - confirmation before actions
-  - clear/copy logs
-
-## Pool creation
+## Creating pools
 
 ![Create pool](qrc:/help/img/crearpool.png)
 
-- `Create pool` opens the VDEV builder and pool parameters dialog.
-- The pool tree validates OpenZFS-compatible layouts.
-- If creation fails, the dialog stays open so you can correct and retry.
+- `Connections ▸ New Pool` opens the VDEV and pool parameter builder.
+- The pool tree structure validates compatible OpenZFS combinations.
+- On failure the dialog stays open so you can fix and retry.
 
-## Dataset creation
+## Creating datasets
 
 ![Create dataset](qrc:/help/img/creardataset.png)
 
-- `Create dataset` is launched from the tree context menu.
+- `Create dataset` opens from the tree's context menu.
 - If the dataset is encrypted with `keylocation=prompt`, ZFSMgr asks for the passphrase.
-- If creation fails, the dialog stays open with the entered values.
-
-## Split panels (Split and root)
-
-- The context menu on any connection, pool, or dataset node includes `Split and root`.
-- Choosing a direction (`Right`, `Left`, `Below`, `Above`) opens a new tree panel alongside the existing one using a splitter.
-- The root node of the panel shows the full path (e.g. `mbp::tank1/ds1/sub`).
-- Split panels have full functionality: same context menus, inline properties, and configurable columns.
-- Panels can be nested; each has its own column header context menu.
-- To close a split panel: right-click its root node → `Close`.
-- The panel layout is preserved between sessions.
+- On failure the dialog stays open with what you typed.
 
 ## Navigation
 
-- The tree keeps expansion, selection and selected snapshots.
-- Changing property columns preserves open nodes.
-- Clicking an empty properties node materializes its children and keeps it open.
+- Each pane remembers separately what it had expanded: both can sit on the same connection
+  without stepping on each other.
+- The connection and pool choice survives refreshes: it is looked up by identifier, not by
+  position in the list.

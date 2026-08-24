@@ -164,7 +164,7 @@ public:
     bool setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom = false);
     bool isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom = false) const;
     void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
-    QStringList connectionContextMenuTopLevelLabelsForTest() const;
+    QStringList connectionsMenuLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
     QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
     // El camino ENTERO de una programación preparada: se guarda con el testigo que

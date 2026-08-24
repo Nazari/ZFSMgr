@@ -1741,11 +1741,13 @@ void MainWindow::buildUi() {
 
     QAction* ctxMenusAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_ctx_001"),
-            QStringLiteral("Menús contextuales")));
+            QStringLiteral("Menús y acciones"),
+            QStringLiteral("Menus and actions")));
     connect(ctxMenusAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("menus_contextuales"),
                       trk(QStringLiteral("t_help_ctx_001"),
-                          QStringLiteral("Menús contextuales")));
+                          QStringLiteral("Menús y acciones"),
+                          QStringLiteral("Menus and actions")));
     });
 
     QAction* navigationAct = helpMenu->addAction(
@@ -1759,11 +1761,13 @@ void MainWindow::buildUi() {
 
     QAction* inlinePropsAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_inline_props_001"),
-            QStringLiteral("Propiedades inline y columnas")));
+            QStringLiteral("Propiedades, permisos y contenido"),
+            QStringLiteral("Properties, permissions and content")));
     connect(inlinePropsAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("propiedades_inline_columnas"),
                       trk(QStringLiteral("t_help_inline_props_001"),
-                          QStringLiteral("Propiedades inline y columnas")));
+                          QStringLiteral("Propiedades, permisos y contenido"),
+                          QStringLiteral("Properties, permissions and content")));
     });
 
     QAction* windowsConnAct = helpMenu->addAction(
@@ -2142,6 +2146,7 @@ void MainWindow::buildUi() {
                                        QStringLiteral("Status")),
                                    statusWrap);
     m_statusText = new QTextEdit(statusWrap);
+    m_statusText->setObjectName(QStringLiteral("statusText"));
     m_statusText->setFont(combinedLogFont);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
@@ -2166,6 +2171,7 @@ void MainWindow::buildUi() {
                                        QStringLiteral("Progress")),
                                    detailWrap);
     m_lastDetailText = new QTextEdit(detailWrap);
+    m_lastDetailText->setObjectName(QStringLiteral("lastDetailText"));
     m_lastDetailText->setFont(combinedLogFont);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);

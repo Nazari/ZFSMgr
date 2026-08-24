@@ -1,6 +1,6 @@
 # Accion: Clonar
 
-> **Cómo se pide.** Marque el origen con el botón derecho (`Marcar como origen`) y luego abra el menú contextual **sobre el nodo destino**: el submenú `Con el origen …` ofrece esta acción. Ya no hay botón. Si sale en gris, el motivo está en su tooltip. Ver `Menús contextuales`.
+> **Cómo se pide.** Marque el origen en el panel **izquierdo** y abra el menú contextual **sobre el nodo del panel derecho**: el submenú `Con el origen …` ofrece esta acción. Si sale en gris, el motivo está en su tooltip. Ver `Menús y acciones`.
 
 Objetivo: clonar un snapshot sobre un dataset destino con `zfs clone`.
 

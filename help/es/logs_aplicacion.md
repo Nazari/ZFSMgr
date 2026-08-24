@@ -1,18 +1,22 @@
-# Logs de aplicación
+# Logs
 
-La parte inferior de la ventana usa pestañas:
+**El log de cada conexión va bajo su panel**, no al pie de la ventana. Antes estaban todos
+en pestañas abajo, junto a un `Log combinado`: mirar el de una máquina era buscar su
+pestaña, y con dos paneles sobre dos máquinas, ir y volver entre dos pestañas.
 
-- `Transferencias`: los trabajos en marcha, con su progreso y un botón para cancelarlos.
-  Antes esta pestaña era `Cambios pendientes` y guardaba órdenes a la espera de que
-  usted las aplicara; ahora las órdenes se ejecutan al pulsarlas.
-- `Ajustes`: opciones de log y confirmación de acciones.
-- `Log combinado`: log principal de aplicación.
+Cada panel tiene dos:
 
-Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pestañas:
-
-- `Terminal`: salida técnica de los comandos de esa máquina.
-- `Daemon`: log de su daemon (`/var/lib/zfsmgr/daemon.log`, o
+- `Log · <máquina>`: salida técnica de los comandos de esa máquina.
+- `Daemon · <máquina>`: log de su daemon (`/var/lib/zfsmgr/daemon.log`, o
   `C:\ProgramData\ZFSMgr\agent\daemon.log` en Windows) y botón `Heartbeat`.
+
+Si la misma conexión está elegida en los dos paneles, los dos enseñan el mismo log: no se
+duplica el texto ni se reparten las líneas.
+
+El `Log combinado` se retiró. El log de la **aplicación** sigue escribiéndose en disco y se
+copia desde `Ajustes ▸ Logs ▸ Copiar`.
+
+Abajo del todo quedan dos cajas: `Cambios sin aplicar` y `Transferencias`.
 
 ## Pestaña Daemon
 
@@ -30,22 +34,23 @@ Dentro del `Log combinado`, **cada conexión** tiene además sus propias sub-pes
   material TLS y perpetuaría el bucle fallo → reinstalación → fallo. La reinstalación
   automática solo ocurre cuando el motivo es una desalineación de versión o de API.
 
-## Pestaña Transferencias
+## Caja Transferencias
 
 - Muestra una fila por cada trabajo en marcha: `Enviar` y `Nivelar` entre daemons, y también
   `Desde Dir` cuando va por el árbol entre daemons.
-- En esa misma zona están los botones `Aplicar cambios` y `Deshacer cambios`, que sirven
-  **solo** a los borradores de propiedades y de permisos: las acciones ya no se encolan.
 - Cada fila incluye: estado, datasets origen/destino, bytes transferidos, velocidad y tiempo.
 - Estados posibles: `running`, `done`, `failed`, `cancelled`.
 - El botón `Refrescar` fuerza una consulta de estado a los daemons.
 - El botón `Cancelar seleccionado` envía `SIGTERM` al proceso `zfs send` del job seleccionado.
 - Los jobs en curso se recuperan automáticamente al reconectar.
 
-`Log combinado`:
+## Caja Cambios sin aplicar
 
-- Incluye eventos internos de la aplicación.
-- Incluye salida de ejecución relevante con formato compacto.
+- Enumera, línea a línea, lo que van a hacer `Aplicar cambios` y `Descartar cambios`: cada
+  propiedad editada y cada delegación de permisos tocada, con su conexión y su objeto.
+- Sirve **solo** a los borradores de propiedades y de permisos: las acciones no se encolan,
+  se ejecutan al pulsarlas.
+- `Descartar cambios` avisa de qué se pierde antes de tirarlo.
 
 ## Carga inicial al arrancar
 
@@ -53,7 +58,7 @@ Al iniciar ZFSMgr:
 
 - Se leen los logs persistidos (`application.log` y rotaciones `.1` ... `.5`).
 - Se cargan en pantalla solo las últimas `N` líneas.
-- `N` es el límite máximo de líneas configurado en la pestaña `Ajustes`.
+- `N` es el límite máximo de líneas configurado en el menú `Ajustes ▸ Logs`.
 - Si no hay logs o están vacíos, no se muestra error.
 
 ## Presentación compacta en pantalla

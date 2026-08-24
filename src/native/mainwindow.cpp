@@ -13,6 +13,7 @@
 #include "agentversion.h"
 
 #include <algorithm>
+#include <QMenu>
 #include <QMessageBox>
 #include <QComboBox>
 #include <QElapsedTimer>
@@ -357,12 +358,23 @@ void MainWindow::configureSingleConnectionUiTestState(const ConnectionProfile& p
     state.status = QStringLiteral("OK");
     state.detail = QStringLiteral("test");
     state.connectionMethod = profile.connType.trimmed();
+    // El daemon se deja SIN marcar como utilizable, y quien lo necesite que lo pida con
+    // `setConnectionDaemonStateForTest()`. Marcarlo aquí abre la puerta a que el árbol
+    // hable con un agente de verdad —SSH a una máquina que no existe, con sus tiempos de
+    // espera— antes de que quien llama haya podido instalar un transporte de mentira.
+    // Probado: colgaba las pruebas que lo instalan después.
     for (const QString& poolName : importedPools) {
         const QString trimmed = poolName.trimmed();
         if (trimmed.isEmpty()) {
             continue;
         }
         state.importedPools.push_back(PoolImported{profile.name, trimmed, QStringLiteral("Exportar")});
+        // Con GUID, y no es un adorno: el árbol ABORTA su construcción para un pool sin
+        // GUID estable —«Abort tree build: missing stable pool GUID»—, así que sin esto el
+        // pool sembrado no aparecía. Las capturas de la ayuda salían con la conexión y el
+        // pool importable, y el pool con datasets no estaba: se veía en el propio log de
+        // la captura y nadie lo leyó.
+        state.poolGuidByName.insert(trimmed, QStringLiteral("guid-%1").arg(trimmed));
     }
     for (const QString& poolName : importablePools) {
         const QString trimmed = poolName.trimmed();
@@ -370,7 +382,9 @@ void MainWindow::configureSingleConnectionUiTestState(const ConnectionProfile& p
             continue;
         }
         state.importablePools.push_back(
-            PoolImportable{profile.name, trimmed, QString(), QStringLiteral("ONLINE"), QString(), QStringLiteral("Importar")});
+            PoolImportable{profile.name, trimmed, QStringLiteral("guid-%1").arg(trimmed),
+                           QStringLiteral("ONLINE"), QString(), QStringLiteral("Importar")});
+        state.poolGuidByName.insert(trimmed, QStringLiteral("guid-%1").arg(trimmed));
     }
     // El estado se construye ANTES de tocar el registro, y entra con el perfil de una
     // vez: así los dos vectores nunca se ven de distinto tamaño.
@@ -398,17 +412,25 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
     for (const UiTestDatasetSeed& seed : datasets) {
         DatasetRecord record;
         record.name = seed.name.trimmed();
-        record.guid.clear();
-        record.mountpoint = seed.mountpoint.trimmed();
-        record.canmount = seed.canmount.trimmed();
-        record.mounted = seed.mounted.trimmed();
         if (record.name.isEmpty()) {
             continue;
         }
+        // Cada objeto con su GUID, como el pool. El árbol aborta su construcción para un
+        // dataset sin GUID estable —«Abort tree build: missing stable object GUID»— y aquí
+        // se sembraban todos VACÍOS, así que el pool entero se quedaba fuera del árbol.
+        // Es lo que dejaba las capturas de la ayuda con la conexión y poco más.
+        record.guid = QStringLiteral("guid-%1").arg(record.name);
+        record.mountpoint = seed.mountpoint.trimmed();
+        record.canmount = seed.canmount.trimmed();
+        record.mounted = seed.mounted.trimmed();
         cache.datasets.push_back(record);
         cache.recordByName.insert(record.name, record);
-        cache.objectGuidByName.insert(record.name, QString());
+        cache.objectGuidByName.insert(record.name, record.guid);
         cache.snapshotsByDataset.insert(record.name, seed.snapshots);
+        for (const QString& snap : seed.snapshots) {
+            const QString full = QStringLiteral("%1@%2").arg(record.name, snap.trimmed());
+            cache.objectGuidByName.insert(full, QStringLiteral("guid-%1").arg(full));
+        }
     }
     m_conns.poolDatasetCache.insert(datasetCacheKey(connIdx, poolName), cache);
     rebuildConnInfoFor(connIdx);
@@ -458,6 +480,25 @@ void MainWindow::configureDatasetPropertiesForTest(int connIdx,
         row.value = seed.value;
         row.source = seed.source.trimmed().isEmpty() ? QStringLiteral("local") : seed.source.trimmed();
         row.readonly = seed.readonly.trimmed().isEmpty() ? QStringLiteral("no") : seed.readonly.trimmed();
+        cacheRows.push_back(row);
+    }
+    // Con GUID, salvo que ya venga sembrado. Estas filas SUSTITUYEN a las propiedades del
+    // objeto, así que sin esto el `guid` que puso la siembra de datasets desaparecía y el
+    // árbol abortaba su construcción para ese dataset —«missing stable object GUID»—,
+    // dejando fuera el pool entero. Cuesta una línea y evita una captura vacía.
+    bool tieneGuid = false;
+    for (const DatasetPropCacheRow& row : std::as_const(cacheRows)) {
+        if (row.prop.compare(QStringLiteral("guid"), Qt::CaseInsensitive) == 0) {
+            tieneGuid = true;
+            break;
+        }
+    }
+    if (!tieneGuid) {
+        DatasetPropCacheRow row;
+        row.prop = QStringLiteral("guid");
+        row.value = QStringLiteral("guid-%1").arg(trimmedObject);
+        row.source = QStringLiteral("-");
+        row.readonly = QStringLiteral("yes");
         cacheRows.push_back(row);
     }
     storeDatasetPropertyRows(connIdx, poolName, trimmedObject, datasetType.trimmed(), cacheRows);
@@ -2940,67 +2981,28 @@ bool MainWindow::requireFeature(int connIdx, zfsmgr::caps::Feature f) {
     return false;
 }
 
-QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
-    // **Esta lista se mantiene A MANO y tiene que ser la del menú de verdad.**
-    //
-    // Se encontró desincronizada el 2026-08-21: le faltaban SEIS entradas —credenciales
-    // sudo local, reinstalar daemon, reparar mountpoints, exportar trust-store, autorizar
-    // clave SSH y entregar credenciales—, así que la captura del menú que sale en la ayuda
-    // enseñaba un menú más corto que el que ve el usuario. Nadie lo había notado porque una
-    // lista fija no falla: simplemente miente.
-    //
-    // Es el mismo defecto que tenía `poolContextMenuLabelsForTest`, y allí se arregló
-    // haciendo que la lista salga del estado que ya se calcula. Aquí no se puede aún: el
-    // menú se construye con un `QMenu` y un índice de conexión dentro de
-    // `showConnectionContextMenu`, y sacar de ahí los rótulos exige partir esa función.
-    // Mientras tanto: **si añade una entrada al menú, añádala también aquí.**
-    return {
-        trk(QStringLiteral("t_connect_ctx_001"),
-            QStringLiteral("Conectar"),
-            QStringLiteral("Connect")),
-        trk(QStringLiteral("t_disconnect_ctx001"),
-            QStringLiteral("Desconectar"),
-            QStringLiteral("Disconnect")),
-        trk(QStringLiteral("t_refresh_conn_ctx001"),
-            QStringLiteral("Refrescar"),
-            QStringLiteral("Refresh")),
-        QString(),
-        trk(QStringLiteral("t_new_conn_ctx001"),
-            QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection")),
-        trk(QStringLiteral("t_edit_conn_ctx001"),
-            QStringLiteral("Editar"),
-            QStringLiteral("Edit")),
-        trk(QStringLiteral("t_del_conn_ctx001"),
-            QStringLiteral("Borrar"),
-            QStringLiteral("Delete")),
-        trk(QStringLiteral("t_local_sudo_creds_ctx001"),
-            QStringLiteral("Cambiar credenciales sudo local…"),
-            QStringLiteral("Change local sudo credentials…")),
-        QString(),
-        trk(QStringLiteral("t_new_pool_ctx_001"),
-            QStringLiteral("Nuevo Pool"),
-            QStringLiteral("New Pool")),
-        QString(),
-        trk(QStringLiteral("t_install_helpers_ctx001"),
-            QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands")),
-        trk(QStringLiteral("t_install_daemon_ctx001"),
-            QStringLiteral("Reinstalar/Actualizar daemon"),
-            QStringLiteral("Reinstall/Update daemon")),
-        trk(QStringLiteral("t_repair_altmp_ctx001"),
-            QStringLiteral("Reparar mountpoints temporales"),
-            QStringLiteral("Repair temporary mountpoints")),
-        trk(QStringLiteral("t_export_trust_store_ctx001"),
-            QStringLiteral("Exportar trust-store a esta conexión"),
-            QStringLiteral("Export trust-store to this connection")),
-        trk(QStringLiteral("t_authorize_key_menu_001"),
-            QStringLiteral("Autorizar clave SSH en..."),
-            QStringLiteral("Authorize SSH key on...")),
-        trk(QStringLiteral("t_push_peers_ctx001"),
-            QStringLiteral("Entregar credenciales de las demás máquinas…"),
-            QStringLiteral("Hand over the other machines' credentials…")),
-    };
+// Los rótulos del menú «Conexiones», sacados del menú DE VERDAD.
+//
+// Esta lista se mantenía a mano, y por eso mentía: el 2026-08-21 se encontró con SEIS
+// entradas de menos, así que la captura que sale en la ayuda enseñaba un menú más corto
+// que el que ve el usuario. Nadie lo había notado porque una lista fija no falla.
+//
+// Entonces no se podía sacar del menú real —se construía con un `QMenu` local dentro de
+// `showConnectionContextMenu` y había que partir esa función—. Ahora sí: gestionar
+// conexiones es un menú de la barra que rellena `fillConnectionsMenu()`, y basta con
+// pedirle que llene uno de usar y tirar.
+QStringList MainWindow::connectionsMenuLabelsForTest() const {
+    QMenu menu;
+    const_cast<MainWindow*>(this)->fillConnectionsMenu(&menu);
+    QStringList labels;
+    for (QAction* action : menu.actions()) {
+        if (!action) {
+            continue;
+        }
+        // El separador entra como cadena vacía: el dibujo de la captura lo pinta como raya.
+        labels.push_back(action->isSeparator() ? QString() : action->text());
+    }
+    return labels;
 }
 
 QStringList MainWindow::connectionRefreshMenuLabelsForTest() const {

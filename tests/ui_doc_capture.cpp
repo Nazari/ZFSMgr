@@ -7,6 +7,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QStyle>
+#include <QTextEdit>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -195,9 +196,28 @@ int main(int argc, char** argv) {
     profile.connType = QStringLiteral("Local");
     profile.useSudo = true;
 
+    // Un transporte de mentira que responde «no» en el acto.
+    //
+    // El estado de demostración marca el daemon como utilizable —sin eso no se pueden
+    // listar los datasets—, y con la puerta abierta el árbol intenta hablar con el agente
+    // de verdad: SSH a una máquina que no existe, con sus tiempos de espera. La captura se
+    // quedaba colgada. Los datos ya están sembrados en la caché, así que lo único que hace
+    // falta es que las llamadas que sobren vuelvan enseguida.
+    window.setAgentTransportForTest(
+        [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
+            out.clear();
+            err = "capture: sin transporte";
+            rc = 1;
+            return true;
+        });
+
     window.configureSingleConnectionUiTestState(profile,
                                                 {QStringLiteral("tank1")},
                                                 {QStringLiteral("tank2")});
+    // Después de sembrar el estado, que lo reemplaza entero, y con el transporte de
+    // mentira ya puesto: leer los datasets de un pool pasa por `requireDaemonForRead()`,
+    // que sin esto responde «la conexión aún no se ha refrescado» y deja el árbol vacío.
+    window.setConnectionDaemonStateForTest(0, true, true);
     window.setConnectionGsaStateForTest(0, true, true, QStringLiteral("0.10.0rc1.5"));
     // Los nodos de «Datasets programados» y «Permisos» solo existen si su opción de
     // visualización está puesta. Sin esto no aparecían, sus capturas se saltaban en silencio
@@ -237,7 +257,16 @@ int main(int argc, char** argv) {
         0,
         QStringLiteral("tank1/user"),
         QStringLiteral("filesystem"),
-        {MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:activado"), QStringLiteral("on")},
+        // Las cuatro primeras filas de la tabla son fijas —nombre, punto de montaje,
+        // canmount y tamaño— y salían VACÍAS: estas filas sustituyen a las propiedades del
+        // objeto, y la siembra de datasets solo llena el registro, no las propiedades.
+        {MainWindow::UiTestPropertySeed{QStringLiteral("mountpoint"), QStringLiteral("/tank1/user")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("canmount"), QStringLiteral("on")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("mounted"), QStringLiteral("yes")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("used"), QStringLiteral("18,4G")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("referenced"), QStringLiteral("12,1G")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("compression"), QStringLiteral("lz4")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:activado"), QStringLiteral("on")},
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:recursivo"), QStringLiteral("on")},
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:horario"), QStringLiteral("3")},
          MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:diario"), QStringLiteral("-")},
@@ -265,58 +294,46 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Un dataset marcado en el panel de ORIGEN antes de la foto: con los dos árboles
+    // vacíos de selección, el detalle de abajo enseña la ficha de la conexión y la ventana
+    // no cuenta lo que hay que contar —el árbol arriba, el detalle con sus pestañas
+    // debajo, y el log de esa conexión al pie—.
     window.selectDatasetForTest(QStringLiteral("tank1/user"), false);
     mainTree->expandAll();
     app.processEvents();
+    app.processEvents();
+
+    // «Listo» y no «Loading…»: la ventana de demostración nunca termina de cargar nada
+    // —no hay máquina al otro lado—, y esa palabra en una captura de la ayuda hace pensar
+    // que la aplicación se queda pillada.
+    if (auto* status = window.findChild<QTextEdit*>(QStringLiteral("statusText"))) {
+        status->setPlainText(QStringLiteral("Listo"));
+    }
+    if (auto* progress = window.findChild<QTextEdit*>(QStringLiteral("lastDetailText"))) {
+        progress->setPlainText(
+            QStringLiteral("[2026-08-24 12:00:00] [NORMAL] Refresco de Local finalizado"));
+    }
     app.processEvents();
 
     if (!savePixmap(window.grab(), outputPath(outDir, QStringLiteral("main-window.png")), &error)) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
         return 1;
     }
-    // Un solo árbol, una sola captura.
+
+    // El frame de detalle del panel de origen, solo.
     //
-    // Aquí se guardaba el MISMO `mainTree->grab()` dos veces, como «top-tree» y como
-    // «bottom-tree». Venía de cuando la vista tenía dos árboles; ahora es unificado
-    // (`connContentTreeUnified`), así que la segunda salía byte a byte igual que la primera
-    // —comprobado con md5— y no la usaba nadie.
-    if (!savePixmap(mainTree->grab(), outputPath(outDir, QStringLiteral("top-tree.png")), &error)) {
-        fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-        return 1;
-    }
-
-    QTreeWidgetItem* connectionRoot = mainTree->topLevelItemCount() > 0 ? mainTree->topLevelItem(0) : nullptr;
-    QTreeWidgetItem* poolRoot = connectionRoot && connectionRoot->childCount() > 0 ? connectionRoot->child(0) : nullptr;
-    if (poolRoot) {
-        poolRoot->setExpanded(true);
-        if (QTreeWidgetItem* autoNode = findItemByLabels(poolRoot,
-                                                        {QStringLiteral("Datasets programados"),
-                                                         QStringLiteral("Scheduled datasets")})) {
-            autoNode->setExpanded(true);
-            app.processEvents();
-            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, autoNode));
-            if (!savePixmap(pix, outputPath(outDir, QStringLiteral("schedule-snapshots-node.png")), &error)) {
-                fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-                return 1;
-            }
+    // Aquí se guardaban antes «top-tree», «schedule-snapshots-node» y «permissions-node»,
+    // que eran trozos del árbol: los dos últimos, nodos que colgaban de un dataset. Esos
+    // nodos ya no existen —propiedades, permisos, contenido y snapshots son PESTAÑAS del
+    // detalle—, así que lo que hay que enseñar es el detalle entero con su barra.
+    if (QWidget* detail = window.findChild<QWidget*>(QStringLiteral("originDetailFrame"))) {
+        if (!savePixmap(detail->grab(), outputPath(outDir, QStringLiteral("detail-tabs.png")), &error)) {
+            fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
+            return 1;
         }
     }
 
-    if (QTreeWidgetItem* datasetItem = findItemByDatasetName(mainTree, QStringLiteral("tank1/user"))) {
-        if (QTreeWidgetItem* permsNode = findItemByLabels(datasetItem,
-                                                          {QStringLiteral("Permisos"),
-                                                           QStringLiteral("Permissions")})) {
-            permsNode->setExpanded(true);
-            app.processEvents();
-            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, permsNode));
-            if (!savePixmap(pix, outputPath(outDir, QStringLiteral("permissions-node.png")), &error)) {
-                fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-                return 1;
-            }
-        }
-    }
-
-    const QStringList connectionMenuLabels = window.connectionContextMenuTopLevelLabelsForTest();
+    const QStringList connectionMenuLabels = window.connectionsMenuLabelsForTest();
     const QStringList refreshMenuLabels = window.connectionRefreshMenuLabelsForTest();
     const QStringList importedPoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank1"), false);
     const QStringList importablePoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank2"), false);
@@ -330,8 +347,8 @@ int main(int argc, char** argv) {
 
     QMap<QString, QStringList> connectionSubmenus;
     connectionSubmenus.insert(QStringLiteral("Refrescar"), refreshMenuLabels);
-    if (!savePixmap(renderMenuPixmap(QStringLiteral("Conexión"), connectionMenuLabels, connectionSubmenus),
-                    outputPath(outDir, QStringLiteral("connection-context-menu.png")),
+    if (!savePixmap(renderMenuPixmap(QStringLiteral("Conexiones"), connectionMenuLabels, connectionSubmenus),
+                    outputPath(outDir, QStringLiteral("connections-menu.png")),
                     &error)) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
         return 1;
@@ -389,39 +406,12 @@ int main(int argc, char** argv) {
     // el generador decía que había ido bien. Si falta alguna, se dice y se falla.
     const QStringList esperadas = {
         QStringLiteral("main-window.png"),
-        QStringLiteral("top-tree.png"),
-        QStringLiteral("connection-context-menu.png"),
+        QStringLiteral("detail-tabs.png"),
+        QStringLiteral("connections-menu.png"),
         QStringLiteral("connection-refresh-menu.png"),
         QStringLiteral("pool-context-menu-imported.png"),
         QStringLiteral("pool-context-menu-importable.png"),
     };
-    // Estas dos NO se pueden generar hoy, y por eso están fuera de la lista de exigidas en
-    // vez de hacer fallar cada pasada. El motivo no es del generador:
-    //
-    //  - «Datasets programados» solo aparece si están puestas DOS opciones de visualización
-    //    a la vez, y una de ellas —`setShowPoolInfoNodeForTest`— está declarada en
-    //    mainwindow.h y NO implementada. Es el punto 9 del backlog antiguo.
-    //
-    //    Probado el 2026-08-22: sembrar la programación con `stageGsaDraftForTest` —que es
-    //    el gancho que parece hecho para esto— NO basta. El nodo cuelga además de esas
-    //    opciones de visualización, así que hace falta implementar el gancho que falta; no
-    //    es cuestión de datos.
-    //  - «Permisos» tampoco aparece en el árbol de demostración.
-    //
-    // Se avisa en cada pasada para que no se olvide: lo que hay en disco con esos nombres es
-    // de la última vez que se pudo, y puede no parecerse a la aplicación de hoy.
-    const QStringList noSePueden = {
-        QStringLiteral("schedule-snapshots-node.png"),
-        QStringLiteral("permissions-node.png"),
-    };
-    for (const QString& nombre : noSePueden) {
-        if (QFileInfo(outputPath(outDir, nombre)).exists()) {
-            fprintf(stderr,
-                    "aviso: %s no se regenera (ver el comentario de noSePueden); "
-                    "lo que hay en disco es antiguo\n",
-                    nombre.toLocal8Bit().constData());
-        }
-    }
     QStringList faltan;
     for (const QString& nombre : esperadas) {
         const QFileInfo fi(outputPath(outDir, nombre));

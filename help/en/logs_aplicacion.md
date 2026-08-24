@@ -1,19 +1,22 @@
-# Application logs
+# Logs
 
-The bottom area uses tabs:
+**Each connection's log sits under its pane**, not at the bottom of the window. They all used
+to be in tabs down there, next to a `Combined log`: looking at one machine's log meant hunting
+for its tab, and with two panes on two machines, going back and forth between two tabs.
 
-- `Transfers`: the jobs in flight, with their progress and a button to cancel them. This tab
-  used to be `Pending changes` and held commands waiting for you to apply them; commands
-  now run when you press them.
-- `Settings`: log options and action confirmation.
-- `Combined log`: main application log.
-- `Transfers`: list of background daemon transfer jobs (Send/Level daemon-to-daemon).
+Each pane has two:
 
-Inside the `Combined log`, **each connection** also has its own sub-tabs:
-
-- `Terminal`: technical output of that machine's commands.
-- `Daemon`: its daemon log (`/var/lib/zfsmgr/daemon.log`, or
+- `Log · <machine>`: technical output of that machine's commands.
+- `Daemon · <machine>`: its daemon log (`/var/lib/zfsmgr/daemon.log`, or
   `C:\ProgramData\ZFSMgr\agent\daemon.log` on Windows) and the `Heartbeat` button.
+
+If the same connection is chosen in both panes, both show the same log: the text is not
+duplicated and the lines are not split between two places.
+
+The `Combined log` was removed. The **application** log is still written to disk and copied
+from `Settings ▸ Logs ▸ Copy`.
+
+At the very bottom there are two boxes: `Unapplied changes` and `Transfers`.
 
 ## Daemon tab
 
@@ -30,19 +33,22 @@ Inside the `Combined log`, **each connection** also has its own sub-tabs:
   the TLS material and keep the failure → reinstall → failure loop going. Automatic
   reinstall only happens when the reason is a version or API mismatch.
 
-## Transfers tab
+## Transfers box
 
 - Shows one row per background transfer job (daemon-to-daemon Send or Level).
 - Each row shows: state, source/target datasets, bytes transferred, speed, elapsed time.
 - Possible states: `running`, `done`, `failed`, `cancelled`.
-- `Refrescar` forces an immediate status query to the daemons.
-- `Cancelar seleccionado` sends `SIGTERM` to the `zfs send` process of the selected job.
+- `Refresh` forces an immediate status query to the daemons.
+- `Cancel selected` sends `SIGTERM` to the `zfs send` process of the selected job.
 - Running jobs are recovered automatically on reconnect.
 
-`Combined log`:
+## Unapplied changes box
 
-- Includes internal application events.
-- Includes relevant execution output in compact format.
+- Lists, line by line, what `Apply changes` and `Discard changes` will do: every edited
+  property and every touched permission delegation, with its connection and its object.
+- It serves **only** property and permission drafts: actions are not queued, they run when
+  pressed.
+- `Discard changes` says what will be lost before throwing it away.
 
 ## Initial load on startup
 
@@ -50,7 +56,7 @@ When ZFSMgr starts:
 
 - Persisted logs are read (`application.log` and rotated files `.1` ... `.5`).
 - Only the last `N` lines are loaded into the view.
-- `N` is the configured maximum lines limit from `Settings`.
+- `N` is the configured maximum lines limit from the `Settings ▸ Logs` menu.
 - If logs do not exist or are empty, no error is shown.
 
 ## Compact on-screen rendering

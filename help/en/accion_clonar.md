@@ -1,6 +1,6 @@
 # Action: Clone
 
-> **How to invoke it.** Right-click the source (`Mark as source`), then open the context menu **on the target node**: the `With source …` submenu offers this action. There is no button any more. If it is greyed out, the reason is in its tooltip. See `Context menus`.
+> **How to invoke it.** Select the source in the **left** pane and open the context menu **on the node in the right pane**: the `With source …` submenu offers this action. If it is greyed out, the reason is in its tooltip. See `Menus and actions`.
 
 Goal: clone a snapshot into a target dataset using `zfs clone`.
 

@@ -1,21 +1,22 @@
 # Navigation and states
 
 - The cursor switches to busy during actions and refreshes.
-- The unified tree is now the main navigation surface.
-- The current tree selection does not replace logical `Source` and `Target`.
-- `Source` and `Target` are set explicitly from the dataset context menu.
-- The `Source:` line in the top band reflects what is marked. The target is not marked: it is the node whose menu you open to request the action.
-- If a connection is disconnected:
-  - the connection root stays visible
-  - it shows no children
+- **The source is the left pane and the destination the right one.** Nothing has to be marked
+  as source: it is the source by being where it is.
+- Selecting a snapshot in the `Snapshots` tab counts the same as selecting it in the tree.
+- Changing a pane's connection changes its tree, its detail and its log at once.
+- If a connection is disconnected, its tree stays empty and says so.
 - `Clone` is enabled only when:
   - source is a snapshot
   - target is a dataset
   - same connection
   - same pool
-- Snapshots are selected from the `@` node (there is no `Select snapshot` menu anymore).
 - If source or target runs OpenZFS `< 2.3.3`, `Send`, `Level`, and `Sync` are blocked.
-- `Apply changes` is enabled only when there are real property or permission drafts. Those
-  two ARE edited in batches and applied with a button; actions are not: they run when you
-  press them.
+- `Apply changes` is enabled only when there are real property or permission drafts, and the
+  box next to it lists which. Those two ARE edited in batches; actions are not: they run when
+  you press them.
 - Normal navigation uses cache; refresh happens explicitly or after actions that require it.
+- Each pane remembers separately what it had expanded: both can sit on the same connection
+  without stepping on each other.
+- The connection and pool choice survives refreshes: it is looked up by identifier, not by
+  position in the list.
