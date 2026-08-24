@@ -2162,6 +2162,13 @@ void MainWindow::buildUi() {
         auto* refreshBtn = new QPushButton(trk(QStringLiteral("t_jobs_refresh001"),
                                                 QStringLiteral("Refrescar"),
                                                 QStringLiteral("Refresh")), m_pendingChangesTab);
+        // Los dos del mismo ancho, el del más largo. Uno debajo del otro y con anchos
+        // distintos, la columna quedaba en escalera. El ancho sale de `sizeHint()` y no de
+        // un número: el rótulo cambia con el idioma, y «Cancel selected» no mide lo mismo
+        // que «Cancelar seleccionado».
+        const int btnWidth = qMax(refreshBtn->sizeHint().width(), cancelBtn->sizeHint().width());
+        refreshBtn->setMinimumWidth(btnWidth);
+        cancelBtn->setMinimumWidth(btnWidth);
         if (m_pendingButtonsCol) {
             // En 0 y 1, ARRIBA del estirador. Iban en 2 y 3 porque delante estaban Aplicar
             // y Deshacer; al mudarse esos dos, los índices dejaron a los botones detrás
