@@ -1028,6 +1028,38 @@ void MainWindow::onPaneConnectionChosen(int paneIdx) {
     rebuildDatasetPane(paneIdx);
 }
 
+bool MainWindow::isPoolImportableForConnection(int connIdx, const QString& poolName) const {
+    if (connIdx < 0 || connIdx >= m_conns.states.size() || poolName.trimmed().isEmpty()) {
+        return false;
+    }
+    for (const PoolImportable& pool : m_conns.states.at(connIdx).importablePools) {
+        if (pool.pool.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// El diálogo de importar se abre por nombre de pool, no por fila de la tabla de pools:
+// desde el desplegable no hay fila. La tabla sigue siendo la fuente —lleva el guid y la
+// acción, que es lo que decide si el pool se puede importar— y aquí solo se busca en ella.
+void MainWindow::importPoolByName(int connIdx, const QString& poolName) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()) {
+        return;
+    }
+    const QString connName = m_conns.profiles.at(connIdx).name;
+    for (int row = 0; row < m_conns.poolListEntries.size(); ++row) {
+        const auto& pe = m_conns.poolListEntries.at(row);
+        if (pe.connection == connName
+            && pe.pool.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) == 0) {
+            importPoolFromRow(row);
+            return;
+        }
+    }
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("Importar %1::%2 sin fila en la tabla de pools").arg(connName, poolName));
+}
+
 void MainWindow::onPanePoolChosen(int paneIdx) {
     DatasetPane& pane = m_datasetPanes[paneIdx];
     if (pane.refilling || !pane.poolCombo) {
@@ -1035,6 +1067,13 @@ void MainWindow::onPanePoolChosen(int paneIdx) {
     }
     pane.poolName = pane.poolCombo->currentData().toString().trimmed();
     rebuildDatasetPane(paneIdx);
+    // Elegir un pool que está sin importar es pedir importarlo: un pool importable no
+    // tiene datasets que enseñar, así que quedarse mirando un árbol vacío no sería una
+    // respuesta. Se abre el diálogo con sus opciones —punto de montaje alternativo,
+    // solo lectura, forzar, renombrar— que es el mismo de la tabla de pools.
+    if (isPoolImportableForConnection(pane.connIdx, pane.poolName)) {
+        importPoolByName(pane.connIdx, pane.poolName);
+    }
 }
 
 void MainWindow::rebuildDatasetPane(int paneIdx) {

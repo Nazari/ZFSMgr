@@ -644,6 +644,8 @@ private:
     void refillDatasetPaneCombos();
     void onPaneConnectionChosen(int paneIdx);
     void onPanePoolChosen(int paneIdx);
+    bool isPoolImportableForConnection(int connIdx, const QString& poolName) const;
+    void importPoolByName(int connIdx, const QString& poolName);
     void rebuildDatasetPane(int paneIdx);
     void rebuildDatasetPanes();
     void populatePaneTree(QTreeWidget* tree, int connIdx, const QString& poolName);
