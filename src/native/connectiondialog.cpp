@@ -440,7 +440,7 @@ constexpr int kFdDeLaClave = 3;
 QStringList preparaClavePorDescriptor(QProcess& proc,
                                       const std::shared_ptr<zfsmgr::base::helpers::SecretFromDescriptor>& secreto) {
 #ifdef Q_OS_UNIX
-    if (!secreto || !secreto->vale()) {
+    if (!secreto || !secreto->ok()) {
         return {};
     }
     const int origen = secreto->descriptor();
@@ -476,7 +476,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
         if (!sshpassExe.isEmpty()) {
             secreto = std::make_shared<zfsmgr::base::helpers::SecretFromDescriptor>(
                 p.password.toStdString());
-            if (secreto->vale()) {
+            if (secreto->ok()) {
                 program = sshpassExe;
                 usingSshpass = true;
             }
@@ -580,7 +580,7 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
         if (!sshpassExe.isEmpty()) {
             secreto = std::make_shared<zfsmgr::base::helpers::SecretFromDescriptor>(
                 p.password.toStdString());
-            if (secreto->vale()) {
+            if (secreto->ok()) {
                 program = sshpassExe;
                 usingSshpass = true;
             }

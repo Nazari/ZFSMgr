@@ -25,8 +25,8 @@ struct TransportSession : zfsmgr::base::TransportSession {
     using Base::persistTls;
     using Base::resolveLocalSudo;
 
-    void log(Nivel n, const QString& msg) const { Base::log(n, msg.toStdString()); }
-    void logConn(Nivel n, const QString& connId, const QString& msg) const {
+    void log(Level n, const QString& msg) const { Base::log(n, msg.toStdString()); }
+    void logConn(Level n, const QString& connId, const QString& msg) const {
         Base::logConn(n, connId.toStdString(), msg.toStdString());
     }
     bool askCredentials(const QString& motivo, QString& usuario, QString& clave) const {

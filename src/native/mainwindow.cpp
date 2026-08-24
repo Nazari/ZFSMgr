@@ -197,18 +197,18 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     // escribir. En un CLI este destino iría a la salida de error.
     // Los avisos —los que son PROSA— llegan tipificados y se redactan aquí, que es donde
     // se sabe el idioma. El transporte solo dice cuál es; ver transportNoticeText.
-    m_transport.avisoSink = [this](TransportSession::Nivel n, const std::string& connId,
+    m_transport.warningSink = [this](TransportSession::Level n, const std::string& connId,
                                    const zfsmgr::base::transport::WarningNote& a) {
         m_transport.logConn(n, connId, transportNoticeText(a).toStdString());
     };
-    m_transport.sink = [this](TransportSession::Nivel n, const std::string& connId,
+    m_transport.sink = [this](TransportSession::Level n, const std::string& connId,
                               const std::string& msg) {
-        static const QMap<TransportSession::Nivel, QString> kNiveles = {
-            {TransportSession::Nivel::Normal, QStringLiteral("NORMAL")},
-            {TransportSession::Nivel::Info, QStringLiteral("INFO")},
-            {TransportSession::Nivel::Warn, QStringLiteral("WARN")},
-            {TransportSession::Nivel::Error, QStringLiteral("ERROR")},
-            {TransportSession::Nivel::Debug, QStringLiteral("DEBUG")},
+        static const QMap<TransportSession::Level, QString> kNiveles = {
+            {TransportSession::Level::Normal, QStringLiteral("NORMAL")},
+            {TransportSession::Level::Info, QStringLiteral("INFO")},
+            {TransportSession::Level::Warn, QStringLiteral("WARN")},
+            {TransportSession::Level::Error, QStringLiteral("ERROR")},
+            {TransportSession::Level::Debug, QStringLiteral("DEBUG")},
         };
         const QString texto = QString::fromStdString(msg);
         appLog(kNiveles.value(n, QStringLiteral("INFO")), texto);

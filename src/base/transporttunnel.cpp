@@ -17,7 +17,7 @@ namespace zfsmgr::base::transport {
 namespace {
 
 namespace H = zfsmgr::base::helpers;
-using Nivel = TransportSession::Nivel;
+using Nivel = TransportSession::Level;
 using Reloj = std::chrono::steady_clock;
 
 long long msDesde(Reloj::time_point t) {
@@ -291,7 +291,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     if (commandMayHaveRunOut) {
         *commandMayHaveRunOut = false;
     }
-    if (!ses.puedeMontarTuneles()) {
+    if (!ses.tunnelsAllowedFromHere()) {
         if (failureReason) {
             *failureReason = {Failure::OffTheTunnelThread, {}};
         }
@@ -410,9 +410,9 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         H::SecretFromDescriptor secreto(hayClave ? p.password : std::string());
         if (hayClave) {
             const std::string sshpassExe = H::findLocalExecutable("sshpass");
-            if (!sshpassExe.empty() && secreto.vale()) {
+            if (!sshpassExe.empty() && secreto.ok()) {
                 programa = sshpassExe;
-                args.push_back(secreto.opcionSshpass());
+                args.push_back(secreto.sshpassOption());
                 args.push_back("ssh");
                 conSshpass = true;
             }
@@ -480,7 +480,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             }
             // Sin entrada de usuario: ver TransportSession::pump. Por aquí se colaba una
             // recarga de conexiones que dejaba colgando las referencias de quien llamó.
-            ses.respira(/*permitirEntradaDeUsuario=*/false);
+            ses.breathe(/*permitirEntradaDeUsuario=*/false);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!listo) {
@@ -489,7 +489,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             // segundos cuando podían haber sido doscientos milisegundos. Un registro que
             // miente sobre cuánto tardó algo hace perder horas buscando la lentitud donde
             // no está.
-            ses.aviso(Nivel::Warn, p.id,
+            ses.warning(Nivel::Warn, p.id,
                       {sshMurio ? Warning::TunnelNotAcceptingSshDied : Warning::TunnelNotAcceptingTimedOut,
                        {}, std::to_string(msDesde(inicio))});
             nuevo.process.stop(1500);
@@ -579,7 +579,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         // Mientras se espera respuesta: dejar respirar a quien nos llamó y comprobar que el
         // túnel sigue vivo. Si murió, no hay nada que esperar.
         hooks.keepWaiting = [&ses, &rpcConnKey]() {
-            ses.respira(/*permitirEntradaDeUsuario=*/false);
+            ses.breathe(/*permitirEntradaDeUsuario=*/false);
             std::lock_guard<std::mutex> lock(ses.mutex);
             const auto it = ses.tunnelsByConnKey.find(rpcConnKey);
             return it != ses.tunnelsByConnKey.end() && it->second.process.isRunning();

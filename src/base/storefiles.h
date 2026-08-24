@@ -6,112 +6,118 @@
 #include "json.h"
 #include "storewarnings.h"
 
-// Lectura y escritura de los dos ficheros del almacén de conexiones, sin Qt.
+// Reading and writing the two files of the connection store, without Qt.
 //
-// El directorio se recibe como argumento en vez de calcularse aquí: hoy es
-// `~/.config/<app>`, y reimplementar las reglas de cada plataforma para ahorrarse un
-// parámetro sería arriesgar que la aplicación deje de encontrar la configuración de la
-// gente a cambio de nada.
+// The directory arrives as an argument rather than being computed here: today it is
+// `~/.config/<app>`, and reimplementing each platform's rules to save one parameter would
+// risk the application no longer finding people's configuration, in exchange for nothing.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::store {
 
-std::string configPath(const std::string& dirConfig);
-std::string trustStorePath(const std::string& dirConfig);
+std::string configPath(const std::string& configDir);
+std::string trustStorePath(const std::string& configDir);
 
-// Que el fichero NO exista no es un aviso: es el primer arranque. Devuelve un objeto
-// vacío y `aviso` sin motivo.
-json::Value readConfig(const std::string& dirConfig, Warning& aviso);
-json::Value readTrustStore(const std::string& dirConfig, Warning& aviso);
+// The file NOT existing is not a warning: it is the first run. It returns an empty object
+// and a `warning` with no reason.
+json::Value readConfig(const std::string& configDir, Warning& warning);
+json::Value readTrustStore(const std::string& configDir, Warning& warning);
 
-// Escriben con permisos **solo del dueño**, fijados ANTES de volcar el contenido: al
-// revés quedaría un instante con el fichero ya lleno de secretos cifrados y los
-// permisos que dejara el umask.
-bool writeConfig(const std::string& dirConfig, const json::Value& root, Warning& aviso);
-bool writeTrustStore(const std::string& dirConfig, const json::Value& root, Warning& aviso);
+// They write with **owner-only** permissions, set BEFORE the contents are poured in: the
+// other way round would leave an instant with the file already full of encrypted secrets and
+// whatever permissions the umask happened to leave.
+bool writeConfig(const std::string& configDir, const json::Value& root, Warning& warning);
+bool writeTrustStore(const std::string& configDir, const json::Value& root, Warning& warning);
 
-// Cambia la CLAVE MAESTRA: descifra con la vieja y vuelve a cifrar con la nueva TODO lo
-// que cuelga de ella, en los dos ficheros.
+// Changes the MASTER PASSWORD: decrypts with the old one and re-encrypts with the new one
+// EVERYTHING that hangs off it, in both files.
 //
-// No es «cambiar un valor»: de la maestra cuelgan la contraseña de cada conexión y el
-// material TLS del daemon —certificado del servidor, certificado y clave del cliente—, y
-// esto último está además en el almacén de confianza. Hacerlo a medias deja campos
-// cifrados con la clave vieja, y la sesión siguiente no abre ni las conexiones ni el TLS.
+// This is not «changing a value»: hanging off the master are each connection's password and
+// the daemon's TLS material —server certificate, client certificate and key—, and the latter
+// also lives in the trust store. Doing it halfway leaves fields encrypted with the old key,
+// and the next session opens neither the connections nor the TLS.
 //
-// Por eso se escribe primero una COPIA de los dos ficheros —con el sufijo que se devuelve
-// en `copiaSufijo`— y solo después se tocan. Si algo falla a mitad, el aviso dice qué
-// campo fue y las copias siguen ahí.
+// That is why a COPY of both files is written first —with the suffix returned in
+// `backupSuffix`— and only then are they touched. If something fails midway, the warning
+// says which field it was and the copies are still there.
 //
-// Vive en la capa base, y no en la interfaz, porque el intérprete la necesita igual: era
-// la última cosa que solo se podía hacer con una ventana delante.
-bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
-                      const std::string& nueva, std::string& copiaSufijo, Warning& aviso);
+// It lives in the base layer, and not in the interface, because the shell needs it just the
+// same: it was the last thing that could only be done with a window in front of you.
+bool rotateMasterKey(const std::string& configDir, const std::string& oldMaster,
+                      const std::string& newMaster, std::string& backupSuffix, Warning& warning);
 
-// Guarda un perfil en `config.json`: sustituye el que tenga su identificador o lo añade.
+// Saves a profile into `config.json`: replaces the one carrying its id, or adds it.
 //
-// Hace tres cosas que no se pueden separar de escribir, y que estaban solo en la interfaz:
+// It does three things that cannot be separated from writing, and that lived only in the
+// interface:
 //
-//  - **Cifra** lo que vaya en claro. Sin clave maestra NO se escribe: dejar una contraseña
-//    de acceso legible en disco para ahorrarse un paso es un mal cambio.
-//  - **Conserva el material TLS** del perfil que ya estuviera guardado si el EXTREMO no ha
-//    cambiado —mismo host, puerto, usuario y clave—, para no obligar a renegociarlo.
-//  - **Y lo suelta si el extremo SÍ cambió.** Esto es lo importante: un certificado fijado
-//    para una máquina no vale para otra, y arrastrarlo al cambiar el host deja al cliente
-//    fiándose de un certificado que no le corresponde. El intérprete no hacía ni lo uno ni
-//    lo otro: escribía el perfil tal cual, así que un `edit` que cambiara el host se
-//    quedaba con el TLS del host viejo.
+//  - **Encrypts** whatever is in the clear. Without a master password NOTHING is written:
+//    leaving an access password readable on disk to save a step is a bad trade.
+//  - **Keeps the TLS material** of the profile already stored when the ENDPOINT has not
+//    changed —same host, port, user and key—, so as not to force renegotiating it.
+//  - **And drops it when the endpoint DID change.** This is the important one: a certificate
+//    pinned for one machine is no good for another, and dragging it along when the host
+//    changes leaves the client trusting a certificate that is not its own. The shell did
+//    neither: it wrote the profile as-is, so an `edit` that changed the host kept the old
+//    host's TLS.
 //
-// La validación de los campos y de dónde sale el identificador NO está aquí: cada mitad
-// tiene la suya y son políticas distintas.
-bool saveProfile(const std::string& dirConfig, const ConnectionProfile& p,
-                  const std::string& maestra, Warning& aviso);
+// Validating the fields and deciding where the id comes from is NOT here: each half has its
+// own, and they are different policies.
+bool saveProfile(const std::string& configDir, const ConnectionProfile& p,
+                  const std::string& master, Warning& warning);
 
-// Guarda en el almacén de confianza el material TLS negociado con una máquina.
+// Stores in the trust store the TLS material negotiated with a machine.
 //
-// Lo escriben los dos: la interfaz al crear o editar una conexión, y el intérprete cada
-// vez que el transporte negocia con un daemon. Sin clave maestra NO se guarda: dejar la
-// clave privada del cliente legible en disco para ahorrarse una lectura por SSH es un mal
-// cambio, y las dos mitades ya aplicaban esa regla por su cuenta.
+// Both write it: the interface when creating or editing a connection, and the shell every
+// time the transport negotiates with a daemon. Without a master password NOTHING is stored:
+// leaving the client's private key readable on disk to save one SSH read is a bad trade, and
+// both halves already applied that rule on their own.
 //
-// Las conexiones LOCALES no van al almacén, y las que no traigan material tampoco: no hay
-// nada que fijar.
-bool saveTlsToStore(const std::string& dirConfig, const ConnectionProfile& p,
-                        const std::string& maestra, Warning& aviso);
+// LOCAL connections do not go to the store, and neither do the ones carrying no material:
+// there is nothing to pin.
+bool saveTlsToStore(const std::string& configDir, const ConnectionProfile& p,
+                        const std::string& master, Warning& warning);
 
-// Cifra lo que haya quedado EN CLARO en los dos ficheros. Lo ya cifrado no se toca —no se
-// sabe con qué clave está, y volver a cifrarlo exigiría abrirlo primero—.
+// Encrypts whatever was left IN THE CLEAR in both files. What is already encrypted is left
+// alone —there is no telling which key it is under, and re-encrypting it would require
+// opening it first—.
 //
-// Es la migración de una configuración que se escribió sin clave maestra, o de un campo
-// que se coló en claro. No lleva copia de seguridad como la rotación: aquí no hay nada que
-// perder, porque lo único que cambia es de legible a ilegible.
-bool encryptWhatIsMissing(const std::string& dirConfig, const std::string& maestra, Warning& aviso);
+// It is the migration of a configuration written without a master password, or of a field
+// that slipped through in the clear. It carries no backup like the rotation does: there is
+// nothing to lose here, because the only change is from readable to unreadable.
+bool encryptWhatIsMissing(const std::string& configDir, const std::string& master,
+                          Warning& warning);
 
-// Quita una conexión de los DOS ficheros.
+// Removes a connection from BOTH files.
 //
-// De los dos, y esta es la razón: desde que una entrada del almacén de confianza sin
-// conexión que le corresponda se convierte en conexión, dejar la suya atrás no es
-// suciedad — es que la conexión RESUCITA en el siguiente arranque. Comprobado: borrando
-// «oldlau» en el intérprete desaparecía de config.json y volvía a la lista al reabrir.
+// From both, and here is why: ever since a trust-store entry with no matching connection
+// gets turned into a connection, leaving its entry behind is not untidiness — it means the
+// connection COMES BACK on the next start. Verified: deleting «oldlau» in the shell removed
+// it from config.json and it returned to the list on reopening.
 //
-// Devuelve false solo si no había ninguna con ese identificador o si no se pudo escribir.
-bool deleteProfile(const std::string& dirConfig, const std::string& id, Warning& aviso);
+// It returns false only when there was none carrying that id, or when it could not be
+// written.
+bool deleteProfile(const std::string& configDir, const std::string& id, Warning& warning);
 
-// ¿Hay ALGO cifrado en los dos ficheros? Si no lo hay, pedir la contraseña maestra es
-// fricción sin motivo, y esa es la clase de fricción que acaba con la contraseña escrita
-// en un alias del intérprete de órdenes.
-bool hasSomethingEncrypted(const std::string& dirConfig);
+// Is there ANYTHING encrypted in the two files? When there is not, asking for the master
+// password is friction for no reason, and that is the kind of friction that ends with the
+// password written into a shell alias.
+bool hasSomethingEncrypted(const std::string& configDir);
 
-// ¿Abre esta maestra TODO lo que hay cifrado? Devuelve el primer campo que no abrió.
+// Does this master password open EVERYTHING that is encrypted? It returns the first field
+// that did not open.
 //
-// Se comprueba al entrar y no cuando haga falta un secreto: una maestra equivocada no
-// falla sola —los campos quedan cerrados y el fallo sale luego disfrazado de otra cosa, un
-// «no se pudo leer el material TLS» o un sudo que vuelve a pedirse—, y uno se pasa un rato
-// mirando la máquina remota antes de caer en que lo que tecleó mal fue la maestra.
+// It is checked on entry and not when a secret is first needed: a wrong master does not fail
+// on its own —the fields stay shut and the failure surfaces later disguised as something
+// else, a «could not read the TLS material» or a sudo that gets asked for again—, and one
+// spends a while staring at the remote machine before realising that what was mistyped was
+// the master password.
 //
-// Se recorre TODO y no solo el primer campo. Con el formato Fernet, abrir uno bastaría
-// para saber que la clave es la buena; pero también detecta una configuración a MEDIO
-// ROTAR, con unos campos en la clave nueva y otros en la vieja, que es justo lo que puede
-// dejar una rotación interrumpida.
-bool masterOpensEverything(const std::string& dirConfig, const std::string& maestra, Warning& aviso);
+// EVERYTHING is walked and not just the first field. With the Fernet format, opening one
+// would be enough to know the key is the right one; but this also detects a HALF-ROTATED
+// configuration, with some fields under the new key and others under the old, which is
+// exactly what an interrupted rotation can leave behind.
+bool masterOpensEverything(const std::string& configDir, const std::string& master,
+                           Warning& warning);
 
 }  // namespace zfsmgr::base::store

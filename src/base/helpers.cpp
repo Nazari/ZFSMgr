@@ -362,7 +362,7 @@ std::string agentArgv(const std::vector<std::string>& argv) {
     return base64Encode(json::toCompact(arr));
 }
 
-SecretFromDescriptor::SecretFromDescriptor(const std::string& secreto) {
+SecretFromDescriptor::SecretFromDescriptor(const std::string& secret) {
 #ifndef _WIN32
     int tubo[2] = {-1, -1};
     if (pipe(tubo) != 0) {
@@ -372,7 +372,7 @@ SecretFromDescriptor::SecretFromDescriptor(const std::string& secreto) {
     // hijo encuentra el dato ya puesto y un fin de fichero detrás, y nadie se queda
     // esperando a nadie. Una contraseña no llega ni de lejos al tamaño del búfer del
     // tubo, así que esta escritura no puede bloquear.
-    const std::string conSalto = secreto + "\n";
+    const std::string conSalto = secret + "\n";
     size_t puesto = 0;
     while (puesto < conSalto.size()) {
         const ssize_t n = ::write(tubo[1], conSalto.data() + puesto, conSalto.size() - puesto);
@@ -386,7 +386,7 @@ SecretFromDescriptor::SecretFromDescriptor(const std::string& secreto) {
     ::close(tubo[1]);
     m_fd = tubo[0];
 #else
-    (void)secreto;  // en Windows no hay sshpass
+    (void)secret;  // en Windows no hay sshpass
 #endif
 }
 
@@ -398,7 +398,7 @@ SecretFromDescriptor::~SecretFromDescriptor() {
 #endif
 }
 
-std::string SecretFromDescriptor::opcionSshpass() const {
+std::string SecretFromDescriptor::sshpassOption() const {
     return m_fd >= 0 ? ("-d" + std::to_string(m_fd)) : std::string();
 }
 
@@ -415,15 +415,15 @@ ScpInvocation scpUpload(const ConnectionProfile& p,
     if (!trim(p.password).empty()) {
         const std::string sshpassExe = findLocalExecutable("sshpass");
         if (!sshpassExe.empty()) {
-            auto secreto = std::make_shared<SecretFromDescriptor>(p.password);
-            if (secreto->vale()) {
+            auto secret = std::make_shared<SecretFromDescriptor>(p.password);
+            if (secret->ok()) {
                 inv.program = sshpassExe;
-                std::vector<std::string> conPrefijo{secreto->opcionSshpass(), "scp"};
+                std::vector<std::string> conPrefijo{secret->sshpassOption(), "scp"};
                 for (const auto& a : inv.args) {
                     conPrefijo.push_back(a);
                 }
                 inv.args = std::move(conPrefijo);
-                inv.secreto = std::move(secreto);
+                inv.secret = std::move(secret);
             }
             // Si no se pudo montar la tubería se deja `scp` a secas. Antes esto pasaba la
             // contraseña por el argv; es preferible fallar con el mensaje de scp que
@@ -574,7 +574,7 @@ std::string maskedAgentArgvForLog(const std::vector<std::string>& argv) {
             && verb != "--mutate-zfs-create") {
             continue;
         }
-        // El secreto es el ÚLTIMO argumento del verbo: para load-key/change-key va tras
+        // El secret es el ÚLTIMO argumento del verbo: para load-key/change-key va tras
         // el dataset, y para create tras el argv de zfs. Se tapa todo lo que siga a ese
         // primer argumento, que nunca es más de uno.
         for (std::size_t j = i + 2; j < masked.size(); ++j) {
@@ -1024,7 +1024,7 @@ std::string maskCommandSecrets(const std::string& input) {
     // Su equivalente en PowerShell, que la mete en una variable.
     sub("(\\$pp\\s*=\\s*)'(?:[^']|'')*'", "$1'[secret]'");
 
-    // Verbos del agente cuyo ÚLTIMO argumento es un secreto en base64. Los separadores
+    // Verbos del agente cuyo ÚLTIMO argumento es un secret en base64. Los separadores
     // se aceptan como clase de caracteres porque la orden puede venir entrecomillada una
     // o dos veces —`'"'"'` cuando va dentro de otro shSingleQuote—, y escribir cada
     // variante a mano es justo lo que ya falló antes con la frase de `zfs create`.

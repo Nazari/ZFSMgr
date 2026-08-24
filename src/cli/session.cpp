@@ -35,7 +35,7 @@ namespace {
 namespace B = zfsmgr::base;
 namespace ST = zfsmgr::base::store;
 namespace CJ = zfsmgr::base::connjson;
-using Nivel = B::TransportSession::Nivel;
+using Nivel = B::TransportSession::Level;
 
 
 
@@ -200,7 +200,7 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
     // depurando y ruido el resto del tiempo.
     // Los avisos —que son prosa— se redactan AQUÍ, donde se sabe el idioma; el transporte
     // solo dice cuál es. Ver textoDeAviso.
-    s->transporte.avisoSink = [raw](Nivel n, const std::string& connId,
+    s->transporte.warningSink = [raw](Nivel n, const std::string& connId,
                                     const B::transport::WarningNote& a) {
         raw->transporte.logConn(n, connId, textoDeAviso(a));
     };

@@ -8,15 +8,14 @@
 
 #include "connectionprofile.h"
 
-// Construcción de órdenes y predicados sobre valores de ZFS, SIN Qt.
+// Building commands, and predicates over ZFS values, WITHOUT Qt.
 //
-// Segunda pieza de la capa base, portada a mano desde `mwhelpers`. `src/mainwindow_helpers.cpp`
-// se queda como adaptador para no tocar los puntos de llamada; ver
-// docs/diseno_tecnico_capa_base_sin_qt.md.
+// The second piece of the base layer, ported by hand from `mwhelpers`.
+// `src/mainwindow_helpers.cpp` remains as an adapter so the call sites need not be touched;
+// see docs/diseno_tecnico_capa_base_sin_qt.md.
 //
-// Lo que NO está aquí, y por qué, está en ese mismo documento: las que toman
-// `ConnectionProfile`, las que usan expresiones regulares, JSON, procesos o el sistema
-// de ficheros.
+// What is NOT here, and why, is in that same document: the ones taking `ConnectionProfile`,
+// and the ones using regular expressions, JSON, processes or the filesystem.
 namespace zfsmgr::base::helpers {
 
 struct TransferButtonInputs {
@@ -55,28 +54,28 @@ enum class StreamCodec {
     None,
 };
 
-// Colapsa espacios y recorta a `maxLen` CARACTERES —no bytes—, para escribir una línea
-// en el registro sin partir un carácter UTF-8 por la mitad.
+// Collapses whitespace and trims to `maxLen` CHARACTERS —not bytes—, so a line can be
+// written into the log without splitting a UTF-8 character in half.
 std::string oneLine(const std::string& v, int maxLen = 220);
 
-// Valores con que ZFS dice que sí en la propiedad `mounted`.
+// The values ZFS uses to say yes in the `mounted` property.
 bool isMountedValueTrue(const std::string& value);
 
-// «pool/a/b» -> «pool/a». Vacío si no hay padre, incluido el caso de la raíz del pool.
+// «pool/a/b» -> «pool/a». Empty when there is no parent, the pool's root included.
 std::string parentDatasetName(const std::string& dataset);
 
 bool isWindowsOsType(const std::string& osType);
 
-// Si el padre no se monta —sin punto de montaje, «none», o `canmount=off`—, no tiene
-// sentido exigir que esté montado para montar al hijo.
+// When the parent does not mount —no mountpoint, «none», or `canmount=off`—, requiring it to
+// be mounted before mounting the child makes no sense.
 bool parentMountCheckRequired(const std::string& parentMountpoint,
                               const std::string& parentCanmount);
 bool parentAllowsChildMount(const std::string& parentMountpoint,
                             const std::string& parentCanmount,
                             const std::string& parentMounted);
 
-// Órdenes de montaje. En Windows salen en PowerShell y en Unix en shell POSIX, que es
-// la diferencia que obliga a llevar el `isWindows` hasta aquí.
+// Mount commands. On Windows they come out as PowerShell and on Unix as POSIX shell, which
+// is the difference that forces carrying `isWindows` all the way down here.
 std::string buildRecursiveUmountCommand(bool isWindows, const std::string& datasetName);
 std::string buildSingleUmountCommand(bool isWindows, const std::string& datasetName);
 std::string buildSingleMountCommand(const std::string& datasetName);
@@ -84,7 +83,7 @@ std::string buildMountChildrenCommand(bool isWindows, const std::string& dataset
 std::string buildWindowsMountPrecheckCommand(const std::string& datasetName,
                                              const std::string& effectiveMountpoint);
 
-// Transferencias por tubería. `pv` es opcional: si no está, se pasa por `cat`.
+// Pipeline transfers. `pv` is optional: when it is missing, it goes through `cat`.
 std::string streamProgressPipeFilter();
 std::string buildPipedTransferCommand(const std::string& sendSegment,
                                       const std::string& recvSegment);
@@ -93,90 +92,91 @@ StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth);
 std::string buildTarSourceCommand(bool isWindows, const std::string& mountPath, StreamCodec codec);
 std::string buildTarDestinationCommand(bool isWindows, const std::string& mountPath, StreamCodec codec);
 
-// Antepone las rutas donde suele vivir `zfs` cuando el PATH de una sesión no
-// interactiva no las trae.
+// Prepends the directories `zfs` usually lives in, for when a non-interactive session's PATH
+// does not carry them.
 std::string withUnixSearchPathCommand(const std::string& cmd);
 
 std::string storedSecretMarkerPrefix();
 
-// Descarta lo que preceda al primer '{': algunas órdenes escriben avisos antes del JSON.
+// Discards whatever precedes the first '{': some commands print warnings before the JSON.
 std::string stripToJson(const std::string& output);
 
-// Codifica cada BYTE UTF-8 como \0ddd para `printf '%b'`, de modo que el resultado es
-// ASCII puro.
+// Encodes each UTF-8 BYTE as \0ddd for `printf '%b'`, so that the result is pure ASCII.
 //
-// Existe por la contraseña de sudo en macOS: Qt descompone los caracteres al pasar la
-// orden al intérprete y sudo recibía otros bytes de los tecleados.
+// It exists because of the sudo password on macOS: Qt decomposes the characters when handing
+// the command to the shell, and sudo received bytes other than the ones typed.
 std::string shPrintfOctalEscaped(const std::string& s);
 
-// Ruta del socket de multiplexado de SSH. Lleva el marcador %C, que expande el propio
-// ssh con un resumen de usuario/host/puerto.
+// Path of the SSH multiplexing socket. It carries the %C marker, which ssh itself expands
+// into a digest of user/host/port.
 std::string sshControlPath();
 
-// Qué botones de transfer deben quedar activos, dada la selección.
+// Which transfer buttons should end up enabled, given the selection.
 TransferButtonState computeTransferButtonState(const TransferButtonInputs& in);
 
-// Puntos de montaje repetidos entre datasets: los agrupa por punto y devuelve solo los
-// que tienen más de uno.
+// Mountpoints repeated across datasets: it groups by mountpoint and returns only the ones
+// with more than one.
 std::map<std::string, std::vector<std::string>> duplicateMountpoints(
     const std::map<std::string, std::string>& datasetMountpoints);
 
-// Puntos de montaje que ya ocupa OTRO dataset distinto del que se pide.
+// Mountpoints already occupied by a DIFFERENT dataset from the one being asked for.
 std::vector<MountpointConflict> externalMountpointConflicts(
     const std::map<std::string, std::string>& targetDatasetMountpoints,
     const std::map<std::string, std::vector<std::string>>& mountedByMountpoint);
 
-// Tapa el secreto de los verbos que lo llevan, para poder escribir la invocación en el
-// registro.
+// Masks the secret of the verbs that carry one, so the invocation can be written into the
+// log.
 std::string maskedAgentArgvForLog(const std::vector<std::string>& argv);
 
-// Deja solo la LETRA de unidad, en mayúscula. Vacío si no hay ninguna.
+// Keeps the drive LETTER only, upper-cased. Empty when there is none.
 std::string normalizeDriveLetterValue(const std::string& raw);
 
-// Explica los dos fallos de clave de host que tienen remedio conocido. Vacío si el
-// error es otro.
+// Explains the two host-key failures that have a known remedy. Empty when the error is
+// anything else.
 std::string sshHostKeyProblemHint(const std::string& sshStderr);
 
-// Nombre legible de un GUID de tipo de partición GPT. Vacío si no se conoce.
+// Readable name of a GPT partition-type GUID. Empty when it is not known.
 std::string windowsGptTypeName(const std::string& guid);
 std::string formatWindowsFsTypeDetail(const std::string& rawFsType);
-// Particiones y discos que NO deben ofrecerse a ZFS: sistema, recuperación, reservada,
-// y el disco de arranque.
+// Partitions and disks that must NOT be offered to ZFS: system, recovery, reserved, and the
+// boot disk.
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
 
-// Verbos que solo existen en la línea de comandos del agente, nunca por RPC.
+// Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 
-// Trocea como lo haría un shell POSIX. Solo sobrevive como oráculo de los tests del
-// renderizado a cadena.
+// Splits the way a POSIX shell would. It survives only as the oracle for the tests of the
+// string rendering.
 std::vector<std::string> posixShellSplitArgs(const std::string& s);
 
-// Sustituye cada contraseña por un marcador, para escribir la orden en disco sin
-// escribir el secreto. Contempla las DOS formas: la octal de shPrintfOctalEscaped y la
-// literal. Si tras sustituir el secreto SIGUE apareciendo, devuelve vacío y pone
-// `okOut` a false: es preferible perder la orden que escribir una contraseña.
+// Replaces each password with a marker, so the command can be written to disk without
+// writing the secret. It covers BOTH forms: the octal one from shPrintfOctalEscaped and the
+// literal one. When after substituting the secret STILL appears, it returns empty and sets
+// `okOut` to false: losing the command beats writing a password.
 std::string redactSecretsForStorage(const std::string& command,
                                     const std::vector<StorableSecret>& secrets,
                                     bool* okOut);
 std::string restoreSecretsFromStorage(const std::string& stored,
                                       const std::vector<StorableSecret>& secrets);
 
-// Busca un ejecutable en el PATH y, si no aparece, en los directorios de siempre.
+// Looks for an executable on the PATH and, when it does not turn up, in the usual
+// directories.
 //
-// Devuelve la ruta absoluta, o vacío si no está. El respaldo por directorios no es un
-// adorno: en macOS un proceso lanzado desde el Finder hereda un PATH mínimo que NO incluye
-// /opt/homebrew/bin, así que `sshpass` estaba instalado y aun así no se encontraba.
+// It returns the absolute path, or empty when it is not there. The directory fallback is not
+// an ornament: on macOS a process launched from the Finder inherits a minimal PATH that does
+// NOT include /opt/homebrew/bin, so `sshpass` was installed and still could not be found.
 //
-// En Windows se prueban además las extensiones de PATHEXT, porque «ssh» a secas no es el
-// nombre de ningún fichero.
+// On Windows the PATHEXT extensions are tried as well, because plain «ssh» is not the name of
+// any file.
 std::string findLocalExecutable(const std::string& name);
 
-// Si la orden tiene algo fuera de ASCII, la reescribe como `eval "$(printf '%b' '...')"`.
-// Ver shPrintfOctalEscaped: en macOS Qt descomponía los caracteres al pasarlos.
+// When the command has anything outside ASCII, it rewrites it as
+// `eval "$(printf '%b' '...')"`. See shPrintfOctalEscaped: on macOS Qt decomposed the
+// characters as they were passed along.
 std::string asciiSafeShellCommand(const std::string& cmd);
 
-// ¿Es un rechazo de CONTRASEÑA? Distinto de un fallo de autorización, donde volver a
-// teclearla no arregla nada y por tanto no se ofrece reintentar.
+// Is this a PASSWORD rejection? Different from an authorisation failure, where typing it
+// again fixes nothing and therefore no retry is offered.
 bool looksLikeSudoAuthFailure(const std::string& text);
 
 struct ImportablePoolInfo {
@@ -186,32 +186,32 @@ struct ImportablePoolInfo {
     std::string reason;
 };
 
-// Tapa los secretos de una orden para poder escribirla en el registro. Contempla las
-// formas concretas que construye esta aplicación —no un «password» genérico— y de ahí
-// que sean siete patrones.
+// Masks the secrets of a command so it can be written into the log. It covers the specific
+// shapes this application builds —not a generic «password»— and that is why there are seven
+// patterns.
 std::string maskCommandSecrets(const std::string& input);
 
-// Lo mismo, pero para la SALIDA de una orden antes de escribirla en el registro.
+// The same, but for the OUTPUT of a command before writing it into the log.
 //
-// Hace falta porque el material TLS del daemon se lee ejecutando una orden, y su salida
-// —la clave privada del cliente, entera— se estaba volcando al registro línea a línea:
-// con `zfsmgr-cli -v` salía por la salida de error, de donde se copia y se pega. Es la
-// clave con la que se habla con el daemon como root.
+// It is needed because the daemon's TLS material is read by running a command, and its
+// output —the client's private key, in full— was being dumped into the log line by line:
+// with `zfsmgr-cli -v` it came out on standard error, which is where people copy and paste
+// from. It is the key used to talk to the daemon as root.
 //
-// Se recorta lo de dentro, no la línea entera: la ruta y los marcadores se quedan, porque
-// son justo lo que sirve para diagnosticar que el material se leyó y de dónde.
+// What is trimmed is the inside, not the whole line: the path and the markers stay, because
+// they are exactly what serves to diagnose that the material was read, and from where.
 std::string maskSecretOutput(const std::string& input);
 
-// Saca la versión de OpenZFS de una salida en texto libre. Vacío si no la encuentra o
-// si el número mayor pasa de 10, que delata una coincidencia falsa.
+// Pulls the OpenZFS version out of free-form output. Empty when it is not found, or when the
+// major number is above 10, which gives away a false match.
 std::string parseOpenZfsVersionText(const std::string& text);
 
-// Trocea la salida de `zpool import`.
+// Splits the output of `zpool import`.
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
 
-// --- Invocación por SSH y del agente.
+// --- SSH and agent invocation.
 //
-// Se apoyan en ConnectionProfile, que es lo que las mantenía atadas a Qt.
+// They lean on ConnectionProfile, which is what used to keep them tied to Qt.
 std::string sshUserHost(const ConnectionProfile& p);
 std::string sshUserHostPort(const ConnectionProfile& p);
 std::string sshAddressFamilyOption(const ConnectionProfile& p);
@@ -220,65 +220,64 @@ std::string buildSshTargetPrefix(const ConnectionProfile& p);
 std::string buildSimpleSshInvocation(const ConnectionProfile& p, const std::string& remoteCmd);
 std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::string& remoteCmd);
 
-// Los mismos argumentos, pero como lista para lanzar `scp` DIRECTAMENTE, sin intérprete.
-// `multiplex` a false omite ControlMaster/ControlPersist/ControlPath: el OpenSSH de
-// Windows no admite multiplexado.
-
-// Cómo viajan los argumentos de una orden en los verbos genéricos del daemon: un JSON con
-// la lista de cadenas, codificado en base64.
+// How a command's arguments travel in the daemon's generic verbs: a JSON list of strings,
+// base64-encoded.
 //
-// **Es un contrato del DAEMON, no de quien llama.** Estaba escrito catorce veces —once en
-// la ventana principal, dos en el intérprete y una en el servidor web—, cada una armando el
-// mismo JSON a mano. Catorce sitios donde equivocarse por separado el día que ese formato
-// cambie, y ninguno de los tres clientes tiene por qué saber cómo se serializa.
+// **It is a contract of the DAEMON, not of the caller.** It used to be written out fourteen
+// times —eleven in the main window, two in the shell and one in the web server—, each one
+// assembling the same JSON by hand. Fourteen places to get it wrong separately the day that
+// format changes, and none of the clients has any business knowing how it is serialised.
 std::string agentArgv(const std::vector<std::string>& argv);
 
-// Entrega un secreto a un hijo por un DESCRIPTOR, nunca por la línea de órdenes.
+// Hands a secret to a child over a DESCRIPTOR, never on the command line.
 //
-// `sshpass -p <contraseña>` deja la contraseña en el argv, y el argv de cualquier proceso
-// lo lee todo el mundo con `ps`. sshpass la borra nada más arrancar —por eso en `ps` se
-// ven espacios donde estaba— pero entre el `exec` y ese borrado hay una ventana real, y
-// basta con mirar en el momento justo. La regla de la casa es que los secretos van por
-// descriptor o por terminal, nunca por argumento ni por variable de entorno (`-e` de
-// sshpass tampoco vale: el entorno se lee en /proc/<pid>/environ).
+// `sshpass -p <password>` leaves the password in the argv, and any process's argv is readable
+// by everyone with `ps`. sshpass wipes it as soon as it starts —which is why `ps` shows
+// spaces where it was— but between the `exec` and that wipe there is a real window, and
+// looking at the right moment is enough. The house rule is that secrets travel by descriptor
+// or by terminal, never by argument and never by environment variable (sshpass's `-e` is no
+// good either: the environment is readable at /proc/<pid>/environ).
 //
-// **Un pipe se lee UNA sola vez.** Quien reintente un lanzamiento tiene que construir otro
-// objeto; por eso esto es de vida corta y se crea justo antes de cada `exec`, no una vez
-// por conexión. Con el segundo intento leyendo de un pipe ya vaciado, la autenticación
-// fallaría sin decir por qué.
+// **A pipe is read ONCE.** Whoever retries a launch has to build another object; that is why
+// this is short-lived and created just before each `exec`, not once per connection. With the
+// second attempt reading from an already-drained pipe, authentication would fail without
+// saying why.
 //
-// El descriptor se deja SIN CLOEXEC a propósito: aquí la herencia es justo lo que se
-// quiere, al revés que en los sockets.
+// The descriptor is deliberately left WITHOUT CLOEXEC: here inheritance is exactly what is
+// wanted, the opposite of what sockets need.
 class SecretFromDescriptor {
 public:
-    explicit SecretFromDescriptor(const std::string& secreto);
+    explicit SecretFromDescriptor(const std::string& secret);
     ~SecretFromDescriptor();
     SecretFromDescriptor(const SecretFromDescriptor&) = delete;
     SecretFromDescriptor& operator=(const SecretFromDescriptor&) = delete;
 
-    // Falso si no se pudo montar la tubería, o en Windows, donde no hay sshpass.
-    bool vale() const { return m_fd >= 0; }
+    // False when the pipe could not be built, or on Windows, where there is no sshpass.
+    bool ok() const { return m_fd >= 0; }
     int descriptor() const { return m_fd; }
-    // La opción tal cual la espera sshpass, pegada: «-d7».
-    std::string opcionSshpass() const;
+    // The option exactly as sshpass expects it, run together: «-d7».
+    std::string sshpassOption() const;
 
 private:
     int m_fd{-1};
 };
 
-// Subir un fichero por scp: EL PROGRAMA Y LOS ARGUMENTOS juntos.
+// Uploading a file over scp: THE PROGRAM AND THE ARGUMENTS together.
 //
-// Van juntos porque no se pueden decidir por separado: si la conexión usa contraseña hay
-// que lanzar `sshpass` en vez de `scp`, y además poner `BatchMode=no`. Devolver solo los
-// argumentos obligaba a quien llama a acordarse de las dos cosas, y no se acordaba: el
-// despliegue del daemon a una máquina con contraseña fallaba con «Connection closed».
+// Together because they cannot be decided separately: when the connection uses a password,
+// `sshpass` has to be launched instead of `scp`, and `BatchMode=no` has to be set as well.
+// Returning only the arguments forced the caller to remember both, and it did not: deploying
+// the daemon to a password-authenticated machine failed with «Connection closed».
+//
+// `multiplex` set to false omits ControlMaster/ControlPersist/ControlPath: the OpenSSH on
+// Windows does not support multiplexing.
 struct ScpInvocation {
     std::string program;
     std::vector<std::string> args;
-    // La tubería por la que viaja la contraseña, si la hay. Va DENTRO de la invocación
-    // porque tiene que seguir abierta hasta que quien llama lance el proceso: si se
-    // cerrase al volver de scpUpload, sshpass leería de un descriptor muerto.
-    std::shared_ptr<SecretFromDescriptor> secreto;
+    // The pipe the password travels down, when there is one. It goes INSIDE the invocation
+    // because it has to stay open until the caller launches the process: were it closed on
+    // returning from scpUpload, sshpass would read from a dead descriptor.
+    std::shared_ptr<SecretFromDescriptor> secret;
 };
 ScpInvocation scpUpload(const ConnectionProfile& p,
                         const std::string& localPath,

@@ -477,16 +477,16 @@ private Q_SLOTS:
     // nombrar appLog. Sin destino puesto no debe reventar, solo no contarlo.
     void logSinkReceivesLevelAndConnection() {
         TransportSession ses;
-        ses.log(TransportSession::Nivel::Info, QStringLiteral("nadie escucha"));  // no revienta
+        ses.log(TransportSession::Level::Info, QStringLiteral("nadie escucha"));  // no revienta
 
         QVector<QStringList> visto;
-        ses.sink = [&visto](TransportSession::Nivel n, const std::string& connId,
+        ses.sink = [&visto](TransportSession::Level n, const std::string& connId,
                             const std::string& msg) {
             visto.push_back({QString::number(static_cast<int>(n)), QString::fromStdString(connId),
                              QString::fromStdString(msg)});
         };
-        ses.log(TransportSession::Nivel::Warn, QStringLiteral("general"));
-        ses.logConn(TransportSession::Nivel::Error, QStringLiteral("unib"), QStringLiteral("de conexión"));
+        ses.log(TransportSession::Level::Warn, QStringLiteral("general"));
+        ses.logConn(TransportSession::Level::Error, QStringLiteral("unib"), QStringLiteral("de conexión"));
         QCOMPARE(visto.size(), 2);
         QVERIFY(visto[0][1].isEmpty());
         QCOMPARE(visto[0][2], QStringLiteral("general"));

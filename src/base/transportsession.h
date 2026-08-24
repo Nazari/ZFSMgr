@@ -13,24 +13,24 @@
 #include <string>
 #include <vector>
 
-// Lo que se mantiene ABIERTO mientras se habla con las máquinas remotas: los túneles del
-// RPC y la memoria de los intentos que fallaron.
+// What stays OPEN while the remote machines are being talked to: the RPC tunnels and the
+// memory of the attempts that failed.
 //
-// Existe por dos motivos. Uno: es lo que un CLI necesita para hablar con el agente, y
-// mientras fueran campos sueltos de la ventana no se podía usar desde otro sitio. Dos, y
-// más importante: **el cerrojo y lo que protege estaban separados**, y solo un comentario
-// decía cuáles iban juntos. Ahora viven en la misma estructura.
+// It exists for two reasons. One: it is what a CLI needs in order to talk to the agent, and
+// while these were loose fields on the window they could not be used from anywhere else.
+// Two, and more important: **the lock and what it protects were separated**, and only a
+// comment said which ones belonged together. Now they live in the same structure.
 //
-// Las claves NO son índices de conexión: salen de las coordenadas (usuario, host, puerto,
-// ruta de clave), así que sobreviven a que se reordene la lista. Ver
-// docs/diseno_tecnico_capa_base_sin_qt.md, sección de las cachés por posición, para lo
-// que pasa cuando no es así.
+// The keys are NOT connection indices: they come from the coordinates (user, host, port, key
+// path), so they survive the list being reordered. See
+// docs/diseno_tecnico_capa_base_sin_qt.md, the section on position-keyed caches, for what
+// happens when they are not.
 namespace zfsmgr::base {
 
 struct RemoteRpcTunnelState {
-    // El proceso VIVE aquí dentro. Antes era un `QProcess` colgado de la ventana, y esa
-    // era la última atadura del transporte a un objeto con bucle de eventos. Como
-    // `ChildProcess` no se copia, esta estructura tampoco: se mueve.
+    // The process LIVES in here. It used to be a `QProcess` hanging off the window, and
+    // that was the transport's last tie to an object with an event loop. Since
+    // `ChildProcess` does not copy, neither does this structure: it moves.
     ChildProcess process;
     std::uint16_t localPort{0};
     std::uint16_t remotePort{0};
@@ -43,51 +43,52 @@ struct RemoteRpcTunnelState {
 };
 
 struct TransportSession {
-    // --- A dónde va lo que el transporte cuenta mientras trabaja.
+    // --- Where what the transport reports while working goes.
     //
-    // Se consideró que cada llamada DEVOLVIERA la lista de lo ocurrido y que quien llama
-    // decidiera qué hacer con ella. Es más limpio sobre el papel, pero **habría sido una
-    // regresión**: el registro de la aplicación escribe al momento, así que hoy se llena
-    // MIENTRAS la operación ocurre. Acumular y devolver al final dejaría treinta segundos
-    // de silencio y luego un volcado de golpe.
+    // Having each call RETURN the list of what happened, and letting the caller decide what
+    // to do with it, was considered. It is cleaner on paper, but **it would have been a
+    // regression**: the application's log writes as it goes, so today it fills up WHILE the
+    // operation happens. Accumulating and returning at the end would leave thirty seconds of
+    // silence and then a dump all at once.
     //
-    // Así que se emite sobre la marcha, pero **a algo que se recibe**, no a algo que el
-    // transporte busca. La interfaz pone un destino que escribe en su pestaña; un CLI
-    // pondría uno que escriba por la salida de error.
-    enum class Nivel { Normal, Info, Warn, Error, Debug };
+    // So it is emitted as it goes, but **to something that is supplied**, not to something
+    // the transport goes looking for. The interface supplies a sink that writes into its tab;
+    // a CLI would supply one that writes to standard error.
+    enum class Level { Normal, Info, Warn, Error, Debug };
 
-    // `connId` vacío significa «al registro general»; con valor, además al de esa
-    // conexión. Sin destino puesto, no se pierde nada importante: solo no se cuenta.
-    std::function<void(Nivel, const std::string& connId, const std::string& msg)> sink;
+    // An empty `connId` means «to the general log»; with a value, to that connection's as
+    // well. With no sink supplied nothing important is lost: it simply is not reported.
+    std::function<void(Level, const std::string& connId, const std::string& msg)> sink;
 
-    void log(Nivel n, const std::string& msg) const {
+    void log(Level n, const std::string& msg) const {
         if (sink) {
             sink(n, std::string(), msg);
         }
     }
-    // Al registro general Y al de la conexión, que es la pareja que se repetía a mano en
-    // treinta sitios.
-    void logConn(Nivel n, const std::string& connId, const std::string& msg) const {
+    // To the general log AND to the connection's, which is the pair that was being repeated
+    // by hand in thirty places.
+    void logConn(Level n, const std::string& connId, const std::string& msg) const {
         if (sink) {
             sink(n, connId, msg);
         }
     }
 
-    // --- Los avisos, que son PROSA y por tanto no los escribe esta capa.
+    // --- The warnings, which are PROSE and therefore not written by this layer.
     //
-    // `sink` sigue siendo para las TRAZAS: la orden que se ejecuta, los `[daemon-rpc:...]`,
-    // las direcciones resueltas. Eso es rastro técnico y va tal cual. Lo que acaba delante
-    // del usuario en forma de frase entra por aquí tipificado, y lo redacta quien sabe el
-    // idioma. Sin esta separación, una sesión con `--lang en` salía salpicada de castellano.
-    std::function<void(Nivel, const std::string& connId, const transport::WarningNote&)> avisoSink;
+    // `sink` remains for the TRACES: the command being run, the `[daemon-rpc:...]` lines, the
+    // resolved addresses. That is a technical trail and it goes as-is. What ends up in front
+    // of the user as a sentence comes through here typed, and whoever knows the language does
+    // the wording. Without this split, a session with `--lang en` came out sprinkled with
+    // Spanish.
+    std::function<void(Level, const std::string& connId, const transport::WarningNote&)> warningSink;
 
-    void aviso(Nivel n, const std::string& connId, const transport::WarningNote& a) const {
-        if (avisoSink) {
-            avisoSink(n, connId, a);
+    void warning(Level n, const std::string& connId, const transport::WarningNote& a) const {
+        if (warningSink) {
+            warningSink(n, connId, a);
             return;
         }
-        // Sin traductor puesto se cae a la etiqueta estable. Es fea, pero perder un aviso
-        // en silencio porque nadie ha conectado el traductor sería peor.
+        // With no translator supplied it falls back to the stable label. It is ugly, but
+        // losing a warning silently because nobody wired up the translator would be worse.
         if (sink) {
             sink(n, connId,
                  std::string(transport::labelOf(a.warning))
@@ -95,71 +96,72 @@ struct TransportSession {
         }
     }
 
-    // --- Dejar respirar a quien nos llamó mientras esperamos.
+    // --- Letting whoever called us breathe while we wait.
     //
-    // Sustituye al `QCoreApplication::processEvents` que había repartido por el
-    // transporte. Es lo mismo que ya hacía `StreamCallbacks::onTick`: un solo enganche
-    // para las tres cosas que hacía el bucle de Qt —repintar, contar lo que queda y mirar
-    // si el usuario canceló—.
+    // It replaces the `QCoreApplication::processEvents` calls that were scattered around the
+    // transport. It is the same thing `StreamCallbacks::onTick` already did: a single hook
+    // for the three things Qt's loop did —repaint, count down what is left, and check whether
+    // the user cancelled—.
     //
-    // **Devolver false CANCELA** la espera en curso. Quien no tenga interfaz no lo pone, y
-    // entonces la espera simplemente duerme.
+    // **Returning false CANCELS** the wait in progress. Whoever has no interface does not
+    // supply it, and then the wait simply sleeps.
     //
-    // **El parámetro NO es un detalle.** Distingue los dos contextos que la versión con Qt
-    // trataba distinto a propósito:
+    // **The parameter is NOT a detail.** It tells apart the two contexts the Qt version
+    // deliberately treated differently:
     //
-    // - Mientras se ESPERA a que un túnel acepte conexiones: `false`. Bombear eventos
-    //   reentra, y dejando pasar acciones del usuario se colaba por ahí una recarga de
-    //   conexiones que dejaba colgando las referencias que sostenía quien había llamado.
-    // - Mientras CORRE una orden larga: `true`. Es lo que permite pulsar Cancelar durante
-    //   una transfer; sin ello la ventana se pinta pero no responde.
+    // - While WAITING for a tunnel to accept connections: `false`. Pumping events reenters,
+    //   and letting user actions through allowed a reload of connections to slip in, which
+    //   left dangling the references the caller was holding.
+    // - While a long command is RUNNING: `true`. It is what allows pressing Cancel during a
+    //   transfer; without it the window repaints but does not respond.
     //
-    // Unificarlos en el estricto haría que Cancelar dejara de funcionar en las
-    // transferencias, y en el permisivo reabriría la reentrancia. Son dos cosas distintas.
-    std::function<bool(bool permitirEntradaDeUsuario)> pump;
+    // Unifying them on the strict one would stop Cancel working during transfers, and on the
+    // permissive one would reopen the reentrancy. They are two different things.
+    std::function<bool(bool allowUserInput)> pump;
 
-    bool respira(bool permitirEntradaDeUsuario = true) const {
-        return pump ? pump(permitirEntradaDeUsuario) : true;
+    bool breathe(bool allowUserInput = true) const {
+        return pump ? pump(allowUserInput) : true;
     }
 
-    // --- ¿Se pueden montar túneles desde aquí?
+    // --- Can tunnels be built from here?
     //
-    // Sin ponerlo, sí: una herramienta de un solo hilo no compite con nadie.
+    // Without supplying it, yes: a single-threaded tool competes with nobody.
     //
-    // **El motivo original de esta restricción YA NO EXISTE.** Estaba porque los túneles
-    // eran `QProcess` colgados de la ventana, y crearlos desde un hilo de refresco daba un
-    // aviso de afinidad o una caída; ahora son `ChildProcess`, que no cuelgan de nadie. Se
-    // conserva para NO cambiar el comportamiento en el mismo paso en que se cambia de
-    // motor: quitarlo permitiría montar túneles desde los hilos de refresco, que es un
-    // cambio de concurrencia real y merece medirse aparte.
+    // **The original reason for this restriction NO LONGER EXISTS.** It was there because
+    // tunnels were `QProcess` objects hanging off the window, and creating them from a
+    // refresh thread produced an affinity warning or a crash; now they are `ChildProcess`,
+    // which hang off nobody. It is kept so as NOT to change behaviour in the same step that
+    // changes the engine: removing it would allow building tunnels from the refresh threads,
+    // which is a real concurrency change and deserves measuring on its own.
     std::function<bool()> tunnelsAllowedHere;
 
-    bool puedeMontarTuneles() const { return tunnelsAllowedHere ? tunnelsAllowedHere() : true; }
+    bool tunnelsAllowedFromHere() const { return tunnelsAllowedHere ? tunnelsAllowedHere() : true; }
 
-    // Ejecuta la tarea DONDE sí se pueden montar túneles, y espera a que termine. La
-    // interfaz lo resuelve con una llamada bloqueante al hilo de la ventana.
+    // Runs the task WHERE tunnels can be built, and waits for it to finish. The interface
+    // solves it with a blocking call onto the window's thread.
     //
-    // Sin ponerlo, se ejecuta en línea. Es lo correcto para quien no tenga otro hilo: no
-    // hacer nada dejaría la operación sin ocurrir, que es peor que hacerla aquí.
+    // Without supplying it, it runs inline. That is right for whoever has no other thread:
+    // doing nothing would leave the operation unperformed, which is worse than doing it
+    // here.
     std::function<void(const std::function<void()>&)> runWhereTunnelsAllowed;
 
-    void enElHiloDeTuneles(const std::function<void()>& tarea) const {
-        if (!puedeMontarTuneles() && runWhereTunnelsAllowed) {
-            runWhereTunnelsAllowed(tarea);
+    void onTheTunnelThread(const std::function<void()>& task) const {
+        if (!tunnelsAllowedFromHere() && runWhereTunnelsAllowed) {
+            runWhereTunnelsAllowed(task);
             return;
         }
-        tarea();
+        task();
     }
 
-    // --- Transporte de mentira, para los tests.
+    // --- A pretend transport, for the tests.
     //
-    // Vive aquí y no en la ventana porque es una propiedad DEL TRANSPORTE: mientras está
-    // puesto no se abre ninguna conexión, las órdenes por argv van a esa función, y las
-    // que salgan como cadena de shell se anotan y fracasan —para que un test pueda
-    // afirmar que algo NO se fue por ese camino—.
+    // It lives here and not on the window because it is a property OF THE TRANSPORT: while
+    // it is set no connection is opened, argv commands go to that function, and any that
+    // leave as a shell string are recorded and fail —so that a test can assert something did
+    // NOT go out that way—.
     struct AgentCallForTest {
-        std::vector<std::string> argv;  // vacío si la orden salió como cadena de shell
-        std::string shellCommand;       // no vacío solo en ese caso
+        std::vector<std::string> argv;  // empty when the command left as a shell string
+        std::string shellCommand;       // non-empty only in that case
         std::string stdinPayload;
     };
     using AgentTransportForTest = std::function<bool(const std::vector<std::string>& argv,
@@ -168,34 +170,35 @@ struct TransportSession {
     AgentTransportForTest transportForTest;
     std::vector<AgentCallForTest> callsForTest;
 
-    // --- Cómo se piden credenciales cuando hacen falta.
+    // --- How credentials are asked for when they are needed.
     //
-    // Es la segunda cosa que el transporte necesita del exterior, junto al destino del
-    // registro: **a dónde contar** y **cómo preguntar**. Las dos se reciben, ninguna se
-    // busca — y por eso aquí dentro no hay ni un widget.
+    // It is the second thing the transport needs from outside, alongside the log's sink:
+    // **where to report** and **how to ask**. Both are supplied, neither is sought out — and
+    // that is why there is not a single widget in here.
     //
-    // Devuelve false si no se pudo obtener —el usuario canceló, o no había descriptor en
-    // un contexto no interactivo—. Sin proveedor puesto devuelve false, que es lo
-    // prudente: mejor no hacer nada que intentarlo sin credenciales.
+    // It returns false when they could not be obtained —the user cancelled, or there was no
+    // descriptor in a non-interactive context—. With no provider supplied it returns false,
+    // which is the prudent answer: better to do nothing than to try without credentials.
     using CredentialProvider =
-        std::function<bool(const std::string& motivo, std::string& usuario, std::string& clave)>;
+        std::function<bool(const std::string& reason, std::string& user, std::string& password)>;
     CredentialProvider credentialProvider;
 
-    bool askCredentials(const std::string& motivo, std::string& usuario, std::string& clave) const {
-        return credentialProvider ? credentialProvider(motivo, usuario, clave) : false;
+    bool askCredentials(const std::string& reason, std::string& user, std::string& password) const {
+        return credentialProvider ? credentialProvider(reason, user, password) : false;
     }
 
-    // --- Las dos cosas que el transporte necesita del REGISTRO de conexiones.
+    // --- The two things the transport needs from the connection REGISTRY.
     //
-    // No se le pasa el registro entero a propósito: lo que necesita no son los perfiles,
-    // son dos decisiones que dependen de ellos. Pasarle el registro le daría acceso a
-    // todo —incluidas las contraseñas de todas las máquinas— para hacer dos cosas
-    // concretas.
+    // The whole registry is deliberately not handed over: what it needs are not the profiles,
+    // they are two decisions that depend on them. Handing it the registry would give it
+    // access to everything —every machine's password included— in order to do two specific
+    // things.
     //
-    // Sin ponerlas, el transporte sigue funcionando: no resuelve credenciales locales y no
-    // guarda el material TLS que negocie. Un CLI de solo lectura puede vivir así.
+    // Without supplying them, the transport still works: it does not resolve local
+    // credentials and it does not store the TLS material it negotiates. A read-only CLI can
+    // live like that.
 
-    using LocalSudoResolver = std::function<bool(ConnectionProfile& perfil)>;
+    using LocalSudoResolver = std::function<bool(ConnectionProfile& profile)>;
     LocalSudoResolver localSudoResolver;
 
     using TlsPersister = std::function<bool(const ConnectionProfile& p,
@@ -206,8 +209,8 @@ struct TransportSession {
                                             std::string* errorOut)>;
     TlsPersister tlsPersister;
 
-    bool resolveLocalSudo(ConnectionProfile& perfil) const {
-        return localSudoResolver ? localSudoResolver(perfil) : false;
+    bool resolveLocalSudo(ConnectionProfile& profile) const {
+        return localSudoResolver ? localSudoResolver(profile) : false;
     }
     bool persistTls(const ConnectionProfile& p, const std::string& serverCertPem,
                     const std::string& clientCertPem, const std::string& clientKeyPem,
@@ -221,26 +224,26 @@ struct TransportSession {
         return tlsPersister(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, errorOut);
     }
 
-    // TODO lo de abajo va bajo este cerrojo. El refresco de conexiones corre en hilos y
-    // estos mapas se tocan desde varios a la vez.
+    // EVERYTHING below goes under this lock. The connection refresh runs in threads and
+    // these maps get touched from several at once.
     mutable std::mutex mutex;
 
-    // Túneles `ssh -L` vivos, por clave de conexión.
+    // Live `ssh -L` tunnels, by connection key.
     std::map<std::string, RemoteRpcTunnelState> tunnelsByConnKey;
 
-    // Claves cuyo túnel se está montando AHORA MISMO. Protege de la reentrancia que
-    // provoca el bombeo de eventos de la espera: sin esto se montaban túneles duplicados
-    // que quedaban huérfanos fuera del mapa.
+    // Keys whose tunnel is being built RIGHT NOW. It guards against the reentrancy the
+    // wait's event pumping causes: without it, duplicate tunnels were built and left
+    // orphaned outside the map.
     std::set<std::string> tunnelsBeingCreated;
 
-    // Hasta cuándo no se reintenta el RPC de una conexión, y por qué. Sin esto, una
-    // conexión con el daemon caído se lleva una ida y vuelta por SSH en cada operación.
+    // Until when a connection's RPC is not retried, and why. Without this, a connection whose
+    // daemon is down costs an SSH round trip on every operation.
     std::map<std::string, std::chrono::steady_clock::time_point> retryAfterByConnKey;
     std::map<std::string, transport::FailureReason> retryReasonByConnKey;
 
-    // Conexiones a las que se ha renunciado al multiplexado de SSH, y aquellas cuya
-    // resolución de nombre ya se anotó en el registro: las dos existen para no repetir el
-    // mismo mensaje en cada operación.
+    // Connections for which SSH multiplexing has been given up on, and those whose name
+    // resolution has already been noted in the log: both exist so as not to repeat the same
+    // message on every operation.
     std::set<std::string> disableMultiplexKeys;
     std::set<std::string> loggedResolutionKeys;
 };

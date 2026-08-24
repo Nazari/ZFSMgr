@@ -5,22 +5,21 @@
 #include <string>
 #include <vector>
 
-// Ejecutar un programa: sin shell, sin Qt y en las cuatro plataformas.
+// Running a program: no shell, no Qt, and on all four platforms.
 //
-// Es el código del agente, que llevaba tiempo haciendo esto sin Qt y está probado contra
-// Linux, macOS, FreeBSD y Windows. Se saca aquí porque el CLIENTE lo necesita igual: el
-// transporte usaba `QProcess`, y eso es lo que impedía que la capa de red viviera fuera
-// de Qt.
+// This is the agent's code, which had been doing it without Qt for a while and is tested
+// against Linux, macOS, FreeBSD and Windows. It was pulled out here because the CLIENT needs
+// it just the same: the transport used `QProcess`, and that is what kept the network layer
+// from living outside Qt.
 //
-// NUNCA hay un intérprete de por medio: se pasa argv y se ejecuta directamente. Es lo que
-// hace que un nombre de dataset con `;` o con comillas no pueda convertirse en otra
-// orden.
+// There is NEVER a shell in between: argv is passed and executed directly. That is what
+// makes a dataset name containing `;` or quotes unable to turn into a different command.
 //
-// Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+// See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
 
-// Traduce el estado que devuelve `wait` a un código de salida: el del programa, o
-// 128+señal si murió por una, que es la convención de los shell.
+// Translates the status `wait` returns into an exit code: the program's, or 128+signal when
+// it died from one, which is the shells' convention.
 int decodeWaitStatus(int status);
 
 struct ExecResult {
@@ -29,79 +28,80 @@ struct ExecResult {
     std::string err;
 };
 
-// Ejecuta y captura salida y error por separado.
+// Runs and captures output and error separately.
 ExecResult runExecCapture(const std::string& program, const std::vector<std::string>& args);
 
-// Ejecuta heredando la salida del proceso actual: para lo que va a la consola tal cual.
+// Runs inheriting the current process's output: for what goes to the console as-is.
 int runExecStreaming(const std::string& program, const std::vector<std::string>& args);
 
-// Ejecuta alimentando la entrada estándar. Es lo que permite darle un flujo a `zfs recv`
-// o una passphrase a `zfs load-key` sin que pase por la línea de órdenes —donde sería
-// visible en `ps`—.
+// Runs while feeding standard input. This is what allows handing a stream to `zfs recv` or a
+// passphrase to `zfs load-key` without it going through the command line —where it would be
+// visible in `ps`—.
 ExecResult runExecCaptureWithStdin(const std::string& program,
                                    const std::vector<std::string>& args,
                                    const std::string& stdinData);
 
-// --- Ejecución con retroalimentación, para operaciones largas.
+// --- Running with feedback, for long operations.
 //
-// `runExecCapture` basta para una orden que responde y termina. Lo que NO cubre es lo que
-// necesita una transfer: enseñar las líneas según llegan, avisar de cuánto queda y
-// poder cancelar. Eso lo hacía `QProcess` bombeando el bucle de eventos de Qt, y es lo
-// que ataba el transporte a la interfaz.
+// `runExecCapture` is enough for a command that answers and finishes. What it does NOT cover
+// is what a transfer needs: showing the lines as they arrive, reporting how much is left and
+// being cancellable. `QProcess` did that by pumping Qt's event loop, and that is what tied
+// the transport to the interface.
 struct StreamCallbacks {
-    // Se llaman con cada línea COMPLETA, sin el salto final. Lo que quede sin terminar en
-    // línea al acabar el proceso se entrega igualmente: `zfs send` escribe el progreso
-    // con retornos de carro y no siempre cierra la última.
-    std::function<void(const std::string& linea)> onStdoutLine;
-    std::function<void(const std::string& linea)> onStderrLine;
+    // Called with each COMPLETE line, without the trailing newline. Whatever is left
+    // unterminated when the process ends is delivered all the same: `zfs send` writes its
+    // progress with carriage returns and does not always close the last one.
+    std::function<void(const std::string& line)> onStdoutLine;
+    std::function<void(const std::string& line)> onStderrLine;
 
-    // Se llama cada pocos milisegundos aunque no llegue nada. **Devolver false CANCELA**:
-    // el proceso se termina y el resultado sale con el código correspondiente.
+    // Called every few milliseconds even when nothing arrives. **Returning false CANCELS**:
+    // the process is terminated and the result comes out with the corresponding code.
     //
-    // Un solo punto de enganche para las tres cosas que hacía el bucle de Qt: dejar
-    // respirar a la interfaz, contar cuánto queda, y mirar si el usuario canceló. Quien
-    // no tenga interfaz simplemente no lo pone.
-    std::function<bool(int msTranscurridos)> onTick;
+    // A single hook for the three things Qt's loop did: letting the interface breathe,
+    // counting down what is left, and checking whether the user cancelled. Whoever has no
+    // interface simply does not supply it.
+    std::function<bool(int elapsedMs)> onTick;
 };
 
-// Ejecuta con retroalimentación. `timeoutMs <= 0` significa SIN límite, que es lo que
-// necesita una transfer larga; el control queda entonces en manos de `onTick`.
+// Runs with feedback. `timeoutMs <= 0` means NO limit, which is what a long transfer needs;
+// control then rests with `onTick`.
 //
-// `out` y `err` del resultado traen además el texto completo, para quien lo quiera al
-// final sin haber ido acumulando.
+// The result's `out` and `err` also carry the full text, for whoever wants it at the end
+// without having accumulated it.
 ExecResult runExecStream(const std::string& program,
                          const std::vector<std::string>& args,
                          const std::string& stdinData,
                          int timeoutMs,
                          const StreamCallbacks& cb);
 
-// --- Un proceso que se queda VIVO entre llamadas.
+// --- A process that stays ALIVE between calls.
 //
-// Todo lo de arriba lanza algo, espera y recoge. Un túnel `ssh -L` no es eso: se levanta,
-// se usa muchas veces y se cierra cuando ya no hace falta. Eso era lo último que obligaba
-// a que los túneles fueran `QProcess` colgados de un objeto con bucle de eventos.
+// Everything above launches something, waits and collects. An `ssh -L` tunnel is not that:
+// it is brought up, used many times and closed when it is no longer needed. That was the
+// last thing forcing tunnels to be `QProcess` objects hanging off something with an event
+// loop.
 //
-// **El destructor lo mata.** Un `ssh -L` que sobrevive a quien lo creó deja un puerto
-// escuchando y una conexión abierta contra la otra máquina, y nadie vuelve a cerrarlos.
+// **The destructor kills it.** An `ssh -L` that outlives whoever created it leaves a port
+// listening and a connection open against the other machine, and nobody closes them again.
 class ChildProcess {
 public:
     ChildProcess() = default;
     ~ChildProcess();
-    // Ni copiable ni asignable: dos objetos con el mismo hijo lo matarían dos veces.
+    // Neither copyable nor assignable: two objects holding the same child would kill it twice.
     ChildProcess(const ChildProcess&) = delete;
     ChildProcess& operator=(const ChildProcess&) = delete;
-    ChildProcess(ChildProcess&& otro) noexcept;
-    ChildProcess& operator=(ChildProcess&& otro) noexcept;
+    ChildProcess(ChildProcess&& other) noexcept;
+    ChildProcess& operator=(ChildProcess&& other) noexcept;
 
-    // Lanza. Devuelve false si no se pudo. Como en el resto del fichero, SIN intérprete.
+    // Launches. Returns false when it could not. As everywhere in this file, NO shell.
     bool start(const std::string& program, const std::vector<std::string>& args);
 
-    // ¿Sigue vivo? No bloquea, y además RECOGE al hijo si acaba de morir: sin esto, cada
-    // túnel cerrado dejaría un zombi.
+    // Still alive? It does not block, and it also REAPS the child when it has just died:
+    // without this, every closed tunnel would leave a zombie.
     bool isRunning();
 
-    // Termina con educación y, si no hace caso en `msEspera`, sin ella. Es idempotente.
-    void stop(int msEspera = 1500);
+    // Ends it politely and, when it does not listen within `waitMs`, impolitely. Idempotent.
+    void stop(int waitMs = 1500);
 
     long long pid() const { return m_pid; }
 
@@ -114,61 +114,63 @@ private:
     bool m_recogido{true};
 };
 
-// --- Puertos locales.
+// --- Local ports.
 
-// Reserva un puerto libre en 127.0.0.1 y lo suelta. Devuelve 0 si no hay ninguno.
+// A free port on the machine, for the local end of an `ssh -L` tunnel. It reserves one on
+// 127.0.0.1 and releases it. Returns 0 when there is none.
 //
-// **Hay una carrera y es inevitable**: entre soltarlo y que `ssh -L` lo tome, otro proceso
-// podría cogerlo. Es lo mismo que hacía la versión con Qt, y la alternativa —pasarle a ssh
-// un descriptor ya abierto— no existe en su línea de órdenes. Si ocurre, `ssh` falla al
-// reenviar y el túnel no se da por bueno, que es el comportamiento correcto.
-// Un puerto libre de la máquina, para el extremo local de un túnel `ssh -L`.
+// **There is a race and it is unavoidable**: between releasing it and `ssh -L` taking it,
+// another process could grab it. It is the same thing the Qt version did, and the
+// alternative —handing ssh an already-open descriptor— does not exist on its command line.
+// When it happens, `ssh` fails to forward and the tunnel is not accepted, which is the
+// correct behaviour.
 //
-// **Nunca devuelve un puerto que este programa se reserva para sí** —47653 el daemon,
-// 47654 el servidor web—, aunque el núcleo lo ofrezca. El rango efímero de Linux empieza
-// en 32768, así que los dos caen dentro y el sistema los reparte igual que cualquier otro:
-// un túnel podía quedarse con el puerto del servidor web y luego el servidor web no
-// arrancaba, con un mensaje que no decía quién lo tenía.
+// **It never returns a port this program reserves for itself** —47653 the daemon, 47654 the
+// web server—, even when the kernel offers it. Linux's ephemeral range starts at 32768, so
+// both fall inside it and the system hands them out like any other: a tunnel could take the
+// web server's port and then the web server would not start, with a message that did not say
+// who had it.
 std::uint16_t reserveFreeLocalPort();
 
-// ¿Acepta ya conexiones ese puerto en 127.0.0.1? Es la pregunta que hay que hacerle a un
-// túnel recién montado: conectarse antes de tiempo da ECONNREFUSED, y quien llama lo
-// contaba como fallo del saludo TLS y castigaba la conexión sin motivo.
+// Is that port on 127.0.0.1 accepting connections yet? It is the question to ask a
+// freshly-built tunnel: connecting too early gives ECONNREFUSED, and the caller counted that
+// as a TLS handshake failure and penalised the connection for no reason.
 bool canConnectLocal(std::uint16_t port, int timeoutMs);
 
-// --- Matar un árbol de procesos.
+// --- Killing a process tree.
 //
-// Cancelar una acción tiene que llevarse por delante TODA la descendencia, no solo los
-// hijos directos: la cadena real de una transfer es
-// `sh -> sudo -> sh -> zfsmgr-agent -> tar`, y si sobrevive el `tar` sigue escribiendo en
-// el destino y deja el punto de montaje ocupado —hasta el punto de no poder borrar el
-// dataset—. Visto de verdad tras abortar una copia.
+// Cancelling an action has to take down the WHOLE descent, not just the direct children: the
+// real chain of a transfer is `sh -> sudo -> sh -> zfsmgr-agent -> tar`, and if the `tar`
+// survives it goes on writing at the target and leaves the mountpoint busy —to the point of
+// not being able to destroy the dataset—. Actually seen after aborting a copy.
 //
-// Aquí había un guion de shell que llamaba a `pgrep -P` por cada proceso y por cada uno de
-// ocho niveles, y remataba con `sleep 0.3` y dos bucles de `kill`. Se sustituye por UNA
-// lectura de `ps` y `kill()` directo, que es una llamada al sistema y no un proceso. De
-// paso desaparece el tope de ocho niveles, que no tenía por qué existir.
+// There used to be a shell script here that called `pgrep -P` per process and per each of
+// eight levels, finishing with a `sleep 0.3` and two `kill` loops. It is replaced by ONE
+// read of `ps` and a direct `kill()`, which is a system call and not a process. The
+// eight-level cap disappears along the way, having had no reason to exist.
 
-// Los descendientes de `raiz` según la salida de `ps -eo pid=,ppid=`, **de hojas a raíz**.
+// The descendants of `root` according to the output of `ps -eo pid=,ppid=`, **leaves first,
+// root last**.
 //
-// Ese orden es la parte que importa: matando primero al padre, el hijo queda huérfano y
-// puede seguir; y un padre vivo puede engendrar otro hijo mientras se mata al nieto.
+// That order is the part that matters: killing the parent first orphans the child, which can
+// then carry on; and a live parent can beget another child while the grandchild is being
+// killed.
 //
-// `raiz` NO va incluida —de eso se encarga quien la lanzó— y los ciclos no cuelgan: cada
-// pid se visita una sola vez.
+// `root` is NOT included —whoever launched it takes care of that— and cycles do not hang:
+// each pid is visited exactly once.
 //
-// Separada de la ejecución para poder probarla con una salida de `ps` escrita a mano, que
-// es lo único de esto que se puede comprobar sin matar procesos de verdad.
-std::vector<long long> descendantsOf(long long raiz, const std::string& salidaPs);
+// Kept apart from the execution so it can be tested with a hand-written `ps` output, which
+// is the only part of this that can be checked without killing real processes.
+std::vector<long long> descendantsOf(long long root, const std::string& psOutput);
 
-// Mata la descendencia de `raiz`: TERM a todos, se espera `msGracia`, y KILL a los que
-// sigan en pie. No toca a `raiz`.
-void killDescendants(long long raiz, int msGracia = 300);
+// Kills the descent of `root`: TERM to all of them, `graceMs` of waiting, and KILL to
+// whoever is still standing. It does not touch `root`.
+void killDescendants(long long root, int graceMs = 300);
 
 #ifdef _WIN32
-// CreateProcess recibe UNA cadena y es el propio programa quien la vuelve a trocear, así
-// que el entrecomillado es responsabilidad de quien la construye. La regla no es la
-// intuitiva: las barras invertidas solo se duplican cuando preceden a una comilla.
+// CreateProcess takes ONE string and it is the program itself that splits it again, so the
+// quoting is the responsibility of whoever builds it. The rule is not the intuitive one:
+// backslashes are only doubled when they precede a quote.
 std::string winBuildCommandLine(const std::string& program,
                                 const std::vector<std::string>& args);
 #endif

@@ -430,19 +430,19 @@ int main() {
         namespace BTr = zfsmgr::base::transport;
         TransportSession ses;
         std::string visto;
-        ses.sink = [&visto](TransportSession::Nivel, const std::string&, const std::string& m) {
+        ses.sink = [&visto](TransportSession::Level, const std::string&, const std::string& m) {
             visto = m;
         };
-        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Warning::LocalTlsNeedsSudo, {}, {}});
+        ses.warning(TransportSession::Level::Warn, "local", {BTr::Warning::LocalTlsNeedsSudo, {}, {}});
         igual(visto, "tls-local-sin-sudo", "sin traductor sale la etiqueta, no el silencio");
-        ses.aviso(TransportSession::Nivel::Warn, "local",
+        ses.warning(TransportSession::Level::Warn, "local",
                   {BTr::Warning::TunnelNotAcceptingTimedOut, {}, "5000"});
         igual(visto, "tunel-espera-agotada: 5000", "y el detalle se conserva");
-        ses.avisoSink = [&visto](TransportSession::Nivel, const std::string&,
+        ses.warningSink = [&visto](TransportSession::Level, const std::string&,
                                  const BTr::WarningNote& a) {
             visto = std::string("traducido:") + BTr::labelOf(a.warning);
         };
-        ses.aviso(TransportSession::Nivel::Warn, "local", {BTr::Warning::NoSshpass, {}, {}});
+        ses.warning(TransportSession::Level::Warn, "local", {BTr::Warning::NoSshpass, {}, {}});
         igual(visto, "traducido:sin-sshpass", "con traductor puesto, manda el traductor");
     }
     // Y las decisiones tipificadas sobre los fallos: lo que antes se leia de una frase.
@@ -2736,14 +2736,14 @@ int main() {
         // La sesion sin nada puesto no debe reventar: un CLI de solo lectura vive asi.
         {
             TransportSession vacia;
-            vacia.log(TransportSession::Nivel::Info, "nadie escucha");  // no revienta
+            vacia.log(TransportSession::Level::Info, "nadie escucha");  // no revienta
             std::string u;
             std::string c;
             comprobar(!vacia.askCredentials("x", u, c),
                       "sesion sin proveedor de credenciales: devuelve false");
-            comprobar(vacia.respira(true) && vacia.respira(false),
+            comprobar(vacia.breathe(true) && vacia.breathe(false),
                       "sesion sin pump: respira() dice que siga en los dos contextos");
-            comprobar(vacia.puedeMontarTuneles(),
+            comprobar(vacia.tunnelsAllowedFromHere(),
                       "sesion sin restriccion de hilo: se pueden montar tuneles");
             std::string e;
             comprobar(!vacia.persistTls(ConnectionProfile{}, "a", "b", "c", 1, &e)
@@ -2755,12 +2755,12 @@ int main() {
         {
             TransportSession ses;
             std::vector<std::string> visto;
-            ses.sink = [&visto](TransportSession::Nivel n, const std::string& id,
+            ses.sink = [&visto](TransportSession::Level n, const std::string& id,
                                 const std::string& m) {
                 visto.push_back(std::to_string(static_cast<int>(n)) + "|" + id + "|" + m);
             };
-            ses.log(TransportSession::Nivel::Warn, "general");
-            ses.logConn(TransportSession::Nivel::Error, "unib", "de conexion");
+            ses.log(TransportSession::Level::Warn, "general");
+            ses.logConn(TransportSession::Level::Error, "unib", "de conexion");
             comprobar(visto.size() == 2, "sink: llegan los dos");
             if (visto.size() == 2) {
                 igual(visto[0], "2||general", "sink: el general va sin identificador");
@@ -2772,7 +2772,7 @@ int main() {
         {
             TransportSession ses;
             bool ejecutado = false;
-            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            ses.onTheTunnelThread([&] { ejecutado = true; });
             comprobar(ejecutado, "enElHiloDeTuneles: sin restriccion, se ejecuta en linea");
 
             ejecutado = false;
@@ -2782,14 +2782,14 @@ int main() {
                 desviado = true;
                 t();
             };
-            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            ses.onTheTunnelThread([&] { ejecutado = true; });
             comprobar(desviado && ejecutado, "enElHiloDeTuneles: con restriccion, se desvia");
 
             // Y si NO hay a donde desviar, se ejecuta igualmente: no hacerlo dejaria la
             // operacion sin ocurrir, que es peor.
             ses.runWhereTunnelsAllowed = nullptr;
             ejecutado = false;
-            ses.enElHiloDeTuneles([&] { ejecutado = true; });
+            ses.onTheTunnelThread([&] { ejecutado = true; });
             comprobar(ejecutado, "enElHiloDeTuneles: sin desvio posible, se hace aqui");
         }
 

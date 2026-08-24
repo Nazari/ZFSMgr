@@ -56,7 +56,7 @@ std::string juntaMotivoConSalida(const std::string& motivo, const std::string& e
     return motivo + ": " + cola;
 }
 
-using Nivel = TransportSession::Nivel;
+using Nivel = TransportSession::Level;
 using Reloj = std::chrono::steady_clock;
 
 long long msDesde(Reloj::time_point t) {
@@ -165,10 +165,10 @@ bool runSshRaw(const ConnectionProfile& p,
     H::SecretFromDescriptor secreto(hasPassword ? p.password : std::string());
     if (hasPassword) {
         const std::string sshpassExe = H::findLocalExecutable("sshpass");
-        if (!sshpassExe.empty() && secreto.vale()) {
+        if (!sshpassExe.empty() && secreto.ok()) {
             // La contraseña va por el descriptor, no por el argv: ver SecretFromDescriptor.
             program = sshpassExe;
-            args.push_back(secreto.opcionSshpass());
+            args.push_back(secreto.sshpassOption());
             args.push_back("ssh");
             conSshpass = true;
         }
@@ -457,7 +457,7 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
         sudoProfile.connType = "LOCAL";
         sudoProfile.useSudo = true;
         if (!ses.resolveLocalSudo(sudoProfile)) {
-            ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsNeedsSudo, {}, {}});
+            ses.warning(Nivel::Warn, {}, {Warning::LocalTlsNeedsSudo, {}, {}});
             return false;
         }
         std::string out;
@@ -470,14 +470,14 @@ bool ensureLocalDaemonTlsMaterial(TransportSession& ses,
                     15000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
                     /*echoOutputToLog=*/false)
             || rc != 0) {
-            ses.aviso(Nivel::Warn, {},
+            ses.warning(Nivel::Warn, {},
                       {Warning::LocalTlsCannotBeRead, {},
                        H::maskSecretOutput(H::oneLine(err.empty() ? out : err))});
             return false;
         }
         RemoteTlsBundle paquete;
         if (!parseRemoteDaemonTlsBundle(out, paquete)) {
-            ses.aviso(Nivel::Warn, {}, {Warning::LocalTlsIncomplete, {}, {}});
+            ses.warning(Nivel::Warn, {}, {Warning::LocalTlsIncomplete, {}, {}});
             return false;
         }
         srv = paquete.serverCertPem;
@@ -548,7 +548,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
     if (sePuedeIntentar) {
         // Al hilo donde se pueden montar túneles, y bloqueando: el resultado se necesita
         // aquí. Ver TransportSession::tunnelsAllowedHere para por qué esto sigue existiendo.
-        ses.enElHiloDeTuneles([&]() {
+        ses.onTheTunnelThread([&]() {
             intentoOk = tryRunRemoteAgentRpcViaTunnel(ses, p, agentArgs, timeoutMs, out, err, rc,
                                                       &motivoFallo, &ordenPudoLlegar);
         });
@@ -569,13 +569,13 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         // provoca el bombeo de eventos— lo correcto sigue siendo caer al otro camino.
         constexpr int kEsperasMax = 20;      // 20 × 100 ms = 2 s, de sobra para montar uno
         for (int intento = 0;
-             !intentoOk && motivoFallo.failure == Failure::TunnelBusy && !ses.puedeMontarTuneles()
+             !intentoOk && motivoFallo.failure == Failure::TunnelBusy && !ses.tunnelsAllowedFromHere()
              && intento < kEsperasMax;
              ++intento) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             motivoFallo = FailureReason{};
             ordenPudoLlegar = false;
-            ses.enElHiloDeTuneles([&]() {
+            ses.onTheTunnelThread([&]() {
                 intentoOk = tryRunRemoteAgentRpcViaTunnel(ses, p, agentArgs, timeoutMs, out, err,
                                                           rc, &motivoFallo, &ordenPudoLlegar);
             });
@@ -711,7 +711,7 @@ struct VigilanteDeInactividad {
             }
             // CON entrada de usuario: es lo que permite pulsar Cancelar mientras corre
             // una transfer larga.
-            ses.respira(/*permitirEntradaDeUsuario=*/true);
+            ses.breathe(/*permitirEntradaDeUsuario=*/true);
             return true;
         };
         return cbs;
@@ -773,7 +773,7 @@ bool runSsh(TransportSession& ses,
         if (allowAgentRpc && stdinPayload.empty()
             && extractLocalAgentArgs(localCmd, localAgentArgs)) {
             bool localRpcOk = false;
-            ses.enElHiloDeTuneles([&]() {
+            ses.onTheTunnelThread([&]() {
                 std::string srvPem;
                 std::string cliPem;
                 std::string keyPem;
@@ -847,7 +847,7 @@ bool runSsh(TransportSession& ses,
             const std::string pista = H::sshHostKeyProblemHint(err);
             if (!pista.empty()) {
                 err = pista + "\n\n" + err;
-                ses.aviso(Nivel::Warn, p.id, {Warning::SshHostUnverified, {}, {}});
+                ses.warning(Nivel::Warn, p.id, {Warning::SshHostUnverified, {}, {}});
             }
         }
         ecoResumen(ses, p.id, out, err, echoOutputToLog);
@@ -890,7 +890,7 @@ bool runSsh(TransportSession& ses,
     ses.logConn(Nivel::Info, p.id,
                 H::sshUserHostPort(p) + " $ " + H::maskCommandSecrets(wrappedCmd));
     if (hayClave && !conSshpass) {
-        ses.aviso(Nivel::Normal, p.id, {Warning::NoSshpass, {}, {}});
+        ses.warning(Nivel::Normal, p.id, {Warning::NoSshpass, {}, {}});
     }
 
     const auto intento = [&](bool conMultiplexado, std::string& aOut, std::string& aErr,
@@ -907,8 +907,8 @@ bool runSsh(TransportSession& ses,
         std::string programa = program;
         std::vector<std::string> args;
         if (conSshpass) {
-            if (secreto.vale()) {
-                args.push_back(secreto.opcionSshpass());
+            if (secreto.ok()) {
+                args.push_back(secreto.sshpassOption());
                 args.push_back("ssh");
             } else {
                 // Sin tubería no hay forma seria de darle la contraseña. Se lanza ssh a
@@ -1026,10 +1026,10 @@ bool runSsh(TransportSession& ses,
             std::lock_guard<std::mutex> lock(ses.mutex);
             ses.disableMultiplexKeys.insert(sshConnKey);
         }
-        ses.aviso(Nivel::Warn, p.id, {Warning::MultiplexingFailed, {}, {}});
+        ses.warning(Nivel::Warn, p.id, {Warning::MultiplexingFailed, {}, {}});
         arrancoOk = intento(false, out, err, rc);
     } else if (!permiteMultiplexado) {
-        ses.aviso(Nivel::Normal, p.id, {Warning::MultiplexingDisabled, {}, {}});
+        ses.warning(Nivel::Normal, p.id, {Warning::MultiplexingDisabled, {}, {}});
     }
 
     if (!arrancoOk) {

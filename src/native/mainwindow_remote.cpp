@@ -257,7 +257,7 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     if (jobSubmittedOut) {
         *jobSubmittedOut = true;
     }
-    m_transport.log(TransportSession::Nivel::Info,
+    m_transport.log(TransportSession::Level::Info,
            QStringLiteral("%1: trabajo %2 en curso en el daemon").arg(p.name, jobId));
 
     const QStringList statusArgs = mwhelpers::argvQt(zfsmgr::commands::requests::jobStatus(jobId.toStdString()));
@@ -285,8 +285,8 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
             int cRc = -1;
             const QStringList cancelArgs = mwhelpers::argvQt(zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
             const bool asked = runAgentCommand(p, cancelArgs, 20000, cOut, cErr, cRc);
-            m_transport.log(asked && cRc == 0 ? TransportSession::Nivel::Normal
-                                              : TransportSession::Nivel::Error,
+            m_transport.log(asked && cRc == 0 ? TransportSession::Level::Normal
+                                              : TransportSession::Level::Error,
                    asked && cRc == 0
                        ? QStringLiteral("%1: cancelación pedida para el trabajo %2")
                              .arg(p.name, jobId)
@@ -1162,7 +1162,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
                             15000, out, err, rc)
                         && rc == 0;
         if (!ok) {
-            m_transport.log(TransportSession::Nivel::Warn,
+            m_transport.log(TransportSession::Level::Warn,
                    QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
                        .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
             return false;
@@ -1323,16 +1323,16 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
-                    m_transport.log(TransportSession::Nivel::Debug,
+                    m_transport.log(TransportSession::Level::Debug,
                            QStringLiteral("Loaded missing pool GUID %1::%2 -> %3")
                                .arg(p.name, trimmedPool, guid));
                 } else {
-                    m_transport.log(TransportSession::Nivel::Warn,
+                    m_transport.log(TransportSession::Level::Warn,
                            QStringLiteral("Pool GUID missing after query %1::%2")
                                .arg(p.name, trimmedPool));
                 }
             } else {
-                m_transport.log(TransportSession::Nivel::Warn,
+                m_transport.log(TransportSession::Level::Warn,
                        QStringLiteral("Could not query pool GUID %1::%2 -> %3")
                            .arg(p.name,
                                 trimmedPool,
@@ -1355,7 +1355,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     };
     QMap<QString, QVector<SnapshotMetaRow>> snapshotMetaByDataset;
     bool loadedFromDaemon = false;
-    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
+    m_transport.log(TransportSession::Level::Info, QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
 
     // **Windows también pasa por aquí.** Antes esto estaba envuelto en `if (!isWin)`, así que
     // en Windows ni se intentaba el daemon: se iba directo al respaldo por SSH. Su agente
@@ -1424,7 +1424,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // JSON y ese verbo devuelve TSV—, así que la aplicación llevaba meses leyendo el árbol
     // por shell sin que nadie lo supiera.
     if (!loadedFromDaemon) {
-        m_transport.log(TransportSession::Nivel::Warn,
+        m_transport.log(TransportSession::Level::Warn,
                         QStringLiteral("Failed datasets %1::%2 -> sin agente utilizable")
                             .arg(p.name, poolName));
         // Anotar el fallo para no reintentarlo en cada reconstrucción del árbol.
@@ -1498,13 +1498,13 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             }
             for (auto it = byDrive.constBegin(); it != byDrive.constEnd(); ++it) {
                 if (it.value().size() > 1) {
-                    m_transport.log(TransportSession::Nivel::Warn,
+                    m_transport.log(TransportSession::Level::Warn,
                            QStringLiteral("%1::%2 driveletter duplicado %3 en datasets: %4")
                                .arg(p.name, poolName, it.key(), it.value().join(QStringLiteral(", "))));
                 }
             }
         } else if (!dErr.trimmed().isEmpty()) {
-            m_transport.log(TransportSession::Nivel::Info,
+            m_transport.log(TransportSession::Level::Info,
                    QStringLiteral("%1: no se pudieron cargar driveletters -> %2").arg(p.name, oneLine(dErr)));
         }
     }
@@ -1513,7 +1513,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // when this wrote through a reference into the map.
     m_conns.poolDatasetCache.insert(key, cache);
     rebuildConnInfoFor(connIdx);
-    m_transport.log(TransportSession::Nivel::Debug, QStringLiteral("Datasets loaded %1::%2 (%3)")
+    m_transport.log(TransportSession::Level::Debug, QStringLiteral("Datasets loaded %1::%2 (%3)")
                                      .arg(p.name)
                                      .arg(poolName)
                                      .arg(cache.datasets.size()));
@@ -1536,9 +1536,9 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         return false;
     }
     setActionsLocked(true);
-    m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("%1").arg(displayLabel));
+    m_transport.log(TransportSession::Level::Normal, QStringLiteral("%1").arg(displayLabel));
     updateStatus(QStringLiteral("%1").arg(displayLabel));
-    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("$ %1").arg(command));
+    m_transport.log(TransportSession::Level::Info, QStringLiteral("$ %1").arg(command));
     QProcess proc;
     m_cancelActionRequested = false;
     m_activeLocalProcess = &proc;
@@ -1564,7 +1564,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                QStringList{QStringLiteral("-c"), mwhelpers::asciiSafeShellCommand(command)});
 #endif
     if (!proc.waitForStarted(4000)) {
-        m_transport.log(TransportSession::Nivel::Normal,
+        m_transport.log(TransportSession::Level::Normal,
                trk(QStringLiteral("t_no_se_pudo_874fae"),
                    QStringLiteral("No se pudo iniciar comando local"),
                    QStringLiteral("Could not start local command"),
@@ -1637,7 +1637,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                             }
                             lastProgressPercent = pct;
                             sawProgressOutput = true;
-                            m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(ln));
+                            m_transport.log(TransportSession::Level::Info, QStringLiteral("[progress] %1").arg(ln));
                             continue;
                         }
                     }
@@ -1647,17 +1647,17 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     progressTimer.restart();
                     lastProgressSnippet = ln;
                     sawProgressOutput = true;
-                    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(ln));
+                    m_transport.log(TransportSession::Level::Info, QStringLiteral("[progress] %1").arg(ln));
                     continue;
                 }
             }
             // El nivel viene calculado más arriba a partir de la propia línea, así que
             // se traduce aquí en vez de en el destino.
-            m_transport.log(level == QStringLiteral("ERROR")   ? TransportSession::Nivel::Error
-                            : level == QStringLiteral("WARN")  ? TransportSession::Nivel::Warn
-                            : level == QStringLiteral("INFO")  ? TransportSession::Nivel::Info
-                            : level == QStringLiteral("DEBUG") ? TransportSession::Nivel::Debug
-                                                               : TransportSession::Nivel::Normal,
+            m_transport.log(level == QStringLiteral("ERROR")   ? TransportSession::Level::Error
+                            : level == QStringLiteral("WARN")  ? TransportSession::Level::Warn
+                            : level == QStringLiteral("INFO")  ? TransportSession::Level::Info
+                            : level == QStringLiteral("DEBUG") ? TransportSession::Level::Debug
+                                                               : TransportSession::Level::Normal,
                             oneLine(ln));
         }
         if (progressAware) {
@@ -1673,7 +1673,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     progressTimer.restart();
                     lastProgressSnippet = partial;
                     sawProgressOutput = true;
-                    m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] %1").arg(partial));
+                    m_transport.log(TransportSession::Level::Info, QStringLiteral("[progress] %1").arg(partial));
                 }
                 // Estancamiento: `pv` sigue imprimiendo aunque no pase un solo byte, así
                 // que la línea cambia siempre —cambia el reloj— y el temporizador de
@@ -1699,7 +1699,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     while (proc.state() != QProcess::NotRunning) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         if (m_cancelActionRequested) {
-            m_transport.log(TransportSession::Nivel::Normal, trk(QStringLiteral("t_canceling_act001"),
+            m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_canceling_act001"),
                                                  QStringLiteral("Cancelando acción en curso..."),
                                                  QStringLiteral("Canceling running action..."),
                                                  QStringLiteral("正在取消执行中的操作...")));
@@ -1709,7 +1709,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                 proc.kill();
                 proc.waitForFinished(800);
             }
-            m_transport.log(TransportSession::Nivel::Normal, trk(QStringLiteral("t_acc_cancel_usr2"),
+            m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_acc_cancel_usr2"),
                                                  QStringLiteral("Acción cancelada por el usuario."),
                                                  QStringLiteral("Action canceled by user."),
                                                  QStringLiteral("操作已被用户取消。")));
@@ -1739,7 +1739,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         const bool stalledInSilence =
             sawAnyProgressLine && lastProgressLine.elapsed() > kSilenceAbortMs;
         if (streamProgress && sawProgressOutput && (stalledWithLiveProgress || stalledInSilence)) {
-            m_transport.log(TransportSession::Nivel::Error,
+            m_transport.log(TransportSession::Level::Error,
                    trk(QStringLiteral("t_pipe_stalled_001"),
                        QStringLiteral("%1: la transferencia lleva %2 s sin mover datos. Se "
                                       "aborta: lo habitual es que el extremo receptor haya "
@@ -1768,7 +1768,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             terminateProcessTree(m_activeLocalPid);
             proc.kill();
             proc.waitForFinished(1000);
-            m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Timeout en comando local"));
+            m_transport.log(TransportSession::Level::Normal, QStringLiteral("Timeout en comando local"));
             updateStatus(QStringLiteral("%1 (TIMEOUT)").arg(displayLabel));
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
@@ -1788,7 +1788,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             }
             if (!sawProgressOutput && heartbeatTimer.elapsed() >= 2000) {
                 heartbeatTimer.restart();
-                m_transport.log(TransportSession::Nivel::Info, QStringLiteral("[progress] running..."));
+                m_transport.log(TransportSession::Level::Info, QStringLiteral("[progress] running..."));
             }
         }
     }
@@ -1801,13 +1801,13 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     const QString out = outBuf.trimmed();
     const QString err = errBuf.trimmed();
     if (!out.isEmpty() && !streamProgress) {
-        m_transport.log(TransportSession::Nivel::Info, oneLine(out));
+        m_transport.log(TransportSession::Level::Info, oneLine(out));
     }
     if (!err.isEmpty() && !streamProgress) {
-        m_transport.log(TransportSession::Nivel::Info, oneLine(err));
+        m_transport.log(TransportSession::Level::Info, oneLine(err));
     }
     if (rc != 0) {
-        m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Comando finalizó con error %1").arg(rc));
+        m_transport.log(TransportSession::Level::Normal, QStringLiteral("Comando finalizó con error %1").arg(rc));
         updateStatus(QStringLiteral("%1 (ERROR %2)").arg(displayLabel).arg(rc));
         const QString errorDetail = err.isEmpty() ? out : err;
         if (!errorDetail.isEmpty()) {
@@ -1826,7 +1826,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         setActionsLocked(false);
         return false;
     }
-    m_transport.log(TransportSession::Nivel::Normal, QStringLiteral("Comando finalizado correctamente"));
+    m_transport.log(TransportSession::Level::Normal, QStringLiteral("Comando finalizado correctamente"));
     updateStatus(QStringLiteral("%1 finalizado").arg(displayLabel));
     m_activeLocalProcess = nullptr;
     m_activeLocalPid = -1;
