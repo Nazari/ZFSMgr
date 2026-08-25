@@ -29,6 +29,32 @@ using SocketT = int;
 namespace zfsmgr::base::tlsserver {
 namespace {
 
+// Los sockets NO se heredan. Quien pide algo por aquí acaba provocando que se lance un
+// proceso —`zfs`, casi siempre—, y todo descriptor abierto en ese momento se lo lleva el
+// hijo. Un hijo que se quede con la conexión del cliente la mantiene viva aunque el
+// servidor la cierre, así que el otro extremo no ve nunca el final.
+//
+// No es hipotético: el mismo descuido en los sockets de transfer dejaba un
+// `zfs send` sujetando el extremo del receptor y colgaba la copia para siempre.
+// Se marca AL CREAR y AL ACEPTAR, que es cuando puede hacerse de forma atómica: entre un
+// socket() y un fcntl() posterior cabe justo el fork de otro hilo, que es la carrera que
+// se quiere cerrar.
+//
+// Va bajo la MISMA condición que sus dos usos. Linux y FreeBSD marcan el descriptor en la
+// propia llamada —`SOCK_CLOEXEC`, `accept4`— y allí esto no se compila: sin el guardián,
+// un `-Wunused-function` en Linux la señala como muerta, que es exactamente como se borró
+// por error el 2026-08-25 dejando macOS y Windows sin compilar.
+#if !defined(__linux__) && !defined(__FreeBSD__)
+void noHeredar(SocketT s) {
+#ifdef _WIN32
+    SetHandleInformation(reinterpret_cast<HANDLE>(s), HANDLE_FLAG_INHERIT, 0);
+#else
+    const int f = ::fcntl(s, F_GETFD, 0);
+    if (f >= 0) { ::fcntl(s, F_SETFD, f | FD_CLOEXEC); }
+#endif
+}
+#endif
+
 SocketT creaSocketSinHerencia(int familia, int tipo, int proto) {
 #if defined(__linux__) || defined(__FreeBSD__)
     return ::socket(familia, tipo | SOCK_CLOEXEC, proto);
