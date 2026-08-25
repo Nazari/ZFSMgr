@@ -2609,6 +2609,22 @@ void MainWindow::removeActiveDaemonJobForTest(const QString& jobId) {
     }
 }
 
+void MainWindow::deliverDaemonBecameActiveForTest(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
+        return;
+    }
+    ConnectionRuntimeState nuevo = m_conns.states[connIdx];
+    nuevo.daemonInstalled = true;
+    nuevo.daemonActive = true;
+    nuevo.daemonJobsSupported = true;
+    nuevo.status = QStringLiteral("OK");
+    // El estado GUARDADO tiene que decir «no activo»: lo que se ejercita es la transición.
+    m_conns.states[connIdx].daemonActive = false;
+    onAsyncRefreshResult(m_refreshGeneration, connIdx, m_conns.profiles[connIdx].id, nuevo);
+    // El rastreo se encarga con `singleShot(0)`, así que hay que dejar correr el bucle.
+    QCoreApplication::processEvents();
+}
+
 void MainWindow::refreshTransfersListForTest() {
     updateJobsListWidget();
 }

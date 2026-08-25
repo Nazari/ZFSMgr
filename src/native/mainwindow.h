@@ -167,6 +167,9 @@ public:
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
     void refreshTransfersListForTest();
+    // Simula que el daemon de una conexión ACABA de ponerse en marcha, que es el momento en
+    // que hay que buscar trabajos que sigan corriendo sin que esta ventana lo sepa.
+    void deliverDaemonBecameActiveForTest(int connIdx);
     void removeActiveDaemonJobForTest(const QString& jobId);
     bool selectTransferJobForTest(const QString& jobId);
     QString selectedTransferJobForTest() const;

@@ -1589,6 +1589,11 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
             });
         }
     }
+    // Cómo estaba el daemon ANTES de pisar el estado. Se lee aquí y no más abajo porque la
+    // línea siguiente lo sobrescribe: la comprobación de «acaba de ponerse en marcha» que
+    // hay al final de esta función lo miraba después, o sea que comparaba el estado nuevo
+    // consigo mismo y no se cumplía nunca.
+    const bool daemonEstabaActivo = m_conns.states[targetIdx].daemonActive;
     m_conns.states[targetIdx] = state;
     {
         const QString connKey = m_conns.profiles[targetIdx].id.trimmed().isEmpty()
@@ -1630,9 +1635,15 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
-    // Scan for orphaned running jobs when the connection first becomes active with job support
-    if (state.daemonActive && state.daemonJobsSupported
-        && !m_conns.states[targetIdx].daemonActive) {
+    // Trabajos que siguen en marcha en el daemon y de los que esta ventana no sabe nada:
+    // se buscan cuando la conexión ACABA de ponerse en marcha, que es cuando puede haberlos
+    // —al arrancar la interfaz con una transferencia ya lanzada, por ejemplo—.
+    //
+    // El «antes» se toma arriba, ANTES de sobrescribir el estado. Leído aquí era el mismo
+    // valor que `state.daemonActive`, así que la condición decía `X && !X`: nunca se cumplió
+    // y los trabajos huérfanos no se recuperaron jamás. Se vio al reiniciar la interfaz con
+    // un `zfs send` corriendo: el proceso estaba vivo y el panel, vacío.
+    if (state.daemonActive && state.daemonJobsSupported && !daemonEstabaActivo) {
         QTimer::singleShot(0, this, [this, targetIdx]() {
             scanOrphanedJobsForConnection(targetIdx);
         });

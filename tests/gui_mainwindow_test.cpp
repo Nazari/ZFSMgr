@@ -488,6 +488,43 @@ private Q_SLOTS:
                 || window.selectedTransferJobForTest() == QStringLiteral("job-tres"));
     }
 
+    // Al arrancar la interfaz con una transferencia ya lanzada, el panel salía vacío aunque
+    // el `zfs send` siguiera vivo. El rastreo de trabajos huérfanos existía y NO se ejecutaba
+    // nunca: se comprobaba «el daemon acaba de ponerse en marcha» leyendo el estado guardado
+    // DESPUÉS de haberlo sobrescrito con el nuevo, o sea `X && !X`.
+    void orphanedJobsAreLookedForWhenTheDaemonComesUp() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>& argv, std::string& out, std::string& err,
+               int& rc) {
+                err.clear();
+                rc = 0;
+                out.clear();
+                if (!argv.empty() && argv[0] == "--job-list") {
+                    out = "JOB={\"id\":\"648b64bba8a7a74c\",\"state\":\"running\"}\n";
+                }
+                return true;
+            });
+
+        window.deliverDaemonBecameActiveForTest(0);
+
+        bool preguntoPorLosTrabajos = false;
+        for (const auto& call : window.agentCallsForTest()) {
+            if (!call.argv.empty() && call.argv[0] == "--job-list") {
+                preguntoPorLosTrabajos = true;
+            }
+        }
+        QVERIFY2(preguntoPorLosTrabajos,
+                 "nadie preguntó por los trabajos en marcha al activarse el daemon");
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
