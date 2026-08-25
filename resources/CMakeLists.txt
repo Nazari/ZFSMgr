@@ -82,6 +82,7 @@ cmd:--dump-copy-tree-pending
 cmd:--mutate-set-peers
 cmd:--dump-peers
 cmd:--mutate-set-bind
+cmd:--mutate-zfs-recv-abort
 copytree:skip-unchanged-delete-dryrun
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
