@@ -85,11 +85,50 @@ cmd:--mutate-set-bind
 cmd:--mutate-zfs-recv-abort
 copytree:skip-unchanged-delete-dryrun
 ]=])
-string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
+# La huella del agente: SU CONTENIDO, no solo sus capacidades.
+#
+# Antes esto era el SHA del marcador de arriba y nada más, así que un parche que no añadía
+# ni quitaba verbos dejaba la versión clavada: el agente arreglado y el roto se anunciaban
+# IGUAL, y la interfaz —que compara justo esa cadena para decidir si una máquina se ha
+# quedado atrás— no ofrecía la actualización a ninguna. Pasó el 2026-08-25 con el arreglo
+# del bombeo en macOS: mbp lo recibió a mano y las demás se quedaron con el binario que
+# colgaba la máquina, anunciando la misma versión que el bueno.
+#
+# Se le suman los ficheros que ACABAN dentro del agente. Que un cambio de comentario también
+# mueva la versión es correcto: el binario es otro, y la pregunta que se responde con esto es
+# «¿es el mismo que tengo yo?», no «¿es más nuevo?». La comparación en el cliente ya está
+# hecha para eso (misma base y sufijo distinto -> actualizar).
+#
+# `CONFIGURE_DEPENDS` en los dos sitios: en el glob para que un fichero NUEVO se vea, y en el
+# directorio para que EDITAR uno vuelva a pasar por configuración. Sin eso la huella se
+# quedaría en la de la última vez que alguien ejecutó cmake a mano — que es la clase de build
+# que miente y que ya nos ha costado una tarde.
+file(GLOB_RECURSE ZFSMGR_AGENT_FINGERPRINT_FILES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/base/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/base/*.h"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/commands/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/commands/*.h"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/daemon/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/daemon/*.h")
+list(SORT ZFSMGR_AGENT_FINGERPRINT_FILES)
+set(ZFSMGR_AGENT_FINGERPRINT_INPUT "${ZFSMGR_AGENT_SCHEMA_MARKER}")
+foreach(_zfsmgr_fp_file IN LISTS ZFSMGR_AGENT_FINGERPRINT_FILES)
+    file(SHA256 "${_zfsmgr_fp_file}" _zfsmgr_fp_hash)
+    string(APPEND ZFSMGR_AGENT_FINGERPRINT_INPUT "${_zfsmgr_fp_hash}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_zfsmgr_fp_file}")
+endforeach()
+string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_FINGERPRINT_INPUT}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)
 math(EXPR ZFSMGR_AGENT_SCHEMA_RAW "0x${ZFSMGR_AGENT_SCHEMA_HEX}")
 math(EXPR ZFSMGR_AGENT_VERSION_SUFFIX "${ZFSMGR_AGENT_SCHEMA_RAW} % 1000000000")
 set(ZFSMGR_AGENT_VERSION_STRING "${ZFSMGR_APP_VERSION_STRING}.${ZFSMGR_AGENT_VERSION_SUFFIX}")
+# En una cabecera generada, y NO como macro de cada objetivo.
+#
+# Ahora la versión cambia con cualquier retoque del agente, y como macro de target obligaba a
+# recompilar entero todo lo que la recibía —incluido `zfsmgr_core`, o sea la interfaz— con
+# cada edición. En cabecera solo se recompilan los dos ficheros que de verdad la nombran.
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/agentversion_generated.h.in"
+               "${CMAKE_BINARY_DIR}/generated/zfsmgr/agentversion_generated.h" @ONLY)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -231,11 +270,10 @@ add_library(zfsmgr_commands STATIC
 #
 # `PUBLIC` porque quien use base necesita esa ruta; los que además usan órdenes enlazan
 # `zfsmgr_commands`, que añade la suya.
-target_include_directories(zfsmgr_base PUBLIC ../src/base)
+target_include_directories(zfsmgr_base PUBLIC ../src/base "${CMAKE_BINARY_DIR}/generated")
 # La versión del agente la necesita la propia capa base desde que `agentversion` vive aquí:
 # es un dato de la compilación, como en los otros dos objetivos que ya la reciben.
 target_compile_definitions(zfsmgr_base PRIVATE
-    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 # OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
 # la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
@@ -274,7 +312,6 @@ if(ZFSMGR_AGENT_ONLY)
     target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-        ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
     )
     target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
     if(WIN32)
@@ -433,7 +470,6 @@ target_compile_definitions(zfsmgr-cli PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     # La versión del AGENTE, que no es la de la aplicación: lleva el sufijo del marcador de
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
-    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 # --- El servidor web: ABANDONADO el 2026-08-23. No se compila ni se distribuye.
@@ -470,7 +506,6 @@ target_include_directories(zfsmgr-web PRIVATE ../src ../src/web ../src/cli ../sr
 target_link_libraries(zfsmgr-web PRIVATE zfsmgr_commands)
 target_compile_definitions(zfsmgr-web PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 add_executable(zfsmgr_web_test
@@ -504,7 +539,6 @@ target_compile_definitions(zfsmgr_core PUBLIC
     QT_NO_KEYWORDS
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_GSA_VERSION_SUFFIX="${ZFSMGR_GSA_VERSION_SUFFIX}"
-    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 qt_add_executable(zfsmgr-gui
@@ -525,7 +559,6 @@ add_executable(zfsmgr_agent
 target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
 target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)

@@ -216,6 +216,7 @@ bool discosIlegibles() {
 }
 
 constexpr const char* kApiVersion = "3";
+#include "zfsmgr/agentversion_generated.h"
 #ifndef ZFSMGR_AGENT_VERSION_STRING
 #define ZFSMGR_AGENT_VERSION_STRING ZFSMGR_APP_VERSION
 #endif

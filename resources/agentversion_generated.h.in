@@ -1,0 +1,9 @@
+// GENERADO por CMake. No editar: se rehace en cada configuración.
+//
+// La versión del agente lleva un sufijo que es la huella de SU CONTENIDO —el marcador de
+// capacidades más el hash de los fuentes que acaban dentro—, así que cambia con cualquier
+// parche aunque no toque ningún verbo. Eso es lo que hace que la interfaz ofrezca la
+// actualización a las máquinas que se quedaron con el binario anterior.
+#pragma once
+
+#define ZFSMGR_AGENT_VERSION_STRING "@ZFSMGR_AGENT_VERSION_STRING@"

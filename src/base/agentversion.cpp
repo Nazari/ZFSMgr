@@ -1,5 +1,7 @@
 #include "agentversion.h"
 
+#include "zfsmgr/agentversion_generated.h"
+
 #include "strutil.h"
 
 #include <cctype>
