@@ -1180,6 +1180,32 @@ std::string parseOpenZfsVersionText(const std::string& text) {
     return std::string();
 }
 
+ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolParsed) {
+    ImportProbeReading salida;
+    if (anyPoolParsed) {
+        salida.diagnosis = ImportProbeDiagnosis::PoolsFound;
+        return salida;
+    }
+    if (probeOutput.find("__ZFSMGR_DISCOS_ILEGIBLES__") == std::string::npos) {
+        salida.diagnosis = ImportProbeDiagnosis::NothingToImport;
+        return salida;
+    }
+    salida.diagnosis = probeOutput.find("__ZFSMGR_TCC_TRAS_ARRANQUE__") != std::string::npos
+                           ? ImportProbeDiagnosis::ProbablyNeedsRestart
+                           : ImportProbeDiagnosis::DisksUnreadable;
+    // El dispositivo va en su propia marca, y es lo que convierte el aviso en algo
+    // comprobable: «no puedo leer /dev/disk2s1» se puede mirar, «falta un permiso» no.
+    const std::string marcaDisp = "__ZFSMGR_DISCO_ILEGIBLE__ ";
+    const std::size_t donde = probeOutput.find(marcaDisp);
+    if (donde != std::string::npos) {
+        const std::size_t ini = donde + marcaDisp.size();
+        const std::size_t fin = probeOutput.find('\n', ini);
+        salida.device = trim(probeOutput.substr(
+            ini, fin == std::string::npos ? std::string::npos : fin - ini));
+    }
+    return salida;
+}
+
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) {
     std::vector<ImportablePoolInfo> rows;
     const std::regex poolNameRx("^[A-Za-z0-9_.:-]+$");

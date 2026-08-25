@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "base/helpers.h"
 
 #include "commands/refreshparse.h"
 #include "base/osinfo.h"
@@ -1019,16 +1020,36 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
             QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
             if (parsed.isEmpty() && importOk) {
-                // El agente respondió pero no ve ningún pool importable. Antes esto se
-                // tapaba repitiendo la sonda por shell, que sí los veía, y el resultado
-                // era que un agente sin acceso a los discos parecía funcionar: en macOS
-                // ocultó durante meses que faltaba concederle "Acceso total al disco".
-                // Ahora se dice, porque tiene arreglo y el usuario no puede adivinarlo.
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1: el agente no encuentra pools importables. En macOS suele "
-                                      "faltar concederle \"Acceso total al disco\" en Ajustes del "
-                                      "Sistema > Privacidad y seguridad.")
-                           .arg(p.name));
+                // Qué significa una lista vacía. Antes salía SIEMPRE el mismo aviso —«en
+                // macOS suele faltar Acceso total al disco»— aunque sencillamente no
+                // hubiera ningún pool que importar, y un aviso que acierta a veces enseña a
+                // ignorarlos todos. El agente ya distinguía los casos y marcaba su salida;
+                // aquí se tiraba esa marca y se soltaba la conjetura. El CLI sí la leía.
+                const auto lectura = zfsmgr::base::helpers::readImportProbe(
+                    merged.toStdString(), false);
+                using D = zfsmgr::base::helpers::ImportProbeDiagnosis;
+                const QString disco = QString::fromStdString(lectura.device);
+                const QString donde = disco.isEmpty()
+                                          ? QStringLiteral("los discos")
+                                          : QStringLiteral("%1").arg(disco);
+                if (lectura.diagnosis == D::ProbablyNeedsRestart) {
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("%1: el agente no puede leer %2, así que un pool sin "
+                                          "importar NO aparece. El permiso del sistema cambió "
+                                          "DESPUÉS de que el agente arrancara: macOS solo lo toma "
+                                          "al arrancar el proceso, así que reinícialo "
+                                          "(Conexiones > Reinstalar/Actualizar daemon).")
+                               .arg(p.name, donde));
+                } else if (lectura.diagnosis == D::DisksUnreadable) {
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("%1: el agente no puede leer %2, así que un pool sin "
+                                          "importar NO aparece. Concédele \"Acceso total al "
+                                          "disco\" a /usr/local/libexec/zfsmgr-agent en Ajustes "
+                                          "del Sistema > Privacidad y seguridad, y reinicia el "
+                                          "agente después.")
+                               .arg(p.name, donde));
+                }
+                // Y si se pueden leer, NO se dice nada: no hay pools que importar y punto.
             }
             if (!parsed.isEmpty()) {
                 state.importablePools.clear();

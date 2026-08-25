@@ -187,10 +187,40 @@ constexpr const char* kDefaultCommandPath =
 // EPERM/EACCES, lo que falta es el permiso. En el resto de plataformas no aplica y la
 // función dice que no hay problema.
 const char* const kMarcaDiscosIlegibles = "__ZFSMGR_DISCOS_ILEGIBLES__\n";
+const char* const kMarcaDiscoIlegible = "__ZFSMGR_DISCO_ILEGIBLE__ ";
+const char* const kMarcaTccTrasArranque = "__ZFSMGR_TCC_TRAS_ARRANQUE__\n";
 
-bool discosIlegibles() {
+// Cuándo arrancó ESTE proceso. Se toma una vez, al empezar, porque es la mitad de la
+// comparación que distingue «no me han dado permiso» de «me lo dieron después de arrancar».
+const std::chrono::system_clock::time_point g_arranqueDelProceso =
+    std::chrono::system_clock::now();
+
+// ¿Cambió la base de permisos DESPUÉS de que arrancáramos?
+//
+// No se puede leer su contenido —eso exige el permiso que precisamente falta— pero sí
+// preguntar por su fecha: `stat` mira el directorio que la contiene, no el fichero. Si esa
+// fecha es posterior a nuestro arranque, lo más probable es que el permiso se acabe de
+// conceder y falte reiniciar el agente, porque macOS lo decide al arrancar el proceso.
+//
+// Es una PISTA, no una certeza, y por eso el estado que produce se llama «probablemente».
+// Si `stat` tampoco se puede, se dice que no y el aviso sale con las dos causas.
+bool permisosCambiaronTrasArranque() {
 #ifdef __APPLE__
-    bool huboAlguno = false;
+    struct ::stat st {};
+    if (::stat("/Library/Application Support/com.apple.TCC/TCC.db", &st) != 0) {
+        return false;
+    }
+    const auto cambio = std::chrono::system_clock::from_time_t(st.st_mtime);
+    return cambio > g_arranqueDelProceso;
+#else
+    return false;
+#endif
+}
+
+// El dispositivo que no se pudo abrir, o vacío si se pudo con alguno.
+std::string discoIlegible() {
+#ifdef __APPLE__
+    std::string primeroIlegible;
     for (int disco = 0; disco < 8; ++disco) {
         for (int rodaja = 1; rodaja <= 8; ++rodaja) {
             const std::string ruta =
@@ -198,22 +228,26 @@ bool discosIlegibles() {
             if (::access(ruta.c_str(), F_OK) != 0) {
                 continue;
             }
-            huboAlguno = true;
             const int fd = ::open(ruta.c_str(), O_RDONLY);
             if (fd >= 0) {
                 ::close(fd);
-                return false;   // uno legible basta: el permiso está concedido
+                return {};   // uno legible basta: el permiso está concedido
             }
             if (errno != EPERM && errno != EACCES) {
-                return false;   // ocupado u otra cosa: no es un problema de permisos
+                return {};   // ocupado u otra cosa: no es un problema de permisos
+            }
+            if (primeroIlegible.empty()) {
+                primeroIlegible = ruta;
             }
         }
     }
-    return huboAlguno;
+    return primeroIlegible;
 #else
-    return false;
+    return {};
 #endif
 }
+
+bool discosIlegibles() { return !discoIlegible().empty(); }
 
 constexpr const char* kApiVersion = "3";
 #include "zfsmgr/agentversion_generated.h"
@@ -7512,8 +7546,12 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         ExecResult b = runExecCapture("zpool", {"import", "-s"});
         r.rc = b.rc;
         r.out = a.out + b.out;
-        if (discosIlegibles()) {
+        if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
             r.out += kMarcaDiscosIlegibles;
+            r.out += kMarcaDiscoIlegible + ilegible + "\n";
+            if (permisosCambiaronTrasArranque()) {
+                r.out += kMarcaTccTrasArranque;
+            }
         }
         r.err = a.err + b.err;
         return r;
@@ -9462,8 +9500,12 @@ int main(int argc, char* argv[]) {
         if (!b.out.empty()) {
             std::cout << b.out;
         }
-        if (discosIlegibles()) {
+        if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
             std::cout << kMarcaDiscosIlegibles;
+            std::cout << kMarcaDiscoIlegible << ilegible << "\n";
+            if (permisosCambiaronTrasArranque()) {
+                std::cout << kMarcaTccTrasArranque;
+            }
         }
         if (!a.err.empty()) {
             std::cerr << a.err;

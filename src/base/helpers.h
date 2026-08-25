@@ -243,6 +243,32 @@ std::string parseOpenZfsVersionText(const std::string& text);
 // Splits the output of `zpool import`.
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
 
+// Qué significa que la sonda de importables no encuentre nada.
+//
+// «No hay ninguno» y «no puedo mirar» se leen IGUAL en la salida de `zpool import`: las dos
+// dicen «no pools available to import». El agente distingue una de otra —intenta abrir un
+// dispositivo y mira el errno— y lo cuenta con marcas en su salida; esto las lee.
+//
+// El tercer estado existe y no se puede afirmar con certeza desde el agente: para saber si
+// el permiso ESTÁ concedido habría que leer la base de TCC, y leerla exige justo el permiso
+// que falta. Lo único honesto que hay es la fecha en que esa base cambió por última vez: si
+// es POSTERIOR al arranque del agente, lo más probable es que se acabe de conceder y falte
+// reiniciarlo, porque macOS decide el permiso al arrancar el proceso. Por eso el estado se
+// llama «probablemente».
+enum class ImportProbeDiagnosis {
+    PoolsFound,             // hay importables: no hay nada que explicar
+    NothingToImport,        // se puede mirar y no hay ninguno: NO se avisa de nada
+    DisksUnreadable,        // no se pueden leer los discos: falta el permiso
+    ProbablyNeedsRestart,   // no se pueden leer, pero el permiso cambió tras arrancar
+};
+
+struct ImportProbeReading {
+    ImportProbeDiagnosis diagnosis{ImportProbeDiagnosis::NothingToImport};
+    std::string device;   // el dispositivo concreto que no se pudo abrir, si se sabe
+};
+
+ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolParsed);
+
 // --- SSH and agent invocation.
 //
 // They lean on ConnectionProfile, which is what used to keep them tied to Qt.

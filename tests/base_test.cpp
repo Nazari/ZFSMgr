@@ -1132,6 +1132,55 @@ int main() {
               "destino: un pool entero tambien lleva su nombre");
         igual(TR::actualDestination("p/datos", ""), "", "destino: sin destino, nada que componer");
 
+        // --- que significa que la sonda de importables no encuentre nada
+        //
+        // «No hay ninguno» y «no puedo mirar» se leen IGUAL en `zpool import`: las dos dicen
+        // «no pools available to import». Distinguirlas es todo el asunto — antes la interfaz
+        // soltaba el aviso del permiso SIEMPRE que la lista salia vacia, aunque de verdad no
+        // hubiera nada que importar.
+        {
+            namespace HH = zfsmgr::base::helpers;
+            using D = HH::ImportProbeDiagnosis;
+
+            // Hay pools: no hay nada que explicar, aunque la salida trajera marcas.
+            comprobar(HH::readImportProbe("__ZFSMGR_DISCOS_ILEGIBLES__\n", true).diagnosis
+                          == D::PoolsFound,
+                      "sonda: con pools encontrados no se diagnostica nada");
+
+            // Se puede mirar y no hay ninguno: CALLARSE es la respuesta correcta.
+            comprobar(HH::readImportProbe("no pools available to import\n", false).diagnosis
+                          == D::NothingToImport,
+                      "sonda: sin marca es que no hay pools, no que falte permiso");
+
+            // No se puede leer el disco: falta el permiso, y se dice cual es el disco.
+            {
+                const auto r = HH::readImportProbe(
+                    "no pools available to import\n__ZFSMGR_DISCOS_ILEGIBLES__\n"
+                    "__ZFSMGR_DISCO_ILEGIBLE__ /dev/disk2s1\n",
+                    false);
+                comprobar(r.diagnosis == D::DisksUnreadable, "sonda: discos ilegibles");
+                igual(r.device, "/dev/disk2s1", "sonda: dice QUE disco no puede leer");
+            }
+
+            // Ilegibles PERO el permiso cambio despues de arrancar: lo probable es que se
+            // acabe de conceder y falte reiniciar el agente. Es el caso que costo media hora
+            // el 2026-08-25 y del que ninguna documentacion avisa.
+            {
+                const auto r = HH::readImportProbe(
+                    "no pools available to import\n__ZFSMGR_DISCOS_ILEGIBLES__\n"
+                    "__ZFSMGR_DISCO_ILEGIBLE__ /dev/disk2s1\n__ZFSMGR_TCC_TRAS_ARRANQUE__\n",
+                    false);
+                comprobar(r.diagnosis == D::ProbablyNeedsRestart,
+                          "sonda: permiso cambiado tras arrancar -> reiniciar el agente");
+                igual(r.device, "/dev/disk2s1", "sonda: el disco tambien en ese caso");
+            }
+
+            // Sin la marca del dispositivo el diagnostico sigue valiendo: el aviso saldra
+            // hablando de «los discos» en vez de nombrar uno.
+            comprobar(HH::readImportProbe("__ZFSMGR_DISCOS_ILEGIBLES__\n", false).device.empty(),
+                      "sonda: sin marca de dispositivo, no se inventa uno");
+        }
+
         // --- un envio que sale con 0 pero no movio un byte
         //
         // Salir con 0 no es haber copiado. Un envio COMPLETO sin un solo byte no ha
