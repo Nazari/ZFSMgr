@@ -142,6 +142,14 @@ std::string formatWindowsFsTypeDetail(const std::string& rawFsType);
 // boot disk.
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
 
+// El disco al que pertenece una partición de Windows, o vacío si no lo es.
+//
+// En Windows ZFS nombra sus vdev `\\?\Harddisk<N>Partition<M>` —es lo que sale en
+// `zpool status` y lo único que `zpool create` acepta— mientras que el disco entero se
+// llama `\\.\PhysicalDrive<N>`. Los dos números son el mismo disco, pero los nombres no
+// se parecen, así que la traducción hay que hacerla a mano.
+std::string windowsPartitionDiskPath(const std::string& partitionPath);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 

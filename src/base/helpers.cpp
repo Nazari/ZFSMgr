@@ -710,6 +710,40 @@ std::string formatWindowsFsTypeDetail(const std::string& rawFsType) {
     return changed ? join(parts, "|") : rawFsType;
 }
 
+std::string windowsPartitionDiskPath(const std::string& partitionPath) {
+    // `\\?\Harddisk<N>Partition<M>` -> `\\.\PhysicalDrive<N>`. Sin distinguir mayúsculas:
+    // Windows no las distingue y `zpool status` no siempre respeta la caja.
+    static const std::string prefijo = "\\\\?\\harddisk";
+    std::string bajo;
+    bajo.reserve(partitionPath.size());
+    for (char c : partitionPath) {
+        bajo.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (bajo.rfind(prefijo, 0) != 0) {
+        return std::string();
+    }
+    std::size_t i = prefijo.size();
+    std::string disco;
+    while (i < bajo.size() && std::isdigit(static_cast<unsigned char>(bajo[i]))) {
+        disco.push_back(bajo[i]);
+        ++i;
+    }
+    if (disco.empty() || bajo.compare(i, 9, "partition") != 0) {
+        return std::string();
+    }
+    i += 9;
+    if (i >= bajo.size()) {
+        return std::string();
+    }
+    while (i < bajo.size()) {
+        if (!std::isdigit(static_cast<unsigned char>(bajo[i]))) {
+            return std::string();
+        }
+        ++i;
+    }
+    return "\\\\.\\PhysicalDrive" + disco;
+}
+
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType) {
     if (trim(rawFsType).empty()) {
         return false;

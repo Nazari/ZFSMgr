@@ -7200,9 +7200,18 @@ static ExecResult runDumpBlockDevicesCapture() {
         } else if (c[0] == "P" && c.size() >= 7) {
             Disp d;
             d.disco = std::atoi(c[1].c_str());
-            // El mismo formato que ya componía la interfaz, para no cambiar lo que se le
-            // pasa después a `zpool create`.
-            d.ruta = "\\\\.\\PhysicalDrive" + c[1] + "\\Partition" + c[2];
+            // `\\?\Harddisk<N>Partition<M>`, que es el nombre que ZFS usa para sus vdev en
+            // Windows —lo que sale en `zpool status`— y el ÚNICO que `zpool create` acepta.
+            //
+            // Aquí se componía `\\.\PhysicalDrive<N>\Partition<M>` «para no cambiar lo que se
+            // le pasa después a zpool create». Ese formato zpool lo RECHAZA:
+            //
+            //     wosix_open(\\.\PhysicalDrive1\Partition1): error 31 / 0x1f
+            //     cannot open '\\.\PhysicalDrive1\Partition1': Invalid argument
+            //
+            // Comprobado contra OldLau el 2026-08-25: con este otro formato el pool se crea.
+            // El disco entero sigue siendo `\\.\PhysicalDrive<N>`, que sí vale.
+            d.ruta = "\\\\?\\Harddisk" + c[1] + "Partition" + c[2];
             d.padre = "\\\\.\\PhysicalDrive" + c[1];
             d.tipo = "part";
             d.tamano = std::strtoull(c[3].c_str(), nullptr, 10);

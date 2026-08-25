@@ -257,6 +257,13 @@ QString deviceTreeParentPath(const QString& rawPath) {
         return QString();
     }
 
+    // Una partición de Windows viene como `\\?\Harddisk1Partition1`, que es el nombre que
+    // usa ZFS —y el único que `zpool create` acepta—, pero su disco se llama
+    // `\\.\PhysicalDrive1`. Sin esta traducción la partición no encuentra a su padre y
+    // aparece suelta en el árbol de dispositivos.
+    if (const QString disco = mwhelpers::windowsPartitionDiskPath(path); !disco.isEmpty()) {
+        return disco;
+    }
     {
         static const QRegularExpression rx(
             QStringLiteral(R"(^(\\\\\.\\PhysicalDrive\d+)(?:\\Partition\d+)?$)"),
@@ -861,7 +868,7 @@ void MainWindow::createPoolForSelectedConnection() {
             "$ErrorActionPreference='SilentlyContinue'; "
             "Get-Partition | "
             "Where-Object { $_.GptType -and @('6a945a3b-1dd2-11b2-99a6-080020736631','6a898cc3-1dd2-11b2-99a6-080020736631') -contains $_.GptType.ToString().Trim('{}').ToLower() } | "
-            "ForEach-Object { Write-Output ('\\\\.\\PhysicalDrive' + $_.DiskNumber + '\\\\Partition' + $_.PartitionNumber) }");
+            "ForEach-Object { Write-Output ('\\\\?\\Harddisk' + $_.DiskNumber + 'Partition' + $_.PartitionNumber) }");
         if (runRemote(zfsPartCmd, 20000, zfsPartOut)) {
             QSet<QString> zfsTokens;
             const QStringList lines = zfsPartOut.split('\n', Qt::SkipEmptyParts);
@@ -1066,7 +1073,25 @@ void MainWindow::createPoolForSelectedConnection() {
                            QStringLiteral("8k"), QStringLiteral("16k")});
     const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_conns.store.configPath());
     forceCb->setChecked(zdefs.force);
-    altrootEd->setText(zdefs.altroot);
+    // El altroot por omisión SOLO si tiene sentido en la máquina destino.
+    //
+    // `ZPoolCreationDefaults` es un ajuste GLOBAL del config.json: el mismo valor viaja a
+    // Linux, a macOS y a Windows. Una ruta POSIX como `/mnt/fc16` —que además es de la
+    // máquina local— no significa nada en Windows, y se enviaba igual:
+    //
+    //   zpool create -f -R /mnt/fc16 ... p596 \\.\PhysicalDrive1
+    //
+    // Es el mismo error que ya se corrigió con `compatibility` justo debajo: dar por
+    // bueno en todas partes lo que se eligió pensando en una.
+    const bool altrootEsPosix = zdefs.altroot.startsWith(QLatin1Char('/'));
+    if (altrootEsPosix && isWindowsConnection(p)) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("[crear pool] el altroot por omisión «%1» es una ruta POSIX y el "
+                              "destino es Windows: se deja vacío")
+                   .arg(zdefs.altroot));
+    } else {
+        altrootEd->setText(zdefs.altroot);
+    }
     ashiftCb->setCurrentText(zdefs.ashift);
     autotrimCb->setCurrentText(zdefs.autotrim);
     // La compatibilidad por omisión SOLO si la máquina destino la tiene.

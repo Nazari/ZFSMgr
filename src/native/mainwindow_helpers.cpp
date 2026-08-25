@@ -137,6 +137,7 @@ bool isCliOnlyAgentCommand(const QString& verb) { return B::isCliOnlyAgentComman
 QString windowsGptTypeName(const QString& guid) { return q(B::windowsGptTypeName(b(guid))); }
 QString formatWindowsFsTypeDetail(const QString& raw) { return q(B::formatWindowsFsTypeDetail(b(raw))); }
 bool windowsPartitionTypeIsProtected(const QString& raw) { return B::windowsPartitionTypeIsProtected(b(raw)); }
+QString windowsPartitionDiskPath(const QString& p) { return q(B::windowsPartitionDiskPath(b(p))); }
 QString asciiSafeShellCommand(const QString& cmd) { return q(B::asciiSafeShellCommand(b(cmd))); }
 bool looksLikeSudoAuthFailure(const QString& text) { return B::looksLikeSudoAuthFailure(b(text)); }
 

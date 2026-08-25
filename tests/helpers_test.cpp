@@ -69,6 +69,27 @@ int main() {
         return fail("windowsPartitionTypeIsProtected mismatch");
     }
 
+    // La traducción partición -> disco en Windows.
+    //
+    // Se comprueba porque es una REGLA de cadenas, y esas se rompen sin ruido: la anterior
+    // componía `\\.\PhysicalDrive1\Partition1`, que zpool RECHAZA, y nadie se enteró hasta
+    // que falló un `zpool create` contra OldLau.
+    if (windowsPartitionDiskPath(QStringLiteral(R"(\\?\Harddisk1Partition1)")) != QStringLiteral(R"(\\.\PhysicalDrive1)")) {
+        return fail("windowsPartitionDiskPath should map Harddisk1Partition1 to PhysicalDrive1");
+    }
+    if (windowsPartitionDiskPath(QStringLiteral(R"(\\?\harddisk12partition3)")) != QStringLiteral(R"(\\.\PhysicalDrive12)")) {
+        return fail("windowsPartitionDiskPath should ignore case");
+    }
+    // Lo que NO es una partición no tiene disco padre: el disco entero, la forma vieja, y
+    // cualquier cosa de otra plataforma.
+    if (!windowsPartitionDiskPath(QStringLiteral(R"(\\.\PhysicalDrive1)")).isEmpty()
+        || !windowsPartitionDiskPath(QStringLiteral(R"(\\.\PhysicalDrive1\Partition1)")).isEmpty()
+        || !windowsPartitionDiskPath(QStringLiteral(R"(\\?\Harddisk1Partition)")).isEmpty()
+        || !windowsPartitionDiskPath(QStringLiteral("/dev/sda1")).isEmpty()
+        || !windowsPartitionDiskPath(QStringLiteral("")).isEmpty()) {
+        return fail("windowsPartitionDiskPath should only match a Windows partition");
+    }
+
     if (!parentMountCheckRequired("/mnt/a", "on")) {
         return fail("parentMountCheckRequired should require mounted parent");
     }

@@ -120,6 +120,7 @@ bool isWindowsOsType(const QString& osType);
 QString windowsGptTypeName(const QString& guid);
 QString formatWindowsFsTypeDetail(const QString& rawFsType);
 bool windowsPartitionTypeIsProtected(const QString& rawFsType);
+QString windowsPartitionDiskPath(const QString& partitionPath);
 QString parseOpenZfsVersionText(const QString& text);
 QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text);
 TransferButtonState computeTransferButtonState(const TransferButtonInputs& in);
