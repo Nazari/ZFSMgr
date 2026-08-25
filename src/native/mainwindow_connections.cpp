@@ -433,7 +433,16 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     // de paquetes que lo instale, viene de un único sitio.
     if (st.zfsVersion.trimmed().isEmpty() && st.zfsVersionFull.trimmed().isEmpty()
         && !disconnected) {
-        if (windowsSshConn) {
+        // Instalado pero sin cargar NO es lo mismo que no instalado, y mandar a instalar a
+        // quien ya lo tiene es mandarlo al sitio equivocado. El agente distingue las dos
+        // cosas desde 0.99.3: si trae el motivo y habla de módulos, se dice eso.
+        const QString motivo = st.zfsUnavailableDetail.trimmed();
+        if (motivo.contains(QStringLiteral("modules are not loaded"), Qt::CaseInsensitive)
+            || motivo.contains(QStringLiteral("módulo"), Qt::CaseInsensitive)) {
+            lines << QStringLiteral("   -> OpenZFS está instalado pero su módulo NO está cargado,");
+            lines << QStringLiteral("      así que no se ve ningún pool, ni siquiera importable.");
+            lines << QStringLiteral("      %1").arg(motivo);
+        } else if (windowsSshConn) {
             lines << QStringLiteral("   -> No se detecta OpenZFS. Descárguelo de:");
             lines << QStringLiteral("      https://github.com/openzfsonwindows/openzfs/releases");
             lines << QStringLiteral("      Instale el .exe y reinicie; añade zfs.exe y zpool.exe en");

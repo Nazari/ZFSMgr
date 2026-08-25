@@ -2200,6 +2200,25 @@ std::string detectZfsVersionRaw() {
     return {};
 }
 
+// Por qué no hay versión de ZFS, cuando la hay que dar.
+//
+// `detectZfsVersionRaw()` devuelve vacío si el mandato falla y TIRA lo que dijo. Y lo que
+// dice distingue dos cosas que no se parecen en nada:
+//
+//   - «zfs: command not found»            -> ZFS no está instalado.
+//   - «The ZFS modules are not loaded.»   -> está instalado y el módulo no está cargado.
+//
+// Visto en vivo el 2026-08-25 en «mbp», con un disco ZFS conectado y ningún pool a la
+// vista: la interfaz decía «No se detecta OpenZFS. Instálelo…» sobre una máquina que lo
+// tenía instalado. Guardar el motivo cuesta una línea y ahorra la búsqueda entera.
+std::string detectZfsUnavailableReason() {
+    const ExecResult e = runExecCapture("zpool", {"version"});
+    if (e.rc == 0) {
+        return {};
+    }
+    return compactSpaces(e.out + "\n" + e.err);
+}
+
 bool isAllowedMutationOp(const std::string& tool, const std::string& opRaw) {
     static const std::set<std::string> zfsAllowed = {
         "create", "destroy", "rollback", "clone", "rename", "set", "inherit", "mount", "unmount",
@@ -3855,6 +3874,9 @@ int runDumpRefreshBasics() {
     std::cout << "OS_LINE=" << osLine << "\n";
     std::cout << "MACHINE_UUID=" << machineUuid << "\n";
     std::cout << "ZFS_VERSION_RAW=" << zraw << "\n";
+    if (zraw.empty()) {
+        std::cout << "ZFS_DETAIL=" << detectZfsUnavailableReason() << "\n";
+    }
     return 0;
 }
 
@@ -3944,6 +3966,9 @@ ExecResult runDumpRefreshBasicsCapture() {
     ss << "OS_LINE=" << osLine << "\n";
     ss << "MACHINE_UUID=" << machineUuid << "\n";
     ss << "ZFS_VERSION_RAW=" << zraw << "\n";
+    if (zraw.empty()) {
+        ss << "ZFS_DETAIL=" << detectZfsUnavailableReason() << "\n";
+    }
     r.rc = 0;
     r.out = ss.str();
     return r;

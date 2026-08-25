@@ -291,6 +291,7 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
             if (!machineRaw.isEmpty()) {
                 state.machineUuid = extractMachineUuid(machineRaw);
             }
+            state.zfsUnavailableDetail = oneLine(kv.value(QStringLiteral("ZFS_DETAIL")).trimmed());
             const QString zfsRaw = kv.value(QStringLiteral("ZFS_VERSION_RAW")).trimmed();
             if (!zfsRaw.isEmpty()) {
                 const QString parsed = mwhelpers::parseOpenZfsVersionText(zfsRaw);
@@ -749,9 +750,21 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
     // arrancaba un PowerShell nuevo. Medido en una VM Windows 11: 102 s de refresco, de
     // los que 99 eran sondas que el daemon sirve en una sola llamada.
     const QString daemonHealthCmd = mwhelpers::agentCommand(p, QStringLiteral("--health"));
+    // La salud se pregunta AUNQUE la sonda diga que el servicio no está activo.
+    //
+    // Esa sonda es `launchctl print` / `systemctl is-active` ejecutado por SSH con sudo, y
+    // puede decir que no por razones que no tienen que ver con el daemon. Visto en vivo el
+    // 2026-08-25 en «mbp»: `launchctl print system/org.zfsmgr.agent` devolvía 0 para el
+    // usuario y distinto de 0 bajo el sudo del sondeo, con el servicio en `state = running`
+    // y su proceso vivo. Resultado: ACTIVE=0, y detrás «no se puede listar los pools porque
+    // el agente no está en marcha» — con el daemon contestando ALIVE=yes un segundo después.
+    //
+    // Preguntar no cuesta nada y la respuesta es mejor prueba que la sonda, porque `SERVER=1`
+    // solo lo emite el proceso que SIRVE: la invocación suelta del binario contesta SERVER=0
+    // siempre. O sea que `SERVER=1` es la prueba de que el daemon está corriendo.
+    const bool sondaDiceActivo = state.daemonActive;
     bool daemonReadApiOk =
         state.daemonInstalled
-        && state.daemonActive
         && state.daemonNativeBinary
         && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (daemonReadApiOk) {
@@ -791,6 +804,22 @@ ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p)
                 state.daemonDetail = QStringLiteral("health check not OK (status=%1)")
                                          .arg(hkv.value(QStringLiteral("STATUS")).trimmed());
             } else {
+                // Contestó el proceso que sirve: está en marcha, diga lo que diga la sonda.
+                if (hkv.value(QStringLiteral("SERVER")).trimmed() == QStringLiteral("1")) {
+                    if (!sondaDiceActivo) {
+                        appLog(QStringLiteral("INFO"),
+                               QStringLiteral("%1: el gestor de servicios decía que el agente no "
+                                              "está activo, pero ha contestado él mismo "
+                                              "(SERVER=1): se toma por activo")
+                                   .arg(p.name));
+                    }
+                    state.daemonActive = true;
+                } else if (!sondaDiceActivo) {
+                    // SERVER=0 es una invocación suelta del binario —el túnel estaba
+                    // ocupado—, así que no prueba nada sobre el servicio: se respeta lo que
+                    // dijo la sonda y se sigue sin dar por bueno el camino de daemon.
+                    daemonReadApiOk = false;
+                }
                 const QString cacheEntries = hkv.value(QStringLiteral("CACHE_ENTRIES")).trimmed();
                 const QString cacheMax = hkv.value(QStringLiteral("CACHE_MAX_ENTRIES")).trimmed();
                 const QString cacheInvalidations = hkv.value(QStringLiteral("CACHE_INVALIDATIONS")).trimmed();

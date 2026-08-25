@@ -41,6 +41,9 @@ struct ConnectionRuntimeState {
     QString osLine;
     QString connectionMethod;
     QString zfsVersionFull;
+    // Por qué no hay versión de ZFS, cuando el agente sabe decirlo: «no está instalado» y
+    // «está instalado y el módulo no está cargado» piden respuestas distintas.
+    QString zfsUnavailableDetail;
     QStringList detectedUnixCommands;
     QStringList missingUnixCommands;
     QString helperPlatformId;
