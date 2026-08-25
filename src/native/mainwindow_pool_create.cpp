@@ -2588,14 +2588,72 @@ void MainWindow::createPoolForSelectedConnection() {
             return;
         }
         QString errorText;
-        if (!executePoolCommand(idx,
-                                poolName,
-                                QStringLiteral("Create"),
-                                cmd,
-                                120000,
-                                &errorText,
-                                true,
-                                false)) {
+        bool creado = executePoolCommand(idx,
+                                         poolName,
+                                         QStringLiteral("Create"),
+                                         cmd,
+                                         120000,
+                                         &errorText,
+                                         true,
+                                         false);
+
+        // Un reintento, y solo para el fallo de «etiquetó el disco y no creó el pool».
+        //
+        // En Windows, dar el disco ENTERO hace que zpool bloquee el volumen, escriba la
+        // GPT y después vuelva a abrir la partición que acaba de crear. Ese último paso
+        // falla a menudo con EINVAL —«invalid argument for this pool operation»— y deja el
+        // disco etiquetado y sin pool: lo peor de los dos mundos, porque el disco ya está
+        // escrito y hay que repetir a mano.
+        //
+        // El reintento va contra esa partición, que ya existe. No es una escritura nueva:
+        // es terminar la que se pidió y quedó a medias. Comprobado contra OldLau el
+        // 2026-08-25, que es como se creó `p596`.
+        //
+        // Con condiciones estrictas: Windows, UN solo disco entero en la orden —con varios
+        // no se sabe cuál falló— y la firma exacta del fallo.
+        if (!creado && isWindowsConnection(execProfile)
+            && mwhelpers::windowsPoolCreateLabeledButFailed(errorText)) {
+            static const QRegularExpression rxDisco(
+                QStringLiteral(R"(\\\\\.\\PhysicalDrive\d+)"),
+                QRegularExpression::CaseInsensitiveOption);
+            QStringList discos;
+            auto it = rxDisco.globalMatch(createCmd);
+            while (it.hasNext()) {
+                const QString d = it.next().captured(0);
+                if (!discos.contains(d, Qt::CaseInsensitive)) {
+                    discos << d;
+                }
+            }
+            const QString particion = discos.size() == 1
+                                          ? mwhelpers::windowsWholeDiskFirstPartition(discos.first())
+                                          : QString();
+            if (!particion.isEmpty()) {
+                appLog(QStringLiteral("NORMAL"),
+                       QStringLiteral("[crear pool] %1 quedó etiquetado y sin pool; se reintenta "
+                                      "sobre la partición que acaba de crear: %2")
+                           .arg(discos.first(), particion));
+                QString reintento = createCmd;
+                reintento.replace(discos.first(), particion, Qt::CaseInsensitive);
+                const QStringList reintentoArgv = daemonizeZpoolMutationArgs(idx, reintento);
+                const QString cmdReintento =
+                    reintentoArgv.isEmpty() ? withSudo(execProfile, reintento)
+                                            : mwhelpers::agentShellCommand(execProfile, reintentoArgv);
+                QString errorReintento;
+                creado = executePoolCommand(idx,
+                                            poolName,
+                                            QStringLiteral("Create"),
+                                            cmdReintento,
+                                            120000,
+                                            &errorReintento,
+                                            true,
+                                            false);
+                if (!creado) {
+                    errorText = errorReintento;
+                }
+            }
+        }
+
+        if (!creado) {
             QMessageBox::critical(
                 this,
                 trk(QStringLiteral("t_poolcrt_exec_err_t001"),

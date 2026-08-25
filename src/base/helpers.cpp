@@ -744,6 +744,43 @@ std::string windowsPartitionDiskPath(const std::string& partitionPath) {
     return "\\\\.\\PhysicalDrive" + disco;
 }
 
+std::string windowsWholeDiskFirstPartition(const std::string& diskPath) {
+    static const std::string prefijo = "\\\\.\\physicaldrive";
+    std::string bajo;
+    bajo.reserve(diskPath.size());
+    for (char c : diskPath) {
+        bajo.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (bajo.rfind(prefijo, 0) != 0) {
+        return std::string();
+    }
+    const std::string numero = bajo.substr(prefijo.size());
+    if (numero.empty()) {
+        return std::string();
+    }
+    for (char c : numero) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
+            return std::string();
+        }
+    }
+    return "\\\\?\\Harddisk" + numero + "Partition1";
+}
+
+bool windowsPoolCreateLabeledButFailed(const std::string& output) {
+    std::string bajo;
+    bajo.reserve(output.size());
+    for (char c : output) {
+        bajo.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    // Las DOS cosas: que la etiqueta llegó a escribirse y que el fallo es el EINVAL de
+    // crear. Con una sola no basta —un `zpool create` puede dar ese EINVAL por otras
+    // razones, y `zpool_label_disk` sale también en creaciones que terminan bien—.
+    const bool etiquetado = bajo.find("zpool_label_disk") != std::string::npos
+                            || bajo.find("efi_write") != std::string::npos;
+    const bool einval = bajo.find("invalid argument for this pool operation") != std::string::npos;
+    return etiquetado && einval;
+}
+
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType) {
     if (trim(rawFsType).empty()) {
         return false;

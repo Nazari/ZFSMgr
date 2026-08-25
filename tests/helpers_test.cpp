@@ -90,6 +90,31 @@ int main() {
         return fail("windowsPartitionDiskPath should only match a Windows partition");
     }
 
+    // El disco entero y su primera partición, que es contra la que hay que reintentar.
+    if (windowsWholeDiskFirstPartition(QStringLiteral(R"(\\.\PhysicalDrive1)"))
+        != QStringLiteral(R"(\\?\Harddisk1Partition1)")) {
+        return fail("windowsWholeDiskFirstPartition mismatch");
+    }
+    if (!windowsWholeDiskFirstPartition(QStringLiteral(R"(\\?\Harddisk1Partition1)")).isEmpty()
+        || !windowsWholeDiskFirstPartition(QStringLiteral("/dev/sda")).isEmpty()) {
+        return fail("windowsWholeDiskFirstPartition should only match a whole disk");
+    }
+
+    // La firma del fallo que SÍ merece reintento: la etiqueta escrita Y el EINVAL. Con una
+    // sola de las dos no se reintenta, porque ese EINVAL lo dan también otras cosas.
+    if (!windowsPoolCreateLabeledButFailed(
+            QStringLiteral("zpool_label_disk: trying to online disk\n"
+                           "cannot create 'p596': invalid argument for this pool operation"))) {
+        return fail("windowsPoolCreateLabeledButFailed should match the label+EINVAL case");
+    }
+    if (windowsPoolCreateLabeledButFailed(
+            QStringLiteral("cannot create 'p596': invalid argument for this pool operation"))
+        || windowsPoolCreateLabeledButFailed(QStringLiteral("zpool_label_disk: trying to online disk"))
+        || windowsPoolCreateLabeledButFailed(QStringLiteral("cannot create 'p596': pool already exists"))
+        || windowsPoolCreateLabeledButFailed(QStringLiteral(""))) {
+        return fail("windowsPoolCreateLabeledButFailed should need both halves");
+    }
+
     if (!parentMountCheckRequired("/mnt/a", "on")) {
         return fail("parentMountCheckRequired should require mounted parent");
     }

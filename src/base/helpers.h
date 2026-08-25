@@ -150,6 +150,19 @@ bool windowsPartitionTypeIsProtected(const std::string& rawFsType);
 // se parecen, así que la traducción hay que hacerla a mano.
 std::string windowsPartitionDiskPath(const std::string& partitionPath);
 
+// La primera partición de un disco entero de Windows, o vacío si no es un disco entero.
+// `\\.\PhysicalDrive1` -> `\\?\Harddisk1Partition1`. Es la partición que `zpool create`
+// acaba de escribir cuando se le da el disco entero.
+std::string windowsWholeDiskFirstPartition(const std::string& diskPath);
+
+// ¿Este fallo de `zpool create` es el de «etiquetó el disco y no llegó a crear el pool»?
+//
+// En Windows, dar el disco entero hace que zpool bloquee el volumen, escriba la GPT y
+// después vuelva a abrir la partición recién creada. Ese último paso falla a menudo con
+// EINVAL, y el disco se queda etiquetado y sin pool. Se reconoce por las dos cosas juntas:
+// la etiqueta escrita y el EINVAL.
+bool windowsPoolCreateLabeledButFailed(const std::string& output);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 

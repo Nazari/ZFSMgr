@@ -138,6 +138,8 @@ QString windowsGptTypeName(const QString& guid) { return q(B::windowsGptTypeName
 QString formatWindowsFsTypeDetail(const QString& raw) { return q(B::formatWindowsFsTypeDetail(b(raw))); }
 bool windowsPartitionTypeIsProtected(const QString& raw) { return B::windowsPartitionTypeIsProtected(b(raw)); }
 QString windowsPartitionDiskPath(const QString& p) { return q(B::windowsPartitionDiskPath(b(p))); }
+QString windowsWholeDiskFirstPartition(const QString& p) { return q(B::windowsWholeDiskFirstPartition(b(p))); }
+bool windowsPoolCreateLabeledButFailed(const QString& o) { return B::windowsPoolCreateLabeledButFailed(b(o)); }
 QString asciiSafeShellCommand(const QString& cmd) { return q(B::asciiSafeShellCommand(b(cmd))); }
 bool looksLikeSudoAuthFailure(const QString& text) { return B::looksLikeSudoAuthFailure(b(text)); }
 
