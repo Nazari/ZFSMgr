@@ -167,6 +167,10 @@ public:
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
     void refreshTransfersListForTest();
+    // El estado de validación de una conexión, y cómo queda su fila en el desplegable del
+    // panel: «<rótulo>|caida» o «<rótulo>|viva».
+    void setConnectionStatusForTest(int connIdx, const QString& status);
+    QStringList paneConnectionComboEntriesForTest(bool bottom = false) const;
     // Simula que el daemon de una conexión ACABA de ponerse en marcha, que es el momento en
     // que hay que buscar trabajos que sigan corriendo sin que esta ventana lo sepa.
     void deliverDaemonBecameActiveForTest(int connIdx);
@@ -881,6 +885,7 @@ private:
     bool isConnectionRedirectedToLocal(int idx) const;
     QString connectionPersistKey(int idx) const;
     bool isConnectionDisconnected(int idx) const;
+    bool isConnectionUnusable(int idx) const;
     void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
     bool installOrUpdateDaemonForConnectionInternal(int idx, bool interactive);

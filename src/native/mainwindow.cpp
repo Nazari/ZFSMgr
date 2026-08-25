@@ -2625,6 +2625,30 @@ void MainWindow::deliverDaemonBecameActiveForTest(int connIdx) {
     QCoreApplication::processEvents();
 }
 
+void MainWindow::setConnectionStatusForTest(int connIdx, const QString& status) {
+    if (connIdx < 0 || connIdx >= m_conns.states.size()) {
+        return;
+    }
+    m_conns.states[connIdx].status = status;
+    refillDatasetPaneCombos();
+}
+
+QStringList MainWindow::paneConnectionComboEntriesForTest(bool bottom) const {
+    QStringList salida;
+    QComboBox* combo = m_datasetPanes[bottom ? 1 : 0].connCombo;
+    if (!combo) {
+        return salida;
+    }
+    for (int i = 0; i < combo->count(); ++i) {
+        // «Caída» se mide por el COLOR, que es la marca de verdad; el rótulo se devuelve
+        // entero para poder exigir también que lo diga con palabras.
+        const bool pintada = combo->itemData(i, Qt::ForegroundRole).isValid();
+        salida << (combo->itemText(i) + QStringLiteral("|")
+                   + (pintada ? QStringLiteral("caida") : QStringLiteral("viva")));
+    }
+    return salida;
+}
+
 void MainWindow::refreshTransfersListForTest() {
     updateJobsListWidget();
 }

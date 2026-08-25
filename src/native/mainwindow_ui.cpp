@@ -1171,7 +1171,28 @@ void MainWindow::refillDatasetPaneCombos() {
         for (int i = 0; i < m_conns.profiles.size(); ++i) {
             const ConnectionProfile& p = m_conns.profiles.at(i);
             const QString name = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
-            pane.connCombo->addItem(name, p.id.trimmed());
+            // Una máquina que no responde se ve DESDE EL DESPLEGABLE, sin tener que elegirla
+            // para descubrirlo. Antes salía igual que las demás y solo al seleccionarla
+            // aparecía un árbol vacío, que se lee como «este pool no tiene nada».
+            //
+            // Color Y texto, no solo color: con el rótulo basta para saber qué pasa aunque
+            // no se distingan los colores, y es lo que se lee en una captura en blanco y negro.
+            const bool caida = isConnectionUnusable(i);
+            pane.connCombo->addItem(caida ? trk(QStringLiteral("t_pane_conn_down_001"),
+                                                QStringLiteral("%1  (sin conexión)"),
+                                                QStringLiteral("%1  (no connection)"))
+                                                .arg(name)
+                                          : name,
+                                    p.id.trimmed());
+            if (caida) {
+                const int fila = pane.connCombo->count() - 1;
+                pane.connCombo->setItemData(fila, QBrush(QColor(198, 40, 40)),
+                                            Qt::ForegroundRole);
+                const QString motivo = connectionStateColorReason(i).trimmed();
+                if (!motivo.isEmpty()) {
+                    pane.connCombo->setItemData(fila, motivo, Qt::ToolTipRole);
+                }
+            }
         }
         int connRow = wantedConnId.isEmpty() ? -1 : pane.connCombo->findData(wantedConnId);
         if (connRow < 0 && pane.connCombo->count() > 0) {

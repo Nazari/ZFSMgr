@@ -525,6 +525,36 @@ private Q_SLOTS:
                  "nadie preguntó por los trabajos en marcha al activarse el daemon");
     }
 
+    // Una máquina apagada salía en el desplegable igual que las demás, y solo al elegirla
+    // aparecía un árbol vacío — que se lee como «este pool no tiene nada», no como «esta
+    // máquina no responde».
+    void unreachableConnectionIsMarkedInTheCombo() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("oldlau");
+        profile.name = QStringLiteral("oldlau");
+        profile.connType = QStringLiteral("SSH");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+
+        window.setConnectionStatusForTest(0, QStringLiteral("OK"));
+        QStringList filas = window.paneConnectionComboEntriesForTest();
+        QCOMPARE(filas.size(), 1);
+        QCOMPARE(filas.at(0), QStringLiteral("oldlau|viva"));
+
+        // La máquina se apaga: la validación deja de pasar.
+        window.setConnectionStatusForTest(0, QStringLiteral("ERROR"));
+        filas = window.paneConnectionComboEntriesForTest();
+        QCOMPARE(filas.size(), 1);
+        // Color Y palabras: con una sola de las dos no vale.
+        QCOMPARE(filas.at(0), QStringLiteral("oldlau  (no connection)|caida"));
+
+        // Y vuelve a la normalidad cuando responde otra vez, que es lo que pasa al
+        // encenderla y refrescar.
+        window.setConnectionStatusForTest(0, QStringLiteral("OK"));
+        QCOMPARE(window.paneConnectionComboEntriesForTest().at(0),
+                 QStringLiteral("oldlau|viva"));
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;

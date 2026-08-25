@@ -592,6 +592,22 @@ bool MainWindow::splitConnToken(const QString& token, int& connIdx, QString& poo
     return true;
 }
 
+// ¿Esta conexión NO se puede usar ahora mismo?
+//
+// Las dos formas de estarlo: marcada como desconectada a mano, o con la validación caída
+// —la máquina apagada, el nombre que no resuelve, el daemon que no contesta—. Se juntan
+// aquí porque para quien mira la ventana son lo mismo: esa máquina no responde.
+bool MainWindow::isConnectionUnusable(int idx) const {
+    if (idx < 0 || idx >= m_conns.profiles.size() || idx >= m_conns.states.size()) {
+        return true;
+    }
+    if (isConnectionDisconnected(idx)) {
+        return true;
+    }
+    const QString st = m_conns.states[idx].status.trimmed().toUpper();
+    return !st.isEmpty() && st != QStringLiteral("OK");
+}
+
 bool MainWindow::isConnectionDisconnected(int idx) const {
     const QString key = connectionPersistKey(idx);
     return !key.isEmpty() && m_disconnectedConnectionKeys.contains(key);
