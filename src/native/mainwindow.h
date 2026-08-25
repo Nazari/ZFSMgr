@@ -166,6 +166,10 @@ public:
     // error, solo deja el panel de Transferencias sin progreso.
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
+    void refreshTransfersListForTest();
+    void removeActiveDaemonJobForTest(const QString& jobId);
+    bool selectTransferJobForTest(const QString& jobId);
+    QString selectedTransferJobForTest() const;
     quint64 daemonJobBytesForTest(const QString& jobId) const;
     bool selectSnapshotInPaneDetailForTest(const QString& datasetName, const QString& snapshotName,
                                            bool bottom = false);

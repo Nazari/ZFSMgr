@@ -454,6 +454,40 @@ private Q_SLOTS:
         QVERIFY(preguntoPorElTrabajo);
     }
 
+    // La lista de Transferencias se rehace cada 2,5 segundos con el progreso, y `clear()`
+    // se llevaba la selección por delante: marcar una para cancelarla y llegar al botón era
+    // una carrera contra el siguiente refresco.
+    void transfersListKeepsTheSelectionAcrossRefreshes() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+
+        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-uno"));
+        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-dos"));
+        window.refreshTransfersListForTest();
+
+        // La SEGUNDA, para que no valga con que se quede en la fila 0 por casualidad.
+        QVERIFY(window.selectTransferJobForTest(QStringLiteral("job-dos")));
+        QCOMPARE(window.selectedTransferJobForTest(), QStringLiteral("job-dos"));
+
+        window.refreshTransfersListForTest();
+        QCOMPARE(window.selectedTransferJobForTest(), QStringLiteral("job-dos"));
+
+        // Y si el trabajo marcado desaparece —terminó y se fue de la lista—, no se hereda
+        // la marca a otro: cancelar «el que quedó donde estaba» sería peor que no cancelar.
+        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-tres"));
+        window.refreshTransfersListForTest();
+        QVERIFY(window.selectTransferJobForTest(QStringLiteral("job-tres")));
+        window.removeActiveDaemonJobForTest(QStringLiteral("job-tres"));
+        window.refreshTransfersListForTest();
+        QVERIFY(window.selectedTransferJobForTest().isEmpty()
+                || window.selectedTransferJobForTest() == QStringLiteral("job-tres"));
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;

@@ -3,6 +3,7 @@
 #include "commands/syncing.h"
 
 #include <QDialog>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QDialogButtonBox>
@@ -2597,6 +2598,41 @@ void MainWindow::addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const
     job.displayLabel = jobId;
     job.state = QStringLiteral("running");
     m_activeDaemonJobs.push_back(job);
+}
+
+void MainWindow::removeActiveDaemonJobForTest(const QString& jobId) {
+    for (int i = 0; i < m_activeDaemonJobs.size(); ++i) {
+        if (m_activeDaemonJobs[i].jobId == jobId) {
+            m_activeDaemonJobs.removeAt(i);
+            return;
+        }
+    }
+}
+
+void MainWindow::refreshTransfersListForTest() {
+    updateJobsListWidget();
+}
+
+bool MainWindow::selectTransferJobForTest(const QString& jobId) {
+    if (!m_jobsListWidget) {
+        return false;
+    }
+    for (int i = 0; i < m_jobsListWidget->count(); ++i) {
+        QListWidgetItem* item = m_jobsListWidget->item(i);
+        if (item && item->data(Qt::UserRole).toString() == jobId) {
+            m_jobsListWidget->setCurrentItem(item);
+            return true;
+        }
+    }
+    return false;
+}
+
+QString MainWindow::selectedTransferJobForTest() const {
+    if (!m_jobsListWidget) {
+        return QString();
+    }
+    QListWidgetItem* item = m_jobsListWidget->currentItem();
+    return item ? item->data(Qt::UserRole).toString() : QString();
 }
 
 void MainWindow::pollDaemonJobsForTest() {
