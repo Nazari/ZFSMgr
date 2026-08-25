@@ -1044,6 +1044,17 @@ QWidget* MainWindow::buildPaneLog(int paneIdx, QWidget* parent) {
             if (*pegado) {
                 view->moveCursor(QTextCursor::End);
                 view->ensureCursorVisible();
+                // Y de vuelta al principio de la línea.
+                //
+                // El cursor queda al FINAL del último renglón, así que `ensureCursorVisible`
+                // arrastra la vista a la derecha para enseñarlo — y como estos visores no
+                // parten las líneas, con una orden larga te deja mirando su cola y el
+                // principio, que es donde está la hora y qué máquina habla, fuera de pantalla.
+                // Solo se hace mientras se sigue la cola: si el usuario se ha movido a mano,
+                // no se le toca.
+                if (QScrollBar* h = view->horizontalScrollBar()) {
+                    h->setValue(h->minimum());
+                }
             }
         });
         return view;
@@ -1115,6 +1126,9 @@ void MainWindow::updatePaneLog(int paneIdx) {
         // documento nuevo trae el historial entero y aparecería por el principio.
         view->moveCursor(QTextCursor::End);
         view->ensureCursorVisible();
+        if (QScrollBar* h = view->horizontalScrollBar()) {
+            h->setValue(h->minimum());
+        }
     };
     attach(pane.logTerminalView, connId.isEmpty() ? nullptr
                                                   : m_connectionLogViews.value(connId, nullptr));
