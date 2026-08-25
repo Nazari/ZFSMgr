@@ -5574,7 +5574,33 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     args.push_back(dataset);
 
 #ifndef _WIN32
-    // En Unix el socket ES la entrada del hijo: un dup2 y listo, sin copiar un byte.
+    // De qué descriptor lee `zfs recv`, y por qué no da igual.
+    //
+    // En Linux y FreeBSD el socket ES la entrada del hijo: un dup2 y listo, sin copiar un
+    // byte. En **macOS no**, y esto no es cautela: en Windows ya estaba medido —el
+    // descriptor de sshd, también un socket, mata el recv a los 132 KiB— y el 2026-08-25
+    // apareció la variante de macOS, peor. Ahí `zfs recv` alimentado por algo que no es
+    // una tubería se comporta mal de dos formas distintas: desde un FICHERO normal
+    // rechaza el flujo con «invalid backup stream» —comprobado con el mismo fichero, mismo
+    // md5, que por `cat |` entra sin una queja—, y desde un SOCKET se lleva la máquina por
+    // delante. Cuatro cuelgues de un MacBook, con tres versiones distintas de OpenZFS
+    // —2.3.1, 2.4.1 y 2.4.3rc2, esta última con kernel panic— y siempre por este camino;
+    // por tubería, las mismas versiones reciben perfectamente.
+    //
+    // Así que en macOS se BOMBEA, igual que en Windows: el daemon lee del socket y escribe
+    // en una tubería anónima, que es la única entrada que ese port digiere bien.
+#ifdef __APPLE__
+    int inPipe[2] = {-1, -1};
+    if (pipe(inPipe) != 0) {
+        daemonLog("ERROR", "recv-listen: no se pudo crear la tubería de entrada");
+        closeTransferSocket(clientFd);
+        return;
+    }
+    // Si el hijo muere antes de tiempo, la escritura en la tubería levanta un SIGPIPE que
+    // se llevaría al daemon entero. Se ignora aquí para que `write` devuelva EPIPE y el
+    // bombeo termine como lo que es: el receptor se ha ido.
+    void (*sigpipePrevio)(int) = std::signal(SIGPIPE, SIG_IGN);
+#endif
     std::vector<char*> argv2;
     argv2.push_back(const_cast<char*>("zfs"));
     for (const std::string& a : args) { argv2.push_back(const_cast<char*>(a.c_str())); }
@@ -5587,12 +5613,44 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     const bool hayTuberia = (pipe(errPipe) == 0);
     const pid_t pid = fork();
     if (pid == 0) {
+#ifdef __APPLE__
+        close(inPipe[1]);
+        dup2(inPipe[0], STDIN_FILENO);
+        close(inPipe[0]);
+#else
         dup2(clientFd, STDIN_FILENO);
+#endif
         if (hayTuberia) { dup2(errPipe[1], STDERR_FILENO); close(errPipe[0]); close(errPipe[1]); }
         close(clientFd);
         execvp("zfs", argv2.data());
         _exit(127);
     }
+#ifdef __APPLE__
+    // El bombeo va ANTES de vaciar la salida de error: mientras dure, el hijo está
+    // recibiendo. Y su fin —socket cerrado por el emisor, o escritura imposible porque el
+    // hijo ya no está— es lo que cierra la entrada de `zfs recv` y le dice que se acabó.
+    close(inPipe[0]);
+    if (pid > 0) {
+        std::vector<char> buf(256 * 1024);
+        for (;;) {
+            const ssize_t leidos = ::recv(clientFd, buf.data(), buf.size(), 0);
+            if (leidos <= 0) { break; }
+            ssize_t escritos = 0;
+            while (escritos < leidos) {
+                const ssize_t n = ::write(inPipe[1], buf.data() + escritos,
+                                          static_cast<size_t>(leidos - escritos));
+                if (n <= 0) {
+                    if (n < 0 && errno == EINTR) { continue; }
+                    break;
+                }
+                escritos += n;
+            }
+            if (escritos < leidos) { break; }
+        }
+    }
+    close(inPipe[1]);
+    std::signal(SIGPIPE, sigpipePrevio);
+#endif
     close(clientFd);
     std::string recvErr;
     if (hayTuberia) {
