@@ -54,12 +54,21 @@ QString MainWindow::connContentTokenForTree(const QTreeWidget* tree) const {
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
+    // Todo lo que sale de aquí acaba en `m_conns.profiles[ctx.connIdx]`, y la mayoría de esos
+    // ~25 puntos indexan sin comprobar el rango. Se comprueba UNA vez, aquí, en lugar de
+    // confiar en que cada uno se acuerde: un `connIdx` colgado no vale como selección.
+    const auto saneado = [this](const DatasetSelectionContext& in) {
+        if (!in.valid || in.connIdx < 0 || in.connIdx >= m_conns.profiles.size()) {
+            return DatasetSelectionContext{};
+        }
+        return in;
+    };
     if (m_transferSelectionOverrideActive) {
         if (side == QStringLiteral("origin") && m_transferSelectionOverrideOrigin.valid) {
-            return m_transferSelectionOverrideOrigin;
+            return saneado(m_transferSelectionOverrideOrigin);
         }
         if (side == QStringLiteral("dest") && m_transferSelectionOverrideDest.valid) {
-            return m_transferSelectionOverrideDest;
+            return saneado(m_transferSelectionOverrideDest);
         }
     }
     QString token;
@@ -67,16 +76,16 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
     QString snap;
     if (side == QStringLiteral("origin")) {
         if (m_connActionOrigin.valid) {
-            return m_connActionOrigin;
+            return saneado(m_connActionOrigin);
         }
         return ctx;
     } else if (side == QStringLiteral("dest")) {
         if (m_connActionDest.valid) {
-            return m_connActionDest;
+            return saneado(m_connActionDest);
         }
         return ctx;
     } else if (side == QStringLiteral("conncontent")) {
-        return currentConnContentSelection(m_connContentTree);
+        return saneado(currentConnContentSelection(m_connContentTree));
     } else {
         return ctx;
     }
@@ -133,7 +142,8 @@ MainWindow::DatasetSelectionContext MainWindow::currentConnContentSelection(cons
     }
     int connIdx = -1;
     QString poolName;
-    if (!splitConnToken(token, connIdx, poolName) || ds.isEmpty()) {
+    if (!splitConnToken(token, connIdx, poolName) || ds.isEmpty()
+        || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return ctx;
     }
     ctx.valid = true;

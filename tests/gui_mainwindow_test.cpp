@@ -332,6 +332,74 @@ private Q_SLOTS:
     // que llevaban meses sin comprobar nada, y su sujeto —las casillas de «mostrar el
     // nodo X en línea»— ya no existe.
 
+    // Un SIGSEGV real: marcar un snapshot en la pestaña «Snapshots» del detalle y pedir
+    // «Enviar» reventaba en `m_conns.profiles[src.connIdx]` con `connIdx = -1`.
+    //
+    // La pestaña no es el árbol: la fila sabe a qué conexión y pool pertenece, pero
+    // `setSelectedDataset()` daba la selección por válida con solo el nombre del dataset y
+    // se marchaba antes de completarla. Mientras el árbol conservara su selección no se
+    // notaba, porque el contexto se copiaba del anterior; en cuanto el árbol se quedaba sin
+    // selección —un refresco, un cambio de pool— la selección quedaba armada apuntando a
+    // ninguna conexión, y la primera acción de dos extremos indexaba fuera de rango.
+    //
+    // Se comprueban las dos mitades del arreglo: que la fila aporte conexión y pool, y que
+    // una selección con un índice imposible no pueda quedarse guardada como válida.
+    void snapshotPickedInDetailTabCarriesItsConnection() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.configurePoolDatasetsForTest(
+            0,
+            QStringLiteral("tank1"),
+            {MainWindow::UiTestDatasetSeed{QStringLiteral("tank1"),
+                                           QStringLiteral("/tank1"),
+                                           QStringLiteral("on"),
+                                           QStringLiteral("yes"),
+                                           {}},
+             MainWindow::UiTestDatasetSeed{QStringLiteral("tank1/datos"),
+                                           QStringLiteral("/tank1/datos"),
+                                           QStringLiteral("on"),
+                                           QStringLiteral("yes"),
+                                           {QStringLiteral("diario")}}});
+        window.rebuildConnectionDetailsForTest();
+
+        QVERIFY(window.selectDatasetForTest(QStringLiteral("tank1/datos")));
+
+        // El árbol se queda sin selección, que es como lo deja un refresco. La pestaña
+        // «Snapshots» sigue mostrando sus filas: es justo el hueco por el que entraba.
+        window.clearTransferSelectionForTest(QStringLiteral("origin"));
+        QVERIFY(!window.transferSelectionForTest(QStringLiteral("origin")).valid);
+
+        QVERIFY(window.selectSnapshotInPaneDetailForTest(QStringLiteral("tank1/datos"),
+                                                         QStringLiteral("diario")));
+
+        const MainWindow::TransferSelectionForTest sel =
+            window.transferSelectionForTest(QStringLiteral("origin"));
+        QVERIFY(sel.valid);
+        QCOMPARE(sel.connIdx, 0);   // antes: -1, y de ahí el core
+        QCOMPARE(sel.poolName, QStringLiteral("tank1"));
+        QCOMPARE(sel.datasetName, QStringLiteral("tank1/datos"));
+        QCOMPARE(sel.snapshotName, QStringLiteral("diario"));
+
+        // Y el cortafuegos: ni por debajo del rango ni por encima. La segunda es la que
+        // deja una conexión borrada, cuyo índice sigue guardado en la selección.
+        QVERIFY(!window.forceTransferSelectionForTest(QStringLiteral("origin"), -1,
+                                                      QStringLiteral("tank1"),
+                                                      QStringLiteral("tank1/datos"),
+                                                      QString())
+                     .valid);
+        QVERIFY(!window.forceTransferSelectionForTest(QStringLiteral("dest"), 7,
+                                                      QStringLiteral("tank1"),
+                                                      QStringLiteral("tank1/datos"),
+                                                      QString())
+                     .valid);
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;

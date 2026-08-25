@@ -386,9 +386,15 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                 }
                 p.snapshotSel = item->data(1, Qt::UserRole).toString();
                 p.detailForced.clear();
+                // La conexión y el pool van EN LA FILA: se los puso `fillPaneSnapshots`. Hay que
+                // pasarlos, porque esta lista no es el árbol y la selección del árbol puede estar
+                // vacía (tras un refresco o un cambio de pool) — y entonces la selección se daba
+                // por válida sin conexión y la primera transferencia reventaba.
                 setSelectedDataset(paneIdx == 0 ? QStringLiteral("origin") : QStringLiteral("dest"),
                                    item->data(0, Qt::UserRole).toString(),
-                                   p.snapshotSel);
+                                   p.snapshotSel,
+                                   item->data(0, kConnIdxRole).toInt(),
+                                   item->data(0, kPoolNameRole).toString());
                 // Y que el detalle pase a hablar del snapshot: sus propiedades, su
                 // contenido y sus holds, no los del dataset que lo contiene.
                 updatePaneDetail(paneIdx);

@@ -42,6 +42,13 @@ MainWindow::DatasetSelectionContext MainWindow::normalizeDatasetSelectionContext
     if (!ctx.valid) {
         return ctx;
     }
+    // Una selección que apunta a una conexión que no existe NO es una selección. Aquí se
+    // corta porque este es el único sitio por el que pasan las dos selecciones antes de
+    // guardarse: ~25 puntos hacen `m_conns.profiles[ctx.connIdx]` sin comprobar el rango, y
+    // uno de ellos (`actionSendSnapshot`) generó un SIGSEGV con `connIdx = -1`.
+    if (ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
+        return DatasetSelectionContext{};
+    }
     if (ctx.datasetName.isEmpty() && treeHint) {
         QTreeWidgetItem* item = treeHint->currentItem();
         if (!item) {

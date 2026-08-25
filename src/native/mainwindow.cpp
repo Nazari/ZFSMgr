@@ -2597,6 +2597,85 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     return true;
 }
 
+MainWindow::TransferSelectionForTest MainWindow::transferSelectionForTest(const QString& side) const {
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    TransferSelectionForTest out;
+    out.valid = ctx.valid;
+    out.connIdx = ctx.connIdx;
+    out.poolName = ctx.poolName;
+    out.datasetName = ctx.datasetName;
+    out.snapshotName = ctx.snapshotName;
+    return out;
+}
+
+bool MainWindow::selectSnapshotInPaneDetailForTest(const QString& datasetName,
+                                                   const QString& snapshotName, bool bottom) {
+    const int paneIdx = bottom ? 1 : 0;
+    QTreeWidget* tree = m_datasetPanes[paneIdx].datasetSnapsTree;
+    if (!tree || datasetName.trimmed().isEmpty() || snapshotName.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString ds = datasetName.trimmed();
+    const QString snap = snapshotName.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == ds
+            && node->data(1, Qt::UserRole).toString().trimmed() == snap) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* item = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !item; ++i) {
+        item = rec(tree->topLevelItem(i));
+    }
+    if (!item) {
+        return false;
+    }
+    // Por `setCurrentItem`, para que salte la MISMA señal que al pulsar con el ratón.
+    tree->setCurrentItem(item);
+    return true;
+}
+
+void MainWindow::clearTransferSelectionForTest(const QString& side, bool bottom) {
+    const int paneIdx = bottom ? 1 : 0;
+    if (ConnectionDatasetTreeWidget* widget = m_datasetPanes[paneIdx].treeWidget) {
+        if (QTreeWidget* tree = widget->tree()) {
+            tree->setCurrentItem(nullptr);
+            tree->clearSelection();
+        }
+    }
+    if (side == QStringLiteral("dest")) {
+        setConnectionDestinationSelection(DatasetSelectionContext{});
+    } else {
+        setConnectionOriginSelection(DatasetSelectionContext{});
+    }
+}
+
+MainWindow::TransferSelectionForTest MainWindow::forceTransferSelectionForTest(
+    const QString& side, int connIdx, const QString& poolName, const QString& datasetName,
+    const QString& snapshotName) {
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = connIdx;
+    ctx.poolName = poolName;
+    ctx.datasetName = datasetName;
+    ctx.snapshotName = snapshotName;
+    if (side == QStringLiteral("dest")) {
+        setConnectionDestinationSelection(ctx);
+    } else {
+        setConnectionOriginSelection(ctx);
+    }
+    return transferSelectionForTest(side);
+}
+
 bool MainWindow::setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom) {
     Q_UNUSED(bottom);
     QTreeWidget* tree = m_connContentTree;

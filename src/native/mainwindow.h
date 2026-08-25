@@ -161,6 +161,23 @@ public:
     // ordena aquí.
     QStringList snapshotTreeLabelsForDatasetForTest(const QString& datasetName) const;
     bool selectDatasetForTest(const QString& datasetName, bool bottom = false);
+    // La selección de transferencia tal y como la ven las seis acciones de dos extremos.
+    struct TransferSelectionForTest {
+        bool valid{false};
+        int connIdx{-1};
+        QString poolName;
+        QString datasetName;
+        QString snapshotName;
+    };
+    TransferSelectionForTest transferSelectionForTest(const QString& side) const;
+    bool selectSnapshotInPaneDetailForTest(const QString& datasetName, const QString& snapshotName,
+                                           bool bottom = false);
+    // Deja el panel como lo deja un refresco: sin selección en el árbol y sin origen/destino.
+    void clearTransferSelectionForTest(const QString& side, bool bottom = false);
+    TransferSelectionForTest forceTransferSelectionForTest(const QString& side, int connIdx,
+                                                           const QString& poolName,
+                                                           const QString& datasetName,
+                                                           const QString& snapshotName);
     bool setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom = false);
     bool isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom = false) const;
     void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
@@ -715,7 +732,13 @@ private:
     void refreshDatasetProperties(const QString& side);
     void refreshDatasetProperties(const QString& side, QTreeWidget* connContentTree);
     void refreshConnContentPropertiesFor(QTreeWidget* tree);
-    void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
+    // `connIdxHint`/`poolHint`: la conexión y el pool a los que pertenece de verdad lo que se
+    // marca. Quien llama desde una lista que YA los lleva (la pestaña Snapshots del detalle)
+    // debe pasarlos: sin ellos la selección se daba por buena con `connIdx = -1` y la primera
+    // acción de transferencia indexaba `m_conns.profiles[-1]`.
+    void setSelectedDataset(const QString& side, const QString& datasetName,
+                            const QString& snapshotName, int connIdxHint = -1,
+                            const QString& poolHint = QString());
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
     DatasetSelectionContext normalizeDatasetSelectionContext(const DatasetSelectionContext& ctx,

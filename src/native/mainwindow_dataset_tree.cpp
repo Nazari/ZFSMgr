@@ -4119,9 +4119,19 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
     }
 }
 
-void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName) {
+void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName,
+                                    const QString& snapshotName, int connIdxHint,
+                                    const QString& poolHint) {
+    // Completa lo que falte con el árbol del panel. OJO: antes se marchaba en cuanto el
+    // contexto estaba marcado como válido, y por eso una selección hecha desde fuera del
+    // árbol —la pestaña Snapshots— se quedaba válida pero con `connIdx = -1`. Ahora entra
+    // también en ese caso, y rellena SOLO la conexión y el pool que faltan.
     auto fillCtxFromSideTree = [&](DatasetSelectionContext& ctx, const QTreeWidget* tree) {
-        if (!tree || ctx.valid) {
+        if (!tree) {
+            return;
+        }
+        const bool completa = !ctx.valid;
+        if (!completa && ctx.connIdx >= 0 && !ctx.poolName.trimmed().isEmpty()) {
             return;
         }
         QTreeWidgetItem* item = tree->currentItem();
@@ -4146,11 +4156,25 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         if (itemConnIdx < 0 || itemPool.isEmpty() || itemDataset.isEmpty()) {
             return;
         }
-        ctx.valid = true;
         ctx.connIdx = itemConnIdx;
         ctx.poolName = itemPool;
-        ctx.datasetName = itemDataset;
-        ctx.snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
+        if (completa) {
+            ctx.datasetName = itemDataset;
+            ctx.snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
+        }
+        ctx.valid = !ctx.datasetName.trimmed().isEmpty();
+    };
+    // El origen que manda: quien llama desde una lista que ya sabe a qué conexión y pool
+    // pertenece la fila. Manda sobre lo que hubiera antes porque el panel pudo cambiar de
+    // conexión sin que la selección anterior se enterara.
+    const bool hayPista = (connIdxHint >= 0 && !poolHint.trimmed().isEmpty());
+    auto aplicaPista = [&](DatasetSelectionContext& ctx) {
+        if (!hayPista) {
+            return;
+        }
+        ctx.connIdx = connIdxHint;
+        ctx.poolName = poolHint.trimmed();
+        ctx.valid = !ctx.datasetName.trimmed().isEmpty();
     };
     if (side == QStringLiteral("origin")) {
         DatasetSelectionContext ctx;
@@ -4164,6 +4188,7 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
             ctx.datasetName = datasetName;
             ctx.snapshotName = snapshotName;
         }
+        aplicaPista(ctx);
         fillCtxFromSideTree(ctx, m_topDatasetTreeWidget ? m_topDatasetTreeWidget->tree() : nullptr);
         ctx = normalizeDatasetSelectionContext(
             ctx,
@@ -4183,6 +4208,7 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         ctx.datasetName = datasetName;
         ctx.snapshotName = snapshotName;
     }
+    aplicaPista(ctx);
     fillCtxFromSideTree(ctx, m_bottomDatasetTreeWidget ? m_bottomDatasetTreeWidget->tree() : nullptr);
     ctx = normalizeDatasetSelectionContext(
         ctx,
