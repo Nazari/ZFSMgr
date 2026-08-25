@@ -3808,7 +3808,7 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     QString out;
     QString err;
     int rc = -1;
-    if (!tryRunRemoteAgentRpcViaTunnel(destino, argv, 30000, out, err, rc) || rc != 0) {
+    if (!runAgentOnConnection(destino, argv, 30000, out, err, rc) || rc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_push_peers_failed001"),
                                  QStringLiteral("No se pudieron entregar las credenciales:\n%1"),

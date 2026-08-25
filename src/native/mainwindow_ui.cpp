@@ -47,6 +47,8 @@
 #include <QRegularExpression>
 #include <QScopedValueRollback>
 #include <QScrollBar>
+
+#include <memory>
 #include <QResizeEvent>
 #include <QStyleFactory>
 #include <QSizePolicy>
@@ -1008,6 +1010,42 @@ QWidget* MainWindow::buildPaneLog(int paneIdx, QWidget* parent) {
         if (m_logView) {
             view->setFont(m_logView->font());
         }
+        // Pegado a la última línea.
+        //
+        // El texto lo añade un visor OCULTO que es el dueño del documento, así que estos no
+        // se enteran de que ha crecido y se quedaban donde estaban: había que bajar a mano
+        // cada vez para ver lo último, que es justo lo contrario de para qué sirve un log.
+        //
+        // Se sigue la cola SOLO mientras el usuario esté abajo, y se deja de seguir en
+        // cuanto sube. Sin esa condición, leer algo de hace un rato sería imposible: cada
+        // línea nueva te devolvería al final de un tirón.
+        //
+        // Se lleva el CURSOR al final y se pide verlo, en vez de mover la barra.
+        //
+        // La barra de estas vistas no sirve para esto: el documento es compartido con el
+        // visor oculto que lo escribe, y su recorrido lo gobierna ese otro —medido: 400 en
+        // el dueño y 0 en la vista, con el mismo documento de 401 líneas—. Mover una barra
+        // cuyo máximo es cero no hace nada.
+        //
+        // Y la bandera se mantiene aparte, mirando a dónde se mueve el USUARIO: cuando el
+        // texto ya cambió no hay forma de saber si estaba abajo antes. Se sigue la cola solo
+        // mientras esté abajo; si sube a leer, se le deja — si no, cada línea nueva lo
+        // devolvería al final de un tirón y leer historia sería imposible.
+        auto pegado = std::make_shared<bool>(true);
+        if (QScrollBar* sb = view->verticalScrollBar()) {
+            connect(sb, &QScrollBar::valueChanged, view, [sb, pegado](int v) {
+                // Dos píxeles de margen: la última línea a medio mostrar sigue siendo «abajo».
+                *pegado = (v >= sb->maximum() - 2);
+            });
+        }
+        // `textChanged` es de la VISTA, así que sigue valiendo cuando se le cambia el
+        // documento al elegir otra conexión: no hay que rehacer la conexión de señal.
+        connect(view, &QPlainTextEdit::textChanged, view, [view, pegado]() {
+            if (*pegado) {
+                view->moveCursor(QTextCursor::End);
+                view->ensureCursorVisible();
+            }
+        });
         return view;
     };
 
@@ -1073,6 +1111,10 @@ void MainWindow::updatePaneLog(int paneIdx) {
             return;
         }
         view->setDocument(doc);
+        // Al cambiar de conexión se entra por el final, que es lo que se quiere ver: el
+        // documento nuevo trae el historial entero y aparecería por el principio.
+        view->moveCursor(QTextCursor::End);
+        view->ensureCursorVisible();
     };
     attach(pane.logTerminalView, connId.isEmpty() ? nullptr
                                                   : m_connectionLogViews.value(connId, nullptr));
@@ -2201,7 +2243,7 @@ void MainWindow::buildUi() {
                 zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
             QString out, err;
             int rc = -1;
-            tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc);
+            runAgentOnConnection(sp, args, 5000, out, err, rc);
             if (rc == 0) {
                 for (ActiveDaemonJob& j : m_activeDaemonJobs) {
                     if (j.jobId == jobId) { j.state = QStringLiteral("cancelled"); break; }

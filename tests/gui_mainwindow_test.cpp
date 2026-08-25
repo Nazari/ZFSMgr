@@ -400,6 +400,60 @@ private Q_SLOTS:
                      .valid);
     }
 
+    // El progreso de una transferencia con origen LOCAL no llegaba nunca al panel.
+    //
+    // `pollDaemonJobs()` preguntaba por el trabajo con `tryRunRemoteAgentRpcViaTunnel()`, y
+    // esa función rechaza de plano cualquier conexión que no sea SSH —«Local» es otro tipo—
+    // devolviendo false sin intentar nada. El bucle hacía `continue` y el trabajo no se
+    // consultaba jamás: ni progreso, ni enterarse de que había terminado. Y no fallaba: se
+    // quedaba callado, que es lo que costó verlo.
+    //
+    // El transporte de prueba solo intercepta el camino de `runAgentCommand`, o sea el que
+    // sirve a Local. Así que si el sondeo vuelve a irse por el túnel, aquí no llega ninguna
+    // llamada y los bytes se quedan a cero.
+    void localJobProgressReachesTheTransfersPanel() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>& argv, std::string& out, std::string& err,
+               int& rc) {
+                err.clear();
+                rc = 0;
+                if (!argv.empty() && argv[0] == "--job-status") {
+                    out = "STATE=running\nBYTES=3600034328\nRATE_MIB_S=38.5\nELAPSED_SECS=90\n";
+                    return true;
+                }
+                out.clear();
+                return true;
+            });
+
+        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("dc813986b04ce990"));
+        QCOMPARE(window.daemonJobBytesForTest(QStringLiteral("dc813986b04ce990")), quint64(0));
+
+        window.pollDaemonJobsForTest();
+
+        // Los bytes de la transferencia real que destapó el fallo.
+        QCOMPARE(window.daemonJobBytesForTest(QStringLiteral("dc813986b04ce990")),
+                 quint64(3600034328ULL));
+
+        // Y que se preguntó por el trabajo que era, no por otro.
+        bool preguntoPorElTrabajo = false;
+        for (const auto& call : window.agentCallsForTest()) {
+            if (call.argv.size() >= 2 && call.argv[0] == "--job-status"
+                && call.argv[1] == "dc813986b04ce990") {
+                preguntoPorElTrabajo = true;
+            }
+        }
+        QVERIFY(preguntoPorElTrabajo);
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;

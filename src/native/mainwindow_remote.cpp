@@ -950,6 +950,21 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     return ok;
 }
 
+// Una orden al agente de ESTA conexión, sea del tipo que sea.
+//
+// `tryRunRemoteAgentRpcViaTunnel` rechaza de plano todo lo que no sea SSH —«Local» es otro
+// tipo de conexión— y devuelve false sin intentar nada ni dejar rastro. Llamarla directamente
+// con un perfil que puede ser Local es lo que dejaba el panel de Transferencias SIN progreso:
+// el sondeo se saltaba el trabajo en silencio, y por el mismo motivo no funcionaban ni
+// «Cancelar seleccionado» ni la recuperación de trabajos huérfanos cuando el origen era la
+// máquina de uno. El reparto del trabajo ya se hacía bien al LANZARLO; faltaba en los tres
+// sitios que lo consultan después.
+bool MainWindow::runAgentOnConnection(const ConnectionProfile& p, const QStringList& agentArgs,
+                                      int timeoutMs, QString& out, QString& err, int& rc) {
+    return isLocalConnection(p) ? runAgentCommand(p, agentArgs, timeoutMs, out, err, rc)
+                                : tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc);
+}
+
 bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem, QByteArray& clientCertPem,
                                               QByteArray& clientKeyPem, quint16& daemonPort) {
     return transport::ensureLocalDaemonTlsMaterial(m_transport, serverCertPem, clientCertPem,

@@ -161,6 +161,12 @@ public:
         QString snapshotName;
     };
     TransferSelectionForTest transferSelectionForTest(const QString& side) const;
+    // Un trabajo del daemon en marcha, y el sondeo que lo consulta. Sirven para fijar que
+    // una conexión Local TAMBIÉN se sondea: por el túnel no se puede, y saltárselo no da
+    // error, solo deja el panel de Transferencias sin progreso.
+    void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
+    void pollDaemonJobsForTest();
+    quint64 daemonJobBytesForTest(const QString& jobId) const;
     bool selectSnapshotInPaneDetailForTest(const QString& datasetName, const QString& snapshotName,
                                            bool bottom = false);
     // Deja el panel como lo deja un refresco: sin selección en el árbol y sin origen/destino.
@@ -486,6 +492,8 @@ private:
     // Material TLS del daemon LOCAL. Vive bajo /etc/zfsmgr con permisos de root, así
     // que hay que leerlo elevando, igual que el de las conexiones remotas se trae por
     // SSH con sudo. Se cachea en memoria para no pedir credenciales en cada orden.
+    bool runAgentOnConnection(const ConnectionProfile& p, const QStringList& agentArgs,
+                              int timeoutMs, QString& out, QString& err, int& rc);
     bool ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
                                       QByteArray& clientCertPem,
                                       QByteArray& clientKeyPem,

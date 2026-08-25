@@ -3,6 +3,8 @@
 #include "commands/syncing.h"
 
 #include <QDialog>
+#include <QPlainTextEdit>
+#include <QScrollBar>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -2585,6 +2587,29 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     tree->setCurrentItem(item);
     refreshConnContentPropertiesFor(tree);
     return true;
+}
+
+void MainWindow::addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId) {
+    ActiveDaemonJob job;
+    job.srcConnIdx = srcConnIdx;
+    job.dstConnIdx = dstConnIdx;
+    job.jobId = jobId;
+    job.displayLabel = jobId;
+    job.state = QStringLiteral("running");
+    m_activeDaemonJobs.push_back(job);
+}
+
+void MainWindow::pollDaemonJobsForTest() {
+    pollDaemonJobs();
+}
+
+quint64 MainWindow::daemonJobBytesForTest(const QString& jobId) const {
+    for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
+        if (j.jobId == jobId) {
+            return j.bytesTransferred;
+        }
+    }
+    return 0;
 }
 
 MainWindow::TransferSelectionForTest MainWindow::transferSelectionForTest(const QString& side) const {

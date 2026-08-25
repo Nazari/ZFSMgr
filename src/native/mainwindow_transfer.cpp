@@ -2081,7 +2081,7 @@ void MainWindow::pollDaemonJobs() {
             zfsmgr::commands::requests::jobStatus(pollJobId.toStdString()));
         QString out, err;
         int rc = -1;
-        if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc) || rc != 0) continue;
+        if (!runAgentOnConnection(sp, args, 5000, out, err, rc) || rc != 0) continue;
 
         // Re-acquire after the yield, and confirm the slot still holds the same job.
         if (i >= m_activeDaemonJobs.size() || m_activeDaemonJobs[i].jobId != pollJobId) continue;
@@ -2129,7 +2129,7 @@ void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
     args << mwhelpers::argvQt(zfsmgr::commands::requests::jobList());
     QString out, err;
     int rc = -1;
-    if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 8000, out, err, rc) || rc != 0) return;
+    if (!runAgentOnConnection(sp, args, 8000, out, err, rc) || rc != 0) return;
 
     for (const QString& line : out.split('\n')) {
         if (!line.startsWith(QStringLiteral("JOB="))) continue;
