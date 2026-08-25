@@ -315,7 +315,8 @@ int main(int argc, char* argv[]) {
             if (QFileInfo::exists(store.configPath()) && !QFile::remove(store.configPath())) {
                 removeErr = trk(language,
                                 QStringLiteral("t_reset_ini_err001"),
-                                QStringLiteral("No se pudo borrar config.json."));
+                                QStringLiteral("No se pudo borrar config.json."),
+                                QStringLiteral("config.json could not be deleted."));
             }
             const QDir cfgDir(store.configDir());
             const QStringList connFiles = cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files);
@@ -324,7 +325,8 @@ int main(int argc, char* argv[]) {
                 if (!QFile::remove(p) && removeErr.isEmpty()) {
                     removeErr = trk(language,
                                     QStringLiteral("t_reset_ini_err_conn"),
-                                    QStringLiteral("No se pudo borrar %1.").arg(f));
+                                    QStringLiteral("No se pudo borrar %1."),
+                                    QStringLiteral("%1 could not be deleted.")).arg(f);
                 }
             }
             if (!removeErr.isEmpty()) {
@@ -359,7 +361,8 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_sudo_req1"),
-                        QStringLiteral("Usuario y password sudo son obligatorios.")));
+                        QStringLiteral("Usuario y password sudo son obligatorios."),
+                        QStringLiteral("A sudo user and password are required.")));
                 return false;
             }
             // Comprobar la contraseña ANTES de guardarla. Guardar una equivocada dejaba
@@ -374,7 +377,8 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_sudo_bad1"),
-                        QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla.")).arg(sudoDetail));
+                        QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
+                        QStringLiteral("The local sudo password is not valid.\n%1\n\nEnter it again.")).arg(sudoDetail));
                 return false;
             }
             // No se pudo comprobar: se avisa y se sigue. Bloquear aquí dejaría al
@@ -388,7 +392,10 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("t_local_sudo_unchecked1"),
                         QStringLiteral("No se pudo comprobar la contraseña de sudo local:\n%1\n\n"
                                        "Se guarda de todos modos. Si las operaciones locales fallan, "
-                                       "use «Cambiar credenciales sudo local…» en el menú de la conexión Local.")).arg(sudoDetail));
+                                       "use «Cambiar credenciales sudo local…» en el menú de la conexión Local."),
+                        QStringLiteral("The local sudo password could not be checked:\n%1\n\n"
+                                       "It is saved anyway. If local operations fail, use "
+                                       "\"Change local sudo credentials…\" in the Connections menu.")).arg(sudoDetail));
             }
             ConnectionProfile local;
             local.id = QStringLiteral("local");
@@ -417,7 +424,8 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_conn_create_err001"),
-                        QStringLiteral("No se pudo crear la conexión Local en config.json.\n%1")).arg(localErr));
+                        QStringLiteral("No se pudo crear la conexión Local en config.json.\n%1"),
+                        QStringLiteral("The Local connection could not be created in config.json.\n%1")).arg(localErr));
                 return false;
             }
             requireLocalSudoAtStartup = false;
@@ -461,7 +469,8 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("ZFSMgr"),
                         trk(language,
                             QStringLiteral("t_new_pwd_empty1"),
-                            QStringLiteral("El nuevo password no puede estar vacío.")));
+                            QStringLiteral("El nuevo password no puede estar vacío."),
+                            QStringLiteral("The new password cannot be empty.")));
                     continue;
                 }
                 if (masterPassword != confirm) {
@@ -470,7 +479,8 @@ int main(int argc, char* argv[]) {
                         QStringLiteral("ZFSMgr"),
                         trk(language,
                             QStringLiteral("t_pwd_confirm01"),
-                            QStringLiteral("La confirmación no coincide.")));
+                            QStringLiteral("La confirmación no coincide."),
+                            QStringLiteral("The confirmation does not match.")));
                     continue;
                 }
             }

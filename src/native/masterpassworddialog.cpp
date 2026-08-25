@@ -137,7 +137,8 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
             QStringLiteral("ZFSMgr"),
             trk(m_lang,
                 QStringLiteral("t_reset_ini_q_001"),
-                QStringLiteral("Esto borrará config.json y todas las conexiones guardadas.\n¿Desea continuar?")),
+                QStringLiteral("Esto borrará config.json y todas las conexiones guardadas.\n¿Desea continuar?"),
+                QStringLiteral("This will delete config.json and every saved connection.\nDo you want to continue?")),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (ans != QMessageBox::Yes) {
@@ -234,7 +235,8 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     dlg.resize(460, 220);
     dlg.setWindowTitle(trk(lang,
                            QStringLiteral("t_chg_master_001"),
-                           QStringLiteral("Cambiar password maestro")));
+                           QStringLiteral("Cambiar password maestro"),
+                           QStringLiteral("Change master password")));
     auto* root = new QVBoxLayout(&dlg);
     auto* form = new QFormLayout();
     QLineEdit* oldPwd = new QLineEdit(&dlg);
@@ -243,9 +245,9 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     oldPwd->setEchoMode(QLineEdit::Password);
     newPwd->setEchoMode(QLineEdit::Password);
     newPwd2->setEchoMode(QLineEdit::Password);
-    form->addRow(trk(lang, QStringLiteral("t_cur_pwd_lbl001"), QStringLiteral("Password actual")), oldPwd);
-    form->addRow(trk(lang, QStringLiteral("t_new_pwd_lbl001"), QStringLiteral("Password nuevo")), newPwd);
-    form->addRow(trk(lang, QStringLiteral("t_rep_pwd_lbl001"), QStringLiteral("Repetir password")), newPwd2);
+    form->addRow(trk(lang, QStringLiteral("t_cur_pwd_lbl001"), QStringLiteral("Password actual"), QStringLiteral("Current password")), oldPwd);
+    form->addRow(trk(lang, QStringLiteral("t_new_pwd_lbl001"), QStringLiteral("Password nuevo"), QStringLiteral("New password")), newPwd);
+    form->addRow(trk(lang, QStringLiteral("t_rep_pwd_lbl001"), QStringLiteral("Repetir password"), QStringLiteral("Repeat password")), newPwd2);
     root->addLayout(form);
     auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     root->addWidget(box);
@@ -269,12 +271,14 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     const QString newv2 = newPwd2->text();
     if (newv.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(lang, QStringLiteral("t_new_pwd_empty1"), QStringLiteral("El nuevo password no puede estar vacío.")));
+                             trk(lang, QStringLiteral("t_new_pwd_empty1"), QStringLiteral("El nuevo password no puede estar vacío."),
+                                  QStringLiteral("The new password cannot be empty.")));
         return;
     }
     if (newv != newv2) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(lang, QStringLiteral("t_pwd_confirm01"), QStringLiteral("La confirmación no coincide.")));
+                             trk(lang, QStringLiteral("t_pwd_confirm01"), QStringLiteral("La confirmación no coincide."),
+                                  QStringLiteral("The confirmation does not match.")));
         return;
     }
     m_changeOldPwd = oldv;
@@ -299,7 +303,7 @@ void MasterPasswordDialog::retranslateUi() {
     }
     if (m_passwordConfirmLabel) {
         const QString repeatText = trk(lang, QStringLiteral("t_repeat_pwd_001"),
-                                       QStringLiteral("Repetir password"));
+                                       QStringLiteral("Repetir password"), QStringLiteral("Repeat password"));
         m_passwordConfirmLabel->setText(repeatText);
         m_passwordConfirmLabel->setVisible(m_firstRunCreationMode);
         m_passwordConfirmLabel->setEnabled(m_firstRunCreationMode);
@@ -319,7 +323,7 @@ void MasterPasswordDialog::retranslateUi() {
                                            QStringLiteral("Password maestro")));
     if (m_passwordConfirmEdit) {
         m_passwordConfirmEdit->setPlaceholderText(trk(lang, QStringLiteral("t_repeat_pwd_001"),
-                                                      QStringLiteral("Repetir password")));
+                                                      QStringLiteral("Repetir password"), QStringLiteral("Repeat password")));
         m_passwordConfirmEdit->setVisible(m_firstRunCreationMode);
         m_passwordConfirmEdit->setEnabled(m_firstRunCreationMode);
         if (!m_firstRunCreationMode) {
@@ -329,7 +333,7 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_localUserLabel) {
         const QString userText = trk(lang,
                                      QStringLiteral("t_usuario_d31f58"),
-                                     QStringLiteral("Usuario"));
+                                     QStringLiteral("Usuario"), QStringLiteral("User"));
         m_localUserLabel->setText(userText);
         m_localUserLabel->setVisible(m_requestLocalSudoCredentials);
         m_localUserLabel->setEnabled(m_requestLocalSudoCredentials);
@@ -347,7 +351,8 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_localUserEdit) {
         m_localUserEdit->setPlaceholderText(trk(lang,
                                                 QStringLiteral("t_local_user_ph_001"),
-                                                QStringLiteral("Usuario local con sudo")));
+                                                QStringLiteral("Usuario local con sudo"),
+                                                 QStringLiteral("Local user with sudo")));
         m_localUserEdit->setVisible(m_requestLocalSudoCredentials);
         m_localUserEdit->setEnabled(m_requestLocalSudoCredentials);
     }
@@ -372,7 +377,8 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_localPasswordEdit) {
         m_localPasswordEdit->setPlaceholderText(trk(lang,
                                                     QStringLiteral("t_local_pwd_ph_001"),
-                                                    QStringLiteral("Password local sudo")));
+                                                    QStringLiteral("Password local sudo"),
+                                                     QStringLiteral("Local sudo password")));
         m_localPasswordEdit->setVisible(m_requestLocalSudoCredentials);
         m_localPasswordEdit->setEnabled(m_requestLocalSudoCredentials);
     }
@@ -392,7 +398,8 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_resetIniButton) {
         m_resetIniButton->setText(trk(lang,
                                       QStringLiteral("t_reset_ini_btn001"),
-                                      QStringLiteral("Borrar Config")));
+                                      QStringLiteral("Borrar Config"),
+                                      QStringLiteral("Delete config")));
         m_resetIniButton->setVisible(!m_firstRunCreationMode);
         m_resetIniButton->setEnabled(!m_firstRunCreationMode);
     }
@@ -400,18 +407,21 @@ void MasterPasswordDialog::retranslateUi() {
         if (m_firstRunCreationMode) {
             QString info = trk(lang,
                                QStringLiteral("t_create_ini_001"),
-                               QStringLiteral("No existe config.json. Se va a crear ahora.\nIntroduzca y confirme el password maestro."));
+                               QStringLiteral("No existe config.json. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                               QStringLiteral("There is no config.json. It will be created now.\nEnter and confirm the master password."));
             if (m_requestLocalSudoCredentials) {
                 info += QStringLiteral("\n\n") + trk(lang,
                                                      QStringLiteral("t_local_sudo_boot_001"),
-                                                     QStringLiteral("También debe indicar usuario y password local con sudo."));
+                                                     QStringLiteral("También debe indicar usuario y password local con sudo."),
+                                                     QStringLiteral("You must also give a local user and password with sudo."));
             }
             m_creationInfoLabel->setText(info);
             m_creationInfoLabel->show();
         } else if (m_requestLocalSudoCredentials) {
             m_creationInfoLabel->setText(trk(lang,
                                              QStringLiteral("t_local_sudo_boot_002"),
-                                             QStringLiteral("Faltan credenciales locales con sudo en config.json.\nIntroduzca usuario y password local.")));
+                                             QStringLiteral("Faltan credenciales locales con sudo en config.json.\nIntroduzca usuario y password local."),
+                                             QStringLiteral("Local sudo credentials are missing from config.json.\nEnter the local user and password.")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();
@@ -425,7 +435,7 @@ void MasterPasswordDialog::retranslateUi() {
                                    .arg(footer,
                                         trk(lang,
                                             QStringLiteral("t_version_lbl001"),
-                                            QStringLiteral("Versión: %1"))
+                                            QStringLiteral("Versión: %1"), QStringLiteral("Version: %1"))
                                             .arg(appVersion)));
     }
     if (layout()) {

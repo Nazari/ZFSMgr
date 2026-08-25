@@ -781,6 +781,18 @@ if(BUILD_TESTING)
     target_compile_definitions(zfsmgr_help_resources_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_help_resources_test COMMAND zfsmgr_help_resources_test)
 
+    # Los textos que saldrían en castellano con la interfaz en inglés.
+    #
+    # No compila nada: lee las llamadas a `trk()` y el catálogo. Es la comprobación que
+    # faltaba —dejarse el inglés de una llamada no rompe la compilación ni falla en
+    # ejecución: el rótulo sale en español y ya está—.
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME zfsmgr_i18n_fallback_test
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/revisa_i18n_fallback.py)
+    endif()
+
     # La gramática del intérprete: que analice lo que se cree, y que toda firma declarada
     # en el catálogo encaje en alguna de sus formas.
     add_executable(zfsmgr_gramatica_cli_test
