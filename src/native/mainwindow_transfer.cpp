@@ -404,15 +404,65 @@ void MainWindow::actionSendSnapshot() {
                                                  QStringLiteral("Continuar"),
                                                  QStringLiteral("Resume")),
                                              QMessageBox::AcceptRole);
+        // Descartar y empezar de cero. Hasta ahora el diálogo se limitaba a DECIR que
+        // había que ejecutar `zfs recv -A` a mano en el destino, teniendo como tiene un
+        // daemon con permisos justo ahí. Y no es un adorno: continuar hereda las banderas
+        // metidas en el testigo, así que cuando la transferencia se cortó por culpa de
+        // ellas, reanudar repite lo que falló y esta es la única salida.
+        QPushButton* bDiscard = box.addButton(trk(QStringLiteral("t_resume_discard001"),
+                                                  QStringLiteral("Descartar y empezar de cero"),
+                                                  QStringLiteral("Discard and start over")),
+                                              QMessageBox::DestructiveRole);
         box.addButton(QMessageBox::Cancel);
         box.setDefaultButton(bResume);
         box.exec();
-        if (box.clickedButton() != bResume) {
+        if (box.clickedButton() == bDiscard) {
+            const QString holder = resumeHolder.isEmpty() ? recvTarget : resumeHolder;
+            if (QMessageBox::question(
+                    this, QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_resume_discard_ask001"),
+                        QStringLiteral("Se van a descartar los datos ya recibidos en %1. "
+                                       "Lo que llegó se pierde y la copia empieza desde cero.\n\n"
+                                       "¿Descartarlos?"),
+                        QStringLiteral("The data already received into %1 will be discarded. "
+                                       "What arrived is lost and the copy starts over.\n\n"
+                                       "Discard it?"))
+                        .arg(holder),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+                != QMessageBox::Yes) {
+                return;
+            }
+            const QStringList args = mwhelpers::argvQt(
+                zfsmgr::commands::requests::abortResumableReceive(holder.toStdString()));
+            QString aOut;
+            QString aErr;
+            int aRc = -1;
+            const bool ok = runAgentCommand(dp, args, 30000, aOut, aErr, aRc) && aRc == 0;
+            if (!ok) {
+                const QString detalle = mwhelpers::oneLine(aErr.isEmpty() ? aOut : aErr);
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_resume_discard_fail001"),
+                                         QStringLiteral("No se pudo descartar la recepción a "
+                                                        "medias en %1: %2"),
+                                         QStringLiteral("Could not discard the half-finished "
+                                                        "receive on %1: %2"))
+                                         .arg(holder, detalle));
+                appLog(QStringLiteral("ERROR"),
+                       QStringLiteral("Enviar: no se pudo descartar la recepción en %1 (%2)")
+                           .arg(holder, detalle));
+                return;
+            }
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("Enviar: descartada la recepción a medias en %1").arg(holder));
+            // Y se sigue como si no hubiera habido nada: se preguntan las opciones de
+            // envío, porque ya no hay testigo que las imponga.
+        } else if (box.clickedButton() == bResume) {
+            resumeRequested = true;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Enviar: reanudando transferencia a medias en %1").arg(recvTarget));
+        } else {
             return;
         }
-        resumeRequested = true;
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("Enviar: reanudando transferencia a medias en %1").arg(recvTarget));
     }
 
     ZfsSendOptions sendOpts;

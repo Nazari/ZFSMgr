@@ -781,6 +781,40 @@ bool windowsPoolCreateLabeledButFailed(const std::string& output) {
     return etiquetado && einval;
 }
 
+std::string mdnsFallbackHost(const std::string& sshError, const std::string& host) {
+    const std::string h = trim(host);
+    if (h.empty()) {
+        return {};
+    }
+    std::string bajo;
+    bajo.reserve(sshError.size());
+    for (char c : sshError) {
+        bajo.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    // Las tres formas del mismo fallo: la de OpenSSH y las dos de la biblioteca de
+    // resolución, que cambian entre Linux («name or service not known») y los BSD/macOS
+    // («nodename nor servname provided»).
+    const bool esDeResolucion = bajo.find("could not resolve hostname") != std::string::npos
+                                || bajo.find("name or service not known") != std::string::npos
+                                || bajo.find("nodename nor servname") != std::string::npos;
+    if (!esDeResolucion) {
+        return {};
+    }
+    // Un nombre con punto ya está cualificado —`mbp.local`, `equipo.example.com`— y
+    // añadirle otro sufijo no arregla nada; y una dirección IP no resuelve, se usa.
+    if (h.find('.') != std::string::npos) {
+        return {};
+    }
+    for (char c : h) {
+        const bool valido = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                            || (c >= '0' && c <= '9') || c == '-' || c == '_';
+        if (!valido) {
+            return {};
+        }
+    }
+    return h + ".local";
+}
+
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType) {
     if (trim(rawFsType).empty()) {
         return false;

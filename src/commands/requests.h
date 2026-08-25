@@ -131,6 +131,14 @@ std::vector<std::string> loadKey(const std::string& dataset, const std::string& 
 std::vector<std::string> changeKey(const std::string& dataset, const std::string& phrase,
                                      const std::string& newPhrase);
 
+// Discard a half-finished receive on the target.
+//
+// It has to exist as a verb of its own because the alternative is not «resume instead»: while
+// the token is there, ZFS refuses any FRESH stream, and resuming inherits the flags baked into
+// the token —`zfs send -t` will not be contradicted—. So when the transfer broke BECAUSE of
+// those flags, resuming repeats exactly what failed and discarding is the only way out.
+std::vector<std::string> abortResumableReceive(const std::string& dataset);
+
 std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& extras);
 std::vector<std::string> setPeers(const std::string& payloadB64);
 std::vector<std::string> setBindAddress(const std::string& address);

@@ -92,6 +92,19 @@ struct SendOptions {
 // command line is an argument `zfs` does not understand.
 std::string sendFlags(const SendOptions& o);
 
+// Did a send that reported success actually copy nothing?
+//
+// A FULL send that moved zero bytes copied nothing, whatever the exit status said: a dataset
+// always carries at least its own metadata, so zero means the receiver never took the stream.
+// Saying «done» there is indistinguishable from a transfer that worked, which is exactly where
+// trust in the transfers panel is lost.
+//
+// An INCREMENTAL is allowed to move nothing —there may be nothing new since the base
+// snapshot—, and so is a RESUMED send that had already finished. Hence the two arguments:
+// without them the rule would turn those legitimate cases into errors.
+bool fullSendMovedNothing(unsigned long long bytes, const std::string& baseSnapshot,
+                          const std::string& resumeToken);
+
 // The routes worth trying, IN ORDER, and not just one.
 //
 // Because that is how it works: the first is attempted and, when it cannot be built, it falls

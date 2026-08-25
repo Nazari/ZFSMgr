@@ -1132,6 +1132,46 @@ int main() {
               "destino: un pool entero tambien lleva su nombre");
         igual(TR::actualDestination("p/datos", ""), "", "destino: sin destino, nada que componer");
 
+        // --- un envio que sale con 0 pero no movio un byte
+        //
+        // Salir con 0 no es haber copiado. Un envio COMPLETO sin un solo byte no ha
+        // copiado nada —un dataset lleva al menos sus metadatos—, y darlo por hecho es
+        // indistinguible de una transfer que funciono. Con base o con testigo SI puede
+        // ser cero legitimamente, y por eso la regla mira los tres datos y no solo los
+        // bytes: sin eso, un incremental sin novedades pasaria a ser un error.
+        comprobar(TR::fullSendMovedNothing(0, "", ""),
+                  "0 bytes en un envio completo es un fallo");
+        comprobar(!TR::fullSendMovedNothing(0, "p/datos@ayer", ""),
+                  "0 bytes en un incremental puede ser legitimo");
+        comprobar(!TR::fullSendMovedNothing(0, "", "1-abc-f0-789c"),
+                  "0 bytes al reanudar puede ser legitimo");
+        comprobar(!TR::fullSendMovedNothing(854056, "", ""),
+                  "con bytes movidos no hay nada que denunciar");
+        comprobar(!TR::fullSendMovedNothing(1, "", ""),
+                  "un solo byte ya basta para no denunciarlo");
+        comprobar(TR::fullSendMovedNothing(0, "   ", "  "),
+                  "espacios en blanco no cuentan como base ni como testigo");
+
+        // --- descartar una recepcion a medias
+        //
+        // Existe como verbo propio porque la alternativa no es «reanuda»: mientras el
+        // testigo este puesto, ZFS rechaza cualquier flujo NUEVO, y reanudar hereda las
+        // banderas metidas dentro del testigo.
+        {
+            namespace RQ = zfsmgr::commands::requests;
+            const std::vector<std::string> a = RQ::abortResumableReceive("p596/user");
+            comprobar(a.size() == 2 && a[0] == "--mutate-zfs-recv-abort" && a[1] == "p596/user",
+                      "descartar recepcion: verbo y dataset");
+            comprobar(RQ::abortResumableReceive("").empty(),
+                      "descartar recepcion: sin dataset no se manda nada");
+            comprobar(RQ::abortResumableReceive("   ").empty(),
+                      "descartar recepcion: solo espacios tampoco");
+            // Tiene que contar como MUTACION: si una llega al daemon y no hay respuesta,
+            // la regla es no reintentarla por SSH.
+            comprobar(zfsmgr::base::transport::isMutatingAgentCommand(RQ::abortResumableReceive("p/u")),
+                      "descartar recepcion cuenta como mutacion");
+        }
+
         // --- las ordenes de envio y recepcion
         igual(TR::sendCommand("p/d@lunes", ""), "zfs send 'p/d@lunes'",
               "orden: sin banderas");

@@ -65,6 +65,7 @@ typedef int pid_t;
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
 #include "commands/zfsprops.h"
+#include "commands/transfer.h"
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 
@@ -483,6 +484,7 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-set-peers");
     caps.push_back("--dump-peers");
     caps.push_back("--mutate-set-bind");
+    caps.push_back("--mutate-zfs-recv-abort");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -7376,17 +7378,29 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         daemonLog("INFO", "job " + jobId + " cancelado");
         return;
     }
-    if (r.rc == 0) {
+    // Salir con 0 no basta para decir que se copió algo. Un envío COMPLETO que no movió
+    // un solo byte no ha copiado nada, y anotarlo como hecho es indistinguible de una
+    // transferencia que funcionó. Pasó el 2026-08-25: el receptor se cayó nada más
+    // empezar y este trabajo quedó como «done, rc=0, bytes=0» en un segundo.
+    const bool vacioSinSerlo = (r.rc == 0)
+                               && zfsmgr::base::transfer::fullSendMovedNothing(
+                                      it->second.bytesTransferred, baseSnap, resumeToken);
+    if (r.rc == 0 && !vacioSinSerlo) {
         it->second.state = JobState::Done;
     } else {
         it->second.state     = JobState::Failed;
-        it->second.errorText = trim(r.err);
+        it->second.errorText =
+            vacioSinSerlo
+                ? std::string("el envío terminó sin error pero no movió un solo byte: "
+                              "el receptor no llegó a recibir nada")
+                : trim(r.err);
     }
     it->second.finishedAtUtc = utcNowIsoString();
     persistJobsLocked();
-    daemonLog(r.rc == 0 ? "INFO" : "ERROR",
+    daemonLog((r.rc == 0 && !vacioSinSerlo) ? "INFO" : "ERROR",
               "job " + jobId + " finished rc=" + std::to_string(r.rc)
-                  + " bytes=" + std::to_string(it->second.bytesTransferred));
+                  + " bytes=" + std::to_string(it->second.bytesTransferred)
+                  + (vacioSinSerlo ? " (completo y sin mover un byte: se marca fallido)" : ""));
 }
 
 ExecResult executeAgentCommandCapture(const std::string& cmd,
@@ -7612,6 +7626,17 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             return r;
         }
         return runExecCapture("zfs", {"rename", params[0], params[1]});
+    }
+
+    // Descartar una recepción a medias. `zfs recv -A` tira el estado suspenso y su
+    // testigo; a partir de ahí el destino vuelve a aceptar un flujo nuevo.
+    if (cmd == "--mutate-zfs-recv-abort") {
+        if (params.size() < 1) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-zfs-recv-abort <dataset>\n";
+            return r;
+        }
+        return runExecCapture("zfs", {"recv", "-A", params[0]});
     }
 
     if (cmd == "--dump-zfs-allow-batch") {
@@ -9425,6 +9450,20 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runExecStreaming("zfs", {"release", args[2], args[3]});
+    }
+    // Descartar una recepción a medias. Se delega en el despachador del RPC, como
+    // `--mutate-copy-tree`, para no tener dos versiones de la misma orden: el verbo hay
+    // que declararlo en LOS DOS sitios y esto al menos deja una sola implementación.
+    if (cmd == "--mutate-zfs-recv-abort") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = executeAgentCommandCapture(cmd, params, args[0].c_str());
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
     }
     if (cmd == "--dump-zpool-guid") {
         if (args.size() < 3) {

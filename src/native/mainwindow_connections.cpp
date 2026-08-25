@@ -307,11 +307,28 @@ QString MainWindow::connectionStateColorReason(int connIdx) const {
     }
     const QString stUp = st.status.trimmed().toUpper();
     if (stUp != QStringLiteral("OK")) {
-        return st.detail.trimmed().isEmpty()
-                   ? trk(QStringLiteral("t_conn_color_reason_err_001"),
-                         QStringLiteral("La validación de la conexión ha fallado."),
-                         QStringLiteral("Connection validation failed."))
-                   : st.detail.trimmed();
+        if (st.detail.trimmed().isEmpty()) {
+            return trk(QStringLiteral("t_conn_color_reason_err_001"),
+                       QStringLiteral("La validación de la conexión ha fallado."),
+                       QStringLiteral("Connection validation failed."));
+        }
+        // El anfitrión no resuelve y su nombre corto admite el sufijo mDNS. La línea cruda
+        // de ssh se lee igual que «la máquina está apagada», y aquí la causa es otra y
+        // tiene arreglo en un campo del diálogo de la conexión.
+        const QString sugerido =
+            mwhelpers::mdnsFallbackHost(st.detail, m_conns.profiles[connIdx].host);
+        if (!sugerido.isEmpty()) {
+            return trk(QStringLiteral("t_conn_color_reason_mdns_001"),
+                       QStringLiteral("«%1» no resuelve. Prueba «%2» en Conexiones ▸ Editar: "
+                                      "el nombre corto puede dejar de resolver sin que nadie "
+                                      "toque nada.\n(%3)"),
+                       QStringLiteral("«%1» does not resolve. Try «%2» in Connections ▸ Edit: "
+                                      "the short name can stop resolving without anyone "
+                                      "changing a thing.\n(%3)"))
+                .arg(m_conns.profiles[connIdx].host.trimmed(), sugerido,
+                     mwhelpers::oneLine(st.detail.trimmed()));
+        }
+        return st.detail.trimmed();
     }
     const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
     const QRegularExpressionMatch m = rx.match(st.zfsVersion.trimmed());

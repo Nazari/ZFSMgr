@@ -101,6 +101,14 @@ bool versionSupportsTransfer(const std::string& version) {
     return n[2] >= 3;
 }
 
+bool fullSendMovedNothing(unsigned long long bytes, const std::string& baseSnapshot,
+                          const std::string& resumeToken) {
+    if (bytes > 0) {
+        return false;
+    }
+    return trim(baseSnapshot).empty() && trim(resumeToken).empty();
+}
+
 std::string sendFlags(const SendOptions& o) {
     std::string f = "-";
     if (o.w) { f += 'w'; }

@@ -115,6 +115,41 @@ int main() {
         return fail("windowsPoolCreateLabeledButFailed should need both halves");
     }
 
+    // El sufijo mDNS solo se ofrece cuando puede arreglar algo: error DE RESOLUCIÓN y
+    // nombre corto. Se comprueban también los casos en los que NO debe ofrecerse, porque
+    // sugerir «192.168.1.9.local» o «equipo.example.com.local» sería peor que callarse.
+    if (mdnsFallbackHost(QStringLiteral("ssh: Could not resolve hostname mbp: Name or service not known"),
+                         QStringLiteral("mbp"))
+        != QStringLiteral("mbp.local")) {
+        return fail("mdnsFallbackHost should offer the .local name for a short host");
+    }
+    // La forma del error que dan macOS y los BSD, que no es la de Linux.
+    if (mdnsFallbackHost(QStringLiteral("ssh: Could not resolve hostname foo: nodename nor servname provided"),
+                         QStringLiteral("foo"))
+        != QStringLiteral("foo.local")) {
+        return fail("mdnsFallbackHost should recognise the BSD/macOS resolver wording");
+    }
+    if (!mdnsFallbackHost(QStringLiteral("ssh: connect to host mbp port 22: Connection timed out"),
+                          QStringLiteral("mbp"))
+             .isEmpty()) {
+        return fail("mdnsFallbackHost should stay quiet when the failure is not resolution");
+    }
+    if (!mdnsFallbackHost(QStringLiteral("ssh: Could not resolve hostname mbp.local: Name or service not known"),
+                          QStringLiteral("mbp.local"))
+             .isEmpty()) {
+        return fail("mdnsFallbackHost should not append .local to an already qualified name");
+    }
+    if (!mdnsFallbackHost(QStringLiteral("ssh: Could not resolve hostname 192.168.1.9: Name or service not known"),
+                          QStringLiteral("192.168.1.9"))
+             .isEmpty()) {
+        return fail("mdnsFallbackHost should not offer a .local name for an IP address");
+    }
+    if (!mdnsFallbackHost(QStringLiteral("ssh: Could not resolve hostname : Name or service not known"),
+                          QStringLiteral(""))
+             .isEmpty()) {
+        return fail("mdnsFallbackHost should stay quiet with no host");
+    }
+
     if (!parentMountCheckRequired("/mnt/a", "on")) {
         return fail("parentMountCheckRequired should require mounted parent");
     }

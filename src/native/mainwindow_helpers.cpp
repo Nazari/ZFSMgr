@@ -140,6 +140,7 @@ bool windowsPartitionTypeIsProtected(const QString& raw) { return B::windowsPart
 QString windowsPartitionDiskPath(const QString& p) { return q(B::windowsPartitionDiskPath(b(p))); }
 QString windowsWholeDiskFirstPartition(const QString& p) { return q(B::windowsWholeDiskFirstPartition(b(p))); }
 bool windowsPoolCreateLabeledButFailed(const QString& o) { return B::windowsPoolCreateLabeledButFailed(b(o)); }
+QString mdnsFallbackHost(const QString& e, const QString& h) { return q(B::mdnsFallbackHost(b(e), b(h))); }
 QString asciiSafeShellCommand(const QString& cmd) { return q(B::asciiSafeShellCommand(b(cmd))); }
 bool looksLikeSudoAuthFailure(const QString& text) { return B::looksLikeSudoAuthFailure(b(text)); }
 

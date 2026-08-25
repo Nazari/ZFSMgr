@@ -271,6 +271,10 @@ std::vector<std::string> enqueue(const std::vector<std::string>& orden) {
     return argv;
 }
 
+std::vector<std::string> abortResumableReceive(const std::string& dataset) {
+    return withOne("--mutate-zfs-recv-abort", dataset);
+}
+
 std::vector<std::string> jobList() { return {"--job-list"}; }
 
 std::vector<std::string> jobStatus(const std::string& id) {

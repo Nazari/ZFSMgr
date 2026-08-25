@@ -163,6 +163,19 @@ std::string windowsWholeDiskFirstPartition(const std::string& diskPath);
 // la etiqueta escrita y el EINVAL.
 bool windowsPoolCreateLabeledButFailed(const std::string& output);
 
+// El nombre mDNS que merece la pena probar cuando el anfitrión no resuelve, o vacío.
+//
+// Un perfil con `host = mbp` deja la conexión en ERROR con la línea cruda de ssh, y eso se
+// lee igual que «la máquina está apagada» o «el daemon no responde». Peor: el nombre corto
+// puede haber resuelto durante meses —el que anuncia el DHCP— y dejar de hacerlo sin que
+// nadie toque nada, de modo que el fallo aparece muy lejos de su causa.
+//
+// Solo se ofrece cuando tiene sentido: el error es de resolución, y el nombre es corto —sin
+// puntos y sin pinta de dirección IP—, que es el único caso en el que añadir `.local` puede
+// arreglar algo. NO comprueba si ese nombre resuelve: eso es una consulta de red y esto se
+// llama desde el hilo de la interfaz. Sugiere, no afirma.
+std::string mdnsFallbackHost(const std::string& sshError, const std::string& host);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 
