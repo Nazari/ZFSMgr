@@ -35,41 +35,6 @@ Q_LOGGING_CATEGORY(lcStartup, "zfsmgr.startup", QtWarningMsg)
 namespace {
 
 
-QString uuidDePlataformaMac() {
-#if defined(Q_OS_MACOS)
-    // `ioreg` DIRECTO, sin shell.
-    //
-    // Aquí había un `sh -lc "ioreg … | awk -F\" …"`, con su citado de comillas dentro de
-    // comillas, y estaba copiado con el mismo carácter en otros dos sitios. El daemon ya lo
-    // hacía así —ejecutar `ioreg` con sus argumentos y buscar la línea en C++—, que además
-    // no arranca un intérprete ni depende de que `awk` esté en el PATH.
-    QProcess proc;
-    proc.start(QStringLiteral("ioreg"),
-               QStringList{QStringLiteral("-rd1"), QStringLiteral("-c"),
-                           QStringLiteral("IOPlatformExpertDevice")});
-    if (!proc.waitForFinished(3000)) {
-        return QString();
-    }
-    const QString salida = QString::fromUtf8(proc.readAllStandardOutput());
-    for (const QString& linea : salida.split(QLatin1Char('\n'))) {
-        if (!linea.contains(QStringLiteral("IOPlatformUUID"))) {
-            continue;
-        }
-        // La línea es:  "IOPlatformUUID" = "XXXXXXXX-…"
-        const int igual = linea.indexOf(QLatin1Char('='));
-        if (igual < 0) {
-            continue;
-        }
-        QString valor = linea.mid(igual + 1).trimmed();
-        valor.remove(QLatin1Char('"'));
-        if (!valor.trimmed().isEmpty()) {
-            return valor.trimmed();
-        }
-    }
-#endif
-    return QString();
-}
-
 }  // namespace
 
 QString currentLocalMachineUid() {
@@ -161,24 +126,9 @@ bool isLocalProfile(const ConnectionProfile& p) {
     return CJ::isLocalProfile(aBase(p));
 }
 
-QJsonObject connectionToJson(const ConnectionProfile& p) {
-    return aQtJson(CJ::connectionToJson(aBase(p), bs(currentLocalMachineUid())));
-}
-
-
 ConnectionProfile connectionFromJson(const QJsonObject& obj) {
     return deBase(CJ::connectionFromJson(deQtJson(obj), bs(currentLocalMachineUid())));
 }
-
-int indexOfConnectionById(const QJsonArray& connections, const QString& id) {
-    BJ::Array arr;
-    arr.reserve(static_cast<std::size_t>(connections.size()));
-    for (const QJsonValue& v : connections) {
-        arr.push_back(deQtJson(v.toObject()));
-    }
-    return static_cast<int>(CJ::indexOfConnectionById(arr, bs(id)));
-}
-
 
 }  // namespace
 
@@ -364,15 +314,6 @@ QJsonObject ConnectionStore::loadTrustStoreJson(QString* error) const {
     return aQtJson(v);
 }
 
-bool ConnectionStore::saveTrustStoreJson(const QJsonObject& root, QString* error) const {
-    BS::Warning a;
-    const bool ok = BS::writeTrustStore(bs(configDir()), deQtJson(root), a);
-    if (error) {
-        *error = traduce(a);
-    }
-    return ok;
-}
-
 bool ConnectionStore::upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const {
     error.clear();
     BS::Warning aviso;
@@ -382,30 +323,6 @@ bool ConnectionStore::upsertTrustStoreConnection(const ConnectionProfile& profil
     }
     error = traduce(aviso);
     return false;
-}
-
-bool ConnectionStore::deleteTrustStoreConnectionById(const QString& id, QString& error) const {
-    error.clear();
-    QString loadErr;
-    QJsonObject root = loadTrustStoreJson(&loadErr);
-    if (!loadErr.isEmpty()) {
-        error = loadErr;
-        return false;
-    }
-    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
-    bool touched = false;
-    for (int i = connections.size() - 1; i >= 0; --i) {
-        const ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
-        if (p.id.trimmed().compare(id.trimmed(), Qt::CaseInsensitive) == 0) {
-            connections.removeAt(i);
-            touched = true;
-        }
-    }
-    if (!touched) {
-        return true;
-    }
-    root.insert(QStringLiteral("connections"), connections);
-    return saveTrustStoreJson(root, &error);
 }
 
 void ConnectionStore::mergeTrustStoreIntoConnections(QVector<ConnectionProfile>& profiles, QStringList& warnings) const {

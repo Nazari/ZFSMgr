@@ -312,28 +312,3 @@ void MainWindow::writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* i
         item->setTextAlignment(col, Qt::AlignLeft | Qt::AlignVCenter);
     }
 }
-
-// Ampliar las columnas no bastaba: las propiedades se escriben cuando se carga el
-// directorio, así que las filas ya cargadas se quedaban con las celdas vacías y solo
-// salían los tamaños de lo que se abriera después. Aquí se repintan con los valores
-// que cada fila guardó al cargarse, sin volver a pedir el listado al otro extremo.
-void MainWindow::reapplyFileBrowserPropertyCells(QTreeWidget* tree) {
-    if (!tree) {
-        return;
-    }
-    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* node) {
-        if (!node) {
-            return;
-        }
-        const QVariant stored = node->data(0, kConnFileBrowserPropsRole);
-        if (stored.isValid()) {
-            writeFileBrowserPropCells(tree, node, stored.toStringList());
-        }
-        for (int i = 0; i < node->childCount(); ++i) {
-            walk(node->child(i));
-        }
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        walk(tree->topLevelItem(i));
-    }
-}

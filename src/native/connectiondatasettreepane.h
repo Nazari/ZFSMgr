@@ -36,7 +36,6 @@ Q_SIGNALS:
     void selectionChanged();
     void contextMenuGestureStarted(const QPoint& pos, QTreeWidgetItem* item);
     void contextMenuRequested(const QPoint& pos, QTreeWidgetItem* item);
-    void headerContextMenuRequested(const QPoint& pos, int logicalColumn);
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;

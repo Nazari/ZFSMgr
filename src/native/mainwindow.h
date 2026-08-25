@@ -144,9 +144,6 @@ public:
     // conexión: tabla, tablas de pools y árbol.
     void requestConnectionsUiRebuildForTest();
     void rebuildConnectionDetailsForTest();
-    void setShowPoolInfoNodeForTest(bool visible);
-    void setShowInlineGsaNodeForTest(bool visible);
-    void setShowAutomaticSnapshotsForTest(bool visible);
     void setConnectionGsaStateForTest(int connIdx, bool installed, bool active, const QString& version = QString());
     void configureDatasetPropertiesForTest(int connIdx,
                                            const QString& objectName,
@@ -154,12 +151,6 @@ public:
                                            const QVector<UiTestPropertySeed>& rows);
     void debugTrace(const QString& msg);
     QStringList topLevelPoolNamesForTest(bool bottom = false) const;
-    QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
-    QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;
-    // Los hijos del nodo «@» EN ORDEN: primero las instantáneas manuales, después los
-    // grupos por clase. El orden es el punto que se comprueba, así que la lista no se
-    // ordena aquí.
-    QStringList snapshotTreeLabelsForDatasetForTest(const QString& datasetName) const;
     bool selectDatasetForTest(const QString& datasetName, bool bottom = false);
     // La selección de transferencia tal y como la ven las seis acciones de dos extremos.
     struct TransferSelectionForTest {
@@ -178,9 +169,6 @@ public:
                                                            const QString& poolName,
                                                            const QString& datasetName,
                                                            const QString& snapshotName);
-    bool setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom = false);
-    bool isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom = false) const;
-    void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
     QStringList connectionsMenuLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
     QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
@@ -244,30 +232,6 @@ private:
         QString targetName;
     };
 
-    // Entrada del diálogo de «Desde Dir», para poder reabrirlo tal y como se dejó.
-    //
-    // Las otras tres acciones re-editables no necesitan esto: su entrada ES la orden
-    // tipada que ya se guarda (`datasetActionArgv`). La de Desde Dir no se puede
-    // reconstruir de su orden, que es una tubería `tar | ssh | tar` con la selección ya
-    // resuelta y las propiedades ya convertidas en argumentos de `zfs create`.
-    //
-    // Las conexiones van por identificador, no por índice, porque esto se escribe en
-    // disco y los índices se mueven al añadir o borrar una conexión.
-    //
-    // La frase de cifrado NO está aquí a propósito, ni siquiera en memoria: al re-editar
-    // se vuelve a pedir. Es un campo de contraseña con repetición; rellenarlo solo para
-    // que el usuario lo acepte sin mirar sería peor que dejarlo vacío.
-    struct FromDirInput {
-        bool valid{false};
-        QString datasetPath;
-        QString blocksize;
-        bool parents{true};
-        QStringList properties;   // "nombre=valor", tal cual los recoge el diálogo
-        QString extraArgs;
-        QVector<QPair<QString, QString>> sources;   // clave de conexión, ruta
-        bool deleteSourceDirs{false};
-    };
-
     struct PendingShellActionDraft {
         enum class RefreshScope {
             None,
@@ -290,35 +254,21 @@ private:
         // el registro. Por el RPC va dentro de la carga, cifrada por mTLS, y el daemon
         // se la pasa a `zfs` por una tubería.
         //
-        // `rpcSecret` se guarda aparte y NUNCA se copia a `command`, `displayLabel` ni
-        // al identificador estable, que son los tres sitios que se muestran o registran.
+        // `rpcSecret` se guarda aparte y NUNCA se copia a `command` ni a `displayLabel`,
+        // que son los dos sitios que se muestran o se registran.
         int rpcConnIdx{-1};
         QStringList rpcArgv;   // sin el secreto: se añade al ejecutar
         QString rpcSecret;
-        // Acción de dataset diferida. Desglosar y Ensamblar se ejecutaban en el acto,
-        // a diferencia del resto: no pasaban por la lista de cambios pendientes, así
-        // que no se podían revisar antes ni quitar de la cola. Guardando aquí lo que
-        // necesita executeDatasetAction, se encolan como las demás y al aplicarlas
-        // conservan TODO lo suyo: el envío como trabajo del daemon, el progreso en
-        // tiempo real y la regla de no reintentar una mutación por SSH.
+        // Lo que necesita `executeDatasetAction` para Desglosar y Ensamblar, que no se
+        // describen con una orden de shell. Yendo aquí conservan TODO lo suyo: el envío
+        // como trabajo del daemon, el progreso en tiempo real y la regla de no
+        // reintentar una mutación por SSH.
         QString datasetActionSide;
         QString datasetActionName;   // no vacío = es una acción de dataset diferida
         DatasetSelectionContext datasetActionCtx;
         QStringList datasetActionArgv;   // vacío en los caminos de respaldo por shell
         QByteArray datasetActionStdin;
         bool datasetActionAllowWindowsScript{false};
-        // Identidad propia de la entrada, y lo que el usuario decide sobre ella.
-        //
-        // Antes la entrada se identificaba por su texto —`displayLabel` + `command`—,
-        // que bastaba mientras moría al ejecutarse. Ya no muere: se le puede poner
-        // nombre y se puede volver a lanzar, así que necesita una clave que NO cambie
-        // cuando cambia lo que se ve.
-        QString uid;
-        QString userName;   // puesto por el usuario; vacío = se muestra displayLabel
-        bool active{true};  // ¿entra en «Aplicar cambios»?
-        // Solo en Desde Dir. No se usa para ejecutar —para eso está `command`—, solo
-        // para volver a abrir su diálogo.
-        FromDirInput fromDirInput;
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};
@@ -418,7 +368,6 @@ private:
         MainWindow* m_w;
     };
     int connectionIndexByNameOrId(const QString& value) const;
-    bool connectionsReferToSameMachine(int a, int b) const;
     int equivalentSshForLocal(int localIdx) const;
     void removeDuplicateMachineConnections(int keepIdx);
     void refreshAllConnections();
@@ -438,7 +387,6 @@ private:
     QString connectionStateTooltipHtml(int connIdx) const;
     void openConnectivityMatrixDialog();
     void fillConnectionsMenu(QMenu* menu);
-    void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
     struct DatasetTreeRenderOptions {
         bool includePoolRoot{false};
@@ -463,17 +411,8 @@ private:
                                          int connIdx,
                                          const ConnectionRuntimeState& st);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side);
-    void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
-    void rebuildConnContentDetailTree(QTreeWidget* tree,
-                                      int connIdx,
-                                      bool& rebuildingFlag,
-                                      int* forceRestoreConnIdx,
-                                      const std::function<void(int)>& saveTreeState,
-                                      const std::function<void()>& clearPendingState = {});
-    void saveTopTreeStateForConnection(int connIdx);
-    void restoreTopTreeStateForConnection(int connIdx);
     void saveConnContentTreeState(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeState(const QString& token);
@@ -486,10 +425,6 @@ private:
                                    int connIdx,
                                    const QString& poolName,
                                    bool restoreState = true);
-    QTreeWidgetItem* findConnContentDatasetItemFor(QTreeWidget* tree,
-                                                   int connIdx,
-                                                   const QString& poolName,
-                                                   const QString& datasetName) const;
     void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
     int propColumnCountForTree(const QTreeWidget* tree) const;
     void syncConnContentPropertyColumns(QTreeWidget* tree);
@@ -651,7 +586,6 @@ private:
     QString connectionAccountCacheKey(int connIdx) const;
     QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
     bool runDatasetRenameNow(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
-    bool focusPendingChangeLine(const QString& line);
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
@@ -684,7 +618,6 @@ private:
                          const QString& datasetName, const QString& snapshotName);
     void fillPaneSnapshots(int paneIdx, int connIdx, const QString& poolName,
                            const QString& datasetName, const QString& currentSnapshot);
-    void updatePaneDetailForTree(QTreeWidget* tree);
     QVector<QPair<QString, QString>> connectionProfileRows(int connIdx) const;
     QVector<QPair<QString, QString>> connectionInfoRows(int connIdx) const;
     void appendPaneTreeRootedAtPool(QTreeWidget* tree, int connIdx, const QString& poolName,
@@ -721,9 +654,6 @@ private:
     // las deja guardadas en la propia fila para poder repintarlas si cambian las columnas.
     void writeFileBrowserPropCells(QTreeWidget* tree, QTreeWidgetItem* item,
                                    const QStringList& values);
-    // Repinta las propiedades de las filas de fichero YA cargadas. Se llama al cambiar el
-    // número de columnas: sin esto, ampliarlas solo surte efecto en lo que se abra después.
-    void reapplyFileBrowserPropertyCells(QTreeWidget* tree);
     QStringList availableDelegablePermissions(const QString& datasetName,
                                               int connIdx,
                                               const QString& poolName,
@@ -887,10 +817,6 @@ private:
     void actionAdvancedCreateFromDir(const DatasetSelectionContext& explicitCtx);
     void actionAdvancedToDir();
     void actionAdvancedToDir(const DatasetSelectionContext& explicitCtx);
-    void setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible);
-    void setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible);
-    void setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible);
-    void setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible);
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
@@ -903,20 +829,8 @@ private:
     void applyDatasetPropertyChanges();
     void updateApplyPropsButtonState();
     void discardAllDraftEdits();
-    bool removePendingQueuedChangeLine(const QString& line);
-    // Persistencia de la lista de acciones (mainwindow_pending_store.cpp)
-    QJsonObject pendingShellDraftToJson(const PendingShellActionDraft& draft,
-                                        QString* refusalOut) const;
-    bool pendingShellDraftFromJson(const QJsonObject& obj, PendingShellActionDraft* out) const;
-    QJsonObject pendingCtxToJson(const DatasetSelectionContext& ctx) const;
-    DatasetSelectionContext pendingCtxFromJson(const QJsonObject& obj) const;
     QString connectionKeyByIndex(int connIdx) const;
     int connectionIndexByKey(const QString& key) const;
-    bool hasActivePendingModelWork() const;
-    void deactivatePendingShellAction(const PendingShellActionDraft& draft);
-    bool setPendingShellActionActive(const QString& uid, bool active);
-    bool setPendingShellActionUserName(const QString& uid, const QString& name);
-    bool executePendingQueuedChangeLine(const QString& line);
     bool executeShellActionDraft(const PendingShellActionDraft& draft);
     void initLogPersistence();
     void rotateLogIfNeeded();
@@ -984,7 +898,6 @@ private:
     void updateConnectivityMatrixButtonState();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
-    void requestCancelRunningAction();
     void terminateProcessTree(qint64 rootPid);
     void loadUiSettings();
     void saveUiSettings() const;
@@ -1140,8 +1053,6 @@ private:
 
     QAction* m_connectivityMatrixAction{nullptr};
     QTabWidget* m_rightTabs{nullptr};
-
-    QWidget* m_jobsTab{nullptr};
     QWidget* m_pendingChangesTab{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QAction* m_menuExitAction{nullptr};
@@ -1153,7 +1064,6 @@ private:
     DatasetSelectionContext m_transferSelectionOverrideDest;
 
     QWidget* m_poolDetailTabs{nullptr};
-    QString m_lastConnectionSelectionKey;
     QWidget* m_connPropsGroup{nullptr};
     QSplitter* m_topMainSplit{nullptr};
     QSplitter* m_rightMainSplit{nullptr};
@@ -1164,7 +1074,6 @@ private:
     QWidget* m_connContentPage{nullptr};
     ConnectionDatasetTreeWidget* m_topDatasetTreeWidget{nullptr};
     ConnectionDatasetTreePane* m_topDatasetPane{nullptr};
-    MainWindowConnectionDatasetTreeDelegate* m_topConnContentDelegate{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QString m_connContentToken;
@@ -1176,10 +1085,7 @@ private:
     QByteArray m_topMainSplitState;
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
-    int m_forceRestoreTopStateConnIdx{-1};
-    QString m_userSelectedConnectionKey;
     QString m_persistedTopDetailConnectionKey;
-    QString m_persistedBottomDetailConnectionKey;
     int m_topDetailConnIdx{-1};
     bool m_connSelectorDefaultsInitialized{false};
     bool m_rebuildingTopConnContentTree{false};
@@ -1309,8 +1215,6 @@ private:
     QMap<QString, QString> m_propsOriginalValues;
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
-    mutable QMap<QString, int> m_pendingChangeOrderByStableId;
-    mutable int m_nextPendingChangeOrder{0};
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};
@@ -1320,7 +1224,6 @@ private:
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
     int m_connPropColumnsSetting{7};
-    bool m_pendingChangeActivationInProgress{false};
     QStringList m_datasetInlinePropsOrder;
     QVector<InlinePropGroupConfig> m_datasetInlinePropGroups;
     QStringList m_poolInlinePropsOrder;
@@ -1366,7 +1269,6 @@ private:
     bool m_connectivityMatrixInProgress{false};
     bool m_closing{false};
     QStringList m_transientStatusStack;
-    bool m_cancelActionRequested{false};
     // La última acción terminó porque el usuario la detuvo, no por un fallo. Sin esto,
     // el bucle que aplica los cambios pendientes no distingue una cosa de la otra y
     // saca "Error ejecutando cambio pendiente" tras una cancelación pedida a propósito.
@@ -1380,7 +1282,6 @@ private:
     qint64 m_activeLocalPid{-1};
     bool m_busyOnImportRefresh{false};
     QAction* m_confirmActionsMenuAction{nullptr};
-    bool m_syncingConnContentColumns{false};
     QSet<QString> m_poolDetailsLoadsInFlight;
     QSet<QString> m_poolAutoSnapshotLoadsInFlight;
     QMap<int, int> m_poolAutoSnapshotPendingLoadsByConn;

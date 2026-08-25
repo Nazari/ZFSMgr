@@ -30,7 +30,6 @@ struct InstallPlan {
     QStringList warnings;
 };
 
-QStringList trackedInstallableCommands();
 PlatformInfo detectPlatform(const ConnectionProfile& profile, const QString& osLine);
 InstallPlan buildInstallPlan(const PlatformInfo& platform, const QStringList& missingCommands, bool useSudo);
 

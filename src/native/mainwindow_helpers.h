@@ -105,8 +105,6 @@ QStringList argvRollback(const QString& instantanea, bool forzar, bool recursivo
 QStringList argvClone(const QString& instantaneaOrigen, const QString& datasetNuevo);
 QStringList argvZfsClone(const QString& instantaneaOrigen, const QString& datasetNuevo,
                           const QStringList& banderas);
-QStringList argvCrearDataset(const QString& dataset, const QStringList& propiedades, bool padres);
-
 QStringList argvPool(zfsmgr::commands::pools::Operation op, const QString& pool,
                      const QStringList& banderas = {}, const QStringList& discos = {},
                      zfsmgr::commands::pools::Phase fase = zfsmgr::commands::pools::Phase::Start);

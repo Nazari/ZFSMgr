@@ -142,7 +142,6 @@ std::size_t blockSize(std::uint64_t fileSize);
 // rsync's rolling sum over a chunk.
 std::uint32_t rollingSum(const unsigned char* data, std::size_t n);
 
-std::string strongHashHex(const unsigned char* data, std::size_t n);
 // The hash of the whole file, to check that what was reconstructed is what it had to be.
 bool fileHash(const std::string& path, std::string& hexOut, std::string& error);
 
@@ -174,9 +173,5 @@ bool delta(const std::string& path, const std::vector<Signature>& signatures, st
 // between syncing and copying over and over.
 bool setMtime(const std::string& path, std::int64_t seconds);
 bool setMode(const std::string& path, std::uint32_t mode);
-
-// A file's mtime in seconds since the epoch, as the system sees it.
-// Exposed so it can be checked that what was written ended up with the mtime it had to have.
-std::int64_t fileMtime(const std::string& path, bool& ok);
 
 }  // namespace zfsmgr::remotetree

@@ -146,8 +146,6 @@ void MainWindow::loadUiSettings() {
     m_connPropColumnsSetting = appObj.value(QStringLiteral("conn_prop_columns")).toInt(4);
     m_persistedTopDetailConnectionKey =
         appObj.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
-    m_persistedBottomDetailConnectionKey =
-        appObj.value(QStringLiteral("bottom_detail_connection")).toString().trimmed().toLower();
     m_datasetInlinePropsOrder = jsonStringList(appObj, QStringLiteral("dataset_inline_props_order"));
     m_datasetInlinePropGroups =
         decodeInlinePropGroups(appObj.value(QStringLiteral("dataset_inline_prop_groups")).toString());

@@ -28,7 +28,8 @@ ConnectionDatasetTreeWidget::ConnectionDatasetTreeWidget(const Config& config,
         tree->setProperty(kGroupPoolsByConnectionRootsProperty, m_config.groupPoolsByConnectionRoots);
     }
 
-    m_coordinator = new ConnectionDatasetTreeCoordinator(m_pane, adapter, this);
+    // Cuelga de `this` y se cablea solo en su constructor: no hay que guardarlo.
+    new ConnectionDatasetTreeCoordinator(m_pane, adapter, this);
 }
 
 const ConnectionDatasetTreeWidget::Config& ConnectionDatasetTreeWidget::config() const {
@@ -41,10 +42,6 @@ QTreeWidget* ConnectionDatasetTreeWidget::tree() const {
 
 ConnectionDatasetTreePane* ConnectionDatasetTreeWidget::pane() const {
     return m_pane;
-}
-
-ConnectionDatasetTreeCoordinator* ConnectionDatasetTreeWidget::coordinator() const {
-    return m_coordinator;
 }
 
 void ConnectionDatasetTreeWidget::setPrimaryColumnTitle(const QString& title) {

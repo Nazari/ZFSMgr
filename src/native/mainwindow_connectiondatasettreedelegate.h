@@ -48,7 +48,6 @@ private:
         QAction* initialize{nullptr};
         QAction* clear{nullptr};
         QAction* destroy{nullptr};
-        QAction* showAutoGsa{nullptr};
     };
 
     struct InlineVisibilityMenuActions {

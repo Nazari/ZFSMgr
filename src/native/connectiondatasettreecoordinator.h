@@ -45,5 +45,4 @@ private:
 
     ConnectionDatasetTreePane* m_pane{nullptr};
     ConnectionDatasetTreeDomainAdapter* m_delegate{nullptr};
-    ConnectionDatasetTreeController* m_controller{nullptr};
 };

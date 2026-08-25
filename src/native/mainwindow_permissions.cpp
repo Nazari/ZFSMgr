@@ -650,13 +650,6 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 
     QString out;
     QString detail;
-    const bool daemonReadApiOk =
-        connIdx >= 0 && connIdx < static_cast<int>(m_conns.states.size())
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonNativeBinary
-        && m_conns.states[connIdx].daemonApiVersion.trimmed()
-               == agentversion::expectedApiVersion().trimmed();
     // La rama del daemon iba sin sudo ni PATH, apoyándose en que la intercepción del
     // RPC se la llevara antes de ejecutarse por shell. Es decir: su respaldo estaba
     // roto y no se notaba porque el RPC casi siempre gana. Con agentShellCommand el

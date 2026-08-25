@@ -604,19 +604,6 @@ QVector<QPair<QString, QString>> MainWindow::connectionInfoRows(int connIdx) con
     return rows;
 }
 
-void MainWindow::updatePaneDetailForTree(QTreeWidget* tree) {
-    if (!tree) {
-        return;
-    }
-    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
-        const DatasetPane& pane = m_datasetPanes[paneIdx];
-        if (pane.treeWidget && pane.treeWidget->tree() == tree) {
-            updatePaneDetail(paneIdx);
-            return;
-        }
-    }
-}
-
 // El camino completo de lo que se está mirando: «Local / tpool / datos@snap».
 //
 // Antes el rótulo enseñaba solo el último tramo —el nombre del objeto— y el de la

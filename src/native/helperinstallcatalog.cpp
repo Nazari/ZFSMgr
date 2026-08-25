@@ -95,21 +95,6 @@ QString buildCommandPreview(const QString& packageManagerId, const QStringList& 
 
 } // namespace
 
-QStringList trackedInstallableCommands() {
-    return {
-        QStringLiteral("sshpass"),
-        QStringLiteral("rsync"),
-        QStringLiteral("pv"),
-        QStringLiteral("mbuffer"),
-        QStringLiteral("tar"),
-        QStringLiteral("gzip"),
-        QStringLiteral("zstd"),
-        QStringLiteral("grep"),
-        QStringLiteral("sed"),
-        QStringLiteral("gawk"),
-    };
-}
-
 PlatformInfo detectPlatform(const ConnectionProfile& profile, const QString& osLine) {
     PlatformInfo info;
     const QString os = osLine.trimmed().toLower();

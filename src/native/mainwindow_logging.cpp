@@ -54,8 +54,6 @@ QString truncateLogLineForUi(const QString& line) {
            + QStringLiteral(" ... [truncated %1 chars]").arg(dropped);
 }
 
-constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
-constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
 
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");

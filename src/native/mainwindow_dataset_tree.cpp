@@ -56,7 +56,6 @@ constexpr int kConnContentNodeRole = Qt::UserRole + 19;
 constexpr int kConnSnapshotHoldsNodeRole = Qt::UserRole + 21;
 constexpr int kConnSnapshotHoldItemRole = Qt::UserRole + 22;
 constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
-constexpr int kConnSnapshotHoldTimestampRole = Qt::UserRole + 24;
 constexpr int kConnPermissionsNodeRole = Qt::UserRole + 25;
 constexpr int kConnPermissionsKindRole = Qt::UserRole + 26;
 constexpr int kConnPermissionsScopeRole = Qt::UserRole + 27;
@@ -82,10 +81,6 @@ constexpr int kConnSnapshotGroupIdRole = Qt::UserRole + 49;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
 constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
-constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
-constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
-constexpr int kConnFileBrowserIsDirRole = Qt::UserRole + 55;
-constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 
@@ -119,218 +114,11 @@ QString selectionSideString(DatasetTreeContext side) {
 // de edición. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
 using DatasetPlatformFamily = zfsmgr::base::zfsprops::Platform;
 
-DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
-    return zfsmgr::base::zfsprops::platformOf(osType.toStdString(), osLine.toStdString());
-}
-
-bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::isSupportedOn(propName.toStdString(), platform);
-}
-
-QStringList gsaUserProps() {
-    return {
-        QStringLiteral("org.fc16.gsa:activado"),
-        QStringLiteral("org.fc16.gsa:recursivo"),
-        QStringLiteral("org.fc16.gsa:horario"),
-        QStringLiteral("org.fc16.gsa:diario"),
-        QStringLiteral("org.fc16.gsa:semanal"),
-        QStringLiteral("org.fc16.gsa:mensual"),
-        QStringLiteral("org.fc16.gsa:anual"),
-        QStringLiteral("org.fc16.gsa:nivelar"),
-        QStringLiteral("org.fc16.gsa:destino"),
-    };
-}
-
-bool isGsaUserProperty(const QString& prop) {
-    for (const QString& key : gsaUserProps()) {
-        if (key.compare(prop.trimmed(), Qt::CaseInsensitive) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-QString gsaUserPropertyLabel(const QString& prop, const QString& language) {
-    const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_enabled_001"),
-                                                    QStringLiteral("Activado"), QStringLiteral("Enabled"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:recursivo"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_recursive_001"),
-                                                    QStringLiteral("Recursivo"), QStringLiteral("Recursive"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_hourly_001"),
-                                                    QStringLiteral("Horario"), QStringLiteral("Hourly"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_daily_001"),
-                                                    QStringLiteral("Diario"), QStringLiteral("Daily"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_weekly_001"),
-                                                    QStringLiteral("Semanal"), QStringLiteral("Weekly"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_monthly_001"),
-                                                    QStringLiteral("Mensual"), QStringLiteral("Monthly"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_yearly_001"),
-                                                    QStringLiteral("Anual"), QStringLiteral("Yearly"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:nivelar"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_level_001"),
-                                                    QStringLiteral("Nivelar"), QStringLiteral("Level"));
-    }
-    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
-        return I18nManager::instance().translateKey(language, QStringLiteral("t_gsa_prop_target_001"),
-                                                    QStringLiteral("Destino"), QStringLiteral("Target"));
-    }
-    return p;
-}
-
-QString gsaUserPropertyDefaultValue(const QString& prop) {
-    const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) return QString();
-    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
-        return QStringLiteral("0");
-    }
-    return QStringLiteral("off");
-}
-
-
-
 struct PoolDeviceStatusNode {
     QString name;
     QString state;
     QVector<PoolDeviceStatusNode> children;
 };
-
-bool poolDeviceStateToken(const QString& raw) {
-    const QString s = raw.trimmed().toUpper();
-    static const QSet<QString> kStates = {
-        QStringLiteral("ONLINE"),
-        QStringLiteral("OFFLINE"),
-        QStringLiteral("UNAVAIL"),
-        QStringLiteral("UNAVAILABLE"),
-        QStringLiteral("DEGRADED"),
-        QStringLiteral("FAULTED"),
-        QStringLiteral("REMOVED"),
-        QStringLiteral("AVAIL")
-    };
-    return kStates.contains(s);
-}
-
-
-QVector<PoolDeviceStatusNode> parsePoolDeviceHierarchyFromStatus(const QString& poolName,
-                                                                 const QString& statusPText,
-                                                                 const QString& fallbackStatusText) {
-    const QString text = !statusPText.trimmed().isEmpty() ? statusPText : fallbackStatusText;
-    if (text.trimmed().isEmpty()) {
-        return {};
-    }
-    const QStringList lines = text.split('\n');
-    int configLine = -1;
-    for (int i = 0; i < lines.size(); ++i) {
-        if (lines.at(i).trimmed().startsWith(QStringLiteral("config:"), Qt::CaseInsensitive)) {
-            configLine = i;
-            break;
-        }
-    }
-    if (configLine < 0) {
-        return {};
-    }
-
-    struct ParsedLine {
-        int indent{0};
-        QString name;
-        QString state;
-    };
-    QVector<ParsedLine> parsed;
-    bool inConfig = false;
-    for (int i = configLine + 1; i < lines.size(); ++i) {
-        const QString raw = lines.at(i);
-        const QString trimmed = raw.trimmed();
-        if (!inConfig) {
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            if (trimmed.startsWith(QStringLiteral("NAME"), Qt::CaseInsensitive)) {
-                inConfig = true;
-            }
-            continue;
-        }
-        if (trimmed.isEmpty()) {
-            break;
-        }
-        const QString lower = trimmed.toLower();
-        if (lower.startsWith(QStringLiteral("errors:"))
-            || lower.startsWith(QStringLiteral("scan:"))
-            || lower.startsWith(QStringLiteral("state:"))
-            || lower.startsWith(QStringLiteral("action:"))
-            || lower.startsWith(QStringLiteral("status:"))
-            || lower.startsWith(QStringLiteral("see:"))
-            || lower.startsWith(QStringLiteral("pool:"))) {
-            break;
-        }
-        const int indent = raw.size() - raw.trimmed().size();
-        const QStringList toks = trimmed.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        if (toks.isEmpty()) {
-            continue;
-        }
-        ParsedLine pl;
-        pl.indent = indent;
-        pl.name = toks.first().trimmed();
-        if (toks.size() >= 2 && poolDeviceStateToken(toks.at(1))) {
-            pl.state = toks.at(1).trimmed().toUpper();
-        }
-        parsed.push_back(pl);
-    }
-    if (parsed.isEmpty()) {
-        return {};
-    }
-
-    QVector<PoolDeviceStatusNode> top;
-    QVector<QPair<int, PoolDeviceStatusNode*>> stack;
-    for (const ParsedLine& pl : parsed) {
-        PoolDeviceStatusNode node;
-        node.name = pl.name;
-        node.state = pl.state;
-        while (!stack.isEmpty() && pl.indent <= stack.last().first) {
-            stack.removeLast();
-        }
-        if (stack.isEmpty()) {
-            top.push_back(node);
-            stack.push_back({pl.indent, &top.last()});
-        } else if (PoolDeviceStatusNode* parent = stack.last().second) {
-            parent->children.push_back(node);
-            stack.push_back({pl.indent, &parent->children.last()});
-        }
-    }
-    if (!top.isEmpty()) {
-        const QString poolLower = poolName.trimmed().toLower();
-        if (!poolLower.isEmpty() && top.first().name.trimmed().toLower() == poolLower) {
-            return top.first().children;
-        }
-    }
-    return top;
-}
-
-
-QIcon snapshotsNodeIcon() {
-    const QIcon themed = QIcon::fromTheme(QStringLiteral("camera-photo"));
-    if (!themed.isNull()) {
-        return themed;
-    }
-    QStyle* style = QApplication::style();
-    return style ? style->standardIcon(QStyle::SP_FileDialogContentsView) : QIcon();
-}
 
 QTreeWidgetItem* findSnapshotItemInDatasetNode(QTreeWidgetItem* datasetNode, const QString& snapshotName) {
     if (!datasetNode || snapshotName.trimmed().isEmpty()) {
@@ -387,17 +175,6 @@ bool gsaBoolOn(const QString& value) {
 }
 
 QString findCaseInsensitiveMapKey(const QMap<QString, QString>& map, const QString& wanted) {
-    const QString target = wanted.trimmed();
-    for (auto it = map.cbegin(); it != map.cend(); ++it) {
-        const QString key = it.key().trimmed();
-        if (key.compare(target, Qt::CaseInsensitive) == 0) {
-            return it.key();
-        }
-    }
-    return QString();
-}
-
-QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString& wanted) {
     const QString target = wanted.trimmed();
     for (auto it = map.cbegin(); it != map.cend(); ++it) {
         if (it.key().trimmed().compare(target, Qt::CaseInsensitive) == 0) {
@@ -894,21 +671,6 @@ void restoreExpandedConnContentChildPaths(QTreeWidgetItem* datasetNode, const QS
     rec(datasetNode);
 }
 
-bool isUserProperty(const QString& prop) {
-    return zfsmgr::base::zfsprops::isUserProperty(prop.toStdString());
-}
-
-bool isDatasetPropertyEditableInline(const QString& propName,
-                                     const QString& datasetType,
-                                     const QString& source,
-                                     const QString& readonly,
-                                     DatasetPlatformFamily platform) {
-    return zfsmgr::base::zfsprops::isInlineEditable(propName.toStdString(),
-                                                   datasetType.toStdString(),
-                                                   source.toStdString(),
-                                                   readonly.toStdString(), platform);
-}
-
 template <typename Rows>
 bool encryptionDisabledForRows(const Rows& rows) {
     for (const auto& row : rows) {
@@ -1042,74 +804,6 @@ QWidget* wrapInlineCellEditor(QWidget* editor, QTreeWidget* tree) {
     return host;
 }
 
-QWidget* primaryInlineEditor(QWidget* host) {
-    if (!host || !host->layout() || host->layout()->count() <= 0) {
-        return nullptr;
-    }
-    QWidget* editor = host->layout()->itemAt(0) ? host->layout()->itemAt(0)->widget() : nullptr;
-    return (editor && editor->focusPolicy() != Qt::NoFocus) ? editor : nullptr;
-}
-
-void rebuildInlineEditorTabOrder(QTreeWidget* tree) {
-    if (!tree) {
-        return;
-    }
-    QList<QWidget*> editors;
-    std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* item) {
-        if (!item) {
-            return;
-        }
-        if (item->data(0, kConnPropRowRole).toBool()
-            && item->data(0, kConnPropRowKindRole).toInt() == 2) {
-            for (int col = 4; col < tree->columnCount(); ++col) {
-                QWidget* host = tree->itemWidget(item, col);
-                QWidget* editor = primaryInlineEditor(host);
-                if (editor && editor->isEnabled() && editor->isVisible()) {
-                    editors.push_back(editor);
-                }
-            }
-        }
-        for (int i = 0; i < item->childCount(); ++i) {
-            collect(item->child(i));
-        }
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        collect(tree->topLevelItem(i));
-    }
-    for (int i = 0; i + 1 < editors.size(); ++i) {
-        QWidget::setTabOrder(editors.at(i), editors.at(i + 1));
-    }
-}
-
-QMap<QString, QStringList> connContentEnumValues() {
-    return {
-        {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("relatime"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("readonly"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("compression"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("lz4"), QStringLiteral("zstd"), QStringLiteral("gzip"), QStringLiteral("zle"), QStringLiteral("lzjb")}},
-        {QStringLiteral("checksum"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("fletcher2"), QStringLiteral("fletcher4"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
-        {QStringLiteral("sync"), {QStringLiteral("standard"), QStringLiteral("always"), QStringLiteral("disabled")}},
-        {QStringLiteral("logbias"), {QStringLiteral("latency"), QStringLiteral("throughput")}},
-        {QStringLiteral("primarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
-        {QStringLiteral("secondarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
-        {QStringLiteral("dedup"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("verify"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
-        {QStringLiteral("copies"), {QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("3")}},
-        {QStringLiteral("acltype"), {QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4")}},
-        {QStringLiteral("aclinherit"), {QStringLiteral("discard"), QStringLiteral("noallow"), QStringLiteral("restricted"), QStringLiteral("passthrough"), QStringLiteral("passthrough-x")}},
-        {QStringLiteral("xattr"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa"), QStringLiteral("dir")}},
-        {QStringLiteral("normalization"), {QStringLiteral("none"), QStringLiteral("formC"), QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")}},
-        {QStringLiteral("casesensitivity"), {QStringLiteral("sensitive"), QStringLiteral("insensitive"), QStringLiteral("mixed")}},
-        {QStringLiteral("utf8only"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("canmount"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")}},
-        {QStringLiteral("snapdir"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
-        {QStringLiteral("exec"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("setuid"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("devices"), {QStringLiteral("on"), QStringLiteral("off")}},
-        {QStringLiteral("snapdev"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
-        {QStringLiteral("volmode"), {QStringLiteral("default"), QStringLiteral("full"), QStringLiteral("dev"), QStringLiteral("none"), QStringLiteral("geom")}},
-    };
-}
-
 QTreeWidgetItem* findDatasetItem(QTreeWidget* tree, const QString& datasetName) {
     if (!tree || datasetName.isEmpty()) {
         return nullptr;
@@ -1136,123 +830,9 @@ QTreeWidgetItem* findDatasetItem(QTreeWidget* tree, const QString& datasetName) 
     return nullptr;
 }
 
-QTreeWidgetItem* findDatasetItemByIdentity(QTreeWidget* tree,
-                                           int connIdx,
-                                           const QString& poolName,
-                                           const QString& datasetName) {
-    if (!tree || connIdx < 0 || poolName.isEmpty() || datasetName.isEmpty()) {
-        return nullptr;
-    }
-    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
-        if (!n) {
-            return nullptr;
-        }
-        if (n->data(0, Qt::UserRole).toString().trimmed() == datasetName
-            && n->data(0, kConnIdxRole).toInt() == connIdx
-            && n->data(0, kPoolNameRole).toString().trimmed() == poolName) {
-            return n;
-        }
-        for (int i = 0; i < n->childCount(); ++i) {
-            if (QTreeWidgetItem* found = rec(n->child(i))) {
-                return found;
-            }
-        }
-        return nullptr;
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        if (QTreeWidgetItem* found = rec(tree->topLevelItem(i))) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-QString datasetLeafName(const QString& datasetName) {
-    return datasetName.contains('/') ? datasetName.section('/', -1, -1) : datasetName;
-}
-
 QIcon treeStandardIcon(QStyle::StandardPixmap sp) {
     QStyle* style = QApplication::style();
     return style ? style->standardIcon(sp) : QIcon();
-}
-
-QIcon grayTreeIcon(const QIcon& base) {
-    if (base.isNull()) {
-        return QIcon();
-    }
-    QIcon gray;
-    const QColor tint(QStringLiteral("#7a7f85"));
-    const QList<QSize> sizes = {
-        QSize(16, 16),
-        QSize(24, 24),
-        QSize(32, 32),
-    };
-    for (const QSize& size : sizes) {
-        QPixmap src = base.pixmap(size);
-        if (src.isNull()) {
-            continue;
-        }
-        QPixmap dst(src.size());
-        dst.fill(Qt::transparent);
-        QPainter painter(&dst);
-        painter.drawPixmap(0, 0, src);
-        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        painter.fillRect(dst.rect(), tint);
-        painter.end();
-        gray.addPixmap(dst);
-    }
-    return gray.isNull() ? base : gray;
-}
-
-QIcon datasetNodeIcon(QTreeWidgetItem* item) {
-    if (!item) {
-        return QIcon();
-    }
-    const QString snap = item->data(1, Qt::UserRole).toString().trimmed();
-    if (!snap.isEmpty()) {
-        return treeStandardIcon(QStyle::SP_FileIcon);
-    }
-    return treeStandardIcon(QStyle::SP_DirIcon);
-}
-
-QIcon contentNodeIcon() {
-    const QIcon themed = QIcon::fromTheme(QStringLiteral("folder-open"));
-    if (!themed.isNull()) {
-        return grayTreeIcon(themed);
-    }
-    return grayTreeIcon(treeStandardIcon(QStyle::SP_DirOpenIcon));
-}
-
-void applySnapshotVisualState(QTreeWidgetItem* item) {
-    if (!item) {
-        return;
-    }
-    const QString ds = item->data(0, Qt::UserRole).toString().trimmed();
-    if (ds.isEmpty()) {
-        return;
-    }
-    const QString snap = item->data(1, Qt::UserRole).toString().trimmed();
-    const QString leaf = datasetLeafName(ds);
-    // Solo el nombre. Llevaba «Dataset» delante cuando en el árbol convivían datasets con
-    // nodos de propiedades, permisos, contenido y snapshots, y hacía falta decir qué era
-    // cada fila. Ahora dentro solo hay pools y datasets, y el icono ya los distingue.
-    item->setText(0, snap.isEmpty() ? leaf : QStringLiteral("%1@%2").arg(leaf, snap));
-    item->setIcon(0, datasetNodeIcon(item));
-
-    const bool hideDatasetChildren = !snap.isEmpty();
-    for (int i = 0; i < item->childCount(); ++i) {
-        QTreeWidgetItem* ch = item->child(i);
-        if (!ch) {
-            continue;
-        }
-        const bool isPropRow = ch->data(0, kConnPropRowRole).toBool();
-        const bool isContainerNode = ch->data(0, kConnContentNodeRole).toBool();
-        const bool isPermissionsNode = ch->data(0, kConnPermissionsNodeRole).toBool();
-        const bool isDatasetNode = !ch->data(0, Qt::UserRole).toString().trimmed().isEmpty();
-        if ((isDatasetNode || isContainerNode || isPermissionsNode) && !isPropRow) {
-            ch->setHidden(hideDatasetChildren);
-        }
-    }
 }
 
 void refreshDatasetExpansionIndicators(QTreeWidget* tree) {
@@ -1955,13 +1535,6 @@ void MainWindow::rebuildConnContentTreeFor(QTreeWidget* tree,
     if (restoreState) {
         restoreConnContentTreeStateFor(tree, token);
     }
-}
-
-QTreeWidgetItem* MainWindow::findConnContentDatasetItemFor(QTreeWidget* tree,
-                                                           int connIdx,
-                                                           const QString& poolName,
-                                                           const QString& datasetName) const {
-    return findDatasetItemByIdentity(tree, connIdx, poolName, datasetName);
 }
 
 void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& token) {
@@ -3728,27 +3301,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     m_loadingDatasetTrees = false;
     endUiBusy();
 }
-
-void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem) {
-    std::function<void(QTreeWidgetItem*)> clearRec = [&](QTreeWidgetItem* n) {
-        if (!n || n == keepItem) {
-            return;
-        }
-        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 1))) {
-            QSignalBlocker b(cb);
-            cb->setCurrentIndex(0);
-        }
-        n->setData(1, Qt::UserRole, QString());
-        applySnapshotVisualState(n);
-        for (int i = 0; i < n->childCount(); ++i) {
-            clearRec(n->child(i));
-        }
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        clearRec(tree->topLevelItem(i));
-    }
-}
-
 
 void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side) {
     if (!tree || !item || m_loadingDatasetTrees || actionsLocked()) {

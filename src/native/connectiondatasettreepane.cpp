@@ -56,12 +56,6 @@ ConnectionDatasetTreePane::ConnectionDatasetTreePane(Role role, QWidget* parent)
     if (m_tree->viewport()) {
         m_tree->viewport()->installEventFilter(this);
     }
-    if (QHeaderView* header = m_tree->header()) {
-        connect(header, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-            const int logicalIndex = (m_tree && m_tree->header()) ? m_tree->header()->logicalIndexAt(pos) : -1;
-            Q_EMIT headerContextMenuRequested(pos, logicalIndex);
-        });
-    }
 }
 
 bool ConnectionDatasetTreePane::eventFilter(QObject* watched, QEvent* event) {

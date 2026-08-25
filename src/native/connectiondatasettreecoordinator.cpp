@@ -105,5 +105,6 @@ void ConnectionDatasetTreeCoordinator::wireController() {
         m_delegate->showGeneralMenu(tree(), isBottom(), item, pos);
         m_delegate->afterContextMenu(tree());
     };
-    m_controller = new ConnectionDatasetTreeController(m_pane, callbacks, this);
+    // Cuelga de `this` y se cablea solo en su constructor: no hay que guardarlo.
+    new ConnectionDatasetTreeController(m_pane, callbacks, this);
 }

@@ -250,10 +250,7 @@ bool MainWindow::runShellActionNow(const PendingShellActionDraft& draft, QString
         && draft.rpcArgv.isEmpty()) {
         return fail(QStringLiteral("No hay nada que ejecutar."));
     }
-    PendingShellActionDraft aEjecutar = draft;
-    aEjecutar.uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    aEjecutar.active = true;
-    if (!executeShellActionDraft(aEjecutar)) {
+    if (!executeShellActionDraft(draft)) {
         // Cancelar no es fallar: quien cancela ya sabe lo que ha hecho y un diálogo de error
         // detrás asusta sin motivo.
         if (m_lastActionWasCancelled) {
@@ -1378,42 +1375,6 @@ void MainWindow::actionSyncDatasets() {
     const bool srcCanmountOff = (srcCanmount.trimmed().toLower() == QStringLiteral("off"));
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
-    const QString srcSsh = buildSshTargetPrefix(sp);
-    auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
-        const QStringList daemonArgv = daemonizeShellMutationArgs(src.connIdx, sourceShellCmd);
-        if (!daemonArgv.isEmpty()) {
-            return sshExecFromLocal(sp, mwhelpers::agentShellCommand(sp, daemonArgv));
-        }
-        return srcSsh + QStringLiteral(" ") + shSingleQuote(withSudo(sp, sourceShellCmd));
-    };
-    auto buildRsyncOptsProbeInline = [](bool includeDelete, bool dryRun) {
-        QString opts = QStringLiteral("-aHWS");
-        if (includeDelete) {
-            opts += QStringLiteral(" --delete");
-        }
-        if (dryRun) {
-            opts += QStringLiteral(" --dry-run");
-        }
-        return QStringLiteral(
-            "RSYNC_PROGRESS='--info=progress2'; "
-            "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
-            "RSYNC_OPTS='%1'; "
-            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
-            "if rsync -X --version >/dev/null 2>&1; then "
-            "  RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
-            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
-            "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
-            "fi")
-            .arg(opts);
-    };
-    auto buildRsyncOptsProbe = [&](int connIdx,
-                                   ConnectionProfile& profile,
-                                   bool includeDelete,
-                                   bool dryRun) {
-        Q_UNUSED(connIdx);
-        Q_UNUSED(profile);
-        return buildRsyncOptsProbeInline(includeDelete, dryRun);
-    };
     const QString dstSsh = buildSshTargetPrefix(dp);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
     const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);

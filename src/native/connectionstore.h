@@ -128,9 +128,7 @@ private:
                 const QString& es = QString(),
                 const QString& en = QString()) const;
     QJsonObject loadTrustStoreJson(QString* error = nullptr) const;
-    bool saveTrustStoreJson(const QJsonObject& root, QString* error = nullptr) const;
     bool upsertTrustStoreConnection(const ConnectionProfile& profile, QString& error) const;
-    bool deleteTrustStoreConnectionById(const QString& id, QString& error) const;
     void mergeTrustStoreIntoConnections(QVector<ConnectionProfile>& profiles, QStringList& warnings) const;
     bool migrateLegacyTlsToTrustStore(const QJsonArray& connections, QString& error) const;
     QString m_appName;

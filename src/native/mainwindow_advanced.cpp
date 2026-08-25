@@ -76,12 +76,6 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
     };
     const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
-    const bool daemonReadApiOk =
-        ctx.connIdx >= 0
-        && ctx.connIdx < m_conns.states.size()
-        && m_conns.states[ctx.connIdx].daemonInstalled
-        && m_conns.states[ctx.connIdx].daemonActive
-        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
@@ -598,12 +592,6 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         }
     };
     const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
-    const bool daemonReadApiOk =
-        ctx.connIdx >= 0
-        && ctx.connIdx < m_conns.states.size()
-        && m_conns.states[ctx.connIdx].daemonInstalled
-        && m_conns.states[ctx.connIdx].daemonActive
-        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();

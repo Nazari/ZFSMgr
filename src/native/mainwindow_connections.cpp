@@ -62,74 +62,8 @@ namespace {
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
 constexpr int kConnRootSectionRole = Qt::UserRole + 37;
-constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
-// Recibe la ventana solo para poder pedirle `connToken()`: el testigo tiene que salir
-// igual aquí que en el resto del código, o el estado guardado del árbol deja de casar
-// con el que se busca al restaurarlo, y sin ruido ninguno.
-QString connContentStateTokenForTree(const MainWindow* w, QTreeWidget* tree) {
-    if (!w) {
-        return QString();
-    }
-    if (!tree) {
-        return QString();
-    }
-    auto tokenFromItem = [w](QTreeWidgetItem* item) -> QString {
-        if (!item) {
-            return QString();
-        }
-        QTreeWidgetItem* owner = item;
-        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
-               && !owner->data(0, kIsPoolRootRole).toBool()) {
-            owner = owner->parent();
-        }
-        if (!owner) {
-            return QString();
-        }
-        const int connIdx = owner->data(0, kConnIdxRole).toInt();
-        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-        if (connIdx < 0 || poolName.isEmpty()) {
-            return QString();
-        }
-        return QStringLiteral("%1::%2").arg(w->connToken(connIdx), poolName);
-    };
-    if (QTreeWidgetItem* current = tree->currentItem()) {
-        const QString token = tokenFromItem(current);
-        if (!token.isEmpty()) {
-            return token;
-        }
-    }
-    // Unified trees (groupPoolsByConnectionRoots) have connection roots at the top
-    // level, not pool roots. Walk into each connection root to find the first pool
-    // root and derive a token from it so the state key is never empty.
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* root = tree->topLevelItem(i);
-        if (!root) {
-            continue;
-        }
-        if (root->data(0, kIsPoolRootRole).toBool()) {
-            const QString token = tokenFromItem(root);
-            if (!token.isEmpty()) {
-                return token;
-            }
-        } else if (root->data(0, kIsConnectionRootRole).toBool()) {
-            // Unified tree: look for pool roots among this connection root's children.
-            for (int j = 0; j < root->childCount(); ++j) {
-                QTreeWidgetItem* child = root->child(j);
-                if (child && child->data(0, kIsPoolRootRole).toBool()) {
-                    const QString token = tokenFromItem(child);
-                    if (!token.isEmpty()) {
-                        return token;
-                    }
-                }
-            }
-        }
-    }
-    return QString();
-}
-
-
 QString stripLeadingSudoForExecution(QString cmd) {
     cmd = cmd.trimmed();
     if (cmd.startsWith(QStringLiteral("sudo "))) {
@@ -791,22 +725,6 @@ int MainWindow::connectionIndexByNameOrId(const QString& value) const {
     }
     return -1;
 }
-
-bool MainWindow::connectionsReferToSameMachine(int a, int b) const {
-    if (a < 0 || a >= m_conns.profiles.size() || b < 0 || b >= m_conns.profiles.size()) {
-        return false;
-    }
-    QString ua = m_conns.profiles[a].machineUid.trimmed().toLower();
-    QString ub = m_conns.profiles[b].machineUid.trimmed().toLower();
-    if (ua.isEmpty() && a < m_conns.states.size()) {
-        ua = m_conns.states[a].machineUuid.trimmed().toLower();
-    }
-    if (ub.isEmpty() && b < m_conns.states.size()) {
-        ub = m_conns.states[b].machineUuid.trimmed().toLower();
-    }
-    return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
-}
-
 
 int MainWindow::equivalentSshForLocal(int localIdx) const {
     if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
@@ -1924,114 +1842,6 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         m_autoRefreshTimer->start(10000);
     } else if (m_autoRefreshTimer) {
         m_autoRefreshTimer->stop();
-    }
-}
-
-
-void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
-                                              int connIdx,
-                                              bool& rebuildingFlag,
-                                              int* forceRestoreConnIdx,
-                                              const std::function<void(int)>& saveTreeState,
-                                              const std::function<void()>& clearPendingState) {
-    if (!tree) {
-        return;
-    }
-    QScopedValueRollback<bool> rebuildingGuard(rebuildingFlag, true);
-    const QSignalBlocker blockTree(tree);
-    const QString savedStateToken = connContentStateTokenForTree(this, tree);
-    if (clearPendingState) {
-        clearPendingState();
-    }
-    if (forceRestoreConnIdx && connIdx >= 0 && *forceRestoreConnIdx == connIdx) {
-        *forceRestoreConnIdx = -1;
-    }
-    tree->clear();
-    const bool unifiedTree = tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
-    if (!unifiedTree
-        && (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()
-            || isConnectionDisconnected(connIdx))) {
-        syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
-        return;
-    }
-    if (unifiedTree) {
-        for (int i = 0; i < m_conns.profiles.size(); ++i) {
-            const ConnectionRuntimeState state =
-                (i < m_conns.states.size()) ? m_conns.states[i] : ConnectionRuntimeState{};
-            populateConnectionPoolsIntoTree(tree, i, state);
-        }
-    } else {
-        const ConnectionRuntimeState st = m_conns.states[connIdx];
-        populateConnectionPoolsIntoTree(tree, connIdx, st);
-    }
-    if (tree->topLevelItemCount() == 0) {
-        auto* noPools = new QTreeWidgetItem();
-        noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
-                                QStringLiteral("Sin Pools"),
-                                QStringLiteral("No Pools")));
-        QFont f = noPools->font(0);
-        f.setItalic(true);
-        noPools->setFont(0, f);
-        noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
-        tree->addTopLevelItem(noPools);
-    }
-    const QString restoreStateToken = !savedStateToken.isEmpty()
-                                          ? savedStateToken
-                                          : connContentStateTokenForTree(this, tree);
-    if (!restoreStateToken.isEmpty()) {
-        restoreConnContentTreeStateFor(tree, restoreStateToken);
-    } else if (tree->topLevelItemCount() > 0) {
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* item = tree->topLevelItem(i);
-            if (item && item->data(0, kIsPoolRootRole).toBool()) {
-                item->setExpanded(true);
-            }
-        }
-    }
-    applyUserExpandedState(tree);
-    applyDebugNodeIdsToTree(tree);
-    if (saveTreeState) {
-        saveTreeState(connIdx);
-    }
-    QString token;
-    if (tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
-        token = connContentTokenForTree(tree);
-    } else if (connIdx >= 0 && connIdx < m_conns.profiles.size()) {
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* root = tree->topLevelItem(i);
-            if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
-                continue;
-            }
-            const int rootConnIdx = root->data(0, Qt::UserRole + 10).toInt();
-            const QString poolName = root->data(0, Qt::UserRole + 11).toString().trimmed();
-            if (rootConnIdx == connIdx && !poolName.isEmpty()) {
-                token = QStringLiteral("%1::%2").arg(rootConnIdx).arg(poolName);
-                break;
-            }
-        }
-    }
-    if (!token.isEmpty()) {
-        syncConnContentPoolColumnsFor(tree, token);
-    }
-}
-
-void MainWindow::updateSecondaryConnectionDetail() {
-    // Árbol inferior eliminado en el rediseño global.
-}
-
-void MainWindow::saveTopTreeStateForConnection(int connIdx) {
-    Q_UNUSED(connIdx);
-}
-
-
-void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
-    Q_UNUSED(connIdx);
-    if (!m_connContentTree) {
-        return;
-    }
-    const QString token = connContentTokenForTree(m_connContentTree);
-    if (!token.isEmpty()) {
-        restoreConnContentTreeStateFor(m_connContentTree, token);
     }
 }
 

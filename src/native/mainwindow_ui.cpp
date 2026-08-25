@@ -74,31 +74,9 @@
 #endif
 
 namespace {
-constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
-constexpr int kConnPropKeyRole = Qt::UserRole + 14;
-constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
-constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
-constexpr int kConnIdxRole = Qt::UserRole + 10;
-constexpr int kPoolNameRole = Qt::UserRole + 11;
-constexpr int kConnSnapshotHoldsNodeRole = Qt::UserRole + 21;
-constexpr int kConnSnapshotHoldItemRole = Qt::UserRole + 22;
-constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
-constexpr int kConnSnapshotHoldTimestampRole = Qt::UserRole + 24;
-constexpr int kConnPermissionsNodeRole = Qt::UserRole + 25;
-constexpr int kConnPermissionsKindRole = Qt::UserRole + 26;
-constexpr int kConnPermissionsScopeRole = Qt::UserRole + 27;
-constexpr int kConnPermissionsTargetTypeRole = Qt::UserRole + 28;
-constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
-constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
-constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
-constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
-constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
-constexpr int kConnStatePartRole = Qt::UserRole + 44;
-constexpr int kIsSplitRootRole = Qt::UserRole + 50;
-constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 
 
@@ -644,44 +622,6 @@ private:
     int m_managedColumnCount{1};
     int m_pinnedCount{0};
 };
-}
-
-static QPixmap makePendingStatusPixmap(MainWindow::PendingItemStatus status, int frame) {
-    constexpr int sz = 14;
-    QPixmap px(sz, sz);
-    px.fill(Qt::transparent);
-    QPainter p(&px);
-    p.setRenderHint(QPainter::Antialiasing);
-    switch (status) {
-    case MainWindow::PendingItemStatus::Pending: {
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(160, 160, 160));
-        p.drawEllipse(QRectF(3.0, 3.0, 8.0, 8.0));
-        break;
-    }
-    case MainWindow::PendingItemStatus::Running: {
-        const qreal start = static_cast<qreal>((frame % 8) * 45) * 16.0;
-        p.setPen(QPen(QColor(50, 130, 220), 2.5, Qt::SolidLine, Qt::RoundCap));
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(QRectF(2.0, 2.0, 10.0, 10.0), static_cast<int>(start), 270 * 16);
-        break;
-    }
-    case MainWindow::PendingItemStatus::Success: {
-        p.setPen(QPen(QColor(40, 160, 40), 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p.setBrush(Qt::NoBrush);
-        QPolygonF check;
-        check << QPointF(2.0, 7.0) << QPointF(5.0, 11.0) << QPointF(12.0, 3.0);
-        p.drawPolyline(check);
-        break;
-    }
-    case MainWindow::PendingItemStatus::Failed: {
-        p.setPen(QPen(QColor(200, 50, 50), 2.0, Qt::SolidLine, Qt::RoundCap));
-        p.drawLine(QPointF(3.0, 3.0), QPointF(11.0, 11.0));
-        p.drawLine(QPointF(11.0, 3.0), QPointF(3.0, 11.0));
-        break;
-    }
-    }
-    return px;
 }
 
 namespace {
@@ -1350,37 +1290,6 @@ void MainWindow::populatePaneTree(QTreeWidget* tree, int connIdx, const QString&
     applyUserExpandedState(tree);
     applyDebugNodeIdsToTree(tree);
     syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
-}
-
-bool MainWindow::focusPendingChangeLine(const QString& line) {
-    // Enfocaba una fila de la lista de pendientes. Ya no hay lista de pendientes: esta lista
-    // enseña los trabajos en marcha, que no se enfocan por «línea de cambio». Se deja el
-    // punto de entrada porque lo llaman desde varios sitios al terminar una acción, y no
-    // hace nada.
-    Q_UNUSED(line);
-    // Devuelve false: no hay ninguna fila que enfocar. Sin este `return` la función tenía
-    // comportamiento indefinido —el cruce de MinGW lo avisó y el de Linux no—.
-    return false;
-}
-
-void MainWindow::setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible) {
-    Q_UNUSED(tree);
-    Q_UNUSED(visible);
-}
-
-void MainWindow::setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible) {
-    Q_UNUSED(tree);
-    Q_UNUSED(visible);
-}
-
-void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
-    Q_UNUSED(tree);
-    Q_UNUSED(visible);
-}
-
-void MainWindow::setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible) {
-    Q_UNUSED(tree);
-    Q_UNUSED(visible);
 }
 
 void MainWindow::buildUi() {
@@ -2086,7 +1995,6 @@ void MainWindow::buildUi() {
     // panel izquierdo y destino el derecho. El resto del código pide «el árbol de
     // origen» y «el de destino» por estos miembros, y así no tiene que enterarse de
     // que ahora vienen de un panel con desplegables.
-    m_topConnContentDelegate = m_datasetPanes[0].delegate;
     m_topDatasetTreeWidget = m_datasetPanes[0].treeWidget;
     m_topDatasetPane = m_topDatasetTreeWidget->pane();
     m_connContentTree = m_topDatasetTreeWidget->tree();
@@ -2258,7 +2166,6 @@ void MainWindow::buildUi() {
         // El widget suelto que había antes no era inofensivo: al quitarle la pestaña seguía
         // construyéndose, y sus botones aparecían flotando sobre la barra de pestañas,
         // tapándola. Se vio en la captura de la interfaz, no leyendo el código.
-        m_jobsTab = m_pendingChangesTab;
         auto* cancelBtn  = new QPushButton(trk(QStringLiteral("t_jobs_cancel_sel001"),
                                                 QStringLiteral("Cancelar seleccionado"),
                                                 QStringLiteral("Cancel selected")), m_pendingChangesTab);

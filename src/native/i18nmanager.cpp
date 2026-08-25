@@ -69,51 +69,6 @@ QHash<QString, QString> I18nManager::loadCatalog(const QString& language) {
     return {};
 }
 
-QHash<QString, QString> I18nManager::loadLegacyAliases() {
-    QStringList candidates;
-    const QString appDir = QCoreApplication::applicationDirPath();
-    candidates << QDir(appDir).filePath(QStringLiteral("i18n/legacy_keys.json"));
-#ifdef Q_OS_MAC
-    {
-        QDir d(appDir);
-        if (d.cdUp() && d.cdUp()) {
-            candidates << d.filePath(QStringLiteral("Resources/i18n/legacy_keys.json"));
-        }
-    }
-#endif
-    candidates << QStringLiteral(":/i18n/legacy_keys.json");
-
-    for (const QString& path : candidates) {
-        QFile f(path);
-        if (!f.exists()) {
-            continue;
-        }
-        if (!f.open(QIODevice::ReadOnly)) {
-            continue;
-        }
-        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-        if (!doc.isObject()) {
-            continue;
-        }
-        const QJsonObject root = doc.object();
-        if (!root.contains(QStringLiteral("legacy_keys")) || !root.value(QStringLiteral("legacy_keys")).isObject()) {
-            continue;
-        }
-        const QJsonObject table = root.value(QStringLiteral("legacy_keys")).toObject();
-        QHash<QString, QString> map;
-        for (auto it = table.begin(); it != table.end(); ++it) {
-            const QString legacy = it.key();
-            const QString id = it.value().toString().trimmed();
-            if (!legacy.isEmpty() && !id.isEmpty()) {
-                map.insert(legacy, id);
-            }
-        }
-        return map;
-    }
-    return {};
-}
-
-
 QString I18nManager::translateKey(const QString& language,
                                   const QString& key,
                                   const QString& fallbackEs,

@@ -24,12 +24,9 @@ public:
     const Config& config() const;
     QTreeWidget* tree() const;
     ConnectionDatasetTreePane* pane() const;
-    ConnectionDatasetTreeCoordinator* coordinator() const;
-
     void setPrimaryColumnTitle(const QString& title);
 
 private:
     Config m_config;
     ConnectionDatasetTreePane* m_pane{nullptr};
-    ConnectionDatasetTreeCoordinator* m_coordinator{nullptr};
 };

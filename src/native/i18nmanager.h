@@ -17,10 +17,7 @@ public:
 private:
     I18nManager() = default;
     QHash<QString, QString> loadCatalog(const QString& language);
-    QHash<QString, QString> loadLegacyAliases();
     static QString normalizeLanguage(const QString& language);
 
     QHash<QString, QHash<QString, QString>> m_catalogs;
-    QHash<QString, QString> m_legacyAliases;
-    bool m_legacyLoaded{false};
 };

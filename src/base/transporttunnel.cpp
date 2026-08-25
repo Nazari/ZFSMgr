@@ -105,11 +105,6 @@ void cierraTunel(TransportSession& ses, const std::string& key) {
 
 }  // namespace
 
-void clearRemoteDaemonTlsCache() {
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
-    g_cache.clear();
-}
-
 void clearRemoteDaemonTlsCacheForConnection(const ConnectionProfile& p) {
     std::lock_guard<std::mutex> lock(g_cacheMutex);
     g_cache.erase(remoteDaemonTlsCacheKey(p));

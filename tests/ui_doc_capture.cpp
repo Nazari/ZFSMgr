@@ -41,102 +41,6 @@ bool savePixmap(const QPixmap& pixmap, const QString& path, QString* errorOut = 
     return true;
 }
 
-QTreeWidgetItem* findItemByDatasetName(QTreeWidget* tree, const QString& datasetName) {
-    if (!tree || datasetName.trimmed().isEmpty()) {
-        return nullptr;
-    }
-    const QString wanted = datasetName.trimmed();
-    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* item) -> QTreeWidgetItem* {
-        if (!item) {
-            return nullptr;
-        }
-        if (item->data(0, Qt::UserRole).toString().trimmed() == wanted) {
-            return item;
-        }
-        for (int i = 0; i < item->childCount(); ++i) {
-            if (QTreeWidgetItem* found = rec(item->child(i))) {
-                return found;
-            }
-        }
-        return nullptr;
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        if (QTreeWidgetItem* found = rec(tree->topLevelItem(i))) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-QTreeWidgetItem* findItemByLabel(QTreeWidgetItem* parent, const QString& label) {
-    if (!parent || label.trimmed().isEmpty()) {
-        return nullptr;
-    }
-    const QString wanted = label.trimmed();
-    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* item) -> QTreeWidgetItem* {
-        if (!item) {
-            return nullptr;
-        }
-        if (item->text(0).trimmed() == wanted) {
-            return item;
-        }
-        for (int i = 0; i < item->childCount(); ++i) {
-            if (QTreeWidgetItem* found = rec(item->child(i))) {
-                return found;
-            }
-        }
-        return nullptr;
-    };
-    for (int i = 0; i < parent->childCount(); ++i) {
-        if (QTreeWidgetItem* found = rec(parent->child(i))) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-QTreeWidgetItem* findItemByLabels(QTreeWidgetItem* parent, const QStringList& labels) {
-    for (const QString& label : labels) {
-        if (QTreeWidgetItem* found = findItemByLabel(parent, label)) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-QRect subtreeRect(QTreeWidget* tree, QTreeWidgetItem* item) {
-    QRect rect;
-    if (!tree || !item) {
-        return rect;
-    }
-    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) {
-        if (!node) {
-            return;
-        }
-        rect = rect.united(tree->visualItemRect(node));
-        if (!node->isExpanded()) {
-            return;
-        }
-        for (int i = 0; i < node->childCount(); ++i) {
-            rec(node->child(i));
-        }
-    };
-    rec(item);
-    return rect;
-}
-
-QPixmap grabTreeViewportRect(QTreeWidget* tree, const QRect& rawRect) {
-    if (!tree || rawRect.isNull()) {
-        return QPixmap();
-    }
-    QRect rect = rawRect.adjusted(-12, -10, 12, 10);
-    rect = rect.intersected(tree->viewport()->rect());
-    if (rect.isEmpty()) {
-        return QPixmap();
-    }
-    return tree->viewport()->grab(rect);
-}
-
 QPixmap renderMenuPixmap(const QString& title,
                          const QStringList& labels,
                          const QMap<QString, QStringList>& submenus = {}) {
@@ -219,16 +123,6 @@ int main(int argc, char** argv) {
     // que sin esto responde «la conexión aún no se ha refrescado» y deja el árbol vacío.
     window.setConnectionDaemonStateForTest(0, true, true);
     window.setConnectionGsaStateForTest(0, true, true, QStringLiteral("0.10.0rc1.5"));
-    // Los nodos de «Datasets programados» y «Permisos» solo existen si su opción de
-    // visualización está puesta. Sin esto no aparecían, sus capturas se saltaban en silencio
-    // y en la ayuda se quedaban las de la vez anterior — que es como acabaron siendo de hace
-    // meses sin que nadie se enterara.
-    //
-    // Solo se pone esta: `setShowPoolInfoNodeForTest` y `setShowInlineGsaNodeForTest` están
-    // DECLARADAS en mainwindow.h y no implementadas en ninguna parte, así que usarlas no
-    // falla al compilar sino al enlazar. Se deja dicho aquí para que quien las busque no
-    // pierda el rato.
-    window.setShowAutomaticSnapshotsForTest(true);
     window.configurePoolDatasetsForTest(
         0,
         QStringLiteral("tank1"),

@@ -267,41 +267,10 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
     while (true) {
         QThread::msleep(1000);
         // CON eventos de entrada: sin ellos la ventana se repinta pero ignora los clics,
-        // y entonces no hay forma de pedir la cancelación —el menú contextual que la
-        // ofrece no llega ni a abrirse—. Es decir, la espera de un trabajo largo era
-        // justo el momento en que no se podía detener el trabajo largo.
-        //
-        // Reentrar es aceptable aquí: m_actionsLocked está puesto y las acciones lo
-        // comprueban al entrar, así que lo que el usuario puede hacer mientras tanto es
-        // mirar, desplazarse y cancelar.
+        // y se queda tiesa mientras dura el trabajo. Reentrar es aceptable aquí:
+        // m_actionsLocked está puesto y las acciones lo comprueban al entrar, así que lo
+        // que el usuario puede hacer mientras tanto es mirar y desplazarse.
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
-        // Cancelación. Este bucle no la miraba, así que Desglosar y Ensamblar —las dos
-        // que se envían como trabajo— no se podían detener de ninguna manera desde la
-        // interfaz: no hay proceso local que matar, el trabajo vive en el daemon.
-        if (m_cancelActionRequested) {
-            m_cancelActionRequested = false;
-            QString cOut;
-            QString cErr;
-            int cRc = -1;
-            const QStringList cancelArgs = mwhelpers::argvQt(zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
-            const bool asked = runAgentCommand(p, cancelArgs, 20000, cOut, cErr, cRc);
-            m_transport.log(asked && cRc == 0 ? TransportSession::Level::Normal
-                                              : TransportSession::Level::Error,
-                   asked && cRc == 0
-                       ? QStringLiteral("%1: cancelación pedida para el trabajo %2")
-                             .arg(p.name, jobId)
-                       : QStringLiteral("%1: no se pudo cancelar el trabajo %2 (%3). Puede "
-                                        "seguir en curso en el daemon.")
-                             .arg(p.name, jobId, mwhelpers::oneLine(cErr)));
-            // El texto sigue estando, para el registro y para quien lo lea; lo que ya no
-            // está es que ALGUIEN DECIDA leyéndolo.
-            err = QStringLiteral("cancelado por el usuario");
-            rc = 125;
-            if (cancelledOut) {
-                *cancelledOut = true;
-            }
-            return false;
-        }
         QString stOut;
         QString stErr;
         int stRc = -1;
@@ -1316,7 +1285,6 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     // Holding a reference into the map across the runSsh() calls below is what made
     // this function corrupt the heap and crash on refresh.
     PoolDatasetCache cache;
-    const bool isWin = isWindowsConnection(p);
     QString out;
     QString err;
     int rc = -1;
@@ -1512,7 +1480,6 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     updateStatus(QStringLiteral("%1").arg(displayLabel));
     m_transport.log(TransportSession::Level::Info, QStringLiteral("$ %1").arg(command));
     QProcess proc;
-    m_cancelActionRequested = false;
     m_activeLocalProcess = &proc;
 #ifdef Q_OS_WIN
     ConnectionProfile localWinProfile;
@@ -1669,26 +1636,6 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     const qint64 startMs = QDateTime::currentMSecsSinceEpoch();
     while (proc.state() != QProcess::NotRunning) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
-        if (m_cancelActionRequested) {
-            m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_canceling_act001"),
-                                                 QStringLiteral("Cancelando acción en curso..."),
-                                                 QStringLiteral("Canceling running action...")));
-            terminateProcessTree(m_activeLocalPid);
-            proc.terminate();
-            if (!proc.waitForFinished(800)) {
-                proc.kill();
-                proc.waitForFinished(800);
-            }
-            m_transport.log(TransportSession::Level::Normal, trk(QStringLiteral("t_acc_cancel_usr2"),
-                                                 QStringLiteral("Acción cancelada por el usuario."),
-                                                 QStringLiteral("Action canceled by user.")));
-            updateStatus(QStringLiteral("%1 (CANCELADO)").arg(displayLabel));
-            m_activeLocalProcess = nullptr;
-            m_activeLocalPid = -1;
-            m_cancelActionRequested = false;
-            setActionsLocked(false);
-            return false;
-        }
         // Sin datos durante dos minutos con la tubería viva: no va a arrancar sola. El
         // caso real era Desde Dir contra un dataset sin punto de montaje utilizable —el
         // receptor fallaba al instante y esto seguía "en curso" indefinidamente—, pero

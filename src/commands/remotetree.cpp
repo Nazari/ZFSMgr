@@ -517,19 +517,6 @@ std::uint32_t rollingSum(const unsigned char* datos, std::size_t n) {
     return (a & 0xffff) | ((b & 0xffff) << 16);
 }
 
-std::string strongHashHex(const unsigned char* datos, std::size_t n) {
-    unsigned char h[SHA256_DIGEST_LENGTH];
-    SHA256(datos, n, h);
-    static const char* hex = "0123456789abcdef";
-    std::string out;
-    out.reserve(sizeof(h) * 2);
-    for (unsigned char c : h) {
-        out.push_back(hex[c >> 4]);
-        out.push_back(hex[c & 0x0f]);
-    }
-    return out;
-}
-
 bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error) {
     hexOut.clear();
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
@@ -819,10 +806,6 @@ bool setMode(const std::string& ruta, std::uint32_t modo) {
     }
     return ::chmod(ruta.c_str(), static_cast<mode_t>(modo & 07777)) == 0;
 #endif
-}
-
-std::int64_t fileMtime(const std::string& ruta, bool& ok) {
-    return fechaDe(fs::path(ruta), ok);
 }
 
 }  // namespace zfsmgr::remotetree

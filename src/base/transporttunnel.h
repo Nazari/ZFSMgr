@@ -40,10 +40,6 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   RemoteTlsMaterial& out,
                                   FailureReason* failureReason = nullptr);
 
-// Empties the in-memory cache of remote TLS material. Needed when a connection is
-// re-provisioned: otherwise the old certificate would go on being used for up to five
-// minutes.
-void clearRemoteDaemonTlsCache();
 // Only one connection's, which is what re-provisioning it needs: emptying everyone's would
 // force the other machines into an SSH round trip for no reason.
 void clearRemoteDaemonTlsCacheForConnection(const ConnectionProfile& p);

@@ -90,10 +90,6 @@ protected:
     }
 };
 
-bool isUserProperty(const QString& prop) {
-    return zfsmgr::base::zfsprops::isUserProperty(prop.toStdString());
-}
-
 // La familia de plataforma, el soporte por plataforma y la editabilidad viven ahora en
 // `base/zfsprops`, sin Qt. Estaban DUPLICADAS letra por letra en este fichero y en el
 // otro, y el servidor web necesita la misma regla para saber qué celda pinta con una caja
@@ -659,7 +655,7 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         };
     };
     auto saveCurrentDraft = [this]() {
-        if (m_pendingChangeActivationInProgress || !m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
+        if (!m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
             return;
         }
         QString currToken;
@@ -1584,11 +1580,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                 }
             }
         };
-        auto objectDatasetName = [](const QString& objectName) {
-            const int at = objectName.indexOf(QLatin1Char('@'));
-            return (at > 0) ? objectName.left(at).trimmed() : objectName.trimmed();
-        };
-
         struct PendingPermissionEntry {
             int connIdx{-1};
             QString poolName;

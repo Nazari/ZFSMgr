@@ -185,24 +185,13 @@ enum class DSKind {
     Unknown,
 };
 
-struct DSPropertyCapability {
-    bool visible{true};
-    bool editableInline{false};
-    bool editableBySet{false};
-    bool editableBySpecialAction{false};
-    QString specialActionId;
-    bool inheritable{false};
-};
-
 struct DSCapabilities {
     bool canMount{false};
     bool canUnmount{false};
     bool canDestroy{false};
     bool canRename{false};
-    bool canClone{false};
     bool canManagePermissions{false};
     bool canManageSchedules{false};
-    QMap<QString, DSPropertyCapability> propertyCaps;
 };
 
 struct DSPropertyEditValue {

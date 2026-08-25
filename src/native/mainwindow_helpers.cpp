@@ -633,14 +633,6 @@ QStringList argvZfsClone(const QString& instantaneaOrigen, const QString& datase
                                                                 datasetNuevo.toStdString(), b));
 }
 
-QStringList argvCrearDataset(const QString& dataset, const QStringList& propiedades, bool padres) {
-    std::vector<std::string> props;
-    for (const QString& x : propiedades) {
-        props.push_back(x.toStdString());
-    }
-    return aLista(zfsmgr::commands::datasets::argvCreate(dataset.toStdString(), props, padres));
-}
-
 QStringList argvPool(zfsmgr::commands::pools::Operation op, const QString& pool,
                      const QStringList& banderas, const QStringList& discos,
                      zfsmgr::commands::pools::Phase fase) {
