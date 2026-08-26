@@ -239,7 +239,24 @@ private:
     struct DatasetPropsDraft {
         QMap<QString, QString> valuesByProp;
         QMap<QString, bool> inheritByProp;
+        // En qué orden se tocó cada propiedad, la primera vez.
+        //
+        // Los dos mapas de arriba ordenan por clave y pierden esa información, y el
+        // conjunto desde el que se aplicaban ni siquiera tenía orden definido. El orden
+        // en que se ejecutan las órdenes tiene que ser el que hizo el USUARIO, de la más
+        // antigua a la más nueva: es lo único predecible, y en propiedades de montaje
+        // además importa —`canmount=on` monta usando el `mountpoint` que haya puesto en
+        // ese momento—.
+        QStringList editOrder;
         bool dirty{false};
+
+        // Deja constancia de que se ha tocado `prop`, si no la había ya. Se llama al
+        // escribir en cualquiera de los dos mapas.
+        void noteEdited(const QString& prop) {
+            if (!prop.trimmed().isEmpty() && !editOrder.contains(prop)) {
+                editOrder.push_back(prop);
+            }
+        }
     };
 
     struct PendingDatasetRenameDraft {

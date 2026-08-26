@@ -1181,27 +1181,31 @@ std::string parseOpenZfsVersionText(const std::string& text) {
     return std::string();
 }
 
-std::vector<std::string> datasetPropertyApplyOrder(std::vector<std::string> props) {
-    const auto rango = [](const std::string& p) {
-        const std::string n = toLowerAscii(trim(p));
-        if (n == "mountpoint") {
-            return 0;   // dónde montar: antes que nada que pueda montar
+std::vector<std::string> datasetPropertyApplyOrder(const std::vector<std::string>& props,
+                                                   const std::vector<std::string>& recorded) {
+    std::vector<std::string> salida;
+    salida.reserve(props.size());
+    // Primero, en el orden en que se fueron tocando.
+    for (const std::string& anotada : recorded) {
+        const auto donde = std::find(props.begin(), props.end(), anotada);
+        if (donde != props.end()
+            && std::find(salida.begin(), salida.end(), anotada) == salida.end()) {
+            salida.push_back(anotada);
         }
-        if (n == "canmount") {
-            return 2;   // lo que dispara el montaje: el último
+    }
+    // Y detrás, lo que no llegó a anotarse. Alfabético para que sea repetible.
+    std::vector<std::string> resto;
+    for (const std::string& p : props) {
+        if (std::find(salida.begin(), salida.end(), p) == salida.end()
+            && std::find(resto.begin(), resto.end(), p) == resto.end()) {
+            resto.push_back(p);
         }
-        return 1;
-    };
-    std::sort(props.begin(), props.end(),
-              [&rango](const std::string& a, const std::string& b) {
-                  const int ra = rango(a);
-                  const int rb = rango(b);
-                  if (ra != rb) {
-                      return ra < rb;
-                  }
-                  return toLowerAscii(trim(a)) < toLowerAscii(trim(b));
-              });
-    return props;
+    }
+    std::sort(resto.begin(), resto.end(), [](const std::string& a, const std::string& b) {
+        return toLowerAscii(trim(a)) < toLowerAscii(trim(b));
+    });
+    salida.insert(salida.end(), resto.begin(), resto.end());
+    return salida;
 }
 
 ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolParsed) {

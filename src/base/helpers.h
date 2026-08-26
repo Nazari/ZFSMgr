@@ -271,17 +271,22 @@ ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolP
 
 // En qué ORDEN se aplican las propiedades que se han tocado en un borrador.
 //
-// No da igual, y no puede quedar al azar: `canmount=on` DISPARA el montaje, así que cuando
-// se ejecuta ya tiene que estar puesto dónde montar. Al revés —que es lo que pasaba—, ZFS
-// intenta montar en el punto ANTERIOR. El 2026-08-26 ese punto anterior era
-// `/Users/linarese`, el directorio de trabajo del usuario, y solo se salvó porque no
-// estaba vacío.
+// El orden es el de CREACIÓN: el mismo en que el usuario las fue tocando, de la más antigua
+// a la más nueva. Ni alfabético, ni por prioridades que decida el programa — lo único
+// predecible es reproducir lo que hizo quien lo hizo.
 //
-// Antes se recorría un conjunto sin orden definido: ni siquiera era alfabético, era
-// arbitrario y podía cambiar de una ejecución a otra. Aquí se fija: `mountpoint` primero,
-// `canmount` el último, y el resto entre medias por orden alfabético para que dos
-// ejecuciones con el mismo borrador hagan exactamente lo mismo.
-std::vector<std::string> datasetPropertyApplyOrder(std::vector<std::string> props);
+// No es un detalle estético. `canmount=on` DISPARA el montaje usando el `mountpoint` que
+// haya puesto en ese instante, así que el orden decide DÓNDE se monta. El 2026-08-26 se
+// aplicó `canmount` antes que `mountpoint` y ZFS intentó montar en el punto anterior, que
+// era `/Users/linarese`: el directorio de trabajo del usuario. Solo se salvó porque no
+// estaba vacío. Y ni siquiera era alfabético: salía de un conjunto sin orden definido, o
+// sea arbitrario y capaz de cambiar entre ejecuciones.
+//
+// `recorded` es la secuencia tal y como se fue anotando. Lo que no aparezca en ella va
+// detrás y por orden alfabético: no debería ocurrir, pero si ocurre más vale que sea
+// repetible que aleatorio.
+std::vector<std::string> datasetPropertyApplyOrder(const std::vector<std::string>& props,
+                                                   const std::vector<std::string>& recorded);
 
 // --- SSH and agent invocation.
 //

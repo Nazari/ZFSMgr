@@ -700,9 +700,11 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
             const bool inh = inheritable && ri->checkState() == Qt::Checked;
             const QString currentValue = rv->text();
             if (m_propsOriginalValues.value(key) != currentValue) {
+                draft.noteEdited(key);
                 draft.valuesByProp[key] = currentValue;
             }
             if (inheritable && m_propsOriginalInherit.value(key, false) != inh) {
+                draft.noteEdited(key);
                 draft.inheritByProp[key] = inh;
             }
         }
@@ -1163,9 +1165,11 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
             const bool inh = inheritable && ri->checkState() == Qt::Checked;
             const QString nowValue = rv->text();
             if (m_propsOriginalValues.value(key) != nowValue) {
+                draft.noteEdited(key);
                 draft.valuesByProp[key] = nowValue;
             }
             if (inheritable && m_propsOriginalInherit.value(key, false) != inh) {
+                draft.noteEdited(key);
                 draft.inheritByProp[key] = inh;
             }
         }
@@ -1263,11 +1267,13 @@ void MainWindow::applyDatasetPropertyChanges() {
                 const QString originalValue = m_propsOriginalValues.value(key);
                 const bool originalInherit = m_propsOriginalInherit.value(key, false);
                 if (nowValue != originalValue) {
-                    draft.valuesByProp[key] = nowValue;
+                    draft.noteEdited(key);
+                draft.valuesByProp[key] = nowValue;
                 } else {
                     draft.valuesByProp.remove(key);
                 }
                 if (inheritable && nowInherit != originalInherit) {
+                    draft.noteEdited(key);
                     draft.inheritByProp[key] = nowInherit;
                 } else {
                     draft.inheritByProp.remove(key);
@@ -1357,16 +1363,22 @@ void MainWindow::applyDatasetPropertyChanges() {
             QVector<PropertyOp> ops;
             bool touchedAnyProperty = false;
             bool touchedOnlyGsaProperties = true;
-            // El orden importa y no puede salir de un conjunto sin ordenar: la regla vive
-            // en la capa base, con test. `mountpoint` antes que `canmount`, porque el
-            // segundo dispara el montaje y usaría el punto anterior.
+            // El orden es el de CREACIÓN: como el usuario las fue tocando. El conjunto
+            // `touched` no tiene orden definido, así que la secuencia viene del borrador,
+            // que la anota al editar. La regla vive en la capa base, con test.
             std::vector<std::string> ordenables;
             ordenables.reserve(static_cast<std::size_t>(touched.size()));
             for (const QString& prop : touched) {
                 ordenables.push_back(prop.toStdString());
             }
+            std::vector<std::string> secuencia;
+            secuencia.reserve(static_cast<std::size_t>(item.draft.editOrder.size()));
+            for (const QString& prop : item.draft.editOrder) {
+                secuencia.push_back(prop.toStdString());
+            }
             QStringList propsEnOrden;
-            for (const std::string& prop : zfsmgr::base::helpers::datasetPropertyApplyOrder(ordenables)) {
+            for (const std::string& prop :
+                 zfsmgr::base::helpers::datasetPropertyApplyOrder(ordenables, secuencia)) {
                 propsEnOrden << QString::fromStdString(prop);
             }
             for (const QString& prop : std::as_const(propsEnOrden)) {

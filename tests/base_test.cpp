@@ -1134,34 +1134,46 @@ int main() {
 
         // --- en que ORDEN se aplican las propiedades de un borrador
         //
-        // No da igual: `canmount=on` DISPARA el montaje, asi que cuando se ejecuta ya tiene
-        // que estar puesto donde montar. Al reves, ZFS monta en el punto ANTERIOR — y el
-        // 2026-08-26 ese punto era el directorio de trabajo del usuario. Antes esto salia
-        // de un conjunto SIN ORDEN definido: ni alfabetico, arbitrario.
+        // El de CREACION: como el usuario las fue tocando, de la mas antigua a la mas nueva.
+        // No es estetico. `canmount=on` DISPARA el montaje usando el `mountpoint` que haya
+        // en ese instante, asi que el orden decide DONDE se monta. El 2026-08-26 se aplico
+        // `canmount` antes que `mountpoint` y ZFS intento montar en el punto anterior, que
+        // era el directorio de trabajo del usuario. Y ni siquiera era alfabetico: salia de
+        // un conjunto sin orden definido.
         {
             namespace HH = zfsmgr::base::helpers;
+            // Se respeta lo que hizo el usuario, sea cual sea.
             {
-                const auto orden = HH::datasetPropertyApplyOrder({"canmount", "mountpoint"});
-                igual(orden.at(0), "mountpoint", "orden: mountpoint antes que canmount");
-                igual(orden.at(1), "canmount", "orden: canmount al final");
+                const auto orden = HH::datasetPropertyApplyOrder({"canmount", "mountpoint"},
+                                                                 {"mountpoint", "canmount"});
+                igual(orden.at(0), "mountpoint", "orden: el que se anoto, no el alfabetico");
+                igual(orden.at(1), "canmount", "orden: y el segundo detras");
             }
-            // Y da igual como vengan: el resultado es el mismo.
+            // Y TAMBIEN al reves: si el usuario toco canmount primero, eso es lo que se
+            // ejecuta. La aplicacion reproduce, no corrige.
             {
-                const auto orden = HH::datasetPropertyApplyOrder({"mountpoint", "canmount"});
-                igual(orden.at(0), "mountpoint", "orden: no depende de como llegaran");
+                const auto orden = HH::datasetPropertyApplyOrder({"canmount", "mountpoint"},
+                                                                 {"canmount", "mountpoint"});
+                igual(orden.at(0), "canmount", "orden: se reproduce aunque sea el peligroso");
+                igual(orden.at(1), "mountpoint", "orden: sin reordenar por nuestra cuenta");
             }
-            // Con mas propiedades por medio, canmount SIGUE siendo el ultimo.
+            // Lo que no llego a anotarse va detras, y alfabetico para que sea repetible.
             {
                 const auto orden = HH::datasetPropertyApplyOrder(
-                    {"canmount", "compression", "mountpoint", "atime"});
-                igual(orden.at(0), "mountpoint", "orden: mountpoint el primero de todos");
-                igual(orden.at(orden.size() - 1), "canmount", "orden: canmount el ultimo de todos");
-                // El resto, alfabetico: dos ejecuciones del mismo borrador tienen que hacer
-                // exactamente lo mismo, y de un conjunto sin orden eso no se puede afirmar.
-                igual(orden.at(1), "atime", "orden: el resto por alfabetico, para ser repetible");
-                igual(orden.at(2), "compression", "orden: y el siguiente tambien");
+                    {"canmount", "compression", "mountpoint", "atime"}, {"mountpoint"});
+                igual(orden.at(0), "mountpoint", "orden: lo anotado primero");
+                igual(orden.at(1), "atime", "orden: lo no anotado, alfabetico");
+                igual(orden.at(2), "canmount", "orden: y sigue alfabetico");
+                igual(orden.at(3), "compression", "orden: hasta el final");
             }
-            comprobar(HH::datasetPropertyApplyOrder({}).empty(),
+            // Una anotacion de algo que ya no se toca no debe colarse en la salida.
+            {
+                const auto orden = HH::datasetPropertyApplyOrder({"atime"},
+                                                                 {"mountpoint", "atime"});
+                comprobar(orden.size() == 1 && orden.at(0) == "atime",
+                          "orden: lo anotado que ya no se toca no se ejecuta");
+            }
+            comprobar(HH::datasetPropertyApplyOrder({}, {}).empty(),
                       "orden: sin propiedades no hay nada que ordenar");
         }
 
