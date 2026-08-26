@@ -5,6 +5,7 @@
 #include "strutil.h"
 
 #include <cctype>
+#include <algorithm>
 #include <cstdio>
 #ifndef _WIN32
 #include <unistd.h>
@@ -1178,6 +1179,29 @@ std::string parseOpenZfsVersionText(const std::string& text) {
         }
     }
     return std::string();
+}
+
+std::vector<std::string> datasetPropertyApplyOrder(std::vector<std::string> props) {
+    const auto rango = [](const std::string& p) {
+        const std::string n = toLowerAscii(trim(p));
+        if (n == "mountpoint") {
+            return 0;   // dónde montar: antes que nada que pueda montar
+        }
+        if (n == "canmount") {
+            return 2;   // lo que dispara el montaje: el último
+        }
+        return 1;
+    };
+    std::sort(props.begin(), props.end(),
+              [&rango](const std::string& a, const std::string& b) {
+                  const int ra = rango(a);
+                  const int rb = rango(b);
+                  if (ra != rb) {
+                      return ra < rb;
+                  }
+                  return toLowerAscii(trim(a)) < toLowerAscii(trim(b));
+              });
+    return props;
 }
 
 ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolParsed) {

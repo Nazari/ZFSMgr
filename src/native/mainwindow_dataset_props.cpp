@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "base/helpers.h"
 
 #include "commands/gsa.h"
 #include "mainwindow_helpers.h"
@@ -1356,7 +1357,19 @@ void MainWindow::applyDatasetPropertyChanges() {
             QVector<PropertyOp> ops;
             bool touchedAnyProperty = false;
             bool touchedOnlyGsaProperties = true;
+            // El orden importa y no puede salir de un conjunto sin ordenar: la regla vive
+            // en la capa base, con test. `mountpoint` antes que `canmount`, porque el
+            // segundo dispara el montaje y usaría el punto anterior.
+            std::vector<std::string> ordenables;
+            ordenables.reserve(static_cast<std::size_t>(touched.size()));
             for (const QString& prop : touched) {
+                ordenables.push_back(prop.toStdString());
+            }
+            QStringList propsEnOrden;
+            for (const std::string& prop : zfsmgr::base::helpers::datasetPropertyApplyOrder(ordenables)) {
+                propsEnOrden << QString::fromStdString(prop);
+            }
+            for (const QString& prop : std::as_const(propsEnOrden)) {
                 if (prop.isEmpty() || prop == QStringLiteral("dataset")
                     || prop == QStringLiteral("Tamaño")
                     || prop == QStringLiteral("snapshot")) {

@@ -1132,6 +1132,39 @@ int main() {
               "destino: un pool entero tambien lleva su nombre");
         igual(TR::actualDestination("p/datos", ""), "", "destino: sin destino, nada que componer");
 
+        // --- en que ORDEN se aplican las propiedades de un borrador
+        //
+        // No da igual: `canmount=on` DISPARA el montaje, asi que cuando se ejecuta ya tiene
+        // que estar puesto donde montar. Al reves, ZFS monta en el punto ANTERIOR — y el
+        // 2026-08-26 ese punto era el directorio de trabajo del usuario. Antes esto salia
+        // de un conjunto SIN ORDEN definido: ni alfabetico, arbitrario.
+        {
+            namespace HH = zfsmgr::base::helpers;
+            {
+                const auto orden = HH::datasetPropertyApplyOrder({"canmount", "mountpoint"});
+                igual(orden.at(0), "mountpoint", "orden: mountpoint antes que canmount");
+                igual(orden.at(1), "canmount", "orden: canmount al final");
+            }
+            // Y da igual como vengan: el resultado es el mismo.
+            {
+                const auto orden = HH::datasetPropertyApplyOrder({"mountpoint", "canmount"});
+                igual(orden.at(0), "mountpoint", "orden: no depende de como llegaran");
+            }
+            // Con mas propiedades por medio, canmount SIGUE siendo el ultimo.
+            {
+                const auto orden = HH::datasetPropertyApplyOrder(
+                    {"canmount", "compression", "mountpoint", "atime"});
+                igual(orden.at(0), "mountpoint", "orden: mountpoint el primero de todos");
+                igual(orden.at(orden.size() - 1), "canmount", "orden: canmount el ultimo de todos");
+                // El resto, alfabetico: dos ejecuciones del mismo borrador tienen que hacer
+                // exactamente lo mismo, y de un conjunto sin orden eso no se puede afirmar.
+                igual(orden.at(1), "atime", "orden: el resto por alfabetico, para ser repetible");
+                igual(orden.at(2), "compression", "orden: y el siguiente tambien");
+            }
+            comprobar(HH::datasetPropertyApplyOrder({}).empty(),
+                      "orden: sin propiedades no hay nada que ordenar");
+        }
+
         // --- que significa que la sonda de importables no encuentre nada
         //
         // «No hay ninguno» y «no puedo mirar» se leen IGUAL en `zpool import`: las dos dicen

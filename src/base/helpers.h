@@ -269,6 +269,20 @@ struct ImportProbeReading {
 
 ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolParsed);
 
+// En qué ORDEN se aplican las propiedades que se han tocado en un borrador.
+//
+// No da igual, y no puede quedar al azar: `canmount=on` DISPARA el montaje, así que cuando
+// se ejecuta ya tiene que estar puesto dónde montar. Al revés —que es lo que pasaba—, ZFS
+// intenta montar en el punto ANTERIOR. El 2026-08-26 ese punto anterior era
+// `/Users/linarese`, el directorio de trabajo del usuario, y solo se salvó porque no
+// estaba vacío.
+//
+// Antes se recorría un conjunto sin orden definido: ni siquiera era alfabético, era
+// arbitrario y podía cambiar de una ejecución a otra. Aquí se fija: `mountpoint` primero,
+// `canmount` el último, y el resto entre medias por orden alfabético para que dos
+// ejecuciones con el mismo borrador hagan exactamente lo mismo.
+std::vector<std::string> datasetPropertyApplyOrder(std::vector<std::string> props);
+
 // --- SSH and agent invocation.
 //
 // They lean on ConnectionProfile, which is what used to keep them tied to Qt.
