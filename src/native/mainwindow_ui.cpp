@@ -1396,7 +1396,13 @@ void MainWindow::buildUi() {
         "QMenu::item { padding: 4px 14px; color: #102233; }"
         "QMenu::item:selected { background: #cfe5ff; color: #0b2f4f; }"
         "QMenu::item:disabled { color: #8f9aa5; background: #f4f6f8; }"
-        "QListWidget, QTableWidget, QTreeWidget { background: #ffffff; color: #102233; }"
+        // `alternate-background-color` TIENE que estar aquí. Es la única propiedad de estas
+        // listas que no se declaraba, así que caía en la PALETA — y en macOS la paleta se
+        // fuerza oscura en main.cpp mientras esta hoja pinta todo claro. Resultado: filas
+        // alternas casi negras con texto casi negro encima, ilegibles. Las impares se veían
+        // porque su fondo sí lo pone esta línea.
+        "QListWidget, QTableWidget, QTreeWidget { background: #ffffff; color: #102233; "
+        "alternate-background-color: #f2f7fb; }"
         "QPlainTextEdit, QTextEdit, QComboBox, QLineEdit { background: #ffffff; color: #102233; }"
         "QLineEdit { border: 1px solid #9db0c4; border-radius: 3px; padding: 2px 4px; }"
         "QLineEdit:disabled { background: #edf1f5; color: #8c99a6; border: 1px solid #c8d2dc; }"

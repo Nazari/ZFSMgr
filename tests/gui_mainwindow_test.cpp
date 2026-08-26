@@ -555,6 +555,30 @@ private Q_SLOTS:
                  QStringLiteral("oldlau|viva"));
     }
 
+    // Las filas alternas de las listas y tablas tienen que llevar su color EN LA HOJA DE
+    // ESTILO. Es la única propiedad que no se declaraba, así que caía en la paleta — y en
+    // macOS la paleta se fuerza oscura mientras la hoja pinta todo claro: filas alternas
+    // casi negras con texto casi negro encima.
+    //
+    // Se comprueba sobre la hoja de la ventana de verdad, no sobre una copia del literal.
+    void alternatingRowsDeclareTheirColour() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        const QString hoja = window.styleSheet();
+        QVERIFY2(!hoja.isEmpty(), "la ventana no tiene hoja de estilo");
+
+        // La regla que las cubre debe traer las TRES cosas: fondo, color de texto y fondo
+        // alterno. Con dos de las tres vuelve el problema.
+        const int inicio = hoja.indexOf(QStringLiteral("QListWidget, QTableWidget, QTreeWidget"));
+        QVERIFY2(inicio >= 0, "no está la regla de listas y tablas");
+        const int fin = hoja.indexOf(QLatin1Char('}'), inicio);
+        QVERIFY(fin > inicio);
+        const QString regla = hoja.mid(inicio, fin - inicio);
+        QVERIFY2(regla.contains(QStringLiteral("alternate-background-color")),
+                 "las filas alternas no declaran color: caerán en la paleta");
+        QVERIFY(regla.contains(QStringLiteral("background")));
+        QVERIFY(regla.contains(QStringLiteral("color: #")));
+    }
+
     void connectionsMenuGroupsRefreshAndGsa() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
