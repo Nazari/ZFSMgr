@@ -18,6 +18,27 @@ Y hay que REPETIR las dos cosas hasta que no salga nada: borrar una función dej
 huérfana a la que solo ella llamaba. En la pasada de agosto de 2026 hicieron falta
 cuatro vueltas.
 
+**CUIDADO: los avisos del compilador son POR PLATAFORMA.** Una función usada solo dentro
+de un `#ifdef Q_OS_MAC` o `_WIN32` no se compila en Linux, y ahí `-Wunused-function` la
+señala como muerta con toda la razón. Borrarla deja las OTRAS plataformas sin compilar. En
+la pasada de agosto de 2026 pasó TRES veces —`noHeredar`, `uuidDePlataformaMac` y
+`createMacFusionDarkPalette`— y las tres se descubrieron tarde.
+
+Antes de borrar algo que solo señala el compilador:
+
+  1. `grep -n "<nombre>" -B3 src/` y mirar si su uso está dentro de un guardián.
+  2. Si lo está, NO se borra: se le pone al DEFINIRLA el mismo guardián que tiene su uso.
+     Así ni sobra en Linux ni falta en las demás, y el aviso no vuelve.
+  3. Y se comprueba cruzando las CINCO plataformas ENTERAS, no solo el agente:
+
+         ./scripts/build-cross.sh --target windows
+         ./scripts/build-cross.sh --target freebsd
+         ./scripts/build-cross.sh --target macos --build-dir builds/cross-macos-amd64
+         OSXCROSS_TARGET=arm64-apple-darwin25.2 \
+             ./scripts/build-cross.sh --target macos --build-dir builds/cross-macos-arm64
+
+     `--agent-only` NO vale: no compila la interfaz, que es donde estaban dos de las tres.
+
 Criterio: un identificador cuyo nombre aparece dos veces en todo el árbol está
 declarado y definido, y no lo usa nadie. Uno que aparece una vez está declarado y ni
 siquiera existe —eso no falla al compilar, falla al enlazar, y solo si alguien lo usa—.

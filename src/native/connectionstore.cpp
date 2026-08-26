@@ -37,6 +37,47 @@ namespace {
 
 }  // namespace
 
+// El UUID de plataforma de un Mac, leído de `ioreg`.
+//
+// Va bajo la MISMA condición que su único uso, unas líneas más abajo. Sin el guardián, en
+// Linux esa rama no se compila, `-Wunused-function` la señala como muerta y se borra por
+// error —pasó el 2026-08-25— dejando la interfaz de macOS sin compilar. Y no se vio al
+// cruzar solo el agente: este fichero es de la interfaz, y `--agent-only` no la toca.
+#if defined(Q_OS_MACOS)
+QString uuidDePlataformaMac() {
+    // `ioreg` DIRECTO, sin shell.
+    //
+    // Aquí había un `sh -lc "ioreg … | awk -F\" …"`, con su citado de comillas dentro de
+    // comillas, y estaba copiado con el mismo carácter en otros dos sitios. El daemon ya lo
+    // hacía así —ejecutar `ioreg` con sus argumentos y buscar la línea en C++—, que además
+    // no arranca un intérprete ni depende de que `awk` esté en el PATH.
+    QProcess proc;
+    proc.start(QStringLiteral("ioreg"),
+               QStringList{QStringLiteral("-rd1"), QStringLiteral("-c"),
+                           QStringLiteral("IOPlatformExpertDevice")});
+    if (!proc.waitForFinished(3000)) {
+        return QString();
+    }
+    const QString salida = QString::fromUtf8(proc.readAllStandardOutput());
+    for (const QString& linea : salida.split(QLatin1Char('\n'))) {
+        if (!linea.contains(QStringLiteral("IOPlatformUUID"))) {
+            continue;
+        }
+        // La línea es:  "IOPlatformUUID" = "XXXXXXXX-…"
+        const int igual = linea.indexOf(QLatin1Char('='));
+        if (igual < 0) {
+            continue;
+        }
+        QString valor = linea.mid(igual + 1).trimmed();
+        valor.remove(QLatin1Char('"'));
+        if (!valor.trimmed().isEmpty()) {
+            return valor.trimmed();
+        }
+    }
+    return QString();
+}
+#endif
+
 QString currentLocalMachineUid() {
     // Cache: ioreg/registry can take 400-600ms; no need to repeat within the same process.
     static QString s_cached;

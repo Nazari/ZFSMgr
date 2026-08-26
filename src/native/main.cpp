@@ -34,6 +34,53 @@ QString trk(const QString& lang,
     return I18nManager::instance().translateKey(lang, key, es, en);
 }
 
+// La paleta oscura del estilo Fusion en macOS.
+//
+// Bajo la MISMA condición que su uso, unas líneas más abajo. Sin el guardián, en Linux esa
+// rama no se compila, `-Wunused-function` la da por muerta y se borra por error —pasó el
+// 2026-08-25—, dejando la interfaz de macOS sin compilar.
+#ifdef Q_OS_MAC
+QPalette createMacFusionDarkPalette() {
+    QPalette palette;
+    const QColor window(32, 34, 37);
+    const QColor base(24, 26, 29);
+    const QColor alternateBase(36, 39, 43);
+    const QColor text(232, 234, 237);
+    const QColor dimText(156, 163, 175);
+    const QColor button(45, 48, 53);
+    const QColor highlight(64, 110, 181);
+    const QColor highlightedText(255, 255, 255);
+
+    palette.setColor(QPalette::Window, window);
+    palette.setColor(QPalette::WindowText, text);
+    palette.setColor(QPalette::Base, base);
+    palette.setColor(QPalette::AlternateBase, alternateBase);
+    palette.setColor(QPalette::ToolTipBase, base);
+    palette.setColor(QPalette::ToolTipText, text);
+    palette.setColor(QPalette::Text, text);
+    palette.setColor(QPalette::Button, button);
+    palette.setColor(QPalette::ButtonText, text);
+    palette.setColor(QPalette::BrightText, Qt::white);
+    palette.setColor(QPalette::Link, highlight.lighter(120));
+    palette.setColor(QPalette::Highlight, highlight);
+    palette.setColor(QPalette::HighlightedText, highlightedText);
+    palette.setColor(QPalette::Mid, QColor(79, 85, 94));
+    palette.setColor(QPalette::Midlight, QColor(97, 103, 112));
+    palette.setColor(QPalette::Shadow, QColor(12, 13, 15));
+    palette.setColor(QPalette::PlaceholderText, dimText);
+
+    palette.setColor(QPalette::Disabled, QPalette::WindowText, dimText);
+    palette.setColor(QPalette::Disabled, QPalette::Text, dimText);
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, dimText);
+    palette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(70, 74, 80));
+    palette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(205, 209, 214));
+    palette.setColor(QPalette::Disabled, QPalette::Base, QColor(28, 30, 33));
+    palette.setColor(QPalette::Disabled, QPalette::Button, QColor(39, 41, 45));
+
+    return palette;
+}
+#endif
+
 class MacFusionProxyStyle final : public QProxyStyle {
 public:
     explicit MacFusionProxyStyle(QStyle* baseStyle)
