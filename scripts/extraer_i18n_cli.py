@@ -59,11 +59,14 @@ def extrae(ruta):
 
 def main():
     encontrados = {}
-    # El servidor web usa el MISMO `T(clave, castellano)` y los mismos catálogos, así que
-    # sus textos se cosechan igual. Sin esta línea, marcarlos en el código no servía de
-    # nada: la clave no llegaba nunca a `es.json` y la traducción no tenía dónde colgarse.
-    fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp')) \
-            + sorted((RAIZ / 'src' / 'web').glob('*.cpp'))
+    # `src/web` NO se cosecha. El servidor web se abandonó el 2026-08-23 —`ZFSMGR_BUILD_WEB`
+    # está en OFF, no se compila ni se distribuye, y su test ni siquiera entra en la suite—,
+    # pero esto siguió cosechándolo y metiendo sus textos en `es.json` pasada tras pasada:
+    # 276 claves, la cuarta parte del catálogo, de un programa que no se construye. De ellas
+    # 190 llegaron a traducirse al inglés, o sea trabajo de traducción gastado en algo
+    # muerto. Si alguna vez se retoma, se vuelve a añadir esta línea y el catálogo se
+    # repuebla solo: la fuente de verdad es el código, que es justo de lo que va este guion.
+    fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp'))
     for ruta in fuentes:
         encontrados.update(extrae(ruta))
     esRuta = RAIZ / 'i18n' / 'es.json'
@@ -94,19 +97,10 @@ def main():
     # estaban traducidas, que es pura suerte—. `revisa_i18n_fallback.py` tampoco lo cazaba:
     # mira las llamadas `trk()` de la interfaz gráfica, no los `T()/TC()` de aquí.
     #
-    # Se separa por origen porque no todo se publica a la vez: el CLI es lo primero que sale,
-    # así que sus claves son un fallo; las del servidor web se cuentan y se dejan dichas.
-    clavesCli = {}
-    for ruta in sorted((RAIZ / 'src' / 'cli').glob('*.cpp')):
-        clavesCli.update(extrae(ruta))
-    faltanCli = sorted(k for k in sinTraducir if k in clavesCli)
-    faltanWeb = [k for k in sinTraducir if k not in clavesCli]
-    for k in sorted(faltanCli, key=lambda x: encontrados[x]):
-        print("   CLI %-22s %s" % (k, repr(encontrados[k])[:76]))
-    if faltanWeb:
-        print(f"   (y {len(faltanWeb)} del servidor web, que todavía no se publica)")
-    if faltanCli:
-        print(f"\nFALLO: {len(faltanCli)} textos del CLI saldrían EN CASTELLANO con la "
+    for k in sorted(sinTraducir, key=lambda x: encontrados[x]):
+        print("   %-22s %s" % (k, repr(encontrados[k])[:76]))
+    if sinTraducir:
+        print(f"\nFALLO: {len(sinTraducir)} textos del CLI saldrían EN CASTELLANO con la "
               f"interfaz en inglés.\n       Añádelos a i18n/en.json.")
         return 1
     return 0
