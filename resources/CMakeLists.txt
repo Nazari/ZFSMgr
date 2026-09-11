@@ -222,9 +222,9 @@ add_library(zfsmgr_base STATIC
 # una regla que solo está escrita en un documento se incumple sin que nadie se entere.
 #
 # Aquí es donde debe acabar concentrándose la construcción de cada orden del agente. Hoy los
-# tres clientes arman el mismo argv por su cuenta —`--mutate-advanced-assemble` está escrito
-# en `cli/shell.cpp`, en `web/main.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus
-# reglas, que por eso no viven en ninguna parte.
+# dos clientes arman el mismo argv por su cuenta —`--mutate-advanced-assemble` está escrito
+# en `cli/shell.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus reglas, que por eso
+# no viven en ninguna parte.
 add_library(zfsmgr_commands STATIC
     ../src/commands/datasets.cpp
     ../src/commands/datasets.h
@@ -282,8 +282,8 @@ target_compile_definitions(zfsmgr_base PRIVATE
 # La capa base usa hilos —el transporte, las esperas— y en Linux eso enlaza igual sin
 # pedir nada: desde glibc 2.34 pthread vive dentro de libc. En FreeBSD no, y allí el CI se
 # caía al enlazar `zfsmgr_base_test` con «undefined symbol: pthread_create». Ponerlo aquí
-# y en PUBLIC lo arregla para TODOS los que enlazan la base —cli, web, agente y las cuatro
-# pruebas— en vez de ir añadiéndolo de uno en uno según se vayan cayendo.
+# y en PUBLIC lo arregla para TODOS los que enlazan la base —cli, agente y las pruebas— en
+# vez de ir añadiéndolo de uno en uno según se vayan cayendo.
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_include_directories(zfsmgr_commands PUBLIC ../src ../src/base ../src/commands)
 target_link_libraries(zfsmgr_commands PUBLIC zfsmgr_base)
@@ -472,53 +472,6 @@ target_compile_definitions(zfsmgr-cli PRIVATE
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
 )
 
-# --- El servidor web: ABANDONADO el 2026-08-23. No se compila ni se distribuye.
-#
-# **Por qué se apaga y no se borra.** El código está entero y funciona dentro del
-# navegador; lo que no cumple es la promesa que lo justificaba —montarlo desde el
-# explorador de archivos— y esa no es una corrección, es otro diseño: `/dav/` solo admite
-# la cookie de la sesión, así que Finder, que monta con usuario y contraseña, no tiene
-# forma de identificarse; y el certificado autofirmado se rehace en cada arranque.
-# Comprobado contra mmela. Ver docs/diseno_tecnico_servidor_web.md.
-#
-# Se queda en el árbol porque hay dos cosas que merece la pena no perder: la prueba de que
-# la capa base sirve para un cliente entero SIN Qt, y la implementación de WebDAV. Para
-# volver a compilarlo: `cmake -DZFSMGR_BUILD_WEB=ON`.
-option(ZFSMGR_BUILD_WEB "Compilar el servidor web, ABANDONADO desde 0.99.2" OFF)
-if(ZFSMGR_BUILD_WEB)
-add_executable(zfsmgr-web
-    ../src/web/main.cpp
-    ../src/web/http.cpp
-    ../src/web/http.h
-    ../src/web/sesion.cpp
-    ../src/web/sesion.h
-    ../src/web/dav.cpp
-    ../src/web/dav.h
-    # La entrada de secretos por terminal o descriptor se comparte con el intérprete: es la
-    # misma regla —nunca por argumento ni por entorno— y no tiene sentido escribirla dos
-    # veces. Si aparece un tercer consumidor, baja a la capa base.
-    ../src/cli/secretinput.cpp
-    # Y la sesión de transporte del intérprete: credenciales, túnel y persistencia del TLS.
-    # Es el mismo cableado; duplicarlo sería tener dos formas de hablar con un daemon.
-    ../src/cli/session.cpp
-)
-target_include_directories(zfsmgr-web PRIVATE ../src ../src/web ../src/cli ../src/base ../src/commands)
-target_link_libraries(zfsmgr-web PRIVATE zfsmgr_commands)
-target_compile_definitions(zfsmgr-web PRIVATE
-    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-)
-
-add_executable(zfsmgr_web_test
-    ../tests/web_test.cpp
-    ../src/web/http.cpp
-    ../src/web/sesion.cpp
-    ../src/web/dav.cpp
-)
-target_include_directories(zfsmgr_web_test PRIVATE ../src ../src/web ../src/base ../src/commands)
-target_link_libraries(zfsmgr_web_test PRIVATE zfsmgr_commands)
-add_test(NAME zfsmgr_web_test COMMAND zfsmgr_web_test)
-endif()
-
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
 # OpenSSL::SSL además de Crypto aunque el código no la use directamente: hace que
@@ -667,16 +620,6 @@ install(TARGETS zfsmgr_agent
 install(TARGETS zfsmgr-cli
     RUNTIME DESTINATION bin
 )
-
-# El servidor web ya NO se instala: está abandonado desde 0.99.2 y solo se compila con
-# `-DZFSMGR_BUILD_WEB=ON`. Se instala únicamente si se pidió compilarlo, para que quien lo
-# encienda a propósito lo tenga donde estaba —en `bin/`, que es un cliente y corre como el
-# usuario, no como root—.
-if(ZFSMGR_BUILD_WEB)
-    install(TARGETS zfsmgr-web
-        RUNTIME DESTINATION bin
-    )
-endif()
 
 # Y sus catálogos, que NO puede llevar dentro.
 #

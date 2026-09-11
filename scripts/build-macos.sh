@@ -298,13 +298,13 @@ codesign_bundle_contents() {
     done < <(find "${plugins_dir}" -type f \( -name "*.dylib" -o -perm -111 \) -print0)
   fi
 
-  # Los DEMÁS ejecutables de Contents/MacOS, que son `zfsmgr-cli` y `zfsmgr-web`.
+  # Los DEMÁS ejecutables de Contents/MacOS, hoy solo `zfsmgr-cli`.
   #
-  # Se firmaban marcos, plugins, el binario principal y el bundle, y estos dos quedaban
+  # Se firmaban marcos, plugins, el binario principal y el bundle, y éstos quedaban
   # fuera; `codesign --verify --deep --strict` los ve como subcomponentes sin firmar y
   # aborta con «code object is not signed at all / In subcomponent: …/zfsmgr-cli». Es lo
-  # que llevaba el CI de macOS rojo desde que el intérprete y el servidor web entraron en
-  # el bundle: la compilación NATIVA firma con esta función, mientras que la cruzada usa
+  # que llevaba el CI de macOS rojo desde que el intérprete entró en el
+  # bundle: la compilación NATIVA firma con esta función, mientras que la cruzada usa
   # `rcodesign`, que recorre el bundle entero y sí los firmaba. De ahí que el cruce local
   # saliera en verde y el CI no.
   #
@@ -830,11 +830,10 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # busca— dé con los catálogos. El intérprete no enlaza Qt y los lee del disco.
   #
   # Antes de firmar, como los agentes.
-  # El servidor web viaja igual y por el mismo motivo: los dos son clientes sin Qt y en
-  # macOS no hay instalador que los ponga en el PATH.
-  # Solo el intérprete: el servidor web está ABANDONADO desde 0.99.2 y ya no se compila
-  # —ver la opción ZFSMGR_BUILD_WEB en resources/CMakeLists.txt—, así que exigirlo aquí
-  # haría fallar el empaquetado por un binario que nadie genera.
+  #
+  # Viaja dentro del .app porque en macOS no hay instalador que lo ponga en el PATH. El
+  # bucle se queda por si vuelve a haber más de un cliente: llevaba también el servidor
+  # web, retirado del árbol en 0.99.4.
   for cliente in zfsmgr-cli; do
     if [[ ! -f "${BUILD_DIR}/${cliente}" ]]; then
       echo "Error: no se encontró ${BUILD_DIR}/${cliente} para meter en el bundle." >&2

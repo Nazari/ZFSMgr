@@ -10,9 +10,10 @@ call it by name from `cmd` or PowerShell. On Linux and macOS it **is installed
 alongside the application**, in `bin`, so it is also called by name. That was not the case
 before, and it did not ship in any Unix package.
 
-There was also a **web server**, `zfsmgr-web`, showing the same thing in a browser. It is
-**abandoned as of 0.99.2** and is no longer built or shipped. The two that remain — window
-and shell — talk to the same agent and share the same rules.
+There was also a **web server**, `zfsmgr-web`, showing the same thing in a browser. It was
+abandoned in 0.99.2 and removed from the tree in 0.99.4: what justified it was mounting a
+dataset from Finder or Explorer over WebDAV, and that never worked. The two that remain —
+window and shell — talk to the same agent and share the same rules.
 
 ## Two ways to use it
 

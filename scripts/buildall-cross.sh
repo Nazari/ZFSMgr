@@ -467,7 +467,6 @@ package_freebsd_with_agent_bundle() {
   # así que los lee del disco, y `share/zfsmgr/i18n` es una de las rutas que ya busca a
   # partir de su propio ejecutable.
   cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-cli"
-  # El servidor web ya NO viaja: abandonado desde 0.99.2 y fuera de la compilación.
   chmod 0755 "${payload}/usr/local/bin/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr_agent" \
              "${payload}/usr/local/bin/zfsmgr-cli" || true
   cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"

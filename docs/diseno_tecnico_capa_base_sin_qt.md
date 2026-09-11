@@ -1220,11 +1220,14 @@ comprobar un cambio en la interfaz hay que usar `zfsmgr_core` o construir sin `-
 src/
   native/    la interfaz de Qt          62 ficheros
   cli/       el intérprete
-  web/       el servidor sin JavaScript
   daemon/    el agente que corre como root
   commands/  las OPERACIONES del dominio
   base/      lo que no sabe qué es ZFS
 ```
+
+Había un sexto, `web/`, el servidor sin JavaScript: retirado del árbol en la 0.99.4. Lo
+que sigue vale igual, y las medidas de este documento se tomaron cuando estaba —por eso lo
+nombran—.
 
 Antes, los 62 ficheros de Qt vivían en la raíz de `src/` junto al daemon —9000 líneas de un
 programa distinto, que corre como root y no enlaza Qt—, y las operaciones estaban mezcladas

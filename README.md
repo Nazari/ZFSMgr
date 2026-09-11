@@ -101,9 +101,10 @@ daemon over the same tunnel.
   terminal, with a `zfsm://` URL as the current location.
 
 There used to be a second one, **`zfsmgr-web`**, a local HTTPS server that served the
-same tree to a browser. It is **abandoned as of 0.99.2**: it is no longer built and no
-longer ships. The source is still in the tree and builds with
-`cmake -DZFSMGR_BUILD_WEB=ON`; `src/web/ABANDONADO.md` explains why it was dropped.
+same tree to a browser. It was abandoned in 0.99.2 and removed from the tree in 0.99.4:
+what justified it was mounting a dataset from Finder or Explorer over WebDAV, and that
+never worked — `/dav/` only accepts the browser's session cookie, and a file manager
+mounts with a username and a password. See the git history if you need the code.
 
 Where they land depends on how the platform installs software:
 
