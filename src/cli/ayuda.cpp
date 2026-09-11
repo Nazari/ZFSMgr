@@ -939,7 +939,7 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Dataset, {}},
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
-    {"schedule", {"t_dataset_105268", "Datasets"},
+    {"schedule", {"t_grupo_snapshots", "Snapshots"},
      {"t_sch_uso", "[--daily <n>] [--recursive] [--to <Con::pool/ds>] [--off|--clear]"},
      {"t_sch_res", "La programación de instantáneas del dataset. Sin opciones, la enseña."},
      {{{"t_sch_ret", "--hourly <n> / --daily <n> / --weekly <n> / --monthly <n> / --yearly <n>"},
@@ -963,7 +963,7 @@ const std::vector<Orden> kOrdenes = {
        "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
        "haría instantáneas y las borraría."}},
      Objetivo::Dataset, {}},
-    {"schedules", {"t_dataset_105268", "Datasets"}, {"t_schs_uso", "[--all]"},
+    {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso", "[--all]"},
      {"t_schs_res", "Qué hay programado en esta máquina."},
      {{{"t_schs_all", "--all"}, {"t_schs_all_q", "En todas las conexiones, no solo en esta."}}},
      {{"t_schs_det", "Por omisión mira SOLO la máquina actual: con --all hay que preguntarle a cada "
@@ -984,12 +984,12 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Dataset, {}},
 
     // --- Instantáneas
-    {"rollback", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
+    {"rollback", {"t_grupo_snapshots", "Snapshots"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
      {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {},
      Objetivo::Snapshot,
      {},
      {{"-r", false, {"t_nat_rollback_r", "Destruye las instantáneas posteriores a esa."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
-    {"clone", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
+    {"clone", {"t_grupo_snapshots", "Snapshots"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}},
      {{"t_clone_det1", "Un nombre RELATIVO cuelga del dataset de la instantánea: estando en "
@@ -1004,19 +1004,19 @@ const std::vector<Orden> kOrdenes = {
        "o desde cualquier sitio: «clone tank/recuperado --from /local/tank/datos@ayer»."}},
      Objetivo::Snapshot,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
-    {"holds", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
+    {"holds", {"t_grupo_snapshots", "Snapshots"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
      Objetivo::Snapshot,
      {}},
-    {"hold", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"},
+    {"hold", {"t_grupo_snapshots", "Snapshots"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"},
      {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {},
      Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-r", false, {"t_nat_hold_r", "También en las instantáneas de los descendientes."}}}},
-    {"release", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
+    {"release", {"t_grupo_snapshots", "Snapshots"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
      Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
      {{"-r", false, {"t_nat_release_r", "También en las instantáneas de los descendientes."}}}},
-    {"diff", {"t_instant_ne_bff51f", "Instantáneas"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
+    {"diff", {"t_grupo_snapshots", "Snapshots"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
      Objetivo::DatasetOInstantanea,
@@ -1346,21 +1346,63 @@ const Orden* ordenPorNombre(const std::string& nombre) {
 }
 
 void imprimeAyuda(int ancho) {
-    std::string grupoActual;
+    // `help` a secas es un ÍNDICE, no el manual.
+    //
+    // Sacaba la ficha entera de las cincuenta y tantas órdenes —uso, resumen y todas las
+    // opciones—: 239 líneas, que en un terminal de 24 son diez pantallazos y no se lee
+    // ninguno. Quien escribe `help` está preguntando «¿qué sé hacer aquí?», y para eso basta
+    // el nombre; el detalle ya tiene su sitio en `help <orden>`, que es lo que se pregunta
+    // después. Una categoría por línea con sus nombres cabe de un vistazo.
+    //
+    // Y se AGRUPA de verdad, recorriendo la tabla dos veces. Antes se sacaba la cabecera
+    // cuando el grupo cambiaba respecto de la orden ANTERIOR, así que un grupo partido en
+    // dos sitios de la tabla salía dos veces: «Conexiones» aparecía una con `devices`,
+    // `edit`, `connect`, `disconnect` y `refresh`, y otra, sesenta líneas más abajo, con
+    // `repair-mounts`, `authorize-key` y `export-trust`. Leído desde fuera eso son dos
+    // categorías distintas que se llaman igual.
+    std::vector<std::string> orden_de_grupos;   // por PRIMERA aparición, no alfabético
+    std::map<std::string, std::vector<std::string>> porGrupo;
     for (const Orden& o : kOrdenes) {
-        if (grupoActual != o.grupo.es) {
-            grupoActual = o.grupo.es;
-            std::fprintf(stderr, "\n%s:\n", TC(o.grupo.clave, o.grupo.es));
+        const std::string clave = o.grupo.clave;
+        if (porGrupo.find(clave) == porGrupo.end()) {
+            orden_de_grupos.push_back(clave);
         }
-        imprimeOrden(o, ancho, false);
+        porGrupo[clave].push_back(o.nombre);
+    }
+    // El rótulo se busca una vez por grupo; la clave es la misma en todas sus entradas.
+    std::map<std::string, const Orden*> muestra;
+    for (const Orden& o : kOrdenes) {
+        muestra.emplace(o.grupo.clave, &o);
+    }
+
+    std::fprintf(stderr, "\n");
+    for (const std::string& clave : orden_de_grupos) {
+        const Orden* m = muestra[clave];
+        const std::string rotulo = std::string(TC(m->grupo.clave, m->grupo.es)) + ": ";
+        // Sangría colgante: los nombres que no caben siguen debajo del primero, alineados,
+        // para que la línea siga leyéndose como una sola enumeración.
+        const std::size_t sangria = rotulo.size();
+        std::string linea = rotulo;
+        bool primero = true;
+        for (const std::string& nombre : porGrupo[clave]) {
+            const std::string pieza = primero ? nombre : ", " + nombre;
+            if (!primero && linea.size() + pieza.size() > static_cast<std::size_t>(ancho)) {
+                std::fprintf(stderr, "%s,\n", linea.c_str());
+                linea = std::string(sangria, ' ') + nombre;
+            } else {
+                linea += pieza;
+            }
+            primero = false;
+        }
+        std::fprintf(stderr, "%s\n", linea.c_str());
     }
     std::fprintf(stderr, "\n%s\n",
                  TC("t_todas_las__c1ee0e",
-                    "Todas las órdenes admiten --on <url> (o --from, que es lo mismo) para\n"
-                    "actuar sobre otro sitio sin moverse. Sin ella se usa el sitio actual.\n"
-                    "«help <orden>» da el detalle de una. El tabulador completa órdenes y URL.\n"
-                    "Basta con las primeras letras de una orden si ninguna otra empieza igual;\n"
-                    "si varias lo hacen, se enumeran."));
+                    "«help <orden>» da el detalle de una: qué hace, sus opciones y ejemplos.\n"
+                    "Todas admiten --on <url> (o --from, que es lo mismo) para actuar sobre\n"
+                    "otro sitio sin moverse. Sin ella se usa el sitio actual. El tabulador\n"
+                    "completa órdenes y URL. Basta con las primeras letras de una orden si\n"
+                    "ninguna otra empieza igual; si varias lo hacen, se enumeran."));
 }
 
 

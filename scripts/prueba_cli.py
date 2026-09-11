@@ -65,7 +65,7 @@ def sh(ctx, orden, en_remoto=False, root=False):
     return p.returncode, (p.stdout + p.stderr)
 
 
-def cli(ctx, ordenes, timeout=180):
+def cli(ctx, ordenes, timeout=180, idioma=None):
     """Manda órdenes al intérprete y devuelve (rc, salida).
 
     La contraseña maestra va por el DESCRIPTOR 9, abierto con la redirección del shell.
@@ -76,7 +76,14 @@ def cli(ctx, ordenes, timeout=180):
     """
     guion = "\n".join(ordenes) + "\nexit\n"
     fichero = os.path.join(ctx.dir_tmp, ".maestra")
-    orden = f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --format text -y"
+    # El IDIOMA, cuando el caso depende de él.
+    #
+    # Sin `--lang` se usa el de la configuración de la máquina, que aquí es INGLÉS. Un caso
+    # que buscaba «Snapshots» en la salida castellana pasaba tan contento sin haber mirado
+    # el castellano: el catálogo inglés ya decía «Snapshots» desde siempre. Cuando lo que se
+    # afirma es un texto, hay que decir en qué lengua se afirma.
+    lang = f" --lang {shlex.quote(idioma)}" if idioma else ""
+    orden = f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --format text{lang} -y"
     p = subprocess.run(["bash", "-c", orden], input=guion, capture_output=True,
                        text=True, timeout=timeout)
     return p.returncode, (p.stdout + p.stderr)
@@ -113,7 +120,8 @@ def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
     return not problemas
 
 
-def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, veces=()):
+def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, veces=(),
+         idioma=None):
     """Un caso: órdenes al CLI, y después comprobaciones contra la máquina.
 
     `veces` son pares (patrón, n): el patrón tiene que aparecer EXACTAMENTE n veces. Existe
@@ -123,7 +131,7 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, vece
     listado raro; con varios, no hay forma de saber si son dos pools homónimos o el mismo
     contado dos veces.
     """
-    rc_real, salida = cli(ctx, list(ordenes))
+    rc_real, salida = cli(ctx, list(ordenes), idioma=idioma)
     problemas = []
     if rc is not None and rc_real != rc:
         problemas.append(f"rc={rc_real}, esperaba {rc}")
@@ -476,6 +484,54 @@ def casos_entre_maquinas(ctx):
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
 # sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
 # En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
+def casos_ayuda(ctx):
+    """`help` a secas es un ÍNDICE: categorías y nombres, una línea por categoría."""
+    rc, salida = cli(ctx, ["help"])
+    lineas = salida.splitlines()
+    nombre = "help: es un índice corto, no el manual entero"
+    problemas = []
+    # Sacaba la ficha completa de las 50 y pico órdenes: 239 líneas, diez pantallazos en un
+    # terminal normal. El número exacto da igual; lo que no puede es volver a ser eso.
+    if len(lineas) > 40:
+        problemas.append(f"{len(lineas)} líneas; `help` volvió a soltar el manual entero")
+    if len(lineas) < 10:
+        problemas.append(f"solo {len(lineas)} líneas: no se ha leído nada")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, salida[:400]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas: print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre); print(f"  ok     {nombre}")
+
+    # Ninguna categoría DOS veces. El defecto era del renderizado, no de los datos: la
+    # cabecera se sacaba cuando el grupo cambiaba respecto de la orden anterior, así que un
+    # grupo partido en dos sitios de la tabla salía dos veces —«Conexiones» lo hacía— y
+    # desde fuera eso son dos categorías distintas que se llaman igual.
+    cats = [l.split(":")[0] for l in lineas if re.match(r"^[^ ].*?: \S", l)]
+    repes = sorted({c for c in cats if cats.count(c) > 1})
+    nombre2 = "help: ninguna categoría aparece dos veces"
+    if repes or len(cats) < 5:
+        motivo = (f"repetidas: {repes}" if repes
+                  else f"solo se han reconocido {len(cats)} categorías: no se ha medido nada")
+        ctx.fallos.append((nombre2, [motivo], salida[:400]))
+        print(f"  FALLO  {nombre2}"); print(f"         {motivo}")
+    else:
+        ctx.pasados.append(nombre2); print(f"  ok     {nombre2}")
+
+    # Y dónde cae cada orden. `schedule`/`schedules` programan INSTANTÁNEAS, así que su
+    # categoría es la de las instantáneas y no la de los datasets.
+    caso(ctx, "help: schedule y schedules van con los snapshots",
+         ["help"], idioma="en",
+         espera=[r"^Snapshots:.*\bschedule\b", r"^Snapshots:.*\bschedules\b"],
+         no_espera=[r"^Datasets:.*\bschedules?\b"])
+    # «snapshot» es un término de OpenZFS: no se traduce, y en CASTELLANO es donde eso se
+    # comprueba —en inglés el rótulo ya decía «Snapshots» y el caso pasaba sin mirar nada—.
+    caso(ctx, "help: en castellano la categoría es Snapshots, no Instantáneas",
+         ["help"], idioma="es", espera=[r"^Snapshots:"], no_espera=[r"^Instant"])
+    caso(ctx, "help: y en inglés también, que es de donde viene el nombre",
+         ["help"], idioma="en", espera=[r"^Snapshots:"])
+
+
 def casos_nombres_que_chocan(ctx):
     """Cuando el pool se llama IGUAL que la conexión o que el dataset donde estás.
 
@@ -598,7 +654,7 @@ def casos_arranque(ctx):
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_arranque, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_ayuda, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
