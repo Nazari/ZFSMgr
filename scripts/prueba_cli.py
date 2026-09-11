@@ -82,8 +82,16 @@ def cli(ctx, ordenes, timeout=180):
     return p.returncode, (p.stdout + p.stderr)
 
 
-def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None):
-    """Un caso: órdenes al CLI, y después comprobaciones contra la máquina."""
+def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, veces=()):
+    """Un caso: órdenes al CLI, y después comprobaciones contra la máquina.
+
+    `veces` son pares (patrón, n): el patrón tiene que aparecer EXACTAMENTE n veces. Existe
+    porque `espera` da por bueno «una o más», y eso se tragó un listado que salía DOBLE: la
+    sonda de importables ejecuta `zpool import` y `zpool import -s` y pega las dos salidas,
+    así que cada pool se enumeraba dos veces. Con un solo pool de prueba se lee como un
+    listado raro; con varios, no hay forma de saber si son dos pools homónimos o el mismo
+    contado dos veces.
+    """
     rc_real, salida = cli(ctx, list(ordenes))
     problemas = []
     if rc is not None and rc_real != rc:
@@ -94,6 +102,10 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None):
     for patron in no_espera:
         if re.search(patron, salida, re.M):
             problemas.append(f"NO debería salir: /{patron}/")
+    for patron, n in veces:
+        hay = len(re.findall(patron, salida, re.M))
+        if hay != n:
+            problemas.append(f"/{patron}/ sale {hay} veces, esperaba {n}")
     # Lo que de verdad decide: el estado de la máquina.
     for descripcion, orden, patron, *resto in estado:
         remoto = bool(resto and resto[0])
@@ -370,8 +382,21 @@ def casos_pool_export(ctx):
     caso(ctx, "export: el pool se suelta",
          [f"cd Local/{P}", "export"],
          estado=[("ya no está importado", "zpool list -H -o name", rf"^(?!.*{P}).*$")])
-    caso(ctx, "import: sin nombre debería listar los importables (la ayuda lo promete)",
+    # Dos comprobaciones, no una. Que LISTE, y que liste el pool UNA sola vez: la sonda pega
+    # las salidas de `zpool import` y `zpool import -s`, y antes se volcaban en crudo, con lo
+    # que cada pool salía en dos bloques idénticos de siete líneas. `no_espera` sola no lo
+    # veía —el listado sí estaba— y por eso el caso pasaba con el defecto dentro.
+    caso(ctx, "import: sin nombre lista los importables (la ayuda lo promete)",
          ["cd Local", "import"], no_espera=[r"falta <"])
+    # La cuenta va sobre la CABECERA, no sobre un pool concreto: `ztfc16` está sobre fichero
+    # en /var/tmp y `zpool import` sin `-d` no mira ahí, así que el único pool que puede
+    # salir aquí es el que tenga la máquina de verdad —y eso cambia de una máquina a otra—.
+    # La cabecera sale siempre y sale UNA vez; si el listado se volviera a imprimir doble,
+    # saldría dos. Y el volcado crudo de la sonda no tiene cabecera ninguna.
+    caso(ctx, "import: el listado es una tabla, y una sola",
+         ["cd Local", "import"],
+         veces=[(r"^POOL\s+ID\s+(ESTADO|STATE)\s+(MOTIVO|REASON)", 1)],
+         no_espera=[r"^config:", r"^\s+state: "])
     # Se devuelve por shell: `zpool import` sin `-d` no mira en /var/tmp, y el CLI no
     # ofrece esa opción. Si no se recupera, todo lo que venga después falla sin motivo.
     sh(ctx, f"zpool import -d {IMG_DIR} {P}", root=True)
@@ -420,11 +445,14 @@ def casos_entre_maquinas(ctx):
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
 # sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
 # En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
+# `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
+# estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
+# `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
-           casos_acciones]
-ENTRE_MAQUINAS = [casos_entre_maquinas, casos_pool_export]
+           casos_acciones, casos_pool_export]
+ENTRE_MAQUINAS = [casos_entre_maquinas]
 
 
 def main():

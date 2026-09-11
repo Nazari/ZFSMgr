@@ -1084,7 +1084,7 @@ const std::vector<Orden> kOrdenes = {
      {"t_importa_un_2c9f21", "Importa un pool. Sin nombre, enseña los que hay disponibles."},
      {{{"t_as_nuevo_c017c7", "--as <nuevo>"}, {"t_lo_importa_bd9394", "Lo importa con otro nombre."}}}, {},
      Objetivo::Conexion,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Opcional}},
      {{"-d", true, {"t_nat_import_d", "Dónde buscar: un directorio o un dispositivo."}}, {"-D", false, {"t_nat_import_Dmay", "Solo los pools destruidos."}}, {"-o", true, {"t_nat_import_o", "Opciones de montaje, o «propiedad=valor» del pool."}}, {"-c", true, {"t_nat_import_c", "Buscar en ese fichero de caché en vez de en los discos."}}, {"-l", false, {"t_nat_import_l", "Pide las claves de cifrado que hagan falta."}}, {"-f", false, {"t_nat_import_f", "Fuerza aunque parezca en uso por otra máquina."}}, {"-m", false, {"t_nat_import_m", "Admite importarlo con el log ausente."}}, {"-N", false, {"t_nat_import_Nmay", "Lo importa SIN montar ningún sistema de ficheros."}}, {"-R", true, {"t_nat_import_Rmay", "Raíz alternativa donde montarlo."}}, {"-F", false, {"t_nat_import_Fmay", "Modo recuperación: descarta las últimas transacciones."}}, {"-n", false, {"t_nat_import_n", "Con -F, ensayo: dice si se podría, sin hacerlo."}}, {"-t", false, {"t_nat_import_t", "El nombre nuevo es temporal, solo hasta el próximo arranque."}}, {"--rewind-to-checkpoint", false, {"t_nat_import_rewind_mayto_maycheckpoint", "Vuelve al punto de control guardado en el pool."}}}},
 
     // --- Permisos
@@ -1098,12 +1098,12 @@ const std::vector<Orden> kOrdenes = {
       {{"t_create_488177", "--create"}, {"t_solo_en_lo_9dcb23", "Solo en los que se creen a partir de ahora."}}},
      {},
      Objetivo::Dataset,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
     {"unallow", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_user_u_per_e1742b", "[--user <u>] [permisos...]"},
      {"t_retira_per_6104b6", "Retira permisos. Sin lista de permisos, TODOS los de ese destinatario."},
      {{{"t_r_90cdb7", "-r"}, {"t_tambi_n_en_33e099", "También en los descendientes."}}}, {},
      Objetivo::Dataset,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
 
     // --- Acciones
     {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},

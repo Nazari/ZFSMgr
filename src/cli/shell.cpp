@@ -875,6 +875,39 @@ void listaConexiones(Estado& e, const Peticion& pet) {
     t.imprime(e.formato);
 }
 
+// Qué se dice cuando la sonda de importables no encuentra nada.
+//
+// «No hay ninguno» y «no puedo mirar» se leen igual en la salida de `zpool import`, y aquí
+// se decidía solo el primero de los dos casos: se buscaba la marca de discos ilegibles y se
+// soltaba el aviso de macOS, sin mirar el tercer estado —el permiso concedido DESPUÉS de
+// arrancar el agente, que en macOS no surte efecto hasta reiniciarlo—. La base ya sabe
+// distinguirlos y la interfaz gráfica ya los distinguía; esto pone al CLI de acuerdo con
+// las dos, y en un único sitio para las dos órdenes que preguntan lo mismo: `ls` e `import`.
+void avisaSondaImportables(const std::string& sonda, bool huboPools) {
+    if (huboPools) {
+        return;  // hay importables: no hay nada que explicar
+    }
+    const auto lectura = H::readImportProbe(sonda, false);
+    using D = H::ImportProbeDiagnosis;
+    if (lectura.diagnosis != D::DisksUnreadable && lectura.diagnosis != D::ProbablyNeedsRestart) {
+        return;  // se puede mirar y no hay ninguno: NO se avisa de nada
+    }
+    const std::string donde = lectura.device.empty() ? T("t_los_discos", "los discos")
+                                                     : lectura.device;
+    std::fprintf(stderr, TC("t_sonda_ilegible", "aviso: el agente no puede leer %s, así que un "
+                            "pool sin importar NO aparece aquí.\n"), donde.c_str());
+    if (lectura.diagnosis == D::ProbablyNeedsRestart) {
+        std::fputs(TC("t_sonda_reinicio", "  El permiso del sistema cambió DESPUÉS de que el "
+                      "agente arrancara, y macOS lo decide al arrancar el proceso:\n"
+                      "  reinícialo (Conexiones > Reinstalar/Actualizar daemon).\n"), stderr);
+    } else {
+        std::fputs(TC("t_sonda_permiso", "  En macOS: Configuración del Sistema > Privacidad y "
+                      "Seguridad > Acceso total al disco >\n"
+                      "  añadir /usr/local/libexec/zfsmgr-agent, y reiniciar el agente después.\n"),
+                   stderr);
+    }
+}
+
 // Los pools de una conexión, del JSON de `zpool list`.
 bool listaPools(Estado& e, const ZfsmUrl& destino) {
     std::string out;
@@ -994,21 +1027,9 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // responde, se enseña lo importado y se sigue, en vez de no enseñar nada.
     std::string sonda;
     if (agente(e, destino, PET::importableProbe(), sonda, 25000)) {
-        // El agente avisa cuando el sistema no le deja leer los discos. Es macOS y su
-        // «Acceso total al disco»: sin él `zpool import` responde «no pools available to
-        // import» igual que si de verdad no hubiera ninguno, así que una lista vacía aquí
-        // no significa lo que parece. Se dice, porque el usuario no tiene otra forma de
-        // distinguir «no hay» de «no puedo mirar».
-        const std::string marca = "__ZFSMGR_DISCOS_ILEGIBLES__";
-        const std::size_t donde = sonda.find(marca);
-        if (donde != std::string::npos) {
-            sonda.erase(donde, marca.size() + 1);
-            std::fputs(TC("t_discos_ilegibles", "aviso: el agente no puede leer los discos de esta "
-                         "máquina, así que un pool sin importar NO aparece aquí.\n"
-                         "  En macOS: Configuración del Sistema → Privacidad y Seguridad →\n"
-                         "  Acceso total al disco → añadir /usr/local/libexec/zfsmgr-agent\n"), stderr);
-        }
-        for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(sonda)) {
+        const std::vector<H::ImportablePoolInfo> sondados = H::parseZpoolImportOutput(sonda);
+        avisaSondaImportables(sonda, !sondados.empty());
+        for (const H::ImportablePoolInfo& imp : sondados) {
             // El mismo conjunto sirve para dos cosas: no repetir uno ya importado, y no
             // repetirlo consigo mismo. La sonda ejecuta `zpool import` Y `zpool import -s`
             // y pega las dos salidas, así que un pool que aparece en las dos —lo normal—
@@ -2335,7 +2356,7 @@ bool cmdExportTrust(Estado& e, const LineaAnalizada& linea) {
     B::store::Warning aviso;
     const B::json::Value almacen = B::store::readTrustStore(e.ses->dirConfig, aviso);
     if (!aviso.empty()) {
-        std::fprintf(stderr, TC("t_et_sin_almacen", "no se pudo leer el almacén de confianza\n"));
+        std::fputs(TC("t_et_sin_almacen", "no se pudo leer el almacén de confianza\n"), stderr);
         return false;
     }
     const std::string carga = B::json::toIndented(almacen);
@@ -3076,7 +3097,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     // shell, y esa es justamente la punta que no puede ser un RPC.
     const std::vector<std::string> fdArgv = AV::argvFromDir(destino.dataset, rel);
     if (fdArgv.empty()) {
-        std::fprintf(stderr, TC("t_fromdir_destino_malo", "destino no válido para fromdir\n"));
+        std::fputs(TC("t_fromdir_destino_malo", "destino no válido para fromdir\n"), stderr);
         return false;
     }
     std::string recibe = B::daemonpayload::unixBinPath();
@@ -3534,7 +3555,7 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
     // está en su lista es un viaje para recibir un rc=2.
     const std::vector<std::string> conJob = PET::enqueue(argv);
     if (conJob.empty()) {
-        std::fprintf(stderr, TC("t_no_encolable", "esa orden no se puede encolar como trabajo\n"));
+        std::fputs(TC("t_no_encolable", "esa orden no se puede encolar como trabajo\n"), stderr);
         return false;
     }
     std::string out;
@@ -3714,10 +3735,27 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
         if (!agente(e, destino, PET::importableProbe(), out, 60000)) {
             return false;
         }
-        std::fprintf(stdout, "%s", out.c_str());
-        if (!out.empty() && out.back() != '\n') {
-            std::fprintf(stdout, "\n");
+        // La salida CRUDA de la sonda no vale como respuesta. La sonda ejecuta `zpool
+        // import` Y `zpool import -s` y pega las dos salidas, así que un pool que aparece
+        // en las dos —lo normal— salía DOS VECES, en dos bloques idénticos de siete líneas
+        // cada uno; y con un pool de verdad detrás, quien lea la lista no puede saber si
+        // son dos pools distintos con el mismo nombre o el mismo contado dos veces. `ls` ya
+        // lo analizaba y lo unificaba por nombre; esto hace lo mismo, y además es lo que
+        // permite dar la lista en tsv o en json como el resto de las órdenes.
+        Tabla t;
+        t.nombreJson = "importable_pools";
+        t.cabecerasTexto = {T("t_cab_pool", "POOL"), T("t_cab_id", "ID"),
+                            T("t_cab_estado", "ESTADO"), T("t_cab_motivo", "MOTIVO")};
+        t.campos = {"pool", "guid", "state", "reason"};
+        std::set<std::string> yaEstan;
+        for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(out)) {
+            if (imp.pool.empty() || !yaEstan.insert(imp.pool).second) {
+                continue;
+            }
+            t.filas.push_back({imp.pool, imp.guid, imp.state, imp.reason});
         }
+        avisaSondaImportables(out, !t.filas.empty());
+        t.imprime(e.formato);
         return true;
     }
     std::vector<std::string> argv{"import"};
@@ -4251,7 +4289,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
             if (prep.empty()
                 || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
                 || prepRc != 0) {
-                std::fprintf(stderr, TC("t_rsync_destino_no", "no se pudo preparar el destino\n"));
+                std::fputs(TC("t_rsync_destino_no", "no se pudo preparar el destino\n"), stderr);
                 return false;
             }
             std::string salidaEnvio;
