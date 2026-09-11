@@ -191,6 +191,60 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- Lo que la ayuda PROMETE tiene que caber en la firma declarada.
+    //
+    // `import` decía «Sin nombre, enseña los que hay disponibles» y declaraba la ranura
+    // obligatoria; `allow` y `unallow` decían «Sin argumentos, los LISTA» y pedían una o
+    // más. Las tres tenían escrita la rama del listado en su manejador y la gramática ya
+    // aceptaba la forma corta: era código INALCANZABLE, y lo único que lo delataba era la
+    // contradicción entre dos campos de la misma fila de la tabla.
+    //
+    // No es un detalle de redacción. La firma es la que reparte los argumentos y la que
+    // genera la ayuda, así que una promesa que la firma no permite es una promesa que el
+    // usuario lee y que el programa rechaza con «falta <texto>».
+    for (const zfsmgr::cli::Orden& o : zfsmgr::cli::ordenes()) {
+        std::string dice = o.resumen.es ? o.resumen.es : "";
+        for (const zfsmgr::cli::Texto& t : o.detalle) {
+            if (t.es) {
+                dice += " ";
+                dice += t.es;
+            }
+        }
+        // En minúsculas y sin tildes: el texto está escrito para leerse, no para casarse.
+        std::string llano;
+        for (std::size_t i = 0; i < dice.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(dice[i]);
+            if (c == 0xC3 && i + 1 < dice.size()) {  // vocal acentuada en UTF-8
+                static const char* kMapa = "aaaaaaaceeeeiiiidnooooo";
+                const unsigned char sig = static_cast<unsigned char>(dice[i + 1]);
+                if (sig >= 0xA0 && sig <= 0xB6) {
+                    llano += kMapa[sig - 0xA0];
+                    ++i;
+                    continue;
+                }
+            }
+            llano += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        }
+        const bool prometeSinNada = llano.find("sin nombre") != std::string::npos
+                                    || llano.find("sin argumentos") != std::string::npos
+                                    || llano.find("sin parametros") != std::string::npos;
+        if (!prometeSinNada) {
+            continue;
+        }
+        bool obligatoria = false;
+        for (const zfsmgr::cli::Ranura& r : o.ranuras) {
+            obligatoria = obligatoria || r.cuantas == zfsmgr::cli::Ranura::Cuantas::Una
+                          || r.cuantas == zfsmgr::cli::Ranura::Cuantas::UnaOMas;
+        }
+        comprueba(!obligatoria,
+                  std::string("«") + o.nombre + "»: su ayuda promete funcionar sin argumentos "
+                  "pero su firma declara una ranura OBLIGATORIA; una de las dos miente");
+        const auto a = analizaLinea(o.nombre);
+        comprueba(a.error.empty(),
+                  std::string("«") + o.nombre + "»: su ayuda promete funcionar sin argumentos "
+                  "y la gramática no la acepta sola: " + a.error);
+    }
+
     // --- Cada orden con ranura tiene que emitirla con SU nombre.
     //
     // Es el fallo que aparece al migrar: la gramática llama «destino» a la URL de `send` y
