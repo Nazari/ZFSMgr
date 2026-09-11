@@ -145,6 +145,15 @@ std::vector<std::string> tramosDe(const std::string& texto) {
     return t;
 }
 
+// La URL de la CONEXIÓN en la que se está, sin pool ni dataset. Es la base desde la que se
+// lee un nombre ZFS completo.
+ZfsmUrl base_conexion_de(const Estado& e) {
+    ZfsmUrl base;
+    base.kind = ZfsmKind::Connection;
+    base.connection = e.actual.connection;
+    return base;
+}
+
 bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, std::string& error) {
     error.clear();
     std::string texto = B::trim(textoEntrada);
@@ -347,11 +356,29 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
     // `zfsm://Local/zfsmgrtest/origen` apuntaba a
     // `zfsmgrtest/origen/zfsmgrtest/clonado`, que es un nombre válido y no existe — o sea
     // un error confuso donde uno había escrito exactamente lo que quería.
+    //
+    // Con la MISMA salvedad que la regla de abajo: si no mueve, no era eso. Desde
+    // `zfsm://local/local` —el pool `local` de la conexión `local`— un `cd local` daba otra
+    // vez `zfsm://local/local` y el intérprete se quedaba callado, aunque existiera un hijo
+    // `local/local`. Cuando la lectura de «nombre ZFS completo» devuelve el sitio actual,
+    // la única que queda en pie es la relativa: un hijo que se llama así.
+    bool saltaAtajoDeConexion = false;
     if (!e.actual.pool.empty() && tramosDe(texto).front() == e.actual.pool) {
-        ZfsmUrl base;
-        base.kind = ZfsmKind::Connection;
-        base.connection = e.actual.connection;
-        return aplica(base, tramosDe(texto), out, error);
+        ZfsmUrl porPool;
+        std::string errPool;
+        if (!aplica(base_conexion_de(e), tramosDe(texto), porPool, errPool)) {
+            error = errPool;
+            return false;
+        }
+        if (B::formatZfsmUrl(porPool) != B::formatZfsmUrl(e.actual)) {
+            out = porPool;
+            return true;
+        }
+        // Y se va DIRECTO a la relativa, sin pasar por el atajo de conexión: si el primer
+        // tramo se llama igual que una conexión —pasa cuando la máquina y su pool comparten
+        // nombre— ese atajo se llevaría el `cd` a la raíz de la máquina, que es aún menos lo
+        // que se quería decir que quedarse quieto.
+        saltaAtajoDeConexion = true;
     }
 
     // Si el primer tramo nombra una CONEXIÓN, la ruta es absoluta. Es lo que uno escribe al
@@ -368,8 +395,31 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
     // `sback/x`, quiere el nombre ZFS completo aunque exista una conexión llamada igual.
     // Para llegar a un hijo que se llame como una conexión queda `./nombre`, que empieza
     // por un tramo que no es nombre de nada.
-    if (buscarConexion(e.conns, tramos.front()) != nullptr) {
-        return aplica(ZfsmUrl{}, tramos, out, error);
+    if (!saltaAtajoDeConexion && buscarConexion(e.conns, tramos.front()) != nullptr) {
+        ZfsmUrl porConexion;
+        std::string errConexion;
+        if (!aplica(ZfsmUrl{}, tramos, porConexion, errConexion)) {
+            error = errConexion;
+            return false;
+        }
+        // …salvo que el atajo no MUEVA. Estando en `zfsm://fc16`, `cd fc16` resolvía como
+        // absoluta desde la raíz y aterrizaba exactamente donde ya estabas: el intérprete no
+        // decía nada y no pasaba nada, que es la peor respuesta posible a una orden que uno
+        // ha escrito a propósito. Y en esa máquina había un pool llamado `fc16`, o sea que
+        // lo escrito sí nombraba algo; solo que el atajo se lo comía antes.
+        //
+        // La regla es la que ya justifica el atajo: existe para SALTAR de máquina, y saltar
+        // a la que ya se está no es un salto. Cuando el resultado coincide con el sitio
+        // actual se sigue por la vía relativa, que desde una conexión lee el tramo como el
+        // pool — que es lo que quedaba por probar y lo que el usuario quería decir.
+        //
+        // Se compara el resultado, no «¿es el primer tramo mi conexión?»: así `cd fc16`
+        // desde un dataset hondo de fc16 sigue subiendo a la raíz de la máquina, que sí
+        // mueve y sí es útil.
+        if (B::formatZfsmUrl(porConexion) != B::formatZfsmUrl(e.actual)) {
+            out = porConexion;
+            return true;
+        }
     }
 
     std::string errRelativa;

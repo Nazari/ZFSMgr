@@ -476,6 +476,53 @@ def casos_entre_maquinas(ctx):
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
 # sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
 # En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
+def casos_nombres_que_chocan(ctx):
+    """Cuando el pool se llama IGUAL que la conexión o que el dataset donde estás.
+
+    No es un caso rebuscado: la conexión a una máquina suele llamarse como la máquina, y el
+    pool principal de esa máquina también. Con `fc16` visto desde mmela pasaba lo peor que
+    puede pasar —`cd fc16` estando ya en `zfsm://fc16` no hacía NADA y no decía nada—,
+    porque el atajo de «el primer tramo nombra una conexión» resolvía como absoluta desde la
+    raíz y aterrizaba donde ya se estaba.
+
+    El pool se crea con el nombre EXACTO de la conexión local para reproducirlo; es sobre
+    fichero y se destruye al terminar.
+    """
+    choque = "local"          # el identificador de la conexión Local
+    img = f"{IMG_DIR}/{choque}.img"
+    sh(ctx, f"mkdir -p {IMG_DIR}")
+    sh(ctx, f"zpool destroy {choque}", root=True)
+    sh(ctx, f"rm -rf /mnt/{choque}", root=True)
+    sh(ctx, f"rm -f {img} && truncate -s 200M {img}")
+    rc, salida = sh(ctx, f"zpool create -f -m /mnt/{choque} {choque} {img}", root=True)
+    if rc != 0:
+        print(f"  (saltado: no se pudo crear el pool «{choque}»: {salida.strip()[:80]})")
+        return
+    sh(ctx, f"zfs create {choque}/{choque}", root=True)
+    try:
+        # Tres escalones, tres sitios DISTINTOS. Que el tercero sea distinto del segundo es
+        # justo lo que se rompía; `pwd` después de cada uno es lo que lo hace visible.
+        caso(ctx, "cd: conexión, luego pool del mismo nombre, luego hijo del mismo nombre",
+             [f"cd {choque}", "pwd", f"cd {choque}", "pwd", f"cd {choque}", "pwd"],
+             espera=[rf"^zfsm://{choque}$",
+                     rf"^zfsm://{choque}/{choque}$",
+                     rf"^zfsm://{choque}/{choque}/{choque}$"])
+        # La forma explícita tiene que llevar al MISMO sitio que la corta: si no, una de las
+        # dos miente.
+        caso(ctx, "cd: «./nombre» y la ruta absoluta llevan donde la forma corta",
+             [f"cd {choque}", f"cd ./{choque}", "pwd", f"cd /{choque}/{choque}", "pwd"],
+             veces=[(rf"^zfsm://{choque}/{choque}$", 2)])
+        # Y lo que NO se puede romper al arreglar lo anterior: desde un dataset hondo, el
+        # nombre del pool sigue siendo el nombre ZFS completo, que sí mueve.
+        caso(ctx, "cd: desde un hijo, el nombre del pool sigue siendo el nombre completo",
+             [f"cd /{choque}/{choque}/{choque}", f"cd {choque}", "pwd"],
+             espera=[rf"^zfsm://{choque}/{choque}$"])
+    finally:
+        sh(ctx, f"zpool destroy {choque}", root=True)
+        sh(ctx, f"rm -f {img}", root=True)
+        sh(ctx, f"rm -rf /mnt/{choque}", root=True)
+
+
 def casos_arranque(ctx):
     """Lo que pasa antes de que haya sesión: ayuda, idioma y opciones mal escritas."""
     caso_argv(ctx, "ayuda: --lang en la da EN INGLÉS",
@@ -551,7 +598,7 @@ def casos_arranque(ctx):
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_arranque, casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
