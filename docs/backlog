@@ -39,3 +39,20 @@ Listado de cambios.
    	- La captura del menú contextual de pool que estuvo meses en la ayuda mostraba a la vez 'Importar' y 'Exportar', un menú que no existe en la aplicación. Ya está arreglado el generador, pero conviene mirar si el TEXTO que la acompaña describía ese menú inventado.
    	- La ayuda solo referencia 6 imágenes en total para toda la GUI. Para lo que ha crecido la aplicación es poco: hay que decidir qué merece captura y qué no, en vez de dejar las que hay por inercia.
    Al hacerla, contrastar contra el código como se hizo con la auditoría anterior (project_help_docs_audit): lo que dice la ayuda frente a lo que hace la aplicación, no frente a lo que uno recuerda.
+
+7. Dejar en inglés los nombres de OpenZFS en el texto del CLI. Hoy se traduce «snapshot» por
+   «instantánea», y eso es un término del producto, no una palabra corriente: el usuario lo
+   busca en la documentación de OpenZFS, lo teclea en `zfs list -t snapshot` y lo lee en los
+   mensajes de `zfs`. El rótulo de la categoría de `help` ya se cambió a «Snapshots» el
+   2026-09-11; el resto no.
+	Alcance medido ese día: 76 apariciones en el código del CLI (37 en src/cli/ayuda.cpp y 39
+	en src/cli/shell.cpp) y 47 claves de i18n/es.json.
+	NO es un `sed`: hay que cuadrar género y número, porque en castellano «snapshot» se usa en
+	masculino. «la instantánea más reciente» pasa a «el snapshot más reciente», «las
+	instantáneas» a «los snapshots», y hay que revisar artículos, adjetivos y participios uno a
+	uno. Conviene hacerlo en un commit APARTE del cambio funcional que lo destape, para poder
+	revisarlo o revertirlo solo.
+	Falta además decidir el resto de la lista: `dataset` y `pool` ya están sin traducir, pero
+	no se ha barrido a ver qué otros términos del vocabulario de ZFS sí lo están —bookmark,
+	hold, clone, scrub, resilver, mountpoint— ni si la GUI (que tiene sus propios catálogos)
+	hace lo mismo que el CLI. El barrido es parte de la tarea, no un paso previo.
