@@ -1922,9 +1922,19 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         p.useSudo = (r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes");
     }
 
-    // La contraseña solo se toca si se pide expresamente: en una edición, dejarla en blanco
-    // tiene que CONSERVARLA, no borrarla. Ya viene descifrada del perfil cargado, y
-    // guardarConexion la vuelve a cifrar.
+    // La contraseña, PREGUNTADA como los demás campos.
+    //
+    // Antes solo se tocaba con `--password-fd` o con `--password`, así que un `edit mbp` a
+    // secas recorría nombre, tipo, sistema, host, usuario, clave, puerto y sudo… y se
+    // saltaba la contraseña sin decir nada. Quien quería cambiarla —el caso normal: la de
+    // sudo de una máquina cambió y esta copia se quedó con la vieja— repasaba el
+    // cuestionario entero, leía «actualizada la conexión mbp» y seguía con la de antes.
+    //
+    // El motivo que había era bueno y se conserva: en una edición, dejarla en blanco tiene
+    // que CONSERVARLA, no borrarla. Pero eso no obliga a no preguntar, obliga a que el
+    // vacío signifique «la de antes» — que es justo lo que `pide()` hace con todos los
+    // demás campos. La diferencia es que aquí no se puede enseñar el valor actual entre
+    // corchetes, así que lo que se dice es si HAY una guardada o no.
     const std::string fdTexto = pet.valor("password-fd");
     if (!fdTexto.empty()) {
         std::string err;
@@ -1932,14 +1942,20 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-    } else if (pet.tiene("--password") && interactivo) {
+    } else if (interactivo) {
         std::string err;
         std::string clave;
-        if (!preguntarSecretoPorTerminal(T("t_p_pass_nueva", "Contraseña nueva: "), clave, err)) {
+        const std::string aviso =
+            p.password.empty()
+                ? T("t_p_pass_nueva_sin", "Contraseña (no hay ninguna guardada; Intro = seguir sin ella): ")
+                : T("t_p_pass_nueva_con", "Contraseña (Intro = conservar la guardada): ");
+        if (!preguntarSecretoPorTerminal(aviso, clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-        p.password = clave;
+        if (!clave.empty()) {
+            p.password = clave;
+        }
     }
 
     std::string error;
@@ -1971,7 +1987,16 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
 
     // Y se COMPRUEBAN, que es lo que uno quiere saber al cambiarlas: si la contraseña
     // nueva no eleva, enterarse ahora y no la próxima vez que haga falta de verdad.
-    if (eraLocal && e.ses->sudoResuelto) {
+    //
+    // Esto solo se hacía en la conexión LOCAL, y es en las de SSH donde más falta hace. Una
+    // contraseña de sudo equivocada en una máquina remota no da ningún error al guardarla:
+    // lo que da es que MÁS TARDE no se pueda leer el material TLS de su daemon, y ese
+    // mensaje —«no se pudo leer el material TLS del daemon»— no menciona sudo por ninguna
+    // parte. Es exactamente lo que pasó con mbp visto desde mmela: la contraseña de esa
+    // máquina había cambiado, la copia de mmela se quedó con la vieja, y el síntoma salía
+    // tres pantallas más allá y hablando de otra cosa.
+    const bool haySudo = p.useSudo || eraLocal;
+    if (haySudo && (eraLocal ? e.ses->sudoResuelto : true)) {
         std::string out;
         std::string err;
         int rc = -1;
@@ -1984,8 +2009,17 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
                 && rc == 0 && B::trim(out) == "0") {
                 std::fputs(TC("t_sudo_ok", "las credenciales de sudo elevan correctamente\n"), stderr);
             } else {
-                std::fputs(TC("t_sudo_mal", "aviso: con esas credenciales NO se consigue elevar en "
-                             "esta máquina\n"), stderr);
+                // Con el motivo, que es lo que convierte el aviso en algo accionable.
+                //
+                // La clave es NUEVA a propósito. La de antes decía «en esta máquina» y no
+                // llevaba ningún `%s`; reutilizarla con dos marcas de formato haría que el
+                // catálogo —que manda sobre el literal— devolviera el texto viejo y
+                // `fprintf` se pusiera a leer argumentos que ese texto no pide. Es el mismo
+                // fallo que se quitó de cuatro sitios hace dos días.
+                const std::string detalle = B::trim(H::oneLine(err));
+                const std::string cola = detalle.empty() ? std::string() : ": " + detalle;
+                std::fprintf(stderr, TC("t_sudo_mal_en", "aviso: con esas credenciales NO se "
+                             "consigue elevar en %s%s\n"), id.c_str(), cola.c_str());
             }
         }
     }

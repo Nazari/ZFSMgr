@@ -876,7 +876,7 @@ const std::vector<Orden> kOrdenes = {
       {{"t_edit_host", "--host <h> / --port <n> / --user <u> / --key <ruta>"},
        {"t_edit_host_q", "Cómo se llega a la máquina."}},
       {{"t_edit_sudo", "--sudo / --no-sudo"}, {"t_edit_sudo_q", "Si la máquina necesita elevar."}},
-      {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Pide una contraseña nueva. Sin ella, se conserva la que había."}},
+      {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Ya no hace falta: la contraseña se pregunta siempre, e Intro conserva la guardada."}},
       {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}}},
      {{"t_edit_det_local", "Sobre la conexión LOCAL, esto es lo que cambia las credenciales de sudo de "
        "esta máquina: «edit local --user <u> --password». Se comprueban al vuelo —si no "

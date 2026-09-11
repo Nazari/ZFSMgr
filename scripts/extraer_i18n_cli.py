@@ -73,8 +73,11 @@ def main():
     es = json.loads(esRuta.read_text(encoding='utf-8'))
     tr = es.setdefault('translations', {})
     nuevas = 0
+    cambiadas = []   # las que YA estaban y cuyo castellano ha cambiado
     for k, v in encontrados.items():
         if tr.get(k) != v:
+            if k in tr:
+                cambiadas.append(k)
             tr[k] = v
             nuevas += 1
     esRuta.write_text(json.dumps(es, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
@@ -83,6 +86,16 @@ def main():
     # de la interfaz gráfica, que comparte fichero.
     enRuta = RAIZ / 'i18n' / 'en.json'
     en = json.loads(enRuta.read_text(encoding='utf-8'))['translations']
+    # El inglés que ha ENVEJECIDO, que la cuenta de abajo no ve.
+    #
+    # Cambiar el castellano de una clave sin cambiar la clave deja el inglés intacto y
+    # MINTIENDO: la puerta cuenta claves que faltan, y ésta no falta. Pasó con la ayuda de
+    # `--password` de `edit`, que describía el comportamiento anterior —«sin ella se
+    # conserva la que había»— después de que `edit` pasara a preguntarla siempre.
+    #
+    # No se puede decidir solo: hay cambios que no tocan el significado (una coma, una
+    # errata). Por eso se AVISA y no se falla; quien haga el cambio sabe cuál de los dos es.
+    envejecidas = [k for k in cambiadas if k in en]
     sinTraducir = [k for k in encontrados if k not in en]
     print(f"claves en el código: {len(encontrados)}")
     print(f"actualizadas en es.json: {nuevas}")
@@ -97,6 +110,11 @@ def main():
     # estaban traducidas, que es pura suerte—. `revisa_i18n_fallback.py` tampoco lo cazaba:
     # mira las llamadas `trk()` de la interfaz gráfica, no los `T()/TC()` de aquí.
     #
+    if envejecidas:
+        print(f"\nAVISO: {len(envejecidas)} claves han cambiado de castellano y su inglés sigue")
+        print("       como estaba. Revísalas en i18n/en.json:")
+        for k in sorted(envejecidas):
+            print("   %-22s %s" % (k, repr(encontrados[k])[:76]))
     for k in sorted(sinTraducir, key=lambda x: encontrados[x]):
         print("   %-22s %s" % (k, repr(encontrados[k])[:76]))
     if sinTraducir:
