@@ -491,6 +491,62 @@ def casos_arranque(ctx):
     caso_argv(ctx, "version: sale y termina con 0",
               ["version"], rc=0, espera=[r"zfsmgr-cli \d+\.\d+"])
 
+    # Las dos ayudas tienen que describir LAS MISMAS opciones.
+    #
+    # La ayuda entera es UNA cadena traducible, así que el catálogo inglés puede quedarse
+    # corto sin que falte ninguna clave y sin que nada avise: a la versión inglesa le
+    # faltaba la línea de `--lang`, precisamente la opción con la que se pide el inglés.
+    # Contar claves no lo veía; hay que mirar DENTRO del texto.
+    salidas = {}
+    for idioma in ("es", "en"):
+        r = subprocess.run([CLI, "--lang", idioma, "--help"], capture_output=True,
+                           text=True, timeout=60)
+        salidas[idioma] = set(re.findall(r"^  (-{1,2}[a-z-]+)", r.stdout + r.stderr, re.M))
+    nombre = "ayuda: las dos lenguas documentan las mismas opciones"
+    problemas = []
+    # **La guarda del conjunto vacío, y no es de adorno.** La primera versión de esto miraba
+    # solo `stdout`, y la ayuda salía por `stderr`: los dos conjuntos venían vacíos, «es» y
+    # «en» coincidían perfectamente y el caso daba OK con la línea de `--lang` borrada a
+    # mano de la traducción. Dos conjuntos vacíos son iguales; eso no es que la prueba pase,
+    # es que no ha medido nada.
+    if len(salidas["es"]) < 5 or len(salidas["en"]) < 5:
+        problemas.append(f"no se ha leído la ayuda: es={len(salidas['es'])} "
+                         f"opciones, en={len(salidas['en'])}")
+    faltan = salidas["es"] ^ salidas["en"]
+    if faltan:
+        problemas.append(f"solo en una de las dos lenguas: {sorted(faltan)}")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, ""))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+    # Y a dónde va cada una: la pedida a stdout con 0, la del error a stderr con 2.
+    pedida = subprocess.run([CLI, "--help"], capture_output=True, text=True, timeout=60)
+    mala = subprocess.run([CLI, "--inventada"], capture_output=True, text=True, timeout=60)
+    nombre2 = "ayuda: la pedida va a stdout; la del error, a stderr"
+    problemas2 = []
+    if "Uso:" not in pedida.stdout and "Usage:" not in pedida.stdout:
+        problemas2.append("`--help` no escribe la ayuda en stdout: «zfsmgr-cli --help | less» "
+                          "no enseñaría nada")
+    if pedida.returncode != 0:
+        problemas2.append(f"`--help` sale con {pedida.returncode}, esperaba 0")
+    if "Uso:" not in mala.stderr and "Usage:" not in mala.stderr:
+        problemas2.append("una opción mala no escribe la ayuda en stderr")
+    if mala.returncode != 2:
+        problemas2.append(f"una opción mala sale con {mala.returncode}, esperaba 2")
+    if problemas2:
+        ctx.fallos.append((nombre2, problemas2, ""))
+        print(f"  FALLO  {nombre2}")
+        for x in problemas2:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre2)
+        print(f"  ok     {nombre2}")
+
 
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con

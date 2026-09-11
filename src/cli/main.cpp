@@ -47,8 +47,15 @@ namespace CJ = zfsmgr::base::connjson;
 
 constexpr const char* kNombre = "zfsmgr-cli";
 
-void uso() {
-    std::fprintf(stderr,
+// A DÓNDE va la ayuda, que no es lo mismo según quién la pida.
+//
+// Iba siempre a la salida de error, así que `zfsmgr-cli --help | less` —o `| grep`, que es
+// lo que uno hace con una ayuda de cuarenta líneas— no enseñaba NADA: el texto se había ido
+// por el otro lado. La convención de toda la vida es que la ayuda PEDIDA es la salida
+// normal del programa y va a stdout con estado 0, y que la que acompaña a un error va a
+// stderr con estado distinto de 0, para que un guion pueda separar una cosa de la otra.
+void uso(std::FILE* salida) {
+    std::fprintf(salida,
                  TC("t_uso_s_opci_010447", "Uso: %s [opciones] <orden>\n"
                  "\n"
                  "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
@@ -234,7 +241,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-h" || a == "--help") {
-            uso();
+            uso(stdout);
             return 0;
         }
         if (a == "--password-fd" && i + 1 < argc) {
@@ -281,7 +288,7 @@ int main(int argc, char** argv) {
         }
         if (!a.empty() && a[0] == '-') {
             std::fprintf(stderr, TC("t_opcion_desconocida", "%s: opción desconocida: %s\n"), kNombre, a.c_str());
-            uso();
+            uso(stderr);
             return 2;
         }
         op.orden.push_back(a);
@@ -373,7 +380,7 @@ int main(int argc, char** argv) {
     if (!op.orden.empty()
         && (op.orden.size() < 2 || op.orden[0] != "connections" || op.orden[1] != "list")) {
         std::fprintf(stderr, TC("t_s_orden_de_81e64c", "%s: orden desconocida\n"), kNombre);
-        uso();
+        uso(stderr);
         return 2;
     }
 
