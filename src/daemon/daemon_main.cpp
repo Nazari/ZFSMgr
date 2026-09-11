@@ -7440,6 +7440,16 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         auto it = g_jobs.find(jobId);
         if (it == g_jobs.end()) { return false; }
         if (it->second.state == JobState::Cancelled) { return false; }
+        // El CONTADOR se actualiza siempre; lo que se limita es la línea de REGISTRO.
+        //
+        // Estaban juntos dentro del «solo si cambió el segundo», y eso hacía que una
+        // transferencia terminada en menos de un segundo dejara `bytesTransferred` en cero
+        // —el segundo nunca llegaba a cambiar—. Con la regla que marca fallido un envío
+        // completo sin un solo byte, TODA transferencia rápida se declaraba fallida aunque
+        // hubiera llegado entera. No se vio con 3,35 GiB, que tardan minuto y medio; se ve
+        // con cualquier cosa pequeña, que es justo lo que se prueba primero.
+        it->second.bytesTransferred = bytes;
+        it->second.rateMiBs         = rate;
         // Se informa cada dos segundos: escribir una línea por cada 64 KiB llenaría el
         // registro y no diría nada nuevo.
         if (elapsed != it->second.elapsedSecs) {
@@ -7447,8 +7457,6 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
             snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds",
                      (unsigned long long)bytes,
                      static_cast<double>(bytes) / (1024.0 * 1024.0), rate, elapsed);
-            it->second.bytesTransferred = bytes;
-            it->second.rateMiBs         = rate;
             it->second.elapsedSecs      = elapsed;
             it->second.progressLines.push_back(line);
             if (it->second.progressLines.size() > 5) {
