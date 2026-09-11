@@ -84,8 +84,31 @@ def main():
     print(f"claves en el código: {len(encontrados)}")
     print(f"actualizadas en es.json: {nuevas}")
     print(f"sin traducir al inglés: {len(sinTraducir)}")
-    for k in sorted(sinTraducir, key=lambda x: encontrados[x]):
-        print("   %-22s %s" % (k, repr(encontrados[k])[:80]))
+
+    # Y ahora la parte que hace que esto sirva de algo: SALIR CON 1.
+    #
+    # Antes esta cuenta se imprimía y se devolvía 0, así que nadie se enteraba. Una clave que
+    # falta en `en.json` no rompe nada ni avisa: `translateKey()` devuelve el castellano y el
+    # texto sale en español dentro de una interfaz en inglés. Se descubrió porque una cabecera
+    # nueva salió «MOTIVO» entre «POOL», «ID» y «STATE» —y solo porque las otras tres sí
+    # estaban traducidas, que es pura suerte—. `revisa_i18n_fallback.py` tampoco lo cazaba:
+    # mira las llamadas `trk()` de la interfaz gráfica, no los `T()/TC()` de aquí.
+    #
+    # Se separa por origen porque no todo se publica a la vez: el CLI es lo primero que sale,
+    # así que sus claves son un fallo; las del servidor web se cuentan y se dejan dichas.
+    clavesCli = {}
+    for ruta in sorted((RAIZ / 'src' / 'cli').glob('*.cpp')):
+        clavesCli.update(extrae(ruta))
+    faltanCli = sorted(k for k in sinTraducir if k in clavesCli)
+    faltanWeb = [k for k in sinTraducir if k not in clavesCli]
+    for k in sorted(faltanCli, key=lambda x: encontrados[x]):
+        print("   CLI %-22s %s" % (k, repr(encontrados[k])[:76]))
+    if faltanWeb:
+        print(f"   (y {len(faltanWeb)} del servidor web, que todavía no se publica)")
+    if faltanCli:
+        print(f"\nFALLO: {len(faltanCli)} textos del CLI saldrían EN CASTELLANO con la "
+              f"interfaz en inglés.\n       Añádelos a i18n/en.json.")
+        return 1
     return 0
 
 if __name__ == '__main__':
