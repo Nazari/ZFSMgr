@@ -196,6 +196,41 @@ int main(int argc, char** argv) {
     zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../i18n");
     zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../share/zfsmgr/i18n");
     zfsmgr::base::i18n::addSearchPath(zfsmgr::cli::dirDelEjecutable() + "/../Resources/i18n");
+
+    // El IDIOMA, antes de imprimir nada.
+    //
+    // Se resolvía después del bucle de abajo, y ese bucle atiende `--help` RETORNANDO en el
+    // acto: la ayuda salía siempre en castellano, con `--lang en` y con `app.language=en`
+    // igual, aunque su texto lleva años traducido en `en.json`. Es lo primero que ve quien
+    // no sabe usar la herramienta, así que era justo el peor sitio donde tenerlo.
+    //
+    // Va en una pasada aparte porque depende de dos opciones y una de ellas puede aparecer
+    // DESPUÉS: `--config-dir` dice dónde está la preferencia de la interfaz gráfica, y
+    // `--lang` la pisa. Leerlas aquí y volver a leerlas abajo no cuesta nada y evita tener
+    // que reordenar el bucle o duplicar la impresión de la ayuda.
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--config-dir" && i + 1 < argc) {
+            op.dirConfig = argv[++i];
+        } else if (a == "--lang" && i + 1 < argc) {
+            op.idioma = argv[++i];
+        }
+    }
+    {
+        std::string idioma = op.idioma;
+        if (idioma.empty()) {
+            ST::Warning aviso;
+            const auto root = ST::readConfig(op.dirConfig, aviso);
+            idioma = root["app"]["language"].toString();
+            if (idioma.empty()) {
+                idioma = root["ui"]["language"].toString();
+            }
+        }
+        if (!idioma.empty()) {
+            zfsmgr::base::i18n::setLanguage(idioma);
+        }
+    }
+
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-h" || a == "--help") {
@@ -250,23 +285,6 @@ int main(int argc, char** argv) {
             return 2;
         }
         op.orden.push_back(a);
-    }
-
-    // El idioma: lo que diga --lang y, si no, el de la interfaz gráfica. Va DESPUÉS de
-    // leer los argumentos porque --config-dir puede cambiar dónde está esa preferencia.
-    {
-        std::string idioma = op.idioma;
-        if (idioma.empty()) {
-            ST::Warning aviso;
-            const auto root = ST::readConfig(op.dirConfig, aviso);
-            idioma = root["app"]["language"].toString();
-            if (idioma.empty()) {
-                idioma = root["ui"]["language"].toString();
-            }
-        }
-        if (!idioma.empty()) {
-            zfsmgr::base::i18n::setLanguage(idioma);
-        }
     }
 
     // Sin ninguna orden se entra en el intérprete, así que a partir de aquí NO se puede

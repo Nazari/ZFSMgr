@@ -82,6 +82,37 @@ def cli(ctx, ordenes, timeout=180):
     return p.returncode, (p.stdout + p.stderr)
 
 
+def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
+    """Un caso que invoca el BINARIO directamente, sin entrar al intérprete.
+
+    Hace falta para lo que ocurre ANTES de que haya sesión: la ayuda, el idioma, las
+    opciones mal escritas. `--help` se atendía dentro del bucle de argumentos retornando en
+    el acto, o sea antes de resolver el idioma, y salía en castellano con `--lang en`
+    puesto; como el intérprete nunca llega a arrancar en ese camino, ningún caso de los de
+    arriba podía verlo.
+    """
+    p = subprocess.run([CLI] + list(args), capture_output=True, text=True, timeout=60)
+    salida = p.stdout + p.stderr
+    problemas = []
+    if rc is not None and p.returncode != rc:
+        problemas.append(f"rc={p.returncode}, esperaba {rc}")
+    for patron in espera:
+        if not re.search(patron, salida, re.M):
+            problemas.append(f"falta en la salida: /{patron}/")
+    for patron in no_espera:
+        if re.search(patron, salida, re.M):
+            problemas.append(f"NO debería salir: /{patron}/")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, salida))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+    return not problemas
+
+
 def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, veces=()):
     """Un caso: órdenes al CLI, y después comprobaciones contra la máquina.
 
@@ -445,10 +476,26 @@ def casos_entre_maquinas(ctx):
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
 # sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
 # En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
+def casos_arranque(ctx):
+    """Lo que pasa antes de que haya sesión: ayuda, idioma y opciones mal escritas."""
+    caso_argv(ctx, "ayuda: --lang en la da EN INGLÉS",
+              ["--lang", "en", "--help"], rc=0,
+              espera=[r"^Usage: zfsmgr-cli"], no_espera=[r"^Uso: zfsmgr-cli"])
+    caso_argv(ctx, "ayuda: --lang es la da en castellano",
+              ["--lang", "es", "--help"], rc=0,
+              espera=[r"^Uso: zfsmgr-cli"], no_espera=[r"^Usage: zfsmgr-cli"])
+    # Lo mismo por el otro camino: el idioma también decide el mensaje de error, y ahí sí
+    # se resolvía antes. Se comprueba para que la corrección no rompa lo que ya iba bien.
+    caso_argv(ctx, "una opción que no existe: error en inglés y rc=2",
+              ["--lang", "en", "--inventada"], rc=2, espera=[r"unknown option"])
+    caso_argv(ctx, "version: sale y termina con 0",
+              ["version"], rc=0, espera=[r"zfsmgr-cli \d+\.\d+"])
+
+
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
