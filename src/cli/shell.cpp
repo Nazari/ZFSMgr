@@ -4314,9 +4314,28 @@ bool cmdInfo(Estado& e, const LineaAnalizada& linea) {
     if (!agente(e, destino, {"--health"}, out)) {
         return false;
     }
-    std::fprintf(stdout, "url\t%s\nconnection\t%s\nhost\t%s\n", textoDe(destino).c_str(),
-                 p->id.c_str(), T::isLocalConnection(*p) ? "-" : p->host.c_str());
-    std::fprintf(stdout, "%s", out.c_str());
+    // Una sola forma de presentarlo, la misma que `refresh`.
+    //
+    // Antes se escribían tres líneas propias en «clave<TAB>valor» y después se volcaba TAL
+    // CUAL la respuesta del agente, que habla en «CLAVE=valor» y en mayúsculas. La misma
+    // salida traía dos convenciones y una línea `CAPS=` de cuatrocientos caracteres por el
+    // medio. Y con `--format tsv|json` lo volcado ni siquiera pasaba por el formateador,
+    // así que no era analizable por un guion, que es justo para lo que están esos formatos.
+    Tabla t;
+    t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
+    t.campos = {"field", "value"};
+    t.filas.push_back({"url", textoDe(destino)});
+    t.filas.push_back({"connection", p->id});
+    t.filas.push_back({"host", T::isLocalConnection(*p) ? "-" : p->host});
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        const std::size_t igual = linea.find('=');
+        if (igual == std::string::npos) {
+            continue;
+        }
+        t.filas.push_back({B::toLowerAscii(B::trim(linea.substr(0, igual))),
+                           B::trim(linea.substr(igual + 1))});
+    }
+    t.imprime(e.formato);
     return true;
 }
 
@@ -4945,10 +4964,20 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
                              TC("t_orden_ambigua", "«%s» es ambigua: %s\n"),
                              orden.c_str(), lista.c_str());
                 e.ultimoRc = 127;
+                if (!interactivo) {
+                    return e.ultimoRc;
+                }
                 continue;
             }
             std::fprintf(stderr, TC("t_orden_desc_b05fd4", "orden desconocida: %s (pruebe «help»)\n"), orden.c_str());
             e.ultimoRc = 127;
+            // En un guion, una orden que no existe DETIENE la sesión, igual que una que
+            // falla. Antes seguía adelante y su 127 lo pisaba la siguiente orden que
+            // saliera bien, así que una errata terminaba con código 0: el guion se daba por
+            // bueno habiendo hecho otra cosa. Es el peor final posible para una errata.
+            if (!interactivo) {
+                return e.ultimoRc;
+            }
             continue;
         }
         if (!it->second(e, an)) {

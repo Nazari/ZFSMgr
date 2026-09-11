@@ -117,6 +117,7 @@ orden
  * escribe aparte y no con `textos` para no admitir una URL donde va un id. */
     | V_JOB url_opt palabra palabra      { astVerbo(res, $1); astRanura(res, "texto", $3);
                                            astRanura(res, "texto", $4); }
+    | V_IMPORT url_opt                   { astVerbo(res, $1); }
     | V_IMPORT url_opt palabra           { astVerbo(res, $1); astRanura(res, "texto", $3); }
 
 /* --- Pools --------------------------------------------------------------------------- */
@@ -167,7 +168,14 @@ orden
     | V_SET destino_opt asignaciones         { astVerbo(res, $1); }
     | V_CREATE textos                    { astVerbo(res, $1); }
     | V_CLONE textos                     { astVerbo(res, $1); }
+/* `allow` y `unallow` SIN lista de permisos son formas documentadas y ya implementadas:
+ * la primera LISTA lo delegado —como `zfs allow` a secas— y la segunda revoca todo lo de
+ * ese destinatario. Sin estas dos reglas la gramática las rechazaba antes de llegar al
+ * manejador, así que eran código inalcanzable: escrito, documentado en la ayuda y
+ * imposible de invocar. Lo mismo le pasaba a `import` sin nombre. */
+    | V_ALLOW                            { astVerbo(res, $1); }
     | V_ALLOW textos                     { astVerbo(res, $1); }
+    | V_UNALLOW                          { astVerbo(res, $1); }
     | V_UNALLOW textos                   { astVerbo(res, $1); }
 
 /* --- Instantáneas -------------------------------------------------------------------- */

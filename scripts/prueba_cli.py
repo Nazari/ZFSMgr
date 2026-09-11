@@ -19,6 +19,7 @@ Secretos por DESCRIPTOR, nunca por argumento ni entorno: los dos quedan visibles
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -52,7 +53,12 @@ def sh(ctx, orden, en_remoto=False, root=False):
     if root:
         orden = "sudo -S -p '' " + orden
     if en_remoto:
-        orden = f"ssh -o BatchMode=yes -o ConnectTimeout=10 {ctx.remoto} {orden!r}"
+        # `shlex.quote`, NO `repr()`. El repr de Python entrecomilla a la manera de Python:
+        # si la orden ya lleva comillas simples —y las lleva, por el `sudo -p ''`— cambia a
+        # dobles y escapa las de dentro, que en bash significa otra cosa. La orden llegaba
+        # deformada y el fichero de prueba no se creaba en la máquina remota, así que las
+        # comprobaciones de contenido fallaban por algo que no era el CLI.
+        orden = f"ssh -o BatchMode=yes -o ConnectTimeout=10 {ctx.remoto} {shlex.quote(orden)}"
     entrada = (ctx.sudo + "\n") if root else None
     p = subprocess.run(["bash", "-c", orden], input=entrada, capture_output=True,
                        text=True, timeout=300)
@@ -125,11 +131,18 @@ def prepara(ctx, remoto=False):
     if rc != 0:
         raise SystemExit(f"no se pudo crear {pool}: {salida}")
     sh(ctx, f"zfs create {pool}/datos", remoto, root=True)
-    sh(ctx, f"bash -c 'echo hola > /mnt/{pool}/datos/fichero.txt'", remoto, root=True)
+    # Texto DISTINTO en cada máquina. Con el mismo en las dos, una copia que no se hizo se
+    # lee igual que una que sí: el fichero está, pero es el de siempre.
+    # Comillas DOBLES por dentro: la orden entera se vuelve a entrecomillar para el ssh,
+    # y unas simples anidadas cierran la de fuera. Con eso el fichero no se creaba y
+    # `todir`, `rsync` y los dos `send` fallaban comprobando algo que nunca existió.
+    marca = "hola desde unib" if remoto else "hola desde fc16"
+    sh(ctx, f'bash -c "echo {marca} > /mnt/{pool}/datos/fichero.txt"', remoto, root=True)
     sh(ctx, f"bash -c 'mkdir -p /mnt/{pool}/datos/sub && echo anidado > /mnt/{pool}/datos/sub/otro.txt'",
        remoto, root=True)
     sh(ctx, f"zfs snapshot {pool}/datos@s1", remoto, root=True)
-    print(f"  preparado {pool} en {'unib' if remoto else 'fc16'}")
+    if os.environ.get("ZFSMGR_PRUEBA_VERBOSA"):
+        print(f"  preparado {pool} en {'unib' if remoto else 'fc16'}")
 
 
 def limpia(ctx, remoto=False):
@@ -154,6 +167,11 @@ def casos_navegacion(ctx):
          [f"cd Local/{P}", "cd datos", "cd -", "pwd"], espera=[rf"zfsm://local/{P}$"])
     caso(ctx, "nav: un destino que no existe falla con rc=1",
          ["cd Local/noexiste"], rc=1)
+    # Para un guion esto es lo que más importa: una errata NO puede terminar con éxito.
+    # Antes salía con 0 —el 127 lo pisaba la siguiente orden que fuera bien— y el guion se
+    # daba por bueno habiendo hecho otra cosa.
+    caso(ctx, "un verbo que no existe detiene el guion con rc=127",
+         ["ordeninventada", "ls"], rc=127, espera=[r"orden desconocida|unknown command"])
 
 
 def casos_lectura(ctx):
@@ -173,11 +191,17 @@ def casos_lectura(ctx):
          espera=[r"^lz4$"],
          estado=[("y ZFS lo confirma", f"zfs get -H -o value compression {P}/datos", r"^lz4$")])
     caso(ctx, "info: cuenta el estado de la conexión",
-         ["cd Local", "info"], espera=[r"STATUS=OK", r"ZFS_VERSION_RAW="])
+         ["cd Local", "info"],
+         # En minúsculas y en tabla, la MISMA forma que `refresh`. Antes eran tres líneas
+         # propias más el volcado crudo del agente en MAYÚSCULAS=valor, dos convenciones en
+         # la misma salida y sin pasar por el formateador.
+         espera=[r"^status\s+OK", r"^version\s+0\.", r"^api\s+\d"],
+         no_espera=[r"STATUS=OK", r"CAPS="])
 
 
 def casos_crear_destruir(ctx):
     P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     caso(ctx, "create: un dataset hijo",
          [f"cd Local/{P}", "create hijo"],
          estado=[("el dataset existe", f"zfs list -H -o name {P}/hijo", rf"^{P}/hijo$")])
@@ -202,6 +226,7 @@ def casos_crear_destruir(ctx):
 
 def casos_propiedades(ctx):
     P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     caso(ctx, "set: escribe una propiedad y ZFS la tiene",
          [f"cd Local/{P}/datos", "set compression=zstd"],
          estado=[("compression=zstd", f"zfs get -H -o value compression {P}/datos", r"^zstd$")])
@@ -213,6 +238,7 @@ def casos_propiedades(ctx):
 
 def casos_montaje(ctx):
     P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     caso(ctx, "unmount: el dataset queda desmontado",
          [f"cd Local/{P}/datos", "unmount"],
          estado=[("mounted=no", f"zfs get -H -o value mounted {P}/datos", r"^no$")])
@@ -223,6 +249,7 @@ def casos_montaje(ctx):
 
 def casos_instantaneas(ctx):
     P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     caso(ctx, "hold: la retención queda puesta",
          [f"cd Local/{P}/datos@s1", "hold prueba"],
          estado=[("el hold existe", f"zfs holds -H {P}/datos@s1", r"prueba")])
@@ -254,8 +281,150 @@ def casos_pool(ctx):
          ["cd Local", "devices"], espera=[r"NAME|PATH|SIZE"])
 
 
+def casos_diff_rollback(ctx):
+    P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    caso(ctx, "diff: cuenta lo que cambió entre dos instantáneas",
+         [f"cd Local/{P}/datos", "create @s2"],
+         estado=[("@s2 existe", f"zfs list -H -t snapshot -o name {P}/datos@s2",
+                  rf"{P}/datos@s2")])
+    # Un cambio real entre las dos, para que el diff tenga algo que contar.
+    sh(ctx, f"bash -c 'echo segundo > /mnt/{P}/datos/nuevo.txt'", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@s3", root=True)
+    caso(ctx, "diff: el fichero nuevo aparece",
+         [f"cd Local/{P}/datos", "diff @s3 --from @s2"], espera=[r"nuevo\.txt"])
+    caso(ctx, "rollback: sin -r se niega si hay instantáneas posteriores",
+         [f"cd Local/{P}/datos", "rollback @s2"],
+         espera=[r"more recent snapshots|-r"])
+    caso(ctx, "rollback: con -r vuelve y se pierde lo de después",
+         [f"cd Local/{P}/datos", "rollback @s2 -r"],
+         estado=[("el fichero posterior ya no está",
+                  f"bash -c 'ls /mnt/{P}/datos/nuevo.txt 2>&1'", r"No such file|No existe")])
+
+
+def casos_permisos(ctx):
+    P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    caso(ctx, "allow: delega un permiso y ZFS lo tiene",
+         [f"cd Local/{P}/datos", "allow --user linarese snapshot"],
+         estado=[("zfs allow lo enseña", f"zfs allow {P}/datos", r"linarese.*snapshot")])
+    caso(ctx, "allow: sin argumentos LISTA lo delegado",
+         [f"cd Local/{P}/datos", "allow"], espera=[r"linarese"])
+    caso(ctx, "unallow: lo revoca",
+         [f"cd Local/{P}/datos", "unallow --user linarese snapshot"],
+         no_espera=[r"error"],
+         estado=[("ya no aparece", f"zfs allow {P}/datos", r"^(?!.*linarese snapshot).*$")])
+
+
+def casos_programacion(ctx):
+    P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    caso(ctx, "schedule: programa instantáneas diarias",
+         [f"cd Local/{P}/datos", "schedule --daily 7"],
+         estado=[("la propiedad GSA queda puesta",
+                  f"zfs get -H -o value org.fc16.gsa:diario {P}/datos", r"^7$")])
+    caso(ctx, "schedule: sin argumentos la enseña",
+         [f"cd Local/{P}/datos", "schedule"], espera=[r"7"])
+    caso(ctx, "schedule --clear: la borra",
+         [f"cd Local/{P}/datos", "schedule --clear"],
+         estado=[("ya no hay programación",
+                  f"zfs get -H -o value org.fc16.gsa:diario {P}/datos", r"^-$")])
+
+
+def casos_acciones(ctx):
+    P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir && echo x > /mnt/{P}/datos/subdir/f.txt'",
+       root=True)
+    caso(ctx, "breakdown: un subdirectorio se convierte en dataset hijo",
+         [f"cd Local/{P}/datos", "breakdown subdir hijosub --wait"],
+         estado=[("el dataset hijo existe", f"zfs list -H -o name {P}/datos/hijosub",
+                  rf"^{P}/datos/hijosub$"),
+                 ("y conserva el fichero",
+                  f"bash -c 'cat /mnt/{P}/datos/subdir/f.txt 2>&1'", r"^x$")])
+    caso(ctx, "assemble: y vuelve a ser un directorio (nombre COMPLETO)",
+         [f"cd Local/{P}/datos", f"assemble {P}/datos/hijosub --wait"],
+         estado=[("el dataset ya no existe", f"zfs list -H -o name {P}/datos/hijosub 2>&1",
+                  r"does not exist|no existe")])
+    caso(ctx, "todir: vuelca el dataset en un directorio llano",
+         [f"cd Local/{P}/datos", "todir /var/tmp/zfsmgr-pruebas/volcado --wait"],
+         estado=[("el fichero está en el directorio",
+                  "bash -c 'cat /var/tmp/zfsmgr-pruebas/volcado/fichero.txt 2>&1'",
+                  r"hola")])
+    sh(ctx, f"zfs mount {P}/datos", root=True)
+    caso(ctx, "todir: deja el origen con canmount=off (efecto lateral, sin avisar)",
+         [], estado=[("canmount quedó en off",
+                      f"zfs get -H -o value canmount {P}/datos", r"^off$")])
+    sh(ctx, f"zfs set canmount=on {P}/datos", root=True)
+    sh(ctx, f"zfs mount {P}/datos", root=True)
+    caso(ctx, "rsync: sincroniza ficheros entre dos datasets montados",
+         [f"cd Local/{P}", "create destinorsync",
+          f"cd Local/{P}/datos", "rsync zfsm://local/{}/destinorsync --wait".format(P)],
+         estado=[("el fichero llegó",
+                  f"bash -c 'cat /mnt/{P}/destinorsync/fichero.txt 2>&1'", r"hola")])
+
+
+def casos_pool_export(ctx):
+    P = POOL_LOCAL
+    prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    caso(ctx, "export: el pool se suelta",
+         [f"cd Local/{P}", "export"],
+         estado=[("ya no está importado", "zpool list -H -o name", rf"^(?!.*{P}).*$")])
+    caso(ctx, "import: sin nombre debería listar los importables (la ayuda lo promete)",
+         ["cd Local", "import"], no_espera=[r"falta <"])
+    # Se devuelve por shell: `zpool import` sin `-d` no mira en /var/tmp, y el CLI no
+    # ofrece esa opción. Si no se recupera, todo lo que venga después falla sin motivo.
+    sh(ctx, f"zpool import -d {IMG_DIR} {P}", root=True)
+    sh(ctx, f"zfs mount -a", root=True)
+
+
+def casos_entre_maquinas(ctx):
+    """Lo que de verdad importa: fc16 <-> unib, las dos direcciones."""
+    L, R = POOL_LOCAL, POOL_REMOTO
+    prepara(ctx)
+    prepara(ctx, remoto=True)
+    # Instantánea propia. Depender de la que dejó otro grupo es frágil: `promote` TRASLADA
+    # las instantáneas al clon —comportamiento correcto de ZFS— y dejaba estas pruebas sin
+    # origen por algo que no tenía nada que ver con ellas.
+    sh(ctx, f"zfs snapshot -r {L}/datos@env", root=True)
+    sh(ctx, f"zfs snapshot -r {R}/datos@env", True, root=True)
+    caso(ctx, "send: fc16 -> unib, completo",
+         [f"cd Local/{L}/datos@env", f"send zfsm://unib/{R}/de_fc16 --wait"],
+         espera=[r"done"], no_espera=[r"failed|no movió"],
+         estado=[("el dataset está en unib", f"zfs list -H -o name {R}/de_fc16",
+                  rf"^{R}/de_fc16$", True),
+                 ("con el fichero dentro",
+                  f"bash -c 'zfs mount {R}/de_fc16 2>/dev/null; cat /mnt/{R}/de_fc16/fichero.txt'",
+                  r"hola desde fc16", True)])
+    caso(ctx, "send: unib -> fc16, completo",
+         [f"cd unib/{R}/datos@env", f"send zfsm://local/{L}/de_unib --wait"],
+         espera=[r"done"], no_espera=[r"failed|no movió"],
+         estado=[("el dataset está en fc16", f"zfs list -H -o name {L}/de_unib",
+                  rf"^{L}/de_unib$"),
+                 ("con el fichero dentro",
+                  f"bash -c 'zfs mount {L}/de_unib 2>/dev/null; cat /mnt/{L}/de_unib/fichero.txt'",
+                  r"hola desde unib")])
+    # Incremental: solo lo que cambió desde la instantánea base. Es «Nivelar».
+    sh(ctx, f"bash -c 'echo incremental > /mnt/{L}/datos/inc.txt'", root=True)
+    sh(ctx, f"zfs snapshot {L}/datos@env2", root=True)
+    caso(ctx, "send --base: incremental entre máquinas",
+         [f"cd Local/{L}/datos@env2", f"send zfsm://unib/{R}/de_fc16 --base @env --wait"],
+         espera=[r"done"], no_espera=[r"failed"],
+         estado=[("el fichero nuevo llegó a unib",
+                  f"bash -c 'zfs mount {R}/de_fc16 2>/dev/null; cat /mnt/{R}/de_fc16/inc.txt'",
+                  r"incremental", True)])
+    caso(ctx, "jobs: la máquina enseña sus trabajos",
+         ["cd Local", "jobs --all"], espera=[r"done|failed|ID|JOB"])
+
+
+# `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
+# sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
+# En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
 LOCALES = [casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_propiedades, casos_montaje, casos_instantaneas, casos_pool]
+           casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_diff_rollback, casos_permisos, casos_programacion,
+           casos_acciones]
+ENTRE_MAQUINAS = [casos_entre_maquinas, casos_pool_export]
 
 
 def main():
@@ -286,13 +455,18 @@ def main():
 
     print("Preparando…")
     prepara(ctx)
+    if ctx.remoto:
+        prepara(ctx, remoto=True)
     try:
-        for grupo in LOCALES:
+        grupos = list(LOCALES) + (ENTRE_MAQUINAS if ctx.remoto else [])
+        for grupo in grupos:
             print(f"\n{grupo.__name__}:")
             grupo(ctx)
     finally:
         if not args.sin_limpieza:
             limpia(ctx)
+            if ctx.remoto:
+                limpia(ctx, remoto=True)
 
     print(f"\n{'='*60}")
     print(f"{len(ctx.pasados)} pasados, {len(ctx.fallos)} fallos")
