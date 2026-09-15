@@ -12,15 +12,20 @@
 # instalarlo en una máquina de ese sistema. Volver a meterlos es añadir sus filas a las dos
 # tablas de abajo y recompilar con `build-cross.sh --target windows|freebsd`.
 #
-# `.tar.gz` y no `.zip`, y la razón salió probándolo: unib —Arch Linux— NO TRAE `unzip`. Un
-# instalador que exige instalar algo antes de instalar no es un instalador. `tar` y `gzip`
-# están en el sistema base de Linux y de macOS, y en macOS el Finder además lo abre con doble
-# clic. El ZIP solo aportaba algo mientras Windows estuvo en el alcance, y ya no lo está.
+# `.zip`. El punto delicado es el bit de EJECUCIÓN: ZIP guarda los permisos Unix en los
+# atributos externos de cada entrada, pero restaurarlos es cosa del extractor.
 #
-# (Se valoró también un solo fichero POLÍGLOTA: un `.cmd` que fuera a la vez guion de shell y
-# archivo ZIP, aprovechando que el directorio central del ZIP está al final y admite lo que
-# sea por delante. Funciona —se probó— pero en Unix habría que invocarlo como `sh fichero`,
-# porque no puede llevar `#!` sin atragantar a cmd.exe. Sin Windows, no compensa.)
+# Comprobado sobre unib, que es una instalación mínima sin `unzip`: `7z x` y `bsdtar xf`
+# conservan los dos el `-rwxr-xr-x`, tanto en el guion como en los binarios. Aun así las
+# instrucciones dicen `sh instalar.sh` y no `./instalar.sh`, porque eso funciona aunque
+# aparezca un extractor que no lo conserve —Archive Utility del Finder no está probado— y
+# no cuesta nada. Lo que NO se puede dar por bueno sin más es el binario: si algún día llega
+# sin el bit, el instalador lo pone él con `install -m 0755`, que es lo que hace.
+#
+# (Se valoró un solo fichero POLÍGLOTA: un `.cmd` que fuera a la vez guion de shell y archivo
+# ZIP, aprovechando que el directorio central del ZIP está al final y admite lo que sea por
+# delante. Funciona —se probó— pero en Unix habría que invocarlo como `sh fichero`, porque no
+# puede llevar `#!` sin atragantar a cmd.exe. Sin Windows en el alcance, no compensa.)
 #
 # Los TRES agentes viajan a propósito, aunque sean la mitad del peso: sin ellos, desde la
 # máquina donde se instala no se puede instalar un daemon en otra de distinto sistema, que
@@ -116,14 +121,9 @@ sed -i "s/@VERSION@/${VERSION}/g" "${ARBOL}/instalar.sh"
     | xargs sha256sum > MANIFIESTO.sha256 )
 
 mkdir -p "${SALIDA}"
-ZIP="${SALIDA}/zfsmgr-cli-${VERSION}.tar.gz"
+ZIP="${SALIDA}/zfsmgr-cli-${VERSION}.zip"
 rm -f "${ZIP}"
-# Dueño y permisos NORMALIZADOS. Sin esto el paquete lleva dentro el uid de quien lo
-# construyó, y al desempaquetarlo como root los ficheros salen con ese dueño; y el bit de
-# ejecución de `instalar.sh` es justo lo que no puede perderse.
-tar -czf "${ZIP}" -C "${TRABAJO}" \
-    --owner=0 --group=0 --numeric-owner \
-    "zfsmgr-cli-${VERSION}"
+( cd "${TRABAJO}" && zip -qr "${ZIP}" "zfsmgr-cli-${VERSION}" )
 
 echo "${ZIP}"
 echo "  versión:   ${VERSION}"
@@ -131,4 +131,11 @@ echo "  versión:   ${VERSION}"
 # transparente —este proyecto se desarrolla sobre ZFS— miente: dijo «1.0K» de un ZIP de
 # 22 MB. `stat` da los bytes de verdad.
 echo "  tamaño:    $(awk -v b="$(stat -c%s "${ZIP}")" 'BEGIN{printf "%.1f MB", b/1048576}')"
-echo "  contenido: $(tar -tzf "${ZIP}" | grep -vc '/$') ficheros"
+echo "  contenido: $(unzip -Z1 "${ZIP}" | grep -vc '/$') ficheros"
+echo
+echo "  Para instalarlo:"
+echo "    unzip zfsmgr-cli-${VERSION}.zip"
+echo "    cd zfsmgr-cli-${VERSION} && sh instalar.sh"
+echo
+echo "  «sh instalar.sh» vale con cualquier extractor: unzip, 7z y bsdtar conservan el"
+echo "  permiso de ejecución —comprobado—, pero así da igual si alguno no lo hace."
