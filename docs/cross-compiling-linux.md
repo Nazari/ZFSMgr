@@ -27,6 +27,23 @@ La base del cross-compiling local:
 - `toolchains/freebsd-clang.cmake`
 - `toolchains/macos-osxcross.cmake`
 
+## Dónde viven las cadenas de herramientas: `<entorno>`
+
+Qt, los OpenSSL cruzados y el sysroot de FreeBSD **no son del proyecto** pero hacen falta
+para compilarlo. Viven en `entorno/` dentro del árbol —ignorado por git— y no en el
+directorio personal, que es donde estaban: `~/Qt` con 12 GB, `~/opt` y `~/sysroots`, tres
+entradas en la raíz del HOME de alguien que no las puso ahí a propósito.
+
+`scripts/entorno.sh` lo resuelve, y lo incluyen todos los guiones de compilación:
+
+1. `ZFSMGR_ENTORNO` del entorno, si viene puesta. Es la salida para tenerlas en otro disco.
+2. `<proyecto>/entorno`, si existe. El sitio de hoy.
+3. `$HOME`, si no. El sitio VIEJO, que se conserva a propósito: un clon que no haya migrado
+   sigue compilando igual y nadie está obligado a mover nada.
+
+Donde este documento dice `<entorno>`, léase lo que salga de esos tres pasos.
+
+
 ## Estado por plataforma
 
 - Windows: viable y validado en este Linux (configura y compila `zfsmgr-gui.exe`).
@@ -49,7 +66,7 @@ Qué hace `--freebsd` ahora:
 - Descarga `base.txz` (sysroot base).
 - Descarga `packagesite.pkg` de FreeBSD pkg repo.
 - Resuelve `qt6-base` y sus dependencias y las extrae en el sysroot.
-- Instala Qt host Linux compatible (misma rama 6.x.y de `qt6-base`) en `~/Qt`.
+- Instala Qt host Linux compatible (misma rama 6.x.y de `qt6-base`) en `<entorno>/Qt`.
 
 Validación de entorno:
 
@@ -104,9 +121,9 @@ sudo apt-get install -y wine64 wine32:i386 winbind xvfb cabextract
 - `CROSS_TRIPLE_WINDOWS` (opcional): default `x86_64-w64-mingw32`.
 
 Autodetecciones implementadas:
-- `QT6_WINDOWS_PREFIX` desde `~/Qt/*/mingw_64`.
-- `QT_HOST_PATH` desde `~/Qt/<version>/gcc_64` (misma versión) o fallback `/usr`.
-- `OPENSSL_ROOT_DIR` desde `~/opt/openssl-mingw64`.
+- `QT6_WINDOWS_PREFIX` desde `<entorno>/Qt/*/mingw_64`.
+- `QT_HOST_PATH` desde `<entorno>/Qt/<version>/gcc_64` (misma versión) o fallback `/usr`.
+- `OPENSSL_ROOT_DIR` desde `<entorno>/opt/openssl-mingw64`.
 
 Comando validado:
 
@@ -122,7 +139,7 @@ Comando validado:
 - `FREEBSD_CC` / `FREEBSD_CXX` (opcionales).
 
 Autodetección implementada:
-- `FREEBSD_SYSROOT` desde `~/sysroots/freebsd*-amd64`.
+- `FREEBSD_SYSROOT` desde `<entorno>/sysroots/freebsd*-amd64`.
 - `QT6_FREEBSD_PREFIX` desde `\$FREEBSD_SYSROOT/usr/local` si existe `Qt6Config.cmake`.
 
 ### macOS
@@ -130,14 +147,14 @@ Autodetección implementada:
 - `OSXCROSS_TARGET`: autodetectado desde `/opt/osxcross/target/bin` (preferencia `x86_64-apple-darwin*`).
 - `OSX_SYSROOT`: SDK macOS.
 - `QT6_MACOS_PREFIX`: prefijo Qt6 target macOS.
-- `QT_HOST_PATH`: Qt host Linux para `moc/uic/rcc` (autodetectado desde `~/Qt/*/gcc_64` y prioriza la misma versión que target).
-- `OPENSSL_ROOT_DIR`: prefijo OpenSSL target macOS (autodetecta `~/opt/openssl-macos-x86_64`).
+- `QT_HOST_PATH`: Qt host Linux para `moc/uic/rcc` (autodetectado desde `<entorno>/Qt/*/gcc_64` y prioriza la misma versión que target).
+- `OPENSSL_ROOT_DIR`: prefijo OpenSSL target macOS (autodetecta `<entorno>/opt/openssl-macos-x86_64`).
 - `OSXCROSS_CC` / `OSXCROSS_CXX` (opcionales).
 
 Autodetección implementada:
 - Añade `/opt/osxcross/target/bin` al `PATH` en `--doctor`.
-- `QT6_MACOS_PREFIX` desde `~/Qt/*/{macos,clang_64}`.
-- `QT_HOST_PATH` y `QT_HOST_PATH_CMAKE_DIR` desde `~/Qt/*/gcc_64`.
+- `QT6_MACOS_PREFIX` desde `<entorno>/Qt/*/{macos,clang_64}`.
+- `QT_HOST_PATH` y `QT_HOST_PATH_CMAKE_DIR` desde `<entorno>/Qt/*/gcc_64`.
 - Fuerza herramientas host Qt (`moc/uic/rcc`) y `Qt6CoreTools_DIR`/`Qt6WidgetsTools_DIR` al kit Linux.
 - `CMAKE_OSX_DEPLOYMENT_TARGET=10.15` por defecto (si no defines `MACOSX_DEPLOYMENT_TARGET`).
 - OpenSSL target macOS vía `OPENSSL_ROOT_DIR` + include/lib explícitos.

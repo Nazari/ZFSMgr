@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=entorno.sh
+. "${SCRIPT_DIR}/entorno.sh"
 BUILD_DIR="${ZFSMGR_BUILD_DIR:-${PROJECT_ROOT}/builds/macos}"
 OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
 DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
@@ -353,9 +355,9 @@ if [[ -z "${QT_PREFIX}" ]]; then
   done
 fi
 
-# ${HOME}/Qt, no una ruta personal fija: antes esto era /Users/linarese/Qt.
-if [[ -z "${QT_PREFIX}" && -d "${HOME}/Qt" ]]; then
-  latest_qt_macos="$(find "${HOME}/Qt" -maxdepth 2 -type d -path "${HOME}/Qt/*/macos" | sort -V | tail -n1 || true)"
+# ${ZFSMGR_ENTORNO}/Qt, no una ruta personal fija: antes esto era /Users/linarese/Qt.
+if [[ -z "${QT_PREFIX}" && -d "${ZFSMGR_ENTORNO}/Qt" ]]; then
+  latest_qt_macos="$(find "${ZFSMGR_ENTORNO}/Qt" -maxdepth 2 -type d -path "${ZFSMGR_ENTORNO}/Qt/*/macos" | sort -V | tail -n1 || true)"
   if [[ -n "${latest_qt_macos}" ]]; then
     QT_PREFIX="${latest_qt_macos}"
   fi

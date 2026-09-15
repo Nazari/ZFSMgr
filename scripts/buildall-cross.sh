@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=entorno.sh
+. "${SCRIPT_DIR}/entorno.sh"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 TS="$(date '+%Y%m%d-%H%M%S')"
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/builds/artifacts/${TS}}"
@@ -304,11 +306,11 @@ ensure_macos_openssl() {
   local openssl_target=""
   case "${arch}" in
     amd64)
-      openssl_prefix="${HOME}/opt/openssl-macos-x86_64"
+      openssl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-x86_64"
       openssl_target="darwin64-x86_64-cc"
       ;;
     arm64)
-      openssl_prefix="${HOME}/opt/openssl-macos-arm64"
+      openssl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-arm64"
       openssl_target="darwin64-arm64-cc"
       ;;
     *)
@@ -350,7 +352,7 @@ ensure_macos_openssl_shared() {
     arm64) ossl_arch="arm64";  openssl_target="darwin64-arm64-cc" ;;
     *) return 1 ;;
   esac
-  local prefix="${HOME}/opt/openssl-macos-${ossl_arch}-shared"
+  local prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-${ossl_arch}-shared"
   if [[ -f "${prefix}/lib/libssl.3.dylib" && -f "${prefix}/lib/libcrypto.3.dylib" ]]; then
     printf '%s\n' "${prefix}"
     return 0
@@ -536,7 +538,7 @@ PY
 # El build nativo de Linux no busca Qt en ninguna parte: da por hecho que lo tiene el
 # sistema. Aquí lo tiene, así que funciona; pero eso deja de ser cierto en cuanto la
 # distribución traiga uno anterior al 6.5 que el proyecto exige. Se resuelve igual que ya
-# se hace con Windows y FreeBSD: buscándolo también en ~/Qt, que es donde lo deja
+# se hace con Windows y FreeBSD: buscándolo también en <entorno>/Qt, que es donde lo deja
 # `provision-cross-targets.sh`.
 # Entorno propio de la fase Linux, aplicado con "env" en cada llamada y NO exportado.
 #
@@ -549,14 +551,14 @@ PY
 # `qt-version.txt` es la ÚNICA versión que este proyecto decide, y la leen también el CI y
 # `provision-cross-targets.sh`. Sin fijarla aquí, el autodetect cogía «la más alta que
 # hubiera instalada» y el resultado dependía de la máquina: en un equipo con 6.8.3, 6.10.2
-# y 6.11.1 en ~/Qt, el .app de macOS salía contra 6.10.2 mientras el CI lo publicaba
+# y 6.11.1 en <entorno>/Qt, el .app de macOS salía contra 6.10.2 mientras el CI lo publicaba
 # contra 6.8.3. Compilaba —el moc del anfitrión emparejaba con el destino— así que no
 # fallaba nada: simplemente se distribuían dos cosas distintas con el mismo número.
 #
 # Esto ya estaba resuelto para Linux y solo para Linux. Ahora es una función y la usan los
 # tres, que es como no tener que acordarse la próxima vez.
 #
-# **FreeBSD queda fuera a propósito**: su Qt no sale de ~/Qt sino del sysroot, con la
+# **FreeBSD queda fuera a propósito**: su Qt no sale de <entorno>/Qt sino del sysroot, con la
 # versión que traiga el repositorio de paquetes de FreeBSD (hoy 6.11.1). Fijarla exigiría
 # compilar Qt para FreeBSD por nuestra cuenta.
 _qt_pin="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || true)"
@@ -575,12 +577,12 @@ qt_prefijo_del_objetivo() {
   # anfitrión, y el de macOS lo trae `--macos-qt` —`--macos` es otra cosa, compila osxcross
   # y exige el SDK de Xcode, que no hace ninguna falta para esto—.
   local arreglo="$3"
-  if [[ -n "${_qt_pin}" && -d "${HOME}/Qt/${_qt_pin}/${sub}" ]]; then
-    echo "${HOME}/Qt/${_qt_pin}/${sub}"
+  if [[ -n "${_qt_pin}" && -d "${ZFSMGR_ENTORNO}/Qt/${_qt_pin}/${sub}" ]]; then
+    echo "${ZFSMGR_ENTORNO}/Qt/${_qt_pin}/${sub}"
     return 0
   fi
   local alt
-  alt="$(autodetect_path_glob "${HOME}/Qt/*/${sub}")"
+  alt="$(autodetect_path_glob "${ZFSMGR_ENTORNO}/Qt/*/${sub}")"
   if [[ -n "${alt}" && -n "${_qt_pin}" ]]; then
     echo "AVISO: ${etiqueta} no tiene Qt ${_qt_pin} (el fijado en qt-version.txt);" >&2
     echo "       se usa ${alt}, que NO es lo que publica el CI." >&2

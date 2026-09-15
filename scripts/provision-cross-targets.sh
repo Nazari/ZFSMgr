@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=entorno.sh
+. "${SCRIPT_DIR}/entorno.sh"
 
 DO_WINDOWS=0
 SKIP_QT=0
@@ -17,15 +19,15 @@ FORCE=0
 # propio script instala después un Qt host que le haga juego.
 QT_VERSION="$(cat "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null | tr -d '[:space:]')"
 QT_VERSION="${QT_VERSION:-6.8.3}"
-QT_ROOT="${HOME}/Qt"
+QT_ROOT="${ZFSMGR_ENTORNO}/Qt"
 OPENSSL_VERSION="3.3.1"
-OPENSSL_PREFIX="${HOME}/opt/openssl-mingw64"
-OPENSSL_MACOS_PREFIX="${HOME}/opt/openssl-macos-x86_64"
+OPENSSL_PREFIX="${ZFSMGR_ENTORNO}/opt/openssl-mingw64"
+OPENSSL_MACOS_PREFIX="${ZFSMGR_ENTORNO}/opt/openssl-macos-x86_64"
 
 # 13.5 y 14.2 ya no están en download.freebsd.org (404): usar una release vigente.
 FREEBSD_RELEASE="14.3-RELEASE"
 FREEBSD_ARCH="amd64"
-FREEBSD_SYSROOT_BASE="${HOME}/sysroots"
+FREEBSD_SYSROOT_BASE="${ZFSMGR_ENTORNO}/sysroots"
 FREEBSD_REPO_BRANCH="quarterly"
 
 OSXCROSS_ROOT="/opt/osxcross"
@@ -123,7 +125,7 @@ install_openssl_mingw() {
   if [[ ${FORCE} -eq 1 || ! -f "${OPENSSL_PREFIX}/lib/libcrypto.a" ]]; then
     local work="/tmp/openssl-mingw-build"
     run_cmd "rm -rf '${work}'"
-    run_cmd "mkdir -p '${work}' '${HOME}/opt'"
+    run_cmd "mkdir -p '${work}' '${ZFSMGR_ENTORNO}/opt'"
     run_cmd "curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
     run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
     run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && perl ./Configure mingw64 --cross-compile-prefix=x86_64-w64-mingw32- --prefix='${OPENSSL_PREFIX}' --libdir=lib no-tests no-shared"
@@ -437,7 +439,7 @@ setup_osxcross() {
   # OpenSSL. (El bloque estático de arriba solo cubre x86_64; eso viene de antes.)
   local ossl_arch
   for ossl_arch in x86_64 arm64; do
-    local shared_prefix="${HOME}/opt/openssl-macos-${ossl_arch}-shared"
+    local shared_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-${ossl_arch}-shared"
     [[ ${FORCE} -eq 0 && -f "${shared_prefix}/lib/libssl.3.dylib" ]] && continue
     local conf_target="darwin64-${ossl_arch}-cc"
     local xtriple="\$(ls -1 '${OSXCROSS_ROOT}'/target/bin/*-apple-darwin*-clang | sed -E 's|.*/([^/]+)-clang|\\1|' | rg '^${ossl_arch}-apple-darwin' | sort -V | tail -n1)"

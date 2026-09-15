@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=entorno.sh
+. "${SCRIPT_DIR}/entorno.sh"
 BUILD_DIR="${ZFSMGR_BUILD_DIR:-${PROJECT_ROOT}/builds/linux}"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 APPDIR="${PROJECT_ROOT}/AppDir"

@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=entorno.sh
+. "${SCRIPT_DIR}/entorno.sh"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 TARGET=""
 BUILD_TYPE="Release"
@@ -39,9 +41,9 @@ Toolchains:
 Variables de entorno esperadas:
   Windows:
     QT6_WINDOWS_PREFIX  (ruta de Qt6 para MinGW target)
-                       (si no se define, se intenta autodetectar en ~/Qt/*/mingw_64)
+                       (si no se define, se intenta autodetectar en <entorno>/Qt/*/mingw_64)
     QT6_HOST_PREFIX     (Qt6 host, por defecto /usr/lib/x86_64-linux-gnu/cmake)
-    OPENSSL_ROOT_DIR    (OpenSSL target MinGW; autodetecta ~/opt/openssl-mingw64)
+    OPENSSL_ROOT_DIR    (OpenSSL target MinGW; autodetecta <entorno>/opt/openssl-mingw64)
     CROSS_TRIPLE_WINDOWS (opcional, default x86_64-w64-mingw32)
 
   FreeBSD:
@@ -53,11 +55,11 @@ Variables de entorno esperadas:
   macOS (osxcross):
     OSXCROSS_TARGET      (opcional; si no se define se autodetecta desde /opt/osxcross/target/bin)
     OSX_SYSROOT          (SDK de macOS)
-    QT6_MACOS_PREFIX     (Qt6 para target macOS; autodetecta ~/Qt/*/{macos,clang_64})
-    QT_HOST_PATH         (Qt6 host Linux para tools; autodetecta ~/Qt/*/gcc_64)
+    QT6_MACOS_PREFIX     (Qt6 para target macOS; autodetecta <entorno>/Qt/*/{macos,clang_64})
+    QT_HOST_PATH         (Qt6 host Linux para tools; autodetecta <entorno>/Qt/*/gcc_64)
     QT_HOST_PATH_CMAKE_DIR (opcional; autodetecta <QT_HOST_PATH>/lib/cmake/Qt6)
     MACOSX_DEPLOYMENT_TARGET (opcional; default 10.15 para compatibilidad Qt6 + std::filesystem)
-    OPENSSL_ROOT_DIR     (opcional; autodetecta ~/opt/openssl-macos-x86_64 o ~/opt/openssl-macos-arm64)
+    OPENSSL_ROOT_DIR     (opcional; autodetecta <entorno>/opt/openssl-macos-x86_64 o <entorno>/opt/openssl-macos-arm64)
     OSXCROSS_CC/OSXCROSS_CXX (opcionales)
 USAGE
 }
@@ -142,7 +144,7 @@ autodetect_qt_prefix() {
   local pattern="$1"
   local found=""
   shopt -s nullglob
-  local candidates=("${HOME}"/Qt/${pattern})
+  local candidates=("${ZFSMGR_ENTORNO}"/Qt/${pattern})
   shopt -u nullglob
   if [[ ${#candidates[@]} -gt 0 ]]; then
     found="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -n1)"
@@ -193,8 +195,8 @@ macos_arch_from_target() {
 autodetect_macos_openssl_prefix() {
   local arch=""
   arch="$(macos_arch_from_target "${OSXCROSS_TARGET:-}")"
-  local arm_prefix="${HOME}/opt/openssl-macos-arm64"
-  local x86_prefix="${HOME}/opt/openssl-macos-x86_64"
+  local arm_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-arm64"
+  local x86_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-x86_64"
 
   if [[ "${arch}" == "arm64" ]]; then
     [[ -f "${arm_prefix}/include/openssl/evp.h" ]] && { echo "${arm_prefix}"; return 0; }
@@ -414,8 +416,8 @@ EOF
     local ossl_arch
     ossl_arch="$(macos_arch_from_target "${OSXCROSS_TARGET:-}")"
     case "${ossl_arch}" in
-      arm64) ossl_prefix="${HOME}/opt/openssl-macos-arm64-shared" ;;
-      *)     ossl_prefix="${HOME}/opt/openssl-macos-x86_64-shared" ;;
+      arm64) ossl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-arm64-shared" ;;
+      *)     ossl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-x86_64-shared" ;;
     esac
   fi
   local ossl_libs=()
@@ -489,8 +491,8 @@ doctor_windows() {
     export QT6_HOST_PREFIX
     echo "QT6_HOST_PREFIX autodetectado: ${QT6_HOST_PREFIX}"
   fi
-  if [[ -z "${OPENSSL_ROOT_DIR:-}" ]] && [[ -f "${HOME}/opt/openssl-mingw64/lib/libcrypto.a" ]]; then
-    OPENSSL_ROOT_DIR="${HOME}/opt/openssl-mingw64"
+  if [[ -z "${OPENSSL_ROOT_DIR:-}" ]] && [[ -f "${ZFSMGR_ENTORNO}/opt/openssl-mingw64/lib/libcrypto.a" ]]; then
+    OPENSSL_ROOT_DIR="${ZFSMGR_ENTORNO}/opt/openssl-mingw64"
     export OPENSSL_ROOT_DIR
     echo "OPENSSL_ROOT_DIR autodetectado: ${OPENSSL_ROOT_DIR}"
   fi
@@ -504,7 +506,7 @@ doctor_freebsd() {
   need_cmd clang || ok=1
   need_cmd clang++ || ok=1
   if [[ -z "${FREEBSD_SYSROOT:-}" ]]; then
-    FREEBSD_SYSROOT="$(autodetect_path_glob "${HOME}/sysroots/freebsd*-amd64")"
+    FREEBSD_SYSROOT="$(autodetect_path_glob "${ZFSMGR_ENTORNO}/sysroots/freebsd*-amd64")"
     export FREEBSD_SYSROOT
     if [[ -n "${FREEBSD_SYSROOT}" ]]; then
       echo "FREEBSD_SYSROOT autodetectado: ${FREEBSD_SYSROOT}"

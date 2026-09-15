@@ -26,3 +26,7 @@ cclaude.linux
 .codex
 /r
 aqtinstall.log
+
+# Cadenas de herramientas externas (Qt, OpenSSL cruzado, sysroot de FreeBSD).
+# Viven aquí y no en el directorio personal, pero NO son del proyecto: no se suben.
+entorno/
