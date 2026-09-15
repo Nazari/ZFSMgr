@@ -338,6 +338,32 @@ void reportJobProgress(const std::string& line) {
     }
 }
 
+// Los CONTADORES del trabajo, que son cosa aparte de la línea de progreso.
+//
+// Un trabajo de mutación —breakdown, assemble, todir, rsync— dejaba `bytesTransferred` y
+// `rateMiBs` en CERO de principio a fin. El muestreador de copia calculaba las dos cifras
+// cada dos segundos, las pegaba dentro de una frase —«5,7 GiB copiados a 17,6 MiB/s»— y
+// tiraba los números. Así que `jobs` enseñaba «0B» y «0.00» mientras la máquina movía
+// gigabytes, que es exactamente el síntoma que ya nos costó una tarde con `send-to-peer`:
+// un contador a cero no se lee como «no lo sé», se lee como «no está pasando nada».
+//
+// Que los datos estuvieran en la frase no lo salvaba: una frase no se ordena, no se suma y
+// no sale en `--format json` como número. Los campos existen desde el principio y esto es
+// lo único que faltaba, rellenarlos.
+void reportJobCounters(uint64_t bytes, double rateMiBs, long elapsedSecs) {
+    if (t_currentJobId.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    auto it = g_jobs.find(t_currentJobId);
+    if (it == g_jobs.end()) {
+        return;
+    }
+    it->second.bytesTransferred = bytes;
+    it->second.rateMiBs         = rateMiBs;
+    it->second.elapsedSecs      = elapsedSecs;
+}
+
 // Forward declarations — defined after jsonEscape
 static void persistJobsLocked();
 static void loadPersistedJobsAtStartup();
@@ -699,6 +725,27 @@ public:
         if (worker_.joinable()) {
             worker_.join();
         }
+        // UNA muestra más, ya con la copia terminada.
+        //
+        // El hilo muestrea cada dos segundos, así que el último valor que dejaba era el de
+        // la penúltima vuelta: una copia de 2,5 GiB quedaba anotada como 1,9 GiB, y una que
+        // durase menos de dos segundos como CERO. El número se lee después, cuando el
+        // trabajo ya está en «done» y nadie va a volver a mirarlo: tiene que ser el total,
+        // no el de hace dos segundos. Aquí ya no hay nada copiando, así que lo que diga el
+        // dataset es el resultado final.
+        if (baseline_ >= 0) {
+            const long long fin = datasetUsedBytes(dataset_);
+            if (fin > baseline_) {
+                const long long copied = fin - baseline_;
+                const double secs = std::chrono::duration<double>(
+                                        std::chrono::steady_clock::now() - started_).count();
+                reportJobCounters(static_cast<uint64_t>(copied),
+                                  secs > 0.0
+                                      ? (static_cast<double>(copied) / secs) / (1024.0 * 1024.0)
+                                      : 0.0,
+                                  static_cast<long>(secs));
+            }
+        }
     }
     CopyProgressSampler(const CopyProgressSampler&) = delete;
     CopyProgressSampler& operator=(const CopyProgressSampler&) = delete;
@@ -725,6 +772,13 @@ private:
                 line += " a " + humanBytes(static_cast<long long>(copied / secs)) + "/s";
             }
             reportJobProgress(line);
+            // Y las MISMAS cifras a los contadores. El ritmo en MiB/s, que es lo que dice el
+            // nombre del campo y lo que rotula la columna; el de la frase va en unidades
+            // legibles y no es el mismo número.
+            reportJobCounters(static_cast<uint64_t>(copied),
+                              secs > 0.0 ? (static_cast<double>(copied) / secs) / (1024.0 * 1024.0)
+                                         : 0.0,
+                              static_cast<long>(secs));
         }
     }
     std::string dataset_;

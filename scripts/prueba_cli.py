@@ -393,6 +393,61 @@ def casos_acciones(ctx):
                   rf"^{P}/datos/hijosub$"),
                  ("y conserva el fichero",
                   f"bash -c 'cat /mnt/{P}/datos/subdir/f.txt 2>&1'", r"^x$")])
+    # Los CONTADORES del trabajo, que es otra cosa que la línea de progreso.
+    #
+    # Un trabajo de mutación dejaba `bytes` y `MiB/s` en CERO de principio a fin: el
+    # muestreador calculaba las dos cifras, las pegaba dentro de una frase —«5,7 GiB
+    # copiados a 17,6 MiB/s»— y tiraba los números. `jobs` enseñaba «0B» y «0.00» mientras
+    # la máquina movía gigabytes, y un cero no se lee como «no lo sé», se lee como «no está
+    # pasando nada». Es el mismo síntoma que ya nos costó una tarde con `send-to-peer`.
+    #
+    # SIN `--wait`: con él la orden va por el camino síncrono y no crea trabajo ninguno, así
+    # que no habría nada que contar.
+    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/medido && dd if=/dev/urandom "
+            f"of=/mnt/{P}/datos/medido/f.bin bs=1M count=40 status=none && sync'", root=True)
+    rc, salida = cli(ctx, [f"cd Local/{P}/datos", "breakdown medido hijomedido"])
+    ident = ""
+    m = re.search(r"\b([0-9a-f]{16})\b", salida)
+    if m:
+        ident = m.group(1)
+    # Se espera a que termine preguntando, no durmiendo a ojo.
+    fila = ""
+    for _ in range(30):
+        # `format` es un VERBO del intérprete; `--format` solo vale al arrancar el binario.
+        _, vista = cli(ctx, ["format tsv", "jobs --all --on zfsm://local"])
+        for l in vista.splitlines():
+            if ident and l.startswith(ident):
+                fila = l
+        if fila and fila.split("\t")[1] in ("done", "failed", "cancelled"):
+            break
+        sh(ctx, "sleep 2")
+    nombre = "jobs: un trabajo de mutación cuenta los bytes y el ritmo"
+    problemas = []
+    if not ident:
+        problemas.append(f"no se obtuvo identificador de trabajo: «{salida.strip()[:120]}»")
+    elif not fila:
+        problemas.append(f"el trabajo {ident} no aparece en «jobs --all»")
+    else:
+        campos = fila.split("\t")
+        estado, bytes_, ritmo = campos[1], campos[4], campos[5]
+        if estado != "done":
+            problemas.append(f"el trabajo terminó en «{estado}»: {campos[-1][:100]}")
+        # 40 MiB copiados: los bytes tienen que estar en ese orden de magnitud, no en cero.
+        if not bytes_.isdigit() or int(bytes_) < 1_000_000:
+            problemas.append(f"bytes={bytes_}: el contador se quedó en cero o casi")
+        try:
+            if float(ritmo) <= 0.0:
+                problemas.append(f"MiB/s={ritmo}: el ritmo se quedó en cero")
+        except ValueError:
+            problemas.append(f"MiB/s={ritmo} no es un número")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, salida))
+        print(f"  FALLO  {nombre}")
+        for x in problemas: print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre); print(f"  ok     {nombre}")
+    sh(ctx, f"zfs destroy -r {P}/datos/hijomedido", root=True)
+
     caso(ctx, "assemble: y vuelve a ser un directorio (nombre COMPLETO)",
          [f"cd Local/{P}/datos", f"assemble {P}/datos/hijosub --wait"],
          estado=[("el dataset ya no existe", f"zfs list -H -o name {P}/datos/hijosub 2>&1",
