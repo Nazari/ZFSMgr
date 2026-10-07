@@ -17,9 +17,11 @@ Secretos por DESCRIPTOR, nunca por argumento ni entorno: los dos quedan visibles
 """
 
 import argparse
+import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -539,6 +541,108 @@ def casos_entre_maquinas(ctx):
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo
 # sale mal ahí, todo lo que viniera detrás fallaría por no tener pool y no por su culpa.
 # En la primera pasada pasó justo eso y escondió el resultado de las transferencias.
+def casos_version_openzfs(ctx):
+    """No se instala el agente donde no hay OpenZFS 2.3 o posterior.
+
+    Un agente instalado donde no hay ZFS arranca, contesta STATUS=OK y no ve un solo pool:
+    desde el cliente eso se lee como «la máquina está bien y está vacía», que es lo que NO
+    es. Mismo razonamiento que el del respaldo por guion: una máquina que parece atendida y
+    no lo está es peor que una que falla a la cara.
+
+    Se prueba con una conexión que apunta a una máquina sin OpenZFS. No se inventa: se mira
+    si hay alguna a mano, y si no la hay se dice y se salta, porque un caso que se salta en
+    silencio es un caso que no existe.
+    """
+    sin_zfs = os.environ.get("ZFSMGR_PRUEBA_HOST_SIN_ZFS", "")
+    if not sin_zfs:
+        print("  (saltado: defina ZFSMGR_PRUEBA_HOST_SIN_ZFS=usuario@maquina "
+              "con una máquina SIN OpenZFS para probar el rechazo)")
+        return
+    usuario, _, maquina = sin_zfs.partition("@")
+    if not maquina:
+        maquina, usuario = usuario, "linarese"
+    # Una configuración de usar y tirar: la del usuario no se toca.
+    cfg = os.path.join(ctx.dir_tmp, "cfg-sin-zfs")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    ruta = os.path.join(cfg, "config.json")
+    with open(ruta) as f:
+        c = json.load(f)
+    # La clave es `conn_type`, no `type`: se miró en el fichero en vez de suponerlo, después
+    # de que la primera versión no encontrara ninguna conexión y se saltara el caso entero
+    # —un caso que se salta solo es un caso que no prueba nada—.
+    plantilla = next((x for x in c["connections"]
+                      if str(x.get("conn_type", "")).upper() == "SSH"), None)
+    if plantilla is None:
+        print("  (saltado: no hay ninguna conexión SSH de la que copiar las credenciales)")
+        return
+    nueva = dict(plantilla)
+    nueva.update({"id": "sinzfs", "name": "sinzfs", "host": maquina, "username": usuario})
+    # El sistema se le PREGUNTA a la máquina. Copiar el de la plantilla hacía que una prueba
+    # contra una máquina Linux buscara el agente de macOS: el rechazo pasa igual —ocurre
+    # antes de mirar la plataforma— pero el registro del fallo sale hablando de otra cosa,
+    # y un mensaje que despista vale menos que ninguno.
+    _, uname = sh(ctx, f"ssh -o BatchMode=yes -o ConnectTimeout=10 {shlex.quote(sin_zfs)} 'uname -s'")
+    uname = uname.strip().lower()
+    nueva["os_type"] = {"linux": "Linux", "darwin": "macos", "freebsd": "FreeBSD"}.get(uname, "Linux")
+    c["connections"].append(nueva)
+    with open(ruta, "w") as f:
+        json.dump(c, f, ensure_ascii=False, indent=2)
+
+    guion = "install-daemon --on zfsm://sinzfs\nexit\n"
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+    orden = (f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} "
+             f"--lang es --format text -y")
+    # El plazo es CORTO y agotarlo es un FALLO del caso, no una excepción que se lleve por
+    # delante la batería entera. Negarse es instantáneo —se mira la versión y se vuelve—;
+    # tardar dos minutos significa que no se negó y que está instalando de verdad, que es
+    # justo lo que no debe pasar. La primera versión de esto usaba 300 s y, al desarmar la
+    # puerta para comprobar que el caso mordía, reventó con un TimeoutExpired sin llegar a
+    # decir qué había pasado.
+    nombre = "install-daemon: se niega donde no hay OpenZFS 2.3+"
+    problemas = []
+    try:
+        p = subprocess.run(["bash", "-c", orden], input=guion, capture_output=True,
+                           text=True, timeout=120)
+        salida = p.stdout + p.stderr
+    except subprocess.TimeoutExpired as e:
+        # Lo capturado hasta el plazo llega en BYTES aunque se pidiera `text=True`: al
+        # expirar, `communicate` devuelve los trozos crudos. Se decode cada uno por separado
+        # y ANTES de juntarlos; hacerlo después revienta con «can only concatenate str».
+        def _texto(x):
+            if x is None:
+                return ""
+            return x.decode(errors="replace") if isinstance(x, bytes) else x
+        salida = _texto(e.stdout) + _texto(e.stderr)
+        problemas.append("no se negó: tardó más de 120 s, o sea que se puso a instalar")
+    if "no se instala nada" not in salida:
+        problemas.append(f"no se negó: «{salida.strip()[:200]}»")
+    if "2.3" not in salida:
+        problemas.append("no dice cuál es la versión mínima")
+    # Y lo que NO puede pasar: que haya llegado a tocar la máquina.
+    if re.search(r"daemon instalado", salida):
+        problemas.append("DIJO QUE LO INSTALÓ pese a no haber OpenZFS")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, salida))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+    # Y que de verdad no dejó nada puesto en la otra máquina.
+    rc, vista = sh(ctx, f"ssh -o BatchMode=yes {shlex.quote(sin_zfs)} "
+                        f"'ls /usr/local/libexec/zfsmgr-agent 2>/dev/null || echo LIMPIA'")
+    nombre2 = "install-daemon: y no deja nada puesto en la máquina rechazada"
+    if "LIMPIA" in vista:
+        ctx.pasados.append(nombre2); print(f"  ok     {nombre2}")
+    else:
+        ctx.fallos.append((nombre2, [f"quedó algo: {vista.strip()[:120]}"], vista))
+        print(f"  FALLO  {nombre2}")
+    shutil.rmtree(cfg, ignore_errors=True)
+
+
 def casos_ayuda(ctx):
     """`help` a secas es un ÍNDICE: categorías y nombres, una línea por categoría."""
     rc, salida = cli(ctx, ["help"])
@@ -709,7 +813,7 @@ def casos_arranque(ctx):
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_arranque, casos_ayuda, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]

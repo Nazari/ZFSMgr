@@ -115,6 +115,46 @@ if [ -f "${AQUI}/MANIFIESTO.sha256" ]; then
   echo "[zfsmgr] sumas comprobadas"
 fi
 
+# --- OpenZFS, antes de instalar nada.
+#
+# El mínimo es 2.3. Se comprueba aquí y no solo al instalar el daemon porque la regla es del
+# producto, no de una de sus piezas: donde no hay OpenZFS con el que trabajar, ZFSMgr no se
+# instala.
+#
+# Las rutas se nombran a mano: el PATH de un guion no es el del terminal, y en macOS OpenZFS
+# vive en /usr/local/zfs/bin, donde `zfs` a secas no se encuentra. Y se junta la salida de
+# error con la normal, porque lo que distingue «no está» de «está pero el módulo no carga»
+# viene por la segunda.
+zfs_crudo=""
+for z in zfs /usr/local/zfs/bin/zfs /usr/local/bin/zfs /sbin/zfs /usr/sbin/zfs; do
+  if command -v "${z}" >/dev/null 2>&1; then
+    zfs_crudo="$("${z}" version 2>&1 || true)"
+    break
+  fi
+done
+zfs_version="$(printf '%s' "${zfs_crudo}" | sed -n 's/.*zfs-\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
+if [ -z "${zfs_version}" ]; then
+  echo "" >&2
+  case "${zfs_crudo}" in
+    *"not loaded"*|*"initialize libzfs"*)
+      echo "ZFSMgr no se instala: esta máquina tiene OpenZFS pero el módulo NO está cargado." >&2
+      echo "  Dijo: ${zfs_crudo}" >&2
+      echo "  Cárguelo y vuelva a ejecutar este instalador." >&2 ;;
+    *)
+      echo "ZFSMgr no se instala: esta máquina no tiene OpenZFS, y hace falta 2.3 o posterior." >&2 ;;
+  esac
+  exit 1
+fi
+zfs_mayor="${zfs_version%%.*}"
+zfs_menor="${zfs_version#*.}"
+if [ "${zfs_mayor}" -lt 2 ] || { [ "${zfs_mayor}" -eq 2 ] && [ "${zfs_menor}" -lt 3 ]; }; then
+  echo "" >&2
+  echo "ZFSMgr no se instala: esta máquina tiene OpenZFS ${zfs_version} y hace falta 2.3 o" >&2
+  echo "posterior. Actualice OpenZFS y vuelva a ejecutar este instalador." >&2
+  exit 1
+fi
+echo "[zfsmgr] OpenZFS ${zfs_version}: vale"
+
 origen="${AQUI}/bin/zfsmgr-cli-${clave}"
 [ -f "${origen}" ] || { echo "el paquete no trae el binario de ${clave}" >&2; exit 1; }
 

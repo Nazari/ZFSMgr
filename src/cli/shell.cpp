@@ -3426,6 +3426,18 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                      "daría una máquina que parece atendida y no lo está.\n"), plataforma.c_str(), arq.empty() ? "?" : arq.c_str());
         return false;
     }
+    // La versión de OpenZFS se mira ANTES de anunciar el despliegue. `install()` la vuelve a
+    // mirar y es quien de verdad manda —así la interfaz gráfica no puede saltársela—, pero
+    // si solo estuviera allí, esto diría «desplegando…» y acto seguido «no se instala nada»,
+    // que es contarlo al revés.
+    {
+        const auto zfs = DI::remoteOpenZfs(e.ses->transporte, perfil, e.ses->verboso);
+        if (zfs.soporte != B::helpers::OpenZfsSoporte::Ok) {
+            std::fprintf(stderr, TC("t_zfs_no_vale", "no se instala nada en %s: %s\n"),
+                         quien.c_str(), B::helpers::textoDeSoporteOpenZfs(zfs).c_str());
+            return false;
+        }
+    }
     std::fprintf(stderr, TC("t_desplegand_79081c", "desplegando %s en %s...\n"), binario.c_str(), quien.c_str());
 
     const DI::Result r = DI::install(
@@ -3440,6 +3452,14 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                      plataforma.c_str(), r.version.c_str(), B::agentversion::expected().c_str());
     }
     if (!r.ok()) {
+        // La versión de OpenZFS se dice ENTERA y sin envolverla en «la instalación falló»:
+        // no ha fallado nada, es que no se ha intentado, y lo que hay que hacer está en el
+        // propio texto.
+        if (r.fallo == DI::Failure::UnsupportedOpenZfs) {
+            std::fprintf(stderr, TC("t_zfs_no_vale", "no se instala nada en %s: %s\n"),
+                         quien.c_str(), r.detail.c_str());
+            return false;
+        }
         if (r.fallo == DI::Failure::UnreadableBinary) {
             std::fprintf(stderr, TC("t_el_binario_ce2086", "el binario del daemon está vacío: %s\n"),
                          r.detail.c_str());

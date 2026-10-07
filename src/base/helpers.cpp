@@ -1144,6 +1144,79 @@ std::string maskCommandSecrets(const std::string& input) {
     return out;
 }
 
+OpenZfsLectura leeSoporteOpenZfs(const std::string& salidaCruda) {
+    OpenZfsLectura r;
+    r.detalle = trim(oneLine(salidaCruda));
+
+    // Primero la versión. Si se lee, el estado lo decide la comparación y nada más.
+    r.version = parseOpenZfsVersionText(salidaCruda);
+    if (!r.version.empty()) {
+        const std::vector<std::string> trozos = split(r.version, ".", false);
+        int mayor = 0;
+        int menor = 0;
+        // A mano y no con `stoi`: aquí llega texto de una máquina ajena, y `stoi` LANZA.
+        const auto numero = [](const std::string& t) {
+            int n = 0;
+            for (const char c : t) {
+                if (!std::isdigit(static_cast<unsigned char>(c))) {
+                    break;
+                }
+                n = n * 10 + (c - '0');
+                if (n > 100000) {
+                    break;
+                }
+            }
+            return n;
+        };
+        if (!trozos.empty()) {
+            mayor = numero(trozos[0]);
+        }
+        if (trozos.size() > 1) {
+            menor = numero(trozos[1]);
+        }
+        const bool vale = mayor > kOpenZfsMinimoMayor
+                          || (mayor == kOpenZfsMinimoMayor && menor >= kOpenZfsMinimoMenor);
+        r.soporte = vale ? OpenZfsSoporte::Ok : OpenZfsSoporte::DemasiadoAntigua;
+        return r;
+    }
+
+    // Sin versión, hay que distinguir «no está» de «está pero no carga», y lo único que lo
+    // distingue es lo que dijo la herramienta al fallar. El texto es el de OpenZFS y es el
+    // mismo en Linux y en macOS; se busca en minúsculas porque la mayúscula inicial cambia
+    // según por dónde salga.
+    const std::string bajo = toLowerUtf8(r.detalle);
+    if (bajo.find("modules are not loaded") != std::string::npos
+        || bajo.find("módulos") != std::string::npos
+        || bajo.find("failed to initialize libzfs") != std::string::npos) {
+        r.soporte = OpenZfsSoporte::SinCargar;
+        return r;
+    }
+    r.soporte = OpenZfsSoporte::NoHay;
+    return r;
+}
+
+std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l) {
+    const std::string minima = std::to_string(kOpenZfsMinimoMayor) + "."
+                               + std::to_string(kOpenZfsMinimoMenor);
+    switch (l.soporte) {
+        case OpenZfsSoporte::Ok:
+            return {};
+        case OpenZfsSoporte::DemasiadoAntigua:
+            return "esa máquina tiene OpenZFS " + l.version + " y hace falta " + minima
+                   + " o posterior. Actualice OpenZFS allí y vuelva a intentarlo.";
+        case OpenZfsSoporte::SinCargar:
+            return "esa máquina tiene OpenZFS instalado pero el módulo NO está cargado, así "
+                   "que no se puede comprobar su versión ni serviría de nada instalar aquí: "
+                   "sin módulo no hay un solo pool que ver. Cárguelo y vuelva a intentarlo"
+                   + (l.detalle.empty() ? std::string() : " (dijo: " + l.detalle + ")") + ".";
+        case OpenZfsSoporte::NoHay:
+            return "esa máquina no tiene OpenZFS, y hace falta " + minima + " o posterior. "
+                   "Un agente ahí arrancaría y contestaría que todo va bien sin ver un solo "
+                   "pool, que es la peor forma de no funcionar.";
+    }
+    return {};
+}
+
 std::string parseOpenZfsVersionText(const std::string& text) {
     if (trim(text).empty()) {
         return std::string();

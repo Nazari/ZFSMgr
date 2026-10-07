@@ -952,6 +952,7 @@
     "t_wait_flag": "--wait",
     "t_wait_flag_q": "Espera aquí a que termine, en vez de devolver el trabajo.",
     "t_ya_existe__484f91": "ya existe una conexión «%s»\n",
+    "t_zfs_no_vale": "no se instala nada en %s: %s\n",
     "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\nEl tabulador completa órdenes y URL; las flechas recorren el historial.\n"
   }
 }

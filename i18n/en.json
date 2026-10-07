@@ -1028,6 +1028,7 @@
     "t_wait_flag": "--wait",
     "t_wait_flag_q": "Wait here until it finishes, instead of returning the job.",
     "t_ya_existe__484f91": "a connection «%s» already exists\n",
+    "t_zfs_no_vale": "nothing is installed on %s: %s\n",
     "t_zfsmgr_cli_44809f": "zfsmgr-cli — «help» lists the commands and «help <command>» explains one.\nTab completes commands and URLs; the arrows walk the history.\n"
   }
 }

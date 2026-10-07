@@ -40,6 +40,8 @@ std::string labelOf(Failure f) {
             return "no se pudo copiar el binario a la máquina";
         case Failure::InstallFailed:
             return "la instalación falló en la máquina";
+        case Failure::UnsupportedOpenZfs:
+            return "esa máquina no tiene una versión de OpenZFS con la que esto funcione";
     }
     return "sin fallo";
 }
@@ -56,6 +58,42 @@ std::string platformOf(const ConnectionProfile& p) {
         return "freebsd";
     }
     return "linux";
+}
+
+helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionProfile& p,
+                                      bool verboso) {
+    // `zfs version` y no `zfs --version`: la primera es la que existe en todas las ramas, y
+    // la segunda no está en las antiguas — que son justo las que hay que detectar.
+    //
+    // Las rutas se nombran a mano porque el PATH de una sesión SSH no interactiva NO es el
+    // del terminal: en macOS, OpenZFS vive en /usr/local/zfs/bin y `zfs` a secas no se
+    // encuentra. Comprobado en mmela y en mbp, donde `zfs version` por SSH no daba nada
+    // mientras su daemon lo usaba sin problema.
+    //
+    // Y se junta la salida normal con la de error, porque lo que distingue «no está» de
+    // «está pero sin cargar» viene por la segunda.
+    const std::string orden =
+        "for z in zfs /usr/local/zfs/bin/zfs /usr/local/bin/zfs /sbin/zfs /usr/sbin/zfs; do "
+        "command -v \"$z\" >/dev/null 2>&1 && { \"$z\" version 2>&1; exit 0; }; done; "
+        "echo '__ZFSMGR_SIN_ZFS__'";
+    std::string out;
+    std::string err;
+    int rc = -1;
+    if (T::isWindowsConnection(p)) {
+        // En Windows el reparto es otro y la comprobación de versión todavía no está
+        // escrita; no se bloquea por algo que no se sabe mirar.
+        helpers::OpenZfsLectura r;
+        r.soporte = helpers::OpenZfsSoporte::Ok;
+        return r;
+    }
+    T::runSsh(ses, p, orden, 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
+    const std::string todo = out + "\n" + err;
+    if (todo.find("__ZFSMGR_SIN_ZFS__") != std::string::npos) {
+        helpers::OpenZfsLectura r;
+        r.soporte = helpers::OpenZfsSoporte::NoHay;
+        return r;
+    }
+    return helpers::leeSoporteOpenZfs(todo);
 }
 
 std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
@@ -175,6 +213,30 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
         r.fallo = Failure::UnreadableBinary;
         r.detail = rutaBinario;
         return r;
+    }
+
+    // **La versión de OpenZFS, antes de subir nada.** Un agente instalado donde no hay ZFS
+    // arranca, contesta STATUS=OK y no ve un solo pool; desde el cliente eso se lee como «la
+    // máquina está bien y está vacía», que es exactamente lo que no es. Mismo razonamiento
+    // que el del respaldo por guion: una máquina que PARECE atendida y no lo está es peor
+    // que una que falla a la cara.
+    //
+    // Va DESPUÉS de leer el binario y no antes, y la razón la puso una prueba que ya
+    // existía: «sin binario no se toca la maquina». Preguntar la versión ABRE UNA SESIÓN
+    // SSH, o sea que toca la máquina; hacerlo primero rompía ese contrato por molestar a la
+    // otra punta para contestar algo que no se iba a poder hacer de todas formas. Leer el
+    // fichero es local y gratis: primero lo que no cuesta nada.
+    {
+        const helpers::OpenZfsLectura zfs = remoteOpenZfs(ses, perfil, verboso);
+        if (zfs.soporte != helpers::OpenZfsSoporte::Ok) {
+            r.fallo = Failure::UnsupportedOpenZfs;
+            r.detail = helpers::textoDeSoporteOpenZfs(zfs);
+            r.version = zfs.version;
+            return r;
+        }
+        if (traza) {
+            traza("OpenZFS " + zfs.version + " en la otra máquina: vale");
+        }
     }
 
     // La versión que va a `agent.conf` se lee DEL BINARIO que se está copiando, no de la

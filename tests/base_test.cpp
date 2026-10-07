@@ -486,6 +486,60 @@ int main() {
     igual(H::parseOpenZfsVersionText("nada"), "", "sin version no inventa");
     igual(H::parseOpenZfsVersionText(""), "", "el vacio no revienta");
 
+    // --- La version MINIMA de OpenZFS, que decide si se deja instalar el agente.
+    //
+    // Cuatro estados y no un booleano, porque lo que hay que hacer en cada caso es
+    // distinto: actualizar OpenZFS, cargar el modulo, instalarlo, o nada.
+    {
+        using S = H::OpenZfsSoporte;
+        // Se compara por NOMBRE y no por el valor del enum: si falla, el mensaje dice
+        // «esperaba sin-cargar, dio no-hay» en vez de «esperaba 2, dio 3».
+        const auto soporte = [](const char* t) {
+            switch (H::leeSoporteOpenZfs(t).soporte) {
+                case S::Ok:               return std::string("ok");
+                case S::DemasiadoAntigua: return std::string("demasiado-antigua");
+                case S::SinCargar:        return std::string("sin-cargar");
+                case S::NoHay:            return std::string("no-hay");
+            }
+            return std::string("?");
+        };
+
+        igual(soporte("zfs-2.4.4-1"), "ok",
+              "2.4.4 vale");
+        igual(soporte("zfs-2.3.0-1"), "ok",
+              "2.3.0 es justo el minimo y vale");
+        igual(soporte("zfs-2.2.9-1"), "demasiado-antigua",
+              "2.2.9 se queda corta por un pelo");
+        igual(soporte("zfs-0.8.3-1"), "demasiado-antigua",
+              "0.8.3 se queda corta");
+        igual(soporte("zfs-3.0.0-1"), "ok",
+              "un mayor por encima tambien vale");
+
+        // **Lo que distingue «no esta» de «esta pero no carga».** Es el caso de mbp el
+        // 2026-10-07: OpenZFS 2.4.3 instalada, kext sin cargar, y `zfs version` contestando
+        // «The ZFS modules are not loaded». Tratarlo como «no hay OpenZFS» mandaria a
+        // instalar lo que ya esta puesto.
+        igual(soporte("The ZFS modules are not loaded."), "sin-cargar", "instalada pero sin cargar");
+        igual(soporte("Failed to initialize libzfs library"), "sin-cargar", "libzfs que no inicializa es lo mismo");
+
+        igual(soporte("zsh: command not found: zfs"), "no-hay", "sin zfs no hay nada");
+        igual(soporte(""), "no-hay",
+              "el vacio es «no hay»");
+
+        // La version leida se conserva: el mensaje la nombra, y un error que dice QUE hay
+        // vale mucho mas que uno que solo dice que no sirve.
+        igual(H::leeSoporteOpenZfs("zfs-2.1.5-1").version, "2.1.5",
+              "la version se conserva para poder nombrarla");
+        comprobar(!H::textoDeSoporteOpenZfs(H::leeSoporteOpenZfs("zfs-2.1.5-1")).empty(),
+                  "un veredicto malo trae explicacion");
+        comprobar(H::textoDeSoporteOpenZfs(H::leeSoporteOpenZfs("zfs-2.4.4-1")).empty(),
+                  "y uno bueno no dice nada");
+        // El texto tiene que NOMBRAR el minimo, para no tener que adivinarlo.
+        comprobar(H::textoDeSoporteOpenZfs(H::leeSoporteOpenZfs("zfs-2.1.5-1")).find("2.3")
+                      != std::string::npos,
+                  "y dice cual es el minimo");
+    }
+
     {
         const auto rows = H::parseZpoolImportOutput(
             "   pool: p1\n     id: 1\n  state: FAULTED\n status: metadata corrupta\n"

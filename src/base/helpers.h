@@ -240,6 +240,45 @@ std::string maskSecretOutput(const std::string& input);
 // major number is above 10, which gives away a false match.
 std::string parseOpenZfsVersionText(const std::string& text);
 
+// --- La versión MÍNIMA de OpenZFS con la que ZFSMgr trabaja.
+//
+// Está aquí, en un solo sitio y como número, porque la comprueban dos caminos distintos —el
+// instalador del daemon y el del intérprete— y dos números que deberían ser el mismo
+// escritos en dos ficheros acaban siendo dos números distintos.
+inline constexpr int kOpenZfsMinimoMayor = 2;
+inline constexpr int kOpenZfsMinimoMenor = 3;
+
+// Qué se puede decir de la instalación de OpenZFS de una máquina. Son CUATRO estados y no
+// un booleano, porque las acciones que corresponden son distintas y el mensaje también:
+//
+//   - `Ok`: vale, no hay nada que decir.
+//   - `DemasiadoAntigua`: hay que actualizar OpenZFS. Se sabe qué versión hay.
+//   - `SinCargar`: está instalada pero el módulo del núcleo no está cargado, así que `zfs`
+//     contesta «The ZFS modules are not loaded» y no hay versión que leer. NO es lo mismo
+//     que no tenerla: lo que falta es cargarla, y en macOS suele ser la aprobación de la
+//     extensión tras una actualización del sistema. Visto en vivo en mbp, con 2.4.3 puesta.
+//   - `NoHay`: no está. Un agente ahí arrancaría y contestaría STATUS=OK sin ver un pool.
+enum class OpenZfsSoporte {
+    Ok,
+    DemasiadoAntigua,
+    SinCargar,
+    NoHay,
+};
+
+struct OpenZfsLectura {
+    OpenZfsSoporte soporte{OpenZfsSoporte::NoHay};
+    std::string version;   // la que se leyó, vacía si no se pudo
+    std::string detalle;   // lo que dijo la máquina, para poder enseñarlo tal cual
+};
+
+// Lee la salida CRUDA de `zfs version` —o lo que haya dicho al fallar— y dice qué hay.
+// `salidaCruda` puede ser la salida normal, la de error, o las dos pegadas: lo que se
+// necesita para distinguir «no está» de «no está cargada» vive en el mensaje de error.
+OpenZfsLectura leeSoporteOpenZfs(const std::string& salidaCruda);
+
+// El texto que explica un veredicto, ya listo para enseñar. Vacío cuando es `Ok`.
+std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l);
+
 // Splits the output of `zpool import`.
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
 

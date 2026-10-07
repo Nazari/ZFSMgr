@@ -4,6 +4,7 @@
 #include <string>
 
 #include "connectionprofile.h"
+#include "helpers.h"
 #include "transportsession.h"
 
 // Installing or updating the daemon on a machine.
@@ -29,6 +30,10 @@ enum class Failure {
     UnreadableBinary,     // the path does not exist, or the file is empty
     UploadFailed,         // the scp, or the local copy, failed
     InstallFailed,        // the script ran and returned something other than 0
+    // La otra máquina no tiene una versión de OpenZFS con la que esto funcione. Se mira
+    // ANTES de subir nada: instalar un agente donde no hay ZFS da una máquina que contesta
+    // STATUS=OK y no ve un solo pool, que es la peor forma de no funcionar.
+    UnsupportedOpenZfs,
 };
 
 std::string labelOf(Failure f);
@@ -51,6 +56,12 @@ std::string platformOf(const ConnectionProfile& p);
 // The architecture of the OTHER side, by asking it. On Windows it is not asked: it is
 // x86_64 and there is no agent for anything else. Empty when the machine does not answer.
 std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p, bool verbose);
+
+// Qué OpenZFS tiene la otra máquina, preguntándoselo. Se pregunta por SSH y no al daemon,
+// porque en una máquina nueva todavía no hay daemon a quien preguntar — que es justo el
+// caso en el que esta comprobación importa.
+helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionProfile& p,
+                                      bool verbose);
 
 // The script that gets sent, per platform. **Public on purpose**: it is the piece that
 // decides where the binary goes, which service manager is used and what gets checked
