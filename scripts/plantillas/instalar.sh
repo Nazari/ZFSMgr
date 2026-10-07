@@ -115,45 +115,60 @@ if [ -f "${AQUI}/MANIFIESTO.sha256" ]; then
   echo "[zfsmgr] sumas comprobadas"
 fi
 
-# --- OpenZFS, antes de instalar nada.
+# --- OpenZFS: si lo hay, tiene que valer. Si no lo hay, también se instala.
 #
-# El mínimo es 2.3. Se comprueba aquí y no solo al instalar el daemon porque la regla es del
-# producto, no de una de sus piezas: donde no hay OpenZFS con el que trabajar, ZFSMgr no se
-# instala.
+# La regla NO es «hace falta OpenZFS». Esta máquina puede no tener ZFS y seguir siendo
+# perfectamente útil: el intérprete es un CLIENTE, y su trabajo es hablar con los daemons de
+# otras máquinas. Un portátil de administración sin un solo pool propio es un caso normal, y
+# negarle la instalación sería confundir al cliente con el agente.
+#
+# Donde sí hace falta —y de verdad— es en la máquina que va a llevar el AGENTE: sin ZFS, ese
+# agente arranca, contesta que todo va bien y no ve un solo pool. Eso lo comprueba
+# `install-daemon`, que es quien lo instala, y no esto.
+#
+# Lo que sí se comprueba aquí: que si hay OpenZFS, no sea más antiguo que el mínimo. Con uno
+# anterior, la conexión Local de esta máquina no funcionaría y el fallo aparecería más tarde
+# y hablando de otra cosa.
 #
 # Las rutas se nombran a mano: el PATH de un guion no es el del terminal, y en macOS OpenZFS
 # vive en /usr/local/zfs/bin, donde `zfs` a secas no se encuentra. Y se junta la salida de
 # error con la normal, porque lo que distingue «no está» de «está pero el módulo no carga»
 # viene por la segunda.
+ZFS_MIN_MAYOR=@ZFSMIN_MAYOR@
+ZFS_MIN_MENOR=@ZFSMIN_MENOR@
 zfs_crudo=""
+zfs_hallado=0
 for z in zfs /usr/local/zfs/bin/zfs /usr/local/bin/zfs /sbin/zfs /usr/sbin/zfs; do
   if command -v "${z}" >/dev/null 2>&1; then
     zfs_crudo="$("${z}" version 2>&1 || true)"
+    zfs_hallado=1
     break
   fi
 done
 zfs_version="$(printf '%s' "${zfs_crudo}" | sed -n 's/.*zfs-\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
-if [ -z "${zfs_version}" ]; then
-  echo "" >&2
-  case "${zfs_crudo}" in
-    *"not loaded"*|*"initialize libzfs"*)
-      echo "ZFSMgr no se instala: esta máquina tiene OpenZFS pero el módulo NO está cargado." >&2
-      echo "  Dijo: ${zfs_crudo}" >&2
-      echo "  Cárguelo y vuelva a ejecutar este instalador." >&2 ;;
-    *)
-      echo "ZFSMgr no se instala: esta máquina no tiene OpenZFS, y hace falta 2.3 o posterior." >&2 ;;
-  esac
-  exit 1
+
+if [ "${zfs_hallado}" -eq 0 ]; then
+  echo "[zfsmgr] sin OpenZFS en esta máquina: se instala igual, como CLIENTE."
+  echo "[zfsmgr]   podrá manejar otras máquinas; la conexión Local no tendrá nada que enseñar."
+elif [ -z "${zfs_version}" ]; then
+  # Hay `zfs` pero no contesta la versión. Casi siempre es el módulo sin cargar. No se puede
+  # comprobar, así que no se bloquea: se dice y se sigue. Bloquear por algo que no se ha
+  # podido medir es inventarse un veredicto.
+  echo "[zfsmgr] aviso: hay OpenZFS pero no se pudo leer su versión." >&2
+  echo "[zfsmgr]   Dijo: ${zfs_crudo}" >&2
+  echo "[zfsmgr]   Se instala igual; la conexión Local no funcionará hasta que se arregle." >&2
+else
+  zfs_mayor="${zfs_version%%.*}"
+  zfs_menor="${zfs_version#*.}"
+  if [ "${zfs_mayor}" -lt "${ZFS_MIN_MAYOR}" ] \
+     || { [ "${zfs_mayor}" -eq "${ZFS_MIN_MAYOR}" ] && [ "${zfs_menor}" -lt "${ZFS_MIN_MENOR}" ]; }; then
+    echo "" >&2
+    echo "ZFSMgr no se instala: esta máquina tiene OpenZFS ${zfs_version} y hace falta" >&2
+    echo "${ZFS_MIN_MAYOR}.${ZFS_MIN_MENOR} o posterior. Actualice OpenZFS y vuelva a ejecutar esto." >&2
+    exit 1
+  fi
+  echo "[zfsmgr] OpenZFS ${zfs_version}: vale"
 fi
-zfs_mayor="${zfs_version%%.*}"
-zfs_menor="${zfs_version#*.}"
-if [ "${zfs_mayor}" -lt 2 ] || { [ "${zfs_mayor}" -eq 2 ] && [ "${zfs_menor}" -lt 3 ]; }; then
-  echo "" >&2
-  echo "ZFSMgr no se instala: esta máquina tiene OpenZFS ${zfs_version} y hace falta 2.3 o" >&2
-  echo "posterior. Actualice OpenZFS y vuelva a ejecutar este instalador." >&2
-  exit 1
-fi
-echo "[zfsmgr] OpenZFS ${zfs_version}: vale"
 
 origen="${AQUI}/bin/zfsmgr-cli-${clave}"
 [ -f "${origen}" ] || { echo "el paquete no trae el binario de ${clave}" >&2; exit 1; }

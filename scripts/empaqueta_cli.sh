@@ -113,7 +113,27 @@ done
 cp -f "${RAIZ}"/i18n/*.json "${ARBOL}/i18n/"
 cp -f "${RAIZ}/scripts/plantillas/instalar.sh" "${ARBOL}/instalar.sh"
 chmod 0755 "${ARBOL}/instalar.sh"
-sed -i "s/@VERSION@/${VERSION}/g" "${ARBOL}/instalar.sh"
+
+# La versión MÍNIMA de OpenZFS sale de la cabecera de C++, no de un número escrito aquí.
+#
+# La comprueban dos piezas distintas —`daemoninstall` para el agente y este instalador para
+# el cliente— y cuando el mismo número vive en dos ficheros acaba siendo dos números. Se
+# sustituye al empaquetar, que es el único momento en que las dos cosas están delante.
+ZFSMIN_MAYOR="$(sed -n 's/.*kOpenZfsMinimoMayor *= *\([0-9]*\);.*/\1/p' \
+                   "${RAIZ}/src/base/helpers.h" | head -1)"
+ZFSMIN_MENOR="$(sed -n 's/.*kOpenZfsMinimoMenor *= *\([0-9]*\);.*/\1/p' \
+                   "${RAIZ}/src/base/helpers.h" | head -1)"
+if [[ -z "${ZFSMIN_MAYOR}" || -z "${ZFSMIN_MENOR}" ]]; then
+  echo "no se pudo leer el mínimo de OpenZFS de src/base/helpers.h" >&2
+  echo "(se buscaban kOpenZfsMinimoMayor y kOpenZfsMinimoMenor)" >&2
+  exit 1
+fi
+sed -i "s/@VERSION@/${VERSION}/g; s/@ZFSMIN_MAYOR@/${ZFSMIN_MAYOR}/g; s/@ZFSMIN_MENOR@/${ZFSMIN_MENOR}/g" \
+    "${ARBOL}/instalar.sh"
+if grep -q '@ZFSMIN_' "${ARBOL}/instalar.sh"; then
+  echo "quedaron marcadores sin sustituir en instalar.sh" >&2
+  exit 1
+fi
 
 # El manifiesto con las sumas. No es ceremonia: el instalador las comprueba antes de copiar
 # nada, así que un ZIP a medias se detiene ANTES de dejar medio instalado el sistema.

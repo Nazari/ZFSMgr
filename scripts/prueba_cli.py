@@ -642,6 +642,47 @@ def casos_version_openzfs(ctx):
         print(f"  FALLO  {nombre2}")
     shutil.rmtree(cfg, ignore_errors=True)
 
+    # --- Y la otra mitad de la regla: el CLIENTE sí se instala sin OpenZFS.
+    #
+    # El agente necesita ZFS —sin él no ve un pool— pero el intérprete no: su trabajo es
+    # hablar con los daemons de OTRAS máquinas. Un portátil de administración sin un solo
+    # pool propio es un caso normal, y durante unas horas el instalador se lo negaba por
+    # confundir el cliente con el agente.
+    paquete = os.path.join(RAIZ, "dist")
+    zips = sorted(f for f in os.listdir(paquete) if f.endswith(".zip")) if os.path.isdir(paquete) else []
+    nombre3 = "instalar.sh: el cliente SÍ se instala en una máquina sin OpenZFS"
+    if not zips:
+        print(f"  (saltado: {nombre3} — no hay paquete en dist/; "
+              f"ejecute scripts/empaqueta_cli.sh)")
+    else:
+        z = os.path.join(paquete, zips[-1])
+        base = os.path.basename(z)[:-4]
+        remoto_q = shlex.quote(sin_zfs)
+        sh(ctx, f"scp -q -o BatchMode=yes {shlex.quote(z)} {remoto_q}:/tmp/")
+        rc, vista = sh(ctx,
+            f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp && rm -rf zpprueba && mkdir zpprueba "
+            f"&& cd zpprueba && (unzip -q ../{base}.zip 2>/dev/null || 7z x -y ../{base}.zip "
+            f">/dev/null) && cd {base} && sh instalar.sh --prefijo \"$HOME/zpprueba\" 2>&1; "
+            f"echo RC=$?; $HOME/zpprueba/bin/zfsmgr-cli version 2>&1'")
+        problemas = []
+        if "RC=0" not in vista:
+            problemas.append(f"no se instaló: «{vista.strip()[-200:]}»")
+        if "como CLIENTE" not in vista:
+            problemas.append("no explica que se instala como cliente")
+        if "zfsmgr-cli 0." not in vista:
+            problemas.append("el binario instalado no arranca ahí")
+        if problemas:
+            ctx.fallos.append((nombre3, problemas, vista))
+            print(f"  FALLO  {nombre3}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre3)
+            print(f"  ok     {nombre3}")
+        sh(ctx, f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp/zpprueba/{base} 2>/dev/null && "
+                f"sh instalar.sh --prefijo \"$HOME/zpprueba\" --desinstalar >/dev/null 2>&1; "
+                f"rm -rf /tmp/zpprueba /tmp/{base}.zip \"$HOME/zpprueba\"'")
+
 
 def casos_devices(ctx):
     """`devices`: un dispositivo real por línea y sus alias colgando.
