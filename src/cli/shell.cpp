@@ -4183,6 +4183,74 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     // Esconder los ocupados escondería justo el disco que uno va a reutilizar a propósito
     // —un `zfs_member` de un pool viejo, por ejemplo—, y son pocos: aquí caben en pantalla.
     const bool soloLibres = pet.tiene("--free");
+
+    // --- Un dispositivo REAL por fila, y sus alias debajo.
+    //
+    // El agente manda los `/dev/disk/by-id/...` como entradas aparte, cada una con
+    // `resolved` apuntando al dispositivo de verdad. El cliente tiraba ese campo y las
+    // pintaba como si fueran discos más: en esta máquina salían 36 filas de las que 27 eran
+    // el MISMO disco visto por otro nombre, con tamaño 0B y sin tipo ni sistema de ficheros.
+    // Tres cuartas partes del listado eran ruido, y el ruido tapaba justo lo que se viene a
+    // ver: qué discos hay y cuáles están libres.
+    //
+    // Los alias NO se tiran, se subordinan. Son la forma correcta de nombrar un disco al
+    // crear un pool —`/dev/sdb` puede ser `sdc` en el siguiente arranque y el pool se rompe;
+    // el alias por identificador no cambia—, así que esconderlos sería cambiar un defecto
+    // por otro.
+    struct Fila {
+        std::string path, size, type, fstype, mountpoint;
+        bool ocupado = false;
+        std::vector<std::string> alias;
+    };
+    std::vector<Fila> filas;
+    std::map<std::string, std::size_t> porRuta;   // ruta real -> posición en `filas`
+    std::vector<B::json::Value> sueltos;          // alias cuyo destino no está en la lista
+
+    for (const auto& d : raiz["devices"].toArray()) {
+        if (!d["resolved"].toString().empty()) {
+            continue;  // los alias en la segunda pasada, cuando ya están todos los reales
+        }
+        Fila f;
+        f.path       = d["path"].toString();
+        f.size       = std::to_string(d["size"].toInt());
+        f.type       = d["type"].toString();
+        f.fstype     = d["fstype"].toString();
+        f.mountpoint = d["mountpoint"].toString();
+        f.ocupado    = d["inuse"].toBool();
+        porRuta[f.path] = filas.size();
+        filas.push_back(f);
+    }
+    for (const auto& d : raiz["devices"].toArray()) {
+        const std::string destino = d["resolved"].toString();
+        if (destino.empty()) {
+            continue;
+        }
+        const auto it = porRuta.find(destino);
+        if (it == porRuta.end()) {
+            // Un alias que apunta a algo que no está en la lista NO se pierde: se queda como
+            // fila propia. Perder una entrada en silencio al reorganizar un listado es
+            // exactamente la clase de arreglo que crea un problema peor que el que resuelve.
+            sueltos.push_back(d);
+            continue;
+        }
+        filas[it->second].alias.push_back(d["path"].toString());
+    }
+    for (const auto& d : sueltos) {
+        Fila f;
+        f.path       = d["path"].toString();
+        f.size       = std::to_string(d["size"].toInt());
+        f.type       = d["type"].toString();
+        f.fstype     = d["fstype"].toString();
+        f.mountpoint = d["mountpoint"].toString();
+        f.ocupado    = d["inuse"].toBool();
+        filas.push_back(f);
+    }
+    // Orden estable dentro de cada dispositivo: los alias llegan en el orden del directorio,
+    // que es el de creación del sistema de ficheros y no significa nada.
+    for (Fila& f : filas) {
+        std::sort(f.alias.begin(), f.alias.end());
+    }
+
     Tabla t;
     t.nombreJson = "devices";
     t.cabecerasTexto = {T("t_cab_ruta", "RUTA"),       T("t_cab_tamano", "TAMAÑO"),
@@ -4191,14 +4259,35 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
                         T("t_cab_ocupado", "OCUPADO")};
     t.campos = {"path", "size", "type", "fstype", "mountpoint", "inuse"};
     t.tipos = {Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Booleano};
-    for (const auto& d : raiz["devices"].toArray()) {
-        const bool ocupado = d["inuse"].toBool();
-        if (soloLibres && ocupado) {
+
+    // Para LEER, los alias van debajo y sangrados. Para un GUION van en una columna: una
+    // sangría no se puede cortar por tabuladores ni meter en un array de JSON, y quien
+    // llama a esto desde un guion quiere los alias de un disco juntos, no repartidos en
+    // líneas que hay que volver a coser.
+    const bool paraLeer = (e.formato == Formato::Texto);
+    if (!paraLeer) {
+        t.cabecerasTexto.push_back(T("t_cab_alias", "ALIAS"));
+        t.campos.push_back("aliases");
+        t.tipos.push_back(Tipo::Lista);
+    }
+    for (const Fila& f : filas) {
+        if (soloLibres && f.ocupado) {
             continue;
         }
-        t.filas.push_back({d["path"].toString(), std::to_string(d["size"].toInt()),
-                           d["type"].toString(), d["fstype"].toString(),
-                           d["mountpoint"].toString(), ocupado ? "true" : "false"});
+        std::vector<std::string> fila{f.path, f.size, f.type, f.fstype, f.mountpoint,
+                                      f.ocupado ? "true" : "false"};
+        if (!paraLeer) {
+            fila.push_back(B::join(f.alias, ","));
+            t.filas.push_back(fila);
+            continue;
+        }
+        t.filas.push_back(fila);
+        for (const std::string& a : f.alias) {
+            // UNA sola celda, no seis vacías. `Tabla` recorre la fila que le dan, así que
+            // una fila corta imprime solo lo que lleva; con seis celdas vacías salía un «-»
+            // en cada columna, que es cambiar un ruido por otro.
+            t.filas.push_back({"    " + a});
+        }
     }
     t.imprime(e.formato);
     return true;

@@ -38,7 +38,12 @@ enum class Formato { Texto, Tsv, Json };
 
 // De qué tipo es una columna. Solo lo usa JSON: texto y tsv lo sacan todo como texto,
 // que es lo que son.
-enum class Tipo { Cadena, Booleano, Entero, Bytes };
+// `Lista` es una columna con VARIOS valores. En texto y en tsv sale como siempre —la
+// celda, tal cual la guardó quien rellenó la fila, con comas— porque esos dos formatos son
+// líneas y columnas y no saben de otra cosa. En JSON sale como ARRAY, que es lo que un
+// programa puede recorrer: `jq '.devices[].aliases[]'` funciona, y sobre una cadena con
+// comas no. Lo pidió `devices`, donde cada disco lleva sus alias por identificador.
+enum class Tipo { Cadena, Booleano, Entero, Bytes, Lista };
 
 // Una tabla que se sabe imprimir de las tres maneras. Existe para que añadir una orden de
 // listado no obligue a escribir tres veces la misma salida y que se separen con el tiempo.
@@ -95,6 +100,14 @@ struct Tabla {
                     continue;
                 }
                 switch (tipoDe(i)) {
+                    case Tipo::Lista: {
+                        B::json::Array lista;
+                        for (const std::string& x : B::split(fila[i], ",", false)) {
+                            lista.push_back(B::json::Value(x));
+                        }
+                        o.set(campos[i], B::json::Value(std::move(lista)));
+                        break;
+                    }
                     case Tipo::Booleano:
                         o.set(campos[i], B::json::Value(fila[i] == "true"));
                         break;
@@ -147,6 +160,17 @@ struct Tabla {
         }
         for (const auto& fila : filas) {
             for (std::size_t i = 0; i < fila.size() && i < ancho.size(); ++i) {
+                // La ÚLTIMA celda de una fila no se rellena —`linea()` no le pone espacios
+                // detrás— así que su anchura no pinta nada y no debe ensanchar la columna.
+                //
+                // No es cosmética: `devices` cuelga los alias de cada disco como filas de
+                // UNA sola celda, mucho más largas que cualquier ruta de dispositivo. Sin
+                // esta guarda, esos alias ensanchaban la primera columna a 87 caracteres y
+                // empujaban TAMAÑO, TIPO y el resto fuera de la pantalla, por un relleno que
+                // nadie llega a imprimir.
+                if (i + 1 == fila.size()) {
+                    continue;
+                }
                 const std::string c = celdaTexto(i, fila[i]);
                 ancho[i] = std::max(ancho[i], anchoVisible(c.empty() ? "-" : c));
             }

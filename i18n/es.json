@@ -49,6 +49,7 @@
     "t_bd_uso": "<subdir> <dataset-nuevo> [<subdir> <dataset-nuevo>...]",
     "t_cab_activa": "ACTIVA",
     "t_cab_alcance": "ALCANCE",
+    "t_cab_alias": "ALIAS",
     "t_cab_ano": "AÑO",
     "t_cab_bytes": "BYTES",
     "t_cab_cambio": "CAMBIO",

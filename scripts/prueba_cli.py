@@ -643,6 +643,85 @@ def casos_version_openzfs(ctx):
     shutil.rmtree(cfg, ignore_errors=True)
 
 
+def casos_devices(ctx):
+    """`devices`: un dispositivo real por línea y sus alias colgando.
+
+    El agente manda los `/dev/disk/by-id/...` como entradas aparte con `resolved` apuntando
+    al dispositivo de verdad, y el cliente tiraba ese campo: en fc16 salían 36 filas de las
+    que 27 eran el MISMO disco con otro nombre, a 0B y sin tipo ni sistema de ficheros.
+    """
+    # Lo que de verdad hay, preguntado a la máquina y no al CLI.
+    _, lsb = sh(ctx, "lsblk -nro PATH,TYPE")
+    reales = sorted({l.split()[0] for l in lsb.splitlines()
+                     if len(l.split()) == 2 and l.split()[1] != "loop"})
+    if not reales:
+        print("  (saltado: lsblk no dice nada)")
+        return
+
+    rc, salida = cli(ctx, ["devices --on zfsm://local"], idioma="es")
+    lineas = [l for l in salida.splitlines() if l.strip()]
+    # Las filas de dispositivo son las que NO van sangradas; la cabecera, la primera.
+    filas = [l for l in lineas[1:] if not l.startswith(" ")]
+    alias = [l.strip() for l in lineas if l.startswith("    /dev/")]
+
+    nombre = "devices: una línea por dispositivo real, sin repetir por los alias"
+    problemas = []
+    rutas = sorted({l.split()[0] for l in filas})
+    faltan = [d for d in reales if d not in rutas]
+    if faltan:
+        problemas.append(f"faltan dispositivos que lsblk sí ve: {faltan[:4]}")
+    # **Lo que no puede pasar al agrupar: perder información.** Un `/dev/disk/by-id/...` no
+    # puede estar como fila de primer nivel, pero tampoco puede haber desaparecido.
+    porId = [r for r in rutas if r.startswith("/dev/disk/by-")]
+    if porId:
+        problemas.append(f"un alias sale como si fuera un dispositivo: {porId[:3]}")
+    if not alias:
+        problemas.append("no sale ni un alias: se han perdido por el camino")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, salida[:500]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+    # Y el recuento, que es la prueba de que NADA se perdió: dispositivos + alias enseñados
+    # tiene que ser lo mismo que entradas mandaba el agente.
+    # `format` es el verbo del intérprete: `--format` solo vale al arrancar el binario, y la
+    # batería arranca siempre en texto.
+    rc2, js = cli(ctx, ["format json", "devices --on zfsm://local"])
+    nombre2 = "devices: dispositivos + alias suman lo que mandó el agente"
+    try:
+        datos = json.loads(js)["devices"]
+        suma = len(datos) + sum(len(d.get("aliases") or []) for d in datos)
+    except Exception as exc:          # noqa: BLE001 - se informa, no se traga
+        datos, suma = [], -1
+        print(f"         (json ilegible: {exc})")
+    _, crudo = sh(ctx, "/usr/local/libexec/zfsmgr-agent --dump-block-devices", root=True)
+    try:
+        esperado = len(json.loads(crudo)["devices"])
+    except Exception:                 # noqa: BLE001
+        esperado = -1
+    if esperado < 0:
+        print(f"  (saltado: {nombre2} — el agente no contestó en crudo)")
+    elif suma != esperado:
+        ctx.fallos.append((nombre2, [f"el CLI enseña {suma} y el agente mandó {esperado}"], ""))
+        print(f"  FALLO  {nombre2}")
+        print(f"         el CLI enseña {suma} y el agente mandó {esperado}")
+    else:
+        ctx.pasados.append(nombre2)
+        print(f"  ok     {nombre2}  ({len(datos)} dispositivos + {suma - len(datos)} alias)")
+
+    # En JSON los alias son un ARRAY, que es lo que un guion puede recorrer.
+    nombre3 = "devices: en json los alias son un array, no una cadena con comas"
+    if datos and all(isinstance(d.get("aliases"), list) for d in datos):
+        ctx.pasados.append(nombre3); print(f"  ok     {nombre3}")
+    else:
+        ctx.fallos.append((nombre3, ["«aliases» no es una lista"], js[:300]))
+        print(f"  FALLO  {nombre3}")
+
+
 def casos_ayuda(ctx):
     """`help` a secas es un ÍNDICE: categorías y nombres, una línea por categoría."""
     rc, salida = cli(ctx, ["help"])
@@ -813,7 +892,7 @@ def casos_arranque(ctx):
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_arranque, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
