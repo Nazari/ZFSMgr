@@ -235,6 +235,13 @@ std::vector<std::string> argvFromDirPrepare(const std::string& dataset,
     return argv;
 }
 
+std::vector<std::string> argvPrepareDir(const std::string& base, const std::string& rel) {
+    if (zfsmgr::base::trim(base).empty() || zfsmgr::base::trim(rel).empty()) {
+        return {};
+    }
+    return {"--mutate-prepare-dir", zfsmgr::base::trim(base), zfsmgr::base::trim(rel)};
+}
+
 std::string preparedPath(const std::string& salida) {
     // Se busca la línea, no el principio de la salida: por SSH puede venir precedida de un
     // aviso del propio shell, y quedarse con lo primero que llega daría una ruta que no es.

@@ -226,6 +226,8 @@ add_library(zfsmgr_base STATIC
 # en `cli/shell.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus reglas, que por eso
 # no viven en ninguna parte.
 add_library(zfsmgr_commands STATIC
+    ../src/commands/copyspec.cpp
+    ../src/commands/copyspec.h
     ../src/commands/datasets.cpp
     ../src/commands/datasets.h
     ../src/commands/snapshots.cpp

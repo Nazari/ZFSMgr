@@ -21,6 +21,7 @@
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "connectionprofile.h"
+#include "copyspec.h"
 #include "helpers.h"
 #include "json.h"
 #include "processes.h"
@@ -485,6 +486,83 @@ int main() {
     igual(H::parseOpenZfsVersionText("zpool 99.0.0"), "", "un mayor por encima de 10 se descarta");
     igual(H::parseOpenZfsVersionText("nada"), "", "sin version no inventa");
     igual(H::parseOpenZfsVersionText(""), "", "el vacio no revienta");
+
+    // --- Como se nombra un extremo de `cp`: cuatro formas, una sola salida.
+    //
+    // De esta regla depende DONDE se escribe, asi que esta aqui y no en el interprete.
+    {
+        namespace CS = zfsmgr::base::copyspec;
+        const auto url = [](const char* t) {
+            zfsmgr::base::ZfsmUrl u; std::string e;
+            zfsmgr::base::parseZfsmUrl(t, u, e); return u;
+        };
+        const auto lee = [&](const char* texto, const char* comoUrl) {
+            return CS::readEnd(texto, comoUrl ? url(comoUrl) : zfsmgr::base::ZfsmUrl{}, "local");
+        };
+
+        // Una ruta absoluta suelta es de la maquina de aqui.
+        {
+            const auto r = lee("/var/tmp/x", nullptr);
+            comprobar(r.ok(), "cp: una ruta suelta vale");
+            comprobar(r.end.kind == CS::EndKind::PlainPath, "cp: y es una ruta, no un dataset");
+            igual(r.end.absolute, "/var/tmp/x", "cp: con su ruta");
+            igual(r.end.connection, "local", "cp: en la maquina de aqui");
+        }
+        // **Lo que hacia falta mirar antes que la URL.** `resuelve()` lee una barra inicial
+        // como ruta absoluta del ARBOL, asi que «/var/tmp/x» seria la conexion «var», el
+        // pool «tmp» y el dataset «x». Dentro de `cp` eso no es lo que nadie quiere decir.
+        {
+            const auto r = lee("/var/tmp/x", "zfsm://var/tmp/x");
+            comprobar(r.end.kind == CS::EndKind::PlainPath,
+                      "cp: la barra inicial manda, aunque la URL diga otra cosa");
+        }
+        // Una ruta de OTRA maquina.
+        {
+            const auto r = lee("zfsm://unib#path/var/tmp/x", "zfsm://unib#path/var/tmp/x");
+            comprobar(r.ok(), "cp: una ruta de otra maquina vale");
+            igual(r.end.connection, "unib", "cp: con su maquina");
+            igual(r.end.absolute, "/var/tmp/x", "cp: y la barra inicial repuesta");
+        }
+        // Un dataset, entero y acotado.
+        {
+            const auto r = lee("zfsm://unib/p/ds", "zfsm://unib/p/ds");
+            comprobar(r.ok() && r.end.kind == CS::EndKind::Dataset, "cp: un dataset vale");
+            igual(r.end.zfsName, "p/ds", "cp: con su nombre ZFS");
+            igual(r.end.relative, "", "cp: y sin subruta");
+            const auto s = lee("zfsm://unib/p/ds#content/fotos", "zfsm://unib/p/ds#content/fotos");
+            igual(s.end.relative, "fotos", "cp: «#content» acota");
+        }
+        // Lo que se RECHAZA, en vez de interpretarse.
+        igual(CS::labelOf(lee("zfsm://unib/p/ds#path/x", "zfsm://unib/p/ds#path/x").failure),
+              CS::labelOf(CS::Failure::PathOnDataset),
+              "cp: «#path» no cuelga de un dataset");
+        igual(CS::labelOf(lee("zfsm://unib/p/ds#properties", "zfsm://unib/p/ds#properties").failure),
+              CS::labelOf(CS::Failure::BadSection),
+              "cp: una seccion que no nombra ficheros");
+        igual(CS::labelOf(lee("/var/../etc/shadow", nullptr).failure),
+              CS::labelOf(CS::Failure::EscapesTree),
+              "cp: un «..» en la ruta");
+        igual(CS::labelOf(lee("zfsm://unib/p/ds#content/a/../../x",
+                              "zfsm://unib/p/ds#content/a/../../x").failure),
+              CS::labelOf(CS::Failure::EscapesTree),
+              "cp: ni en la subruta de un dataset");
+        igual(CS::labelOf(lee("", nullptr).failure), CS::labelOf(CS::Failure::Empty),
+              "cp: el vacio se dice");
+        // Un nombre que SE PARECE a «..» pero no lo es: prohibirlo seria prohibir nombres
+        // validos por parecido.
+        comprobar(lee("/var/tmp/..copia", nullptr).ok(), "cp: «..copia» es un nombre legitimo");
+        comprobar(lee("/var/tmp/uno..dos", nullptr).ok(), "cp: y «uno..dos» tambien");
+
+        // Con que nombre aterriza en el destino.
+        {
+            const auto r = lee("/var/tmp/fotos", nullptr);
+            igual(CS::landingName(r.end, ""), "fotos", "cp: aterriza con su ultimo tramo");
+            igual(CS::landingName(r.end, "copia"), "copia", "cp: salvo que «--as» diga otra cosa");
+            const auto d = lee("zfsm://unib/tank/datos/fotos", "zfsm://unib/tank/datos/fotos");
+            igual(CS::landingName(d.end, ""), "fotos",
+                  "cp: de un dataset, la HOJA de su nombre y no el nombre entero");
+        }
+    }
 
     // --- La version MINIMA de OpenZFS, que decide si se deja instalar el agente.
     //

@@ -138,6 +138,13 @@ std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& so
 // passing through the driver's own computer.
 std::vector<std::string> argvFromDirPrepare(const std::string& dataset, const std::string& rel);
 
+// El argv de `--mutate-prepare-dir`: crea `<base>/<rel>` en la otra máquina y contesta con
+// la ruta. La base tiene que existir ya; lo que se puede crear está acotado por lo que hay.
+//
+// Es el hermano del de arriba para cuando el destino NO es un dataset: `cp` aterriza en
+// `<destino>/<nombre>` y el receptor del árbol exige que ese directorio exista.
+std::vector<std::string> argvPrepareDir(const std::string& base, const std::string& rel);
+
 // The path that verb answers with: one «DST=<absolute path>» line. Empty when it is absent.
 std::string preparedPath(const std::string& output);
 

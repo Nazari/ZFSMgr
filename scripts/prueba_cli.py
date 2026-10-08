@@ -465,6 +465,71 @@ def casos_acciones(ctx):
                       f"zfs get -H -o value canmount {P}/datos", r"^off$")])
     sh(ctx, f"zfs set canmount=on {P}/datos", root=True)
     sh(ctx, f"zfs mount {P}/datos", root=True)
+    # --- `cp`: copiar de donde sea a donde sea.
+    #
+    # Lo que no hacía ninguna de las tres órdenes que ya copian: `rsync` exige datasets en
+    # los dos extremos, `todir` saca de un dataset a un directorio LOCAL y `fromdir` mete un
+    # directorio en el dataset actual. Entre las tres no se podía copiar de una ruta suelta a
+    # otra, ni un fichero suelto.
+    base = f"{IMG_DIR}/cp"
+    sh(ctx, f"rm -rf {base}", root=True)
+    sh(ctx, f"bash -c 'mkdir -p {base}/origen/sub {base}/destino && "
+            f"echo hola > {base}/origen/a.txt && echo mundo > {base}/origen/sub/b.txt && "
+            f"echo suelto > {base}/fichero.txt'")
+    caso(ctx, "cp: un árbol de una ruta suelta a otra",
+         [f"cp {base}/origen {base}/destino --wait"],
+         estado=[("el árbol aterriza con su nombre", f"find {base}/destino -type f | sort",
+                  rf"{base}/destino/origen/a\.txt"),
+                 ("y el fichero anidado también",
+                  f"cat {base}/destino/origen/sub/b.txt", r"^mundo$")])
+    # Un FICHERO suelto, que es lo que ninguna de las otras tres sabe hacer. Y el defecto que
+    # destapó: el daemon pegaba una «/» a los dos lados, y `rsync f.txt/ dst/` falla con
+    # «change_dir … Not a directory». Se arregló donde se puede SABER si una ruta es un
+    # fichero: en el daemon, que es quien tiene el sistema de ficheros delante.
+    caso(ctx, "cp: un fichero suelto, y llega como fichero",
+         [f"cp {base}/fichero.txt {base}/destino --wait"],
+         estado=[("es un fichero y no un directorio",
+                  f"bash -c 'test -f {base}/destino/fichero.txt && echo FICHERO || echo NO'",
+                  r"^FICHERO$"),
+                 ("con su contenido", f"cat {base}/destino/fichero.txt", r"^suelto$")])
+    caso(ctx, "cp: «--as» cambia el nombre con el que aterriza",
+         [f"cp {base}/origen {base}/destino --as otro --wait"],
+         estado=[("aterriza con el nombre pedido", f"ls {base}/destino", r"^otro$"),
+                 ("y con su contenido dentro", f"cat {base}/destino/otro/a.txt", r"^hola$")])
+    # El destino es el CONTENEDOR, así que un fichero NO se mete dentro de un directorio que
+    # se llame igual: eso daba «destino/f.txt/f.txt» en silencio. `cp` de toda la vida se
+    # niega, y esto también.
+    sh(ctx, f"mkdir -p {base}/destino/choque.txt && echo x > {base}/choque.txt", root=True)
+    caso(ctx, "cp: se niega a meter un fichero dentro de un directorio homónimo",
+         [f"cp {base}/choque.txt {base}/destino --wait"],
+         espera=[r"ya hay un DIRECTORIO"],
+         estado=[("y no ha anidado nada",
+                  f"bash -c 'test -e {base}/destino/choque.txt/choque.txt && echo ANIDÓ || echo LIMPIO'",
+                  r"^LIMPIO$")])
+    caso(ctx, "cp: de una ruta suelta a un dataset",
+         [f"cp {base}/origen zfsm://local/{P}/datos --wait"],
+         estado=[("el árbol está dentro del dataset",
+                  f"cat /mnt/{P}/datos/origen/sub/b.txt", r"^mundo$")])
+    caso(ctx, "cp: de un subárbol de dataset a una ruta suelta",
+         [f"cp zfsm://local/{P}/datos#content/origen/sub {base}/destino --wait"],
+         estado=[("llega el subárbol", f"cat {base}/destino/sub/b.txt", r"^mundo$")])
+    caso(ctx, "cp: «--check» no toca nada",
+         [f"cp {base}/origen {base}/destino --as simulacro --check"],
+         no_espera=[r"error"],
+         estado=[("no se ha creado nada",
+                  f"bash -c 'test -e {base}/destino/simulacro && echo CREÓ || echo NADA'",
+                  r"^NADA$")])
+    # Lo que se RECHAZA, en vez de interpretarse.
+    caso(ctx, "cp: una sección que no nombra ficheros se rechaza",
+         [f"cp zfsm://local/{P}/datos#properties {base}/destino"],
+         espera=[r"no nombra ficheros"])
+    caso(ctx, "cp: un «..» en la ruta se rechaza",
+         [f"cp /var/../etc/shadow {base}/destino"], espera=[r"no puede llevar «\.\.»"])
+    caso(ctx, "cp: «#path» colgando de un dataset se rechaza",
+         [f"cp zfsm://local/{P}/datos#path/x {base}/destino"],
+         espera=[r"cuelga de una máquina"])
+    sh(ctx, f"rm -rf {base}", root=True)
+
     caso(ctx, "rsync: sincroniza ficheros entre dos datasets montados",
          [f"cd Local/{P}", "create destinorsync",
           f"cd Local/{P}/datos", "rsync zfsm://local/{}/destinorsync --wait".format(P)],

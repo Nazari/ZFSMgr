@@ -929,7 +929,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"clone", V_CLONE}, {"diff", V_DIFF}, {"send", V_SEND},
     {"allow", V_ALLOW}, {"unallow", V_UNALLOW},
     {"breakdown", V_BREAKDOWN}, {"assemble", V_ASSEMBLE},
-    {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC},
+    {"todir", V_TODIR}, {"fromdir", V_FROMDIR}, {"rsync", V_RSYNC}, {"cp", V_CP},
     {0, 0}
 };
 

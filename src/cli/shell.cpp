@@ -9,6 +9,7 @@
 #include "gramatica_cli.h"
 #include "connectionjson.h"
 #include "gsa.h"
+#include "copyspec.h"
 #include "refreshparse.h"
 #include "storefiles.h"
 #include "syncing.h"
@@ -4390,6 +4391,221 @@ bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
 // Faltaba entera en el intérprete, y encima el hueco estaba disimulado: existía un `sync`
 // que es `zpool sync` —forzar la escritura pendiente, cosa de un instante— con el mismo
 // nombre que la acción de la interfaz, que puede tardar horas. Ese se llama ahora `flush`.
+// Copiar un árbol de una ruta a otra, eligiendo motor según si cruzan máquina.
+//
+// Los dos motores ya existían y los usa `rsync`: dentro de una máquina, el `rsync` del
+// daemon; entre dos, el árbol entre agentes. Esto no añade ninguno, solo los pone detrás de
+// una misma llamada para que `cp` no tenga que saber de los dos.
+bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& rutaOrigen,
+                const std::string& maqDestino, const std::string& baseDestino,
+                const std::string& nombre, bool simula, bool esperar) {
+    const std::string rutaDestino =
+        baseDestino + (baseDestino.empty() || baseDestino.back() == '/' ? "" : "/") + nombre;
+    const bool mismaMaquina =
+        B::toLowerAscii(maqOrigen) == B::toLowerAscii(maqDestino);
+    ZfsmUrl uOrigen;
+    uOrigen.kind = ZfsmKind::Connection;
+    uOrigen.connection = maqOrigen;
+
+    if (mismaMaquina) {
+        const std::string carga = SY::rsyncPayload({{rutaOrigen, rutaDestino}}, /*borra=*/false,
+                                                   simula, std::string(), std::string());
+        if (carga.empty()) {
+            std::fputs(TC("t_cp_rutas_mal",
+                          "las rutas de origen y destino tienen que ser absolutas\n"), stderr);
+            return false;
+        }
+        const std::vector<std::string> argv = PET::rsyncCopy(carga);
+        // Una simulación se LEE ahora: no hay nada que encolar y lo que uno quiere es verlo.
+        if (simula) {
+            std::string out;
+            if (!agente(e, uOrigen, argv, out, 0)) {
+                return false;
+            }
+            std::fprintf(stdout, "%s", out.c_str());
+            return true;
+        }
+        // Lo mismo que hace `lanzaOEspera`, pero sin fabricar una `Peticion` falsa solo
+        // para que lea de ella una bandera que ya tenemos aquí como un `bool`.
+        if (!esperar) {
+            return enviaComoTrabajo(e, uOrigen, argv);
+        }
+        std::string out;
+        if (!agente(e, uOrigen, argv, out, 0)) {   // sin plazo: mueve datos de verdad
+            return false;
+        }
+        std::fprintf(stdout, "%s", out.c_str());
+        return true;
+    }
+
+    // Entre máquinas: el destino escucha y el origen le manda el árbol directamente, sin
+    // pasar por aquí. El directorio de destino tiene que EXISTIR —lo exige el receptor— y
+    // eso no se arregla creándolo: crear rutas arbitrarias en una máquina remota es
+    // justamente la superficie que este proyecto ha decidido no tener.
+    std::string errSrc;
+    std::string errDst;
+    ZfsmUrl uDestino;
+    uDestino.kind = ZfsmKind::Connection;
+    uDestino.connection = maqDestino;
+    const auto* pSrc = perfilDe(e, uOrigen, errSrc);
+    const auto* pDst = perfilDe(e, uDestino, errDst);
+    if (!pSrc || !pDst) {
+        std::fprintf(stderr, "%s\n", (pSrc ? errDst : errSrc).c_str());
+        return false;
+    }
+    const B::ConnectionProfile src = conSudo(e, *pSrc);
+    const B::ConnectionProfile dst = conSudo(e, *pDst);
+    const auto llama = [&e](const B::ConnectionProfile& maquina,
+                            const std::vector<std::string>& argv, int timeoutMs,
+                            std::string& salida, std::string& error, int& rc) {
+        return ejecutarAgente(*e.ses, maquina, argv, salida, error, rc, nullptr, timeoutMs);
+    };
+    // El directorio donde aterriza tiene que EXISTIR antes: el receptor del árbol no lo
+    // crea y se planta con «no es un directorio». Se crea con un verbo que solo puede crear
+    // DENTRO de algo que ya está, no en cualquier parte del sistema.
+    //
+    // En una simulación no se crea nada: `--check` promete no tocar, y crear un directorio
+    // es tocar.
+    if (!simula) {
+        std::string prepOut;
+        std::string prepErr;
+        int prepRc = -1;
+        const std::vector<std::string> prep = AV::argvPrepareDir(baseDestino, nombre);
+        if (prep.empty()
+            || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
+            || prepRc != 0) {
+            std::fprintf(stderr, TC("t_cp_destino_no", "no se pudo preparar el destino: %s\n"),
+                         B::trim(B::helpers::oneLine(prepErr)).c_str());
+            return false;
+        }
+    }
+    // Y se DICE lo que se pierde por el camino. El árbol entre agentes todavía no lleva
+    // propietario ni grupo, así que lo copiado aterriza perteneciendo a root. Dentro de una
+    // misma máquina no pasa —ahí va por `rsync`, que sí los conserva— y esa asimetría es
+    // justo la que no se puede dejar sin decir: copiar un /home y encontrárselo entero de
+    // root es un desastre silencioso.
+    std::fputs(TC("t_cp_dueno", "aviso: entre máquinas lo copiado aterriza perteneciendo a "
+                  "root; el árbol entre agentes todavía no lleva propietario ni grupo\n"),
+               stderr);
+    std::string salidaEnvio;
+    const auto hecho = TR::launchTreeJob(e.ses->transporte, llama, src, dst, rutaOrigen,
+                                         rutaDestino, /*mismaConexion=*/false, e.ses->verboso,
+                                         /*comoTrabajo=*/!esperar && !simula, /*borra=*/false,
+                                         simula, &salidaEnvio);
+    if (hecho.failure != TR::JobFailure::None_) {
+        std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.failure).c_str(),
+                     hecho.detail.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    std::fputs(salidaEnvio.c_str(), stdout);
+    return true;
+}
+
+// --- `cp`: copiar ficheros y directorios, de donde sea a donde sea.
+//
+// Lo que no hacía ninguna de las tres órdenes que ya copian: `rsync` exige datasets en los
+// dos extremos, `todir` saca de un dataset a un directorio LOCAL, y `fromdir` mete un
+// directorio en el dataset actual por una tubería tar. Entre las tres no se podía copiar de
+// una ruta suelta a otra, ni un fichero suelto.
+//
+// No se inventa motor: dentro de una máquina va por el `rsync` del daemon y entre dos por el
+// árbol entre agentes, que es lo que ya usan esas órdenes. Lo que aporta esto es el
+// DIRECCIONAMIENTO uniforme —la regla vive en `base::copyspec`, con pruebas— y la semántica
+// de copiar en vez de espejar.
+bool cmdCp(Estado& e, const LineaAnalizada& linea) {
+    namespace CS = B::copyspec;
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const std::vector<std::string> args = pet.lista("texto");
+    if (args.size() != 2) {
+        std::fputs(TC("t_cp_uso_err", "uso: cp <origen> <destino> [--as <nombre>]\n"), stderr);
+        return false;
+    }
+
+    // Cada extremo: se resuelve como URL y se le pasa a la regla junto con el texto crudo.
+    // El texto crudo hace falta porque la barra inicial manda —`/var/tmp/x` es una ruta del
+    // sistema de ficheros y no el árbol `zfsm://var/tmp/x`— y eso solo se ve en lo escrito.
+    const std::string idLocal = idDe(e, ZfsmUrl{});
+    const auto extremo = [&](const std::string& texto, const char* cual, CS::End& out) -> bool {
+        ZfsmUrl u;
+        std::string err;
+        if (texto.empty() || texto.front() != '/') {
+            if (!resuelve(e, texto, u, err)) {
+                std::fprintf(stderr, "%s: %s\n", cual, err.c_str());
+                return false;
+            }
+        }
+        const CS::Reading r = CS::readEnd(texto, u, idLocal.empty() ? std::string("local") : idLocal);
+        if (!r.ok()) {
+            std::fprintf(stderr, "%s: %s\n", cual, CS::labelOf(r.failure).c_str());
+            return false;
+        }
+        out = r.end;
+        return true;
+    };
+    CS::End origen;
+    CS::End destino;
+    if (!extremo(args[0], TC("t_cp_origen", "origen"), origen)
+        || !extremo(args[1], TC("t_cp_destino", "destino"), destino)) {
+        return false;
+    }
+
+    // La ruta ABSOLUTA de cada extremo. Un dataset no la tiene hasta que se le pregunta a la
+    // máquina dónde está montado: el `mountpoint` de la propiedad no siempre es donde se
+    // puede abrir —en Windows dice «/pool/ds», que no existe— y por eso se pregunta.
+    const auto rutaReal = [&](const CS::End& x, std::string& out) -> bool {
+        if (x.kind == CS::EndKind::PlainPath) {
+            out = x.absolute;
+            return true;
+        }
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Dataset;
+        u.connection = x.connection;
+        u.dataset = x.zfsName;
+        u.pool = B::split(x.zfsName, "/", false).front();
+        std::string base;
+        if (!montajeDe(e, u, base)) {
+            return false;
+        }
+        out = base;
+        if (!x.relative.empty()) {
+            out += (out.empty() || out.back() == '/' ? "" : "/") + x.relative;
+        }
+        return true;
+    };
+    std::string rutaOrigen;
+    std::string rutaDestino;
+    if (!rutaReal(origen, rutaOrigen) || !rutaReal(destino, rutaDestino)) {
+        return false;
+    }
+
+    // Con qué nombre aterriza. El destino es el CONTENEDOR, así que `cp A B` deja `B/A`:
+    // es lo que hace `cp` de toda la vida y lo que evita la ambigüedad clásica de que la
+    // misma orden signifique una cosa u otra según si el destino existía ya.
+    const std::string nombre = CS::landingName(origen, pet.valor("as"));
+    if (nombre.empty()) {
+        std::fputs(TC("t_cp_sin_nombre", "no se puede averiguar con qué nombre copiarlo; "
+                      "dígalo con «--as»\n"), stderr);
+        return false;
+    }
+    const std::string rutaFinal =
+        rutaDestino + (rutaDestino.empty() || rutaDestino.back() == '/' ? "" : "/") + nombre;
+
+    if (B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection)
+        && rutaOrigen == rutaFinal) {
+        std::fputs(TC("t_cp_mismo", "el origen y el destino son el mismo sitio\n"), stderr);
+        return false;
+    }
+
+    const bool simula = pet.tiene("--check");
+    std::fprintf(stderr, TC("t_cp_yendo", "%s  ->  %s\n"), rutaOrigen.c_str(), rutaFinal.c_str());
+    return copiaArbol(e, origen.connection, rutaOrigen, destino.connection, rutaDestino,
+                      nombre, simula, pet.tiene("--wait"));
+}
+
 bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -5034,6 +5250,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"info", cmdInfo},
         {"create", cmdCreate},
         {"devices", cmdDevices},
+        {"cp", cmdCp},
         {"rsync", cmdRsync},
         {"rename", cmdRename},
         {"destroy", cmdDestroy},

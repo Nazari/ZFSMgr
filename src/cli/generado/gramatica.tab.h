@@ -138,7 +138,8 @@ extern int zfsmclidebug;
     V_TODIR = 325,                 /* V_TODIR  */
     V_FROMDIR = 326,               /* V_FROMDIR  */
     V_RSYNC = 327,                 /* V_RSYNC  */
-    V_DESCONOCIDO = 328            /* V_DESCONOCIDO  */
+    V_CP = 328,                    /* V_CP  */
+    V_DESCONOCIDO = 329            /* V_DESCONOCIDO  */
   };
   typedef enum zfsmclitokentype zfsmclitoken_kind_t;
 #endif
@@ -151,7 +152,7 @@ union ZFSMCLISTYPE
 
     char* texto;
 
-#line 155 "generado/gramatica.tab.h"
+#line 156 "generado/gramatica.tab.h"
 
 };
 typedef union ZFSMCLISTYPE ZFSMCLISTYPE;
@@ -170,6 +171,6 @@ int zfsmcliparse (void* scanner, AnalisisCli* res);
 int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
-#line 174 "generado/gramatica.tab.h"
+#line 175 "generado/gramatica.tab.h"
 
 #endif /* !YY_ZFSMCLI_GENERADO_GRAMATICA_TAB_H_INCLUDED  */

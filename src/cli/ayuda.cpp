@@ -606,6 +606,19 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"rsync zfsm://casa/tank/copia --on zfsm://casa/tank/datos#content/{fotos,docs}",
        {"t_ej_rsync_7", "dos subárboles al mismo destino"}},
      }},
+    {"cp",
+     {
+      {"cp /home/yo/fotos zfsm://unib#path/respaldo",
+       {"t_ej_cp_1", "una ruta de aquí a una ruta de otra máquina"}},
+      {"cp zfsm://unib/p/ds#content/fotos zfsm://mmela/t/copia",
+       {"t_ej_cp_2", "un subárbol de un dataset a otro dataset"}},
+      {"cp /etc/hosts zfsm://unib#path/tmp --as hosts.fc16",
+       {"t_ej_cp_3", "un fichero suelto, aterrizando con otro nombre"}},
+      {"cp /home/yo/fotos /var/tmp/copia --check",
+       {"t_ej_cp_4", "enseña qué haría, sin tocar nada"}},
+      {"cp /home/yo/fotos zfsm://unib#path/respaldo --wait",
+       {"t_ej_cp_5", "espera aquí en vez de devolver el trabajo"}},
+     }},
     {"breakdown",
      {
       {"breakdown fotos fotos",
@@ -1106,6 +1119,33 @@ const std::vector<Orden> kOrdenes = {
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
 
     // --- Acciones
+    {"cp", {"t_acciones_79bd0e", "Acciones"},
+     {"t_cp_uso", "<origen> <destino> [--as <nombre>] [--check] [--wait]"},
+     {"t_cp_res", "Copia ficheros y directorios de un sitio a otro."},
+     {{{"t_cp_as", "--as <nombre>"},
+       {"t_cp_as_q", "Con qué nombre aterriza en el destino. Sin ella, el suyo."}},
+      {{"t_cp_check", "--check"}, {"t_cp_check_q", "Simula y enseña qué haría, sin tocar nada."}},
+      {{"t_cp_wait", "--wait"},
+       {"t_cp_wait_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+     {{"t_cp_det1", "Los dos extremos se nombran igual, y admiten cuatro formas:\n"
+       "  zfsm://maq/pool/ds                un dataset entero\n"
+       "  zfsm://maq/pool/ds#content/sub    un subárbol suyo\n"
+       "  zfsm://maq#path/var/tmp/x         una ruta suelta de esa máquina\n"
+       "  /var/tmp/x                        atajo de la máquina de aquí"},
+      {"t_cp_det2", "El destino es el CONTENEDOR: `cp A B` deja el contenido de A en `B/A`. "
+       "Para que aterrice con otro nombre está `--as`."},
+      {"t_cp_det3", "NUNCA borra. Para que el destino acabe idéntico al origen, borrado "
+       "incluido, está `rsync --delete`."},
+      {"t_cp_det4", "El directorio de destino tiene que EXISTIR. Es lo que hace `cp` de toda la "
+       "vida, y evita que una errata cree un árbol entero en el sitio equivocado."},
+      {"t_cp_det5", "Entre máquinas va de agente a agente, con delta y sin shell de por medio; "
+       "dentro de una, por `rsync`."},
+      {"t_cp_det6", "ENTRE MÁQUINAS, lo copiado aterriza perteneciendo a root: el árbol entre "
+       "agentes todavía no lleva el propietario ni el grupo. Dentro de una misma máquina sí "
+       "se conservan. Si lo que copia es un /home o discos de máquinas virtuales, eso "
+       "importa."}},
+     Objetivo::None_,
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},
      {"t_rsync_res", "Sincroniza FICHEROS de un árbol montado con otro («Sincronizar» de la interfaz)."},
      {{{"t_rsync_del", "--delete"}, {"t_rsync_del_q", "Borra en el destino lo que ya no está en el origen."}},

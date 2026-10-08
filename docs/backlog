@@ -56,3 +56,13 @@ Listado de cambios.
 	no se ha barrido a ver qué otros términos del vocabulario de ZFS sí lo están —bookmark,
 	hold, clone, scrub, resilver, mountpoint— ni si la GUI (que tiene sus propios catálogos)
 	hace lo mismo que el CLI. El barrido es parte de la tarea, no un paso previo.
+
+8. Absorber `todir` y `fromdir` en `cp`, cuando `cp` esté rodado. Hoy hay cuatro órdenes que
+   copian ficheros y se solapan: `cp` (la general, nueva el 2026-10-08), `rsync` (espejar,
+   con `--delete`), `todir` (dataset -> directorio local) y `fromdir` (directorio ->
+   dataset, por tubería tar). Cuatro maneras de hacer casi lo mismo es como se llegó a tener
+   tres.
+	`todir X` es `cp . X` y `fromdir X` es `cp X .`; la idea es dejarlas como alias que avisan
+	de la forma nueva, no retirarlas de golpe: las dos funcionan y tienen casos en la batería.
+	El que menos se parece es `fromdir`, que va por una TUBERÍA TAR y no por el árbol entre
+	daemons: sin delta y sin reanudación. Absorberlo es además quitarse ese camino viejo.

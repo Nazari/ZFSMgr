@@ -65,7 +65,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_AUTHORIZE_KEY V_EXPORT_TRUST
 %token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_SEND
 %token <texto> V_ALLOW V_UNALLOW
-%token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC
+%token <texto> V_BREAKDOWN V_ASSEMBLE V_TODIR V_FROMDIR V_RSYNC V_CP
 %token <texto> V_DESCONOCIDO
 
 %type <texto> palabra componente_texto
@@ -192,6 +192,10 @@ orden
     | V_DIFF URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
     | V_TODIR ruta                       { astVerbo(res, $1); }
     | V_FROMDIR ruta                     { astVerbo(res, $1); }
+/* `cp` lleva los DOS extremos como posiciones, no uno por `--on`: aquí sí se sabe cuál es
+ * cuál —el primero es de donde sale y el segundo a dónde va, como en cualquier `cp`— y
+ * obligar a escribir `--on` para el origen sería pedir ceremonia por nada. */
+    | V_CP textos                        { astVerbo(res, $1); }
     | V_BREAKDOWN textos                 { astVerbo(res, $1); }
     | V_ASSEMBLE textos                  { astVerbo(res, $1); }
 

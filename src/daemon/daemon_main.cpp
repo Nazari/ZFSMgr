@@ -541,6 +541,7 @@ std::string agentCapabilityList() {
     caps.push_back("--zfs-send-to-peer");
     caps.push_back("--dump-zfs-driveletters");
     caps.push_back("--mutate-advanced-fromdir-prepare");
+    caps.push_back("--mutate-prepare-dir");
     caps.push_back("--tree-recv-listen");
     caps.push_back("--tree-send-to-peer");
     caps.push_back("--mutate-set-peers");
@@ -2528,6 +2529,56 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
     return runExecCapture(tool, arr);
 }
 
+// --mutate-prepare-dir: crea el directorio donde va a aterrizar una copia.
+//
+// Hace falta porque el receptor del árbol EXIGE que el directorio exista —«no es un
+// directorio: …»— y `cp` aterriza en `<destino>/<nombre>`, que por definición todavía no
+// está. Sin esto, copiar entre máquinas obligaría a ir antes a la otra a crear la carpeta a
+// mano, que es pedirle al usuario que haga la mitad del trabajo.
+//
+// **Lo que NO es: un «mkdir» suelto.** Eso sería un verbo capaz de crear un árbol en
+// cualquier parte del sistema, y esa superficie es justo la que este proyecto ha decidido no
+// tener. Lleva el mismo contrato que `--mutate-advanced-fromdir-prepare`: una BASE que ya
+// tiene que existir y ser un directorio, y una parte relativa que no puede escaparse de
+// ella. Lo que se puede crear está acotado por lo que ya hay.
+static ExecResult runPrepareDirCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 2) {
+        r.rc = 2;
+        r.err = "usage: --mutate-prepare-dir <base-absoluta> <relativa>\n";
+        return r;
+    }
+    const std::string base = trim(params[0]);
+    const std::string rel = trim(params[1]);
+    if (base.empty() || base.front() != '/') {
+        r.rc = 2;
+        r.err = "la base tiene que ser una ruta absoluta\n";
+        return r;
+    }
+    if (rel.empty() || rel.front() == '/' || rel.front() == '\\'
+        || rel.find("..") != std::string::npos) {
+        r.rc = 2;
+        r.err = "la parte relativa no puede estar vacía, ser absoluta ni llevar «..»\n";
+        return r;
+    }
+    std::error_code ec;
+    if (!std::filesystem::is_directory(base, ec) || ec) {
+        r.rc = 2;
+        r.err = "la base no existe o no es un directorio: " + base + "\n";
+        return r;
+    }
+    const std::string destino = base + (base.back() == '/' ? "" : "/") + rel;
+    std::filesystem::create_directories(destino, ec);
+    if (ec || !std::filesystem::is_directory(destino, ec)) {
+        r.rc = 1;
+        r.err = "no se pudo crear " + destino + "\n";
+        return r;
+    }
+    r.rc = 0;
+    r.out = "DST=" + destino + "\n";
+    return r;
+}
+
 // --mutate-advanced-fromdir-prepare: la PRIMERA MITAD de «Desde Dir», sin el tar.
 //
 // Monta el dataset, resuelve su punto de montaje efectivo, comprueba el subdirectorio y lo
@@ -3639,8 +3690,35 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
 
     for (const auto& p : pairs) {
         std::vector<std::string> argv = base;
-        argv.push_back(p.first + "/");
-        argv.push_back(dstHost.empty() ? (p.second + "/") : (dstHost + ":" + p.second + "/"));
+        // La barra final es lo que hace que rsync copie el CONTENIDO de un directorio y no
+        // el directorio dentro de otro. Es lo correcto para un árbol y es un error para un
+        // fichero: `rsync /ruta/f.txt/ dst/` falla con «change_dir … Not a directory».
+        //
+        // Se decide AQUÍ y no en la carga a propósito. La carga es un array plano
+        // —`[delete, dryRun, rsh, host, origen1, destino1, …]`— y meterle una marca por par
+        // cambiaría su forma, o sea el contrato con los clientes: un daemon anterior la
+        // leería mal. Y además esto es lo único que puede SABERLO: el sistema de ficheros
+        // está aquí, no en quien compuso la carga, que puede estar en otra máquina.
+        std::error_code ecTipo;
+        const bool origenEsFichero =
+            std::filesystem::is_regular_file(p.first, ecTipo) && !ecTipo;
+        // Y un fichero NO se mete dentro de un directorio que se llame igual.
+        //
+        // `rsync f dst` con `dst` ya existente y siendo directorio deja `dst/f`, en
+        // silencio: se pidió copiar un fichero y aparece un directorio con el fichero
+        // dentro. Visto en vivo —`destino/fichero.txt/fichero.txt`— y es exactamente lo que
+        // `cp` de toda la vida se niega a hacer («cannot overwrite directory»). Mejor
+        // negarse que dejar un árbol que no se pidió.
+        std::error_code ecDst;
+        if (origenEsFichero && std::filesystem::is_directory(p.second, ecDst) && !ecDst) {
+            errMsg = "no se puede copiar el fichero «" + p.first + "»: en el destino ya hay "
+                       "un DIRECTORIO que se llama igual («" + p.second + "»)\n";
+            return false;
+        }
+        const std::string barra = origenEsFichero ? "" : "/";
+        argv.push_back(p.first + barra);
+        argv.push_back(dstHost.empty() ? (p.second + barra)
+                                       : (dstHost + ":" + p.second + barra));
         argvsOut.push_back(std::move(argv));
     }
     return true;
@@ -8328,6 +8406,9 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-advanced-fromdir-prepare") {
         return runMutateAdvancedFromDirPrepareCapture(params);
     }
+    if (cmd == "--mutate-prepare-dir") {
+        return runPrepareDirCapture(params);
+    }
     if (cmd == "--tree-recv-listen") {
         if (params.empty()) {
             r.rc = 2;
@@ -10169,6 +10250,17 @@ int main(int argc, char* argv[]) {
     // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
     // vuelve hasta que la transfer termina: soltar el proceso mataría el hilo que
     // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
+    // Por línea de órdenes los argumentos vienen en `args` con el programa delante; el otro
+    // despachador —el del RPC— los recibe ya troceados en `params`. Son DOS, y olvidar uno
+    // deja un verbo que el agente anuncia y no atiende: ya pasó con
+    // `--mutate-zfs-recv-abort`, que estaba solo en el de RPC y no existía desde el CLI.
+    if (cmd == "--mutate-prepare-dir") {
+        const ExecResult pd =
+            runPrepareDirCapture(std::vector<std::string>(args.begin() + 2, args.end()));
+        if (!pd.out.empty()) std::cout << pd.out;
+        if (!pd.err.empty()) std::cerr << pd.err;
+        return pd.rc;
+    }
     if (cmd == "--tree-recv-listen") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
