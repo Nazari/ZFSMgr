@@ -684,6 +684,64 @@ def casos_version_openzfs(ctx):
                 f"rm -rf /tmp/zpprueba /tmp/{base}.zip \"$HOME/zpprueba\"'")
 
 
+def casos_identidad(ctx):
+    """La identidad de una máquina no es su nombre.
+
+    `local` significa una máquina distinta según quién pregunte —fc16 se llama «local» a sí
+    misma y mmela también—, y la misma máquina aparecía como «unib» en una lista y
+    «unibody» en otra. El daemon decidía «¿este destino soy yo?» comparando dos etiquetas de
+    cliente, y de eso depende que un envío salga por la red o se quede en casa.
+    """
+    # 1. `refresh` tiene que GUARDAR el identificador, no solo enseñarlo.
+    rc, _ = cli(ctx, ["refresh zfsm://local"])
+    nombre = "refresh: guarda el identificador de máquina en la conexión"
+    try:
+        with open(os.path.expanduser("~/.config/ZFSMgr/config.json")) as f:
+            conns = json.load(f)["connections"]
+        uid = next((c.get("machine_uid") or "" for c in conns if c.get("id") == "local"), "")
+    except Exception as exc:          # noqa: BLE001
+        uid = ""
+        print(f"         (no se pudo leer la configuración: {exc})")
+    # Y el que de verdad tiene la máquina, preguntado aparte.
+    _, crudo = sh(ctx, "/usr/local/libexec/zfsmgr-agent --dump-refresh-basics", root=True)
+    real = ""
+    for l in crudo.splitlines():
+        if l.startswith("MACHINE_UUID="):
+            real = l.split("=", 1)[1].strip()
+    problemas = []
+    if not uid:
+        problemas.append("la conexión Local sigue sin identificador guardado")
+    if real and uid and uid.lower() not in real.lower() and real.lower() not in uid.lower():
+        problemas.append(f"el guardado ({uid}) no es el de la máquina ({real})")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, crudo[:200]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+    # 2. `peers` tiene que ENSEÑARLO, el propio y el de cada par.
+    rc2, vista = cli(ctx, ["peers --on zfsm://local"], idioma="es")
+    nombre2 = "peers: enseña la identidad de la máquina y la de cada par"
+    problemas2 = []
+    if "identidad de la máquina" not in vista:
+        problemas2.append("no dice cuál es la identidad de la máquina")
+    if uid and uid not in vista:
+        problemas2.append(f"no sale el identificador real ({uid})")
+    if "IDENTIDAD" not in vista:
+        problemas2.append("la tabla de pares no trae la columna de identidad")
+    if problemas2:
+        ctx.fallos.append((nombre2, problemas2, vista[:400]))
+        print(f"  FALLO  {nombre2}")
+        for x in problemas2:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre2)
+        print(f"  ok     {nombre2}")
+
+
 def casos_devices(ctx):
     """`devices`: un dispositivo real por línea y sus alias colgando.
 
@@ -933,7 +991,7 @@ def casos_arranque(ctx):
 # `casos_pool_export` exporta e importa el pool LOCAL: no necesita segunda máquina, y
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
-LOCALES = [casos_arranque, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
+LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
            casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]

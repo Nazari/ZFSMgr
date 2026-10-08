@@ -19,6 +19,18 @@ View parse(const std::string& salida) {
             }
             continue;
         }
+        if (trim(c[0]) == "SELF_UID") {
+            if (c.size() >= 2) {
+                v.selfUid = trim(c[1]);
+            }
+            continue;
+        }
+        if (trim(c[0]) == "REAL_UID") {
+            if (c.size() >= 2) {
+                v.realUid = trim(c[1]);
+            }
+            continue;
+        }
         if (c.size() >= 3) {
             Peer p;
             p.id = trim(c[0]);
@@ -28,10 +40,45 @@ View parse(const std::string& salida) {
             } catch (...) {
                 p.puerto = 0;
             }
+            // La cuarta columna es el uid, y puede no venir: un daemon anterior a esto
+            // manda tres. Se lee si está y no se exige, que es lo que permite actualizar
+            // las máquinas de una en una.
+            if (c.size() >= 4) {
+                p.uid = trim(c[3]);
+            }
             v.pares.push_back(p);
         }
     }
     return v;
+}
+
+bool destinationIsSelf(const std::string& connId, const SelfMatch& m) {
+    const std::string id = toLowerAscii(trim(connId));
+    if (id.empty()) {
+        return false;
+    }
+    const std::string mio = toLowerAscii(trim(m.realUid));
+
+    // 1. El nombre es el de un par: manda SU uid.
+    for (const Peer& p : m.peers) {
+        if (toLowerAscii(trim(p.id)) != id) {
+            continue;
+        }
+        const std::string suyo = toLowerAscii(trim(p.uid));
+        if (suyo.empty() || mio.empty()) {
+            break;  // ese par no trae identidad: se cae al respaldo por nombre
+        }
+        return suyo == mio;
+    }
+
+    // 2. El nombre es con el que me entregaron las credenciales.
+    const std::string entregado = toLowerAscii(trim(m.selfUid));
+    if (!entregado.empty() && !mio.empty() && toLowerAscii(trim(m.selfName)) == id) {
+        return entregado == mio;
+    }
+
+    // 3. Sin identidad en ninguna parte: por nombre, como siempre.
+    return !m.selfName.empty() && id == toLowerAscii(trim(m.selfName));
 }
 
 std::string labelOf(Failure f) {
@@ -48,7 +95,7 @@ std::string labelOf(Failure f) {
 }
 
 Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
-                       const std::string& destino) {
+                       const std::string& destino, const std::string& uidDestino) {
     Handover e;
     json::Array pares;
     bool habiaOtras = false;
@@ -72,6 +119,12 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
         uno.set("server_cert_pem", json::Value(p.daemonTlsServerCertPem));
         uno.set("client_cert_pem", json::Value(p.daemonTlsClientCertPem));
         uno.set("client_key_pem", json::Value(p.daemonTlsClientKeyPem));
+        // El IDENTIFICADOR DE MÁQUINA, junto al nombre. El nombre es una etiqueta de quien
+        // mira —`local` es una máquina distinta según quién pregunte, y la misma máquina
+        // aparece como «unib» en una lista y «unibody» en otra—; el uid no. Es lo que
+        // permite que el daemon conteste «¿este destino soy yo?» sin fiarse de una etiqueta
+        // que le dijo un cliente.
+        uno.set("uid", json::Value(trim(p.machineUid)));
         pares.push_back(uno);
         e.names.push_back(id);
     }
@@ -88,6 +141,11 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
     // credenciales— y allí no hay forma de averiguarlo. Sirve para que el daemon distinga
     // «nivela contra otra» de «nivela contra un dataset mío».
     raiz.set("self", json::Value(destino));
+    // Y el suyo propio, para que pueda compararse. Se manda aunque el daemon sepa
+    // averiguarlo él solo: si los dos no coinciden, es que esta configuración apunta a otra
+    // máquina de la que cree —un perfil copiado de otro equipo, por ejemplo— y eso se quiere
+    // poder detectar en vez de tragarlo.
+    raiz.set("self_uid", json::Value(trim(uidDestino)));
     raiz.set("peers", json::Value(std::move(pares)));
     e.payloadB64 = base64Encode(json::toCompact(raiz));
     return e;

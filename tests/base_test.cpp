@@ -3296,7 +3296,7 @@ int main() {
         const std::vector<zfsmgr::base::ConnectionProfile> tres = {
             perfil("local", true), perfil("unibody", true), perfil("oldlau", true)};
 
-        const PE::Handover e1 = PE::composeHandover(tres, "local");
+        const PE::Handover e1 = PE::composeHandover(tres, "local", "uid-de-local");
         comprobar(e1.ok(), "peers: se puede entregar");
         comprobar(e1.names.size() == 2, "peers: van las OTRAS dos, no la de destino");
         comprobar(!e1.payloadB64.empty(), "peers: hay carga");
@@ -3312,13 +3312,108 @@ int main() {
                       "peers: con los pares dentro");
         }
 
+        {
+            // --- La IDENTIDAD de maquina viaja junto al nombre.
+            //
+            // El nombre es una etiqueta de quien mira: `local` es una maquina distinta
+            // segun quien pregunte, y la misma maquina aparece como «unib» en una lista y
+            // «unibody» en otra. El uid no depende de nadie, y es lo que permite que el
+            // daemon conteste «¿este destino soy yo?» sin fiarse de lo que le contaron.
+            std::string json;
+            comprobar(zfsmgr::base::base64Decode(e1.payloadB64, json), "peers: la carga es base64");
+            comprobar(json.find("\"self_uid\"") != std::string::npos,
+                      "peers: la carga trae el uid del destino");
+            comprobar(json.find("uid-de-local") != std::string::npos,
+                      "peers: y es el que se le pasó");
+            // Y el de CADA par, que es lo que convierte un nombre en una identidad al otro
+            // lado: sin esto el daemon tiene el nombre y nada con que contrastarlo.
+            comprobar(json.find("\"uid\"") != std::string::npos,
+                      "peers: cada par lleva el suyo");
+        }
+        {
+            // Un uid vacío NO es un error: una conexión que no se ha refrescado nunca no lo
+            // tiene, y la entrega tiene que funcionar igual —al otro lado se decidirá por el
+            // nombre, como siempre—. Exigirlo convertiria una mejora en un bloqueo.
+            const PE::Handover sinUid = PE::composeHandover(tres, "local", "");
+            comprobar(sinUid.ok(), "peers: sin uid se entrega igual");
+            std::string json;
+            comprobar(zfsmgr::base::base64Decode(sinUid.payloadB64, json),
+                      "peers: y la carga sigue siendo válida");
+            comprobar(json.find("\"self_uid\"") != std::string::npos,
+                      "peers: con el campo presente aunque vacío");
+        }
+        {
+            // El analizador de `--dump-peers` lee las columnas nuevas, y SIGUE leyendo la
+            // forma antigua de tres columnas: un daemon sin actualizar manda esa, y romper
+            // con él convertiria una actualizacion del cliente en una lista vacia.
+            const PE::View nueva = PE::parse(
+                "SELF\tlocal\nSELF_UID\tuid-1\nunibody\tunib\t47653\tuid-2\n");
+            igual(nueva.self, "local", "peers: lee el self");
+            igual(nueva.selfUid, "uid-1", "peers: lee el self_uid");
+            comprobar(nueva.pares.size() == 1, "peers: y el par");
+            igual(nueva.pares[0].uid, "uid-2", "peers: con su uid");
+
+            const PE::View vieja = PE::parse("SELF\tlocal\nunibody\tunib\t47653\n");
+            comprobar(vieja.pares.size() == 1, "peers: la forma antigua sigue valiendo");
+            igual(vieja.pares[0].uid, "", "peers: sin uid, y eso no es un fallo");
+            igual(vieja.selfUid, "", "peers: ni self_uid");
+        }
+
+        {
+            // --- «¿Este destino soy yo?», que es de lo que depende que un envio salga por
+            // la red o se quede en casa.
+            auto par = [](const char* id, const char* uid) {
+                PE::Peer p; p.id = id; p.host = "h"; p.puerto = 47653; p.uid = uid; return p;
+            };
+            PE::SelfMatch m;
+            m.selfName = "local";
+            m.selfUid = "UID-A";
+            m.realUid = "uid-a";
+            m.peers = {par("mmela", "uid-b"), par("unib", "uid-c")};
+
+            // Por el nombre con el que me entregaron las credenciales, comprobando el uid.
+            comprobar(PE::destinationIsSelf("local", m), "soy-yo: el nombre entregado y el uid cuadran");
+            comprobar(PE::destinationIsSelf("LOCAL", m), "soy-yo: sin distinguir mayusculas");
+            comprobar(!PE::destinationIsSelf("mmela", m), "soy-yo: otro par no soy yo");
+            comprobar(!PE::destinationIsSelf("", m), "soy-yo: el vacio no es nadie");
+
+            // **El caso que arregla el defecto.** Un cliente escribio la programacion
+            // llamando a esta maquina «fc16»; otro le entrego las credenciales llamandola
+            // «local». Por nombre no coincidian y el envio salia por la red hacia si misma.
+            PE::SelfMatch n = m;
+            n.peers.push_back(par("fc16", "uid-a"));
+            comprobar(PE::destinationIsSelf("fc16", n),
+                      "soy-yo: un par cuyo uid es el mio SOY YO, se llame como se llame");
+
+            // Y al reves: un par que se llama como yo pero es OTRA maquina no soy yo. Pasa
+            // con dos equipos que el usuario llama igual en configuraciones distintas.
+            PE::SelfMatch o = m;
+            o.peers.push_back(par("local", "uid-z"));
+            comprobar(!PE::destinationIsSelf("local", o),
+                      "soy-yo: mismo nombre y otro uid NO soy yo");
+
+            // El respaldo por nombre, que es lo que sostiene a un peers.json antiguo.
+            PE::SelfMatch viejo;
+            viejo.selfName = "local";
+            viejo.peers = {par("mmela", "")};
+            comprobar(PE::destinationIsSelf("local", viejo),
+                      "soy-yo: sin ningun uid se decide por el nombre, como siempre");
+            comprobar(!PE::destinationIsSelf("mmela", viejo),
+                      "soy-yo: y un par sigue sin serlo");
+
+            // Sin nada de nada no se afirma nada: mejor no nivelar que nivelar al sitio
+            // equivocado.
+            PE::SelfMatch nada;
+            comprobar(!PE::destinationIsSelf("local", nada), "soy-yo: sin datos, no");
+        }
+
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».
         const std::vector<zfsmgr::base::ConnectionProfile> sinTls = {perfil("local", true),
                                                                     perfil("unibody", false)};
-        igual(PE::labelOf(PE::composeHandover(sinTls, "local").failure),
+        igual(PE::labelOf(PE::composeHandover(sinTls, "local", "").failure),
               PE::labelOf(PE::Failure::NoTlsMaterial),
               "peers: las hay pero sin certificados");
-        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local").failure),
+        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local", "").failure),
               PE::labelOf(PE::Failure::NoOtherConnections),
               "peers: no hay ninguna otra");
 

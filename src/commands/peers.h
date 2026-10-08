@@ -29,12 +29,20 @@ struct Peer {
     std::string id;
     std::string host;
     int puerto{0};
+    // El identificador de MÁQUINA, que no depende de quién mire. Vacío cuando el daemon de
+    // la otra punta es anterior a esto y manda solo tres columnas.
+    std::string uid;
 };
 
 // What the daemon knows about itself and about the others.
 struct View {
     std::string self;          // who it identifies as; empty is the silent failure above
     std::vector<Peer> pares;
+    // El uid que esa máquina tiene guardado como suyo. Vacío = nunca se le entregó.
+    std::string selfUid;
+    // Y el que la máquina lee DE SÍ MISMA, que no se lo ha dicho nadie. Lo que importa es si
+    // coinciden: si no, esa configuración se escribió mirando a otra máquina.
+    std::string realUid;
 };
 
 // Reads the output of `--dump-peers`: one `SELF\t<id>` line and then `<id>\t<host>\t<port>`
@@ -66,7 +74,37 @@ struct Handover {
 // written down, and that name is exactly the one that will appear as the target of a
 // levelling.
 Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
-                       const std::string& target);
+                       const std::string& destination,
+                       // El uid de la máquina de destino, tal y como lo tiene el cliente.
+                       // Vacío si nunca se refrescó esa conexión.
+                       const std::string& destinationUid);
+
+// --- ¿El destino de una nivelación es ESTA máquina?
+//
+// Vive aquí, en la capa base y con pruebas, y no dentro del daemon, porque es una REGLA: de
+// ella depende que un envío salga por la red o se quede en casa, y las reglas enterradas en
+// una función de mil líneas es donde se esconden los fallos que nadie ve. En este proyecto
+// ya ha pasado.
+//
+// El orden de las tres respuestas no es caprichoso:
+//
+//   1. Si el nombre es el de un PAR y ese par trae uid, manda ese uid. Es el caso que
+//      arregla el defecto: el cliente que escribió la programación llama a esta máquina de
+//      una forma y el que entregó las credenciales la llamó de otra.
+//   2. Si no, y el nombre es con el que se entregaron las credenciales, manda el uid que se
+//      entregó —comprobando que de verdad es el mío—.
+//   3. Y si no hay uid por ninguna parte, el nombre. Es el camino de siempre, y se conserva
+//      a propósito: un `peers.json` escrito por un cliente anterior no trae uid, y quitarlo
+//      convertiría una actualización del cliente en una nivelación que deja de ocurrir sin
+//      decir nada.
+struct SelfMatch {
+    std::string selfName;              // con qué nombre se le entregaron las credenciales
+    std::string selfUid;               // qué uid se le entregó
+    std::string realUid;               // el que la máquina lee de sí misma
+    std::vector<Peer> peers;
+};
+
+bool destinationIsSelf(const std::string& connId, const SelfMatch& m);
 
 std::string labelOf(Failure f);
 

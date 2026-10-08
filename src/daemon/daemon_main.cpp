@@ -58,6 +58,7 @@ typedef int pid_t;
 #include "remotetree.h"
 #include "copytree.h"
 #include "json.h"
+#include "peers.h"
 #include "base/processes.h"
 #include "base/osinfo.h"
 #include "commands/gsa.h"
@@ -4823,6 +4824,52 @@ struct GsaPeer {
 // falta: distinguir «nivela contra otra máquina» de «nivela contra un dataset de aquí».
 // Sin él, un nombre de conexión mal escrito se tomaría por local y la nivelación acabaría
 // en un dataset de esta máquina en vez de fallar, que es lo que tiene que hacer.
+// ¿El destino de una nivelación soy YO? Por identificador de MÁQUINA, no por etiqueta.
+//
+// Antes se comparaba el nombre escrito en la propiedad del dataset con el nombre que un
+// cliente dijo que tenía esta máquina. Dos etiquetas, ninguna identidad: `local` significa
+// una máquina distinta según quién pregunte —fc16 se llama «local» a sí misma y mmela
+// también— y la misma máquina aparece como «unib» en una lista y «unibody» en otra. Dos
+// clientes distintos podían dejar el sistema creyendo que el destino es otro y mandando por
+// la red un envío que no tenía que salir de aquí.
+//
+// Ahora: se busca el nombre entre los pares, se saca SU uid, y se compara con el que esta
+// máquina lee de sí misma. La identidad no es lo que me contaron, es lo que soy.
+//
+// El camino viejo se conserva como RESPALDO y a propósito: un `peers.json` escrito por un
+// cliente anterior no lleva uid, y entonces la comparación por nombre es lo único que hay.
+// Quitarlo convertiría una actualización del cliente en una nivelación que deja de ocurrir
+// sin decir nada.
+bool gsaDestinoSoyYo(const std::string& connId, const std::string& selfPorNombre) {
+    // La REGLA no está aquí: está en `base::peers::destinationIsSelf`, con pruebas. Aquí
+    // solo se leen los datos del fichero y se le pasan. De esa regla depende que un envío
+    // salga por la red o se quede en casa, y enterrarla en esta función —que ya tiene mil
+    // líneas— es donde se esconden los fallos que nadie ve.
+    zfsmgr::base::peers::SelfMatch m;
+    m.selfName = selfPorNombre;
+    m.realUid = trim(detectMachineUuid());
+    std::ifstream f(kPeersPath);
+    if (f.is_open()) {
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        zfsmgr::base::json::Value raiz;
+        std::string err;
+        if (zfsmgr::base::json::parse(ss.str(), raiz, &err)) {
+            m.selfUid = trim(raiz["self_uid"].toString());
+            if (m.selfName.empty()) {
+                m.selfName = trim(raiz["self"].toString());
+            }
+            for (const auto& v : raiz["peers"].toArray()) {
+                zfsmgr::base::peers::Peer par;
+                par.id = trim(v["id"].toString());
+                par.uid = trim(v["uid"].toString());
+                m.peers.push_back(par);
+            }
+        }
+    }
+    return zfsmgr::base::peers::destinationIsSelf(connId, m);
+}
+
 std::string gsaYoMismo() {
     std::ifstream f(kPeersPath);
     if (!f.is_open()) {
@@ -5183,9 +5230,10 @@ void gsaRunOnce(const std::function<void(const std::string&)>& log) {
             const std::size_t sep = dstSpec.find("::");
             if (sep != std::string::npos) {
                 const std::string connId = trim(dstSpec.substr(0, sep));
-                // El destino soy YO si se llama como me llama el cliente. Lo demás lo
-                // decide `gsaLevelSnapshot`, que busca al par en `peers.json`.
-                if (!selfConn.empty() && toLower(connId) == toLower(selfConn)) {
+                // El destino soy YO: se decide por identificador de MÁQUINA, con el
+                // nombre como respaldo. Lo demás lo decide `gsaLevelSnapshot`, que busca al
+                // par en `peers.json`.
+                if (gsaDestinoSoyYo(connId, selfConn)) {
                     target.mode = "local";
                 }
             }
@@ -8109,9 +8157,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         // Sin esta línea no había forma de diagnosticarlo desde fuera: el cliente listaba los
         // pares y todo parecía correcto. Ahora se ve, y se ve vacío cuando falta.
         out << "SELF\t" << trim(raiz["self"].toString()) << "\n";
+        // El uid que se le entregó Y el que la máquina lee de sí misma. Los dos, porque lo
+        // que importa es si COINCIDEN: si no, esta configuración se escribió mirando a otra
+        // máquina —un perfil copiado de otro equipo— y hasta ahora eso no se veía.
+        out << "SELF_UID\t" << trim(raiz["self_uid"].toString()) << "\n";
+        out << "REAL_UID\t" << trim(detectMachineUuid()) << "\n";
         for (const auto& v : raiz["peers"].toArray()) {
             out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
-                << v["port"].toInt(0) << "\n";
+                << v["port"].toInt(0) << "\t" << trim(v["uid"].toString()) << "\n";
         }
         r.rc = 0;
         r.out = out.str();

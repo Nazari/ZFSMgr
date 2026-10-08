@@ -9,6 +9,7 @@
 #include "gramatica_cli.h"
 #include "connectionjson.h"
 #include "gsa.h"
+#include "refreshparse.h"
 #include "storefiles.h"
 #include "syncing.h"
 #include "transfer.h"
@@ -2603,14 +2604,38 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             std::fprintf(stderr, TC("t_peers_self", "se identifica como: %s\n"),
                          vista.self.c_str());
         }
+        // La IDENTIDAD, que es lo que de verdad decide. El nombre de arriba es una etiqueta
+        // de quien entregó las credenciales —por eso una máquina puede llamarse «local» a sí
+        // misma y otra también—; esto no lo elige nadie.
+        if (!vista.realUid.empty()) {
+            if (vista.selfUid.empty()) {
+                std::fprintf(stderr, TC("t_peers_uid_sin",
+                                        "identidad de la máquina: %s (no se le entregó ninguna; "
+                                        "decidirá por el nombre)\n"),
+                             vista.realUid.c_str());
+            } else if (B::toLowerAscii(vista.selfUid) == B::toLowerAscii(vista.realUid)) {
+                std::fprintf(stderr, TC("t_peers_uid_ok", "identidad de la máquina: %s\n"),
+                             vista.realUid.c_str());
+            } else {
+                // Las dos no coinciden. Esa configuración se escribió mirando a OTRA
+                // máquina —un perfil copiado de otro equipo es la forma habitual— y hasta
+                // ahora no había manera de verlo desde fuera.
+                std::fprintf(stderr, TC("t_peers_uid_choca",
+                                        "AVISO: esta máquina es %s, pero las credenciales que "
+                                        "tiene se entregaron a %s.\n"
+                                        "       Son máquinas distintas: vuelva a hacer "
+                                        "«peers --push» sobre ella.\n"),
+                             vista.realUid.c_str(), vista.selfUid.c_str());
+            }
+        }
         Tabla t;
         t.nombreJson = "peers";
         t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_host", "HOST"),
-                            T("t_cab_puerto", "PUERTO")};
-        t.campos = {"id", "host", "port"};
-        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero};
+                            T("t_cab_puerto", "PUERTO"), T("t_cab_identidad", "IDENTIDAD")};
+        t.campos = {"id", "host", "port", "uid"};
+        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
         for (const PR::Peer& par : vista.pares) {
-            t.filas.push_back({par.id, par.host, std::to_string(par.puerto)});
+            t.filas.push_back({par.id, par.host, std::to_string(par.puerto), par.uid});
         }
         t.imprime(e.formato);
         return true;
@@ -2618,8 +2643,25 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
 
     // Componer la carga es cosa de la capa base: la interfaz y el servidor web necesitan
     // exactamente lo mismo, y esto estaba solo aquí.
+    // El uid de la máquina a la que se entrega. Sale de su perfil, que lo rellena `refresh`
+    // preguntándoselo a ella. Si está vacío se dice: sin él la entrega funciona igual pero
+    // esa máquina seguirá decidiendo «¿este destino soy yo?» por el nombre, que es lo que se
+    // está intentando dejar atrás.
+    std::string uidDeDestino;
+    {
+        const auto* pd = buscarConexion(e.conns, destino.connection);
+        if (pd) {
+            uidDeDestino = B::trim(pd->machineUid);
+        }
+        if (uidDeDestino.empty()) {
+            std::fputs(TC("t_push_sin_uid",
+                          "aviso: no se conoce el identificador de máquina de este destino.\n"
+                          "       Se entrega igual, pero decidirá por el NOMBRE y no por su\n"
+                          "       identidad. Un «refresh» sobre esa conexión lo averigua.\n"), stderr);
+        }
+    }
     const PR::Handover entrega =
-        PR::composeHandover(e.conns.perfiles, destino.connection);
+        PR::composeHandover(e.conns.perfiles, destino.connection, uidDeDestino);
     if (!entrega.ok()) {
         std::fprintf(stderr, "%s\n", PR::labelOf(entrega.failure).c_str());
         return false;
@@ -4015,6 +4057,39 @@ bool cmdRefrescar(Estado& e, const LineaAnalizada& linea) {
     std::string motivo;
     const auto* p = buscarConexion(e.conns, id);
     ejecutarAgente(*e.ses, *p, {"--health"}, salud, err, rc, &motivo, 20000);
+
+    // El IDENTIFICADOR DE MÁQUINA se guarda, no solo se enseña.
+    //
+    // El daemon lo publica en cada refresco y los dos clientes lo tiraban: lo leían, lo
+    // pintaban y se olvidaban. Resultado, en esta instalación: `local` y `mmela` tenían uid
+    // —puesto a mano hace tiempo— y `unib` y `mbp` lo tenían VACÍO.
+    //
+    // Hace falta porque es la única identidad de una máquina que no depende de quién la
+    // mire. El nombre no lo es: `local` significa una máquina distinta según desde dónde se
+    // pregunte, y la misma máquina aparece como `unib` en una lista y `unibody` en otra. Es
+    // lo que `peers` necesita para que dos daemons sepan de quién hablan.
+    {
+        const auto claves = clavesDe(basicos);
+        const auto it = claves.find("MACHINE_UUID");
+        const std::string uid =
+            it == claves.end() ? std::string() : B::refresh::extractMachineUuid(it->second);
+        const auto* vivo = buscarConexion(e.conns, id);
+        if (!uid.empty() && vivo && B::trim(vivo->machineUid) != uid && !e.ses->sinSecretos) {
+            B::ConnectionProfile copia = *vivo;
+            copia.machineUid = uid;
+            std::string errGuardar;
+            if (guardarConexion(*e.ses, copia, errGuardar)) {
+                recarga(e);
+            } else {
+                // Se avisa y se sigue: no poder guardarlo no invalida el refresco, pero
+                // callarlo dejaría a `peers` sin identidad sin que nadie supiera por qué.
+                std::fprintf(stderr, TC("t_uid_no_guardado",
+                                        "aviso: no se pudo guardar el identificador de máquina "
+                                        "de %s: %s\n"),
+                             id.c_str(), errGuardar.c_str());
+            }
+        }
+    }
 
     Tabla t;
     t.nombreJson = "refresh";

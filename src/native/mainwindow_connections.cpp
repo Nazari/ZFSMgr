@@ -3794,6 +3794,11 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     const ConnectionProfile destino = m_conns.profiles.at(connIdx);
     const QString nombreDestino = destino.id.trimmed().isEmpty() ? destino.name.trimmed()
                                                                  : destino.id.trimmed();
+    // El identificador de MÁQUINA, que viaja junto al nombre. Es lo que permite que el
+    // daemon de esa máquina conteste «¿este destino soy yo?» por identidad y no por una
+    // etiqueta que le dijo un cliente. Vacío si esa conexión no se ha refrescado nunca:
+    // entonces se entrega igual y allí se decide por el nombre, como hasta ahora.
+    const QString uidDestino = destino.machineUid.trimmed();
 
     std::vector<zfsmgr::base::ConnectionProfile> perfiles;
     perfiles.reserve(static_cast<std::size_t>(m_conns.profiles.size()));
@@ -3801,7 +3806,8 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
         perfiles.push_back(toBaseProfile(p));
     }
     const auto entrega =
-        zfsmgr::base::peers::composeHandover(perfiles, nombreDestino.toStdString());
+        zfsmgr::base::peers::composeHandover(perfiles, nombreDestino.toStdString(),
+                                             uidDestino.toStdString());
     if (!entrega.ok()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  QString::fromStdString(
