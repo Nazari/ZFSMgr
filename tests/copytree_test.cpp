@@ -423,6 +423,102 @@ private Q_SLOTS:
         }
     }
 
+    void elManifiestoLlevaDuenoYGrupo() {
+        // De esto depende que una copia entre maquinas no deje todo perteneciendo a root.
+        // Medido en vivo antes del arreglo: un /home copiado a otra maquina llegaba entero
+        // de root, y eso lo deja inservible sin que nada avise.
+        std::vector<AR::Entry> e(1);
+        e[0].path = "f.txt";
+        e[0].kind = AR::EntryKind::File;
+        e[0].mode = 0640;
+        e[0].uid = 1000;
+        e[0].gid = 1000;
+        e[0].owner = "linarese";
+        e[0].group = "usuarios";
+        std::vector<AR::Entry> vuelta;
+        std::string err;
+        QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), size_t(1));
+        QCOMPARE(vuelta[0].uid, e[0].uid);
+        QCOMPARE(vuelta[0].gid, e[0].gid);
+        QCOMPARE(QString::fromStdString(vuelta[0].owner), QString::fromStdString(e[0].owner));
+        QCOMPARE(QString::fromStdString(vuelta[0].group), QString::fromStdString(e[0].group));
+        QCOMPARE(vuelta[0].mode, e[0].mode);
+    }
+
+    void unManifiestoSinDuenoSigueValiendo() {
+        // **La compatibilidad, que es lo que permite actualizar las maquinas de una en una.**
+        // Un agente anterior a esto manda seis campos y ahi acaba la linea. Exigir los
+        // nuevos convertiria «la otra maquina tiene un agente de la semana pasada» en «la
+        // copia no funciona», que es mucho peor que copiar sin conservar el dueno.
+        const std::string viejo = "f 7 1700000000 420 5 0\n" "f.txt" "E\n";
+        std::vector<AR::Entry> vuelta;
+        std::string err;
+        QVERIFY2(AR::parseManifest(viejo, vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(vuelta[0].path), QString("f.txt"));
+        QCOMPARE(vuelta[0].mode, uint32_t(420));
+        // Sin dueno: a cero y vacio, que es «no se sabe» y se traduce en no tocarlo.
+        QCOMPARE(vuelta[0].uid, uint32_t(0));
+        QVERIFY(vuelta[0].owner.empty());
+    }
+
+    void laCabeceraDeOperacionTambienLosLleva() {
+        // Hace falta en las DOS: el manifiesto describe el arbol y la cabecera de operacion
+        // es por donde viaja cada fichero. Con el dueno solo en el manifiesto, el receptor
+        // —que no ve el manifiesto del origen— seguiria sin saberlo.
+        AR::Operation o;
+        o.action = AR::Action::Send;
+        o.entry.path = "f.txt";
+        o.entry.mode = 0755;
+        o.entry.uid = 1000;
+        o.entry.gid = 100;
+        o.entry.owner = "linarese";
+        o.entry.group = "users";
+        AR::Operation vuelta;
+        std::size_t lr = 0, ld = 0, ldu = 0, lgr = 0;
+        std::string err;
+        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, ldu, lgr, err), err.c_str());
+        QCOMPARE(vuelta.entry.uid, o.entry.uid);
+        QCOMPARE(vuelta.entry.gid, o.entry.gid);
+        QCOMPARE(ldu, o.entry.owner.size());
+        QCOMPARE(lgr, o.entry.group.size());
+    }
+
+    void unaCabeceraDeOperacionSinDuenoSigueValiendo() {
+        AR::Operation vuelta;
+        std::size_t lr = 0, ld = 0, ldu = 0, lgr = 0;
+        std::string err;
+        QVERIFY2(AR::parseHeader("F 420 1700000000 7 5 0", vuelta, lr, ld, ldu, lgr, err),
+                 err.c_str());
+        QCOMPARE(lr, size_t(5));
+        QCOMPARE(ldu, size_t(0));
+        QCOMPARE(lgr, size_t(0));
+        QCOMPARE(vuelta.entry.uid, uint32_t(0));
+    }
+
+    void elRecorridoAnotaElModoDeLosDirectorios() {
+        // `en.mode` se rellenaba en UN solo sitio —la rama del fichero corriente— asi que
+        // los directorios viajaban con modo 0 y el receptor se saltaba el chmod: un
+        // `drwx------` llegaba al otro lado como `drwxr-xr-x`.
+        namedirs();
+        const std::filesystem::path d = src_ / "cerrado";
+        std::filesystem::create_directories(d);
+        ::chmod(d.string().c_str(), 0700);
+        std::vector<AR::Entry> e;
+        std::string err;
+        QVERIFY(AR::walk(src_.string(), e, err));
+        bool visto = false;
+        for (const AR::Entry& x : e) {
+            if (x.path == "cerrado") {
+                visto = true;
+                QCOMPARE(x.mode, uint32_t(0700));
+                QVERIFY(x.uid != 0 || !x.owner.empty());
+            }
+        }
+        QVERIFY2(visto, "el directorio no salio en el recorrido");
+    }
+
     void unNombreConSaltoDeLineaNoRompeElManifiesto() {
         // Las longitudes van explicitas justo por esto: un nombre puede llevar dentro un
         // salto de linea, y partir por lineas dejaria el manifiesto descolocado.
@@ -504,7 +600,9 @@ private Q_SLOTS:
         AR::Operation vuelta;
         size_t lr = 0, ld = 0;
         std::string err;
-        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, err), err.c_str());
+        std::size_t ldu = 0;
+        std::size_t lgr = 0;
+        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, ldu, lgr, err), err.c_str());
         QVERIFY(vuelta.action == AR::Action::Send);
         QCOMPARE(vuelta.entry.size, uint64_t(12345));
         QCOMPARE(vuelta.entry.mtime, int64_t(1700000000));

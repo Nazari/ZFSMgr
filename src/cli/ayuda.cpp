@@ -1140,10 +1140,10 @@ const std::vector<Orden> kOrdenes = {
        "vida, y evita que una errata cree un árbol entero en el sitio equivocado."},
       {"t_cp_det5", "Entre máquinas va de agente a agente, con delta y sin shell de por medio; "
        "dentro de una, por `rsync`."},
-      {"t_cp_det6", "ENTRE MÁQUINAS, lo copiado aterriza perteneciendo a root: el árbol entre "
-       "agentes todavía no lleva el propietario ni el grupo. Dentro de una misma máquina sí "
-       "se conservan. Si lo que copia es un /home o discos de máquinas virtuales, eso "
-       "importa."}},
+      {"t_cp_det6", "Se conservan el modo, la fecha, el propietario y el grupo, también entre "
+       "máquinas. El dueño se resuelve POR NOMBRE en el destino —el número 1000 es una "
+       "persona aquí y otra allí— y solo se cae al número si ese nombre no existe. Lo que "
+       "no viaja todavía son las ACL y los atributos extendidos."}},
      Objetivo::None_,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"rsync", {"t_acciones_79bd0e", "Acciones"}, {"t_rsync_uso", "<destino> [--delete] [--check] [--wait]"},

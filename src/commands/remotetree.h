@@ -46,6 +46,21 @@ struct Entry {
     std::uint32_t mode{0};
     // For `Symlink`, where it points. For `HardLink`, the sibling path already sent.
     std::string target;
+
+    // --- Propietario y grupo.
+    //
+    // Viajan los DOS números y los DOS nombres, y no es redundancia: entre máquinas los
+    // números no significan lo mismo. El uid 1000 es «linarese» aquí y puede ser cualquiera
+    // allí, así que copiar el número a ciegas entrega los ficheros a quien no toca. En el
+    // destino se resuelve por NOMBRE y solo se cae al número si ese nombre no existe allí.
+    // Es lo que hace rsync, que tiene exactamente el mismo problema.
+    //
+    // Vacíos o a cero cuando el manifiesto viene de un agente anterior a esto: entonces no
+    // se toca el dueño, que es mejor que ponerlo mal.
+    std::uint32_t uid{0};
+    std::uint32_t gid{0};
+    std::string owner;
+    std::string group;
 };
 
 // Walks `root` and returns its contents, sorted by path.
@@ -101,7 +116,11 @@ std::string describe(const Operation& o);
 // can carry newlines and spaces inside it.
 std::string headerOf(const Operation& o);
 bool parseHeader(const std::string& line, Operation& output, std::size_t& pathLen,
-                     std::size_t& targetLen, std::string& error);
+                 std::size_t& targetLen,
+                 // Los nombres de dueño y grupo también viajan por la cabecera, y
+                 // quien la lee tiene que saber cuántos bytes vienen detrás. Cero
+                 // cuando la manda un agente anterior a esto.
+                 std::size_t& ownerLen, std::size_t& groupLen, std::string& error);
 
 // ---------------------------------------------------------------------------
 // DELTA transfer: sending only what changed inside a file.
@@ -137,6 +156,20 @@ struct Signature {
 
 // How big a block is for a file of that size. In bands and not by square root: it is
 // predictable, and both ends computing the SAME thing matters more than tuning it.
+// Pone el dueño y el grupo de una ruta, resolviendo POR NOMBRE.
+//
+// El número no vale entre máquinas: el uid 1000 es una persona aquí y otra allí, así que
+// copiarlo a ciegas entrega los ficheros a quien no toca. Se busca el nombre en el sistema
+// de destino y solo si no existe se cae al número, que es lo que hace rsync.
+//
+// Con el nombre y el número vacíos NO SE TOCA NADA: es lo que llega de un agente anterior a
+// esto, y dejar el dueño como esté vale más que ponerlo mal.
+//
+// Devuelve false solo si se intentó y falló. Cambiar el dueño exige ser root: el agente lo
+// es, pero si alguna vez no lo fuera, esto lo dice en vez de callarlo.
+bool setOwner(const std::string& path, std::uint32_t uid, std::uint32_t gid,
+              const std::string& owner, const std::string& group);
+
 std::size_t blockSize(std::uint64_t fileSize);
 
 // rsync's rolling sum over a chunk.

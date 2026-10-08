@@ -15,6 +15,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <grp.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -135,6 +137,53 @@ std::size_t hondura(const std::string& ruta) {
 
 }  // namespace
 
+// Dueño, grupo y modo de una ruta. `lstat` y NO `stat`: de un enlace simbólico interesa el
+// enlace, no aquello a lo que apunta —seguirlo daría el dueño del destino, que puede estar
+// fuera del árbol que se copia—.
+//
+// El nombre se busca una vez y se recuerda: un árbol de cien mil ficheros de un mismo
+// usuario haría cien mil `getpwuid`, y esa llamada puede ir a la red si hay LDAP o NIS
+// detrás.
+void anotaDuenoYModo(const std::string& ruta, Entry& en) {
+#ifdef _WIN32
+    (void)ruta;
+    (void)en;
+#else
+    struct stat st {};
+    if (::lstat(ruta.c_str(), &st) != 0) {
+        return;
+    }
+    en.mode = static_cast<std::uint32_t>(st.st_mode & 07777);
+    en.uid = static_cast<std::uint32_t>(st.st_uid);
+    en.gid = static_cast<std::uint32_t>(st.st_gid);
+
+    static std::map<std::uint32_t, std::string> usuarios;
+    static std::map<std::uint32_t, std::string> grupos;
+    const auto nombreUsuario = [&](std::uint32_t id) {
+        const auto it = usuarios.find(id);
+        if (it != usuarios.end()) {
+            return it->second;
+        }
+        const struct passwd* pw = ::getpwuid(static_cast<uid_t>(id));
+        const std::string n = pw && pw->pw_name ? pw->pw_name : std::string();
+        usuarios[id] = n;
+        return n;
+    };
+    const auto nombreGrupo = [&](std::uint32_t id) {
+        const auto it = grupos.find(id);
+        if (it != grupos.end()) {
+            return it->second;
+        }
+        const struct group* gr = ::getgrgid(static_cast<gid_t>(id));
+        const std::string n = gr && gr->gr_name ? gr->gr_name : std::string();
+        grupos[id] = n;
+        return n;
+    };
+    en.owner = nombreUsuario(en.uid);
+    en.group = nombreGrupo(en.gid);
+#endif
+}
+
 bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& error,
              bool unSoloSistema) {
     salida.clear();
@@ -191,6 +240,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
             en.kind = EntryKind::Symlink;
             std::error_code e4;
             en.target = conBarras(fs::read_symlink(p, e4).generic_string());
+            anotaDuenoYModo(p.string(), en);
             salida.push_back(en);
             // No se desciende por un enlace: se copia el enlace, no lo que hay al otro lado.
             if (it->is_directory(e4)) {
@@ -204,6 +254,11 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
             en.kind = EntryKind::Directory;
             bool okF = false;
             en.mtime = fechaDe(p, okF);
+            // **El modo de un directorio no se anotaba.** `en.mode` se rellenaba en un solo
+            // sitio —la rama del fichero corriente— así que los directorios viajaban con
+            // modo 0 y `setMode` se salía en el acto: un `drwx------` llegaba al otro lado
+            // como `drwxr-xr-x`. Medido entre fc16 y unib.
+            anotaDuenoYModo(p.string(), en);
 #ifndef _WIN32
             if (unSoloSistema && haySt) {
                 struct stat st {};
@@ -236,6 +291,11 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
         }
         bool okF = false;
         en.mtime = fechaDe(p, okF);
+        // El dueño y el grupo, igual que en el directorio y en el enlace. Esta rama ya tenía
+        // su propio `lstat` y por eso se le pasó: el modo se ponía aquí y el dueño, al
+        // añadirlo, se añadió en las otras dos. Resultado medido entre fc16 y unib: los
+        // directorios llegaban bien y los ficheros seguían siendo de root.
+        anotaDuenoYModo(p.string(), en);
 #ifndef _WIN32
         struct stat st {};
         if (::lstat(p.c_str(), &st) == 0) {
@@ -296,9 +356,26 @@ std::string serializeManifest(const std::vector<Entry>& entradas) {
         out += std::to_string(e.path.size());
         out += ' ';
         out += std::to_string(e.target.size());
+        // --- Dueño y grupo, AL FINAL de la línea y a propósito.
+        //
+        // La cabecera se lee con un `iss >> campo >> campo …` posicional, así que lo que
+        // sobra al final se ignora: un agente anterior a esto lee las seis primeras y sigue
+        // como siempre. Y el analizador nuevo trata lo que falte como ausente. Por eso se
+        // añaden aquí y no en medio: en medio sería un formato nuevo, y habría que
+        // actualizar las dos puntas a la vez.
+        out += ' ';
+        out += std::to_string(e.uid);
+        out += ' ';
+        out += std::to_string(e.gid);
+        out += ' ';
+        out += std::to_string(e.owner.size());
+        out += ' ';
+        out += std::to_string(e.group.size());
         out += '\n';
         out += e.path;
         out += e.target;
+        out += e.owner;
+        out += e.group;
     }
     out += "E\n";
     return out;
@@ -346,6 +423,27 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
         e.path = texto.substr(i, lr);
         e.target = texto.substr(i + lr, ld);
         i += lr + ld;
+        // --- Dueño y grupo, si vienen.
+        //
+        // OPCIONALES a propósito: un agente anterior a esto manda seis campos y ahí se
+        // acaba la línea. Exigirlos convertiría «la otra máquina tiene un agente de la
+        // semana pasada» en «la copia no funciona», que es mucho peor que copiar sin
+        // conservar el dueño —que es justo lo que se venía haciendo—.
+        std::uint32_t uid = 0;
+        std::uint32_t gid = 0;
+        std::size_t lu = 0;
+        std::size_t lg = 0;
+        if (iss >> uid >> gid >> lu >> lg) {
+            if (i + lu + lg > texto.size()) {
+                error = "manifiesto truncado en el dueño";
+                return false;
+            }
+            e.uid = uid;
+            e.gid = gid;
+            e.owner = texto.substr(i, lu);
+            e.group = texto.substr(i + lu, lg);
+            i += lu + lg;
+        }
         salida.push_back(e);
     }
     error = "el manifiesto no termina en «E»";
@@ -462,12 +560,25 @@ std::string headerOf(const Operation& o) {
     h += std::to_string(o.entry.path.size());
     h += ' ';
     h += std::to_string(o.entry.target.size());
+    // Dueño y grupo, al final y por el mismo motivo que en el manifiesto: lo que sobra en
+    // la línea lo ignora un agente anterior a esto, y lo que falta lo trata como ausente
+    // uno nuevo. Hace falta aquí ADEMÁS de en el manifiesto porque ésta es la cabecera de
+    // cada operación, y es por donde viaja un fichero que se envía o se parchea.
+    h += ' ';
+    h += std::to_string(o.entry.uid);
+    h += ' ';
+    h += std::to_string(o.entry.gid);
+    h += ' ';
+    h += std::to_string(o.entry.owner.size());
+    h += ' ';
+    h += std::to_string(o.entry.group.size());
     h += '\n';
     return h;
 }
 
 bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largoRuta,
-                     std::size_t& largoDestino, std::string& error) {
+                 std::size_t& largoDestino, std::size_t& largoDueno,
+                 std::size_t& largoGrupo, std::string& error) {
     error.clear();
     std::istringstream iss(linea);
     char letra = 0;
@@ -490,6 +601,19 @@ bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largo
     salida.entry.size = tam;
     largoRuta = lr;
     largoDestino = ld;
+    // Opcionales: un agente anterior a esto manda seis campos y ahí acaba la línea.
+    std::uint32_t uid = 0;
+    std::uint32_t gid = 0;
+    std::size_t lu = 0;
+    std::size_t lg = 0;
+    largoDueno = 0;
+    largoGrupo = 0;
+    if (iss >> uid >> gid >> lu >> lg) {
+        salida.entry.uid = uid;
+        salida.entry.gid = gid;
+        largoDueno = lu;
+        largoGrupo = lg;
+    }
     return true;
 }
 
@@ -790,6 +914,38 @@ bool setMtime(const std::string& ruta, std::int64_t segundos) {
     tv[0].tv_usec = 0;
     tv[1] = tv[0];
     return ::utimes(ruta.c_str(), tv) == 0;
+#endif
+}
+
+bool setOwner(const std::string& ruta, std::uint32_t uid, std::uint32_t gid,
+              const std::string& usuario, const std::string& grupo) {
+#ifdef _WIN32
+    (void)ruta; (void)uid; (void)gid; (void)usuario; (void)grupo;
+    // En Windows el dueño es un SID y no un uid: traducirlo sería inventarse una
+    // equivalencia que no existe. Mejor no tocarlo que ponerlo mal.
+    return true;
+#else
+    if (uid == 0 && gid == 0 && usuario.empty() && grupo.empty()) {
+        return true;  // nada que poner: manifiesto de un agente anterior a esto
+    }
+    // El NOMBRE manda y el número es el respaldo. Si el nombre existe en esta máquina, ese
+    // es el dueño correcto aunque su número sea otro; y si no existe —una cuenta que solo
+    // hay en la máquina de origen— se usa el número, que al menos conserva la separación
+    // entre dueños distintos.
+    uid_t u = static_cast<uid_t>(uid);
+    gid_t g = static_cast<gid_t>(gid);
+    if (!usuario.empty()) {
+        if (const struct passwd* pw = ::getpwnam(usuario.c_str())) {
+            u = pw->pw_uid;
+        }
+    }
+    if (!grupo.empty()) {
+        if (const struct group* gr = ::getgrnam(grupo.c_str())) {
+            g = gr->gr_gid;
+        }
+    }
+    // `lchown` y no `chown`: de un enlace simbólico se cambia el enlace, no su destino.
+    return ::lchown(ruta.c_str(), u, g) == 0;
 #endif
 }
 

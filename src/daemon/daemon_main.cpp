@@ -6262,6 +6262,12 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
     }
 
     std::uint64_t hechas = 0;
+    // Las fechas de los DIRECTORIOS, para ponerlas al final.
+    //
+    // No se pueden poner al crearlos: escribir cada fichero dentro vuelve a cambiar la
+    // fecha del padre, así que la que quedaba era la del momento de la copia. Se apuntan
+    // aquí y se aplican cuando ya no se toca nada, que es lo que hace `rsync`.
+    std::vector<std::pair<std::string, std::int64_t>> fechasDeDirectorios;
     // Las que NO se pudieron aplicar. Se cuentan y se dicen, pero no cortan el resto: un
     // enlace que no se puede crear no es motivo para dejar diez mil ficheros sin copiar.
     //
@@ -6305,14 +6311,26 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             std::uint64_t tamFinal = 0;
             std::size_t lrp = 0;
             std::size_t lhash = 0;
+            std::uint32_t uidP = 0;
+            std::uint32_t gidP = 0;
+            std::size_t ldueno = 0;
+            std::size_t lgrupo = 0;
             if (!(iss >> letra >> modo >> fecha >> tamFinal >> lrp >> lhash)) {
                 fallo = "cabecera de parche ilegible";
                 break;
             }
+            // Opcionales: si la cabecera venía de un emisor anterior a esto, el `iss` no
+            // los lee y quedan a cero, que es «no se sabe el dueño» y se traduce en no
+            // tocarlo. Se leen DESPUÉS del hash, en el mismo orden en que se mandan.
+            (void)(iss >> uidP >> gidP >> ldueno >> lgrupo);
             std::string rutaP(lrp, '\0');
             std::string hashEsperado(lhash, '\0');
+            std::string duenoP(ldueno, '\0');
+            std::string grupoP(lgrupo, '\0');
             if ((lrp > 0 && !leeExacto(cliente, rutaP.data(), lrp))
-                || (lhash > 0 && !leeExacto(cliente, hashEsperado.data(), lhash))) {
+                || (lhash > 0 && !leeExacto(cliente, hashEsperado.data(), lhash))
+                || (ldueno > 0 && !leeExacto(cliente, duenoP.data(), ldueno))
+                || (lgrupo > 0 && !leeExacto(cliente, grupoP.data(), lgrupo))) {
                 fallo = "se cortó leyendo la cabecera del parche";
                 break;
             }
@@ -6407,6 +6425,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     }
                 } else {
                     AR::setMode(vieja.string(), modo);
+                    AR::setOwner(vieja.string(), uidP, gidP, duenoP, grupoP);
                     AR::setMtime(vieja.string(), fecha);
                     ++hechas;
                 }
@@ -6424,16 +6443,24 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         AR::Operation op;
         std::size_t lr = 0;
         std::size_t ld = 0;
-        if (!AR::parseHeader(linea, op, lr, ld, fallo)) {
+        std::size_t ldu = 0;
+        std::size_t lgr = 0;
+        if (!AR::parseHeader(linea, op, lr, ld, ldu, lgr, fallo)) {
             break;
         }
-        std::string nombres(lr + ld, '\0');
-        if (lr + ld > 0 && !leeExacto(cliente, nombres.data(), lr + ld)) {
+        // Los cuatro nombres en una sola lectura, en el mismo orden en que se mandan: ruta,
+        // destino del enlace, dueño y grupo. Los dos últimos pueden venir a cero, que es lo
+        // que manda un emisor anterior a esto.
+        std::string nombres(lr + ld + ldu + lgr, '\0');
+        if (lr + ld + ldu + lgr > 0
+            && !leeExacto(cliente, nombres.data(), lr + ld + ldu + lgr)) {
             fallo = "se cortó la conexión leyendo un nombre";
             break;
         }
         op.entry.path = nombres.substr(0, lr);
         op.entry.target = nombres.substr(lr, ld);
+        op.entry.owner = nombres.substr(lr + ld, ldu);
+        op.entry.group = nombres.substr(lr + ld + ldu, lgr);
 
         // La ruta viene del OTRO extremo, así que se comprueba antes de tocar el disco: sin
         // esto, un «../..» en el manifiesto escribiría fuera del árbol que se sincroniza.
@@ -6455,6 +6482,11 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 // falso sin código: solo se mira el código.
                 bienOp = anota(ec, "crear el directorio", op.entry.path);
                 AR::setMode(destino.string(), op.entry.mode);
+                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
+                             op.entry.group);
+                // La FECHA de un directorio no se pone aquí: escribir ficheros dentro la
+                // vuelve a cambiar. Se apunta y se aplica al final, cuando ya no se toca.
+                fechasDeDirectorios.emplace_back(destino.string(), op.entry.mtime);
                 break;
             case AR::Action::Send: {
                 std::filesystem::create_directories(destino.parent_path(), ec);
@@ -6506,6 +6538,8 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     break;  // sale del `case`, no del bucle: la cuenta ya está hecha
                 }
                 AR::setMode(destino.string(), op.entry.mode);
+                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
+                             op.entry.group);
                 // La fecha, SIEMPRE. Sin ella la próxima pasada lo traería otra vez entero.
                 AR::setMtime(destino.string(), op.entry.mtime);
                 break;
@@ -6519,6 +6553,10 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 // callarlo dejaba el enlace pendiente en todas las pasadas siguientes
                 // mientras el trabajo se apuntaba como terminado.
                 bienOp = anota(ec, "crear el enlace simbólico", op.entry.path);
+                // Un enlace tiene su propio dueño, distinto del de su destino. `setOwner`
+                // usa `lchown`, así que cambia el enlace y no aquello a lo que apunta.
+                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
+                             op.entry.group);
                 break;
             }
             case AR::Action::HardLink_: {
@@ -6541,6 +6579,15 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         if (bienOp) {
             ++hechas;
         }
+    }
+
+    // Y ahora sí, las fechas de los directorios. De la MÁS PROFUNDA a la menos: poner la de
+    // una hija cambia la de su madre, así que hacerlo al revés dejaría a las madres con la
+    // fecha del momento de la copia, que es el defecto que esto viene a arreglar.
+    std::sort(fechasDeDirectorios.begin(), fechasDeDirectorios.end(),
+              [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
+    for (const auto& fd : fechasDeDirectorios) {
+        AR::setMtime(fd.first, fd.second);
     }
 
     if (fallo.empty() && fallidas > 0) {
@@ -6772,13 +6819,20 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
                 bytesAhorrados += (o.entry.size > literales) ? (o.entry.size - literales)
                                                                  : 0;
                 AR::Operation parche = o;
+                // Dueño y grupo al final, igual que en el manifiesto y en la cabecera de
+                // operación: lo que sobra lo ignora un receptor anterior a esto.
                 std::string cab = "P " + std::to_string(o.entry.mode) + " "
                                   + std::to_string(o.entry.mtime) + " "
                                   + std::to_string(o.entry.size) + " "
                                   + std::to_string(o.entry.path.size()) + " "
-                                  + std::to_string(hashEntero.size()) + "\n";
+                                  + std::to_string(hashEntero.size()) + " "
+                                  + std::to_string(o.entry.uid) + " "
+                                  + std::to_string(o.entry.gid) + " "
+                                  + std::to_string(o.entry.owner.size()) + " "
+                                  + std::to_string(o.entry.group.size()) + "\n";
                 bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entry.path)
-                       && mandaTodo(sock, hashEntero);
+                       && mandaTodo(sock, hashEntero)
+                       && mandaTodo(sock, o.entry.owner) && mandaTodo(sock, o.entry.group);
                 for (const AR::Instruction& in : instrucciones) {
                     if (!bien) {
                         break;
@@ -6802,7 +6856,8 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             // Si el delta no se pudo calcular, se manda entero: es lento, no es incorrecto.
         }
         if (!mandaTodo(sock, AR::headerOf(o)) || !mandaTodo(sock, o.entry.path)
-            || !mandaTodo(sock, o.entry.target)) {
+            || !mandaTodo(sock, o.entry.target) || !mandaTodo(sock, o.entry.owner)
+            || !mandaTodo(sock, o.entry.group)) {
             bien = false;
             break;
         }

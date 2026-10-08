@@ -4479,14 +4479,6 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
             return false;
         }
     }
-    // Y se DICE lo que se pierde por el camino. El árbol entre agentes todavía no lleva
-    // propietario ni grupo, así que lo copiado aterriza perteneciendo a root. Dentro de una
-    // misma máquina no pasa —ahí va por `rsync`, que sí los conserva— y esa asimetría es
-    // justo la que no se puede dejar sin decir: copiar un /home y encontrárselo entero de
-    // root es un desastre silencioso.
-    std::fputs(TC("t_cp_dueno", "aviso: entre máquinas lo copiado aterriza perteneciendo a "
-                  "root; el árbol entre agentes todavía no lleva propietario ni grupo\n"),
-               stderr);
     std::string salidaEnvio;
     const auto hecho = TR::launchTreeJob(e.ses->transporte, llama, src, dst, rutaOrigen,
                                          rutaDestino, /*mismaConexion=*/false, e.ses->verboso,
