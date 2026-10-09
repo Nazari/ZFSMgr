@@ -9904,6 +9904,9 @@ void printUsage(const char* argv0) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // Antes que nada: escribir en un socket ya cerrado no puede matar el proceso.
+    // Ver zfsmgr::base::ignoreSigpipeExceptInChildren.
+    zfsmgr::base::ignoreSigpipeExceptInChildren();
     const AgentRuntimeConfig runtimeCfg = loadRuntimeConfig();
     applyRuntimeEnvironment(runtimeCfg);
 

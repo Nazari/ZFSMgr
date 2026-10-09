@@ -22,6 +22,20 @@ namespace zfsmgr::base {
 // it died from one, which is the shells' convention.
 int decodeWaitStatus(int status);
 
+// SIGPIPE ignorado en ESTE proceso, y devuelto a su valor por defecto en cada hijo.
+//
+// Sin esto, escribir en un socket o una tubería cuyo otro extremo ya cerró MATA el proceso
+// entero, en silencio: el CLI salía con 141, sin escribir un byte —lo que tenía en el búfer
+// se perdía con él—, en cuanto el túnel hacia un daemon que acababa de desaparecer cerraba
+// a mitad de un `SSL_write`. Ignorada, la escritura devuelve EPIPE y se trata como cualquier
+// otro error.
+//
+// Pero una señal ignorada SE HEREDA a través de `exec`, y los hijos —`zfs send` en una
+// tubería, `ssh`— cuentan con morir por SIGPIPE cuando el lector se va. Por eso se registra
+// con `pthread_atfork` una función que la restaura en cada hijo nada más nacer: así no hay
+// que acordarse de ello en cada uno de los `fork` del programa. Idempotente.
+void ignoreSigpipeExceptInChildren();
+
 struct ExecResult {
     int rc{1};
     std::string out;

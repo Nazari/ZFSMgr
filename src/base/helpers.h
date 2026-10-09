@@ -176,6 +176,15 @@ bool windowsPoolCreateLabeledButFailed(const std::string& output);
 // llama desde el hilo de la interfaz. Sugiere, no afirma.
 std::string mdnsFallbackHost(const std::string& sshError, const std::string& host);
 
+// ¿Es este error de `ssh` el de «la clave del anfitrión ha cambiado»? Si lo es, `donde` sale
+// con el fichero y la línea de la clave guardada que no coincide —«/home/x/.ssh/known_hosts:92»—,
+// o vacío si `ssh` no lo dijo.
+//
+// Hace falta reconocerlo porque `ssh` lo cuenta con un cartel de arrobas de diez líneas, y
+// pegado en una sola línea y recortado se perdía justo lo útil: QUÉ máquina es y CÓMO se
+// resuelve. Lo que se enseñaba era «IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING».
+bool sshHostKeyChanged(const std::string& sshError, std::string& donde);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 

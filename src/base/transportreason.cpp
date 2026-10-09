@@ -14,6 +14,8 @@ bool suggestsDaemonRevival(Failure f) {
 
         // El material TLS está mal. Revivir el servicio no lo arregla —hace falta volver a
         // aprovisionar— y gastaría una conexión SSH para nada.
+        // La clave SSH cambiada tampoco: ni siquiera se llegó al daemon.
+        case Failure::HostKeyChanged:
         case Failure::InvalidCertificates:
         case Failure::InvalidClientKey:
         case Failure::CertificateMismatch:
@@ -41,6 +43,11 @@ bool suggestsDaemonRevival(Failure f) {
 
 bool looksLikeTls(Failure f) {
     switch (f) {
+        // Es de SSH, no de TLS: presentarlo como «TLS en espera» mandaría a mirar los
+        // certificados.
+        case Failure::HostKeyChanged:
+            return false;
+
         case Failure::MaterialCannotBeRead:
         case Failure::MaterialIncomplete:
         case Failure::ClientKeyUnavailable:
@@ -82,6 +89,9 @@ bool deservesPenalty(Failure f) {
             return false;
 
         case Failure::MaterialCannotBeRead:
+        // La clave no va a arreglarse sola en 30 s, y reintentar al momento repetiría el
+        // mismo error en cada refresco.
+        case Failure::HostKeyChanged:
         case Failure::MaterialIncomplete:
         case Failure::ClientKeyUnavailable:
         case Failure::InvalidCertificates:
@@ -108,6 +118,7 @@ const char* labelOf(Failure f) {
         case Failure::ConnectionNotSsh: return "conexion-no-ssh";
         case Failure::Cooling: return "en-espera";
         case Failure::MaterialCannotBeRead: return "tls-no-se-lee";
+        case Failure::HostKeyChanged: return "ssh-clave-cambiada";
         case Failure::MaterialIncomplete: return "tls-incompleto";
         case Failure::ClientKeyUnavailable: return "tls-sin-clave-cliente";
         case Failure::InvalidCertificates: return "tls-certificados-invalidos";

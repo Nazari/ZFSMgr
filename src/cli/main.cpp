@@ -10,6 +10,7 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 
 #include "connectionjson.h"
+#include "processes.h"
 #include "daemoninstall.h"
 #include "i18n.h"
 #include "session.h"
@@ -188,6 +189,9 @@ bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Antes que nada: escribir en un socket ya cerrado no puede matar el proceso.
+    // Ver zfsmgr::base::ignoreSigpipeExceptInChildren.
+    zfsmgr::base::ignoreSigpipeExceptInChildren();
     // La consola de Windows interpreta lo que le llega con la página de códigos OEM (850
     // en un Windows en español), y todo lo que escribe este programa es UTF-8: sin esto,
     // «— «help»» salía como «ÔÇö ┬½help┬½». Se ajustan las dos direcciones, porque por la

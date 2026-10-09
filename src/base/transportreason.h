@@ -37,6 +37,12 @@ enum class Failure {
 
     // --- The remote daemon's TLS material
     MaterialCannotBeRead,    // detail: what the other machine said
+    // SSH refused to go in because the host key no longer matches the one stored in
+    // known_hosts. detail: the host as the connection names it; where: the file and line of
+    // the stale key, when ssh said so. It is told apart from «cannot be read» because the
+    // fix is completely different —and lies with the user, not with the daemon—, and because
+    // ssh tells it with a ten-line banner that, flattened and cut, lost exactly that.
+    HostKeyChanged,
     MaterialIncomplete,      // an answer arrived, but without the three pieces
     ClientKeyUnavailable,    // neither local nor remote; the daemon hands it over only once
     InvalidCertificates,
@@ -112,6 +118,7 @@ const char* labelOf(Warning w);
 struct FailureReason {
     Failure failure{Failure::None_};
     std::string detail;
+    std::string where;  // only HostKeyChanged: file:line of the stale key
 
     bool empty() const { return failure == Failure::None_; }
 };

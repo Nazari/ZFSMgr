@@ -816,6 +816,41 @@ std::string mdnsFallbackHost(const std::string& sshError, const std::string& hos
     return h + ".local";
 }
 
+bool sshHostKeyChanged(const std::string& sshError, std::string& donde) {
+    donde.clear();
+    std::string bajo;
+    bajo.reserve(sshError.size());
+    for (char c : sshError) {
+        bajo.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    // Las dos frases que OpenSSH escribe en este caso, en Linux, macOS, FreeBSD y Windows. Se
+    // acepta cualquiera: según la versión y el `LogLevel`, el cartel grande puede no salir y
+    // quedarse solo la segunda.
+    const bool cambiada = bajo.find("remote host identification has changed") != std::string::npos
+                          || (bajo.find("host key for") != std::string::npos
+                              && bajo.find("has changed") != std::string::npos);
+    if (!cambiada) {
+        return false;
+    }
+    // «Offending ECDSA key in /home/x/.ssh/known_hosts:92». El tipo de clave cambia
+    // (ECDSA, ED25519, RSA), así que se busca lo que viene después de « key in ».
+    const std::string marca = "offending ";
+    const std::size_t i = bajo.find(marca);
+    if (i != std::string::npos) {
+        const std::size_t en = bajo.find(" key in ", i);
+        if (en != std::string::npos) {
+            const std::size_t ini = en + 8;
+            std::size_t fin = ini;
+            while (fin < sshError.size() && !std::isspace(static_cast<unsigned char>(sshError[fin]))) {
+                ++fin;
+            }
+            // Del texto ORIGINAL, no del pasado a minúsculas: la ruta distingue mayúsculas.
+            donde = sshError.substr(ini, fin - ini);
+        }
+    }
+    return true;
+}
+
 bool windowsPartitionTypeIsProtected(const std::string& rawFsType) {
     if (trim(rawFsType).empty()) {
         return false;

@@ -876,6 +876,38 @@ bool confirma(const Estado& e, const std::string& que) {
 //
 // El plazo por máquina es de 8 s y el resultado se recuerda durante la sesión —el fallo
 // también—, así que la espera se paga una vez.
+// Olvida la versión del daemon que la sesión recordaba para esta conexión.
+//
+// `listaConexiones` la recuerda toda la sesión —el fallo también— para no esperar dos veces
+// por una máquina que no contesta. Pero hay órdenes que la dejan OBSOLETA en el acto, y sin
+// esto el «-» de antes de instalar seguía saliendo después de instalar, hasta salir del
+// intérprete: `install-daemon` cambia el daemon, `edit` puede cambiar la máquina a la que
+// apunta la conexión, y `refresh` es justo para volver a preguntar.
+void olvidaVersionDaemon(Estado& e, const B::ConnectionProfile& p) {
+    e.versionDaemon.erase(p.id);
+    e.versionDaemon.erase(p.name);
+}
+
+// TODO lo que la sesión recuerda de una conexión y que una de estas órdenes deja obsoleto: el
+// túnel abierto, el material TLS leído, la penalización por un fallo reciente y la versión
+// del daemon. Es lo que hacía `refresh`, sacado aquí para que `install-daemon` y `edit` hagan
+// lo mismo en vez de dejar a medias lo que había.
+//
+// Las tres primeras van por usuario, máquina, puerto y clave SSH; tras un `edit` que cambie
+// la dirección hay que llamarla con el perfil de ANTES, o el túnel contra la máquina vieja
+// seguiría abierto.
+void olvidaEstadoDeConexion(Estado& e, const B::ConnectionProfile& p) {
+    T::closeTunnelForConnection(e.ses->transporte, p);
+    T::clearRemoteDaemonTlsCacheForConnection(p);
+    {
+        std::lock_guard<std::mutex> lock(e.ses->transporte.mutex);
+        const std::string clave = T::remoteDaemonTlsCacheKey(p);
+        e.ses->transporte.retryAfterByConnKey.erase(clave);
+        e.ses->transporte.retryReasonByConnKey.erase(clave);
+    }
+    olvidaVersionDaemon(e, p);
+}
+
 void listaConexiones(Estado& e, const Peticion& pet) {
     (void)pet;
     Tabla t = tablaDeConexiones(e.conns);
@@ -1967,10 +1999,10 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     const std::string puertoTexto = pet.valor("port");
 
     if (interactivo) {
-        if (p.name.empty() && !pide("Nombre visible", p.id, p.name)) return false;
-        if (p.connType.empty() && !pide("Tipo (LOCAL/SSH)", "SSH", p.connType)) return false;
+        if (p.name.empty() && !pide(TC("t_p_nombre_visible", "Nombre visible"), p.id, p.name)) return false;
+        if (p.connType.empty() && !pide(TC("t_p_tipo_conexion", "Tipo (LOCAL/SSH)"), "SSH", p.connType)) return false;
         p.connType = B::toUpperAscii(p.connType);
-        if (p.osType.empty() && !pide("Sistema operativo", "Linux", p.osType)) return false;
+        if (p.osType.empty() && !pide(TC("t_p_sistema_operativo", "Sistema operativo"), "Linux", p.osType)) return false;
     }
     if (p.name.empty()) p.name = p.id;
     if (p.connType.empty()) p.connType = "SSH";
@@ -1978,7 +2010,7 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
 
     const bool local = B::toLowerAscii(p.connType) == "local";
     if (!local) {
-        if (p.host.empty() && interactivo && !pide("Host", "", p.host)) return false;
+        if (p.host.empty() && interactivo && !pide(TC("t_p_host", "Host"), "", p.host)) return false;
         if (p.host.empty()) {
             std::fputs(TC("t_una_conexi_86be2f", "una conexión SSH necesita un host\n"), stderr);
             return false;
@@ -2067,6 +2099,9 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         return false;
     }
     B::ConnectionProfile p = *actual;
+    // El de ANTES, para limpiar lo que la sesión recordaba de él: si cambia la dirección, lo
+    // recordado va con la clave vieja y su túnel seguiría abierto contra la máquina vieja.
+    const B::ConnectionProfile antes = *actual;
     const bool interactivo = hayTerminal();
     const auto toma = [&](const char* clave, std::string& campo, const char* etiqueta) {
         const std::string v = pet.valor(clave);
@@ -2149,6 +2184,8 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         for (char& c : p.password) { c = 0; }
         return false;
     }
+    olvidaEstadoDeConexion(e, antes);
+    olvidaVersionDaemon(e, p);
 
     // Si lo editado es la conexión LOCAL, guardar no basta: hay dos copias vivas de esas
     // credenciales y las dos se quedarían con las de antes.
@@ -3646,7 +3683,43 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         e.ultimoRc = r.rc == 0 ? 1 : r.rc;
         return false;
     }
-    std::fprintf(stderr, TC("t_daemon_ins_3282b0", "daemon instalado en %s\n"), quien.c_str());
+    // Lo que la sesión recordaba de esta máquina ya no vale —es otro daemon, quizá con otro
+    // material TLS—, y se le PREGUNTA al nuevo antes de dar la instalación por buena.
+    //
+    // Con reintentos, porque el guion de instalación da el servicio por arrancado en cuanto
+    // el PROCESO existe, no cuando ya escucha: la primera pregunta podía llegar antes de
+    // tiempo, fallar, y la sesión recordaba ese fallo —el «-» de la columna DAEMON— hasta
+    // salir. Medido en FreeBSD 15.1: el `ls` de justo después fallaba con «unexpected eof» en
+    // el saludo TLS, y uno lanzado unos segundos más tarde contestaba.
+    std::string versionNueva;
+    std::string ultimoMotivo;
+    for (int intento = 0; intento < 8 && versionNueva.empty(); ++intento) {
+        if (intento > 0) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        // Cada intento desde cero: sin esto, el primer fallo dejaba la conexión penalizada
+        // 30 s y los siguientes ni siquiera llegaban a preguntar.
+        olvidaEstadoDeConexion(e, *p);
+        std::string salida;
+        std::string err;
+        int rcSalud = -1;
+        if (ejecutarAgente(*e.ses, *p, {"--health"}, salida, err, rcSalud, &ultimoMotivo, 4000)
+            && rcSalud == 0) {
+            versionNueva = clavesDe(salida)["VERSION"];
+        }
+    }
+    if (versionNueva.empty()) {
+        olvidaEstadoDeConexion(e, *p);  // que el fallo no quede recordado
+        std::fprintf(stderr,
+                     TC("t_daemon_instalado_mudo",
+                        "daemon instalado en %s, pero todavía no contesta (%s); «refresh» "
+                        "vuelve a preguntar\n"),
+                     quien.c_str(), ultimoMotivo.c_str());
+    } else {
+        e.versionDaemon[p->id.empty() ? p->name : p->id] = versionNueva;
+        std::fprintf(stderr, TC("t_daemon_instalado_contesta", "daemon instalado en %s: contesta, versión %s\n"),
+                     quien.c_str(), versionNueva.c_str());
+    }
     // En macOS hace falta UN PASO MÁS, y a mano: sin «Acceso total al disco» el agente
     // arranca, contesta y responde STATUS=OK, pero no ve los discos, así que no encuentra
     // ningún pool para importar. Todo parece bien salvo el resultado, que es la peor forma
@@ -4171,12 +4244,7 @@ bool cmdRefrescar(Estado& e, const LineaAnalizada& linea) {
     }
     {
         const auto* p = buscarConexion(e.conns, id);
-        T::closeTunnelForConnection(e.ses->transporte, *p);
-        T::clearRemoteDaemonTlsCacheForConnection(*p);
-        std::lock_guard<std::mutex> lock(e.ses->transporte.mutex);
-        const std::string clave = T::remoteDaemonTlsCacheKey(*p);
-        e.ses->transporte.retryAfterByConnKey.erase(clave);
-        e.ses->transporte.retryReasonByConnKey.erase(clave);
+        olvidaEstadoDeConexion(e, *p);
     }
     recarga(e);
 

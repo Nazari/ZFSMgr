@@ -1,4 +1,9 @@
 #include "processes.h"
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+#include <mutex>
+#include <csignal>
 
 #include <map>
 #include <set>
@@ -35,6 +40,23 @@
 #endif
 
 namespace zfsmgr::base {
+
+#ifndef _WIN32
+namespace {
+// En el hijo, tras fork(): solo llamadas seguras ahí, y `signal` lo es.
+void sigpipePorDefectoEnHijo() { std::signal(SIGPIPE, SIG_DFL); }
+}  // namespace
+#endif
+
+void ignoreSigpipeExceptInChildren() {
+#ifndef _WIN32
+    static std::once_flag una;
+    std::call_once(una, [] {
+        std::signal(SIGPIPE, SIG_IGN);
+        pthread_atfork(nullptr, nullptr, sigpipePorDefectoEnHijo);
+    });
+#endif
+}
 
 int decodeWaitStatus(int status) {
 #ifndef _WIN32

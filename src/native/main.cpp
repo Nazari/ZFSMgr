@@ -1,4 +1,5 @@
 #include "connectionstore.h"
+#include "processes.h"
 #include "i18nmanager.h"
 #include "masterpassworddialog.h"
 #include "mainwindow.h"
@@ -135,6 +136,9 @@ void zfsmgrMessageHandler(QtMsgType type, const QMessageLogContext& context, con
 }  // namespace
 
 int main(int argc, char* argv[]) {
+    // Antes que nada: escribir en un socket ya cerrado no puede matar el proceso.
+    // Ver zfsmgr::base::ignoreSigpipeExceptInChildren.
+    zfsmgr::base::ignoreSigpipeExceptInChildren();
     Q_INIT_RESOURCE(resources);
     g_previousMessageHandler = qInstallMessageHandler(zfsmgrMessageHandler);
 #ifdef Q_OS_MAC

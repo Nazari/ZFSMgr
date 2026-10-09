@@ -9,6 +9,13 @@
 #include "transportrpc.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <system_error>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <map>
 #include <mutex>
 #include <thread>
@@ -202,7 +209,14 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     }
     if (!ok) {
         if (failureReason) {
-            *failureReason = {Failure::MaterialCannotBeRead, trim(H::oneLine(errTexto))};
+            // Sobre el texto ENTERO, antes de aplanarlo: es aquí donde está la línea con el
+            // fichero de la clave vieja.
+            std::string donde;
+            if (H::sshHostKeyChanged(errTexto, donde)) {
+                *failureReason = {Failure::HostKeyChanged, trim(p.host), donde};
+            } else {
+                *failureReason = {Failure::MaterialCannotBeRead, trim(H::oneLine(errTexto))};
+            }
         }
         return false;
     }
@@ -344,6 +358,9 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         }
     }
 
+    // Por qué no se pudo montar el túnel, cuando se sabe algo más que «no se pudo». Lo rellena
+    // `aseguraTunel`; vacío, quien llama dice lo genérico.
+    FailureReason motivoTunel;
     // Monta —o reutiliza— el túnel de esta conexión. Devuelve el puerto local.
     const auto aseguraTunel = [&](std::uint16_t remotePort, std::uint16_t& localPortOut) -> bool {
         localPortOut = 0;
@@ -449,6 +466,29 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         args.push_back("-L");
         args.push_back(std::to_string(localPort) + ":127.0.0.1:" + std::to_string(remotePort));
         args.push_back("-N");
+        // Los mensajes de ssh a un FICHERO (`-E`) y no a la terminal. El túnel hereda la salida
+        // de error de quien lo monta, y si la clave del anfitrión había cambiado, el cartel
+        // de diez líneas de `ssh` aparecía crudo en mitad de la sesión del CLI, delante del
+        // mensaje que sí explica qué hacer. Desde el fichero se lee y se entiende.
+        //
+        // En Windows no: allí no se puede borrar un fichero que otro proceso tiene abierto, y
+        // el ssh lo mantiene abierto mientras viva el túnel; se iría quedando uno por túnel.
+        std::string registroSsh;
+#ifndef _WIN32
+        {
+            std::error_code ec;
+            registroSsh = (std::filesystem::temp_directory_path(ec)
+                           / ("zfsmgr-tunel-" + std::to_string(::getpid()) + "-"
+                              + std::to_string(localPort) + ".log"))
+                              .string();
+            if (!ec) {
+                args.push_back("-E");
+                args.push_back(registroSsh);
+            } else {
+                registroSsh.clear();
+            }
+        }
+#endif
         args.push_back(H::sshUserHost(p));
 
         RemoteRpcTunnelState nuevo;
@@ -477,6 +517,29 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             // recarga de conexiones que dejaba colgando las referencias de quien llamó.
             ses.breathe(/*permitirEntradaDeUsuario=*/false);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        // Lo que dijo ssh. El fichero se borra YA, funcione o no el túnel: si funciona, ssh
+        // sigue escribiendo en él mientras viva, pero en un fichero desenlazado, que no ocupa
+        // sitio en ningún directorio y desaparece cuando ssh lo cierra.
+        std::string dijoSsh;
+        if (!registroSsh.empty()) {
+            std::ifstream f(registroSsh);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            dijoSsh = ss.str();
+            std::error_code ec;
+            std::filesystem::remove(registroSsh, ec);
+        }
+        if (!listo && sshMurio) {
+            std::string donde;
+            if (H::sshHostKeyChanged(dijoSsh, donde)) {
+                // El motivo TIPADO, el mismo que da la lectura del material TLS: cuando ese
+                // material está guardado no se lee por SSH, y el túnel es lo primero que toca
+                // la máquina, así que es el único que se entera.
+                motivoTunel = {Failure::HostKeyChanged, trim(p.host), donde};
+                nuevo.process.stop(1500);
+                return false;
+            }
         }
         if (!listo) {
             // El tiempo REAL y el motivo, no un «5 s» fijo. Este bucle sale antes si el ssh
@@ -531,7 +594,8 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
 
         std::uint16_t localPort = 0;
         if (!aseguraTunel(mat.daemonPort, localPort) || localPort == 0) {
-            motivo = {Failure::TunnelCannotBeBuilt, {}};
+            motivo = motivoTunel.empty() ? FailureReason{Failure::TunnelCannotBeBuilt, {}}
+                                         : motivoTunel;
             return false;
         }
 

@@ -819,6 +819,26 @@ QString MainWindow::transportFailureText(const BT::FailureReason& m) const {
             return con(trk(QStringLiteral("t_rpcfail_tlsread"),
                            QStringLiteral("no se pudo leer el material TLS del daemon"),
                            QStringLiteral("could not read the daemon's TLS material")));
+        case F::HostKeyChanged: {
+            // Qué máquina, dónde está la clave vieja y cómo se resuelve. Ver el mismo caso en
+            // src/cli/session.cpp.
+            const QString donde = m.where.empty() ? QStringLiteral("~/.ssh/known_hosts")
+                                                  : QString::fromStdString(m.where);
+            return trk(QStringLiteral("t_rpcfail_hostkey"),
+                       QStringLiteral("la clave SSH de %1 ha cambiado y ya no coincide con la "
+                                      "guardada en %2. Si es lo esperado —se reinstaló la "
+                                      "máquina, o esa dirección es ahora de otra—, bórrela con "
+                                      "«ssh-keygen -R %1» y vuelva a intentarlo. Si no lo "
+                                      "esperaba, no siga: alguien podría estar haciéndose pasar "
+                                      "por ella"),
+                       QStringLiteral("the SSH host key of %1 has changed and no longer matches "
+                                      "the one stored in %2. If that is expected —the machine "
+                                      "was reinstalled, or that address now belongs to another "
+                                      "one—, remove it with «ssh-keygen -R %1» and try again. "
+                                      "If you did not expect it, stop: someone could be "
+                                      "impersonating it"))
+                .arg(detalle, donde);
+        }
         case F::MaterialIncomplete:
             return trk(QStringLiteral("t_rpcfail_tlspartial"),
                        QStringLiteral("el material TLS del daemon llegó incompleto"),

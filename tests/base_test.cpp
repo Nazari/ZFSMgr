@@ -23,6 +23,12 @@
 #include "connectionprofile.h"
 #include "copyspec.h"
 #include "helpers.h"
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+#include <cerrno>
+#include <csignal>
 #include "json.h"
 #include "processes.h"
 #include "refreshparse.h"
@@ -4074,6 +4080,70 @@ int main() {
         comprobar(rc.find("/usr/sbin/daemon") != std::string::npos,
                   "rc.d de FreeBSD: el agente va supervisado por daemon(8)");
     }
+
+    // --- sshHostKeyChanged: el aviso de clave cambiada, reconocido y localizado.
+    {
+        // El mensaje real que vio el usuario al apuntar una conexión a una IP que antes era
+        // de otra máquina, tal cual lo escribe OpenSSH.
+        const std::string real =
+            "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+            "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n"
+            "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+            "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n"
+            "Offending ECDSA key in /home/Linarese/.ssh/known_hosts:92\n"
+            "  remove with:\n"
+            "  ssh-keygen -f '/home/Linarese/.ssh/known_hosts' -R '192.168.122.229'\n"
+            "Host key for 192.168.122.229 has changed and you have requested strict checking.\n"
+            "Host key verification failed.\n";
+        std::string donde;
+        comprobar(helpers::sshHostKeyChanged(real, donde), "sshHostKeyChanged reconoce el aviso");
+        igual(donde, "/home/Linarese/.ssh/known_hosts:92",
+              "sshHostKeyChanged saca el fichero y la línea, con sus mayúsculas");
+        // Aplanado a una línea —como llega después de `oneLine`— también se reconoce.
+        std::string plano = real;
+        replaceAll(plano, "\n", " ");
+        comprobar(helpers::sshHostKeyChanged(plano, donde) && donde == "/home/Linarese/.ssh/known_hosts:92",
+                  "sshHostKeyChanged funciona con el texto en una sola línea");
+        // Solo la frase final, sin cartel ni línea «Offending»: se reconoce, sin ubicación.
+        comprobar(helpers::sshHostKeyChanged(
+                      "Host key for unib has changed and you have requested strict checking.", donde)
+                      && donde.empty(),
+                  "sshHostKeyChanged sin la línea Offending deja la ubicación vacía");
+        // Otros fallos de ssh NO son este.
+        comprobar(!helpers::sshHostKeyChanged("ssh: connect to host mbp port 22: Connection timed out", donde),
+                  "sshHostKeyChanged no confunde un tiempo agotado");
+        comprobar(!helpers::sshHostKeyChanged("linarese@oldlau: Permission denied (publickey).", donde),
+                  "sshHostKeyChanged no confunde una autenticación fallida");
+        comprobar(!helpers::sshHostKeyChanged("", donde), "sshHostKeyChanged con vacío no afirma nada");
+    }
+
+#ifndef _WIN32
+    // --- SIGPIPE: el proceso sobrevive; sus hijos, no.
+    {
+        ignoreSigpipeExceptInChildren();
+        ignoreSigpipeExceptInChildren();  // idempotente: dos llamadas, un solo atfork
+        int tubo[2];
+        comprobar(pipe(tubo) == 0, "SIGPIPE: se crea la tubería de prueba");
+        close(tubo[0]);  // nadie leerá
+        // En ESTE proceso, escribir sin lector devuelve EPIPE en vez de matarlo.
+        errno = 0;
+        const ssize_t n = write(tubo[1], "x", 1);
+        comprobar(n == -1 && errno == EPIPE,
+                  "SIGPIPE: escribir sin lector da EPIPE y el proceso sigue vivo");
+        // En un HIJO, en cambio, vuelve el comportamiento por defecto: muere por SIGPIPE,
+        // que es con lo que cuentan `zfs send` en una tubería o `ssh`.
+        const pid_t hijo = fork();
+        if (hijo == 0) {
+            const ssize_t r = write(tubo[1], "x", 1);
+            _exit(r == -1 ? 3 : 4);  // si llega aquí, NO murió por la señal
+        }
+        int estado = 0;
+        waitpid(hijo, &estado, 0);
+        comprobar(WIFSIGNALED(estado) && WTERMSIG(estado) == SIGPIPE,
+                  "SIGPIPE: un hijo muere por la señal, como si nada hubiera cambiado");
+        close(tubo[1]);
+    }
+#endif
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;

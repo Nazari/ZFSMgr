@@ -387,6 +387,17 @@ std::string textoDeFallo(const B::transport::FailureReason& m) {
                              {m.detail});
         case F::MaterialCannotBeRead:
             return con(T("t_f_tls_no_lee", "no se pudo leer el material TLS del daemon"));
+        case F::HostKeyChanged:
+            // Dice QUÉ máquina, DÓNDE está la clave vieja y CÓMO se resuelve, que es lo que se
+            // perdía con el cartel de `ssh` aplanado y recortado. Y el aviso de seguridad va
+            // entero: si el cambio no era esperado, no hay que seguir.
+            return B::format(
+                T("t_f_clave_ssh_cambiada",
+                  "la clave SSH de %1 ha cambiado y ya no coincide con la guardada en %2. Si es "
+                  "lo esperado —se reinstaló la máquina, o esa dirección es ahora de otra—, "
+                  "bórrela con «ssh-keygen -R %1» y vuelva a intentarlo. Si no lo esperaba, no "
+                  "siga: alguien podría estar haciéndose pasar por ella"),
+                {m.detail, m.where.empty() ? std::string("~/.ssh/known_hosts") : m.where});
         case F::MaterialIncomplete:
             return T("t_f_tls_incompleto", "el material TLS del daemon llegó incompleto");
         case F::ClientKeyUnavailable:
