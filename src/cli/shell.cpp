@@ -1284,6 +1284,26 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
         std::fputs(TC("t_hace_falta_dc4ecf", "hace falta un dataset\n"), stderr);
         return false;
     }
+    // Una INSTANTÁNEA no tiene permisos delegados: son del dataset. Se corta AQUÍ y no se
+    // pregunta.
+    //
+    // Sin esto llegaba al usuario el error crudo de ZFS —«cannot open 'x@s': snapshot
+    // delimiter '@' is not expected here» y un «Failed to open dataset» detrás—, que habla
+    // de la sintaxis de una orden que él no ha escrito. Y hay una trampa peor: medido en
+    // unib, `zfs allow` sobre una instantánea devuelve **rc=0** y escribe el error por la
+    // salida, así que mirar el código de retorno no sirve para detectarlo.
+    if (!destino.snapshot.empty()) {
+        ZfsmUrl deDataset = destino;
+        deDataset.snapshot.clear();
+        deDataset.section.clear();
+        deDataset.detail.clear();
+        std::fprintf(stderr,
+                     TC("t_permisos_de_instantanea",
+                        "una instantánea no tiene permisos delegados: son del dataset. "
+                        "Pruebe «ls #permissions --on %s»\n"),
+                     B::formatZfsmUrl(deDataset).c_str());
+        return false;
+    }
     std::string out;
     if (!agente(e, destino, PET::permissionsOf(objetivo), out)) {
         return false;
@@ -1489,8 +1509,18 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
             base += "\\" + t;
         }
     } else {
+        // A QUIÉN se le pregunta el punto de montaje. Para una INSTANTÁNEA, al DATASET y no
+        // a ella: `zfs get mountpoint pool/ds@s` contesta «-» SIEMPRE, y ese «-» caía en la
+        // rama de abajo y salía «no está montado en ningún sitio» aunque el contenido fuera
+        // perfectamente alcanzable. Medido en unib: con `ppal/user/srvs` montado en
+        // /home/linarese/srvs, `/home/linarese/srvs/.zfs/snapshot/--1` existe y se recorre.
+        //
+        // El apaño de más abajo —añadir «/.zfs/snapshot/<nombre>»— ya estaba escrito, pero
+        // era inalcanzable: la consulta fallaba antes de llegar a él.
+        const std::string objetoMontaje =
+            destino.snapshot.empty() ? destino.zfsName() : destino.dataset;
         std::string mp;
-        if (!agente(e, destino, PET::datasetProperty("mountpoint", destino.zfsName()), mp)) {
+        if (!agente(e, destino, PET::datasetProperty("mountpoint", objetoMontaje), mp)) {
             return false;
         }
         base = B::trim(mp);
@@ -1502,7 +1532,7 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
                 // manda a buscar un `zfs mount` que no existe para esto.
                 std::string tipo;
                 const bool esVolumen =
-                    agente(e, destino, PET::datasetProperty("type", destino.zfsName()), tipo)
+                    agente(e, destino, PET::datasetProperty("type", objetoMontaje), tipo)
                     && B::toLowerAscii(B::trim(tipo)) == "volume";
                 if (esVolumen) {
                     std::fprintf(stderr,
@@ -1510,6 +1540,16 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
                                     "%s es un VOLUMEN: un dispositivo de bloques, no tiene "
                                     "ficheros que listar\n"),
                                  destino.zfsName().c_str());
+                } else if (!destino.snapshot.empty()) {
+                    // Una instantánea NO se monta: lo suyo se ve bajo el punto de montaje de
+                    // su dataset. Decir que «no está montada» manda a buscar un `zfs mount`
+                    // que para esto no existe; lo que hay que montar es el dataset.
+                    std::fprintf(stderr,
+                                 TC("t_snap_padre_no_montado",
+                                    "%s no se puede listar: lo que hay dentro de una "
+                                    "instantánea se ve bajo el punto de montaje de su "
+                                    "dataset, y %s no está montado\n"),
+                                 destino.zfsName().c_str(), destino.dataset.c_str());
                 } else {
                     std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
                 }

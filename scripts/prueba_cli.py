@@ -550,6 +550,40 @@ def casos_montaje(ctx):
 def casos_instantaneas(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
+    # --- Una instantánea NO se monta, pero su contenido SÍ se ve.
+    #
+    # Vive bajo `<punto del dataset>/.zfs/snapshot/<nombre>`. El cliente preguntaba el
+    # `mountpoint` DE LA INSTANTÁNEA —que es «-» siempre— y contestaba «no está montado en
+    # ningún sitio» aunque el contenido estuviera ahí mismo. El caso mira que salga el
+    # fichero, no que no salga el error: un mensaje que cambie de texto seguiría pasando.
+    caso(ctx, "ls #content de una instantánea enseña lo que tenía dentro",
+         [f"cd Local/{P}/datos@s1", "ls #content"], idioma="es",
+         espera=[r"^fichero\.txt\b", r"^sub\b"],
+         no_espera=[r"no está montado", r"not mounted"])
+    caso(ctx, "ls #content de una instantánea baja a sus subdirectorios",
+         [f"cd Local/{P}/datos@s1", "ls #content/sub"], idioma="es",
+         espera=[r"^otro\.txt\b"])
+    # Y que lo que enseña es la FOTO, no el dataset de ahora: si leyera el directorio vivo,
+    # un fichero creado después de la instantánea saldría también.
+    sh(ctx, f"bash -c 'echo posterior > /mnt/{P}/datos/despues.txt'", root=True)
+    caso(ctx, "ls #content de una instantánea no enseña lo escrito DESPUÉS",
+         [f"cd Local/{P}/datos@s1", "ls #content"], idioma="es",
+         espera=[r"^fichero\.txt\b"], no_espera=[r"^despues\.txt\b"])
+    caso(ctx, "ls #content del dataset sí enseña lo escrito después",
+         [f"cd Local/{P}/datos", "ls #content"], idioma="es",
+         espera=[r"^despues\.txt\b"])
+
+    # `zfs allow` sobre una instantánea escribe su error por la salida y devuelve rc=0, así
+    # que el código de retorno no sirve para detectarlo: llegaba al usuario el mensaje crudo
+    # de ZFS, que habla de la sintaxis de una orden que él no ha escrito.
+    caso(ctx, "ls #permissions de una instantánea explica, no suelta el error de ZFS",
+         [f"cd Local/{P}/datos@s1", "ls #permissions"], idioma="es",
+         espera=[r"no tiene permisos delegados", rf"zfsm://local/{P}/datos"],
+         no_espera=[r"snapshot delimiter", r"Failed to open dataset"])
+    caso(ctx, "ls #permissions de una instantánea, también en inglés",
+         [f"cd Local/{P}/datos@s1", "ls #permissions"], idioma="en",
+         espera=[r"no delegated permissions"], no_espera=[r"snapshot delimiter"])
+
     caso(ctx, "hold: la retención queda puesta",
          [f"cd Local/{P}/datos@s1", "hold prueba"],
          estado=[("el hold existe", f"zfs holds -H {P}/datos@s1", r"prueba")])
