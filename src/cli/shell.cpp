@@ -993,6 +993,11 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_uso", "USO"),         T("t_cab_salud", "SALUD"),
                         T("t_cab_importado", "IMPORTADO"),
                         T("t_cab_tipo", "TIPO"),       T("t_cab_usado", "USADO"),
+                        // MONTADO, y no ESTADO como en el listado de datasets: esta tabla
+                        // YA tiene una columna ESTADO —la del pool: ONLINE, FAULTED— y dos
+                        // con el mismo nombre no se leen. El motivo de ESTADO allí era que
+                        // un volumen no se monta sino que se expone; un pool raíz es siempre
+                        // un sistema de ficheros, así que aquí la pregunta vieja sigue valiendo.
                         T("t_cab_compr", "COMPR"),     T("t_cab_montado", "MONTADO"),
                         T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
     t.campos = {"name", "state", "size", "free", "capacity", "health", "imported",
@@ -1113,9 +1118,13 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     t.nombreJson = "entries";
     t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_tipo", "TIPO"),
                         T("t_cab_usado", "USADO"), T("t_cab_compr", "COMPR"),
-                        T("t_cab_montado", "MONTADO"),
+                        T("t_cab_estado_ds", "ESTADO"),
                         T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
-    t.campos = {"name", "type", "used", "compressratio", "mounted", "mountpoint"};
+    // El campo se llama `status` y no `mounted`, y eso es a propósito: su significado ha
+    // cambiado, no solo su presentación. Un guion que leyera `mounted` esperando «yes»/«no»
+    // debe encontrarse con que ese campo YA NO ESTÁ, en vez de con uno que se llama igual y
+    // contesta otra cosa. Fallar a la cara vale más que mentir con el mismo nombre.
+    t.campos = {"name", "type", "used", "compressratio", "status", "mountpoint"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     // Aquí se añadía la fila del PROPIO pool cuando lo listado era un pool, para que sus
     // campos de dataset se vieran en alguna parte. Confundía: al entrar en un pool aparecía
@@ -1165,8 +1174,27 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         const std::string tipo = !tipoCrudo.empty()
                                      ? (tipoCrudo == "filesystem" ? "dataset" : tipoCrudo)
                                      : (esSnap ? "snapshot" : "dataset");
+        // El ESTADO: una sola columna que contesta «¿puedo llegar a esto ahora mismo?» para
+        // las dos clases de cosa.
+        //
+        // Antes era MONTADO, y para un volumen decía «-»: nada. Lo que un volumen tiene no
+        // es montaje sino DISPOSITIVO, y si está expuesto o no es justo lo que uno quiere
+        // saber. No se usa `volmode` para decirlo: su valor habitual es `default` —«lo que
+        // diga el parámetro del módulo»— y eso no contesta la pregunta. El agente mira si
+        // existe el nodo, que es un hecho y no una intención.
+        const std::string dispositivo = c.size() > 11 ? B::toLowerAscii(B::trim(c[11]))
+                                                       : std::string();
+        std::string estado;
+        if (esSnap || tipo == "snapshot") {
+            estado = "-";  // una instantánea ni se monta ni se expone
+        } else if (tipo == "volume") {
+            // Sin la columna —agente anterior a esto— no se inventa: se dice que no se sabe.
+            estado = dispositivo.empty() || dispositivo == "-" ? "?" : dispositivo;
+        } else {
+            estado = B::toLowerAscii(B::trim(c[7])) == "yes" ? "mounted" : "unmounted";
+        }
         t.filas.push_back({esSnap ? "@" + nombre.substr(arroba + 1) : nombre.substr(prefijo.size()),
-                           tipo, c[2], c[3], c[7], c[8]});
+                           tipo, c[2], c[3], estado, c[8]});
     }
     t.imprime(e.formato);
     return true;

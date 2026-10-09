@@ -2788,6 +2788,93 @@ struct DestBackupGuard {
     }
 };
 
+// Añade al listado una columna más: si el VOLUMEN tiene su dispositivo expuesto.
+//
+// `zfs list` no sabe contestarlo. Lo más cerca está `volmode`, y no sirve: el valor que trae
+// casi siempre es `default` —«lo que diga el parámetro del módulo»— que no dice si el
+// dispositivo está o no. Medido en fc16: el pool entero tiene `volmode=default`.
+//
+// Lo que sí es un hecho comprobable es que exista el nodo. `back/tooling` tiene
+// `volmode=none` puesto a mano y `/dev/zvol/back/tooling` NO existe; si lo cambiara a `full`
+// aparecería. Esto mira el nodo, no la intención, y por eso contesta siempre algo cierto.
+//
+// Va como columna al final, igual que `type` y por el mismo motivo: un cliente anterior a
+// esto lee por índice y la ignora.
+//
+// Dónde está el dispositivo NO es lo mismo en cada sistema, y esto se midió, no se supuso:
+//
+//   Linux y FreeBSD  `/dev/zvol/<pool>/<ds>`, un enlace con el nombre del dataset.
+//   macOS            NO existe `/dev/zvol` —comprobado en mbp, con zfs-2.4.3-rc3—. El zvol
+//                    sale como disco entero suelto, `/dev/disk3`, cuyo nombre de medio es
+//                    «ZVOL <pool>/<ds>». Se pregunta al registro de entrada/salida, que lo
+//                    enumera en 27 ms y lo nombra igual que el dataset. Con `volmode=none`
+//                    el disco desaparece de ahí, que es justo lo que se quiere saber.
+//   Windows          un zvol no se expone de ninguna de las dos formas: no se afirma nada.
+#ifdef __APPLE__
+// Los zvols expuestos AHORA MISMO, por nombre de dataset. Una sola llamada por listado: el
+// coste no puede crecer con el número de filas.
+std::set<std::string> zvolsExpuestosMacos() {
+    std::set<std::string> v;
+    const ExecResult r = runExecCapture("ioreg", {"-c", "IOMedia", "-r"});
+    if (r.rc != 0) {
+        return v;
+    }
+    for (const std::string& linea : splitLines(r.out)) {
+        // «+-o ZVOL zvtest/vol Media  <class IOMedia, id 0x…»
+        const std::size_t ini = linea.find("ZVOL ");
+        if (ini == std::string::npos) {
+            continue;
+        }
+        const std::size_t desde = ini + 5;
+        const std::size_t fin = linea.find(" Media", desde);
+        if (fin == std::string::npos || fin <= desde) {
+            continue;
+        }
+        v.insert(trim(linea.substr(desde, fin - desde)));
+    }
+    return v;
+}
+#endif
+
+ExecResult conDispositivoDeVolumen(ExecResult lista) {
+    if (lista.rc != 0 || lista.out.empty()) {
+        return lista;
+    }
+#ifdef __APPLE__
+    // Perezoso: si el listado no trae ni un volumen, no se llama a `ioreg`.
+    bool consultado = false;
+    std::set<std::string> expuestos;
+#endif
+    std::ostringstream salida;
+    for (const std::string& linea : splitLines(lista.out)) {
+        if (trim(linea).empty()) {
+            continue;
+        }
+        const std::vector<std::string> c = zfsmgr::base::split(linea, "\t", false);
+        // La columna 10 es `type`. Sin ella no se sabe qué es, y entonces no se añade nada:
+        // vale más una columna ausente que una inventada.
+        const std::string tipo = c.size() > 10 ? toLower(trim(c[10])) : std::string();
+        std::string marca = "-";
+        if (tipo == "volume" && !c.empty()) {
+            const std::string nombre = trim(c[0]);
+#if defined(__APPLE__)
+            if (!consultado) {
+                expuestos = zvolsExpuestosMacos();
+                consultado = true;
+            }
+            marca = expuestos.count(nombre) != 0 ? "device" : "no-device";
+#elif !defined(_WIN32)
+            std::error_code ec;
+            marca = std::filesystem::exists("/dev/zvol/" + nombre, ec) && !ec ? "device"
+                                                                              : "no-device";
+#endif
+        }
+        salida << linea << "\t" << marca << "\n";
+    }
+    lista.out = salida.str();
+    return lista;
+}
+
 // Qué dataset está montado exactamente en esa ruta, o vacío si ninguno. Hace falta
 // distinguirlo del simple "sí/no": convertir un dataset en un directorio EN SU SITIO
 // tiene como destino su propio punto de montaje, y eso es legítimo; lo que no lo es
@@ -7889,7 +7976,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     }
     if (cmd == "--dump-zfs-list-all") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-list-all <dataset>\n"; return r; }
-        return runExecCapture("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
+        return conDispositivoDeVolumen(runExecCapture("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
                                       // `type` AL FINAL, y por eso es compatible: el cliente corta por tabuladores y
                                       // lee por índice, así que uno anterior a esto
                                       // sigue leyendo las diez primeras y la ignora.
@@ -7898,7 +7985,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
                                       // mirando si el nombre llevaba «@», o sea que lo
                                       // único que se distinguía era la instantánea.
                                       "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
-                                      "-r", params[0]});
+                                      "-r", params[0]}));
     }
     // --- El contenido de un dataset, TIPADO.
     //
@@ -9935,9 +10022,17 @@ int main(int argc, char* argv[]) {
             printUsage(args[0].c_str());
             return 2;
         }
-        return runExecStreaming("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
-                                         "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
-                                         "-r", args[2]});
+        // Por el OTRO despachador —el del RPC— esto pasa por `conDispositivoDeVolumen`, que
+        // añade la columna del dispositivo. Aquí iba en streaming y se la saltaba, así que
+        // el mismo verbo contestaba distinto según por dónde se pidiera. Son DOS
+        // despachadores y es la cuarta vez que olvidar uno cuesta un fallo.
+        const ExecResult lst = conDispositivoDeVolumen(runExecCapture(
+            "zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
+                    "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
+                    "-r", args[2]}));
+        if (!lst.out.empty()) std::cout << lst.out;
+        if (!lst.err.empty()) std::cerr << lst.err;
+        return lst.rc;
     }
     // Los mismos dos verbos, también por línea de órdenes: es como se llega al agente
     // cuando todavía no hay daemon escuchando, y como se prueban a mano.

@@ -286,6 +286,7 @@ def casos_volumenes(ctx):
     """
     P = POOL_LOCAL
     sh(ctx, f"zfs create -V 64M {P}/vol", root=True)
+    sh(ctx, f"zfs create -V 64M -o volmode=none {P}/voloculto", root=True)
     try:
         # `idioma` FIJADO en los tres: afirman un texto, y sin fijarlo la batería usa el de
         # la máquina —inglés aquí—. Ya pasó con el rótulo «Snapshots» y vuelve a pasar: el
@@ -303,6 +304,72 @@ def casos_volumenes(ctx):
         caso(ctx, "ls: y en inglés también dice que es un volumen",
              [f"ls zfsm://local/{P}/vol#content"], idioma="en",
              espera=[r"VOLUME"], no_espera=[r"not mounted"])
+        # --- La columna ESTADO: una sola pregunta para las dos clases de cosa.
+        #
+        # Antes era MONTADO y para un volumen decía «-»: nada. Lo que un volumen tiene no es
+        # montaje sino DISPOSITIVO. NO se usa `volmode` para decirlo —su valor habitual es
+        # `default`, «lo que diga el parámetro del módulo», que no contesta la pregunta—: el
+        # agente mira si existe el nodo en /dev/zvol, que es un hecho comprobable.
+        caso(ctx, "ls: un volumen expuesto sale como «device»",
+             [f"ls zfsm://local/{P}"], idioma="es", espera=[r"^vol\s+volume\s+\S+\s+\S+\s+device\b"])
+        caso(ctx, "ls: uno con volmode=none sale como «no-device»",
+             [f"ls zfsm://local/{P}"], idioma="es",
+             espera=[r"^voloculto\s+volume\s+\S+\s+\S+\s+no-device\b"])
+        caso(ctx, "ls: un dataset montado sale como «mounted» y no como «sí»",
+             [f"ls zfsm://local/{P}"], idioma="es",
+             espera=[r"^datos\s+dataset\s+\S+\s+\S+\s+mounted\b"],
+             no_espera=[r"^datos\s+dataset\s+\S+\s+\S+\s+(sí|yes)\b"])
+        # El campo de json se llama ahora `status`, NO `mounted`: su significado cambió, y un
+        # guion que leyera el viejo tiene que encontrárselo ausente en vez de con otro valor.
+        rc, js = cli(ctx, ["format json", f"ls zfsm://local/{P}"])
+        nombre = "ls: en json el campo es «status» y «mounted» ya no está"
+        problemas = []
+        try:
+            filas = json.loads(js)["entries"]
+            if not any("status" in f for f in filas):
+                problemas.append("no hay campo «status»")
+            if any("mounted" in f for f in filas):
+                problemas.append("sigue habiendo «mounted», que ya no significa lo mismo")
+            vol = next((f for f in filas if f.get("type") == "volume"), None)
+            if vol is None or vol.get("status") not in ("device", "no-device"):
+                problemas.append(f"el volumen no trae un estado útil: {vol}")
+        except Exception as exc:          # noqa: BLE001
+            problemas.append(f"json ilegible: {exc}")
+        if problemas:
+            ctx.fallos.append((nombre, problemas, js[:300]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+        # Un volumen trae consigo un dispositivo SIN ALIAS, y ese es el único momento en que
+        # la batería tiene uno a mano. El caso de `devices` que exige una lista en json pasaba
+        # sin morder porque todos los discos de esta máquina tienen alias por `by-id`: aquí sí
+        # hay uno con cero, que es donde se veía el `null`.
+        rc, js = cli(ctx, ["format json", "devices --on zfsm://local"])
+        nombre = "devices: un dispositivo sin alias trae [] y no null"
+        problemas = []
+        try:
+            disp = json.loads(js)["devices"]
+            zvols = [d for d in disp if d.get("path", "").startswith("/dev/zd")]
+            if not zvols:
+                problemas.append("no hay ningún /dev/zd*: el caso no está probando nada")
+            for d in zvols:
+                if not isinstance(d.get("aliases"), list):
+                    problemas.append(f"{d['path']}: aliases es {d.get('aliases')!r}, no una lista")
+        except Exception as exc:          # noqa: BLE001
+            problemas.append(f"json ilegible: {exc}")
+        if problemas:
+            ctx.fallos.append((nombre, problemas, js[:300]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
         # Un dataset sin montar SIGUE diciendo lo suyo: el arreglo no puede tragarse ese caso.
         sh(ctx, f"zfs create -o canmount=off {P}/apagado", root=True)
         caso(ctx, "ls #content de un dataset sin montar sigue diciendo lo de siempre",
@@ -310,6 +377,7 @@ def casos_volumenes(ctx):
              espera=[r"no está montado"], no_espera=[r"VOLUMEN"])
     finally:
         sh(ctx, f"zfs destroy {P}/vol", root=True)
+        sh(ctx, f"zfs destroy {P}/voloculto", root=True)
         sh(ctx, f"zfs destroy {P}/apagado", root=True)
 
 
@@ -1032,6 +1100,31 @@ def casos_nombres_que_chocan(ctx):
 
 def casos_arranque(ctx):
     """Lo que pasa antes de que haya sesión: ayuda, idioma y opciones mal escritas."""
+    # ANTES que nada: que el binario que se va a medir lea los catálogos de AHORA.
+    #
+    # El CLI busca `i18n/` al lado del ejecutable, y ahí llega por un objetivo de CMake
+    # aparte —`zfsmgr_cli_i18n`—. Compilar solo `--target zfsmgr-cli` no lo dispara, así que
+    # el programa sigue leyendo el catálogo anterior: una traducción recién escrita no
+    # aparece, y todo caso que mire texto estaría midiendo otra cosa. Esto no lo puede ver
+    # `revisa_i18n_fallback.py`, que lee el árbol de fuentes y no el de compilación.
+    nombre = "catálogos: los que hay junto al binario son los del árbol de fuentes"
+    problemas = []
+    for idi in ("es", "en"):
+        fuente = os.path.join(RAIZ, "i18n", f"{idi}.json")
+        copia = os.path.join(os.path.dirname(CLI), "i18n", f"{idi}.json")
+        if not os.path.exists(copia):
+            problemas.append(f"no hay catálogo {idi} junto al binario: {copia}")
+        elif os.path.getmtime(copia) < os.path.getmtime(fuente):
+            problemas.append(f"{idi}.json junto al binario es MÁS VIEJO que el de i18n/: "
+                             "falta «cmake --build <dir> --target zfsmgr_cli_i18n»")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, ""))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
     caso_argv(ctx, "ayuda: --lang en la da EN INGLÉS",
               ["--lang", "en", "--help"], rc=0,
               espera=[r"^Usage: zfsmgr-cli"], no_espera=[r"^Uso: zfsmgr-cli"])

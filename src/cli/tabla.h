@@ -95,8 +95,14 @@ struct Tabla {
                 // Vacío es `null`, NO «-»: el guion es una convención de columnas, que en
                 // JSON no hace falta. Un programa que leyera «-» en `port` tendría que
                 // saberlo, y es justo lo que este formato viene a evitar.
+                //
+                // Con una excepción: una columna `Lista` vacía es `[]`, por el MISMO motivo
+                // por el que la tabla sin filas lo es. Un disco sin alias —un zvol, por
+                // ejemplo— no es «no se sabe»: es «ninguno», y `for a in d["aliases"]` tiene
+                // que recorrer cero elementos en vez de reventar.
                 if (fila[i].empty()) {
-                    o.set(campos[i], B::json::Value());
+                    o.set(campos[i], tipoDe(i) == Tipo::Lista ? B::json::Value(B::json::Array{})
+                                                              : B::json::Value());
                     continue;
                 }
                 switch (tipoDe(i)) {

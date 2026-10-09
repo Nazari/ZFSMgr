@@ -480,10 +480,10 @@ Ahora `ls` sobre un pool lo añade como PRIMERA fila:
 
 ```
 zfsm://local/wls> ls
-NAME     TYPE      USED  COMPR  MOUNTED  MOUNTPOINT
-wls      dataset   234K  1.00   yes      /wls
+NAME     TYPE      USED  COMPR  STATUS   MOUNTPOINT
+wls      dataset   234K  1.00   mounted  /wls
 @prueba  snapshot  0B    1.04   -        -
-ds1      dataset   48K   1.00   yes      /wls/ds1
+ds1      dataset   48K   1.00   mounted  /wls/ds1
 ```
 
 **Solo cuando lo listado es un pool**, no cualquier dataset: en `ls tanque/media` sus propios
