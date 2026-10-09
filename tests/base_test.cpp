@@ -4008,6 +4008,59 @@ int main() {
                   "una plataforma desconocida cae al guion de systemd, que se planta solo");
     }
 
+    // --- parseHumanSize: el inverso de humanSize, sobre lo que escriben zpool y zfs
+    {
+        unsigned long long v = 0;
+        comprobar(parseHumanSize("512B", v) && v == 512, "parseHumanSize lee 512B");
+        comprobar(parseHumanSize("512", v) && v == 512, "parseHumanSize lee un numero pelado");
+        comprobar(parseHumanSize("1K", v) && v == 1024, "parseHumanSize usa 1024 y no 1000");
+        comprobar(parseHumanSize("67.5K", v) && v == 69120, "parseHumanSize admite decimales");
+        comprobar(parseHumanSize("292M", v) && v == 306184192ULL, "parseHumanSize lee megas");
+        comprobar(parseHumanSize("1.5G", v) && v == 1610612736ULL, "parseHumanSize lee gigas");
+        comprobar(parseHumanSize("1.5GB", v) && v == 1610612736ULL,
+                  "parseHumanSize admite el sufijo con B detras");
+        // Ida y vuelta con humanSize: lo que una escribe, la otra lo lee.
+        igual(humanSize(std::to_string(306184192ULL)), "292M",
+              "humanSize y parseHumanSize hablan de lo mismo");
+        // Lo que NO es un tamanyo tiene que decirse, no caer a cero: cero es legitimo.
+        v = 12345;
+        comprobar(!parseHumanSize("", v), "parseHumanSize rechaza el vacio");
+        comprobar(!parseHumanSize("hola", v), "parseHumanSize rechaza lo que no es numero");
+        comprobar(!parseHumanSize("10Z", v), "parseHumanSize rechaza una unidad inventada");
+        comprobar(v == 12345, "parseHumanSize no toca la salida cuando falla");
+        comprobar(parseHumanSize("0", v) && v == 0, "parseHumanSize lee el cero legitimo");
+    }
+
+    // --- parseDedupDdt: el coste de la deduplicacion, de `zpool status -D`
+    {
+        // Medido en fc16 el 2026-10-09.
+        const std::string real =
+            "  pool: back\n state: ONLINE\n\nerrors: No known data errors\n\n"
+            " dedup: DDT entries 1263256, size 430M on disk, 292M in core\n\n"
+            "bucket              allocated                       referenced\n";
+        const helpers::DedupDdt d = helpers::parseDedupDdt(real);
+        comprobar(d.hayTabla, "parseDedupDdt encuentra la tabla");
+        comprobar(d.entradas == 1263256ULL, "parseDedupDdt lee las entradas");
+        comprobar(d.bytesEnDisco == 450887680ULL, "parseDedupDdt lee lo que ocupa en disco");
+        comprobar(d.bytesEnMemoria == 306184192ULL, "parseDedupDdt lee lo que ocupa en RAM");
+
+        // Un pool sin deduplicacion: es una RESPUESTA, no un fallo, y no son cero bytes
+        // de una tabla que existe sino que no hay tabla.
+        const helpers::DedupDdt sin = helpers::parseDedupDdt(
+            "  pool: otro\n\nerrors: No known data errors\n\n dedup: no DDT entries\n");
+        comprobar(!sin.hayTabla, "parseDedupDdt distingue que NO hay tabla");
+        comprobar(sin.entradas == 0 && sin.bytesEnMemoria == 0,
+                  "parseDedupDdt deja las cifras a cero cuando no hay tabla");
+
+        // Nada que ver: tampoco inventa.
+        comprobar(!helpers::parseDedupDdt("").hayTabla, "parseDedupDdt con entrada vacia no afirma nada");
+        comprobar(!helpers::parseDedupDdt("  pool: x\n state: ONLINE\n").hayTabla,
+                  "parseDedupDdt sin la linea de dedup no afirma nada");
+        // Una linea mutilada NO puede pasar por una tabla de cero bytes.
+        comprobar(!helpers::parseDedupDdt(" dedup: DDT entries 10, size on disk, in core\n").hayTabla,
+                  "parseDedupDdt rechaza la linea incompleta");
+    }
+
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }

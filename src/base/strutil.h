@@ -101,6 +101,14 @@ std::string base64Encode(const std::string& data);
 // table, and the window was going to need the same one to show what the agent now gives it
 // in bytes.
 std::string humanSize(const std::string& v);
+
+// El INVERSO: «284M» → 297795584. Las mismas unidades y los mismos 1024 que `humanSize`,
+// porque lo que lee esto es lo que escriben `zpool` y `zfs`.
+//
+// Devuelve falso si el texto no es un tamaño. No vale dejarlo en cero y seguir: cero es un
+// valor legítimo —una DDT recién creada— y confundirlo con «no se entendió» convierte un
+// fallo de lectura en un dato.
+bool parseHumanSize(const std::string& v, unsigned long long& out);
 bool base64Decode(const std::string& text, std::string& out);
 
 // `skipEmpty` imitates Qt::SkipEmptyParts, which is how it is used almost everywhere.

@@ -991,6 +991,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"),   T("t_cab_estado", "ESTADO"),
                         T("t_cab_tamano", "TAMAÑO"),   T("t_cab_libre", "LIBRE"),
                         T("t_cab_uso", "USO"),         T("t_cab_dedup", "DEDUP"),
+                        T("t_cab_ram_ddt", "RAM DDT"),
                         T("t_cab_salud", "SALUD"),
                         T("t_cab_importado", "IMPORTADO"),
                         T("t_cab_tipo", "TIPO"),       T("t_cab_usado", "USADO"),
@@ -1008,7 +1009,8 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     //
     // No cuesta una llamada más: `zpool list -j` ya la devuelve y el agente ya la reenviaba
     // entera; era el cliente el que la tiraba.
-    t.campos = {"name", "state", "size", "free", "capacity", "dedupratio", "health", "imported",
+    t.campos = {"name", "state", "size", "free", "capacity", "dedupratio", "ddtmemory",
+                "health", "imported",
                 "type", "used", "compressratio", "mounted", "mountpoint"};
     // USADO va como CADENA, no como `Tipo::Bytes`, y no es un descuido.
     //
@@ -1021,8 +1023,10 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // La consecuencia, que conviene saber: en el listado de DATASETS esta columna sí va en
     // bytes, porque allí la fuente es `zfs list -p`. Igualarlas pide un verbo de propiedades
     // en crudo en el agente.
+    // RAM DDT va como `Bytes`: en texto se lee «292M» y en tsv y json salen los bytes
+    // exactos, que es lo que un guion puede comparar contra un umbral.
     t.tipos = {Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,  Tipo::Booleano,
+               Tipo::Cadena, Tipo::Cadena,   Tipo::Bytes,   Tipo::Cadena, Tipo::Booleano,
                Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
 
     // Los campos de dataset del pool raíz, uno por pool.
@@ -1084,9 +1088,24 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
         if (!dedup.empty() && dedup.back() == 'x') {
             dedup.pop_back();
         }
+        // Lo que la DDT cuesta en MEMORIA. Es una llamada por pool, y se paga porque se
+        // midió lo que vale: 0,03 s sobre una tabla de 1,15 M de entradas, lo mismo que un
+        // `zpool status` a secas, porque el histograma sale de contadores acumulados.
+        //
+        // Vacía cuando el pool no tiene tabla, que es el caso normal, y también cuando no
+        // se pudo preguntar. Las dos se enseñan como «-»: ninguna de las dos es «0 bytes»,
+        // y escribir un cero diría que la deduplicación está puesta y no cuesta nada.
+        std::string ramDdt;
+        std::string salidaDedup;
+        if (agente(e, destino, PET::poolDedupStatus(nombre), salidaDedup, 15000)) {
+            const H::DedupDdt ddt = H::parseDedupDdt(salidaDedup);
+            if (ddt.hayTabla) {
+                ramDdt = std::to_string(ddt.bytesEnMemoria);
+            }
+        }
         t.filas.push_back({nombre, p["state"].toString(), prop(p, "size"), prop(p, "free"),
-                           prop(p, "capacity"), dedup, prop(p, "health"), "true", ds[0], ds[1],
-                           ds[2], ds[3], ds[4]});
+                           prop(p, "capacity"), dedup, ramDdt, prop(p, "health"), "true", ds[0],
+                           ds[1], ds[2], ds[3], ds[4]});
     }
 
     // Los que están AHÍ pero sin importar. `zpool list` no los ve —solo enumera los
@@ -1112,8 +1131,8 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
             // diría que el pool está vacío.
             // Un pool sin importar no tiene campos de dataset que enseñar: sus datasets no
             // están montados ni se pueden consultar hasta importarlo.
-            t.filas.push_back({imp.pool, imp.state, "", "", "", "", imp.state, "false", "", "",
-                               "", "", ""});
+            t.filas.push_back({imp.pool, imp.state, "", "", "", "", "", imp.state, "false", "",
+                               "", "", "", ""});
         }
     }
     t.imprime(e.formato);

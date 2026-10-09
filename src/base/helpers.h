@@ -282,6 +282,28 @@ std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l);
 // Splits the output of `zpool import`.
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
 
+// Lo que la DDT de un pool cuesta: cuántas entradas tiene, cuánto ocupa en disco y cuánta
+// MEMORIA. Sale de la línea « dedup: DDT entries N, size X on disk, Y in core» de
+// `zpool status -D`.
+//
+// Las tres cifras son TOTALES del pool, no medias por entrada. Se midió, porque la forma de
+// la frase invita a leerlo al revés: al pasar un pool de 480 a 1440 entradas, el «in core»
+// pasó de 160K a 354K. Si fuera una media, no se habría movido.
+//
+// `hayTabla` falso es «este pool no tiene DDT» —`zpool status -D` dice «no DDT entries»— y
+// NO es lo mismo que cero: un pool al que no se le preguntó deja los tres campos a cero con
+// `hayTabla` falso también, y el que llama decide si eso se enseña como «-» o como «?».
+struct DedupDdt {
+    bool hayTabla = false;
+    unsigned long long entradas = 0;
+    unsigned long long bytesEnDisco = 0;
+    unsigned long long bytesEnMemoria = 0;
+};
+
+// Lee esa línea de la salida de `zpool status -D`. Tolera que venga el resto de la salida
+// alrededor: busca la línea, no la posición.
+DedupDdt parseDedupDdt(const std::string& text);
+
 // Qué significa que la sonda de importables no encuentre nada.
 //
 // «No hay ninguno» y «no puedo mirar» se leen IGUAL en la salida de `zpool import`: las dos

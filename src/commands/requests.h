@@ -34,6 +34,8 @@ std::vector<std::string> poolStatusRaw(const std::string& pool);
 std::vector<std::string> poolHistory(const std::string& pool);
 std::vector<std::string> poolProperties(const std::string& pool);
 std::vector<std::string> poolGuid(const std::string& pool);
+// What the dedup table costs: entries, bytes on disk and bytes of RAM. `zpool status -D`.
+std::vector<std::string> poolDedupStatus(const std::string& pool);
 // The pools that could be imported. It takes no arguments: it asks about all of them.
 std::vector<std::string> importableProbe();
 

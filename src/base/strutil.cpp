@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include <cctype>
+#include <cstring>
 
 namespace zfsmgr::base {
 
@@ -403,6 +404,40 @@ std::string humanSize(const std::string& v) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), (u == 0 || x >= 10.0) ? "%.0f%s" : "%.1f%s", x, kUnidades[u]);
     return buf;
+}
+
+bool parseHumanSize(const std::string& v, unsigned long long& out) {
+    const std::string t = trim(v);
+    if (t.empty()) {
+        return false;
+    }
+    char* fin = nullptr;
+    const double n = std::strtod(t.c_str(), &fin);
+    if (fin == t.c_str() || n < 0.0) {
+        return false;
+    }
+    std::string sufijo = trim(std::string(fin));
+    // `zfs` escribe «512B», «512» y «1.5G»; algunas versiones, «1.5GB». Las tres se leen.
+    if (sufijo.size() == 2 && (sufijo[1] == 'B' || sufijo[1] == 'b')) {
+        sufijo.resize(1);
+    }
+    if (sufijo.empty()) {
+        sufijo = "B";
+    }
+    if (sufijo.size() != 1) {
+        return false;
+    }
+    static const char kUnidades[] = "BKMGTPE";
+    const char* pos = std::strchr(kUnidades, std::toupper(static_cast<unsigned char>(sufijo[0])));
+    if (pos == nullptr) {
+        return false;
+    }
+    double x = n;
+    for (int i = 0; i < static_cast<int>(pos - kUnidades); ++i) {
+        x *= 1024.0;
+    }
+    out = static_cast<unsigned long long>(x);
+    return true;
 }
 
 }  // namespace zfsmgr::base

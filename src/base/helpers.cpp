@@ -1307,6 +1307,54 @@ ImportProbeReading readImportProbe(const std::string& probeOutput, bool anyPoolP
     return salida;
 }
 
+DedupDdt parseDedupDdt(const std::string& text) {
+    DedupDdt d;
+    for (const std::string& linea : split(text, "\n", false)) {
+        const std::string l = trim(linea);
+        if (l.rfind("dedup:", 0) != 0) {
+            continue;
+        }
+        // «dedup: no DDT entries» — el pool no tiene tabla. Es una respuesta, no un fallo.
+        if (contains(l, "no DDT entries")) {
+            return d;
+        }
+        // «dedup: DDT entries 1263256, size 430M on disk, 292M in core»
+        const std::size_t pEnt = l.find("DDT entries");
+        if (pEnt == std::string::npos) {
+            continue;
+        }
+        const unsigned long long entradas =
+            std::strtoull(l.c_str() + pEnt + 11, nullptr, 10);
+        const std::size_t pSize = l.find("size", pEnt);
+        const std::size_t pDisco = l.find("on disk", pSize);
+        const std::size_t pCoreFin = l.find("in core", pDisco);
+        if (pSize == std::string::npos || pDisco == std::string::npos ||
+            pCoreFin == std::string::npos) {
+            continue;
+        }
+        // Entre «size» y «on disk» va el tamaño en disco; entre la coma siguiente y
+        // «in core», el de memoria. Se recortan por posición y NO por el número de palabras:
+        // el separador decimal y los miles cambian con la configuración regional.
+        std::string enDisco = trim(l.substr(pSize + 4, pDisco - (pSize + 4)));
+        const std::size_t pComa = l.find(',', pDisco);
+        if (pComa == std::string::npos || pComa > pCoreFin) {
+            continue;
+        }
+        std::string enMemoria = trim(l.substr(pComa + 1, pCoreFin - (pComa + 1)));
+        unsigned long long disco = 0;
+        unsigned long long memoria = 0;
+        if (!parseHumanSize(enDisco, disco) || !parseHumanSize(enMemoria, memoria)) {
+            continue;  // ilegible: se deja `hayTabla` en falso en vez de inventar un cero
+        }
+        d.hayTabla = true;
+        d.entradas = entradas;
+        d.bytesEnDisco = disco;
+        d.bytesEnMemoria = memoria;
+        return d;
+    }
+    return d;
+}
+
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) {
     std::vector<ImportablePoolInfo> rows;
     const std::regex poolNameRx("^[A-Za-z0-9_.:-]+$");

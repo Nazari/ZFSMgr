@@ -43,6 +43,10 @@ std::vector<std::string> poolGuid(const std::string& pool) {
     return withOne("--dump-zpool-guid", pool);
 }
 
+std::vector<std::string> poolDedupStatus(const std::string& pool) {
+    return withOne("--dump-zpool-status-dedup", pool);
+}
+
 std::vector<std::string> importableProbe() { return {"--dump-zpool-import-probe"}; }
 
 std::vector<std::string> datasetList(const std::string& objeto) {

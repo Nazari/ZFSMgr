@@ -165,6 +165,28 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, vece
     return not problemas
 
 
+def a_bytes(texto):
+    """«292M» → 306184192. Los mismos 1024 y las mismas unidades que usa `zfs`.
+
+    Se escribe aquí a mano A PROPÓSITO, sin llamar a nada del proyecto: si la batería
+    usara el mismo conversor que el programa, un error en él se cancelaría solo y las
+    dos partes coincidirían en estar mal.
+    """
+    t = (texto or "").strip()
+    if not t:
+        return None
+    unidades = "BKMGTPE"
+    sufijo = t[-1].upper()
+    if sufijo in unidades:
+        cuerpo, exp = t[:-1], unidades.index(sufijo)
+    else:
+        cuerpo, exp = t, 0
+    try:
+        return int(float(cuerpo) * (1024 ** exp))
+    except ValueError:
+        return None
+
+
 # ── Preparación y limpieza ───────────────────────────────────────────────────
 #
 # Pools SOBRE FICHERO. No tocan nada existente, y se destruyen al terminar aunque la
@@ -438,11 +460,64 @@ def casos_dedup(ctx):
             ctx.pasados.append(nombre)
             print(f"  ok     {nombre}  (zpool: {esperado}x)")
 
+        # La RAM que cuesta la DDT. Es el dato por el que se añadió todo esto: un pool
+        # puede tener DEDUP 1.00 —sin ahorrar nada— y estar pagando cientos de MB.
+        rc, crudoD = sh(ctx, f"zpool status -D {P}", root=True)
+        linea = next((l for l in crudoD.splitlines() if "dedup:" in l), "")
+        nombre = "dedup: la RAM de la DDT coincide con zpool status -D"
+        problemas = []
+        if "DDT entries" not in linea:
+            problemas.append(f"zpool no da la linea de la DDT: {linea!r}")
+        else:
+            # «dedup: DDT entries N, size X on disk, Y in core»
+            enMemoria = linea.split(",")[-1].replace("in core", "").strip()
+            ramEsperada = a_bytes(enMemoria)
+            if ramEsperada is None:
+                problemas.append(f"no se entiende el tamanyo {enMemoria!r}")
+            else:
+                try:
+                    fila = {x["name"]: x for x in json.loads(js)["pools"]}[P]
+                except Exception as exc:          # noqa: BLE001
+                    fila, _ = {}, problemas.append(f"json ilegible: {exc}")
+                visto = fila.get("ddtmemory")
+                if visto is None:
+                    problemas.append("no hay campo «ddtmemory» para un pool CON deduplicacion")
+                # En bytes exactos en json, y redondeo de la unidad: se admite un 2%.
+                elif abs(visto - ramEsperada) > max(4096, ramEsperada * 0.02):
+                    problemas.append(f"ddtmemory={visto}, y zpool dice {enMemoria} ({ramEsperada})")
+        if problemas:
+            ctx.fallos.append((nombre, problemas, linea))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}  ({linea.split(',')[-1].strip()})")
+
         # Y en texto, con su encabezado: que el campo exista en json no quiere decir que
         # haya columna que mirar.
         caso(ctx, "dedup: en texto sale la columna y su valor",
              ["ls zfsm://local"], idioma="es",
              espera=[r"DEDUP", rf"^{P}\s+\S+\s+\S+\s+\S+\s+\S+\s+" + esperado.replace(".", r"\.")])
+        # Un pool SIN deduplicacion deja la celda VACIA, no a cero. Cero diria que la
+        # tabla existe y no cuesta nada, que es una afirmacion distinta de «no hay tabla».
+        caso(ctx, "dedup: un pool sin DDT deja la RAM en blanco, no en cero",
+             ["ls zfsm://local"], idioma="es",
+             no_espera=[rf"^{POOL_LOCAL}\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+0B\b"])
+        rc, js2 = cli(ctx, ["format json", "ls zfsm://local"])
+        nombre = "dedup: sin DDT el campo de RAM es null y no 0"
+        try:
+            fila = {x["name"]: x for x in json.loads(js2)["pools"]}[POOL_LOCAL]
+            if fila.get("ddtmemory") is None:
+                ctx.pasados.append(nombre)
+                print(f"  ok     {nombre}")
+            else:
+                ctx.fallos.append((nombre, [f"ddtmemory={fila.get('ddtmemory')!r}"], js2[:200]))
+                print(f"  FALLO  {nombre}")
+                print(f"         ddtmemory={fila.get('ddtmemory')!r}, y ese pool no tiene DDT")
+        except Exception as exc:          # noqa: BLE001
+            ctx.fallos.append((nombre, [f"json ilegible: {exc}"], js2[:200]))
+            print(f"  FALLO  {nombre}")
     finally:
         sh(ctx, f"zpool destroy -f {P}", root=True)
         sh(ctx, f"rm -rf /mnt/{P}", root=True)
