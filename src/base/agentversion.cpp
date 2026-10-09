@@ -71,9 +71,25 @@ bool pareceVersionDeAgente(const std::string& tramo) {
     return !k.empty() && k[4] != 0;
 }
 
+// La huella ENTERA y SEGUIDA dentro del binario, con un prefijo que se pueda buscar.
+//
+// Quien mira un binario desde fuera —el empaquetador, `versionInBinary`— busca la huella como
+// texto. `return ZFSMGR_AGENT_VERSION_STRING;` no basta: el compilador conoce la cadena y
+// puede construir el `std::string` a trozos, con instrucciones inmediatas, y entonces no
+// aparece seguida en ninguna parte del fichero. MinGW lo hace: en el CLI de Windows `strings`
+// daba «0.99.3.7I» y «0.99.3.7H», y el empaquetador no podía decir de qué compilación era.
+//
+// Se lee a través de un puntero que el compilador no puede seguir (`asm` vacío), así que la
+// cadena tiene que existir de verdad, entera, en los datos del programa.
+__attribute__((used)) const char kMarcaHuella[] = "ZFSMGR_HUELLA=" ZFSMGR_AGENT_VERSION_STRING;
+
 }  // namespace
 
-std::string expected() { return ZFSMGR_AGENT_VERSION_STRING; }
+std::string expected() {
+    const char* p = kMarcaHuella;
+    asm volatile("" : "+r"(p));
+    return std::string(p + sizeof("ZFSMGR_HUELLA=") - 1);
+}
 
 std::string expectedApi() { return "3"; }
 
