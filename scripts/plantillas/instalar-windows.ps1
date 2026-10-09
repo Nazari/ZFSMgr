@@ -136,5 +136,7 @@ if (Test-Path $Cli) {
 } elseif ($conGui) {
     Log 'el CLI no se instalo: en el Setup no se marco la tarea de linea de ordenes.'
 }
-Log 'el daemon de esta maquina se instala desde otra, con «install-daemon» (necesita OpenSSH).'
+# Comillas rectas: las «» dependen de la página de códigos de la consola y por SSH
+# salían como «�».
+Log 'el daemon de esta maquina se instala desde otra, con "install-daemon" (necesita OpenSSH).'
 exit 0

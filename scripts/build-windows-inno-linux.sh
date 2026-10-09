@@ -525,12 +525,17 @@ begin
   begin
     if not OpenZfsInstalado() then
     begin
-      if MsgBox('OpenZFS on Windows was not found on this machine.' + #13#10 + #13#10 +
+      // `SuppressibleMsgBox` y no `MsgBox`: `/SUPPRESSMSGBOXES` SOLO suprime los primeros.
+      // Con `MsgBox`, una instalación desatendida —`/VERYSILENT /SUPPRESSMSGBOXES`— en una
+      // máquina sin OpenZFS se quedaba colgada para siempre esperando un «Sí/No» que nadie
+      // veía. Se vio así: el instalador del paquete lanza el Setup en silencio, y en una VM
+      // recién instalada no volvió nunca. En silencio contesta IDNO: no abre el navegador.
+      if SuppressibleMsgBox('OpenZFS on Windows was not found on this machine.' + #13#10 + #13#10 +
                 'ZFSMgr needs it to manage pools and datasets: it provides zfs.exe and' + #13#10 +
                 'zpool.exe. Windows has no package manager for it, so it must be' + #13#10 +
                 'downloaded from the project releases page.' + #13#10 + #13#10 +
                 'Open the download page now?',
-                mbConfirmation, MB_YESNO) = IDYES then
+                mbConfirmation, MB_YESNO, IDNO) = IDYES then
         ShellExec('open', 'https://github.com/openzfsonwindows/openzfs/releases',
                   '', '', SW_SHOW, ewNoWait, ErrCode);
     end;
