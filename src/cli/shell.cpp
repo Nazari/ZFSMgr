@@ -108,10 +108,20 @@ struct FiltroFilas {
     std::string patron;  // el tramo CRUDO, con sus comodines; vacío = sin filtro
     Clase clase{Clase::Todo};
     std::string texto;   // lo que escribió el usuario, para el mensaje de «nada coincide»
+    // Ficheros: como la shell, «*» no casa con los que empiezan por «.» salvo que el patrón
+    // empiece también por «.».
+    bool ocultos{false};
 };
 
 struct Estado {
     FiltroFilas filtro;
+    // Las rutas del origen de `rsync` cuando las ha expandido un patrón (`#content/*.log`).
+    // Vacío = las que diga la URL. Ver ejecutaConPatrones.
+    std::vector<std::string> rsyncRelativas;
+    // Y entonces cada una aterriza DENTRO del destino con su nombre, como
+    // `rsync -a src/s* dst/` deja dst/s1 y dst/s2. Sin patrón, `#content/{a,b}` vuelca el
+    // CONTENIDO de cada una en el destino, que es lo que ha hecho siempre.
+    bool rsyncConNombre = false;
     // La versión de agente de cada conexión, recordada durante la sesión. Ver
     // listaConexiones: preguntarla cuesta una ida y vuelta por máquina.
     std::map<std::string, std::string> versionDaemon;
@@ -205,6 +215,13 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
                               {texto.substr(0, dosPuntos)});
             return false;
         }
+    }
+
+    // La raíz escrita como URL. Es lo que enseña `pwd` en la raíz, y no se podía volver a
+    // escribir: el analizador de URL exige una conexión y contestaba «falta la conexión».
+    if (B::toLowerAscii(texto) == "zfsm://" || B::toLowerAscii(texto) == "zfsm:///") {
+        out = ZfsmUrl{};
+        return true;
     }
 
     // La URL completa: siempre vale y nunca es ambigua.
@@ -915,6 +932,10 @@ bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> column
                     continue;
                 }
                 nombre = nombre.substr(1);
+            }
+            if (e.filtro.ocultos && !nombre.empty() && nombre[0] == '.'
+                && (e.filtro.patron.empty() || e.filtro.patron[0] != '.')) {
+                continue;
             }
             if (B::matchesRawPattern(e.filtro.patron, nombre)) {
                 casa = true;
@@ -4707,6 +4728,37 @@ bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
 // Los dos motores ya existían y los usa `rsync`: dentro de una máquina, el `rsync` del
 // daemon; entre dos, el árbol entre agentes. Esto no añade ninguno, solo los pone detrás de
 // una misma llamada para que `cp` no tenga que saber de los dos.
+// El último tramo de una ruta, con «/» o con «\».
+std::string hojaDe(const std::string& ruta) {
+    const std::size_t barra = ruta.find_last_of("/\\");
+    return barra == std::string::npos ? ruta : ruta.substr(barra + 1);
+}
+
+// ¿`ruta` es un fichero —y no un directorio— en la máquina de `u`? Se mira en el listado de
+// su directorio padre, que es lo que el agente ya sabe contestar. Si no se puede saber, se
+// dice que no: el camino de siempre, el del árbol.
+bool esFicheroEn(Estado& e, const ZfsmUrl& u, const std::string& ruta) {
+    const std::size_t barra = ruta.find_last_of("/\\");
+    if (barra == std::string::npos || barra + 1 >= ruta.size()) {
+        return false;
+    }
+    const std::string padre = barra == 0 ? std::string("/") : ruta.substr(0, barra);
+    const std::string hoja = ruta.substr(barra + 1);
+    std::string out;
+    std::vector<L::DirectoryEntry> entradas;
+    std::string errJson;
+    if (!agente(e, u, PET::directoryContents(padre), out)
+        || !L::directoryContents(out, entradas, errJson)) {
+        return false;
+    }
+    for (const L::DirectoryEntry& ent : entradas) {
+        if (ent.name == hoja) {
+            return !ent.directory;
+        }
+    }
+    return false;
+}
+
 bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& rutaOrigen,
                 const std::string& maqDestino, const std::string& baseDestino,
                 const std::string& nombre, bool simula, bool esperar) {
@@ -4781,13 +4833,36 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
                             std::string& salida, std::string& error, int& rc) {
         return ejecutarAgente(*e.ses, maquina, argv, salida, error, rc, nullptr, timeoutMs);
     };
+    // ¿Es un FICHERO? Entonces el receptor se pone en el directorio de destino —que ya
+    // existe— y el origen manda un árbol de una sola entrada con el nombre del fichero.
+    //
+    // Hacía falta saberlo AQUÍ, antes de preparar nada: el paso siguiente creaba en el
+    // destino un directorio con el nombre del fichero, y el envío fallaba después con «no es
+    // un directorio». Quedaba basura con forma de éxito a medias.
+    const bool esFichero = esFicheroEn(e, uOrigen, rutaOrigen);
+    {
+        const std::string hoja = hojaDe(rutaOrigen);
+        {
+            if (esFichero && nombre != hoja) {
+                // El árbol lleva el nombre del fichero tal cual; renombrarlo al llegar
+                // pediría un verbo más en el receptor.
+                std::fprintf(stderr,
+                             TC("t_cp_as_fichero_remoto",
+                                "un fichero que cambia de máquina llega con su nombre («%s»): "
+                                "«--as» no vale aquí\n"),
+                             hoja.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        }
+    }
     // El directorio donde aterriza tiene que EXISTIR antes: el receptor del árbol no lo
     // crea y se planta con «no es un directorio». Se crea con un verbo que solo puede crear
     // DENTRO de algo que ya está, no en cualquier parte del sistema.
     //
     // En una simulación no se crea nada: `--check` promete no tocar, y crear un directorio
-    // es tocar.
-    if (!simula) {
+    // es tocar. Un fichero no lo necesita: aterriza en `baseDestino`, que ya existe.
+    if (!simula && !esFichero) {
         std::string prepOut;
         std::string prepErr;
         int prepRc = -1;
@@ -4802,7 +4877,8 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
     }
     std::string salidaEnvio;
     const auto hecho = TR::launchTreeJob(e.ses->transporte, llama, src, dst, rutaOrigen,
-                                         rutaDestino, /*mismaConexion=*/false, e.ses->verboso,
+                                         esFichero ? baseDestino : rutaDestino,
+                                         /*mismaConexion=*/false, e.ses->verboso,
                                          /*comoTrabajo=*/!esperar && !simula, /*borra=*/false,
                                          simula, &salidaEnvio);
     if (hecho.failure != TR::JobFailure::None_) {
@@ -4984,7 +5060,10 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     // `detail` viene ya troceado por «/»; se rejunta para volver a tener la ruta relativa
     // tal y como se escribió, que es sobre la que actúan las llaves.
     const auto rutaDe = [](const ZfsmUrl& u) { return B::join(u.detail, "/"); };
-    const std::vector<std::string> relativas = AV::contentPaths(rutaDe(origen));
+    // Si un patrón ya las ha expandido (`#content/*.log`), esas; todas a UN solo rsync,
+    // como hace la shell, para que `--delete` las considere juntas.
+    const std::vector<std::string> relativas =
+        !e.rsyncRelativas.empty() ? e.rsyncRelativas : AV::contentPaths(rutaDe(origen));
     if (relativas.empty()) {
         std::fprintf(stderr,
                      TC("t_rsync_llaves_mal",
@@ -5018,7 +5097,9 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     // La carga son PARES (origen, destino) y el daemon lanza un rsync por par: con `{a,b}`
     // la segunda pasada borraría en el destino lo que acaba de dejar la primera. Aceptarlo
     // sería prometer una sincronización y entregar la última carpeta a secas.
-    if (borra && relativas.size() > 1) {
+    // Con patrón cada una aterriza en SU subdirectorio, y ahí `--delete` es lo de rsync:
+    // no hay dos pasadas sobre el mismo sitio.
+    if (borra && relativas.size() > 1 && !e.rsyncConNombre) {
         std::fputs(TC("t_rsync_borrar_varios",
                       "«--delete» no se puede usar con varios orígenes: cada uno borraría lo "
                       "que dejó el anterior\n"),
@@ -5035,7 +5116,11 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     const std::string rutaDestino = unir(baseDestino, rutaDe(destino));
     std::vector<std::pair<std::string, std::string>> pares;
     for (const std::string& rel : relativas) {
-        pares.emplace_back(unir(baseOrigen, rel), rutaDestino);
+        const std::size_t barra = rel.rfind('/');
+        pares.emplace_back(unir(baseOrigen, rel),
+                           e.rsyncConNombre
+                               ? unir(rutaDestino, barra == std::string::npos ? rel : rel.substr(barra + 1))
+                               : rutaDestino);
     }
     // Confirmación solo si va a BORRAR: sin `--delete` esto añade y actualiza, y no hay
     // nada que perder. Con `--delete` el destino acaba idéntico al origen, borrado incluido.
@@ -5076,13 +5161,21 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         };
         bool todoBien = true;
         for (const auto& par : pares) {
+            // Con patrón, cada uno aterriza con su nombre: un directorio en su
+            // subdirectorio, y un fichero dentro del destino —el agente de origen lo manda
+            // como un árbol de una entrada—. Sin patrón, el contenido va al destino tal cual.
+            const bool fichero = e.rsyncConNombre && esFicheroEn(e, origen, par.first);
+            std::string relDestino = rutaDe(destino);
+            if (e.rsyncConNombre && !fichero) {
+                relDestino = unir(relDestino, hojaDe(par.first));
+            }
             // El directorio de destino tiene que EXISTIR: el receptor del árbol lo exige.
             // `--mutate-advanced-fromdir-prepare` lo monta, lo resuelve y lo crea.
             std::string prepOut;
             std::string prepErr;
             int prepRc = -1;
             const std::vector<std::string> prep =
-                AV::argvFromDirPrepare(destino.zfsName(), rutaDe(destino));
+                AV::argvFromDirPrepare(destino.zfsName(), relDestino);
             if (prep.empty()
                 || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
                 || prepRc != 0) {
@@ -5092,7 +5185,8 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
             std::string salidaEnvio;
             const auto hecho = TR::launchTreeJob(
                 e.ses->transporte, llama, src, dst, par.first, B::trim(AV::preparedPath(prepOut)),
-                /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false, borra, simula,
+                /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false,
+                borra && !fichero, simula,
                 &salidaEnvio);
             if (hecho.failure != TR::JobFailure::None_) {
                 std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.failure).c_str(),
@@ -5724,7 +5818,23 @@ public:
         });
     }
 
-    std::vector<std::string> contenido(const UrlCruda& prefijo) {
+    // `soloDirectorios`: cuando detrás quedan más tramos, un fichero no puede ser parte del
+    // camino —`alfa/*/x.log`—, y pedir su contenido daba «Not a directory» por cada uno.
+    std::vector<std::string> contenido(const UrlCruda& prefijo, bool soloDirectorios = false) {
+        const std::vector<std::string> todos = contenidoTipado(prefijo);
+        std::vector<std::string> v;
+        for (const std::string& t : todos) {
+            const bool esDir = !t.empty() && t.back() == '/';
+            if (soloDirectorios && !esDir) {
+                continue;
+            }
+            v.push_back(esDir ? t.substr(0, t.size() - 1) : t);
+        }
+        return v;
+    }
+
+    // Los nombres de un directorio, con «/» al final los que son directorios.
+    std::vector<std::string> contenidoTipado(const UrlCruda& prefijo) {
         return enCache("cont|" + prefijo.texto(), [&](std::vector<std::string>& v) {
             ZfsmUrl u;
             if (!resolver(prefijo, u)) {
@@ -5741,7 +5851,7 @@ public:
             std::string errJson;
             if (L::directoryContents(out, entradas, errJson)) {
                 for (const L::DirectoryEntry& ent : entradas) {
-                    v.push_back(ent.name);
+                    v.push_back(ent.directory ? ent.name + "/" : ent.name);
                 }
             }
             return true;
@@ -5880,6 +5990,14 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
         return base;
     };
 
+    const auto trasComodin = [&](std::size_t i) {
+        for (std::size_t k = 0; k < i; ++k) {
+            if (B::hasWildcard(piezas[k].crudo)) {
+                return true;
+            }
+        }
+        return false;
+    };
     std::function<bool(std::size_t, const UrlCruda&)> expande =
         [&](std::size_t i, const UrlCruda& prefijo) -> bool {
         if (i == piezas.size() || i == filtroEn) {
@@ -5887,6 +6005,8 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
             d.url = prefijo.texto();
             if (i == filtroEn) {
                 d.filtro.patron = piezas[i].crudo;
+                d.filtro.ocultos = piezas[i].clase == Pieza::Detalle
+                                   && B::toLowerAscii(prefijo.seccion) == "content";
                 d.filtro.clase = piezas[i].clase == Pieza::Hijo ? FiltroFilas::Clase::Hijos
                                  : piezas[i].clase == Pieza::Instantanea
                                      ? FiltroFilas::Clase::Instantaneas
@@ -5898,29 +6018,65 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
             return true;
         }
         const PiezaCruda& pz = piezas[i];
+        // Lo que existe en este nivel, colgando del prefijo.
+        const auto candidatosDe = [&](std::vector<std::string>& candidatos) -> bool {
+            switch (pz.clase) {
+                case Pieza::Conexion: candidatos = en.conexiones(); break;
+                case Pieza::Pool: candidatos = en.pools(prefijo); break;
+                case Pieza::Hijo: candidatos = en.hijos(prefijo); break;
+                case Pieza::Instantanea: candidatos = en.instantaneas(prefijo); break;
+                case Pieza::Seccion: break;
+                case Pieza::Detalle:
+                    if (B::toLowerAscii(prefijo.seccion) == "properties") {
+                        candidatos = en.propiedades(prefijo);
+                    } else if (B::toLowerAscii(prefijo.seccion) == "content") {
+                        candidatos = en.contenido(prefijo, /*soloDirectorios=*/i + 1 < piezas.size());
+                    } else {
+                        err = B::format(T("t_patron_no_seccion", "la sección «%1» no admite comodines"),
+                                        {prefijo.seccion});
+                        return false;
+                    }
+                    break;
+            }
+            return true;
+        };
         if (!B::hasWildcard(pz.crudo)) {
+            // Un tramo LITERAL detrás de un comodín tiene que EXISTIR, como en la shell:
+            // `alfa/*/x.log` da solo las rutas donde hay un x.log. Sin esto, «*» casaba con
+            // todo lo del nivel —ficheros incluidos— y se le pegaba «x.log» a cada cosa:
+            // salían «a.log/x.log» y «b.log/x.log», que no existen.
+            if (trasComodin(i) && pz.clase != Pieza::Seccion) {
+                std::vector<std::string> candidatos;
+                if (!candidatosDe(candidatos)) {
+                    return false;
+                }
+                std::string literal;
+                if (!B::rawSegmentToPattern(pz.crudo, literal)) {
+                    return true;
+                }
+                std::string sinEscapes;
+                for (std::size_t k = 0; k < literal.size(); ++k) {
+                    if (literal[k] == '\\' && k + 1 < literal.size()) {
+                        ++k;
+                    }
+                    sinEscapes.push_back(literal[k]);
+                }
+                if (std::find(candidatos.begin(), candidatos.end(), sinEscapes) == candidatos.end()) {
+                    return true;  // no existe aquí: esta rama no da nada
+                }
+            }
             return expande(i + 1, conPieza(prefijo, pz, pz.crudo));
         }
         std::vector<std::string> candidatos;
-        switch (pz.clase) {
-            case Pieza::Conexion: candidatos = en.conexiones(); break;
-            case Pieza::Pool: candidatos = en.pools(prefijo); break;
-            case Pieza::Hijo: candidatos = en.hijos(prefijo); break;
-            case Pieza::Instantanea: candidatos = en.instantaneas(prefijo); break;
-            case Pieza::Seccion: break;  // rechazado arriba
-            case Pieza::Detalle:
-                if (B::toLowerAscii(prefijo.seccion) == "properties") {
-                    candidatos = en.propiedades(prefijo);
-                } else if (B::toLowerAscii(prefijo.seccion) == "content") {
-                    candidatos = en.contenido(prefijo);
-                } else {
-                    err = B::format(T("t_patron_no_seccion", "la sección «%1» no admite comodines"),
-                                    {prefijo.seccion});
-                    return false;
-                }
-                break;
+        if (!candidatosDe(candidatos)) {
+            return false;
         }
+        const bool deFicheros = pz.clase == Pieza::Detalle
+                                && B::toLowerAscii(prefijo.seccion) == "content";
         for (const std::string& c : candidatos) {
+            if (deFicheros && !c.empty() && c[0] == '.' && pz.crudo[0] != '.') {
+                continue;  // como la shell: «*» no saca los ocultos
+            }
             const bool casa = B::matchesRawPattern(pz.crudo, c)
                               || (pz.clase == Pieza::Conexion
                                   && B::matchesRawPattern(pz.crudo, en.nombreDe(c)));
@@ -5942,6 +6098,115 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
     return true;
 }
 
+// Una ruta de ESTA máquina con comodines —un origen o destino de `cp` que empieza por «/»—,
+// expandida contra el disco, como la shell. Ordenada: el orden de un directorio es el que le
+// apetece al sistema de ficheros, y un resultado que cambia de una vez a otra no se puede
+// comprobar.
+bool expandeRutaLocal(const std::string& ruta, std::vector<std::string>& out, std::string& err) {
+    out.clear();
+    std::vector<std::string> actuales = {"/"};
+    const auto une = [](const std::string& a, const std::string& b) {
+        return a == "/" ? "/" + b : a + "/" + b;
+    };
+    for (const std::string& tramo : B::split(ruta, "/", true)) {
+        std::vector<std::string> siguientes;
+        if (!B::hasWildcard(tramo)) {
+            for (const std::string& a : actuales) {
+                siguientes.push_back(une(a, tramo));
+            }
+        } else {
+            std::vector<std::string> alternativas;
+            if (!B::expandBraces(tramo, alternativas)) {
+                err = B::format(T("t_patron_mal", "patrón mal formado: «%1»"), {tramo});
+                return false;
+            }
+            for (const std::string& a : actuales) {
+                std::vector<std::string> nombres;
+                std::error_code ec;
+                for (const auto& ent : std::filesystem::directory_iterator(a, ec)) {
+                    const std::string nombre = ent.path().filename().string();
+                    if (!nombre.empty() && nombre[0] == '.' && tramo[0] != '.') {
+                        continue;  // como la shell: «*» no saca los ocultos
+                    }
+                    for (const std::string& alt : alternativas) {
+                        if (B::globMatch(alt, nombre)) {
+                            nombres.push_back(nombre);
+                            break;
+                        }
+                    }
+                }
+                std::sort(nombres.begin(), nombres.end());
+                for (const std::string& n : nombres) {
+                    siguientes.push_back(une(a, n));
+                }
+            }
+        }
+        actuales = std::move(siguientes);
+    }
+    out = std::move(actuales);
+    return true;
+}
+
+// Un patrón que tiene que casar con UNO: el destino de `cp`, `rsync`, `send` y `diff`.
+// Como la shell, donde `cp a* dir*` solo hace lo que uno cree si `dir*` es un solo sitio.
+// `rutaLocal`: el texto es una ruta de esta máquina (en `cp`, la que empieza por «/»).
+bool expandeUnico(Estado& e, const std::string& texto, const std::string& orden, bool rutaLocal,
+                  std::string& concreto) {
+    std::vector<std::string> candidatos;
+    std::string err;
+    if (rutaLocal) {
+        if (!expandeRutaLocal(texto, candidatos, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+    } else {
+        UrlCruda u;
+        std::vector<DestinoConcreto> ds;
+        bool hecho = absolutaCruda(e, texto, u, err) && expandeDestinos(e, u, false, ds, err);
+        // El destino de `send` es un dataset que muchas veces AÚN NO EXISTE: en
+        // `send tank/cop*/nuevo` el patrón elige dónde, y «nuevo» es lo que se va a crear.
+        // Exigir que exista —como se exige a un tramo literal tras un comodín— hacía
+        // imposible justo el caso útil. Se expande la madre y se le pega el nombre.
+        if (!hecho && err == "-" && orden == "send" && u.ruta.size() >= 2
+            && !B::hasWildcard(u.ruta.back()) && !u.hayInstantanea && !u.haySeccion) {
+            UrlCruda madre = u;
+            const std::string nuevo = madre.ruta.back();
+            madre.ruta.pop_back();
+            err.clear();
+            hecho = expandeDestinos(e, madre, false, ds, err);
+            for (DestinoConcreto& d : ds) {
+                d.url += "/" + nuevo;
+            }
+        }
+        if (!hecho) {
+            if (err == "-") {
+                std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), texto.c_str());
+            } else if (!err.empty()) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+            }
+            return false;
+        }
+        for (const DestinoConcreto& d : ds) {
+            candidatos.push_back(d.url);
+        }
+    }
+    if (candidatos.empty()) {
+        std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), texto.c_str());
+        return false;
+    }
+    if (candidatos.size() > 1) {
+        std::fprintf(stderr,
+                     TC("t_patron_varios_uno", "«%s» necesita UN destino y «%s» casa con %zu:\n"),
+                     orden.c_str(), texto.c_str(), candidatos.size());
+        for (std::size_t i = 0; i < candidatos.size() && i < 20; ++i) {
+            std::fprintf(stderr, "  %s\n", candidatos[i].c_str());
+        }
+        return false;
+    }
+    concreto = candidatos.front();
+    return true;
+}
+
 // Qué hace cada orden con un patrón en su destino. Las que no están, lo rechazan.
 enum class Politica { Filtra, Uno, Varios, VariosModifica };
 struct ReglaPatron {
@@ -5955,6 +6220,9 @@ const std::map<std::string, ReglaPatron>& reglasDePatron() {
     static const std::map<std::string, ReglaPatron> r = {
         {"ls", {Politica::Filtra, {}}},
         {"cd", {Politica::Uno, {}}},
+        // Origen y destino emparejados: el origen, si casa uno, como el destino.
+        {"send", {Politica::Uno, {}}},
+        {"diff", {Politica::Uno, {}}},
         {"get", {Politica::Varios, {}}},
         {"info", {Politica::Varios, {}}},
         {"status", {Politica::Varios, {}}},
@@ -6020,10 +6288,192 @@ private:
     int copia_{-1};
 };
 
+// El nombre con el que aterriza un origen de `cp`: el último tramo de su ruta. Sirve para
+// negarse ANTES de copiar cuando dos orígenes acabarían con el mismo nombre en el destino:
+// el segundo pisaría al primero.
+std::string nombreDeLlegada(const std::string& origen) {
+    if (!origen.empty() && origen.front() == '/') {
+        const std::size_t barra = origen.find_last_of('/');
+        return origen.substr(barra + 1);
+    }
+    ZfsmUrl u;
+    std::string err;
+    if (!B::parseZfsmUrl(origen, u, err)) {
+        return origen;
+    }
+    if (!u.detail.empty()) {
+        return u.detail.back();
+    }
+    const std::size_t barra = u.dataset.find_last_of('/');
+    return barra == std::string::npos ? u.dataset : u.dataset.substr(barra + 1);
+}
+
 // La envoltura de cada orden: si su destino lleva un patrón, lo resuelve según la regla de
 // la orden; si no, la orden se ejecuta como siempre, sin pasar por nada de esto.
-bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizada& an,
+bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizada& original,
                         const std::function<bool(Estado&, const LineaAnalizada&)>& f) {
+    LineaAnalizada an = original;
+
+    // --- Ejecutar sobre varios destinos que MODIFICAN: la lista exacta SIEMPRE —también con
+    // -y, para que quede en el registro qué se hizo—, `--check` para verla sin tocar nada,
+    // una sola confirmación, y una por una sin volver a preguntar.
+    const auto modificaVarios = [&](const std::vector<std::string>& destinos, const std::string& texto,
+                                    const std::function<bool(const std::string&)>& unoSolo) {
+        std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
+                     orden.c_str(), destinos.size(), texto.c_str());
+        for (const std::string& d : destinos) {
+            std::fprintf(stderr, "  %s\n", d.c_str());
+        }
+        if (an.opciones.count("check")) {
+            std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
+            return true;
+        }
+        if (!confirma(e, B::format(T("t_patron_confirma", "¿%1 sobre estos %2?"),
+                                   {orden, std::to_string(destinos.size())}))) {
+            e.ultimoRc = 1;
+            return false;
+        }
+        const bool asumiaSi = e.asumirSi;
+        e.asumirSi = true;
+        std::size_t bien = 0;
+        std::size_t mal = 0;
+        for (const std::string& d : destinos) {
+            if (unoSolo(d)) {
+                ++bien;
+            } else {
+                ++mal;
+                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), d.c_str());
+            }
+        }
+        e.asumirSi = asumiaSi;
+        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), orden.c_str(),
+                     bien, mal);
+        if (mal > 0) {
+            e.ultimoRc = 1;
+        }
+        return mal == 0;
+    };
+    const auto sinZfsm = [](const std::string& url) {
+        return B::startsWith(url, "zfsm://") ? url.substr(7) : url;
+    };
+
+    // --- El DESTINO de `rsync`, `send` y `diff`: un patrón vale si casa con UNO, como en la
+    // shell. Va antes que el origen porque es igual para todas.
+    for (auto it = an.ranuras.begin(); it != an.ranuras.end(); ++it) {
+        if (it->first == "destino" && B::hasWildcard(it->second)) {
+            std::string concreto;
+            if (!expandeUnico(e, it->second, orden, false, concreto)) {
+                e.ultimoRc = 1;
+                return false;
+            }
+            it->second = concreto;
+        }
+    }
+
+    // --- `cp`: los ORÍGENES se expanden a varios; el DESTINO, solo si casa con uno. Igual que
+    // `cp *.log /tmp/` en la shell: cada origen aterriza en el destino con su nombre.
+    if (orden == "cp") {
+        const std::vector<std::string> args = an.lista("texto");
+        if (args.size() != 2 || (!B::hasWildcard(args[0]) && !B::hasWildcard(args[1]))) {
+            return f(e, an);  // sin patrones, o mal formado: que lo diga `cp`
+        }
+        std::string destino = args[1];
+        if (B::hasWildcard(destino)
+            && !expandeUnico(e, destino, orden, !destino.empty() && destino.front() == '/', destino)) {
+            e.ultimoRc = 1;
+            return false;
+        }
+        std::vector<std::string> origenes;
+        std::string err;
+        if (!B::hasWildcard(args[0])) {
+            origenes = {args[0]};
+        } else if (args[0].front() == '/') {
+            if (!expandeRutaLocal(args[0], origenes, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        } else {
+            UrlCruda u;
+            std::vector<DestinoConcreto> ds;
+            if (!absolutaCruda(e, args[0], u, err) || !expandeDestinos(e, u, false, ds, err)) {
+                if (err == "-") {
+                    origenes.clear();
+                } else {
+                    if (!err.empty()) {
+                        std::fprintf(stderr, "%s\n", err.c_str());
+                    }
+                    e.ultimoRc = 1;
+                    return false;
+                }
+            }
+            for (const DestinoConcreto& d : ds) {
+                origenes.push_back(d.url);
+            }
+        }
+        if (origenes.empty()) {
+            std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), args[0].c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (origenes.size() > 1 && an.opciones.count("as")) {
+            std::fputs(TC("t_cp_as_varios",
+                          "--as pone UN nombre, y el origen casa con varios: no tiene sentido\n"),
+                       stderr);
+            e.ultimoRc = 1;
+            return false;
+        }
+        // Dos orígenes con el mismo nombre de llegada: el segundo pisaría al primero.
+        std::map<std::string, std::string> llegadas;
+        for (const std::string& o : origenes) {
+            const std::string nombre = nombreDeLlegada(o);
+            const auto ya = llegadas.find(nombre);
+            if (ya != llegadas.end()) {
+                std::fprintf(stderr,
+                             TC("t_cp_misma_llegada",
+                                "«%s» y «%s» llegarían con el mismo nombre, «%s»: el segundo "
+                                "pisaría al primero\n"),
+                             sinZfsm(ya->second).c_str(), sinZfsm(o).c_str(), nombre.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            llegadas[nombre] = o;
+        }
+        const auto copiaUno = [&](const std::string& origen) {
+            LineaAnalizada an2 = an;
+            an2.ranuras.erase("texto");
+            an2.ranuras.emplace("texto", origen);
+            an2.ranuras.emplace("texto", destino);
+            return f(e, an2);
+        };
+        if (origenes.size() == 1) {
+            return copiaUno(origenes.front());
+        }
+        // Como `cp` en la shell, no se pide confirmación: copiar a un sitio no destruye lo
+        // que se copia. Pero la lista sí se enseña, y `--check` sigue valiendo.
+        std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
+                     orden.c_str(), origenes.size(), args[0].c_str());
+        for (const std::string& o : origenes) {
+            std::fprintf(stderr, "  %s\n", sinZfsm(o).c_str());
+        }
+        std::size_t bien = 0;
+        std::size_t mal = 0;
+        for (const std::string& o : origenes) {
+            if (copiaUno(o)) {
+                ++bien;
+            } else {
+                ++mal;
+                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), sinZfsm(o).c_str());
+            }
+        }
+        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), orden.c_str(),
+                     bien, mal);
+        if (mal > 0) {
+            e.ultimoRc = 1;
+        }
+        return mal == 0;
+    }
+
     const auto it = an.opciones.find("on");
     const auto itFrom = an.opciones.find("from");
     const std::string texto = it != an.opciones.end()       ? it->second
@@ -6032,6 +6482,103 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     if (texto.empty() || !B::hasWildcard(texto)) {
         return f(e, an);
     }
+
+    // --- El ORIGEN de `rsync`.
+    if (orden == "rsync") {
+        UrlCruda u;
+        std::string err;
+        if (!absolutaCruda(e, texto, u, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        bool enRuta = false;
+        bool enContenido = false;  // con `*`, `?` o `[` en #content; las llaves solas no
+        for (const PiezaCruda& pz : piezasDe(u)) {
+            if (pz.clase == Pieza::Detalle) {
+                enContenido = enContenido || pz.crudo.find_first_of("*?[") != std::string::npos;
+            } else if (B::hasWildcard(pz.crudo)) {
+                enRuta = true;
+            }
+        }
+        // `#content/{a,b,dir}` sin comodines es lo que `rsync` ya entendía por sí mismo: tal cual.
+        if (!enRuta && !enContenido) {
+            return f(e, an);
+        }
+        if (enRuta && enContenido) {
+            std::fprintf(stderr, TC("t_rsync_patron_doble",
+                                    "un patrón en el dataset de origen Y en su contenido a la vez no "
+                                    "se admite: «%s»\n"),
+                         texto.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        std::vector<DestinoConcreto> ds;
+        if (!expandeDestinos(e, u, false, ds, err)) {
+            if (err == "-") {
+                std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), texto.c_str());
+            } else if (!err.empty()) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (enContenido) {
+            // Como `rsync -a src/*.log src/s* dst/` en la shell: TODAS las rutas en UNA orden,
+            // y cada una aterriza en el destino con su nombre —un fichero como fichero, un
+            // directorio como subdirectorio—, así que `--delete` solo toca lo de cada una.
+            std::vector<std::string> relativas;
+            for (const DestinoConcreto& d : ds) {
+                ZfsmUrl c;
+                if (B::parseZfsmUrl(d.url, c, err)) {
+                    relativas.push_back(B::join(c.detail, "/"));
+                }
+            }
+            UrlCruda base = u;
+            base.detalle.clear();
+            LineaAnalizada an2 = an;
+            an2.opciones.erase("on");
+            an2.opciones.erase("from");
+            an2.objetivo = base.texto();
+            e.rsyncRelativas = relativas;
+            e.rsyncConNombre = true;
+            const bool ok = f(e, an2);
+            e.rsyncRelativas.clear();
+            e.rsyncConNombre = false;
+            return ok;
+        }
+        // Varios datasets de origen al mismo destino: varios rsync seguidos. Con `--delete`,
+        // cada uno borraría lo que dejó el anterior, así que se niega.
+        if (ds.size() > 1 && an.opciones.count("delete")) {
+            std::fprintf(stderr,
+                         TC("t_rsync_delete_varios",
+                            "con --delete y %zu orígenes, cada rsync borraría lo que copió el "
+                            "anterior en el mismo destino: no se hace\n"),
+                         ds.size());
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (ds.size() == 1) {
+            LineaAnalizada an2 = an;
+            an2.opciones.erase("on");
+            an2.opciones.erase("from");
+            an2.objetivo = ds.front().url;
+            return f(e, an2);
+        }
+        std::vector<std::string> urls;
+        for (const DestinoConcreto& d : ds) {
+            urls.push_back(sinZfsm(d.url));
+        }
+        return modificaVarios(urls, texto, [&](const std::string& etiqueta) {
+            LineaAnalizada an2 = an;
+            an2.opciones.erase("on");
+            an2.opciones.erase("from");
+            an2.opciones.erase("check");
+            an2.objetivo = "zfsm://" + etiqueta;
+            return f(e, an2);
+        });
+    }
+
     const auto& reglas = reglasDePatron();
     const auto regla = reglas.find(orden);
     if (regla == reglas.end()) {
@@ -6136,41 +6683,14 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     }
 
     if (politica == Politica::VariosModifica) {
-        // La lista exacta, SIEMPRE: también con -y, para que quede en el registro qué se hizo.
-        std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
-                     orden.c_str(), destinos.size(), texto.c_str());
+        std::vector<std::string> etiquetas;
+        std::map<std::string, DestinoConcreto> porEtiqueta;
         for (const DestinoConcreto& d : destinos) {
-            std::fprintf(stderr, "  %s\n", d.etiqueta().c_str());
+            etiquetas.push_back(d.etiqueta());
+            porEtiqueta[d.etiqueta()] = d;
         }
-        if (an.opciones.count("check")) {
-            std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
-            return true;
-        }
-        if (!confirma(e, B::format(T("t_patron_confirma", "¿%1 sobre estos %2?"),
-                                   {orden, std::to_string(destinos.size())}))) {
-            e.ultimoRc = 1;
-            return false;
-        }
-        // Ya se confirmó la lista entera: que cada repetición no vuelva a preguntar.
-        const bool asumiaSi = e.asumirSi;
-        e.asumirSi = true;
-        std::size_t bien = 0;
-        std::size_t mal = 0;
-        for (const DestinoConcreto& d : destinos) {
-            if (corre(d)) {
-                ++bien;
-            } else {
-                ++mal;
-                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), d.etiqueta().c_str());
-            }
-        }
-        e.asumirSi = asumiaSi;
-        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), orden.c_str(),
-                     bien, mal);
-        if (mal > 0) {
-            e.ultimoRc = 1;
-        }
-        return mal == 0;
+        return modificaVarios(etiquetas, texto,
+                              [&](const std::string& etiqueta) { return corre(porEtiqueta[etiqueta]); });
     }
 
     // Filtra y Varios. Con un solo destino, tal cual.

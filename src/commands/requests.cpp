@@ -267,7 +267,12 @@ bool canEnqueue(const std::string& verbo) {
     // enlaza `zfsmgr_commands` y llama aquí: `isAsyncSubmittableCommand` es una línea.
     return v == "--mutate-advanced-breakdown" || v == "--mutate-advanced-assemble"
            || v == "--mutate-advanced-todir" || v == "--mutate-rsync-local"
-           || v == "--tree-send-to-peer";
+           || v == "--tree-send-to-peer"
+           // La copia dentro de una misma máquina (`cp` entre dos sitios de ella). Faltaba,
+           // y `cp` sin `--wait` —su forma normal, la que manda la copia al daemon y vuelve—
+           // decía «esa orden no se puede encolar como trabajo» y no copiaba nada. La
+           // batería no lo veía porque todos sus `cp` llevan `--wait`.
+           || v == "--mutate-copy-local";
 }
 
 std::vector<std::string> enqueue(const std::vector<std::string>& orden) {

@@ -641,6 +641,93 @@ def casos_patrones(ctx):
          estado=[("otro sigue igual", f"zfs get -H -o value atime {P}/otro", r"^on")])
 
 
+def casos_patrones_copia(ctx):
+    """`cp` y `rsync` con patrones, con las reglas del sistema operativo.
+
+    El origen puede casar con varios; el destino solo vale si casa con UNO. Cada caso se
+    comprueba en la máquina: que esté lo que se copió Y que no esté lo que no casaba.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    for h in ("hijoA", "hijoB", "otro"):
+        sh(ctx, f"zfs create {P}/{h}", root=True)
+    D = f"/mnt/{P}/datos"
+    sh(ctx, f"bash -c 'cd {D} && echo 1 > x1.log && echo 2 > x2.log && echo o > .oculto.log "
+            f"&& echo c > c.txt && mkdir -p d1 d2 && echo y1 > d1/y.log && echo y2 > d2/y.log'",
+       root=True)
+    U = f"zfsm://local/{P}"
+    hay = lambda ruta: f"bash -c 'ls -A {ruta} 2>&1'"
+
+    # --- cp: varios orígenes a UN destino.
+    caso(ctx, "patrones cp: *.log copia los que casan, sin los ocultos",
+         [f"cp {U}/datos#content/*.log {U}/hijoA --wait"], rc=0, idioma="es",
+         espera=[r"2 bien, 0 fallaron"],
+         estado=[("hijoA tiene x1.log y x2.log", hay(f"/mnt/{P}/hijoA"), r"\Ax1\.log\nx2\.log\n?\Z")])
+    caso(ctx, "patrones cp: dos orígenes que llegarían con el mismo nombre se niegan",
+         [f"cp {U}/datos#content/d*/y.log {U}/hijoB --wait"], rc=1, idioma="es",
+         espera=[r"mismo nombre"],
+         estado=[("hijoB sigue vacío", hay(f"/mnt/{P}/hijoB"), r"\A\Z")])
+    caso(ctx, "patrones cp: un destino que casa con varios se niega",
+         [f"cp {U}/datos#content/c.txt {U}/hijo* --wait"], rc=1, idioma="es",
+         espera=[r"necesita UN destino"],
+         estado=[("hijoB sigue vacío", hay(f"/mnt/{P}/hijoB"), r"\A\Z")])
+    caso(ctx, "patrones cp: --as con varios orígenes se niega",
+         [f"cp {U}/datos#content/*.log {U}/hijoB --as z --wait"], rc=1, idioma="es",
+         espera=[r"--as"],
+         estado=[("hijoB sigue vacío", hay(f"/mnt/{P}/hijoB"), r"\A\Z")])
+    caso(ctx, "patrones cp: un origen sin coincidencias es un error",
+         [f"cp {U}/datos#content/*.zz {U}/hijoB --wait"], rc=1, idioma="es",
+         espera=[r"nada coincide"])
+    caso(ctx, "patrones cp: un destino con patrón que casa con UNO vale",
+         [f"cp {U}/datos#content/c.txt {U}/ot* --wait"], rc=0,
+         estado=[("otro/c.txt", f"cat /mnt/{P}/otro/c.txt", r"^c$")])
+
+    # --- rsync: con comodines en #content, cada uno aterriza CON SU NOMBRE.
+    caso(ctx, "patrones rsync: d* deja otro/d1 y otro/d2, como rsync src/d* dst/",
+         [f"rsync {U}/otro --from {U}/datos#content/d* --wait"], rc=0,
+         estado=[("otro/d1/y.log", f"cat /mnt/{P}/otro/d1/y.log", r"^y1$"),
+                 ("otro/d2/y.log", f"cat /mnt/{P}/otro/d2/y.log", r"^y2$")])
+    sh(ctx, f"bash -c 'echo s > /mnt/{P}/otro/d1/sobra'", root=True)
+    caso(ctx, "patrones rsync: --delete solo borra DENTRO de cada uno",
+         [f"rsync {U}/otro --from {U}/datos#content/d* --delete --wait"], rc=0,
+         estado=[("otro/d1/sobra ya no está", hay(f"/mnt/{P}/otro/d1"), r"\Ay\.log\n?\Z"),
+                 ("otro/c.txt sigue", f"cat /mnt/{P}/otro/c.txt", r"^c$")])
+    caso(ctx, "patrones rsync: un fichero con patrón aterriza dentro del destino",
+         [f"rsync {U}/hijoB --from {U}/datos#content/c.tx? --wait"], rc=0,
+         estado=[("hijoB/c.txt", f"cat /mnt/{P}/hijoB/c.txt", r"^c$")])
+    # Sin comodines, las llaves son lo de siempre: el CONTENIDO de cada uno al destino.
+    caso(ctx, "patrones rsync: {d1} sin comodines vuelca el contenido, como siempre",
+         [f"rsync {U}/hijoB --from {U}/datos#content/{{d1}} --wait"], rc=0,
+         estado=[("hijoB/y.log", f"cat /mnt/{P}/hijoB/y.log", r"^y1$"),
+                 ("no hay hijoB/d1", hay(f"/mnt/{P}/hijoB"), r"\A(?![\s\S]*^d1$)")])
+    caso(ctx, "patrones rsync: varios datasets de origen con --delete se niega",
+         [f"rsync {U}/otro --from {U}/{{hijoA,hijoB}} --delete --wait"], rc=1, idioma="es",
+         espera=[r"--delete"],
+         estado=[("otro/c.txt sigue", f"cat /mnt/{P}/otro/c.txt", r"^c$")])
+    caso(ctx, "patrones rsync: un destino que casa con varios se niega",
+         [f"rsync {U}/hijo* --from {U}/datos --wait"], rc=1, idioma="es",
+         espera=[r"necesita UN destino"])
+    caso(ctx, "patrones rsync: patrón en el dataset Y en el contenido a la vez se niega",
+         [f"rsync {U}/otro --from {U}/{{hijoA,hijoB}}#content/*.log --wait"], rc=1,
+         idioma="es", espera=[r"a la vez"])
+
+    # --- send: origen y destino UNO cada uno; el último tramo del destino puede ser nuevo.
+    sh(ctx, f"zfs snapshot {P}/datos@s2", root=True)
+    caso(ctx, "patrones send: destino NUEVO bajo una madre con patrón",
+         [f"send {U}/ot*/copia --on {U}/datos@s[1] --wait"], rc=0,
+         estado=[("existe otro/copia@s1", f"zfs list -H -t all -o name -r {P}/otro",
+                  rf"^{P}/otro/copia@s1$")])
+    caso(ctx, "patrones send: un origen que casa con varias se niega",
+         [f"send {U}/otro/copia2 --on {U}/datos@s* --wait"], rc=1, idioma="es",
+         espera=[r"necesita UN destino"],
+         estado=[("no hay otro/copia2", f"zfs list -H -o name -r {P}/otro",
+                  r"\A(?![\s\S]*copia2)")])
+
+    # --- La raíz escrita como URL. `pwd` la enseña así y no se podía volver a escribir.
+    caso(ctx, "ls zfsm:// lista las conexiones",
+         ["ls zfsm://"], rc=0, espera=[r"^local\s"], no_espera=[r"falta la conexión"])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1521,7 +1608,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

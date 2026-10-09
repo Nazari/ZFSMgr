@@ -6303,20 +6303,18 @@ static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
         if (linea == "E") {
             break;
         }
-        // Tras la cabecera vienen la ruta y el destino, con las longitudes que declara.
-        std::istringstream iss(linea);
-        char letra = 0;
-        std::uint64_t tam = 0;
-        std::int64_t fecha = 0;
-        std::uint32_t modo = 0;
-        std::size_t lr = 0;
-        std::size_t ld = 0;
-        if (!(iss >> letra >> tam >> fecha >> modo >> lr >> ld)) {
+        // Tras la cabecera vienen la ruta, el destino y —si la línea los declara— el dueño y
+        // el grupo por nombre. Estos dos se añadieron al manifiesto y aquí no se contaban:
+        // sus bytes se quedaban en el socket, la línea siguiente empezaba por «root…» y la
+        // copia entre máquinas moría con «línea de manifiesto ilegible» en cuanto el destino
+        // tenía algo dentro. Con el destino vacío el manifiesto es solo «E» y no se notaba.
+        std::size_t largo = 0;
+        if (!AR::manifestNamesLength(linea, largo)) {
             error = "línea de manifiesto ilegible";
             return false;
         }
-        std::string nombres(lr + ld, '\0');
-        if (lr + ld > 0 && !leeExacto(s, nombres.data(), lr + ld)) {
+        std::string nombres(largo, '\0');
+        if (largo > 0 && !leeExacto(s, nombres.data(), largo)) {
             error = "se cortó la conexión leyendo un nombre";
             return false;
         }
@@ -6813,7 +6811,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         r.err = "usage: --tree-send-to-peer <dir> <host> <port> <token> [--delete] [--dry-run]\n";
         return r;
     }
-    const std::string raiz = params[0];
+    std::string raiz = params[0];
     const std::string peerHost = params[1];
     const std::string portStr = params[2];
     const std::string token = params[3];
@@ -6826,7 +6824,30 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
 
     std::vector<AR::Entry> mias;
     std::string err;
-    if (!AR::walk(raiz, mias, err)) {
+    // Un FICHERO suelto viaja como un árbol de una sola entrada que cuelga de su directorio:
+    // el receptor, que está en el directorio donde aterriza, no nota la diferencia.
+    //
+    // Antes se respondía «no es un directorio» y `cp f.txt otra-maquina` no podía funcionar:
+    // peor, quien llamaba ya había creado en el destino un directorio llamado «f.txt».
+    // `--delete` no tiene sentido aquí —borraría todo lo demás del directorio de destino,
+    // que no forma parte de lo que se manda— y se rechaza.
+    std::error_code ecTipo;
+    if (std::filesystem::is_regular_file(std::filesystem::symlink_status(raiz, ecTipo))
+        && !ecTipo) {
+        if (borra) {
+            r.rc = 2;
+            r.err = "--delete no vale con un fichero suelto: " + raiz + "\n";
+            return r;
+        }
+        AR::Entry unico;
+        if (!AR::walkSingleFile(raiz, unico, err)) {
+            r.rc = 2;
+            r.err = err + "\n";
+            return r;
+        }
+        mias.push_back(unico);
+        raiz = std::filesystem::path(raiz).parent_path().string();
+    } else if (!AR::walk(raiz, mias, err)) {
         r.rc = 2;
         r.err = err + "\n";
         return r;

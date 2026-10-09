@@ -397,6 +397,42 @@ private Q_SLOTS:
         QVERIFY2(hayElDelUsuario, "lo del usuario mas abajo si va");
     }
 
+    // Quien lee el manifiesto de un socket tiene que saber cuántos bytes de nombres siguen a
+    // cada línea. Contaba la ruta y el destino y no el dueño y el grupo: se quedaban en el
+    // socket y la copia entre máquinas moría en cuanto el destino tenía algo dentro.
+    void elLargoDeNombresCuentaDuenoYGrupo() {
+        AR::Entry x;
+        x.path = "sub/a.txt";
+        x.kind = AR::EntryKind::File;
+        x.owner = "linarese";
+        x.group = "wheel";
+        const std::string m = AR::serializeManifest({x});
+        const std::string linea = m.substr(0, m.find('\n'));
+        std::size_t largo = 0;
+        QVERIFY(AR::manifestNamesLength(linea, largo));
+        QCOMPARE(largo, x.path.size() + x.owner.size() + x.group.size());
+        // Tras saltar esos bytes, lo siguiente es la línea de cierre y nada más.
+        QCOMPARE(QString::fromStdString(m.substr(linea.size() + 1 + largo)), QStringLiteral("E\n"));
+        // Una línea de un agente anterior, sin dueño ni grupo, sigue valiendo.
+        QVERIFY(AR::manifestNamesLength("F 3 0 420 5 0", largo));
+        QCOMPARE(largo, std::size_t(5));
+        QVERIFY(!AR::manifestNamesLength("root 0 0", largo));
+    }
+
+    // Un fichero suelto viaja como un árbol de una entrada: su nombre, sin directorio.
+    void unFicheroSueltoEsUnArbolDeUnaEntrada() {
+        writeFile(src_ / "suelto.txt", "hola");
+        AR::Entry x;
+        std::string err;
+        QVERIFY2(AR::walkSingleFile((src_ / "suelto.txt").string(), x, err), err.c_str());
+        QCOMPARE(QString::fromStdString(x.path), QStringLiteral("suelto.txt"));
+        QVERIFY(x.kind == AR::EntryKind::File);
+        QCOMPARE(x.size, std::uint64_t(4));
+        QVERIFY(x.mtime != 0);
+        // Un directorio no es un fichero suelto: va por el recorrido de siempre.
+        QVERIFY(!AR::walkSingleFile(src_.string(), x, err));
+    }
+
     void lasRutasVanSiempreConBarras() {
         namedirs();
         std::vector<AR::Entry> e;

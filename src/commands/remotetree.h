@@ -72,8 +72,17 @@ struct Entry {
 bool walk(const std::string& root, std::vector<Entry>& output, std::string& error,
              bool oneFileSystem = false);
 
+// A single regular file as the one entry of a tree rooted at its parent directory: the
+// entry's path is just the file name. It is how one file travels between machines with
+// the same machinery as a tree, without the receiver having to know the difference.
+bool walkSingleFile(const std::string& file, Entry& output, std::string& error);
+
 // The manifest: what the target already has. One line per entry.
 std::string serializeManifest(const std::vector<Entry>& entries);
+// How many bytes of names follow one header line of the manifest: path, target and, when
+// the line carries them, owner and group. Whoever reads the manifest off a socket needs it
+// to know where the next line starts. False if the line is not a manifest entry header.
+bool manifestNamesLength(const std::string& line, std::size_t& length);
 bool parseManifest(const std::string& text, std::vector<Entry>& output,
                        std::string& error);
 

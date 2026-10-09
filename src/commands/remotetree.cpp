@@ -342,6 +342,28 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
     return true;
 }
 
+bool walkSingleFile(const std::string& fichero, Entry& salida, std::string& error) {
+    error.clear();
+    salida = Entry{};
+    std::error_code ec;
+    const fs::path p(fichero);
+    if (!fs::is_regular_file(fs::symlink_status(p, ec)) || ec) {
+        error = "no es un fichero corriente: " + fichero;
+        return false;
+    }
+    salida.path = conBarras(p.filename().generic_string());
+    salida.kind = EntryKind::File;
+    std::error_code e2;
+    salida.size = static_cast<std::uint64_t>(fs::file_size(p, e2));
+    if (e2) {
+        salida.size = 0;
+    }
+    bool okF = false;
+    salida.mtime = fechaDe(p, okF);
+    anotaDuenoYModo(p.string(), salida);
+    return !salida.path.empty();
+}
+
 std::string serializeManifest(const std::vector<Entry>& entradas) {
     std::string out;
     for (const Entry& e : entradas) {
@@ -379,6 +401,30 @@ std::string serializeManifest(const std::vector<Entry>& entradas) {
     }
     out += "E\n";
     return out;
+}
+
+bool manifestNamesLength(const std::string& linea, std::size_t& largo) {
+    largo = 0;
+    std::istringstream iss(linea);
+    char letra = 0;
+    std::uint64_t tam = 0;
+    std::int64_t fecha = 0;
+    std::uint32_t modo = 0;
+    std::size_t lr = 0;
+    std::size_t ld = 0;
+    if (!(iss >> letra >> tam >> fecha >> modo >> lr >> ld)) {
+        return false;
+    }
+    std::uint32_t uid = 0;
+    std::uint32_t gid = 0;
+    std::size_t lu = 0;
+    std::size_t lg = 0;
+    if (!(iss >> uid >> gid >> lu >> lg)) {
+        lu = 0;
+        lg = 0;
+    }
+    largo = lr + ld + lu + lg;
+    return true;
 }
 
 bool parseManifest(const std::string& texto, std::vector<Entry>& salida,

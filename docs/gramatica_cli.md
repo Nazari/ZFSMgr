@@ -516,9 +516,37 @@ léxico las quita igual en un valor de propiedad que en un destino, y no sabe cu
 | política | órdenes | qué hace |
 |---|---|---|
 | filtra | `ls` | el ÚLTIMO tramo filtra las filas del listado de su padre (`ls -d`, no la shell); un tramo intermedio multiplica los destinos |
-| uno | `cd` | solo si casa exactamente uno |
+| uno | `cd`, `send`, `diff` | solo si casa exactamente uno; en `send` el último tramo del destino puede no existir aún (`send tank/cop*/nuevo`: el patrón elige la madre) |
 | varios | `get`, `info`, `status`, `history`, `holds`, `schedules`, `log`, `jobs`, `peers`, `devices`, `refresh`, `connect`, `disconnect` | cada destino; las tablas se juntan en una con la columna DESTINO (`target` en tsv/json) |
 | varios-modifica | `destroy`, `set`, `mount`, `unmount`, `hold`, `release`, `scrub`, `install-daemon` | patrón SOLO en el último tramo y en la clase de pieza que la orden permita; la lista exacta SIEMPRE, confirmación salvo `-y`, `--check` para verla sin tocar nada |
 
 Las que no están en la tabla rechazan un patrón en el destino. Sin coincidencias es un
 error, nunca se pasa el patrón tal cual a la orden.
+
+### Copiar: `cp` y `rsync` (fase 2)
+
+La regla del sistema operativo: **el origen puede casar con varios; el destino solo vale
+si casa con UNO**. Un tramo literal detrás de un comodín tiene que existir (`alfa/*/x.log`
+da solo las rutas donde hay un `x.log`), y `*` no saca los ficheros ocultos de `#content`
+ni de una ruta local, como la shell.
+
+- **`cp`**: cada origen se copia por separado al mismo destino, con la lista a la vista y
+  un resumen `N bien, M fallaron`. Se niega ANTES de copiar nada si dos orígenes llegarían
+  con el mismo nombre (`d1/y.log` y `d2/y.log`) o si hay `--as` con varios. El origen puede
+  ser una ruta local con comodines (`cp /var/log/*.log tank`).
+- **`rsync` con comodines en `#content`**: todas las rutas en UNA orden, y cada una
+  aterriza **con su nombre** —`rsync tank/copia --from tank#content/s*` deja `copia/s1`,
+  `copia/s2`—, igual que `rsync -a src/s* dst/`. Por eso ahí `--delete` sí vale: solo
+  borra dentro de cada uno.
+- **`rsync` con llaves solas** (`#content/{a,b}`): lo de siempre, el CONTENIDO de cada uno
+  volcado en el destino. Con `--delete` y varios se niega.
+- **`rsync` con patrón en el dataset de origen** (`--from tank/{a,b}`): un rsync por
+  dataset al mismo destino; con `--delete` se niega, porque cada pasada borraría lo que
+  dejó la anterior. Patrón en el dataset Y en `#content` a la vez: se niega.
+
+**Un fichero suelto entre máquinas.** El árbol entre agentes solo sabía mandar
+directorios: `cp f.txt otra-maquina` fallaba con «no es un directorio» después de haber
+creado en el destino un directorio llamado `f.txt`. Ahora el agente de origen manda un
+fichero como un árbol de una sola entrada que cuelga de su directorio, y el cliente lo
+detecta antes de preparar nada (`esFicheroEn`). El receptor no cambia. Un `--as` que
+renombre un fichero entre máquinas se rechaza: el árbol lleva el nombre tal cual.

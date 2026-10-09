@@ -1492,8 +1492,18 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "--check se ve la lista sin tocar nada:\n"
                         "  destroy tank/data@auto-2024-* --check\n"
                         "\n"
-                        "«cd» acepta un patrón si casa con uno solo. Las órdenes que actúan sobre\n"
-                        "uno por definición —rename, rollback, create, clone…— lo rechazan.\n"
+                        "Copiar, como en la shell: el ORIGEN puede casar con varios y el destino\n"
+                        "solo con uno.\n"
+                        "  cp tank#content/*.log unib/sback        los .log, cada uno con su nombre\n"
+                        "  cp /var/log/*.log tank                  también desde una ruta local\n"
+                        "  rsync tank/copia --from tank#content/s* copia/s1, copia/s2…, como en rsync\n"
+                        "Dos orígenes que llegarían con el mismo nombre se rechazan, y «*» no saca\n"
+                        "los ficheros ocultos. Sin comodines, «#content/{a,b}» en rsync vuelca el\n"
+                        "contenido de cada uno en el destino, como siempre.\n"
+                        "\n"
+                        "«cd», «send» y «diff» aceptan un patrón si casa con uno solo. Las\n"
+                        "órdenes que actúan sobre uno por definición —rename, rollback, create,\n"
+                        "clone…— lo rechazan.\n"
                         "Si nada coincide es un error, nunca se pasa el patrón tal cual."));
         return true;
     }
