@@ -11,8 +11,8 @@
 # y del Setup— y todas tienen que ser la misma.
 #
 # Windows y FreeBSD: el CLI de Windows va solo (enlazado estático) para el zip de solo CLI;
-# FreeBSD entra como EXPERIMENTAL y solo con CLI, porque no hay máquina donde probarlo y su
-# interfaz nunca se ha compilado.
+# FreeBSD entra como EXPERIMENTAL y solo con CLI: se ha probado en una sola máquina (15.1) y
+# su interfaz nunca se ha compilado.
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

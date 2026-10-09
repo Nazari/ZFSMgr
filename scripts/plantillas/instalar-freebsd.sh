@@ -1,13 +1,13 @@
 #!/bin/sh
 # Instala el CLI de ZFSMgr @VERSION@ en FreeBSD amd64. EXPERIMENTAL.
 #
-# Se compila en cruzado y nunca se ha probado en una máquina FreeBSD: no hay ninguna donde
-# hacerlo. Por eso pide confirmación explícita. La interfaz gráfica de FreeBSD no se ha
-# compilado nunca y no va en el paquete.
+# Se compila en cruzado desde Linux y se ha probado en UNA sola máquina: FreeBSD 15.1 con
+# OpenZFS 2.4.2, CLI y daemon, instalando y actualizando. Por eso sigue pidiendo
+# confirmación. La interfaz gráfica de FreeBSD no se ha compilado nunca y no va en el paquete.
 set -eu
 ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
 ZM_GUION="instalar-freebsd.sh"
-ZM_USO_EXTRA="  --acepto-experimental Instala sin preguntar, sabiendo que no se ha probado en FreeBSD"
+ZM_USO_EXTRA="  --acepto-experimental Instala sin preguntar, sabiendo que es experimental"
 . "${ZM_AQUI}/lib/comun.sh"
 
 zm_opciones "$@"
@@ -18,9 +18,9 @@ if [ "${DESINSTALAR}" -eq 0 ] && [ "${ACEPTO_EXPERIMENTAL}" -eq 0 ]; then
   cat <<'AVISO'
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  EXPERIMENTAL: este paquete NO se ha probado nunca en FreeBSD.       │
-  │  Se compila en cruzado desde Linux y no hay ninguna máquina FreeBSD  │
-  │  donde comprobar que funciona. Si algo falla, cuéntelo.              │
+  │  EXPERIMENTAL: probado en una sola máquina, FreeBSD 15.1 con         │
+  │  OpenZFS 2.4.2. Se compila en cruzado desde Linux. Si algo falla,    │
+  │  cuéntelo.                                                           │
   └─────────────────────────────────────────────────────────────────────┘
 
 AVISO

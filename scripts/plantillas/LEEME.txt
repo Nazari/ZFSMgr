@@ -6,7 +6,7 @@ Ejecute el guion de SU sistema desde este directorio:
   Linux (x86_64)                 sh instalar-linux.sh
   macOS (Apple Silicon e Intel)  sh instalar-macos.sh
   Windows (x64)                  instalar-windows.cmd   (doble clic, o desde una consola)
-  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: nunca probado
+  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: probado solo en 15.1
 
 Cada guion detecta la arquitectura, comprueba la integridad del paquete antes de copiar
 nada y, al terminar, comprueba que lo instalado arranca. Todos admiten:
@@ -37,7 +37,7 @@ Run the script for YOUR system from this directory:
   Linux (x86_64)                 sh instalar-linux.sh
   macOS (Apple Silicon & Intel)  sh instalar-macos.sh
   Windows (x64)                  instalar-windows.cmd   (double-click, or from a console)
-  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: never tested
+  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: tested on 15.1 only
 
 Each script detects the architecture, checks the package's integrity before copying
 anything and, at the end, checks that what it installed actually starts. All accept
