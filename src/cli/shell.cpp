@@ -990,7 +990,8 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     t.nombreJson = "pools";
     t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"),   T("t_cab_estado", "ESTADO"),
                         T("t_cab_tamano", "TAMAÑO"),   T("t_cab_libre", "LIBRE"),
-                        T("t_cab_uso", "USO"),         T("t_cab_salud", "SALUD"),
+                        T("t_cab_uso", "USO"),         T("t_cab_dedup", "DEDUP"),
+                        T("t_cab_salud", "SALUD"),
                         T("t_cab_importado", "IMPORTADO"),
                         T("t_cab_tipo", "TIPO"),       T("t_cab_usado", "USADO"),
                         // MONTADO, y no ESTADO como en el listado de datasets: esta tabla
@@ -1000,7 +1001,14 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
                         // un sistema de ficheros, así que aquí la pregunta vieja sigue valiendo.
                         T("t_cab_compr", "COMPR"),     T("t_cab_montado", "MONTADO"),
                         T("t_cab_punto_de_montaje", "PUNTO DE MONTAJE")};
-    t.campos = {"name", "state", "size", "free", "capacity", "health", "imported",
+    // `dedupratio` es del POOL, no de un dataset, y por eso va en ESTA tabla y no en la de
+    // datasets: la DDT es una sola para el pool entero y ZFS no reparte el ahorro entre sus
+    // datasets. Lo único que hay por dataset es `dedup = off|on|sha256…`, que es un AJUSTE
+    // —si lo que se escriba de ahora en adelante se deduplica— y no una medida de nada.
+    //
+    // No cuesta una llamada más: `zpool list -j` ya la devuelve y el agente ya la reenviaba
+    // entera; era el cliente el que la tiraba.
+    t.campos = {"name", "state", "size", "free", "capacity", "dedupratio", "health", "imported",
                 "type", "used", "compressratio", "mounted", "mountpoint"};
     // USADO va como CADENA, no como `Tipo::Bytes`, y no es un descuido.
     //
@@ -1014,7 +1022,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // bytes, porque allí la fuente es `zfs list -p`. Igualarlas pide un verbo de propiedades
     // en crudo en el agente.
     t.tipos = {Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Cadena,   Tipo::Booleano,
+               Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,  Tipo::Booleano,
                Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
 
     // Los campos de dataset del pool raíz, uno por pool.
@@ -1070,9 +1078,15 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
         const std::string nombre = p["name"].toString(kv.first);
         yaEstan.insert(nombre);
         const auto ds = camposDeDataset(nombre);
+        // Sin la «x» final, igual que COMPR: las dos salen de sitios que la ponen o no
+        // según la orden, y en una misma tabla no pueden escribirse distinto.
+        std::string dedup = prop(p, "dedupratio");
+        if (!dedup.empty() && dedup.back() == 'x') {
+            dedup.pop_back();
+        }
         t.filas.push_back({nombre, p["state"].toString(), prop(p, "size"), prop(p, "free"),
-                           prop(p, "capacity"), prop(p, "health"), "true", ds[0], ds[1], ds[2],
-                           ds[3], ds[4]});
+                           prop(p, "capacity"), dedup, prop(p, "health"), "true", ds[0], ds[1],
+                           ds[2], ds[3], ds[4]});
     }
 
     // Los que están AHÍ pero sin importar. `zpool list` no los ve —solo enumera los
@@ -1098,8 +1112,8 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
             // diría que el pool está vacío.
             // Un pool sin importar no tiene campos de dataset que enseñar: sus datasets no
             // están montados ni se pueden consultar hasta importarlo.
-            t.filas.push_back({imp.pool, imp.state, "", "", "", imp.state, "false", "", "", "",
-                               "", ""});
+            t.filas.push_back({imp.pool, imp.state, "", "", "", "", imp.state, "false", "", "",
+                               "", "", ""});
         }
     }
     t.imprime(e.formato);

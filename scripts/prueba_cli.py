@@ -381,6 +381,74 @@ def casos_volumenes(ctx):
         sh(ctx, f"zfs destroy {P}/apagado", root=True)
 
 
+def casos_dedup(ctx):
+    """La columna DEDUP del listado de POOLS, sobre un pool que deduplica de verdad.
+
+    Pool APARTE y no el de siempre: `dedup=on` cambia cómo se contabiliza el espacio, y
+    dejarlo puesto en el pool común haría que otros casos midieran otra cosa.
+
+    Y con DATOS REPETIDOS de verdad. Un caso que solo comprobara que la columna existe
+    pasaría igual con la columna clavada a «1.00», que es lo que sale en cualquier pool
+    normal: no distinguiría una lectura correcta de ninguna lectura.
+    """
+    P = f"{POOL_LOCAL}dd"
+    img = f"{IMG_DIR}/{P}.img"
+    sh(ctx, f"zpool destroy -f {P}", root=True)
+    sh(ctx, f"rm -rf /mnt/{P}", root=True)
+    sh(ctx, f"rm -f {img} && truncate -s 1G {img}", root=False)
+    rc, salida = sh(ctx, f"zpool create -f -m /mnt/{P} {P} {img}", root=True)
+    if rc != 0:
+        ctx.fallos.append(("dedup: preparar el pool", [salida.strip()], ""))
+        print("  FALLO  dedup: no se pudo crear el pool de pruebas")
+        return
+    try:
+        # Sin compresión: con ella encima, el ahorro que se vea podría ser de la otra.
+        sh(ctx, f"zfs set dedup=on {P}", root=True)
+        sh(ctx, f"zfs set compression=off {P}", root=True)
+        sh(ctx, f"dd if=/dev/urandom of=/mnt/{P}/base.bin bs=1M count=40 status=none", root=True)
+        for i in range(1, 4):
+            sh(ctx, f"cp /mnt/{P}/base.bin /mnt/{P}/copia{i}.bin", root=True)
+        sh(ctx, f"zpool sync {P}", root=True)
+
+        # Lo que diga la MÁQUINA, no lo que diga la herramienta: se le pregunta a `zpool`
+        # y el listado tiene que contestar lo mismo.
+        rc, crudo = sh(ctx, f"zpool list -H -o dedup {P}", root=True)
+        esperado = crudo.strip().rstrip("x")
+        nombre = "dedup: la columna DEDUP dice lo mismo que zpool"
+        problemas = []
+        if not esperado or esperado == "1.00":
+            problemas.append(f"el pool no llegó a deduplicar nada (zpool dice {crudo.strip()!r}): "
+                             "el caso no estaría probando nada")
+        rc2, js = cli(ctx, ["format json", "ls zfsm://local"])
+        try:
+            pools = {x["name"]: x for x in json.loads(js)["pools"]}
+            fila = pools.get(P)
+            if fila is None:
+                problemas.append(f"{P} no sale en el listado")
+            elif fila.get("dedupratio") != esperado:
+                problemas.append(f"dedupratio={fila.get('dedupratio')!r}, y zpool dice {esperado!r}")
+        except Exception as exc:          # noqa: BLE001
+            problemas.append(f"json ilegible: {exc}")
+        if problemas:
+            ctx.fallos.append((nombre, problemas, js[:300]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}  (zpool: {esperado}x)")
+
+        # Y en texto, con su encabezado: que el campo exista en json no quiere decir que
+        # haya columna que mirar.
+        caso(ctx, "dedup: en texto sale la columna y su valor",
+             ["ls zfsm://local"], idioma="es",
+             espera=[r"DEDUP", rf"^{P}\s+\S+\s+\S+\s+\S+\s+\S+\s+" + esperado.replace(".", r"\.")])
+    finally:
+        sh(ctx, f"zpool destroy -f {P}", root=True)
+        sh(ctx, f"rm -rf /mnt/{P}", root=True)
+        sh(ctx, f"rm -f {img}", root=False)
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1199,7 +1267,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]
