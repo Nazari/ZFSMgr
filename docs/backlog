@@ -57,12 +57,27 @@ Listado de cambios.
 	hold, clone, scrub, resilver, mountpoint— ni si la GUI (que tiene sus propios catálogos)
 	hace lo mismo que el CLI. El barrido es parte de la tarea, no un paso previo.
 
-8. Absorber `todir` y `fromdir` en `cp`, cuando `cp` esté rodado. Hoy hay cuatro órdenes que
-   copian ficheros y se solapan: `cp` (la general, nueva el 2026-10-08), `rsync` (espejar,
-   con `--delete`), `todir` (dataset -> directorio local) y `fromdir` (directorio ->
-   dataset, por tubería tar). Cuatro maneras de hacer casi lo mismo es como se llegó a tener
-   tres.
-	`todir X` es `cp . X` y `fromdir X` es `cp X .`; la idea es dejarlas como alias que avisan
-	de la forma nueva, no retirarlas de golpe: las dos funcionan y tienen casos en la batería.
-	El que menos se parece es `fromdir`, que va por una TUBERÍA TAR y no por el árbol entre
-	daemons: sin delta y sin reanudación. Absorberlo es además quitarse ese camino viejo.
+8. [CORREGIDO 2026-10-09] `cp`, `rsync`, `todir` y `fromdir`: qué se unifica y qué NO.
+   La primera versión de este punto decía «absorber todir y fromdir en cp» y afirmaba que
+   «`todir X` es `cp . X` y `fromdir X` es `cp X .`». Es FALSO para las dos, y dejarlo
+   escrito mandaba a hacer una fusión que rompe cosas. Se mira el código, no el nombre:
+
+	- `rsync` NO se toca. Espejar —dejar el destino idéntico, borrado incluido— y copiar son
+	  preguntas distintas; fundirlas sería el error contrario al que este punto quería evitar.
+
+	- `todir` NO es una copia: es CONVERTIR un dataset en un directorio corriente. Puede
+	  volcarlo sobre su propio punto de montaje —convertirlo en su sitio—, puede DESTRUIR el
+	  dataset de origen con `--delete-source`, y toca propiedades de ZFS: la batería tiene un
+	  caso que documenta que deja el origen con `canmount=off` sin avisar. Lo único que cabría
+	  unificar es su mitad de copia, que podría usar el motor de `cp` en vez del suyo.
+
+	- `fromdir` es el único candidato de verdad, y tampoco para retirarlo. Va por una TUBERÍA
+	  TAR, y eso no es solo herencia: la tubería exige daemon únicamente en el DESTINO —en el
+	  origen basta SSH— mientras que el árbol lo necesita en los dos; y el árbol abre un puerto
+	  efímero en el destino al que se conecta el origen, así que donde hay un cortafuegos en
+	  medio, SSH pasa y el árbol no. Está escrito en `advanced.h`, en `canUseTreeTransfer`.
+	  Lo que sí tiene sentido: que `cp <dir> <dataset>` sea la puerta de entrada y la tubería
+	  quede como respaldo documentado para esos dos casos.
+
+   En resumen: lo que se buscaba —una sola forma de decir «copia esto ahí»— ya está hecho con
+   `cp`. Lo que queda no es duplicación, son operaciones distintas que se parecen por fuera.
