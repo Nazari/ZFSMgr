@@ -4061,6 +4061,20 @@ int main() {
                   "parseDedupDdt rechaza la linea incompleta");
     }
 
+    // --- El servicio de FreeBSD suelta los descriptores de quien lo arranca.
+    //
+    // Sin `-f`, `daemon(8)` y el agente heredaban la salida del guion de instalación; si esa
+    // salida se estaba capturando, la captura no llegaba a EOF y la instalación no acababa
+    // nunca aunque el daemon ya estuviera corriendo. Pasó en la primera instalación real en
+    // FreeBSD, la 15.1.
+    {
+        const std::string rc = daemonpayload::freeBsdRcScript();
+        comprobar(rc.find("command_args=\"-f ") != std::string::npos,
+                  "rc.d de FreeBSD: daemon(8) con -f, que no hereda la salida del instalador");
+        comprobar(rc.find("/usr/sbin/daemon") != std::string::npos,
+                  "rc.d de FreeBSD: el agente va supervisado por daemon(8)");
+    }
+
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }

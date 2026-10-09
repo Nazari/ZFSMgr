@@ -9041,6 +9041,81 @@ void runSubmittedMutationJob(const std::string& jobId,
     daemonLog("INFO", "job " + jobId + " finished rc=" + std::to_string(r.rc) + " cmd=" + cmd);
 }
 
+#ifndef _WIN32
+// El lector de `zpool events -f`, en SU PROPIO grupo de procesos.
+//
+// Con `popen` no había forma de pararlo. `zpool events -f` no termina nunca si no llegan
+// eventos, y va dentro de un `sh -c` («stdbuf … || …»): aunque se matara el `sh`, el `zpool`
+// nieto seguía con la tubería abierta y el `fgets` del hilo de ZED no volvía. Al recibir
+// SIGTERM, el agente salía del bucle principal y se quedaba para siempre en el `join()` de
+// ese hilo. En Linux no se notaba: systemd manda la señal a TODOS los procesos del servicio,
+// `zpool` incluido, y el hilo se desbloqueaba solo (medido: `systemctl restart` en 0 s). El
+// `rc.d` de FreeBSD solo señala el PID de su pidfile, y `service zfsmgr_agent stop` esperaba
+// sin límite: la primera actualización del daemon en un FreeBSD real se quedó ahí colgada.
+//
+// Con el grupo propio, parar es matar el grupo entero: `zpool` incluido, la tubería se
+// cierra, `fgets` devuelve EOF y el hilo termina.
+std::atomic<pid_t> g_zedGrupo{0};
+
+FILE* abreZpoolEvents(pid_t& grupo) {
+    grupo = 0;
+    int tubo[2];
+    if (pipe(tubo) != 0) {
+        return nullptr;
+    }
+    const pid_t pid = fork();
+    if (pid < 0) {
+        close(tubo[0]);
+        close(tubo[1]);
+        return nullptr;
+    }
+    if (pid == 0) {
+        // Hijo: solo llamadas seguras tras fork() en un proceso con hilos.
+        setpgid(0, 0);
+        dup2(tubo[1], STDOUT_FILENO);
+        const int nulo = open("/dev/null", O_RDWR);
+        if (nulo >= 0) {
+            dup2(nulo, STDIN_FILENO);
+            dup2(nulo, STDERR_FILENO);
+        }
+        close(tubo[0]);
+        close(tubo[1]);
+        execl("/bin/sh", "sh", "-c",
+              "PATH=\"$PATH:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin\""
+              " stdbuf -oL zpool events -f -H -v 2>/dev/null"
+              " || zpool events -f -H -v 2>/dev/null",
+              static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    // También desde el padre: si no, entre el fork y el setpgid del hijo hay un instante en
+    // que el grupo no existe y un kill(-pid) fallaría.
+    setpgid(pid, pid);
+    close(tubo[1]);
+    fcntl(tubo[0], F_SETFD, FD_CLOEXEC);
+    FILE* fp = fdopen(tubo[0], "r");
+    if (!fp) {
+        close(tubo[0]);
+        kill(-pid, SIGTERM);
+        waitpid(pid, nullptr, 0);
+        return nullptr;
+    }
+    grupo = pid;
+    return fp;
+}
+
+void cierraZpoolEvents(FILE* fp, pid_t grupo) {
+    if (grupo > 0) {
+        kill(-grupo, SIGTERM);
+    }
+    if (fp) {
+        fclose(fp);
+    }
+    if (grupo > 0) {
+        waitpid(grupo, nullptr, 0);
+    }
+}
+#endif
+
 int runServeLoop() {
 #ifdef _WIN32
     WSADATA wsaData;
@@ -9157,9 +9232,9 @@ int runServeLoop() {
         while (!g_stop.load()) {
             // stdbuf -oL forces line-buffered output so each event flushes immediately
             // when stdout is a pipe (default full-buffering hides events until 4-8KB fills).
-            FILE* fp = popen("PATH=\"$PATH:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin\""
-                             " stdbuf -oL zpool events -f -H -v 2>/dev/null"
-                             " || zpool events -f -H -v 2>/dev/null", "r");
+            pid_t grupoZed = 0;
+            FILE* fp = abreZpoolEvents(grupoZed);
+            g_zedGrupo.store(grupoZed);
             if (!fp) {
                 zedActive.store(false);
                 std::this_thread::sleep_for(std::chrono::seconds(5));
@@ -9192,7 +9267,8 @@ int runServeLoop() {
                     deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
                 }
                 if (eof) {
-                    pclose(fp);
+                    g_zedGrupo.store(0);
+                    cierraZpoolEvents(fp, grupoZed);
                     zedActive.store(false);
                     if (!g_stop.load()) {
                         zedRestarts.fetch_add(1);
@@ -9292,7 +9368,8 @@ int runServeLoop() {
             }
             fireIfRelevant();
 
-            pclose(fp);
+            g_zedGrupo.store(0);
+            cierraZpoolEvents(fp, grupoZed);
             evClass.clear();
             evOp.clear();
             evClassRelevant = false;
@@ -9798,6 +9875,12 @@ int runServeLoop() {
         SSL_free(ssl);
         closeSock(clientFd);
     }
+#ifndef _WIN32
+    // Sin esto el join no vuelve nunca: el hilo está en un fgets sobre `zpool events -f`.
+    if (const pid_t g = g_zedGrupo.load(); g > 0) {
+        kill(-g, SIGTERM);
+    }
+#endif
     if (zedThread.joinable()) {
         zedThread.join();
     }

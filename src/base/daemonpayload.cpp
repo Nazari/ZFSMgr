@@ -126,7 +126,13 @@ std::string freeBsdRcScript() {
         "rcvar=zfsmgr_agent_enable\n"
         "pidfile=\"/var/run/${name}.pid\"\n"
         "command=\"/usr/sbin/daemon\"\n"
-        "command_args=\"-P ${pidfile} /usr/local/libexec/zfsmgr-agent --serve\"\n"
+        // `-f`: la entrada y las salidas del agente, a /dev/null. Sin él, `daemon(8)` y el
+        // agente se quedaban con los descriptores de quien ejecutó `service … start`, y si
+        // ese era un guion cuya salida se estaba capturando —la instalación, local o por
+        // SSH—, la captura no llegaba nunca a EOF y la instalación no terminaba: el daemon
+        // corría y el instalador seguía esperando. No se pierde nada: el agente escribe su
+        // registro en /var/lib/zfsmgr/daemon.log, no por la salida estándar.
+        "command_args=\"-f -P ${pidfile} /usr/local/libexec/zfsmgr-agent --serve\"\n"
         "load_rc_config $name\n"
         ": ${zfsmgr_agent_enable:=YES}\n"
         "run_rc_command \"$1\"\n");

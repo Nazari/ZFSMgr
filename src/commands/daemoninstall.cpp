@@ -189,7 +189,16 @@ std::string installScript(const std::string& plataforma, const std::string& vers
                + "chmod 700 " + DP::freeBsdRcPath() + "; chmod 600 " + confPath + "; "
                + "chown root:wheel " + bin + " " + confPath + " " + DP::freeBsdRcPath() + "; "
                + "chown root:wheel " + tlsFiles + "; "
-                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
+                 // Parada ACOTADA. Un agente de antes de este arreglo no sabía pararse —se quedaba
+                 // esperando al lector de `zpool events`— y `rc.d` espera sin límite, así que
+                 // actualizar uno de esos colgaba la instalación. Si en 30 s no se ha ido, se
+                 // mata por NOMBRE EXACTO: `pkill -f` con la ruta casaría también con este
+                 // mismo guion, que la lleva escrita, y se mataría a sí mismo.
+                 "timeout 30 service zfsmgr_agent stop >/dev/null 2>&1 || { "
+                 // El GRUPO del supervisor, no solo su PID: ahí viven el agente viejo y su
+                 // `zpool events`. Matando solo el PID, ese `zpool` quedaba huérfano.
+                 "  [ -f /var/run/zfsmgr_agent.pid ] && kill -9 -- -\"$(cat /var/run/zfsmgr_agent.pid)\" 2>/dev/null; "
+                 "  pkill -9 -x zfsmgr-agent 2>/dev/null; rm -f /var/run/zfsmgr_agent.pid; sleep 1; }; "
                  "service zfsmgr_agent start; sleep 2; "
                  "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
                  "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; exit 1; fi";
