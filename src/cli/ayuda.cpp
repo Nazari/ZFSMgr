@@ -1453,10 +1453,50 @@ void imprimeAyuda(int ancho) {
                     "otro sitio sin moverse. Sin ella se usa el sitio actual. El tabulador\n"
                     "completa órdenes y URL. Basta con las primeras letras de una orden si\n"
                     "ninguna otra empieza igual; si varias lo hacen, se enumeran."));
+    std::fprintf(stderr, "%s\n",
+                 TC("t_ayuda_indice_patrones",
+                    "«help patrones» explica los comodines: ls tank/*, destroy tank@auto-*…"));
 }
 
 
 bool imprimeAyudaDe(const std::string& nombre, int ancho) {
+    // No es una orden sino un TEMA: los comodines valen en muchas, y repetirlo en la ficha
+    // de cada una sería tenerlo escrito veinte veces, que es como acaba desigual.
+    const std::string tema = B::toLowerAscii(B::trim(nombre));
+    if (tema == "patrones" || tema == "patterns" || tema == "comodines" || tema == "wildcards") {
+        std::fprintf(stderr, "\n%s\n\n",
+                     TC("t_ayuda_patrones",
+                        "Patrones en las URL\n"
+                        "\n"
+                        "  *        cualquier cosa dentro de un tramo (no cruza «/»)\n"
+                        "  ?        un carácter\n"
+                        "  [abc]    uno de esos; [a-z] un rango; [!x] cualquiera menos x\n"
+                        "  {a,b*}   alternativas, cada una con sus comodines; admite espacios\n"
+                        "\n"
+                        "Valen en cualquier tramo: conexión, pool, dataset, @instantánea y el\n"
+                        "detalle de #properties y #content. Distinguen mayúsculas, como ZFS.\n"
+                        "Un comodín literal se escribe codificado: %2A es un «*» de verdad.\n"
+                        "\n"
+                        "En «ls», el último tramo FILTRA lo que se lista:\n"
+                        "  ls tank/user/M*                  los hijos de tank/user que empiezan por M\n"
+                        "  ls tank/data@auto-2024-*         solo esas instantáneas\n"
+                        "  ls tank#properties/{a*, b*}      las propiedades por a o por b\n"
+                        "  ls zfsm://{fc16,unib}/*          los pools de las dos máquinas\n"
+                        "\n"
+                        "En las lecturas —get, info, status, history…— cada destino que casa se\n"
+                        "atiende, y sus tablas se juntan en una con una columna DESTINO.\n"
+                        "\n"
+                        "En las que MODIFICAN —destroy, set, mount, unmount, hold, release,\n"
+                        "scrub, install-daemon— el patrón solo puede ir en el último tramo, se\n"
+                        "enseña SIEMPRE la lista exacta y se pide confirmación salvo -y. Con\n"
+                        "--check se ve la lista sin tocar nada:\n"
+                        "  destroy tank/data@auto-2024-* --check\n"
+                        "\n"
+                        "«cd» acepta un patrón si casa con uno solo. Las órdenes que actúan sobre\n"
+                        "uno por definición —rename, rollback, create, clone…— lo rechazan.\n"
+                        "Si nada coincide es un error, nunca se pasa el patrón tal cual."));
+        return true;
+    }
     const Orden* o = ordenPorNombre(nombre);
     if (!o) {
         return false;

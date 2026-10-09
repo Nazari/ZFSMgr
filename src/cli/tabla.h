@@ -52,6 +52,24 @@ enum class Tipo { Cadena, Booleano, Entero, Bytes, Lista };
 // guarda como «true», y es el impresor de texto quien lo traduce a «sí». Antes lo decidía
 // quien rellenaba la fila mirando el formato, lo que obligaba a cada orden de listado a
 // conocer los tres y a acertar en todos.
+struct Tabla;
+
+// --- Varias tablas que se JUNTAN en una.
+//
+// Cuando una orden se repite sobre varios destinos —un patrón en la URL, como
+// `get tank/{a,b} compression`—, cada repetición imprimiría su propia tabla, una debajo de
+// otra, y en json saldrían varios documentos seguidos, que ningún programa sabe leer. Con un
+// acumulador activo, `imprime` no imprime: guarda la tabla con una primera columna DESTINO,
+// y al terminar se vuelca todo como UNA tabla (si todas tienen las mismas columnas).
+struct Acumulador {
+    std::string destinoActual;  // la etiqueta de la repetición en curso
+    std::vector<Tabla> tablas;
+};
+inline Acumulador*& acumuladorActivo() {
+    static Acumulador* a = nullptr;
+    return a;
+}
+
 struct Tabla {
     std::string nombreJson;                   // la clave de la colección: "connections"
     std::vector<std::string> cabecerasTexto;  // en el idioma de la aplicación
@@ -136,6 +154,19 @@ struct Tabla {
     }
 
     void imprime(Formato f) const {
+        if (Acumulador* a = acumuladorActivo()) {
+            Tabla t = *this;
+            t.cabecerasTexto.insert(t.cabecerasTexto.begin(), T("t_cab_objetivo", "DESTINO"));
+            t.campos.insert(t.campos.begin(), "target");
+            if (!t.tipos.empty()) {
+                t.tipos.insert(t.tipos.begin(), Tipo::Cadena);
+            }
+            for (auto& fila : t.filas) {
+                fila.insert(fila.begin(), a->destinoActual);
+            }
+            a->tablas.push_back(std::move(t));
+            return;
+        }
         if (f == Formato::Json) {
             imprimeJson();
             return;
@@ -200,5 +231,31 @@ struct Tabla {
     }
 };
 
+
+// Vuelca lo acumulado. Con las mismas columnas, UNA tabla; si no —destinos de clases
+// distintas—, cada una por su lado, que es lo único honesto.
+inline void vuelcaAcumulador(const Acumulador& a, Formato f) {
+    if (a.tablas.empty()) {
+        return;
+    }
+    bool iguales = true;
+    for (const Tabla& t : a.tablas) {
+        if (t.campos != a.tablas.front().campos) {
+            iguales = false;
+            break;
+        }
+    }
+    if (iguales) {
+        Tabla junta = a.tablas.front();
+        for (std::size_t i = 1; i < a.tablas.size(); ++i) {
+            junta.filas.insert(junta.filas.end(), a.tablas[i].filas.begin(), a.tablas[i].filas.end());
+        }
+        junta.imprime(f);
+        return;
+    }
+    for (const Tabla& t : a.tablas) {
+        t.imprime(f);
+    }
+}
 
 }  // namespace zfsmgr::cli

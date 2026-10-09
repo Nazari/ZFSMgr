@@ -61,6 +61,37 @@ int main(int argc, char** argv) {
     const std::string argv0 = argc > 0 ? argv[0] : std::string();
     using zfsmgr::cli::analizaLinea;
 
+    // --- Patrones: un grupo `{…}` es UNA pieza aunque lleve espacios dentro.
+    //
+    // Es como se escribe a mano —`{a*, b*}`—, y el espacio partía la línea en dos
+    // componentes: la orden fallaba por sintaxis antes de llegar a mirar el patrón.
+    {
+        const auto a = analizaLinea("ls freebsd/zroot#properties/{a*, b*}");
+        comprueba(a.error.empty(), "patrones: {a*, b*} con espacio se analiza sin error");
+        igual(a.objetivo, "freebsd/zroot#properties/{a*, b*}",
+              "patrones: el grupo con espacio llega entero como destino");
+    }
+    {
+        const auto a = analizaLinea("ls {item1, item2*}");
+        comprueba(a.error.empty(), "patrones: una lista relativa con espacio");
+        igual(a.objetivo, "{item1, item2*}", "patrones: y llega entera");
+    }
+    {
+        const auto a = analizaLinea("destroy tank/data@auto-2024-*");
+        igual(a.objetivo, "tank/data@auto-2024-*", "patrones: * en una instantánea");
+    }
+    {
+        // Un `{` suelto sigue siendo un carácter más, no rompe el análisis.
+        const auto a = analizaLinea("ls tank/{abc");
+        comprueba(a.error.empty(), "patrones: una llave sin cerrar no rompe el léxico");
+        igual(a.objetivo, "tank/{abc", "patrones: y se pasa tal cual (ya se quejará el patrón)");
+    }
+    {
+        const auto a = analizaLinea("info --on zfsm://{fc16, unib}");
+        igual(a.opciones.count("on") ? a.opciones.at("on") : std::string(), "zfsm://{fc16, unib}",
+              "patrones: el grupo con espacio también como VALOR de --on");
+    }
+
     // --- Abreviaturas: basta con las primeras letras si no hay dos órdenes que empiecen
     // igual. El léxico devuelve el nombre CANÓNICO, no lo tecleado, porque aguas abajo la
     // orden se busca por su nombre en el catálogo.

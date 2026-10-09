@@ -524,6 +524,123 @@ def casos_dedup(ctx):
         sh(ctx, f"rm -f {img}", root=False)
 
 
+def casos_patrones(ctx):
+    """Comodines en las URL: `*`, `?`, `[..]` y `{a,b}`. Ver «help patrones».
+
+    Lo que de verdad importa aquí son las órdenes que MODIFICAN: que borren exactamente lo
+    que casa y nada más, que se nieguen donde deben, y que sin coincidencias no hagan nada.
+    Por eso cada una se comprueba contra la máquina —presencia Y ausencia—, no contra lo que
+    dice la herramienta.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    for h in ("hijoA", "hijoB", "otro"):
+        sh(ctx, f"zfs create {P}/{h}", root=True)
+    for sn in ("auto-1", "auto-2", "manual"):
+        sh(ctx, f"zfs snapshot {P}/datos@{sn}", root=True)
+    sh(ctx, f"bash -c 'touch \"/mnt/{P}/datos/a*b.txt\" /mnt/{P}/datos/axb.txt'", root=True)
+    U = f"zfsm://local/{P}"
+    snaps = f"zfs list -H -t snapshot -o name -r {P}/datos"
+    hijos = f"zfs list -H -o name -r {P}"
+
+    # --- ls: el último tramo FILTRA las filas.
+    caso(ctx, "patrones: #properties/u* deja solo las que empiezan por u",
+         [f"ls {U}#properties/u*"], rc=0, espera=[r"^used\s"],
+         no_espera=[r"^compression\s", r"^atime\s"])
+    caso(ctx, "patrones: #properties/{a*, b*} con espacio, como se escribe a mano",
+         [f"ls {U}#properties/{{a*, b*}}"], rc=0, espera=[r"^atime\s", r"^available\s"],
+         no_espera=[r"^used\s"])
+    caso(ctx, "patrones: ls de hijos filtra las FILAS, no lista el contenido de cada uno",
+         [f"ls {U}/hijo*"], rc=0, espera=[r"^hijoA\s", r"^hijoB\s"],
+         no_espera=[r"^otro\s", r"^datos\s"])
+    caso(ctx, "patrones: «*» en un tramo de ruta no saca instantáneas",
+         [f"ls {U}/*"], rc=0, espera=[r"^hijoA\s", r"^datos\s"], no_espera=[r"^@"])
+    caso(ctx, "patrones: ? es exactamente un carácter",
+         [f"ls {U}/hijo?"], rc=0, espera=[r"^hijoA\s", r"^hijoB\s"], no_espera=[r"^otro\s"])
+    caso(ctx, "patrones: una clase [A] deja solo esa",
+         [f"ls {U}/hijo[A]"], rc=0, espera=[r"^hijoA\s"], no_espera=[r"^hijoB\s"])
+    caso(ctx, "patrones: @auto-* deja solo esas instantáneas",
+         [f"ls {U}/datos@auto-*"], rc=0, espera=[r"^@auto-1\s", r"^@auto-2\s"],
+         no_espera=[r"^@manual\s", r"^@s1\s"])
+    caso(ctx, "patrones: %2A es un asterisco LITERAL en #content",
+         [f"ls {U}/datos#content/a%2A*"], rc=0, espera=[r"^a\*b\.txt\s"],
+         no_espera=[r"^axb\.txt\s"])
+    caso(ctx, "patrones: sin coincidencias es un ERROR, no una lista vacía",
+         [f"ls {U}/zz*"], rc=1, idioma="es", espera=[r"nada coincide con"])
+
+    # --- cd: solo si casa uno.
+    caso(ctx, "patrones: cd con un único resultado entra en él",
+         [f"cd {U}/ot*", "pwd"], rc=0, espera=[rf"zfsm://local/{P}/otro"])
+    caso(ctx, "patrones: cd con varios resultados se niega y los enumera",
+         [f"cd {U}/hijo*"], rc=1, idioma="es",
+         espera=[r"necesita UN destino", r"hijoA", r"hijoB"])
+
+    # --- Lecturas con varios destinos: UNA tabla con la columna DESTINO.
+    caso(ctx, "patrones: get sobre varios destinos junta una sola tabla",
+         [f"get {U}/{{hijoA,hijoB}} compression"], rc=0, idioma="es",
+         espera=[rf"^local/{P}/hijoA\s+compression", rf"^local/{P}/hijoB\s+compression"],
+         veces=[(r"^DESTINO\s", 1)])
+    rc, js = cli(ctx, ["format json", f"get {U}/{{hijoA,hijoB}} compression"])
+    nombre = "patrones: en json, varios destinos son UN documento con el campo target"
+    problemas = []
+    try:
+        doc = json.loads(js)
+        filas = next(iter(doc.values()))
+        destinos = sorted({f.get("target") for f in filas})
+        if destinos != [f"local/{P}/hijoA", f"local/{P}/hijoB"]:
+            problemas.append(f"los target son {destinos}")
+    except Exception as exc:          # noqa: BLE001
+        problemas.append(f"no es UN documento json: {exc}")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, js[:300]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+    # --- Rechazos: ANTES de tocar nada.
+    caso(ctx, "patrones: rename con patrón se rechaza",
+         [f"rename {U}/hijo* nuevo"], rc=1, idioma="es", espera=[r"no admite patrones"],
+         estado=[("siguen los dos hijos", hijos, rf"{P}/hijoA\n{P}/hijoB")])
+    caso(ctx, "patrones: destroy con el patrón en el POOL se rechaza",
+         [f"destroy zfsm://local/{P[:3]}*"], rc=1, idioma="es",
+         espera=[r"no admite un patrón en esa parte"],
+         estado=[("el pool sigue", f"zpool list -H -o name {P}", rf"^{P}$")])
+    caso(ctx, "patrones: destroy con el patrón en un tramo intermedio se rechaza",
+         [f"destroy {U}/*/x"], rc=1, idioma="es", espera=[r"solo admite el patrón en el último tramo"])
+    caso(ctx, "patrones: una lista {…} con «/» dentro se explica",
+         [f"ls zfsm://{{local/{P},x}}"], rc=1, idioma="es", espera=[r"no puede contener"])
+    caso(ctx, "patrones: destroy sin coincidencias no toca nada",
+         [f"destroy {U}/datos@nada-*"], rc=1, idioma="es", espera=[r"nada coincide"],
+         estado=[("siguen las cinco", snaps, rf"@auto-1\n{P}/datos@auto-2\n{P}/datos@manual")])
+
+    # --- destroy: --check no toca; sin él, EXACTAMENTE las que casan.
+    caso(ctx, "patrones: destroy --check enseña la lista y no toca nada",
+         [f"destroy {U}/datos@auto-* --check"], rc=0, idioma="es",
+         espera=[r"2 destinos casan", r"no se ha tocado nada"],
+         estado=[("siguen las dos", snaps, rf"{P}/datos@auto-1\n{P}/datos@auto-2")])
+    caso(ctx, "patrones: destroy borra exactamente las que casan y nada más",
+         [f"destroy {U}/datos@auto-*"], rc=0, idioma="es", espera=[r"2 bien, 0 fallaron"],
+         estado=[("ya no hay @auto-", snaps, r"\A(?![\s\S]*@auto-)"),
+                 ("@manual sigue", snaps, rf"{P}/datos@manual"),
+                 ("@s1 sigue", snaps, rf"{P}/datos@s1")])
+
+    # --- set sobre varios: a los que casan, y a nadie más.
+    caso(ctx, "patrones: set sobre varios hijos",
+         [f"set {U}/{{hijoA,hijoB}} atime=off"], rc=0,
+         estado=[("hijoA con atime=off", f"zfs get -H -o value atime {P}/hijoA", r"^off"),
+                 ("hijoB con atime=off", f"zfs get -H -o value atime {P}/hijoB", r"^off"),
+                 ("otro sin tocar", f"zfs get -H -o value atime {P}/otro", r"^on")])
+
+    # --- Y un error de sintaxis en un guion termina con código distinto de 0. Con el
+    # destino DETRÁS de la asignación, `set` decía «uso: …» y la sesión acababa con 0.
+    caso(ctx, "un error de sintaxis en un guion termina con código ≠ 0",
+         [f"set atime=on {U}/otro"], rc=2,
+         estado=[("otro sigue igual", f"zfs get -H -o value atime {P}/otro", r"^on")])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1404,7 +1521,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

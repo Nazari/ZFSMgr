@@ -153,11 +153,18 @@ static char* sinComillas(const char* s, int n) {
 ESPACIO     [ \t]+
 /* Lo que hace URL a un componente: el esquema, una barra en cualquier sitio, empezar por
  * `@` o `#`, o ser uno de los tres atajos de navegación. */
-URLTOK      ("zfsm://"[^ \t]*)|([^ \t=]*"/"[^ \t]*)|("@"[^ \t=]+)|("#"[^ \t=]*)|"."|".."|"-"
+/* Un grupo de alternativas `{…}` es UNA pieza aunque lleve espacios dentro: `{a*, b*}`, que
+ * es como se escribe a mano. Un `{` suelto sigue siendo un carácter más; flex se queda con
+ * la coincidencia MÁS LARGA, así que el grupo entero gana cuando cierra. Sin esto, el
+ * espacio partía `{a*, b*}` en dos componentes y la orden fallaba por sintaxis. */
+LLAVE       "{"[^}\n]*"}"
+NE          ([^ \t]|{LLAVE})
+NEQ         ([^ \t=]|{LLAVE})
+URLTOK      ("zfsm://"{NE}*)|({NEQ}*"/"{NE}*)|("@"{NEQ}+)|("#"{NEQ}*)|"."|".."|"-"
 ASIGNA      [^ \t=/-][^ \t=]*"="[^ \t]*
 LARGA       "--"[A-Za-z][A-Za-z0-9-]*
 CORTA       "-"[A-Za-z]+
-PALABRA     [^ \t=][^ \t]*
+PALABRA     ({LLAVE}|[^ \t=]){NE}*
 
 %%
 
@@ -205,7 +212,7 @@ PALABRA     [^ \t=][^ \t]*
                         astOpcion(cx->res, copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
                                   sinComillas(yytext, yyleng));
                     }
-<VALOR>[^ \t]+      {
+<VALOR>{NE}+        {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
                         astOpcion(cx->res, copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
@@ -219,7 +226,7 @@ PALABRA     [^ \t=][^ \t]*
                                           copia(cx->opcionPendiente, (int)strlen(cx->opcionPendiente)),
                                           sinComillas(yytext, yyleng));
                     }
-<VALOR2>[^ \t]+     {
+<VALOR2>{NE}+       {
                         ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                         BEGIN(INITIAL);
                         astOpcionRepetida(cx->res,

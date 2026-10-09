@@ -495,3 +495,30 @@ copiar a otra orden.
 
 Es además el modelo que el servidor web ya seguía: allí el nodo del pool va **fundido** con
 su dataset raíz, y los hijos de éste cuelgan directamente del pool.
+
+## Patrones en las URL (2026-10-10)
+
+`*`, `?`, `[abc]`/`[a-z]`/`[!x]` y `{a,b*}` en cualquier tramo de una URL: conexión, pool,
+dataset, `@instantánea` y el detalle de `#properties` y `#content`. Ninguno cruza `/`, y
+las llaves no pueden contenerla (`zfsm://{unib,freebsd}/*`, no `{unib/ppal,…}`).
+
+**Léxico.** Un grupo `{…}` es UNA pieza aunque lleve espacios —`{a*, b*}`, como se escribe
+a mano—. Un `{` suelto sigue siendo un carácter; flex se queda con la coincidencia más
+larga.
+
+**Literal.** Un comodín codificado no es comodín: `%2A` es un `*` de verdad. Por eso la
+expansión se hace sobre el texto TODAVÍA CODIFICADO, antes de `resuelve()`: una vez
+descodificados, `%2A` y `*` ya no se distinguen. (Las comillas NO lo hacen literal: el
+léxico las quita igual en un valor de propiedad que en un destino, y no sabe cuál es.)
+
+**Qué hace cada orden** está en una sola tabla, `reglasDePatron()` en `shell.cpp`:
+
+| política | órdenes | qué hace |
+|---|---|---|
+| filtra | `ls` | el ÚLTIMO tramo filtra las filas del listado de su padre (`ls -d`, no la shell); un tramo intermedio multiplica los destinos |
+| uno | `cd` | solo si casa exactamente uno |
+| varios | `get`, `info`, `status`, `history`, `holds`, `schedules`, `log`, `jobs`, `peers`, `devices`, `refresh`, `connect`, `disconnect` | cada destino; las tablas se juntan en una con la columna DESTINO (`target` en tsv/json) |
+| varios-modifica | `destroy`, `set`, `mount`, `unmount`, `hold`, `release`, `scrub`, `install-daemon` | patrón SOLO en el último tramo y en la clase de pieza que la orden permita; la lista exacta SIEMPRE, confirmación salvo `-y`, `--check` para verla sin tocar nada |
+
+Las que no están en la tabla rechazan un patrón en el destino. Sin coincidencias es un
+error, nunca se pasa el patrón tal cual a la orden.

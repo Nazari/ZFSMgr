@@ -56,6 +56,22 @@
 #include <string>
 #include <vector>
 
+// Duplicar descriptores, para capturar la salida de una orden. Mismas llamadas con otro
+// nombre en Windows.
+#ifdef _WIN32
+#include <io.h>
+#define DUP_ _dup
+#define DUP2_ _dup2
+#define CLOSE_ _close
+#define FILENO_ _fileno
+#else
+#include <unistd.h>
+#define DUP_ dup
+#define DUP2_ dup2
+#define CLOSE_ close
+#define FILENO_ fileno
+#endif
+
 namespace zfsmgr::cli {
 namespace {
 
@@ -81,7 +97,21 @@ using B::ZfsmKind;
 // intérprete, donde sí hace falta: es lo que da un sitio al que subir desde una conexión.
 enum class Nodo { Raiz, Conexion, Dataset, Snapshot };
 
+// El filtro de filas de `ls` cuando el ÚLTIMO tramo del destino es un patrón:
+// `ls tank/user/M*` lista tank/user y deja solo las filas que casan con «M*». Ver
+// ejecutaConPatrones.
+struct FiltroFilas {
+    // Qué filas mira. Un patrón en un tramo de ruta es de HIJOS: «*» no debe sacar las
+    // instantáneas, que no son hijos sino `tank/x@algo`. Uno tras la `@` es de
+    // INSTANTÁNEAS. El resto —conexiones, pools, propiedades, ficheros— es de todo.
+    enum class Clase { Todo, Hijos, Instantaneas };
+    std::string patron;  // el tramo CRUDO, con sus comodines; vacío = sin filtro
+    Clase clase{Clase::Todo};
+    std::string texto;   // lo que escribió el usuario, para el mensaje de «nada coincide»
+};
+
 struct Estado {
+    FiltroFilas filtro;
     // La versión de agente de cada conexión, recordada durante la sesión. Ver
     // listaConexiones: preguntarla cuesta una ida y vuelta por máquina.
     std::map<std::string, std::string> versionDaemon;
@@ -859,6 +889,51 @@ bool confirma(const Estado& e, const std::string& que) {
     return r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes";
 }
 
+// Deja en la tabla solo las filas cuyo nombre casa con el filtro, mirando las columnas
+// dadas (la del nombre; en las conexiones, el identificador y el nombre visible).
+//
+// Falso —y lo dice— si con filtro no queda ninguna: «nada coincide» es un error y no una
+// lista vacía. Una lista vacía se lee como «no hay nada», que es otra afirmación.
+bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> columnas = {0}) {
+    if (e.filtro.patron.empty()) {
+        return true;
+    }
+    std::vector<std::vector<std::string>> quedan;
+    for (auto& fila : t.filas) {
+        bool casa = false;
+        for (const std::size_t c : columnas) {
+            if (c >= fila.size()) {
+                continue;
+            }
+            std::string nombre = fila[c];
+            const bool esSnap = !nombre.empty() && nombre[0] == '@';
+            if (e.filtro.clase == FiltroFilas::Clase::Hijos && esSnap) {
+                continue;
+            }
+            if (e.filtro.clase == FiltroFilas::Clase::Instantaneas) {
+                if (!esSnap) {
+                    continue;
+                }
+                nombre = nombre.substr(1);
+            }
+            if (B::matchesRawPattern(e.filtro.patron, nombre)) {
+                casa = true;
+                break;
+            }
+        }
+        if (casa) {
+            quedan.push_back(std::move(fila));
+        }
+    }
+    t.filas = std::move(quedan);
+    if (t.filas.empty()) {
+        std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), e.filtro.texto.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    return true;
+}
+
 // --- ls
 
 // El listado de conexiones es EL MISMO que el de la orden suelta `connections list`. La
@@ -908,7 +983,7 @@ void olvidaEstadoDeConexion(Estado& e, const B::ConnectionProfile& p) {
     olvidaVersionDaemon(e, p);
 }
 
-void listaConexiones(Estado& e, const Peticion& pet) {
+bool listaConexiones(Estado& e, const Peticion& pet) {
     (void)pet;
     Tabla t = tablaDeConexiones(e.conns);
     t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
@@ -956,7 +1031,11 @@ void listaConexiones(Estado& e, const Peticion& pet) {
         }
         t.filas[i].push_back(version);
     }
+    if (!aplicaFiltro(e, t, {0, 1})) {
+        return false;
+    }
     t.imprime(e.formato);
+    return true;
 }
 
 // Qué se dice cuando la sonda de importables no encuentra nada.
@@ -1167,6 +1246,9 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
                                "", "", "", ""});
         }
     }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
     t.imprime(e.formato);
     return true;
 }
@@ -1261,6 +1343,9 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         t.filas.push_back({esSnap ? "@" + nombre.substr(arroba + 1) : nombre.substr(prefijo.size()),
                            tipo, c[2], c[3], estado, c[8]});
     }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
     t.imprime(e.formato);
     return true;
 }
@@ -1269,6 +1354,26 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
 bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
     const std::string objetivo = destino.zfsName();
     std::string out;
+    // `get tank compr*`: la propiedad es un patrón. Se piden TODAS —una sola llamada— y se
+    // filtran aquí. (Por la URL, `#properties/compr*`, ya llega como filtro desde
+    // ejecutaConPatrones; esto cubre el segundo argumento de `get`, que no pasa por ella.)
+    // Con VARIOS destinos (`get tank/{a,b} compression`), el valor pelado de una sola
+    // propiedad dejaría secciones sueltas «destino: valor». Se pide la tabla y se filtra por
+    // el nombre exacto: así sale UNA tabla con DESTINO, PROPIEDAD, VALOR y ORIGEN.
+    const bool variosDestinos = acumuladorActivo() != nullptr;
+    if (!destino.detail.empty() && e.filtro.patron.empty()
+        && (B::hasWildcard(destino.detail.front()) || variosDestinos)) {
+        e.filtro.patron = B::hasWildcard(destino.detail.front())
+                              ? destino.detail.front()
+                              : B::percentEncodeSegment(destino.detail.front());
+        e.filtro.clase = FiltroFilas::Clase::Todo;
+        e.filtro.texto = destino.detail.front();
+        ZfsmUrl todas = destino;
+        todas.detail.clear();
+        const bool ok = listaPropiedades(e, todas);
+        e.filtro = FiltroFilas{};
+        return ok;
+    }
     if (!destino.detail.empty()) {
         if (!agente(e, destino, PET::datasetProperty(destino.detail.front(), objetivo), out)) {
             return false;
@@ -1296,6 +1401,9 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
             t.filas.push_back({pr.first, pr.second["value"].toString(),
                                B::toLowerAscii(pr.second["source"]["type"].toString())});
         }
+    }
+    if (!aplicaFiltro(e, t)) {
+        return false;
     }
     t.imprime(e.formato);
     return true;
@@ -1642,6 +1750,9 @@ bool listaContenido(Estado& e, const ZfsmUrl& destino) {
                            ent.directory ? "directory" : "file",
                            ent.directory ? "" : std::to_string(ent.size)});
     }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
     t.imprime(e.formato);
     return true;
 }
@@ -1669,8 +1780,7 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     }
     switch (nodoDe(destino)) {
         case Nodo::Raiz:
-            listaConexiones(e, pet);
-            return true;
+            return listaConexiones(e, pet);
         case Nodo::Conexion:
             return listaPools(e, destino);
         case Nodo::Dataset:
@@ -5402,6 +5512,696 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     return out;
 }
 
+// =====================================================================================
+// --- Patrones en el destino: `*`, `?`, `[..]` y `{a,b}`.
+//
+// La regla de cada orden está en `reglasDePatron`. La idea general:
+//
+//   - En `ls`, un patrón en el ÚLTIMO tramo FILTRA las filas de lo que se lista:
+//     `ls tank/user/M*` lista tank/user y deja las filas que casan con «M*», como
+//     `ls -d M*` y no como la shell, que listaría el contenido de cada uno. En un tramo
+//     intermedio multiplica los destinos: `ls tank/*/backups`.
+//   - En las lecturas, cada destino que casa se atiende y sus tablas se juntan en una.
+//   - En las que MODIFICAN, el patrón solo puede ir en el último tramo —nunca abarcar
+//     varias máquinas o pools de golpe con un `destroy`—, la lista exacta se enseña SIEMPRE
+//     y se pide confirmación salvo `-y`.
+//   - Si nada coincide es un ERROR. Nunca se pasa el patrón tal cual a la orden: un
+//     `destroy` que buscara un dataset llamado «auto-*» es la peor forma de enterarse.
+//
+// La expansión se hace sobre el texto TODAVÍA CODIFICADO, antes de `resuelve()`: allí cada
+// tramo tiene que existir, y una vez descodificado `%2A` y `*` ya no se distinguen.
+
+// Una URL absoluta partida en sus piezas SIN descodificar.
+struct UrlCruda {
+    std::string conexion;
+    std::vector<std::string> ruta;  // el pool y los datasets
+    bool hayInstantanea{false};
+    std::string instantanea;
+    bool haySeccion{false};
+    std::string seccion;
+    std::vector<std::string> detalle;
+
+    bool esRaiz() const { return conexion.empty(); }
+
+    std::string texto() const {
+        if (conexion.empty()) {
+            return std::string();  // la raíz no es una URL; quien la use pone «/»
+        }
+        std::string t = "zfsm://" + conexion;
+        if (!ruta.empty()) {
+            t += "/" + B::join(ruta, "/");
+        }
+        if (hayInstantanea) {
+            t += "@" + instantanea;
+        }
+        if (haySeccion) {
+            t += "#" + seccion;
+            for (const std::string& d : detalle) {
+                t += "/" + d;
+            }
+        }
+        return t;
+    }
+};
+
+UrlCruda parteCruda(const std::string& absoluta) {
+    UrlCruda u;
+    std::string resto = absoluta.substr(std::string("zfsm://").size());
+    const auto sinVaciosFinales = [](std::vector<std::string> v) {
+        while (!v.empty() && v.back().empty()) {
+            v.pop_back();
+        }
+        return v;
+    };
+    const std::size_t almohadilla = resto.find('#');
+    if (almohadilla != std::string::npos) {
+        u.haySeccion = true;
+        const std::vector<std::string> partes =
+            sinVaciosFinales(B::split(resto.substr(almohadilla + 1), "/", false));
+        resto = resto.substr(0, almohadilla);
+        if (!partes.empty()) {
+            u.seccion = partes.front();
+            u.detalle.assign(partes.begin() + 1, partes.end());
+        }
+    }
+    const std::size_t barra = resto.find('/');
+    u.conexion = barra == std::string::npos ? resto : resto.substr(0, barra);
+    std::string ruta = barra == std::string::npos ? std::string() : resto.substr(barra + 1);
+    const std::size_t arroba = ruta.find('@');
+    if (arroba != std::string::npos) {
+        u.hayInstantanea = true;
+        u.instantanea = ruta.substr(arroba + 1);
+        ruta = ruta.substr(0, arroba);
+    }
+    if (!ruta.empty()) {
+        u.ruta = sinVaciosFinales(B::split(ruta, "/", false));
+    }
+    return u;
+}
+
+// El destino que escribió el usuario, convertido en URL ABSOLUTA cruda: el sitio actual
+// delante si es relativo, y los «.» y «..» aplicados sobre los tramos, sin descodificar.
+bool absolutaCruda(const Estado& e, const std::string& textoEntrada, UrlCruda& out,
+                   std::string& err) {
+    const std::string t = B::trim(textoEntrada);
+    if (B::startsWith(B::toLowerAscii(t), "zfsm://")) {
+        out = parteCruda(t);
+        return true;
+    }
+    if (!t.empty() && (t.front() == '@' || t.front() == '#')) {
+        if (e.actual.connection.empty()) {
+            err = T("t_falta_estar_ds", "hace falta estar en un dataset");
+            return false;
+        }
+        ZfsmUrl limpia = e.actual;
+        limpia.section.clear();
+        limpia.detail.clear();
+        if (t.front() == '@') {
+            limpia.snapshot.clear();
+        }
+        out = parteCruda(B::formatZfsmUrl(limpia) + t);
+        return true;
+    }
+    std::string cuerpo = t;
+    std::string cola;
+    const std::size_t almohadilla = cuerpo.find('#');
+    if (almohadilla != std::string::npos) {
+        cola = cuerpo.substr(almohadilla);
+        cuerpo = cuerpo.substr(0, almohadilla);
+    }
+    std::vector<std::string> piezas;
+    if (!cuerpo.empty() && cuerpo.front() == '/') {
+        cuerpo = cuerpo.substr(1);
+    } else if (!e.actual.connection.empty()) {
+        ZfsmUrl base = e.actual;
+        base.snapshot.clear();
+        base.section.clear();
+        base.detail.clear();
+        const UrlCruda b = parteCruda(B::formatZfsmUrl(base));
+        piezas.push_back(b.conexion);
+        piezas.insert(piezas.end(), b.ruta.begin(), b.ruta.end());
+    }
+    for (const std::string& tr : B::split(cuerpo, "/", true)) {
+        if (tr == ".") {
+            continue;
+        }
+        if (tr == "..") {
+            if (!piezas.empty()) {
+                piezas.pop_back();
+            }
+            continue;
+        }
+        piezas.push_back(tr);
+    }
+    if (piezas.empty()) {
+        out = UrlCruda{};
+        return true;
+    }
+    out = parteCruda("zfsm://" + B::join(piezas, "/") + cola);
+    return true;
+}
+
+// Qué es cada pieza de la URL, para saber qué hay que enumerar en ella y qué permite cada
+// orden.
+enum class Pieza { Conexion, Pool, Hijo, Instantanea, Seccion, Detalle };
+
+// Lo que existe en cada nivel, para casarlo con un patrón. Una llamada al agente por
+// nivel y padre, recordada mientras dura la expansión.
+class Enumerador {
+public:
+    explicit Enumerador(Estado& e) : e_(e) {}
+
+    std::vector<std::string> conexiones() {
+        std::vector<std::string> v;
+        for (const auto& p : e_.conns.perfiles) {
+            v.push_back(p.id.empty() ? p.name : p.id);
+        }
+        return v;
+    }
+
+    // El nombre visible de una conexión, para casar también por él.
+    std::string nombreDe(const std::string& id) {
+        const auto* p = buscarConexion(e_.conns, id);
+        return p ? p->name : std::string();
+    }
+
+    std::vector<std::string> pools(const UrlCruda& prefijo) {
+        return enCache("pools|" + prefijo.texto(), [&](std::vector<std::string>& v) {
+            ZfsmUrl u;
+            std::string out;
+            if (!resolver(prefijo, u) || !agente(e_, u, PET::poolList(), out)) {
+                return false;
+            }
+            B::json::Value raiz;
+            if (!B::trim(out).empty() && B::json::parse(out, raiz, nullptr)) {
+                for (const auto& kv : raiz["pools"].toObject()) {
+                    v.push_back(kv.second["name"].toString(kv.first));
+                }
+            }
+            return true;
+        });
+    }
+
+    std::vector<std::string> hijos(const UrlCruda& prefijo) { return deListado(prefijo, false); }
+    std::vector<std::string> instantaneas(const UrlCruda& prefijo) { return deListado(prefijo, true); }
+
+    std::vector<std::string> propiedades(const UrlCruda& prefijo) {
+        return enCache("props|" + prefijo.texto(), [&](std::vector<std::string>& v) {
+            ZfsmUrl u;
+            std::string out;
+            if (!resolver(prefijo, u) || !agente(e_, u, PET::datasetProperties(u.zfsName()), out)) {
+                return false;
+            }
+            B::json::Value raiz;
+            if (B::json::parse(out, raiz, nullptr)) {
+                for (const auto& ds : raiz["datasets"].toObject()) {
+                    for (const auto& pr : ds.second["properties"].toObject()) {
+                        v.push_back(pr.first);
+                    }
+                }
+            }
+            return true;
+        });
+    }
+
+    std::vector<std::string> contenido(const UrlCruda& prefijo) {
+        return enCache("cont|" + prefijo.texto(), [&](std::vector<std::string>& v) {
+            ZfsmUrl u;
+            if (!resolver(prefijo, u)) {
+                return false;
+            }
+            std::string base;
+            bool esWindows = false;
+            std::string out;
+            if (!rutaDeContenido(e_, u, base, esWindows, /*callado=*/false)
+                || !agente(e_, u, PET::directoryContents(base), out)) {
+                return false;
+            }
+            std::vector<L::DirectoryEntry> entradas;
+            std::string errJson;
+            if (L::directoryContents(out, entradas, errJson)) {
+                for (const L::DirectoryEntry& ent : entradas) {
+                    v.push_back(ent.name);
+                }
+            }
+            return true;
+        });
+    }
+
+    bool fallo() const { return fallo_; }
+
+private:
+    bool resolver(const UrlCruda& prefijo, ZfsmUrl& u) {
+        std::string err;
+        if (!resuelve(e_, prefijo.texto(), u, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    template <typename F>
+    std::vector<std::string> enCache(const std::string& clave, F&& llena) {
+        const auto ya = cache_.find(clave);
+        if (ya != cache_.end()) {
+            return ya->second;
+        }
+        std::vector<std::string> v;
+        if (!llena(v)) {
+            fallo_ = true;
+        }
+        cache_[clave] = v;
+        return v;
+    }
+
+    // Los hijos directos o las instantáneas de un dataset, del mismo listado recursivo que
+    // usa `ls`: una sola llamada sirve para los dos.
+    std::vector<std::string> deListado(const UrlCruda& prefijo, bool snaps) {
+        const std::string clave = std::string(snaps ? "snaps|" : "hijos|") + prefijo.texto();
+        return enCache(clave, [&](std::vector<std::string>& v) {
+            ZfsmUrl u;
+            std::string out;
+            if (!resolver(prefijo, u) || !agente(e_, u, PET::datasetList(u.dataset), out)) {
+                return false;
+            }
+            const std::string padre = u.dataset;
+            for (const std::string& linea : B::split(out, "\n", true)) {
+                const std::string nombre = B::trim(B::split(linea, "\t", false).front());
+                if (snaps) {
+                    if (B::startsWith(nombre, padre + "@")) {
+                        v.push_back(nombre.substr(padre.size() + 1));
+                    }
+                } else if (B::startsWith(nombre, padre + "/")) {
+                    const std::string resto = nombre.substr(padre.size() + 1);
+                    if (resto.find('/') == std::string::npos && resto.find('@') == std::string::npos) {
+                        v.push_back(resto);
+                    }
+                }
+            }
+            return true;
+        });
+    }
+
+    Estado& e_;
+    std::map<std::string, std::vector<std::string>> cache_;
+    bool fallo_{false};
+};
+
+// Un destino ya concreto, con el filtro de filas que lleve (vacío si no lleva).
+struct DestinoConcreto {
+    std::string url;  // vacío = la raíz
+    FiltroFilas filtro;
+    std::string etiqueta() const {
+        return url.empty() ? std::string("zfsm://") : url.substr(std::string("zfsm://").size());
+    }
+};
+
+struct PiezaCruda {
+    Pieza clase;
+    std::string crudo;
+};
+
+std::vector<PiezaCruda> piezasDe(const UrlCruda& u) {
+    std::vector<PiezaCruda> v;
+    if (u.esRaiz()) {
+        return v;
+    }
+    v.push_back({Pieza::Conexion, u.conexion});
+    for (std::size_t i = 0; i < u.ruta.size(); ++i) {
+        v.push_back({i == 0 ? Pieza::Pool : Pieza::Hijo, u.ruta[i]});
+    }
+    if (u.hayInstantanea) {
+        v.push_back({Pieza::Instantanea, u.instantanea});
+    }
+    if (u.haySeccion) {
+        v.push_back({Pieza::Seccion, u.seccion});
+        for (const std::string& d : u.detalle) {
+            v.push_back({Pieza::Detalle, d});
+        }
+    }
+    return v;
+}
+
+// Expande el destino contra lo que existe. Con `filtraUltimo`, un patrón en la ÚLTIMA pieza
+// no se expande: queda como filtro de filas del listado de su padre.
+bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
+                     std::vector<DestinoConcreto>& out, std::string& err) {
+    out.clear();
+    const std::vector<PiezaCruda> piezas = piezasDe(u);
+    for (const PiezaCruda& pz : piezas) {
+        if (!B::hasWildcard(pz.crudo)) {
+            continue;
+        }
+        if (pz.clase == Pieza::Seccion) {
+            err = T("t_patron_seccion", "el nombre de una sección no admite comodines");
+            return false;
+        }
+        if (!B::checkRawPattern(pz.crudo)) {
+            err = B::format(T("t_patron_mal", "patrón mal formado: «%1»"), {pz.crudo});
+            return false;
+        }
+    }
+    const std::size_t filtroEn = (filtraUltimo && !piezas.empty()
+                                  && B::hasWildcard(piezas.back().crudo))
+                                     ? piezas.size() - 1
+                                     : std::string::npos;
+    Enumerador en(e);
+    std::set<std::string> vistos;
+
+    const auto conPieza = [](UrlCruda base, const PiezaCruda& pz, const std::string& valor) {
+        switch (pz.clase) {
+            case Pieza::Conexion: base.conexion = valor; break;
+            case Pieza::Pool:
+            case Pieza::Hijo: base.ruta.push_back(valor); break;
+            case Pieza::Instantanea: base.hayInstantanea = true; base.instantanea = valor; break;
+            case Pieza::Seccion: base.haySeccion = true; base.seccion = valor; break;
+            case Pieza::Detalle: base.detalle.push_back(valor); break;
+        }
+        return base;
+    };
+
+    std::function<bool(std::size_t, const UrlCruda&)> expande =
+        [&](std::size_t i, const UrlCruda& prefijo) -> bool {
+        if (i == piezas.size() || i == filtroEn) {
+            DestinoConcreto d;
+            d.url = prefijo.texto();
+            if (i == filtroEn) {
+                d.filtro.patron = piezas[i].crudo;
+                d.filtro.clase = piezas[i].clase == Pieza::Hijo ? FiltroFilas::Clase::Hijos
+                                 : piezas[i].clase == Pieza::Instantanea
+                                     ? FiltroFilas::Clase::Instantaneas
+                                     : FiltroFilas::Clase::Todo;
+            }
+            if (vistos.insert(d.url + "\n" + d.filtro.patron).second) {
+                out.push_back(d);
+            }
+            return true;
+        }
+        const PiezaCruda& pz = piezas[i];
+        if (!B::hasWildcard(pz.crudo)) {
+            return expande(i + 1, conPieza(prefijo, pz, pz.crudo));
+        }
+        std::vector<std::string> candidatos;
+        switch (pz.clase) {
+            case Pieza::Conexion: candidatos = en.conexiones(); break;
+            case Pieza::Pool: candidatos = en.pools(prefijo); break;
+            case Pieza::Hijo: candidatos = en.hijos(prefijo); break;
+            case Pieza::Instantanea: candidatos = en.instantaneas(prefijo); break;
+            case Pieza::Seccion: break;  // rechazado arriba
+            case Pieza::Detalle:
+                if (B::toLowerAscii(prefijo.seccion) == "properties") {
+                    candidatos = en.propiedades(prefijo);
+                } else if (B::toLowerAscii(prefijo.seccion) == "content") {
+                    candidatos = en.contenido(prefijo);
+                } else {
+                    err = B::format(T("t_patron_no_seccion", "la sección «%1» no admite comodines"),
+                                    {prefijo.seccion});
+                    return false;
+                }
+                break;
+        }
+        for (const std::string& c : candidatos) {
+            const bool casa = B::matchesRawPattern(pz.crudo, c)
+                              || (pz.clase == Pieza::Conexion
+                                  && B::matchesRawPattern(pz.crudo, en.nombreDe(c)));
+            if (casa && !expande(i + 1, conPieza(prefijo, pz, B::percentEncodeSegment(c)))) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!expande(0, UrlCruda{})) {
+        return false;
+    }
+    if (out.empty()) {
+        // Si una enumeración falló —máquina que no contesta—, el error ya está dicho y es
+        // ESE el motivo; «nada coincide» lo taparía.
+        err = en.fallo() ? std::string() : std::string("-");
+        return false;
+    }
+    return true;
+}
+
+// Qué hace cada orden con un patrón en su destino. Las que no están, lo rechazan.
+enum class Politica { Filtra, Uno, Varios, VariosModifica };
+struct ReglaPatron {
+    Politica politica;
+    // En las que modifican: en qué pieza puede ir el patrón. Es la regla que impide un
+    // `destroy` sobre varios pools o un `scrub` sobre varias máquinas por un despiste.
+    std::set<Pieza> piezas;
+};
+
+const std::map<std::string, ReglaPatron>& reglasDePatron() {
+    static const std::map<std::string, ReglaPatron> r = {
+        {"ls", {Politica::Filtra, {}}},
+        {"cd", {Politica::Uno, {}}},
+        {"get", {Politica::Varios, {}}},
+        {"info", {Politica::Varios, {}}},
+        {"status", {Politica::Varios, {}}},
+        {"history", {Politica::Varios, {}}},
+        {"holds", {Politica::Varios, {}}},
+        {"schedules", {Politica::Varios, {}}},
+        {"log", {Politica::Varios, {}}},
+        {"jobs", {Politica::Varios, {}}},
+        {"peers", {Politica::Varios, {}}},
+        {"devices", {Politica::Varios, {}}},
+        {"refresh", {Politica::Varios, {}}},
+        {"connect", {Politica::Varios, {}}},
+        {"disconnect", {Politica::Varios, {}}},
+        {"destroy", {Politica::VariosModifica, {Pieza::Hijo, Pieza::Instantanea}}},
+        {"set", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo, Pieza::Instantanea}}},
+        {"mount", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo}}},
+        {"unmount", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo}}},
+        {"hold", {Politica::VariosModifica, {Pieza::Instantanea}}},
+        {"release", {Politica::VariosModifica, {Pieza::Instantanea}}},
+        {"scrub", {Politica::VariosModifica, {Pieza::Pool}}},
+        {"install-daemon", {Politica::VariosModifica, {Pieza::Conexion}}},
+    };
+    return r;
+}
+
+// Lo que una orden escribe en la salida estándar mientras se ejecuta, capturado. Hace falta
+// para repetir una orden sobre varios destinos: lo que imprime con `Tabla` se junta en una
+// tabla, y lo que imprime a mano —`status`, `history`— se enseña en una sección con su
+// destino delante. Sin capturar no se sabría cuál de las dos cosas hizo cada repetición.
+class CapturaSalida {
+public:
+    CapturaSalida() {
+        std::fflush(stdout);
+        tmp_ = std::tmpfile();
+        if (!tmp_) {
+            return;
+        }
+        copia_ = DUP_(FILENO_(stdout));
+        DUP2_(FILENO_(tmp_), FILENO_(stdout));
+    }
+    std::string termina() {
+        if (!tmp_) {
+            return {};
+        }
+        std::fflush(stdout);
+        DUP2_(copia_, FILENO_(stdout));
+        CLOSE_(copia_);
+        std::string texto;
+        std::rewind(tmp_);
+        char buf[4096];
+        std::size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), tmp_)) > 0) {
+            texto.append(buf, n);
+        }
+        std::fclose(tmp_);
+        tmp_ = nullptr;
+        return texto;
+    }
+    ~CapturaSalida() { termina(); }
+
+private:
+    std::FILE* tmp_{nullptr};
+    int copia_{-1};
+};
+
+// La envoltura de cada orden: si su destino lleva un patrón, lo resuelve según la regla de
+// la orden; si no, la orden se ejecuta como siempre, sin pasar por nada de esto.
+bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizada& an,
+                        const std::function<bool(Estado&, const LineaAnalizada&)>& f) {
+    const auto it = an.opciones.find("on");
+    const auto itFrom = an.opciones.find("from");
+    const std::string texto = it != an.opciones.end()       ? it->second
+                              : itFrom != an.opciones.end() ? itFrom->second
+                                                            : an.objetivo;
+    if (texto.empty() || !B::hasWildcard(texto)) {
+        return f(e, an);
+    }
+    const auto& reglas = reglasDePatron();
+    const auto regla = reglas.find(orden);
+    if (regla == reglas.end()) {
+        std::fprintf(stderr,
+                     TC("t_patron_no_admite",
+                        "«%s» no admite patrones en el destino: actúa sobre uno solo (%s)\n"),
+                     orden.c_str(), texto.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    const Politica politica = regla->second.politica;
+
+    // Una lista `{…}` va DENTRO de un tramo: no puede contener `/`. Se dice con todas las
+    // letras, porque lo que sale si no —«patrón mal formado: «{unib»»— no explica nada.
+    {
+        int nivel = 0;
+        for (const char c : texto) {
+            if (c == '{') {
+                ++nivel;
+            } else if (c == '}') {
+                nivel = nivel > 0 ? nivel - 1 : 0;
+            } else if (c == '/' && nivel > 0) {
+                std::fprintf(stderr,
+                             TC("t_patron_llave_barra",
+                                "una lista {…} no puede contener «/»: cada tramo lleva la suya, "
+                                "como en zfsm://{unib,freebsd}/* (%s)\n"),
+                             texto.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        }
+    }
+
+    UrlCruda u;
+    std::string err;
+    if (!absolutaCruda(e, texto, u, err)) {
+        std::fprintf(stderr, "%s\n", err.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    const std::vector<PiezaCruda> piezas = piezasDe(u);
+
+    // En las que modifican, el patrón SOLO en el último tramo, y en la clase de pieza que
+    // la orden permite. Se mira ANTES de preguntar nada a ninguna máquina.
+    if (politica == Politica::VariosModifica) {
+        for (std::size_t i = 0; i + 1 < piezas.size(); ++i) {
+            if (B::hasWildcard(piezas[i].crudo)) {
+                std::fprintf(stderr,
+                             TC("t_patron_solo_ultimo",
+                                "«%s» solo admite el patrón en el último tramo (%s): no se "
+                                "abarcan varias máquinas o pools de una vez\n"),
+                             orden.c_str(), texto.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        }
+        if (piezas.empty() || regla->second.piezas.count(piezas.back().clase) == 0) {
+            std::fprintf(stderr,
+                         TC("t_patron_pieza_no",
+                            "«%s» no admite un patrón en esa parte del destino (%s)\n"),
+                         orden.c_str(), texto.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+    }
+
+    std::vector<DestinoConcreto> destinos;
+    if (!expandeDestinos(e, u, politica == Politica::Filtra, destinos, err)) {
+        if (err == "-") {
+            std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), texto.c_str());
+        } else if (!err.empty()) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+        }
+        e.ultimoRc = 1;
+        return false;
+    }
+
+    const auto corre = [&](const DestinoConcreto& d) {
+        LineaAnalizada an2 = an;
+        an2.opciones.erase("on");
+        an2.opciones.erase("from");
+        an2.opciones.erase("check");
+        an2.objetivo = d.url.empty() ? std::string("/") : d.url;
+        e.filtro = d.filtro;
+        e.filtro.texto = texto;
+        const bool ok = f(e, an2);
+        e.filtro = FiltroFilas{};
+        return ok;
+    };
+
+    if (politica == Politica::Uno) {
+        if (destinos.size() != 1) {
+            std::fprintf(stderr, TC("t_patron_varios_uno", "«%s» necesita UN destino y «%s» casa con %zu:\n"),
+                         orden.c_str(), texto.c_str(), destinos.size());
+            for (std::size_t i = 0; i < destinos.size() && i < 20; ++i) {
+                std::fprintf(stderr, "  %s\n", destinos[i].etiqueta().c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        return corre(destinos.front());
+    }
+
+    if (politica == Politica::VariosModifica) {
+        // La lista exacta, SIEMPRE: también con -y, para que quede en el registro qué se hizo.
+        std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
+                     orden.c_str(), destinos.size(), texto.c_str());
+        for (const DestinoConcreto& d : destinos) {
+            std::fprintf(stderr, "  %s\n", d.etiqueta().c_str());
+        }
+        if (an.opciones.count("check")) {
+            std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
+            return true;
+        }
+        if (!confirma(e, B::format(T("t_patron_confirma", "¿%1 sobre estos %2?"),
+                                   {orden, std::to_string(destinos.size())}))) {
+            e.ultimoRc = 1;
+            return false;
+        }
+        // Ya se confirmó la lista entera: que cada repetición no vuelva a preguntar.
+        const bool asumiaSi = e.asumirSi;
+        e.asumirSi = true;
+        std::size_t bien = 0;
+        std::size_t mal = 0;
+        for (const DestinoConcreto& d : destinos) {
+            if (corre(d)) {
+                ++bien;
+            } else {
+                ++mal;
+                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), d.etiqueta().c_str());
+            }
+        }
+        e.asumirSi = asumiaSi;
+        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), orden.c_str(),
+                     bien, mal);
+        if (mal > 0) {
+            e.ultimoRc = 1;
+        }
+        return mal == 0;
+    }
+
+    // Filtra y Varios. Con un solo destino, tal cual.
+    if (destinos.size() == 1) {
+        return corre(destinos.front());
+    }
+    Acumulador acu;
+    acumuladorActivo() = &acu;
+    bool todoBien = true;
+    for (const DestinoConcreto& d : destinos) {
+        acu.destinoActual = d.etiqueta();
+        CapturaSalida captura;
+        const bool ok = corre(d);
+        const std::string suelto = captura.termina();
+        if (!suelto.empty()) {
+            // Lo que la orden imprimió a mano: en su sección, con el destino delante.
+            acumuladorActivo() = nullptr;
+            std::fprintf(stdout, "%s:\n%s%s\n", d.etiqueta().c_str(), suelto.c_str(),
+                         suelto.back() == '\n' ? "" : "\n");
+            acumuladorActivo() = &acu;
+        }
+        todoBien = todoBien && ok;
+    }
+    acumuladorActivo() = nullptr;
+    vuelcaAcumulador(acu, e.formato);
+    if (!todoBien) {
+        e.ultimoRc = 1;
+    }
+    return todoBien;
+}
+
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi) {
     Estado e;
     e.ses = &ses;
@@ -5534,6 +6334,13 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         if (!an.error.empty()) {
             std::fprintf(stderr, "%s\n", an.error.c_str());
             e.ultimoRc = 2;
+            // En un guion, un error de sintaxis DETIENE la sesión, como una orden
+            // desconocida. Antes seguía con la línea siguiente y, al acabarse la entrada,
+            // salía con 0: `set atime=off tank` —con el destino detrás— decía «uso: …» y el
+            // guion se daba por bueno sin haber cambiado nada.
+            if (!interactivo) {
+                return e.ultimoRc;
+            }
             continue;
         }
         if (an.vacia) {
@@ -5706,7 +6513,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             }
             continue;
         }
-        if (!it->second(e, an)) {
+        if (!ejecutaConPatrones(e, orden, an, it->second)) {
             if (e.ultimoRc == 0) {
                 e.ultimoRc = 1;
             }

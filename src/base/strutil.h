@@ -109,6 +109,37 @@ std::string humanSize(const std::string& v);
 // valor legítimo —una DDT recién creada— y confundirlo con «no se entendió» convierte un
 // fallo de lectura en un dato.
 bool parseHumanSize(const std::string& v, unsigned long long& out);
+
+// --- Patrones: los comodines de las URL zfsm://.
+//
+// `*` cualquier cosa, `?` un carácter, `[abc]` `[a-z]` `[!x]` uno de / ninguno de, y
+// `{a,b*,c}` alternativas, cada una con sus propios comodines. Se aplican a UN tramo —el
+// nombre de una conexión, un pool, un dataset hijo, una instantánea, una propiedad, un
+// fichero—, así que ninguno cruza una `/`. Distinguen mayúsculas, como ZFS.
+//
+// Se escribe aquí y no se usa `fnmatch`: en Windows no existe, y el CLI se compila allí.
+
+// ¿Lleva este tramo CRUDO —todavía codificado, tal como lo escribió el usuario— algún
+// comodín? En crudo, uno escapado iría como `%2A`, así que todo `*` que aparezca es comodín.
+bool hasWildcard(const std::string& rawSegment);
+
+// Expande las llaves: «{a,b*}x» → «ax», «b*x». Anidadas, sí; los espacios de alrededor de
+// cada alternativa se quitan («{a*, b*}» vale igual que «{a*,b*}»). Falso si las llaves no
+// cuadran.
+bool expandBraces(const std::string& pattern, std::vector<std::string>& out);
+
+// ¿Casa `text` con `pattern`? Sin llaves —se expanden antes—. `\x` es la `x` literal.
+bool globMatch(const std::string& pattern, const std::string& text);
+
+// Un tramo CRUDO convertido en patrón: se descodifica, y lo que venía escapado como `%2A`
+// —y la propia barra invertida— queda protegido con `\`, para que siga siendo literal.
+// Falso si la codificación está mal.
+bool rawSegmentToPattern(const std::string& rawSegment, std::string& out);
+
+// Todo junto: ¿casa el nombre DESCODIFICADO `text` con el tramo crudo `rawSegment`? Falso
+// también si el patrón está mal formado; para distinguirlo, `checkRawPattern`.
+bool matchesRawPattern(const std::string& rawSegment, const std::string& text);
+bool checkRawPattern(const std::string& rawSegment);
 bool base64Decode(const std::string& text, std::string& out);
 
 // `skipEmpty` imitates Qt::SkipEmptyParts, which is how it is used almost everywhere.

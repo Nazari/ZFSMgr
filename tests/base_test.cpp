@@ -4145,6 +4145,59 @@ int main() {
     }
 #endif
 
+    // --- Patrones de las URL: llaves, comodines y escape.
+    {
+        const auto llaves = [](const std::string& pat) {
+            std::vector<std::string> v;
+            if (!expandBraces(pat, v)) {
+                return std::string("<MAL>");
+            }
+            return join(v, "|");
+        };
+        igual(llaves("abc"), "abc", "llaves: sin llaves queda igual");
+        igual(llaves("{a*,b*}"), "a*|b*", "llaves: el ejemplo de las propiedades");
+        igual(llaves("{a*, b*}"), "a*|b*", "llaves: con espacio tras la coma, como se escribe");
+        igual(llaves("x{a,b}y"), "xay|xby", "llaves: con texto antes y después");
+        igual(llaves("{a,b}{1,2}"), "a1|a2|b1|b2", "llaves: dos grupos se combinan");
+        igual(llaves("{a,{b,c}}"), "a|b|c", "llaves: anidadas");
+        igual(llaves("{a,a}"), "a", "llaves: sin repetidos");
+        igual(llaves("{a,}"), "a|", "llaves: una alternativa vacía vale");
+        igual(llaves("{a,b"), "<MAL>", "llaves: sin cerrar es un error");
+        igual(llaves("a}b"), "<MAL>", "llaves: cerrar sin abrir es un error");
+        igual(llaves("\\{a,b\\}"), "\\{a,b\\}", "llaves: escapadas no agrupan");
+
+        comprobar(globMatch("u*", "used") && globMatch("u*", "u"), "glob: u* casa used y u");
+        comprobar(!globMatch("u*", "available"), "glob: u* no casa available");
+        comprobar(globMatch("*", ""), "glob: * casa el vacío");
+        comprobar(globMatch("a?c", "abc") && !globMatch("a?c", "ac"), "glob: ? es exactamente uno");
+        comprobar(globMatch("*.log", "x.y.log") && !globMatch("*.log", "x.log.gz"),
+                  "glob: * retrocede hasta donde haga falta");
+        comprobar(globMatch("auto-2024-*", "auto-2024-10-09_00.00"),
+                  "glob: las instantáneas de un año");
+        comprobar(globMatch("[abc]x", "bx") && !globMatch("[abc]x", "dx"), "glob: clase");
+        comprobar(globMatch("[a-c]x", "bx") && !globMatch("[a-c]x", "dx"), "glob: rango");
+        comprobar(globMatch("[!a]x", "bx") && !globMatch("[!a]x", "ax"), "glob: clase negada");
+        comprobar(globMatch("M*", "Media") && !globMatch("M*", "media"),
+                  "glob: distingue mayúsculas, como ZFS");
+        comprobar(globMatch("a\\*b", "a*b") && !globMatch("a\\*b", "axb"),
+                  "glob: \\* es un asterisco literal");
+        comprobar(globMatch("[x", "[x"), "glob: [ sin cerrar es literal");
+
+        // En CRUDO, `%2A` es el asterisco escrito por quien NO quería un comodín.
+        comprobar(hasWildcard("u*") && hasWildcard("{a,b}") && !hasWildcard("a%2Ab"),
+                  "crudo: %2A no es comodín");
+        comprobar(matchesRawPattern("a%2A*", "a*bc") && !matchesRawPattern("a%2A*", "abc"),
+                  "crudo: %2A literal seguido de * comodín");
+        comprobar(matchesRawPattern("{a*,%2C*}", ",x") && !matchesRawPattern("{a*,%2C*}", "b"),
+                  "crudo: una coma escapada dentro de llaves es literal");
+        comprobar(matchesRawPattern("{u*, a*}", "available") && matchesRawPattern("{u*, a*}", "used")
+                      && !matchesRawPattern("{u*, a*}", "compression"),
+                  "crudo: el ejemplo {a*,b*} completo");
+        comprobar(matchesRawPattern("my%20data*", "my data 1"), "crudo: espacio codificado");
+        comprobar(!checkRawPattern("{a,b") && !checkRawPattern("a%2") && checkRawPattern("a*"),
+                  "crudo: detecta patrones mal formados");
+    }
+
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }

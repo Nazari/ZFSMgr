@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -404,6 +405,238 @@ std::string humanSize(const std::string& v) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), (u == 0 || x >= 10.0) ? "%.0f%s" : "%.1f%s", x, kUnidades[u]);
     return buf;
+}
+
+bool hasWildcard(const std::string& rawSegment) {
+    return rawSegment.find_first_of("*?[{") != std::string::npos;
+}
+
+bool expandBraces(const std::string& pattern, std::vector<std::string>& out) {
+    out.clear();
+    // La primera llave de nivel superior; lo de dentro se reparte por comas de su nivel.
+    std::size_t abre = std::string::npos;
+    int nivel = 0;
+    std::size_t cierra = std::string::npos;
+    std::vector<std::size_t> comas;
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        const char c = pattern[i];
+        if (c == '\\' && i + 1 < pattern.size()) {
+            ++i;  // lo escapado no abre ni cierra nada
+            continue;
+        }
+        if (c == '{') {
+            if (nivel == 0 && abre == std::string::npos) {
+                abre = i;
+            }
+            ++nivel;
+        } else if (c == '}') {
+            if (nivel == 0) {
+                return false;  // cierra sin abrir
+            }
+            --nivel;
+            if (nivel == 0 && cierra == std::string::npos && abre != std::string::npos) {
+                cierra = i;
+                break;
+            }
+        } else if (c == ',' && nivel == 1 && abre != std::string::npos) {
+            comas.push_back(i);
+        }
+    }
+    if (abre == std::string::npos) {
+        if (nivel != 0) {
+            return false;
+        }
+        out.push_back(pattern);
+        return true;
+    }
+    if (cierra == std::string::npos) {
+        return false;  // abre sin cerrar
+    }
+    const std::string antes = pattern.substr(0, abre);
+    const std::string despues = pattern.substr(cierra + 1);
+    std::vector<std::string> alternativas;
+    std::size_t desde = abre + 1;
+    for (const std::size_t coma : comas) {
+        alternativas.push_back(trim(pattern.substr(desde, coma - desde)));
+        desde = coma + 1;
+    }
+    alternativas.push_back(trim(pattern.substr(desde, cierra - desde)));
+    for (const std::string& alt : alternativas) {
+        std::vector<std::string> sub;
+        if (!expandBraces(antes + alt + despues, sub)) {
+            return false;
+        }
+        for (std::string& x : sub) {
+            if (std::find(out.begin(), out.end(), x) == out.end()) {
+                out.push_back(std::move(x));
+            }
+        }
+    }
+    return true;
+}
+
+namespace {
+// Una clase `[...]` que empieza en `p[i]` (el `[`). Devuelve dónde acaba (el `]`) o npos si
+// no está cerrada, y en `casa` si `c` es de la clase.
+std::size_t claseCasa(const std::string& p, std::size_t i, char c, bool& casa) {
+    std::size_t j = i + 1;
+    bool niega = false;
+    if (j < p.size() && (p[j] == '!' || p[j] == '^')) {
+        niega = true;
+        ++j;
+    }
+    bool dentro = false;
+    bool primero = true;
+    while (j < p.size() && (p[j] != ']' || primero)) {
+        primero = false;
+        char a = p[j];
+        if (a == '\\' && j + 1 < p.size()) {
+            a = p[++j];
+        }
+        if (j + 2 < p.size() && p[j + 1] == '-' && p[j + 2] != ']') {
+            char b = p[j + 2];
+            j += 2;
+            if (b == '\\' && j + 1 < p.size()) {
+                b = p[++j];
+            }
+            if (c >= a && c <= b) {
+                dentro = true;
+            }
+        } else if (c == a) {
+            dentro = true;
+        }
+        ++j;
+    }
+    if (j >= p.size()) {
+        return std::string::npos;
+    }
+    casa = dentro != niega;
+    return j;
+}
+}  // namespace
+
+bool globMatch(const std::string& pattern, const std::string& text) {
+    // Con vuelta atrás solo hasta el último `*`: lineal en la práctica, sin recursión.
+    std::size_t p = 0;
+    std::size_t t = 0;
+    std::size_t estrellaP = std::string::npos;
+    std::size_t estrellaT = 0;
+    while (t < text.size()) {
+        if (p < pattern.size()) {
+            const char c = pattern[p];
+            if (c == '*') {
+                estrellaP = p++;
+                estrellaT = t;
+                continue;
+            }
+            if (c == '?') {
+                ++p;
+                ++t;
+                continue;
+            }
+            if (c == '[') {
+                bool casa = false;
+                const std::size_t fin = claseCasa(pattern, p, text[t], casa);
+                if (fin == std::string::npos) {
+                    // `[` sin cerrar: literal.
+                    if (text[t] == '[') {
+                        ++p;
+                        ++t;
+                        continue;
+                    }
+                } else if (casa) {
+                    p = fin + 1;
+                    ++t;
+                    continue;
+                }
+            } else {
+                char lit = c;
+                std::size_t avance = 1;
+                if (c == '\\' && p + 1 < pattern.size()) {
+                    lit = pattern[p + 1];
+                    avance = 2;
+                }
+                if (lit == text[t]) {
+                    p += avance;
+                    ++t;
+                    continue;
+                }
+            }
+        }
+        if (estrellaP == std::string::npos) {
+            return false;
+        }
+        p = estrellaP + 1;
+        t = ++estrellaT;
+    }
+    while (p < pattern.size() && pattern[p] == '*') {
+        ++p;
+    }
+    return p == pattern.size();
+}
+
+bool rawSegmentToPattern(const std::string& rawSegment, std::string& out) {
+    out.clear();
+    for (std::size_t i = 0; i < rawSegment.size(); ++i) {
+        const char c = rawSegment[i];
+        if (c != '%') {
+            out.push_back(c);  // en crudo, un comodín sin escapar ES comodín
+            continue;
+        }
+        if (i + 2 >= rawSegment.size()) {
+            return false;
+        }
+        // `%XX`, escrito aquí: el `percentDecode` de las URL vive en una biblioteca de
+        // encima de esta, y la base no puede depender de ella.
+        const auto hex = [](char h) -> int {
+            if (h >= '0' && h <= '9') return h - '0';
+            if (h >= 'a' && h <= 'f') return h - 'a' + 10;
+            if (h >= 'A' && h <= 'F') return h - 'A' + 10;
+            return -1;
+        };
+        const int alto = hex(rawSegment[i + 1]);
+        const int bajo = hex(rawSegment[i + 2]);
+        if (alto < 0 || bajo < 0) {
+            return false;
+        }
+        const char d = static_cast<char>((alto << 4) | bajo);
+        // Lo que venía escapado se queda LITERAL: con `\` delante para el emparejador.
+        if (d == '*' || d == '?' || d == '[' || d == ']' || d == '{' || d == '}' || d == ','
+            || d == '\\') {
+            out.push_back('\\');
+        }
+        out.push_back(d);
+        i += 2;
+    }
+    return true;
+}
+
+bool checkRawPattern(const std::string& rawSegment) {
+    std::vector<std::string> alternativas;
+    if (!expandBraces(rawSegment, alternativas)) {
+        return false;
+    }
+    std::string p;
+    for (const std::string& a : alternativas) {
+        if (!rawSegmentToPattern(a, p)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool matchesRawPattern(const std::string& rawSegment, const std::string& text) {
+    std::vector<std::string> alternativas;
+    if (!expandBraces(rawSegment, alternativas)) {
+        return false;
+    }
+    std::string p;
+    for (const std::string& a : alternativas) {
+        if (rawSegmentToPattern(a, p) && globMatch(p, text)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool parseHumanSize(const std::string& v, unsigned long long& out) {
