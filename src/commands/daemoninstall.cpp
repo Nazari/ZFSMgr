@@ -60,6 +60,21 @@ std::string platformOf(const ConnectionProfile& p) {
     return "linux";
 }
 
+std::string openZfsProbeCommand() {
+    return "for z in zfs /usr/local/zfs/bin/zfs /usr/local/bin/zfs /sbin/zfs /usr/sbin/zfs; do "
+           "command -v \"$z\" >/dev/null 2>&1 && { \"$z\" version 2>&1; exit 0; }; done; "
+           "echo '__ZFSMGR_SIN_ZFS__'";
+}
+
+helpers::OpenZfsLectura readOpenZfsProbe(const std::string& salida) {
+    if (salida.find("__ZFSMGR_SIN_ZFS__") != std::string::npos) {
+        helpers::OpenZfsLectura r;
+        r.soporte = helpers::OpenZfsSoporte::NoHay;
+        return r;
+    }
+    return helpers::leeSoporteOpenZfs(salida);
+}
+
 helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionProfile& p,
                                       bool verboso) {
     // `zfs version` y no `zfs --version`: la primera es la que existe en todas las ramas, y
@@ -72,10 +87,7 @@ helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionPro
     //
     // Y se junta la salida normal con la de error, porque lo que distingue «no está» de
     // «está pero sin cargar» viene por la segunda.
-    const std::string orden =
-        "for z in zfs /usr/local/zfs/bin/zfs /usr/local/bin/zfs /sbin/zfs /usr/sbin/zfs; do "
-        "command -v \"$z\" >/dev/null 2>&1 && { \"$z\" version 2>&1; exit 0; }; done; "
-        "echo '__ZFSMGR_SIN_ZFS__'";
+    const std::string orden = openZfsProbeCommand();
     std::string out;
     std::string err;
     int rc = -1;
@@ -87,13 +99,7 @@ helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionPro
         return r;
     }
     T::runSsh(ses, p, orden, 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
-    const std::string todo = out + "\n" + err;
-    if (todo.find("__ZFSMGR_SIN_ZFS__") != std::string::npos) {
-        helpers::OpenZfsLectura r;
-        r.soporte = helpers::OpenZfsSoporte::NoHay;
-        return r;
-    }
-    return helpers::leeSoporteOpenZfs(todo);
+    return readOpenZfsProbe(out + "\n" + err);
 }
 
 std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
@@ -310,6 +316,115 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     T::closeTunnelForConnection(ses, perfil);
     T::clearRemoteDaemonTlsCacheForConnection(perfil);
     T::clearLocalDaemonTlsCache();
+    return r;
+}
+
+std::string uninstallScript(const std::string& plataforma) {
+    // Lo contrario de `installScript`, y AL LADO de él a propósito: las rutas y los nombres
+    // de servicio salen de los mismos sitios, así que no pueden quedarse desparejados.
+    //
+    // Se quitan los ficheros que `installScript` pone y nada más. El directorio de
+    // configuración solo se borra si queda vacío: si alguien dejó algo propio ahí, no es
+    // de esto decidir que sobra.
+    const std::string comunes = "rm -f " + shSingleQuote(DP::unixBinPath()) + " "
+                                + shSingleQuote(DP::unixConfigPath()) + "; rm -rf "
+                                + shSingleQuote(DP::tlsDirPath()) + "; rmdir /etc/zfsmgr 2>/dev/null || true";
+    if (plataforma == "macos") {
+        return "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; rm -f "
+               + shSingleQuote(DP::macPlistPath()) + "; " + comunes;
+    }
+    if (plataforma == "freebsd") {
+        return "service zfsmgr_agent onestop >/dev/null 2>&1 || true; rm -f "
+               + shSingleQuote(DP::freeBsdRcPath()) + "; " + comunes;
+    }
+    return "if command -v systemctl >/dev/null 2>&1; then "
+           "systemctl disable --now zfsmgr-agent.service >/dev/null 2>&1 || true; fi; rm -f "
+           + shSingleQuote(DP::linuxServicePath()) + "; " + comunes
+           + "; if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi";
+}
+
+Result uninstallLocal(const std::string& plataforma, bool simular,
+                      const std::function<void(const std::string&)>& traza) {
+    Result r;
+    r.isMac = (plataforma == "macos");
+    if (plataforma == "windows") {
+        r.fallo = Failure::InstallFailed;
+        r.detail = "windows";
+        return r;
+    }
+    const std::string guion = uninstallScript(plataforma);
+    if (simular) {
+        if (traza) {
+            traza(guion);
+        }
+        return r;
+    }
+    const ExecResult ej = runExecCapture("sh", {"-c", guion});
+    if (ej.rc != 0) {
+        r.fallo = Failure::InstallFailed;
+        r.rc = ej.rc;
+        r.detail = trim(ej.err.empty() ? ej.out : ej.err);
+    }
+    return r;
+}
+
+Result installLocal(const std::string& plataforma, const std::string& rutaBinario,
+                    bool simular, const std::function<void(const std::string&)>& traza) {
+    Result r;
+    r.isMac = (plataforma == "macos");
+    if (plataforma == "windows") {
+        // En Windows no hay guion de servicio que ejecutar aquí: el agente llega hoy por
+        // `install-daemon` desde otra máquina. No se finge que se puede.
+        r.fallo = Failure::InstallFailed;
+        r.detail = "windows";
+        return r;
+    }
+    const std::string contenido = leeFicheroEntero(rutaBinario);
+    if (contenido.empty()) {
+        r.fallo = Failure::UnreadableBinary;
+        r.detail = rutaBinario;
+        return r;
+    }
+    // La MISMA sonda que se manda por SSH, ejecutada aquí. Antes de tocar nada.
+    {
+        const ExecResult sonda = runExecCapture("sh", {"-c", openZfsProbeCommand()});
+        const helpers::OpenZfsLectura zfs = readOpenZfsProbe(sonda.out + "\n" + sonda.err);
+        if (zfs.soporte != helpers::OpenZfsSoporte::Ok) {
+            r.fallo = Failure::UnsupportedOpenZfs;
+            r.detail = helpers::textoDeSoporteOpenZfs(zfs);
+            r.version = zfs.version;
+            return r;
+        }
+        if (traza) {
+            traza("OpenZFS " + zfs.version + ": vale");
+        }
+    }
+    r.version = agentversion::versionInBinary(rutaBinario);
+    if (r.version.empty()) {
+        r.version = agentversion::expected();
+    } else {
+        r.versionBehind = (r.version != agentversion::expected());
+    }
+    // EL MISMO guion que reciben las instalaciones remotas: una sola fuente de verdad para
+    // dónde va el binario, qué gestor de servicios se usa y qué se comprueba después.
+    const std::string guion = installScript(plataforma, r.version, agentversion::expectedApi());
+    if (simular) {
+        if (traza) {
+            traza(guion);
+        }
+        return r;
+    }
+    const ExecResult ej = runExecCaptureWithStdin("sh", {"-c", guion}, contenido);
+    if (traza) {
+        for (const std::string& l : split(ej.out, "\n", true)) {
+            traza(l);
+        }
+    }
+    if (ej.rc != 0) {
+        r.fallo = Failure::InstallFailed;
+        r.rc = ej.rc;
+        r.detail = trim(ej.err.empty() ? ej.out : ej.err);
+    }
     return r;
 }
 

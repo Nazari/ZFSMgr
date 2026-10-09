@@ -10,6 +10,7 @@
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 
 #include "connectionjson.h"
+#include "daemoninstall.h"
 #include "i18n.h"
 #include "session.h"
 
@@ -32,6 +33,10 @@
 #include <windows.h>
 #endif
 #include <algorithm>
+#ifndef _WIN32
+#include <sys/utsname.h>
+#include <unistd.h>
+#endif
 #include <map>
 #include <string>
 #include <vector>
@@ -286,7 +291,11 @@ int main(int argc, char** argv) {
             }
             continue;
         }
-        if (!a.empty() && a[0] == '-') {
+        // Una opción que no es de las globales es error SOLO antes de nombrar la orden.
+        // Después pertenece a la orden, que la valida ella: `install-daemon-local --simular`
+        // tiene sus propias opciones, y tratarlas como globales las rechazaba sin llegar a
+        // preguntarle. Las globales de arriba se siguen reconociendo en cualquier posición.
+        if (!a.empty() && a[0] == '-' && op.orden.empty()) {
             std::fprintf(stderr, TC("t_opcion_desconocida", "%s: opción desconocida: %s\n"), kNombre, a.c_str());
             uso(stderr);
             return 2;
@@ -304,6 +313,83 @@ int main(int argc, char** argv) {
         std::printf(TC("t_sin_version", "%s (sin versión)\n"), kNombre);
 #endif
         return 0;
+    }
+
+    // `install-daemon-local`: el daemon de ESTA máquina, sin SSH ni configuración.
+    //
+    // La usan los instaladores del paquete, que corren en una máquina recién llegada donde
+    // no hay conexiones ni contraseña maestra que pedir. Ejecuta el MISMO guion que
+    // `install-daemon` manda por SSH —ver `daemoninstall::installLocal`—, así que no hay
+    // una segunda copia de la lógica de systemd, launchd y rc.d que pueda divergir.
+    if (!op.orden.empty() && (op.orden[0] == "install-daemon-local"
+                              || op.orden[0] == "uninstall-daemon-local")) {
+        const bool quitar = op.orden[0] == "uninstall-daemon-local";
+        bool simular = false;
+        for (std::size_t i = 1; i < op.orden.size(); ++i) {
+            if (op.orden[i] == "--simular" || op.orden[i] == "--check") {
+                simular = true;
+            } else {
+                std::fprintf(stderr, TC("t_idl_uso2", "uso: %s %s [--simular]\n"), kNombre,
+                             op.orden[0].c_str());
+                return 2;
+            }
+        }
+#ifdef _WIN32
+        std::fputs(TC("t_idl_windows",
+                      "en Windows el daemon no se instala así: se instala con «install-daemon» "
+                      "desde otra máquina\n"),
+                   stderr);
+        return 1;
+#else
+#if defined(__APPLE__)
+        const std::string plataforma = "macos";
+#elif defined(__FreeBSD__)
+        const std::string plataforma = "freebsd";
+#else
+        const std::string plataforma = "linux";
+#endif
+        struct utsname un {};
+        const std::string arquitectura = uname(&un) == 0 ? std::string(un.machine) : "x86_64";
+        if (!simular && geteuid() != 0) {
+            std::fprintf(stderr, TC("t_idl_root2", "%s tiene que ejecutarse como root\n"),
+                         op.orden[0].c_str());
+            return 1;
+        }
+        namespace DI = zfsmgr::base::daemoninstall;
+        if (quitar) {
+            const DI::Result q = DI::uninstallLocal(plataforma, simular, [](const std::string& l) {
+                std::printf("%s\n", l.c_str());
+            });
+            if (!q.ok()) {
+                std::fprintf(stderr, "%s: %s\n", DI::labelOf(q.fallo).c_str(), q.detail.c_str());
+                return 1;
+            }
+            return 0;
+        }
+        const std::string agente = zfsmgr::cli::rutaDelAgente(plataforma, arquitectura);
+        if (agente.empty()) {
+            std::fprintf(stderr,
+                         TC("t_idl_sin_agente",
+                            "no se encontró el agente de %s/%s junto a este ejecutable\n"),
+                         plataforma.c_str(), arquitectura.c_str());
+            return 1;
+        }
+        const DI::Result r = DI::installLocal(plataforma, agente, simular, [](const std::string& l) {
+            std::printf("%s\n", l.c_str());
+        });
+        if (!r.ok()) {
+            std::fprintf(stderr, "%s: %s\n", DI::labelOf(r.fallo).c_str(), r.detail.c_str());
+            return 1;
+        }
+        if (!simular && r.isMac) {
+            std::fputs(TC("t_idl_fda",
+                          "En macOS falta un paso a mano: conceda «Acceso total al disco» a "
+                          "/usr/local/libexec/zfsmgr-agent en Configuración del Sistema → "
+                          "Privacidad y Seguridad, y reinicie el daemon.\n"),
+                       stdout);
+        }
+        return 0;
+#endif
     }
 
     if (op.orden.size() >= 3 && op.orden[0] == "url" && op.orden[1] == "parse") {

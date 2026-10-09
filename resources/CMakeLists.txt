@@ -455,6 +455,15 @@ add_executable(zfsmgr-cli
     ../src/cli/tabla.h
 )
 target_link_libraries(zfsmgr-cli PRIVATE zfsmgr_commands)
+# En Windows, un `.exe` que se basta solo, igual que el agente.
+#
+# Sin esto dependía de `libgcc_s_seh-1.dll` y `libstdc++-6.dll`. Dentro del Setup daba
+# igual —el instalador lleva el runtime de MinGW al lado—, pero el paquete de solo CLI
+# copia el ejecutable suelto, y en un Windows sin esas bibliotecas no arrancaba:
+# 0xC0000135 al abrirlo, sin decir qué falta.
+if(MINGW)
+    target_link_options(zfsmgr-cli PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
 # Los catálogos de traducción, al lado del ejecutable: el CLI los busca ahí primero.
 #
 # En un objetivo APARTE y no como POST_BUILD del ejecutable: aquello solo se ejecutaba al

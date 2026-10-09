@@ -7,6 +7,7 @@
 #include "mainwindow_helpers.h"
 
 #include <QApplication>
+#include <cstdio>
 #include <QFileInfo>
 #include <QFile>
 #include <QFontDatabase>
@@ -141,6 +142,21 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
 #endif
     QApplication app(argc, argv);
+    // `--version`: la única forma de comprobar SIN PANTALLA que la interfaz arranca.
+    //
+    // Va DESPUÉS de crear `QApplication` a propósito: ahí ya se han cargado las bibliotecas
+    // de Qt y el plugin de plataforma, que es justo lo que falla cuando una instalación
+    // está mal —un AppDir al que le falta una .so, un .app sin un framework—. Antes de
+    // ese punto contestaría «bien» con la instalación rota. El instalador lo llama con
+    // `QT_QPA_PLATFORM=offscreen` para que no haga falta un servidor gráfico.
+    if (QCoreApplication::arguments().contains(QStringLiteral("--version"))) {
+#ifndef ZFSMGR_APP_VERSION
+#define ZFSMGR_APP_VERSION "desconocida"
+#endif
+        std::fprintf(stdout, "ZFSMgr %s\n", ZFSMGR_APP_VERSION);
+        std::fflush(stdout);
+        return 0;
+    }
     {
         const int desiredWorkers = qMin(16, qMax(4, QThread::idealThreadCount()));
         QThreadPool* pool = QThreadPool::globalInstance();

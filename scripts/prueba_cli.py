@@ -1008,11 +1008,13 @@ def casos_version_openzfs(ctx):
     # pool propio es un caso normal, y durante unas horas el instalador se lo negaba por
     # confundir el cliente con el agente.
     paquete = os.path.join(RAIZ, "dist")
-    zips = sorted(f for f in os.listdir(paquete) if f.endswith(".zip")) if os.path.isdir(paquete) else []
-    nombre3 = "instalar.sh: el cliente SÍ se instala en una máquina sin OpenZFS"
+    # El de SOLO CLI: el completo trae además las interfaces, que aquí no se prueban.
+    zips = sorted(f for f in os.listdir(paquete)
+                  if f.startswith("zfsmgr-cli-") and f.endswith(".zip")) if os.path.isdir(paquete) else []
+    nombre3 = "instalar-linux.sh: el cliente SÍ se instala en una máquina sin OpenZFS"
     if not zips:
-        print(f"  (saltado: {nombre3} — no hay paquete en dist/; "
-              f"ejecute scripts/empaqueta_cli.sh)")
+        print(f"  (saltado: {nombre3} — no hay zfsmgr-cli-*.zip en dist/; "
+              f"ejecute scripts/empaqueta.sh --solo-cli)")
     else:
         z = os.path.join(paquete, zips[-1])
         base = os.path.basename(z)[:-4]
@@ -1021,7 +1023,8 @@ def casos_version_openzfs(ctx):
         rc, vista = sh(ctx,
             f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp && rm -rf zpprueba && mkdir zpprueba "
             f"&& cd zpprueba && (unzip -q ../{base}.zip 2>/dev/null || 7z x -y ../{base}.zip "
-            f">/dev/null) && cd {base} && sh instalar.sh --prefijo \"$HOME/zpprueba\" 2>&1; "
+            f">/dev/null) && cd {base} && sh instalar-linux.sh --prefijo \"$HOME/zpprueba\" "
+            f"--sin-daemon 2>&1; "
             f"echo RC=$?; $HOME/zpprueba/bin/zfsmgr-cli version 2>&1'")
         problemas = []
         if "RC=0" not in vista:
@@ -1039,7 +1042,8 @@ def casos_version_openzfs(ctx):
             ctx.pasados.append(nombre3)
             print(f"  ok     {nombre3}")
         sh(ctx, f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp/zpprueba/{base} 2>/dev/null && "
-                f"sh instalar.sh --prefijo \"$HOME/zpprueba\" --desinstalar >/dev/null 2>&1; "
+                f"sh instalar-linux.sh --prefijo \"$HOME/zpprueba\" --desinstalar --sin-daemon "
+                f">/dev/null 2>&1; "
                 f"rm -rf /tmp/zpprueba /tmp/{base}.zip \"$HOME/zpprueba\"'")
 
 
@@ -1314,6 +1318,30 @@ def casos_arranque(ctx):
               ["--lang", "en", "--inventada"], rc=2, espera=[r"unknown option"])
     caso_argv(ctx, "version: sale y termina con 0",
               ["version"], rc=0, espera=[r"zfsmgr-cli \d+\.\d+"])
+
+    # --- `install-daemon-local`: lo que usan los instaladores del paquete.
+    #
+    # Tiene que ejecutar EL MISMO guion que `install-daemon` manda por SSH, no una copia. En
+    # simulacro lo imprime, así que se mira que sea el de systemd con la huella del agente
+    # que va al lado: si alguien escribiera aquí una segunda versión de la lógica de
+    # servicios, divergiría de la remota sin que nada lo dijera.
+    caso_argv(ctx, "install-daemon-local --simular: es el guion de install-daemon",
+              ["--lang", "es", "install-daemon-local", "--simular"], rc=0,
+              espera=[r"systemctl (daemon-reload|enable)", r"VERSION='\d+\.\d+\.\d+\.\d+'",
+                      r"/usr/local/libexec/zfsmgr-agent"])
+    caso_argv(ctx, "uninstall-daemon-local --simular: quita lo que el otro pone",
+              ["--lang", "es", "uninstall-daemon-local", "--simular"], rc=0,
+              espera=[r"systemctl disable --now zfsmgr-agent\.service",
+                      r"/usr/local/libexec/zfsmgr-agent", r"/etc/zfsmgr/tls"])
+    # Sin `--simular` y sin ser root, se niega ANTES de tocar nada.
+    if os.geteuid() != 0:
+        caso_argv(ctx, "install-daemon-local sin root se niega",
+                  ["--lang", "es", "install-daemon-local"], rc=1, espera=[r"como root"])
+    # Sus opciones son SUYAS: antes, cualquier «--algo» detrás de la orden se tomaba por
+    # opción global y se rechazaba sin llegar a preguntarle.
+    caso_argv(ctx, "install-daemon-local: una opción que no es suya da el uso",
+              ["--lang", "es", "install-daemon-local", "--inventada"], rc=2,
+              espera=[r"uso: zfsmgr-cli install-daemon-local"])
 
     # Las dos ayudas tienen que describir LAS MISMAS opciones.
     #

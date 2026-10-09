@@ -293,6 +293,36 @@ mete_cli_en_bundle_macos() {
   done
   mkdir -p "${app_bundle}/Contents/Resources/i18n"
   cp -f "${PROJECT_ROOT}"/i18n/*.json "${app_bundle}/Contents/Resources/i18n/"
+
+  # Los agentes de las CINCO plataformas, en `Contents/Resources/agents/<plat>-<arq>/`.
+  #
+  # Sin ellos, desde la interfaz de un Mac no se podía instalar un daemon en ninguna otra
+  # máquina: el .app se veía completo y le faltaba media función. `rutaDelAgente` y la
+  # interfaz ya buscaban en `<ejecutable>/../Resources/agents/`; lo que faltaba era ponerlos.
+  # Se exigen todos: un .app con cuatro de cinco falla solo contra la quinta, y eso se ve
+  # meses después.
+  local agentes="${PROJECT_ROOT}/builds/agents"
+  rm -rf "${app_bundle}/Contents/Resources/agents"
+  local k ext
+  for k in linux-x86_64 macos-amd64 macos-arm64 freebsd-x86_64 windows-x86_64; do
+    ext=""; [[ "${k}" == windows-* ]] && ext=".exe"
+    if [[ ! -f "${agentes}/${k}/zfsmgr_agent${ext}" ]]; then
+      echo "Error: falta el agente ${k} en ${agentes}: compílalo antes que el .app." >&2
+      return 1
+    fi
+    mkdir -p "${app_bundle}/Contents/Resources/agents/${k}"
+    cp -f "${agentes}/${k}/zfsmgr_agent${ext}" "${app_bundle}/Contents/Resources/agents/${k}/"
+    chmod 0755 "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}"
+    # Podados: sin símbolos, los cinco pasan de 44 MB a unos 23. `llvm-strip` reajusta la
+    # firma ad hoc de los de macOS y siguen arrancando —comprobado en mmela, arm64—.
+    llvm-strip "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}" 2>/dev/null || true
+  done
+  echo "  empaquetado: Contents/Resources/agents (5 plataformas)"
+
+  # Fuera los `.dSYM`. Llegan con los plugins del SDK de Qt —13 paquetes, 82 MB, más de un
+  # tercio del .app— y son símbolos de depuración: dyld no los carga y la firma ya los
+  # excluía. Quien necesite depurar un plugin de Qt los tiene en el SDK, no en el .app.
+  find "${app_bundle}" -name '*.dSYM' -type d -prune -exec rm -rf {} +
 }
 
 firma_adhoc_bundle() {

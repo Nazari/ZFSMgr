@@ -63,6 +63,11 @@ std::string remoteArchitecture(TransportSession& ses, const ConnectionProfile& p
 helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionProfile& p,
                                       bool verbose);
 
+// La orden que pregunta qué OpenZFS hay, y cómo leer lo que contesta. Públicas porque la
+// usan dos caminos —por SSH contra otra máquina y en local— y tienen que ser la misma.
+std::string openZfsProbeCommand();
+helpers::OpenZfsLectura readOpenZfsProbe(const std::string& salida);
+
 // The script that gets sent, per platform. **Public on purpose**: it is the piece that
 // decides where the binary goes, which service manager is used and what gets checked
 // afterwards, so a test can examine it without a machine of each system at hand.
@@ -73,6 +78,23 @@ std::string installScript(const std::string& platform, const std::string& versio
 // because this replaces a binary and restarts a service on the other end.
 //
 // `trace` receives every line the installation emits, so it can be shown as it happens.
+// Instala o actualiza el daemon de ESTA máquina, sin SSH ni configuración: para el
+// instalador del paquete, que corre como root en una máquina recién llegada donde todavía
+// no hay conexiones ni contraseña maestra.
+//
+// Ejecuta el MISMO `installScript` que las instalaciones remotas, con el binario por la
+// entrada estándar. Comprueba antes OpenZFS con la misma sonda. Con `simular`, no ejecuta
+// nada: pasa el guion entero por `traza`. En Windows no hace nada y lo dice: allí el agente
+// llega por `install-daemon` desde otra máquina.
+Result installLocal(const std::string& platform, const std::string& binaryPath, bool simulate,
+                    const std::function<void(const std::string&)>& trace);
+
+// Lo contrario: para el servicio y quita lo que `installScript` puso. Junto a él para que
+// las rutas no puedan divergir. La configuración del CLIENTE no se toca.
+std::string uninstallScript(const std::string& platform);
+Result uninstallLocal(const std::string& platform, bool simulate,
+                      const std::function<void(const std::string&)>& trace);
+
 Result install(TransportSession& ses, const ConnectionProfile& profile,
                   const std::string& binaryPath,
                   const std::function<void(const std::string&)>& trace = {},

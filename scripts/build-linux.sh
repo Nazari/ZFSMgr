@@ -317,6 +317,12 @@ if [[ ! -c /dev/fuse ]] || { ! command -v fusermount >/dev/null 2>&1 && ! comman
   export APPIMAGE_EXTRACT_AND_RUN=1
 fi
 export LDAI_RUNTIME_FILE="${APPIMAGE_RUNTIME_FILE}"
+# El plugin de plataforma `offscreen`, además de `xcb` —que es el único que pone por
+# defecto—. Con él la interfaz arranca SIN pantalla, y es lo que usa el instalador para
+# comprobar que lo instalado funciona (`QT_QPA_PLATFORM=offscreen zfsmgr-gui --version`).
+# Sin él, esa comprobación fallaba en cualquier máquina —«Could not find the Qt platform
+# plugin "offscreen"»— y no había forma de verificar la instalación en un servidor.
+export EXTRA_PLATFORM_PLUGINS="libqoffscreen.so"
 
 "${LINUXDEPLOY_BIN}" \
   --appdir "${APPDIR}" \

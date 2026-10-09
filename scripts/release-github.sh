@@ -39,12 +39,10 @@ Variables opcionales:
   OUTPUT_DIR     si se define, se usa como directorio local de artefactos
   RELEASE_LOG_DIR directorio donde guardar logs por fase
 
-Artefactos publicados:
-  - Windows .exe
-  - Linux .AppImage
-  - Linux .deb
-  - macOS .dmg o .app.zip
-  - FreeBSD .pkg
+Artefactos publicados (los genera scripts/empaqueta.sh, que llama buildall-cross.sh):
+  - zfsmgr-<version>.zip        CLI + interfaz, un instalador por sistema
+  - zfsmgr-cli-<version>.zip    solo CLI, la misma estructura
+  - y la suma SHA-256 de cada uno
 
 Resolución de artefactos:
   Primero se buscan en ARTIFACTS_DIR y, si no están ahí, en builds/ locales.
@@ -99,13 +97,9 @@ LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
-MAC_ARTIFACTS=()
-MAC_ARTIFACTS_JSON=""
-MAC_FIRST_RUN_NOTE=""
-WIN_ARTIFACT=""
-LINUX_APPIMAGE=""
-LINUX_DEB=""
-FREEBSD_PKG=""
+ZIP_COMPLETO=""
+ZIP_CLI=""
+RELEASE_FILES=()
 
 if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
   RESUME=1
@@ -173,77 +167,20 @@ join_by() {
   printf '%s' "${out}"
 }
 
-find_one_release_artifact() {
-  local dir1="$1"
-  local dir2="$2"
-  local dir3="$3"
-  shift 3
-  local dir pattern found=""
-  for dir in "${dir1}" "${dir2}" "${dir3}"; do
-    [[ -n "${dir}" && -d "${dir}" ]] || continue
-    for pattern in "$@"; do
-      found="$(find "${dir}" -maxdepth 1 -type f -name "${pattern}" | sort -V | tail -n1)"
-      if [[ -n "${found}" ]]; then
-        printf '%s\n' "${found}"
-        return 0
-      fi
-    done
-  done
-  return 1
-}
 
-find_many_release_artifacts() {
-  local dir1="$1"
-  local dir2="$2"
-  local dir3="$3"
-  shift 3
-  local dir pattern
-  local -a found=()
-  for dir in "${dir1}" "${dir2}" "${dir3}"; do
-    [[ -n "${dir}" && -d "${dir}" ]] || continue
-    while IFS= read -r path; do
-      [[ -n "${path}" ]] || continue
-      found+=("${path}")
-    done < <(
-      for pattern in "$@"; do
-        find "${dir}" -maxdepth 1 -type f -name "${pattern}"
-      done | sort -u
-    )
-    if [[ ${#found[@]} -gt 0 ]]; then
-      printf '%s\n' "${found[@]}"
-      return 0
-    fi
-  done
-  return 1
-}
 
 resolve_release_artifacts() {
+  # Dos zip y sus sumas, y nada más. Antes eran cinco artefactos sueltos —Setup, AppImage,
+  # .deb, .app.zip por arquitectura y .pkg de FreeBSD—; ahora todo va dentro de estos dos,
+  # con un instalador por sistema. Ver scripts/empaqueta.sh.
   local artifacts_dir="$1"
-  local fallback_dir="$2"
-  local linux_build_dir="${PROJECT_ROOT}/builds/linux"
-  local freebsd_build_dir="${PROJECT_ROOT}/builds/freebsd"
-  local cross_freebsd_build_dir="${PROJECT_ROOT}/builds/cross-freebsd"
-  local cross_macos_build_dir="${PROJECT_ROOT}/builds/cross-macos"
-  local windows_build_dir="${PROJECT_ROOT}/builds/windows"
-  local cross_windows_build_dir="${PROJECT_ROOT}/builds/cross-windows"
-  MAC_ARTIFACTS=()
-  MAC_FIRST_RUN_NOTE=""
-  while IFS= read -r path; do
-    [[ -n "${path}" ]] || continue
-    MAC_ARTIFACTS+=("${path}")
-  done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" "ZFSMgr-${VERSION}.app.zip" "ZFSMgr-${VERSION}-macos-*.app.zip" || true)
-  MAC_FIRST_RUN_NOTE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}-macOS-first-run.txt" "ZFSMgr-${VERSION}-macos-first-run.txt" || true)"
-  MAC_ARTIFACTS_JSON="$(join_by ";" "${MAC_ARTIFACTS[@]}")"
-  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_windows_build_dir}" "ZFSMgr-Setup-${VERSION}*.exe" "ZFSMgr-${VERSION}-windows.exe" "zfsmgr-gui.exe" || true)"
-  if [[ -z "${WIN_ARTIFACT}" || ! -f "${WIN_ARTIFACT}" ]]; then
-    WIN_ARTIFACT="$(find_one_release_artifact "${windows_build_dir}" "" "" "ZFSMgr-Setup-${VERSION}*.exe" || true)"
-  fi
-  LINUX_APPIMAGE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "ZFSMgr-${VERSION}-*.AppImage" || true)"
-  LINUX_DEB="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "zfsmgr_${VERSION}_*.deb" || true)"
-  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_freebsd_build_dir}" "*${VERSION}*-FreeBSD.pkg" "*${VERSION}*.pkg" || true)"
-  if [[ -z "${FREEBSD_PKG}" || ! -f "${FREEBSD_PKG}" ]]; then
-    FREEBSD_PKG="$(find_one_release_artifact "${freebsd_build_dir}" "" "" "*${VERSION}*-FreeBSD.pkg" "*${VERSION}*.pkg" || true)"
-  fi
+  ZIP_COMPLETO="${artifacts_dir}/zfsmgr-${VERSION}.zip"
+  ZIP_CLI="${artifacts_dir}/zfsmgr-cli-${VERSION}.zip"
+  RELEASE_FILES=()
+  local f
+  for f in "${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256" "${ZIP_CLI}" "${ZIP_CLI}.sha256"; do
+    [[ -f "${f}" ]] && RELEASE_FILES+=("${f}")
+  done
 }
 
 write_state() {
@@ -272,11 +209,8 @@ write_state() {
   "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
   "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
   "artifacts": {
-    "mac_dmg": "$(json_escape "${MAC_ARTIFACTS_JSON}")",
-    "windows_exe": "$(json_escape "${WIN_ARTIFACT}")",
-    "linux_appimage": "$(json_escape "${LINUX_APPIMAGE}")",
-    "linux_deb": "$(json_escape "${LINUX_DEB}")",
-    "freebsd_pkg": "$(json_escape "${FREEBSD_PKG}")"
+    "zip_completo": "$(json_escape "${ZIP_COMPLETO:-}")",
+    "zip_cli": "$(json_escape "${ZIP_CLI:-}")"
   }
 }
 EOF
@@ -408,9 +342,7 @@ mkdir -p "${LOG_DIR}"
 resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 
 HAS_ALL_ARTIFACTS=0
-if [[ ${#MAC_ARTIFACTS[@]} -gt 0 && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" && -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]]; then
-  HAS_ALL_ARTIFACTS=1
-fi
+[[ ${#RELEASE_FILES[@]} -eq 4 ]] && HAS_ALL_ARTIFACTS=1
 
 if [[ "${SKIP_BUILD}" -eq 1 ]]; then
   log "Modo skip-build: no se ejecuta buildall-cross.sh"
@@ -434,19 +366,12 @@ else
   resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 fi
 
-[[ ${#MAC_ARTIFACTS[@]} -gt 0 ]] || fail "No se encontró ningún artefacto macOS (.dmg/.app.zip)"
-[[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
-[[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
-[[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
-[[ -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]] || fail "No se encontró el artefacto FreeBSD (.pkg)"
+[[ ${#RELEASE_FILES[@]} -eq 4 ]] \
+  || fail "faltan los zip de ${VERSION} o sus sumas en ${ARTIFACTS_DIR} (los genera scripts/empaqueta.sh)"
 log "Artefactos resueltos:"
-for _mac in "${MAC_ARTIFACTS[@]}"; do
-  log "  macOS: ${_mac}"
+for _f in "${RELEASE_FILES[@]}"; do
+  log "  ${_f}"
 done
-log "  Windows: ${WIN_ARTIFACT}"
-log "  Linux AppImage: ${LINUX_APPIMAGE}"
-log "  Linux DEB: ${LINUX_DEB}"
-log "  FreeBSD: ${FREEBSD_PKG}"
 write_state "artifacts" "completed" "artefactos disponibles"
 
 if [[ "${LOCAL_TAG_EXISTS}" -eq 1 ]]; then
@@ -469,20 +394,11 @@ fi
 
 log "Creando release ${TAG} en GitHub"
 GH_RELEASE_CMD=(gh release create "${TAG}"
-  "${WIN_ARTIFACT}"
-  "${LINUX_APPIMAGE}"
-  "${LINUX_DEB}"
-  "${FREEBSD_PKG}"
+  "${RELEASE_FILES[@]}"
   --title "${TAG}"
   --verify-tag
   --generate-notes
 )
-for _mac in "${MAC_ARTIFACTS[@]}"; do
-  GH_RELEASE_CMD+=("${_mac}")
-done
-if [[ -n "${MAC_FIRST_RUN_NOTE}" && -f "${MAC_FIRST_RUN_NOTE}" ]]; then
-  GH_RELEASE_CMD+=("${MAC_FIRST_RUN_NOTE}")
-fi
 run_logged github-release "${GH_RELEASE_CMD[@]}"
 
 log "Release creada correctamente"
@@ -495,10 +411,4 @@ printf '  %s\n' "${BUILDALL_PLATFORM_LOG_DIR}/linux-local.log" "${BUILDALL_PLATF
 printf 'Estado:\n'
 printf '  %s\n' "${STATE_FILE}"
 printf 'Artefactos:\n'
-for _mac in "${MAC_ARTIFACTS[@]}"; do
-  printf '  %s\n' "${_mac}"
-done
-if [[ -n "${MAC_FIRST_RUN_NOTE}" && -f "${MAC_FIRST_RUN_NOTE}" ]]; then
-  printf '  %s\n' "${MAC_FIRST_RUN_NOTE}"
-fi
-printf '  %s\n' "${WIN_ARTIFACT}" "${LINUX_APPIMAGE}" "${LINUX_DEB}" "${FREEBSD_PKG}"
+printf '  %s\n' "${RELEASE_FILES[@]}"
