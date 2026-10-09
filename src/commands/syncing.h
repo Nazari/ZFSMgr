@@ -85,6 +85,17 @@ bool isUsablePath(const std::string& path, bool isWindows = false);
 // Empty when any pair is unusable. The paths have to be absolute: the daemon rejects the
 // ones that do not start with a slash, so letting them through here only changes where it
 // fails.
+// La carga de `--mutate-copy-local`: la MISMA forma que la de rsync menos los dos campos
+// que solo rsync entiende —el `rsh` y el host de destino, que allí sirven para copiar por
+// SSH y aquí no hacen falta porque esto es local por definición—.
+//
+// Existe porque el motor de copia del proyecto —`copytree`— ya hacía todo lo que hace falta
+// —ficheros dispersos, fechas exactas, enlaces duros, dueño y modo— y solo lo usaban
+// `todir`, `breakdown` y `assemble`, por dentro. `cp` llamaba al `rsync` del sistema, que es
+// una dependencia externa que este proyecto quiere quitarse.
+std::string copyLocalPayload(const std::vector<std::pair<std::string, std::string>>& pairs,
+                             bool deleteExtraneous, bool dryRun);
+
 std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pairs,
                        bool remove, bool dryRun,
                        const std::string& rsh, const std::string& targetHost);

@@ -423,6 +423,66 @@ private Q_SLOTS:
         }
     }
 
+    void copiarUnFicheroSuelto() {
+        // `copyTree` solo aceptaba directorios, porque todo lo que la llamaba copiaba
+        // arboles. `cp` copia ficheros sueltos, y envolverlo por fuera en un directorio
+        // cambiaria donde aterriza: el destino aqui es la RUTA FINAL del fichero.
+        namedirs();
+        const std::filesystem::path f = src_ / "suelto.txt";
+        {
+            std::ofstream o(f);
+            o << "contenido";
+        }
+        ::chmod(f.string().c_str(), 0640);
+        const std::filesystem::path destino = dst_ / "copiado.txt";
+        const Result r = copyTree(f.string(), destino.string(), Options{});
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(r.filesCopied, uint64_t(1));
+        QVERIFY(std::filesystem::is_regular_file(destino));
+        {
+            std::ifstream i(destino);
+            std::string leido;
+            i >> leido;
+            QCOMPARE(QString::fromStdString(leido), QString("contenido"));
+        }
+        // El modo viaja, como en el resto del motor.
+        struct stat st {};
+        QCOMPARE(::lstat(destino.string().c_str(), &st), 0);
+        QCOMPARE(uint32_t(st.st_mode & 07777), uint32_t(0640));
+    }
+
+    void unFicheroNoSeMeteDentroDeUnDirectorioHomonimo() {
+        // Si el destino ya existe y es un directorio, el fichero acabaria DENTRO y con el
+        // mismo nombre: `destino/f.txt/f.txt`. Se niega, como `cp` de toda la vida.
+        namedirs();
+        const std::filesystem::path f = src_ / "choque.txt";
+        {
+            std::ofstream o(f);
+            o << "x";
+        }
+        const std::filesystem::path destino = dst_ / "choque.txt";
+        std::filesystem::create_directories(destino);
+        const Result r = copyTree(f.string(), destino.string(), Options{});
+        QVERIFY(!r.ok);
+        QVERIFY2(r.error.find("DIRECTORIO") != std::string::npos, r.error.c_str());
+    }
+
+    void laPasadaEnSecoDeUnFicheroNoEscribe() {
+        namedirs();
+        const std::filesystem::path f = src_ / "seco.txt";
+        {
+            std::ofstream o(f);
+            o << "x";
+        }
+        const std::filesystem::path destino = dst_ / "seco-copia.txt";
+        Options opt;
+        opt.dryRun = true;
+        const Result r = copyTree(f.string(), destino.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(r.filesCopied, uint64_t(1));
+        QVERIFY2(!std::filesystem::exists(destino), "la pasada en seco escribio");
+    }
+
     void elManifiestoLlevaDuenoYGrupo() {
         // De esto depende que una copia entre maquinas no deje todo perteneciendo a root.
         // Medido en vivo antes del arreglo: un /home copiado a otra maquina llegaba entero

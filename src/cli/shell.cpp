@@ -4408,14 +4408,24 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
     uOrigen.connection = maqOrigen;
 
     if (mismaMaquina) {
-        const std::string carga = SY::rsyncPayload({{rutaOrigen, rutaDestino}}, /*borra=*/false,
-                                                   simula, std::string(), std::string());
+        // El motor PROPIO del proyecto, no el `rsync` del sistema.
+        //
+        // `copytree` es el que ya usan `todir`, `breakdown` y `assemble`, y hace todo lo que
+        // hace falta: ficheros dispersos —un disco de máquina virtual de 100 GB con 8 GB
+        // usados no llega ocupando 100—, fechas con nanosegundos, enlaces duros, dueño y
+        // modo. Llamar al `rsync` del sistema era una dependencia externa para hacer lo
+        // mismo, y dos motores locales que se comportan parecido pero no igual.
+        //
+        // La orden `rsync` sigue usando el suyo: ahí lo que se pide es ESPEJAR, con
+        // `--delete`, y eso es otra conversación que no toca cambiar de paso.
+        const std::string carga =
+            SY::copyLocalPayload({{rutaOrigen, rutaDestino}}, /*borra=*/false, simula);
         if (carga.empty()) {
             std::fputs(TC("t_cp_rutas_mal",
                           "las rutas de origen y destino tienen que ser absolutas\n"), stderr);
             return false;
         }
-        const std::vector<std::string> argv = PET::rsyncCopy(carga);
+        const std::vector<std::string> argv = PET::copyLocal(carga);
         // Una simulación se LEE ahora: no hay nada que encolar y lo que uno quiere es verlo.
         if (simula) {
             std::string out;

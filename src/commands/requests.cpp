@@ -247,6 +247,10 @@ std::vector<std::string> rsyncCopy(const std::string& cargaB64) {
     return withOne("--mutate-rsync-local", cargaB64);
 }
 
+std::vector<std::string> copyLocal(const std::string& cargaB64) {
+    return withOne("--mutate-copy-local", cargaB64);
+}
+
 std::vector<std::string> permissionsBatch(const std::string& cargaB64) {
     return withOne("--mutate-zfs-allow-batch", cargaB64);
 }

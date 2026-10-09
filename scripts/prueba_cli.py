@@ -513,6 +513,19 @@ def casos_acciones(ctx):
     caso(ctx, "cp: de un subárbol de dataset a una ruta suelta",
          [f"cp zfsm://local/{P}/datos#content/origen/sub {base}/destino --wait"],
          estado=[("llega el subárbol", f"cat {base}/destino/sub/b.txt", r"^mundo$")])
+    # La fecha con NANOSEGUNDOS.
+    #
+    # NO distingue un motor del otro: se comprobó devolviendo `cp` al `rsync` del sistema y
+    # el caso pasaba igual, porque el rsync de este Linux también los conserva. Se queda
+    # como guardián de una PROPIEDAD del motor que usamos ahora —`copytree` pone la fecha
+    # con `utimensat`—, no como prueba de que uno sea mejor que el otro. La diferencia entre
+    # los dos es la dependencia externa, no esto.
+    sh(ctx, f"bash -c 'echo n > {base}/nano.txt && "
+            f"touch -d \"2019-05-06 07:08:09.123456789\" {base}/nano.txt'")
+    caso(ctx, "cp: la fecha llega con los nanosegundos exactos",
+         [f"cp {base}/nano.txt {base}/destino --wait"],
+         estado=[("la fecha es la misma hasta el nanosegundo",
+                  f"stat -c %y {base}/destino/nano.txt", r"2019-05-06.*09:08:09\.123456789")])
     caso(ctx, "cp: «--check» no toca nada",
          [f"cp {base}/origen {base}/destino --as simulacro --check"],
          no_espera=[r"error"],

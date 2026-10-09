@@ -143,6 +143,10 @@ std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& ex
 std::vector<std::string> setPeers(const std::string& payloadB64);
 std::vector<std::string> setBindAddress(const std::string& address);
 std::vector<std::string> rsyncCopy(const std::string& payloadB64);
+
+// `--mutate-copy-local <carga>`: copiar dentro de una máquina con el motor del proyecto, no
+// con el `rsync` del sistema.
+std::vector<std::string> copyLocal(const std::string& payloadB64);
 std::vector<std::string> permissionsBatch(const std::string& payloadB64);
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────

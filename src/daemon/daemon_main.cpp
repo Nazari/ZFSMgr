@@ -552,6 +552,7 @@ std::string agentCapabilityList() {
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
     caps.push_back("--mutate-rsync-local");
+    caps.push_back("--mutate-copy-local");
 #endif
     // Desglosar y Ensamblar, en las dos plataformas. El comentario que había aquí decía
     // que en Windows habían dependido de makeTempDir y que «esa parte ya está resuelta»;
@@ -650,7 +651,7 @@ std::string makeTempDir(const char* patternPrefix) {
 // local, no de cada operación.
 //
 // El shell antiguo hacía este sondeo antes de cada copia. Al pasar a nativo se
-// perdió aquí y runRsyncCopyMoveCapture se quedó con "-aHWS" a secas, de modo que
+// perdió aquí y runCopyTreeCapture se quedó con "-aHWS" a secas, de modo que
 // todir, assemble y breakdown dejaron de preservar ACLs y atributos extendidos sin
 // avisar de nada. Send de menos en silencio es la peor forma de perder datos: el
 // usuario cree que tiene lo mismo que antes.
@@ -809,7 +810,10 @@ bool datasetIsMounted(const std::string& name) {
 // El porqué de quitar rsync está en docs/diseno_tecnico_copia_nativa_sin_rsync.md: no
 // existe en Windows, y las alternativas —cwRsync— reintroducirían la capa Unix que se
 // quitó con MSYS2 y emularían las ACL de NTFS en vez de copiarlas.
-ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir,
+// Copia local con el motor del proyecto. Se llamaba `runRsyncCopyMoveCapture` y NO llama a
+// rsync: llama a `copytree::copyTree`. El nombre era un resto de cuando sí lo hacía, y
+// mandaba a buscar una dependencia que no está.
+ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstDir,
                                    const std::vector<std::string>& excludes = {},
                                    bool oneFileSystem = false) {
     ExecResult r;
@@ -911,7 +915,7 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
 // Devuelve -1 si no se pudo comprobar, y esa distinción es la que impide perder datos:
 // el llamante destruye el origen cuando ve un cero, así que «no lo sé» jamás puede
 // contarse como «no falta nada».
-int countPendingRsyncTransfers(const std::string& srcDir, const std::string& dstDir,
+int countPendingCopyTransfers(const std::string& srcDir, const std::string& dstDir,
                                const std::vector<std::string>& excludes = {},
                                bool oneFileSystem = false) {
     // Las MISMAS exclusiones que la copia: si no, lo que se dejó fuera a propósito
@@ -1271,11 +1275,11 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         for (int attempt = 0; attempt < 5; ++attempt) {
             // -x: nunca bajar a un dataset montado dentro. Las exclusiones ya cubren los
             // seleccionados, pero esto protege también de los que no lo estén.
-            ExecResult rs = runRsyncCopyMoveCapture(srcPath.string(), tmpMp, excludes, true);
+            ExecResult rs = runCopyTreeCapture(srcPath.string(), tmpMp, excludes, true);
             if (rs.rc != 0) {
                 return rs;
             }
-            left = countPendingRsyncTransfers(srcPath.string(), tmpMp, excludes, true);
+            left = countPendingCopyTransfers(srcPath.string(), tmpMp, excludes, true);
             if (left == 0) {
                 break;
             }
@@ -1714,7 +1718,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                          + std::to_string(orderedChildren.size()) + ": " + bn));
         // -x: copiar SOLO lo propio del dataset. Lo que hay bajo los puntos de montaje
         // de sus hijos pertenece a esos hijos y se queda con ellos.
-        ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp, {}, /*oneFileSystem=*/true);
+        ExecResult rsA = runCopyTreeCapture(childMp, tmp, {}, /*oneFileSystem=*/true);
         if (rsA.rc != 0) {
             return rsA;
         }
@@ -1723,13 +1727,13 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // mayor que en el desglose, porque "zfs destroy -r" no admite vuelta atrás:
         // si la copia quedó incompleta, los datos no están en ningún sitio.
         {
-            int pending = countPendingRsyncTransfers(childMp, tmp, {}, true);
+            int pending = countPendingCopyTransfers(childMp, tmp, {}, true);
             for (int attempt = 1; pending != 0 && attempt < 5; ++attempt) {
-                ExecResult again = runRsyncCopyMoveCapture(childMp, tmp, {}, true);
+                ExecResult again = runCopyTreeCapture(childMp, tmp, {}, true);
                 if (again.rc != 0) {
                     return again;
                 }
-                pending = countPendingRsyncTransfers(childMp, tmp, {}, true);
+                pending = countPendingCopyTransfers(childMp, tmp, {}, true);
             }
             if (pending != 0) {
                 r.rc = 42;
@@ -1837,7 +1841,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 r.err = "create_directories failed\n";
                 return r;
             }
-            ExecResult rsB = runRsyncCopyMoveCapture(tmp, dst.string());
+            ExecResult rsB = runCopyTreeCapture(tmp, dst.string());
             if (rsB.rc != 0) {
                 return rsB;
             }
@@ -3096,21 +3100,21 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         int left = -1;
         {
             CopyProgressSampler sampler(growingDs, label);
-            ExecResult rs = runRsyncCopyMoveCapture(from, to.string(), {}, true);
+            ExecResult rs = runCopyTreeCapture(from, to.string(), {}, true);
             if (rs.rc != 0) {
                 fs::remove_all(staging, ec);
                 return rs;
             }
             // Verificado antes de que nadie destruya nada, con reintentos: si la copia
             // quedó corta, los datos solo están en el dataset original.
-            left = countPendingRsyncTransfers(from, to.string(), {}, true);
+            left = countPendingCopyTransfers(from, to.string(), {}, true);
             for (int attempt = 1; left != 0 && attempt < 5; ++attempt) {
-                ExecResult again = runRsyncCopyMoveCapture(from, to.string(), {}, true);
+                ExecResult again = runCopyTreeCapture(from, to.string(), {}, true);
                 if (again.rc != 0) {
                     fs::remove_all(staging, ec);
                     return again;
                 }
-                left = countPendingRsyncTransfers(from, to.string(), {}, true);
+                left = countPendingCopyTransfers(from, to.string(), {}, true);
             }
         }
         if (left != 0) {
@@ -3667,7 +3671,7 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
     if (simulacion) {
         base.push_back("--dry-run");
     }
-    // Mismo sondeo que runRsyncCopyMoveCapture, compartido para que no puedan
+    // Mismo sondeo que runCopyTreeCapture, compartido para que no puedan
     // divergir otra vez.
     for (const std::string& f : rsyncPreservationFlags()) {
         base.push_back(f);
@@ -3722,6 +3726,69 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
         argvsOut.push_back(std::move(argv));
     }
     return true;
+}
+
+// --mutate-copy-local: copiar dentro de esta máquina con el motor del proyecto.
+//
+// El mismo `copytree` que ya usan `todir`, `breakdown` y `assemble` —ficheros dispersos,
+// fechas con nanosegundos, enlaces duros, dueño y modo— pero expuesto como verbo, para que
+// `cp` no tenga que llamar al `rsync` del sistema. Una dependencia externa menos, y un solo
+// motor local en vez de dos que hacen casi lo mismo de maneras distintas.
+//
+// La carga es `[borrar, enSeco, origen1, destino1, …]`, la de rsync sin los dos campos que
+// solo rsync entiende.
+ExecResult runCopyLocalCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::string decoded;
+    if (!zfsmgr::base::base64Decode(payloadB64, decoded)) {
+        r.rc = 2;
+        r.err = "carga ilegible\n";
+        return r;
+    }
+    zfsmgr::base::json::Value raiz;
+    std::string errJson;
+    if (!zfsmgr::base::json::parse(decoded, raiz, &errJson) || !raiz.isArray()) {
+        r.rc = 2;
+        r.err = "carga no es una lista: " + errJson + "\n";
+        return r;
+    }
+    const auto campos = raiz.toArray();
+    if (campos.size() < 4 || (campos.size() - 2) % 2 != 0) {
+        r.rc = 2;
+        r.err = "la carga necesita [borrar, enSeco, origen, destino, …]\n";
+        return r;
+    }
+    zfsmgr::copytree::Options opt;
+    opt.deleteExtraneous = campos[0].toString() == "1";
+    opt.dryRun = campos[1].toString() == "1";
+    // `oneFileSystem` NO se activa: `cp` copia lo que le digan, y saltarse un dataset
+    // montado dentro dejaría parte del árbol sin copiar en silencio. `todir` sí lo activa,
+    // porque allí los hijos se tratan uno a uno.
+    r.rc = 0;
+    for (std::size_t i = 2; i + 1 < campos.size(); i += 2) {
+        const std::string origen = trim(campos[i].toString());
+        const std::string destino = trim(campos[i + 1].toString());
+        if (origen.empty() || origen.front() != '/' || destino.empty()
+            || destino.front() != '/') {
+            r.rc = 2;
+            r.err = "las rutas tienen que ser absolutas\n";
+            return r;
+        }
+        const zfsmgr::copytree::Result cr =
+            zfsmgr::copytree::copyTree(origen, destino, opt);
+        if (!cr.ok) {
+            r.rc = 1;
+            r.err += cr.error + "\n";
+            return r;
+        }
+        r.out += "FILES=" + std::to_string(cr.filesCopied)
+                 + " DIRS=" + std::to_string(cr.dirsCreated)
+                 + " SYMLINKS=" + std::to_string(cr.symlinksCopied)
+                 + " HARDLINKS=" + std::to_string(cr.hardLinksRecreated)
+                 + " BYTES=" + std::to_string(cr.bytesWritten)
+                 + " IGUALES=" + std::to_string(cr.filesSkipped) + "\n";
+    }
+    return r;
 }
 
 ExecResult runRsyncLocalCapture(const std::string& payloadB64) {
@@ -8377,6 +8444,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-rsync-local <payload-b64>\n"; return r; }
         return runRsyncLocalCapture(params[0]);
     }
+    if (cmd == "--mutate-copy-local") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-copy-local <payload-b64>\n"; return r; }
+        return runCopyLocalCapture(params[0]);
+    }
     // --mutate-shell-generic is deliberately NOT served over RPC: it runs an arbitrary
     // shell as root, so exposing it here would let any client holding the mTLS
     // certificate bypass every typed --mutate-* whitelist. The GUI only ever invokes
@@ -10246,6 +10317,16 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runRsyncLocal(args[2]);
+    }
+    if (cmd == "--mutate-copy-local") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult cl = runCopyLocalCapture(args[2]);
+        if (!cl.out.empty()) std::cout << cl.out;
+        if (!cl.err.empty()) std::cerr << cl.err;
+        return cl.rc;
     }
     if (cmd == "--mutate-shell-generic") {
         if (args.size() < 3) {

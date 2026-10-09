@@ -96,6 +96,25 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino) {
     return plan;
 }
 
+std::string copyLocalPayload(const std::vector<std::pair<std::string, std::string>>& pares,
+                             bool borrar, bool enSeco) {
+    if (pares.empty()) {
+        return {};
+    }
+    std::vector<std::string> campos = {borrar ? "1" : "0", enSeco ? "1" : "0"};
+    for (const auto& par : pares) {
+        // Absolutas las dos, como en la de rsync: el daemon rechaza lo que no empiece por
+        // barra, y dejarlo pasar aquí solo cambia dónde falla.
+        if (par.first.empty() || par.first.front() != '/' || par.second.empty()
+            || par.second.front() != '/') {
+            return {};
+        }
+        campos.push_back(par.first);
+        campos.push_back(par.second);
+    }
+    return helpers::agentArgv(campos);
+}
+
 std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pares,
                        bool borrar, bool enSeco,
                        const std::string& rsh, const std::string& hostDestino) {

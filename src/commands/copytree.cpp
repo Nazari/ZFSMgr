@@ -604,14 +604,55 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
     std::error_code ec;
     const fs::path src(srcDir);
     const fs::path dst(dstDir);
-    if (!fs::is_directory(src, ec)) {
-        r.error = "el origen no es un directorio: " + srcDir;
+    // Un FICHERO suelto como origen.
+    //
+    // Antes se rechazaba —«el origen no es un directorio»— porque todo lo que llamaba aquí
+    // copiaba árboles: `todir`, `breakdown`, `assemble`. `cp` sí copia ficheros sueltos, y
+    // es un caso que no se puede resolver por fuera envolviéndolo en un directorio: eso
+    // cambiaría dónde aterriza.
+    //
+    // El destino es la RUTA FINAL del fichero, no su contenedor. Quien llama ya ha decidido
+    // el nombre —`cp` lo hace con `--as` o con el del origen— y meterlo aquí dentro de un
+    // directorio sería repartir esa decisión entre dos sitios.
+    if (fs::is_regular_file(src, ec) && !ec) {
+        if (fs::is_directory(dst, ec)) {
+            r.error = "en el destino ya hay un DIRECTORIO que se llama igual: " + dstDir;
+            return r;
+        }
+        fs::create_directories(dst.parent_path(), ec);
+        if (ec && !fs::is_directory(dst.parent_path())) {
+            r.error = "no se pudo crear " + dst.parent_path().string() + ": " + ec.message();
+            return r;
+        }
+        if (opt.dryRun) {
+            r.filesCopied = 1;
+            r.ok = true;
+            return r;
+        }
+        std::string err;
+        if (!copyFileData(src, dst, r.bytesWritten, err)) {
+            r.error = err;
+            return r;
+        }
+        copyMetadata(src, dst, false);
+        r.filesCopied = 1;
+        r.ok = true;
         return r;
     }
-    fs::create_directories(dst, ec);
-    if (ec && !fs::is_directory(dst)) {
-        r.error = "no se pudo crear el destino " + dstDir + ": " + ec.message();
+    if (!fs::is_directory(src, ec)) {
+        r.error = "el origen no es un fichero ni un directorio: " + srcDir;
         return r;
+    }
+    // En SECO no se crea el destino. Parece obvio y no lo era: `create_directories` estaba
+    // antes de mirar `dryRun`, así que una pasada que promete no tocar nada dejaba el
+    // directorio creado. Se vio al pasar `cp --check` por este motor —hasta ahora lo único
+    // que llamaba aquí eran `todir`, `breakdown` y `assemble`, que no hacen pasada en seco—.
+    if (!opt.dryRun) {
+        fs::create_directories(dst, ec);
+        if (ec && !fs::is_directory(dst)) {
+            r.error = "no se pudo crear el destino " + dstDir + ": " + ec.message();
+            return r;
+        }
     }
     Walker w;
     w.opt = opt;
