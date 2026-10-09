@@ -1149,8 +1149,24 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
                 continue;
             }
         }
+        // El TIPO lo dice ZFS, no se adivina.
+        //
+        // Se deducía del nombre —«lleva @, luego es una instantánea; si no, un dataset»— y
+        // así un VOLUMEN salía como «dataset». Visto en vivo: `back/tooling` es un zvol de
+        // 78 G y el listado lo enseñaba igual que un sistema de ficheros, con el punto de
+        // montaje a «-» como única pista. No es un detalle de rótulo: en un volumen no se
+        // puede entrar, no tiene hijos que listar y no se monta.
+        //
+        // La columna puede no venir: un agente anterior a esto manda diez y ahí se acaba la
+        // línea. Entonces se vuelve a la deducción de siempre, que acierta con las
+        // instantáneas y es lo único que había.
+        const std::string tipoCrudo = c.size() > 10 ? B::toLowerAscii(B::trim(c[10]))
+                                                     : std::string();
+        const std::string tipo = !tipoCrudo.empty()
+                                     ? (tipoCrudo == "filesystem" ? "dataset" : tipoCrudo)
+                                     : (esSnap ? "snapshot" : "dataset");
         t.filas.push_back({esSnap ? "@" + nombre.substr(arroba + 1) : nombre.substr(prefijo.size()),
-                           esSnap ? "snapshot" : "dataset", c[2], c[3], c[7], c[8]});
+                           tipo, c[2], c[3], c[7], c[8]});
     }
     t.imprime(e.formato);
     return true;
@@ -1419,7 +1435,23 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
         base = B::trim(mp);
         if (base.empty() || base == "none" || base == "-") {
             if (!callado) {
-                std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
+                // Un VOLUMEN no es que no esté montado: es que no se monta nunca. Es un
+                // dispositivo de bloques, y lo que haya dentro —si es que hay un sistema de
+                // ficheros— lo sabe quien lo formateó, no ZFS. Decir «no está montado»
+                // manda a buscar un `zfs mount` que no existe para esto.
+                std::string tipo;
+                const bool esVolumen =
+                    agente(e, destino, PET::datasetProperty("type", destino.zfsName()), tipo)
+                    && B::toLowerAscii(B::trim(tipo)) == "volume";
+                if (esVolumen) {
+                    std::fprintf(stderr,
+                                 TC("t_es_un_volumen",
+                                    "%s es un VOLUMEN: un dispositivo de bloques, no tiene "
+                                    "ficheros que listar\n"),
+                                 destino.zfsName().c_str());
+                } else {
+                    std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
+                }
             }
             return false;
         }

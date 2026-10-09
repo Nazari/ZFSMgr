@@ -7890,7 +7890,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--dump-zfs-list-all") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-list-all <dataset>\n"; return r; }
         return runExecCapture("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
-                                      "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount",
+                                      // `type` AL FINAL, y por eso es compatible: el cliente corta por tabuladores y
+                                      // lee por índice, así que uno anterior a esto
+                                      // sigue leyendo las diez primeras y la ignora.
+                                      // Sin ella, un VOLUMEN no se distingue de un
+                                      // sistema de ficheros: el tipo se adivinaba
+                                      // mirando si el nombre llevaba «@», o sea que lo
+                                      // único que se distinguía era la instantánea.
+                                      "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
                                       "-r", params[0]});
     }
     // --- El contenido de un dataset, TIPADO.
@@ -9929,7 +9936,7 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runExecStreaming("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
-                                         "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount",
+                                         "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
                                          "-r", args[2]});
     }
     // Los mismos dos verbos, también por línea de órdenes: es como se llega al agente

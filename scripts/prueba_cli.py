@@ -277,6 +277,42 @@ def casos_crear_destruir(ctx):
                   r"does not exist|no existe")])
 
 
+def casos_volumenes(ctx):
+    """Un VOLUMEN no es un sistema de ficheros, y el listado tiene que decirlo.
+
+    El tipo se deducía del NOMBRE —«lleva @, luego instantánea; si no, dataset»— así que lo
+    único que se distinguía era la instantánea. Un zvol salía como «dataset», con el punto
+    de montaje a «-» como única pista. Visto en fc16: `back/tooling`, 78 G.
+    """
+    P = POOL_LOCAL
+    sh(ctx, f"zfs create -V 64M {P}/vol", root=True)
+    try:
+        # `idioma` FIJADO en los tres: afirman un texto, y sin fijarlo la batería usa el de
+        # la máquina —inglés aquí—. Ya pasó con el rótulo «Snapshots» y vuelve a pasar: el
+        # caso del volumen llegó a dar verde solo porque su traducción inglesa aún no
+        # existía y el texto caía al castellano de reserva. Un caso que pasa por una
+        # traducción que falta no está midiendo nada.
+        caso(ctx, "ls: un volumen sale como «volume» y no como «dataset»",
+             [f"ls zfsm://local/{P}"], idioma="es",
+             espera=[r"^vol\s+volume\s"],
+             no_espera=[r"^vol\s+dataset\s"])
+        # Y lo que de verdad importa: que no mande a buscar un montaje que no existe.
+        caso(ctx, "ls #content de un volumen lo dice, en vez de «no está montado»",
+             [f"ls zfsm://local/{P}/vol#content"], idioma="es",
+             espera=[r"VOLUMEN"], no_espera=[r"no está montado"])
+        caso(ctx, "ls: y en inglés también dice que es un volumen",
+             [f"ls zfsm://local/{P}/vol#content"], idioma="en",
+             espera=[r"VOLUME"], no_espera=[r"not mounted"])
+        # Un dataset sin montar SIGUE diciendo lo suyo: el arreglo no puede tragarse ese caso.
+        sh(ctx, f"zfs create -o canmount=off {P}/apagado", root=True)
+        caso(ctx, "ls #content de un dataset sin montar sigue diciendo lo de siempre",
+             [f"ls zfsm://local/{P}/apagado#content"], idioma="es",
+             espera=[r"no está montado"], no_espera=[r"VOLUMEN"])
+    finally:
+        sh(ctx, f"zfs destroy {P}/vol", root=True)
+        sh(ctx, f"zfs destroy {P}/apagado", root=True)
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1070,7 +1106,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

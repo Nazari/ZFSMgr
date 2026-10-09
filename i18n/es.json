@@ -468,6 +468,7 @@
     "t_en_una_con_d7ff22": "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no funciona—. En un dataset o instantánea, `zfs destroy`.",
     "t_en_windows_42a2d3": "En Windows el contenido no está donde dice el «mountpoint»: el pool se monta en una letra de unidad y los descendientes heredan la del POOL. Se traduce solo.",
     "t_es_la_mism_796aa1": "Es la MISMA marca que usa la interfaz gráfica. Navegar hasta una conexión apartada sí se permite, porque hay que poder llegar para volver a conectarla.",
+    "t_es_un_volumen": "%s es un VOLUMEN: un dispositivo de bloques, no tiene ficheros que listar\n",
     "t_escribe_en_8e9d25": "Escribe en el espacio no usado.",
     "t_escribe_pr_b449c1": "Escribe propiedades.",
     "t_espera_aqu_fba1e7": "Espera aquí a que termine, en vez de devolver el trabajo.",

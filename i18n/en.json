@@ -499,6 +499,7 @@
     "t_en_windows_42a2d3": "On Windows the contents are not where the «mountpoint» says: the pool mounts on a drive letter and descendants inherit the POOL's. It is translated automatically.",
     "t_error_ssh__30fa40": "SSH error (exit %1)",
     "t_es_la_mism_796aa1": "It is the SAME flag the graphical interface uses. Navigating to a connection that has been set aside is allowed, because you have to be able to reach it to reconnect it.",
+    "t_es_un_volumen": "%s is a VOLUME: a block device, it has no files to list\n",
     "t_escribe_en_8e9d25": "Write over the unused space.",
     "t_escribe_pr_b449c1": "Write properties.",
     "t_espera_aqu_fba1e7": "Wait here until it finishes, instead of returning the job.",
