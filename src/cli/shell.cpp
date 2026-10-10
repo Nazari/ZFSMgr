@@ -3895,6 +3895,34 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
 // **No hay respaldo por guion.** Si no está el binario de esa plataforma, no se instala
 // nada: un agente de guion no habla TLS, y dejarlo puesto da una máquina que PARECE
 // atendida y no lo está.
+// Los trabajos que el daemon de esa máquina tiene corriendo o encolados, por identificador.
+// Vacío si no hay ninguno o si no contesta: una máquina sin daemon no tiene trabajos.
+std::vector<std::string> trabajosEnCurso(Estado& e, const B::ConnectionProfile& p) {
+    std::vector<std::string> ids;
+    ZfsmUrl u;
+    u.kind = ZfsmKind::Connection;
+    u.connection = p.id.empty() ? p.name : p.id;
+    std::string out;
+    std::string err;
+    int rc = -1;
+    if (!ejecutarAgente(*e.ses, p, PET::jobList(), out, err, rc, nullptr, 15000) || rc != 0) {
+        return ids;
+    }
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        if (!B::startsWith(linea, "JOB=")) {
+            continue;
+        }
+        B::json::Value j;
+        if (B::json::parse(linea.substr(4), j, nullptr)) {
+            const std::string estado = j["state"].toString();
+            if (estado == "running" || estado == "queued") {
+                ids.push_back(j["id"].toString());
+            }
+        }
+    }
+    return ids;
+}
+
 // --- El CLI de la otra máquina, junto con su daemon.
 //
 // Un daemon nuevo con un `zfsmgr-cli` viejo al lado es una máquina a medio actualizar, así
@@ -4016,6 +4044,29 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const std::string quien = p->name.empty() ? p->id : p->name;
+
+    // **Con trabajos en curso no se reinstala.** Reinstalar reinicia el servicio, y lo que
+    // estuviera copiando muere a medias: dos copias de 16 y 50 GB quedaron por la mitad en
+    // fc16 el 2026-10-10 por una reinstalación. Se dice cuáles y se para; `--force` lo hace
+    // de todas formas, sabiéndolo.
+    if (!pet.tiene("--force")) {
+        const std::vector<std::string> enCurso = trabajosEnCurso(e, conSudo(e, *p));
+        if (!enCurso.empty()) {
+            std::fprintf(stderr,
+                         TC("t_instala_hay_trabajos",
+                            "%s tiene %zu trabajos en curso, y reinstalar el daemon los "
+                            "cortaría a medias:\n"),
+                         quien.c_str(), enCurso.size());
+            for (const std::string& id : enCurso) {
+                std::fprintf(stderr, "  %s\n", id.c_str());
+            }
+            std::fputs(TC("t_instala_hay_trabajos_2",
+                          "Espere a que terminen («jobs»), o repita con --force para cortarlos.\n"),
+                       stderr);
+            e.ultimoRc = 1;
+            return false;
+        }
+    }
 
     if (!confirma(e, B::format(T("t_conf_install_daemon",
                                  "Se va a instalar o actualizar el daemon en %1 y arrancarlo "
@@ -5272,9 +5323,20 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
+    // `cp <origen>... <destino>`: varios orígenes, como el `cp` de toda la vida. Es también
+    // lo que recibe de la rama de patrones (`cp *.log destino`), que antes llamaba una vez
+    // por origen y dejaba un TRABAJO por fichero.
     const std::vector<std::string> args = pet.lista("texto");
-    if (args.size() != 2) {
-        std::fputs(TC("t_cp_uso_err", "uso: cp <origen> <destino> [--as <nombre>]\n"), stderr);
+    if (args.size() < 2) {
+        std::fputs(TC("t_cp_uso_err2", "uso: cp <origen>... <destino> [--as <nombre>]\n"), stderr);
+        return false;
+    }
+    const std::vector<std::string> textosOrigen(args.begin(), args.end() - 1);
+    if (textosOrigen.size() > 1 && !pet.valor("as").empty()) {
+        std::fputs(TC("t_cp_as_varios",
+                      "--as pone UN nombre, y el origen casa con varios: no tiene sentido\n"),
+                   stderr);
+        e.ultimoRc = 1;
         return false;
     }
 
@@ -5299,13 +5361,6 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
         out = r.end;
         return true;
     };
-    CS::End origen;
-    CS::End destino;
-    if (!extremo(args[0], TC("t_cp_origen", "origen"), origen)
-        || !extremo(args[1], TC("t_cp_destino", "destino"), destino)) {
-        return false;
-    }
-
     // La ruta ABSOLUTA de cada extremo. Un dataset no la tiene hasta que se le pregunta a la
     // máquina dónde está montado: el `mountpoint` de la propiedad no siempre es donde se
     // puede abrir —en Windows dice «/pool/ds», que no existe— y por eso se pregunta.
@@ -5329,34 +5384,120 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
         }
         return true;
     };
-    std::string rutaOrigen;
+
+    CS::End destino;
     std::string rutaDestino;
-    if (!rutaReal(origen, rutaOrigen) || !rutaReal(destino, rutaDestino)) {
+    if (!extremo(args.back(), TC("t_cp_destino", "destino"), destino)
+        || !rutaReal(destino, rutaDestino)) {
         return false;
     }
 
-    // Con qué nombre aterriza. El destino es el CONTENEDOR, así que `cp A B` deja `B/A`:
-    // es lo que hace `cp` de toda la vida y lo que evita la ambigüedad clásica de que la
-    // misma orden signifique una cosa u otra según si el destino existía ya.
-    const std::string nombre = CS::landingName(origen, pet.valor("as"));
-    if (nombre.empty()) {
-        std::fputs(TC("t_cp_sin_nombre", "no se puede averiguar con qué nombre copiarlo; "
-                      "dígalo con «--as»\n"), stderr);
-        return false;
-    }
-    const std::string rutaFinal =
-        rutaDestino + (rutaDestino.empty() || rutaDestino.back() == '/' ? "" : "/") + nombre;
-
-    if (B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection)
-        && rutaOrigen == rutaFinal) {
-        std::fputs(TC("t_cp_mismo", "el origen y el destino son el mismo sitio\n"), stderr);
-        return false;
+    // Todos los orígenes resueltos ANTES de copiar nada: un error en el tercero no debe
+    // dejar copiados los dos primeros.
+    struct Copia {
+        std::string maquina;
+        std::string ruta;
+        std::string nombre;
+        std::string rutaFinal;
+    };
+    std::vector<Copia> copias;
+    std::map<std::string, std::string> llegadas;
+    for (const std::string& texto : textosOrigen) {
+        CS::End origen;
+        Copia c;
+        if (!extremo(texto, TC("t_cp_origen", "origen"), origen) || !rutaReal(origen, c.ruta)) {
+            return false;
+        }
+        c.maquina = origen.connection;
+        // Con qué nombre aterriza. El destino es el CONTENEDOR, así que `cp A B` deja `B/A`:
+        // es lo que hace `cp` de toda la vida y lo que evita la ambigüedad clásica de que la
+        // misma orden signifique una cosa u otra según si el destino existía ya.
+        c.nombre = CS::landingName(origen, pet.valor("as"));
+        if (c.nombre.empty()) {
+            std::fputs(TC("t_cp_sin_nombre", "no se puede averiguar con qué nombre copiarlo; "
+                          "dígalo con «--as»\n"), stderr);
+            return false;
+        }
+        c.rutaFinal =
+            rutaDestino + (rutaDestino.empty() || rutaDestino.back() == '/' ? "" : "/") + c.nombre;
+        if (B::toLowerAscii(c.maquina) == B::toLowerAscii(destino.connection)
+            && c.ruta == c.rutaFinal) {
+            std::fputs(TC("t_cp_mismo", "el origen y el destino son el mismo sitio\n"), stderr);
+            return false;
+        }
+        // Dos orígenes con el mismo nombre de llegada: el segundo pisaría al primero.
+        const auto ya = llegadas.find(c.nombre);
+        if (ya != llegadas.end()) {
+            std::fprintf(stderr,
+                         TC("t_cp_misma_llegada",
+                            "«%s» y «%s» llegarían con el mismo nombre, «%s»: el segundo "
+                            "pisaría al primero\n"),
+                         ya->second.c_str(), texto.c_str(), c.nombre.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        llegadas[c.nombre] = texto;
+        copias.push_back(c);
     }
 
     const bool simula = pet.tiene("--check");
-    std::fprintf(stderr, TC("t_cp_yendo", "%s  ->  %s\n"), rutaOrigen.c_str(), rutaFinal.c_str());
-    return copiaArbol(e, origen.connection, rutaOrigen, destino.connection, rutaDestino,
-                      nombre, simula, pet.tiene("--wait"));
+    const bool esperar = pet.tiene("--wait");
+    for (const Copia& c : copias) {
+        std::fprintf(stderr, TC("t_cp_yendo", "%s  ->  %s\n"), c.ruta.c_str(), c.rutaFinal.c_str());
+    }
+
+    // **Todos en la misma máquina que el destino: UNA sola copia, UN solo trabajo.** La
+    // carga del motor local ya admite varios pares; repartirla en una llamada por origen
+    // dejaba tantos trabajos como ficheros, y un `cp` es una cosa.
+    bool todosAqui = copias.size() > 1;
+    for (const Copia& c : copias) {
+        todosAqui = todosAqui && B::toLowerAscii(c.maquina) == B::toLowerAscii(destino.connection);
+    }
+    if (todosAqui) {
+        std::vector<std::pair<std::string, std::string>> pares;
+        for (const Copia& c : copias) {
+            pares.emplace_back(c.ruta, c.rutaFinal);
+        }
+        const std::string carga = SY::copyLocalPayload(pares, /*borra=*/false, simula);
+        if (carga.empty()) {
+            std::fputs(TC("t_cp_rutas_mal",
+                          "las rutas de origen y destino tienen que ser absolutas\n"), stderr);
+            return false;
+        }
+        ZfsmUrl maquina;
+        maquina.kind = ZfsmKind::Connection;
+        maquina.connection = destino.connection;
+        const std::vector<std::string> argv = PET::copyLocal(carga);
+        if (simula || esperar) {
+            std::string out;
+            if (!agente(e, maquina, argv, out, 0)) {   // sin plazo: mueve datos de verdad
+                return false;
+            }
+            std::fprintf(stdout, "%s", out.c_str());
+            return true;
+        }
+        return enviaComoTrabajo(e, maquina, argv);
+    }
+
+    // Entre máquinas, cada origen es su propio envío de agente a agente.
+    std::size_t mal = 0;
+    for (const Copia& c : copias) {
+        if (!copiaArbol(e, c.maquina, c.ruta, destino.connection, rutaDestino, c.nombre, simula,
+                        esperar)) {
+            ++mal;
+            if (copias.size() > 1) {
+                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), c.ruta.c_str());
+            }
+        }
+    }
+    if (copias.size() > 1) {
+        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), "cp",
+                     copias.size() - mal, mal);
+    }
+    if (mal > 0) {
+        e.ultimoRc = 1;
+    }
+    return mal == 0;
 }
 
 bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
@@ -6992,39 +7133,23 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
             }
             llegadas[nombre] = o;
         }
-        const auto copiaUno = [&](const std::string& origen) {
-            LineaAnalizada an2 = an;
-            an2.ranuras.erase("texto");
-            an2.ranuras.emplace("texto", origen);
-            an2.ranuras.emplace("texto", destino);
-            return f(e, an2);
-        };
-        if (origenes.size() == 1) {
-            return copiaUno(origenes.front());
-        }
         // Como `cp` en la shell, no se pide confirmación: copiar a un sitio no destruye lo
         // que se copia. Pero la lista sí se enseña, y `--check` sigue valiendo.
-        std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
-                     orden.c_str(), origenes.size(), args[0].c_str());
-        for (const std::string& o : origenes) {
-            std::fprintf(stderr, "  %s\n", sinZfsm(o).c_str());
-        }
-        std::size_t bien = 0;
-        std::size_t mal = 0;
-        for (const std::string& o : origenes) {
-            if (copiaUno(o)) {
-                ++bien;
-            } else {
-                ++mal;
-                std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), sinZfsm(o).c_str());
+        if (origenes.size() > 1) {
+            std::fprintf(stderr, TC("t_patron_lista", "%s: %zu destinos casan con «%s»:\n"),
+                         orden.c_str(), origenes.size(), args[0].c_str());
+            for (const std::string& o : origenes) {
+                std::fprintf(stderr, "  %s\n", sinZfsm(o).c_str());
             }
         }
-        std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), orden.c_str(),
-                     bien, mal);
-        if (mal > 0) {
-            e.ultimoRc = 1;
+        // Todos de una vez a `cp`, que los junta en UNA copia si están en la misma máquina.
+        LineaAnalizada an2 = an;
+        an2.ranuras.erase("texto");
+        for (const std::string& o : origenes) {
+            an2.ranuras.emplace("texto", o);
         }
-        return mal == 0;
+        an2.ranuras.emplace("texto", destino);
+        return f(e, an2);
     }
 
     const auto it = an.opciones.find("on");

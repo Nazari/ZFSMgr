@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -44,6 +46,11 @@ struct Options {
     // Touch nothing: walk and count what would be done. This is what feeds the
     // interface's preview before applying.
     bool dryRun = false;
+
+    // Where to count the bytes as they go, or null. Each block READ adds its size —holes
+    // included, since they are also file traversed—, so whoever samples it from another
+    // thread sees the copy advance instead of a figure that only appears at the end.
+    std::atomic<std::uint64_t>* progress = nullptr;
 };
 
 struct Result {

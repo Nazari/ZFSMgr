@@ -3876,6 +3876,45 @@ ExecResult runCopyLocalCapture(const std::string& payloadB64) {
     // `oneFileSystem` NO se activa: `cp` copia lo que le digan, y saltarse un dataset
     // montado dentro dejaría parte del árbol sin copiar en silencio. `todir` sí lo activa,
     // porque allí los hijos se tratan uno a uno.
+    //
+    // **El progreso, mientras dura.** Un trabajo de copia salía en `jobs` con 0 B, 0 MiB/s
+    // y 0 segundos hasta el final, y ni siquiera entonces se anotaba el total: solo quedaba
+    // en la línea de salida. El motor cuenta los bytes en un contador compartido, y un hilo
+    // lo pasa al registro del trabajo cada segundo. Fuera de un trabajo —con `--wait`—
+    // `reportJobCounters` no hace nada.
+    std::atomic<std::uint64_t> progreso{0};
+    opt.progress = &progreso;
+    const auto inicio = std::chrono::steady_clock::now();
+    const auto anota = [&]() {
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - inicio).count();
+        const std::uint64_t b = progreso.load(std::memory_order_relaxed);
+        reportJobCounters(b, secs > 0.0 ? (static_cast<double>(b) / secs) / (1024.0 * 1024.0) : 0.0,
+                          static_cast<long>(secs));
+    };
+    std::atomic<bool> parar{false};
+    const std::string trabajo = t_currentJobId;
+    std::thread muestreo([&, trabajo]() {
+        t_currentJobId = trabajo;   // es thread_local: en un hilo nuevo nace vacío
+        while (!parar.load()) {
+            for (int i = 0; i < 10 && !parar.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            anota();
+        }
+    });
+    struct AlSalir {
+        std::atomic<bool>& parar;
+        std::thread& hilo;
+        std::function<void()> ultima;
+        ~AlSalir() {
+            parar = true;
+            if (hilo.joinable()) {
+                hilo.join();
+            }
+            ultima();   // el total, ya con la copia terminada
+        }
+    } alSalir{parar, muestreo, anota};
     r.rc = 0;
     for (std::size_t i = 2; i + 1 < campos.size(); i += 2) {
         const std::string origen = trim(campos[i].toString());

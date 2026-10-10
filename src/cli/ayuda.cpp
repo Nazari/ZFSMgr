@@ -1140,7 +1140,7 @@ const std::vector<Orden> kOrdenes = {
 
     // --- Acciones
     {"cp", {"t_acciones_79bd0e", "Acciones"},
-     {"t_cp_uso", "<origen> <destino> [--as <nombre>] [--check] [--wait]"},
+     {"t_cp_uso2", "<origen>... <destino> [--as <nombre>] [--check] [--wait]"},
      {"t_cp_res", "Copia ficheros y directorios de un sitio a otro."},
      {{{"t_cp_as", "--as <nombre>"},
        {"t_cp_as_q", "Con qué nombre aterriza en el destino. Sin ella, el suyo."}},
@@ -1158,8 +1158,9 @@ const std::vector<Orden> kOrdenes = {
        "incluido, está `rsync --delete`."},
       {"t_cp_det4", "El directorio de destino tiene que EXISTIR. Es lo que hace `cp` de toda la "
        "vida, y evita que una errata cree un árbol entero en el sitio equivocado."},
-      {"t_cp_det5", "Entre máquinas va de agente a agente, con delta y sin shell de por medio; "
-       "dentro de una, por `rsync`."},
+      {"t_cp_det5b", "Entre máquinas va de agente a agente, con delta y sin shell de por medio, un "
+       "envío por origen. Dentro de una máquina, con el motor propio y UN solo trabajo aunque "
+       "sean varios orígenes."},
       {"t_cp_det6", "Se conservan el modo, la fecha, el propietario y el grupo, también entre "
        "máquinas. El dueño se resuelve POR NOMBRE en el destino —el número 1000 es una "
        "persona aquí y otra allí— y solo se cae al número si ese nombre no existe. Lo que "
@@ -1345,14 +1346,16 @@ const std::vector<Orden> kOrdenes = {
        "trabajos que arrancó y por qué falló alguno. Con la aplicación gráfica se veía en su "
        "pestaña; desde el intérprete no había forma de mirarlo."}},
      Objetivo::Conexion, {}},
-    {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_install_daemon_uso", "[--on <url>] [-a [--check]]"},
+    {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_install_daemon_uso2", "[--on <url>] [-a [--check]] [--force]"},
      {"t_instala_o__7022d3", "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema."},
      {{{"t_install_daemon_a", "-a"},
        {"t_install_daemon_a_q", "En TODAS las conexiones conocidas: instala el daemon donde falta y pone "
         "al día el daemon y el zfsmgr-cli donde se han quedado atrás. Lo que está al día o va "
         "por delante no se toca."}},
       {{"t_install_daemon_check", "--check"},
-       {"t_install_daemon_check_q", "Con -a: enseña qué haría en cada una, sin tocar nada."}}},
+       {"t_install_daemon_check_q", "Con -a: enseña qué haría en cada una, sin tocar nada."}},
+      {{"t_install_daemon_force", "--force"},
+       {"t_install_daemon_force_q", "Reinstala aunque el daemon tenga trabajos en curso, que se cortan."}}},
      {{"t_install_daemon_cli_det", "También pone al día el zfsmgr-cli de esa máquina, si ya tiene uno: su binario, sus catálogos y los agentes y CLI de todas las plataformas que lleva al lado. Donde no hay CLI no se instala, y no se tocan el enlace que deja el .app en macOS, Windows ni el CLI que se está ejecutando."},
       {"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "

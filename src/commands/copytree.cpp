@@ -269,7 +269,7 @@ void markSparse(const fs::path&) {}
 // Aquí, un bloque entero de ceros no se escribe: se salta con seek, y el sistema de
 // ficheros deja el hueco.
 bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytesOut,
-                  std::string& err) {
+                  std::string& err, std::atomic<std::uint64_t>* progreso = nullptr) {
     std::FILE* in = std::fopen(src.string().c_str(), "rb");
     if (!in) {
         err = "could not read " + src.string();
@@ -300,6 +300,9 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
         const std::size_t n = std::fread(buf.data(), 1, buf.size(), in);
         if (n == 0) {
             break;
+        }
+        if (progreso) {
+            progreso->fetch_add(n, std::memory_order_relaxed);
         }
         const bool allZero = std::all_of(buf.begin(), buf.begin() + static_cast<long>(n),
                                          [](char c) { return c == '\0'; });
@@ -482,7 +485,7 @@ struct Walker {
                 continue;
             }
             std::string err;
-            if (!copyFileData(from, to, res.bytesWritten, err)) {
+            if (!copyFileData(from, to, res.bytesWritten, err, opt.progress)) {
                 res.error = err;
                 return false;
             }
@@ -630,7 +633,7 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
             return r;
         }
         std::string err;
-        if (!copyFileData(src, dst, r.bytesWritten, err)) {
+        if (!copyFileData(src, dst, r.bytesWritten, err, opt.progress)) {
             r.error = err;
             return r;
         }
