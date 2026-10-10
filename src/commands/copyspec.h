@@ -60,6 +60,29 @@ struct Reading {
 Reading readEnd(const std::string& texto, const ZfsmUrl& resuelta,
                 const std::string& conexionLocal);
 
+// --- `#path`: una ruta suelta de la máquina, para TODAS las órdenes, no solo `cp`.
+//
+// La ruta que nombra una URL `zfsm://maq#path/…`, en la sintaxis de la máquina:
+//   #path                 «/»        (en Windows, la lista de unidades)
+//   #path/etc/hosts       «/etc/hosts»
+//   #path/C:/Users        «C:/Users» (el primer tramo es una unidad de Windows)
+// Falla con PathOnDataset si cuelga de un dataset, EscapesTree con un «..», y
+// NoConnection sin máquina. NO comprueba que la sección sea «path»: eso es de quien llama.
+struct LoosePath {
+    Failure failure{Failure::None_};
+    std::string connection;
+    std::string absolute;
+    bool ok() const { return failure == Failure::None_; }
+};
+LoosePath loosePathOf(const ZfsmUrl& url);
+
+// Al revés: la URL `#path` de una ruta absoluta de la máquina. «C:\x» y «C:/x» dan
+// {"C:","x"}; «/» da `#path` sin detalle.
+ZfsmUrl urlOfLoosePath(const std::string& connection, const std::string& absolute);
+
+// ¿Es «C:» —una letra y dos puntos—, la unidad de Windows con la que empieza una ruta?
+bool isDriveSegment(const std::string& tramo);
+
 // El nombre con el que algo aterriza en el destino: la última pieza del origen, o lo que
 // diga `--as`. Vacío cuando no se puede averiguar.
 std::string landingName(const End& origen, const std::string& comoSeLlama);

@@ -87,6 +87,7 @@ namespace INST = zfsmgr::commands::snapshots;
 namespace DS = zfsmgr::commands::datasets;
 namespace TR = zfsmgr::base::transfer;
 namespace L = zfsmgr::base::listings;
+namespace CS = zfsmgr::base::copyspec;
 namespace PET = zfsmgr::commands::requests;
 namespace SY = zfsmgr::base::syncing;
 using B::ZfsmUrl;
@@ -111,6 +112,10 @@ struct FiltroFilas {
     // Ficheros: como la shell, «*» no casa con los que empiezan por «.» salvo que el patrón
     // empiece también por «.».
     bool ocultos{false};
+    // Con VARIOS destinos (`ls ds#content/*/x*`), una sección sin coincidencias no es un
+    // error: se calla y lo apunta aquí. «nada coincide» se dice una vez, si no casa ninguna.
+    bool enVarios{false};
+    bool quedoVacio{false};
 };
 
 struct Estado {
@@ -203,7 +208,8 @@ ZfsmUrl base_conexion_de(const Estado& e) {
     return base;
 }
 
-bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, std::string& error) {
+bool resuelveCrudo(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out,
+                   std::string& error) {
     error.clear();
     std::string texto = B::trim(textoEntrada);
     if (texto.empty()) {
@@ -271,9 +277,11 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         ZfsmUrl limpia = e.actual;
         if (texto.front() == '@') {
             limpia.snapshot.clear();
-            limpia.section.clear();
-            limpia.detail.clear();
         }
+        // Y la sección en la que se esté: `#properties` desde `ds#content/x` es
+        // `ds#properties`, no `ds#content/x#properties`, que no es una URL.
+        limpia.section.clear();
+        limpia.detail.clear();
         return B::parseZfsmUrl(B::formatZfsmUrl(limpia) + texto, out, error);
     }
 
@@ -407,6 +415,48 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
         return aplica(ZfsmUrl{}, tramos, out, error);
     }
 
+    // DENTRO de una sección de ficheros —`#content/…` o `#path/…`— lo relativo son
+    // directorios, como en una shell: `cd sub` baja a `…/sub` y `cd ..` sube uno. Antes
+    // `cd ..` desde `ds#content/docs` se saltaba la sección y subía de DATASET, y `cd sub`
+    // buscaba un dataset hijo llamado «sub».
+    //
+    // Al salir por arriba (`..` en la raíz de la sección) se vuelve al dataset o a la
+    // conexión, y lo que quede se lee como siempre. Para saltar a otra máquina desde aquí
+    // está la URL completa o la barra inicial: un nombre suelto es un fichero.
+    {
+        const std::string sec = B::toLowerAscii(e.actual.section);
+        if (sec == B::zfsmSection::kContent || sec == B::zfsmSection::kPath) {
+            ZfsmUrl u = e.actual;
+            std::size_t i = 0;
+            for (; i < tramos.size(); ++i) {
+                std::string tramo;
+                if (!B::percentDecode(tramos[i], tramo)) {
+                    error = B::format(T("t_tramo_malo", "tramo mal codificado: %1"), {tramos[i]});
+                    return false;
+                }
+                if (tramo.empty() || tramo == ".") {
+                    continue;
+                }
+                if (tramo == "..") {
+                    if (!u.detail.empty()) {
+                        u.detail.pop_back();
+                        continue;
+                    }
+                    u.section.clear();
+                    ++i;
+                    break;
+                }
+                u.detail.push_back(tramo);
+            }
+            if (!u.section.empty()) {
+                out = u;
+                return true;
+            }
+            const std::vector<std::string> resto(tramos.begin() + static_cast<long>(i), tramos.end());
+            return aplica(u, resto, out, error);
+        }
+    }
+
     // Una ruta que empieza por el nombre del POOL en el que estamos es el nombre ZFS
     // completo, no un hijo. Sin esto, `destroy zfsmgrtest/clonado` desde
     // `zfsm://Local/zfsmgrtest/origen` apuntaba a
@@ -484,6 +534,20 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
     }
     error = errRelativa;
     return false;
+}
+
+// Resolver, y lo que vale para TODAS las URL sea cual sea la forma en que se escribieron:
+// `#path` cuelga de una máquina, nunca de un dataset. Ahí la ruta es `#content`, y
+// aceptarlo sería tener dos nombres para lo mismo —o, peor, uno que parece lo que no es—.
+bool resuelve(const Estado& e, const std::string& texto, ZfsmUrl& out, std::string& error) {
+    if (!resuelveCrudo(e, texto, out, error)) {
+        return false;
+    }
+    if (B::toLowerAscii(out.section) == B::zfsmSection::kPath && !out.dataset.empty()) {
+        error = CS::labelOf(CS::Failure::PathOnDataset);
+        return false;
+    }
+    return true;
 }
 
 // Una copia del perfil con las credenciales de sudo puestas si hacían falta y no estaban.
@@ -728,7 +792,10 @@ bool encaja(const ZfsmUrl& u, Objetivo pedido) {
             // La conexión y NADA MÁS. Antes bastaba con que la URL tuviera conexión, y con
             // eso `install-daemon local/sobra1` se daba por bueno tomando «sobra1» como si
             // fuera una máquina.
-            return nodoDe(u) == Nodo::Conexion;
+            // Una ruta suelta de la máquina no es la máquina: `devices zfsm://m#path/x` es
+            // un error, no `devices` de m. Desde la POSICIÓN sí se sube (subeHasta).
+            return nodoDe(u) == Nodo::Conexion
+                   && B::toLowerAscii(u.section) != B::zfsmSection::kPath;
         case Objetivo::Pool:
             return nodoDe(u) == Nodo::Dataset && u.isPoolRoot();
         case Objetivo::Dataset:
@@ -826,6 +893,10 @@ ZfsmUrl subeHasta(const ZfsmUrl& u, Objetivo pedido) {
 //   1. `--on <url>` (o `--from`), si se dio.
 //   2. El destino posicional que haya reconocido la gramática.
 //   3. El sitio actual, subido hasta lo que la orden pide.
+bool esSeccionDeFicheros(const ZfsmUrl& u);
+bool esRutaSuelta(const ZfsmUrl& u);
+bool equivaleADataset(Estado& e, ZfsmUrl& u, const std::string& comoSeEscribio);
+
 bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
     const Orden* orden = ordenPorNombre(linea.verbo);
     if (!orden) {
@@ -835,7 +906,10 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
     p.orden = orden;
 
     std::string explicito = p.valor("on");
-    if (explicito.empty()) {
+    // En `fromdir`, `--from` es la máquina de ORIGEN y no el destino de la orden: es la única
+    // en la que las dos opciones no son sinónimas. Tomarlo por el destino lo comprobaba
+    // contra «un dataset» y `fromdir … --from zfsm://maq` no podía funcionar nunca.
+    if (explicito.empty() && std::string(orden->nombre) != "fromdir") {
         explicito = p.valor("from");
     }
     if (explicito.empty()) {
@@ -849,6 +923,21 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         }
     } else {
         p.objetivo = subeHasta(e.actual, orden->objetivo);
+        // Una orden de MÁQUINA cuya ruta viene como `zfsm://maq#path/…` —`labelclear
+        // zfsm://fc16#path/dev/sda9`—: la máquina es la de la URL, no la posición.
+        if (orden->objetivo == Objetivo::Conexion) {
+            for (const Ranura& r : orden->ranuras) {
+                if (r.tipo != Ranura::Tipo::Ruta || p.lista(r.nombre).empty()) {
+                    continue;
+                }
+                ZfsmUrl u;
+                std::string err;
+                if (B::startsWith(B::toLowerAscii(p.uno(r.nombre)), "zfsm://")
+                    && resuelve(e, p.uno(r.nombre), u, err) && esRutaSuelta(u)) {
+                    p.objetivo = subeHasta(u, Objetivo::Conexion);
+                }
+            }
+        }
     }
 
     // Las BANDERAS CORTAS, contra lo declarado. Es el mismo criterio que las largas, y su
@@ -919,6 +1008,31 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
             std::fprintf(stderr, TC("t_opcion_no_admitida", "«%s» no es una opción de %s\n"),
                          comoSeEscribe.c_str(), orden->nombre);
             return false;
+        }
+    }
+
+    // Un FICHERO —`#path/…` o `#content/…`— donde la orden quiere algo de ZFS: solo si es
+    // exactamente el punto de montaje (ver equivaleADataset). `destroy` y `create` declaran
+    // «cualquiera» porque también actúan sobre pools y conexiones, pero tampoco pueden
+    // tomar un subdirectorio por su dataset. `rsync` maneja sus extremos él mismo.
+    //
+    // Desde la POSICIÓN dentro de `#content` se sigue actuando sobre el dataset, como
+    // siempre: estando en `ds#content/docs`, `snapshot` es del dataset en el que se está.
+    {
+        const bool quiereZfs = orden->objetivo == Objetivo::Pool
+                               || orden->objetivo == Objetivo::Dataset
+                               || orden->objetivo == Objetivo::Snapshot
+                               || orden->objetivo == Objetivo::DatasetOInstantanea
+                               || std::string(orden->nombre) == "destroy"
+                               || std::string(orden->nombre) == "create";
+        if (quiereZfs && std::string(orden->nombre) != "rsync" && esSeccionDeFicheros(p.objetivo)
+            && (!explicito.empty() || esRutaSuelta(p.objetivo))) {
+            // Y después NO se sube: si el punto de montaje es de `tank/data`, una orden de
+            // pool no puede acabar en `tank`. Lo que no encaje lo dice la comprobación de
+            // abajo.
+            if (!equivaleADataset(e, p.objetivo, explicito)) {
+                return false;
+            }
         }
     }
 
@@ -996,6 +1110,10 @@ bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> column
         }
     }
     t.filas = std::move(quedan);
+    if (t.filas.empty() && e.filtro.enVarios) {
+        e.filtro.quedoVacio = true;
+        return false;
+    }
     if (t.filas.empty()) {
         std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), e.filtro.texto.c_str());
         e.ultimoRc = 1;
@@ -1807,51 +1925,391 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     return true;
 }
 
-// El contenido: `#content[/ruta]`.
-//
-// **Por RPC tipado.** Aquí se listaba con `ls -lA` por SSH en Unix y con `Get-ChildItem` en
-// Windows, y el comentario decía que el agente no tenía verbo para esto. Sí lo tiene
-// —`--dump-dir-list`, el que usa el servidor web—: el daemon recorre el directorio él mismo
-// y contesta JSON, y solo si la ruta cae dentro de un punto de montaje de ZFS.
-//
-// Se gana más que quitar dos guiones: los dos formatos eran DISTINTOS, así que la misma
-// orden enseñaba unas columnas en Unix y otras en Windows. Ahora es una tabla, igual en las
-// dos, y sale por tsv y json como todo lo demás.
-bool listaContenido(Estado& e, const ZfsmUrl& destino) {
-    // La ruta la resuelve `rutaDeContenido`, que es la misma que usa el TABULADOR y la que
-    // sabe que en Windows el punto de montaje no es la propiedad `mountpoint` sino la letra
-    // de unidad del POOL.
-    std::string base;
-    bool esWindows = false;
-    if (!rutaDeContenido(e, destino, base, esWindows, /*callado=*/false)) {
-        return false;
-    }
 
-    std::string out;
-    if (!agente(e, destino, PET::directoryContents(base), out)) {
+
+// =====================================================================================
+// --- Ficheros: `#content/…` dentro de un dataset y `#path/…` en la máquina.
+//
+// Las dos secciones nombran un sitio del sistema de ficheros. `ubicacionDe` es la única
+// puerta para saber qué hay ahí y a qué dataset pertenece: la usan `ls`, `cd`, `info` y la
+// equivalencia con un dataset de `prepara`.
+
+bool esSeccionDeFicheros(const ZfsmUrl& u) {
+    const std::string sec = B::toLowerAscii(u.section);
+    return sec == B::zfsmSection::kContent || sec == B::zfsmSection::kPath;
+}
+
+bool esRutaSuelta(const ZfsmUrl& u) {
+    return B::toLowerAscii(u.section) == B::zfsmSection::kPath;
+}
+
+// La ruta en la máquina de una URL de ficheros.
+bool rutaDeFicheros(Estado& e, const ZfsmUrl& u, std::string& ruta, bool callado) {
+    if (esRutaSuelta(u)) {
+        const CS::LoosePath lp = CS::loosePathOf(u);
+        if (!lp.ok()) {
+            if (!callado) {
+                std::fprintf(stderr, "%s\n", CS::labelOf(lp.failure).c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        ruta = lp.absolute;
+        return true;
+    }
+    bool esWindows = false;
+    return rutaDeContenido(e, u, ruta, esWindows, callado);
+}
+
+struct Ubicacion {
+    std::string ruta;
+    bool existe{false};
+    bool esDirectorio{false};   // siguiendo enlaces
+    std::string tipo;           // d f l b c p s o
+    long long tam{0};
+    long long mtime{0};
+    long long modo{0};
+    std::string dueno;
+    std::string grupo;
+    std::string enlace;
+    // El dataset montado que la contiene, si lo hay.
+    std::string dataset;
+    std::string relativa;
+    std::string montaje;
+    std::string instantanea;
+    bool esMontaje{false};      // la ruta ES el punto de montaje (o la raíz de la instantánea)
+};
+
+bool ubicacionDe(Estado& e, const ZfsmUrl& u, Ubicacion& ub) {
+    ub = Ubicacion{};
+    if (!rutaDeFicheros(e, u, ub.ruta, /*callado=*/false)) {
         return false;
     }
-    std::vector<L::DirectoryEntry> entradas;
-    std::string errJson;
-    if (!L::directoryContents(out, entradas, errJson)) {
+    std::string out;
+    if (!agente(e, u, PET::pathInfo(ub.ruta), out, 20000)) {
+        return false;
+    }
+    B::json::Value v;
+    std::string err;
+    if (!B::json::parse(out, v, &err)) {
         std::fprintf(stderr, TC("t_contenido_ilegible", "respuesta ilegible al listar %s: %s\n"),
-                     base.c_str(), errJson.c_str());
+                     ub.ruta.c_str(), err.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    ub.existe = v["exists"].toBool();
+    ub.esDirectorio = v["is_dir"].toBool();
+    ub.tipo = v["type"].toString();
+    ub.tam = v["size"].toInt();
+    ub.mtime = v["mtime"].toInt();
+    ub.modo = v["mode"].toInt();
+    ub.dueno = v["owner"].toString();
+    ub.grupo = v["group"].toString();
+    ub.enlace = v["target"].toString();
+    ub.dataset = v["dataset"].toString();
+    ub.relativa = v["relative"].toString();
+    ub.montaje = v["mountpoint"].toString();
+    ub.instantanea = v["snapshot"].toString();
+    ub.esMontaje = v["exact_mountpoint"].toBool();
+    return true;
+}
+
+// La URL de un dataset (o de su instantánea) en una conexión.
+ZfsmUrl urlDeDataset(const std::string& conexion, const std::string& dataset,
+                     const std::string& instantanea) {
+    ZfsmUrl d;
+    d.connection = conexion;
+    d.dataset = dataset;
+    d.pool = dataset.substr(0, dataset.find('/'));
+    d.snapshot = instantanea;
+    d.kind = instantanea.empty() ? ZfsmKind::Dataset : ZfsmKind::Snapshot;
+    return d;
+}
+
+// Un fichero donde la orden quiere un dataset, un pool o una instantánea.
+//
+// **Solo vale si ES el punto de montaje** (o la raíz de `.zfs/snapshot/<s>`), y la
+// traducción se enseña antes de actuar. Estar DENTRO de un dataset no basta y nunca se sube
+// al contenedor: `destroy` de un subdirectorio no puede acabar destruyendo el dataset. El
+// error da la alternativa con `#content`, que es como se nombra esa ruta dentro de él.
+//
+// Lo mismo vale para `#content/sub` escrito a mano: antes `destroy ds#content/fotos` se
+// leía como `destroy ds`, porque la sección no se miraba.
+bool equivaleADataset(Estado& e, ZfsmUrl& u, const std::string& comoSeEscribio) {
+    const std::string escrito = comoSeEscribio.empty() ? textoDe(u) : comoSeEscribio;
+    if (!esRutaSuelta(u)) {
+        if (u.detail.empty()) {
+            u.section.clear();   // `ds#content` es la raíz del dataset: el dataset mismo
+            return true;
+        }
+        ZfsmUrl d = u;
+        d.section.clear();
+        d.detail.clear();
+        std::fprintf(stderr, TC("t_ruta_no_es_ds_dentro",
+                                "%s no es un dataset; es una ruta dentro de %s\n"),
+                     escrito.c_str(), textoDe(d).c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    Ubicacion ub;
+    if (!ubicacionDe(e, u, ub)) {
+        return false;
+    }
+    if (!ub.dataset.empty() && ub.esMontaje) {
+        const ZfsmUrl d = urlDeDataset(u.connection, ub.dataset, ub.instantanea);
+        std::fprintf(stderr, "%s → %s\n", escrito.c_str(), textoDe(d).c_str());
+        u = d;
+        return true;
+    }
+    if (!ub.dataset.empty()) {
+        ZfsmUrl d = urlDeDataset(u.connection, ub.dataset, ub.instantanea);
+        ZfsmUrl c = d;
+        c.section = B::zfsmSection::kContent;
+        c.detail = B::split(ub.relativa, "/", true);
+        std::fprintf(stderr, TC("t_ruta_no_es_ds_alternativa",
+                                "%s no es un dataset; está dentro de %s: %s\n"),
+                     escrito.c_str(), (ub.instantanea.empty() ? ub.dataset
+                                                              : ub.dataset + "@" + ub.instantanea).c_str(),
+                     textoDe(c).c_str());
+    } else {
+        std::fprintf(stderr, TC("t_ruta_fuera_de_ds",
+                                "%s no es un dataset: no está dentro de ningún dataset montado\n"),
+                     escrito.c_str());
+    }
+    e.ultimoRc = 1;
+    return false;
+}
+
+// Una ruta de la máquina escrita donde la orden espera una ruta: «/var/tmp» o
+// `zfsm://maq#path/var/tmp`. Con la URL, la máquina va dentro, y tiene que ser la misma en
+// la que actúa la orden (`maquina`); vacía, se acepta cualquiera y se devuelve en
+// `conexion`. El texto plano se devuelve tal cual: es la ruta en la máquina de la orden.
+bool rutaDeRanura(Estado& e, const std::string& textoEntrada, const std::string& maquina,
+                  std::string& ruta, std::string* conexion = nullptr) {
+    const std::string texto = B::trim(textoEntrada);
+    if (conexion) {
+        *conexion = maquina;
+    }
+    if (!B::startsWith(B::toLowerAscii(texto), "zfsm://") && (texto.empty() || texto.front() != '#')) {
+        ruta = texto;
+        return true;
+    }
+    ZfsmUrl u;
+    std::string err;
+    if (!resuelve(e, texto, u, err)) {
+        std::fprintf(stderr, "%s\n", err.c_str());
+        e.ultimoRc = 2;
+        return false;
+    }
+    if (!esRutaSuelta(u)) {
+        std::fprintf(stderr, TC("t_ranura_no_es_ruta",
+                                "«%s» no es una ruta de la máquina: se escribe «/ruta» o "
+                                "«zfsm://<máquina>#path/ruta»\n"),
+                     texto.c_str());
+        e.ultimoRc = 2;
+        return false;
+    }
+    const CS::LoosePath lp = CS::loosePathOf(u);
+    if (!lp.ok()) {
+        std::fprintf(stderr, "%s\n", CS::labelOf(lp.failure).c_str());
+        e.ultimoRc = 2;
+        return false;
+    }
+    if (!maquina.empty() && B::toLowerAscii(lp.connection) != B::toLowerAscii(maquina)) {
+        std::fprintf(stderr, TC("t_ranura_otra_maquina",
+                                "«%s» es de %s, y la orden actúa en %s\n"),
+                     texto.c_str(), lp.connection.c_str(), maquina.c_str());
+        e.ultimoRc = 2;
+        return false;
+    }
+    ruta = lp.absolute;
+    if (conexion) {
+        *conexion = lp.connection;
+    }
+    return true;
+}
+
+// Discos o ficheros de un pool: cada uno, como `rutaDeRanura` en la máquina del pool. Las
+// palabras de topología —`mirror`, `raidz2`, `log`…— pasan tal cual, igual que «/dev/sdb».
+bool discosDe(Estado& e, const std::vector<std::string>& textos, const std::string& maquina,
+              std::vector<std::string>& out) {
+    out.clear();
+    for (const std::string& t : textos) {
+        std::string ruta;
+        if (!rutaDeRanura(e, t, maquina, ruta)) {
+            return false;
+        }
+        out.push_back(ruta);
+    }
+    return true;
+}
+
+// Los permisos como los enseña `ls -l`: «drwxr-xr-x».
+std::string modoComoLs(const std::string& tipo, long long modo) {
+    std::string r(1, tipo.empty() || tipo == "f" ? '-' : tipo[0]);
+    const char* letras = "rwxrwxrwx";
+    for (int i = 0; i < 9; ++i) {
+        r += (modo & (1LL << (8 - i))) ? letras[i] : '-';
+    }
+    return r;
+}
+
+std::string fechaCorta(long long segundos) {
+    if (segundos <= 0) {
+        return {};
+    }
+    const std::time_t t = static_cast<std::time_t>(segundos);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
+    return buf;
+}
+
+std::string nombreDeTipo(const std::string& letra) {
+    switch (letra.empty() ? 'o' : letra[0]) {
+        case 'd': return "directory";
+        case 'f': return "file";
+        case 'l': return "symlink";
+        case 'b': return "block";
+        case 'c': return "char";
+        case 'p': return "fifo";
+        case 's': return "socket";
+        default: return "other";
+    }
+}
+
+// La tabla de un directorio cualquiera, o la fila de un fichero.
+bool imprimeFicheros(Estado& e, const std::vector<B::json::Value>& entradas) {
+    Tabla t;
+    t.nombreJson = "entries";
+    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"),   T("t_cab_tipo", "TIPO"),
+                        T("t_cab_tamano", "TAMAÑO"),   T("t_cab_permisos", "PERMISOS"),
+                        T("t_cab_dueno", "DUEÑO"),     T("t_cab_grupo", "GRUPO"),
+                        T("t_cab_modificado", "MODIFICADO")};
+    t.campos = {"name", "type", "size", "mode", "owner", "group", "modified"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes,  Tipo::Cadena,
+               Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    std::vector<B::json::Value> orden = entradas;
+    std::sort(orden.begin(), orden.end(), [](const B::json::Value& a, const B::json::Value& b) {
+        return a["name"].toString() < b["name"].toString();
+    });
+    for (const B::json::Value& v : orden) {
+        const std::string tipo = v["type"].toString();
+        std::string nombre = v["name"].toString();
+        if (!v["target"].toString().empty()) {
+            nombre += " -> " + v["target"].toString();
+        }
+        t.filas.push_back({nombre, nombreDeTipo(tipo),
+                           tipo == "f" ? std::to_string(v["size"].toInt()) : "",
+                           v.contains("mode") ? modoComoLs(tipo, v["mode"].toInt()) : "",
+                           v["owner"].toString(), v["group"].toString(),
+                           fechaCorta(v["mtime"].toInt())});
+    }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// `ls` de `#path/…` o de `#content/…`: el directorio, o la fila del fichero si es un
+// fichero. Las dos secciones se listan igual —nombre, tipo, tamaño, permisos, dueño, grupo y
+// fecha—: antes `#content` daba solo las tres primeras y no sabía listar un fichero.
+bool listaFicheros(Estado& e, const ZfsmUrl& destino) {
+    std::string ruta;
+    if (!rutaDeFicheros(e, destino, ruta, /*callado=*/false)) {
+        return false;
+    }
+    std::string out;
+    std::string errOrden;
+    if (agente(e, destino, PET::pathContents(ruta), out, 60000, &errOrden)) {
+        B::json::Value raiz;
+        std::string err;
+        if (!B::json::parse(out, raiz, &err)) {
+            std::fprintf(stderr, TC("t_contenido_ilegible", "respuesta ilegible al listar %s: %s\n"),
+                         ruta.c_str(), err.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        std::vector<B::json::Value> entradas;
+        for (const auto& v : raiz["entries"].toArray()) {
+            entradas.push_back(v);
+        }
+        return imprimeFicheros(e, entradas);
+    }
+    // No es un directorio: la fila del fichero, como `ls` de un fichero en una shell.
+    Ubicacion ub;
+    e.ultimoRc = 0;
+    if (!ubicacionDe(e, destino, ub)) {
+        return false;
+    }
+    if (!ub.existe) {
+        std::fprintf(stderr, TC("t_no_existe__608f9e", "no existe: %s\n"), ruta.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    B::json::Value v;
+    const std::size_t barra = ruta.find_last_of("/\\");
+    v.set("name", B::json::Value(barra == std::string::npos ? ruta : ruta.substr(barra + 1)));
+    v.set("type", B::json::Value(ub.tipo));
+    v.set("size", B::json::Value(ub.tam));
+    v.set("mode", B::json::Value(ub.modo));
+    v.set("owner", B::json::Value(ub.dueno));
+    v.set("group", B::json::Value(ub.grupo));
+    v.set("mtime", B::json::Value(ub.mtime));
+    if (!ub.enlace.empty()) {
+        v.set("target", B::json::Value(ub.enlace));
+    }
+    return imprimeFicheros(e, {v});
+}
+
+// `info` de un fichero: qué es, de quién, y a qué dataset pertenece.
+bool infoDeRuta(Estado& e, const ZfsmUrl& destino) {
+    Ubicacion ub;
+    if (!ubicacionDe(e, destino, ub)) {
+        return false;
+    }
+    if (!ub.existe) {
+        std::fprintf(stderr, TC("t_no_existe__608f9e", "no existe: %s\n"), ub.ruta.c_str());
         e.ultimoRc = 1;
         return false;
     }
     Tabla t;
-    t.nombreJson = "entries";
-    t.cabecerasTexto = {T("t_cab_nombre", "NOMBRE"), T("t_cab_tipo", "TIPO"),
-                        T("t_cab_tamano", "TAMAÑO")};
-    t.campos = {"name", "type", "size"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes};
-    for (const L::DirectoryEntry& ent : entradas) {
-        t.filas.push_back({ent.name,
-                           ent.directory ? "directory" : "file",
-                           ent.directory ? "" : std::to_string(ent.size)});
+    t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
+    t.campos = {"field", "value"};
+    t.filas.push_back({"url", textoDe(destino)});
+    t.filas.push_back({"path", ub.ruta});
+    t.filas.push_back({"kind", nombreDeTipo(ub.tipo)});
+    if (!ub.enlace.empty()) {
+        t.filas.push_back({"target", ub.enlace});
     }
-    if (!aplicaFiltro(e, t)) {
-        return false;
+    if (ub.tipo == "f") {
+        t.filas.push_back({"size", std::to_string(ub.tam)});
+    }
+    t.filas.push_back({"mode", modoComoLs(ub.tipo, ub.modo)});
+    if (!ub.dueno.empty()) {
+        t.filas.push_back({"owner", ub.dueno});
+    }
+    if (!ub.grupo.empty()) {
+        t.filas.push_back({"group", ub.grupo});
+    }
+    t.filas.push_back({"modified", fechaCorta(ub.mtime)});
+    if (!ub.dataset.empty()) {
+        const ZfsmUrl d = urlDeDataset(destino.connection, ub.dataset, ub.instantanea);
+        t.filas.push_back({"dataset", textoDe(d)});
+        if (ub.esMontaje) {
+            t.filas.push_back({"mountpoint_of", textoDe(d)});
+        } else {
+            ZfsmUrl c = d;
+            c.section = B::zfsmSection::kContent;
+            c.detail = B::split(ub.relativa, "/", true);
+            t.filas.push_back({"content_url", textoDe(c)});
+        }
     }
     t.imprime(e.formato);
     return true;
@@ -1865,8 +2323,8 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
     }
     const ZfsmUrl& destino = pet.objetivo;
     const std::string sec = B::toLowerAscii(destino.section);
-    if (sec == B::zfsmSection::kContent) {
-        return listaContenido(e, destino);
+    if (sec == B::zfsmSection::kContent || sec == B::zfsmSection::kPath) {
+        return listaFicheros(e, destino);
     }
     if (sec == B::zfsmSection::kProperties) {
         return listaPropiedades(e, destino);
@@ -1957,6 +2415,25 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
         }
         if (rc != 0 || B::contains(out, "EXISTS=no")) {
             std::fprintf(stderr, TC("t_no_existe__608f9e", "no existe: %s\n"), destino.zfsName().c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+    }
+    // Dentro de los ficheros, lo mismo que haría cualquier shell: que exista y que sea un
+    // directorio. Antes `cd zfsm://m#path/loquesea` se aceptaba sin mirar.
+    if (esSeccionDeFicheros(destino)) {
+        Ubicacion ub;
+        if (!ubicacionDe(e, destino, ub)) {
+            return false;
+        }
+        if (!ub.existe) {
+            std::fprintf(stderr, TC("t_no_existe__608f9e", "no existe: %s\n"), ub.ruta.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (!ub.esDirectorio) {
+            std::fprintf(stderr, TC("t_no_es_directorio", "no es un directorio: %s\n"),
+                         ub.ruta.c_str());
             e.ultimoRc = 1;
             return false;
         }
@@ -3483,8 +3960,14 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const bool borraOrigen = pet.tiene("--delete-source");
+    // El directorio puede venir como `zfsm://<misma máquina>#path/…`: `todir` vuelca dentro
+    // de la máquina del dataset, así que otra máquina es un error.
+    std::string dirDestino;
+    if (!rutaDeRanura(e, pet.uno("ruta"), destino.connection, dirDestino)) {
+        return false;
+    }
     if (!confirma(e, B::format(T("t_conf_todir", "Se va a volcar %1 a %2%3. ¿Continuar?"),
-                               {destino.dataset, pet.uno("ruta"),
+                               {destino.dataset, dirDestino,
                                 borraOrigen ? T("t_conf_y_destruir_origen",
                                                 " y DESTRUIR el dataset de origen")
                                             : std::string()}))) {
@@ -3492,7 +3975,7 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const std::vector<std::string> argvTodir =
-        AV::argvToDir(destino.dataset, pet.uno("ruta"), borraOrigen);
+        AV::argvToDir(destino.dataset, dirDestino, borraOrigen);
     if (argvTodir.empty()) {
         std::fputs(TC("t_ruta_no_absoluta",
                       "el directorio de destino tiene que ser una ruta absoluta\n"), stderr);
@@ -3544,6 +4027,24 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 
     const B::ConnectionProfile* pSrc = pDst;
     ZfsmUrl origen = destino;
+    // El origen como `zfsm://maq#path/dir`: la URL ya dice de qué máquina viene, y con ella
+    // `--from` sobra. Si se dan las dos, tienen que nombrar la misma máquina.
+    std::string dir;
+    std::string maquinaDeLaRuta;
+    if (!rutaDeRanura(e, pet.uno("ruta"), "", dir, &maquinaDeLaRuta)) {
+        return false;
+    }
+    if (!maquinaDeLaRuta.empty() && pet.valor("from").empty()) {
+        origen = ZfsmUrl{};
+        origen.kind = ZfsmKind::Connection;
+        origen.connection = maquinaDeLaRuta;
+        std::string error;
+        pSrc = perfilDe(e, origen, error);
+        if (!pSrc) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+    }
     if (!pet.valor("from").empty()) {
         std::string error;
         if (!resuelve(e, pet.valor("from"), origen, error)) {
@@ -3557,7 +4058,13 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
         }
     }
 
-    const std::string dir = pet.uno("ruta");
+    if (!maquinaDeLaRuta.empty() && !pet.valor("from").empty()
+        && B::toLowerAscii(maquinaDeLaRuta) != B::toLowerAscii(origen.connection)) {
+        std::fprintf(stderr, TC("t_fromdir_dos_maquinas",
+                                "el origen dice %s y --from dice %s: sobra uno\n"),
+                     maquinaDeLaRuta.c_str(), origen.connection.c_str());
+        return false;
+    }
     const std::string rel = pet.valor("subdir");
     // El subdirectorio se comprueba AQUÍ, antes de preguntar y antes de abrir la tubería.
     // Lo miraba solo el daemon, al otro extremo, y para entonces el tar del origen ya estaba
@@ -4491,8 +4998,11 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
     const PL::Operation opPool = sub == "scrub"      ? PL::Operation::Scrub
                                  : sub == "trim"     ? PL::Operation::Trim
                                                      : PL::Operation::Initialize;
-    std::vector<std::string> argv = PL::argv(opPool, destino.pool, faseOp, pet.nativas(),
-                                             pet.lista("disco"));
+    std::vector<std::string> discos;
+    if (!discosDe(e, pet.lista("disco"), destino.connection, discos)) {
+        return false;
+    }
+    std::vector<std::string> argv = PL::argv(opPool, destino.pool, faseOp, pet.nativas(), discos);
     if (argv.empty()) {
         std::fputs(TC("t_pool_op_invalida", "no se puede pedir eso sobre ese pool\n"), stderr);
         return false;
@@ -4526,7 +5036,11 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo,
     // `clear` admite un dispositivo detrás del pool. Al declararlo como ranura dejó de
     // llegar aquí como suelto, así que hay que pasarlo a mano: consumido y no usado es
     // exactamente el fallo que este preámbulo viene a quitar.
-    for (const std::string& d : pet.lista("disco")) {
+    std::vector<std::string> discos;
+    if (!discosDe(e, pet.lista("disco"), destino.connection, discos)) {
+        return false;
+    }
+    for (const std::string& d : discos) {
         argv.push_back(d);
     }
     if (!zpoolGeneric(e, destino, argv)) {
@@ -4706,9 +5220,23 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
         t.imprime(e.formato);
         return true;
     }
+    // Las banderas de `zpool import` que la orden declara, TODAS: antes se construía
+    // `import [-f] <pool>` y `-d`, `-R`, `-N`… se aceptaban sin pasarse. `-d` admite además
+    // `zfsm://<esta máquina>#path/dir`.
     std::vector<std::string> argv{"import"};
-    if (pet.tiene("-f")) {
-        argv.push_back("-f");
+    const std::vector<std::string> nat = pet.nativas();
+    for (std::size_t i = 0; i < nat.size(); ++i) {
+        if (nat[i] == "-d" && i + 1 < nat.size()) {
+            std::string dir;
+            if (!rutaDeRanura(e, nat[i + 1], destino.connection, dir)) {
+                return false;
+            }
+            argv.push_back("-d");
+            argv.push_back(dir);
+            ++i;
+            continue;
+        }
+        argv.push_back(nat[i]);
     }
     argv.push_back(pet.uno("texto"));
     if (!pet.valor("as").empty()) {
@@ -4740,7 +5268,11 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
     // El nombre viene DADO y no se toma de textos.front(): desde la raíz, `create
     // unibody/apar sda` lo trae ya separado de la máquina en la que se crea.
     const std::string pool = nombre.empty() ? textos.front() : nombre;
-    const std::vector<std::string> vdevs(textos.begin() + 1, textos.end());
+    std::vector<std::string> vdevs;
+    if (!discosDe(e, std::vector<std::string>(textos.begin() + 1, textos.end()),
+                  destino.connection, vdevs)) {
+        return false;
+    }
     if (!confirma(e, B::format(T("t_conf_create_pool",
                                  "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "
                                  "hubiera en esos dispositivos SE PIERDE. ¿Continuar?"),
@@ -5289,7 +5821,10 @@ bool esFicheroEn(Estado& e, const ZfsmUrl& u, const std::string& ruta) {
     std::string out;
     std::vector<L::DirectoryEntry> entradas;
     std::string errJson;
-    if (!agente(e, u, PET::directoryContents(padre), out)
+    // `pathContents` y no `directoryContents`: este último se queda dentro de los montajes de
+    // ZFS, y un extremo `#path` puede estar en cualquier sitio. Con él, un fichero suelto
+    // fuera de ZFS se tomaba por directorio.
+    if (!agente(e, u, PET::pathContents(padre), out)
         || !L::directoryContents(out, entradas, errJson)) {
         return false;
     }
@@ -5649,8 +6184,10 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     //
     // Las otras secciones no nombran ficheros y se rechazan en vez de ignorarse, que es lo
     // que se hacía: una URL con `#properties` sincronizaba el dataset entero sin decir nada.
+    //
+    // Y `#path`: una ruta suelta de la máquina, en cualquiera de los dos extremos.
     const auto seccionValida = [](const ZfsmUrl& u, const char* cual) {
-        if (u.section.empty() || B::toLowerAscii(u.section) == B::zfsmSection::kContent) {
+        if (u.section.empty() || esSeccionDeFicheros(u)) {
             return true;
         }
         std::fprintf(stderr,
@@ -5662,6 +6199,19 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     if (!seccionValida(origen, TC("t_rsync_origen", "origen"))) {
         return false;
     }
+    // Un dataset o una ruta suelta; no una máquina ni una instantánea a secas.
+    const auto extremoValido = [](const ZfsmUrl& u) {
+        if (esRutaSuelta(u) || (nodoDe(u) == Nodo::Dataset)) {
+            return true;
+        }
+        std::fprintf(stderr, TC("t_rsync_extremo",
+                                "rsync necesita un dataset o una ruta «#path/…» (ahora: %s)\n"),
+                     textoDe(u).c_str());
+        return false;
+    };
+    if (!extremoValido(origen)) {
+        return false;
+    }
     ZfsmUrl destino;
     std::string err;
     if (!resuelve(e, pet.uno("destino"), destino, err)) {
@@ -5671,19 +6221,55 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     if (!seccionValida(destino, TC("t_rsync_destino", "destino"))) {
         return false;
     }
-    if (!exigeDataset(destino)) {
+    if (!extremoValido(destino)) {
         return false;
     }
     const bool mismaMaquina =
         B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
-    if (mismaMaquina && origen.zfsName() == destino.zfsName() && origen.detail == destino.detail) {
+    if (mismaMaquina && esRutaSuelta(origen) == esRutaSuelta(destino)
+        && origen.zfsName() == destino.zfsName() && origen.detail == destino.detail) {
         std::fputs(TC("t_rsync_mismo", "el origen y el destino son el mismo dataset\n"), stderr);
         return false;
     }
+    // La BASE de cada extremo y la ruta relativa a ella. En un dataset, su punto de montaje
+    // y lo que va tras `#content`; en una ruta suelta, la raíz de la máquina («/», o la
+    // unidad en Windows) y el resto de la ruta. Así las llaves y la comprobación de «..»
+    // valen igual para las dos formas.
+    const auto baseYRelativa = [&e](const ZfsmUrl& u, std::string& base, std::string& rel) {
+        if (!esRutaSuelta(u)) {
+            rel = B::join(u.detail, "/");
+            return montajeDe(e, u, base);
+        }
+        std::vector<std::string> tramos = u.detail;
+        base = "/";
+        if (!tramos.empty() && CS::isDriveSegment(tramos.front())) {
+            base = tramos.front() + "/";
+            tramos.erase(tramos.begin());
+        }
+        rel = B::join(tramos, "/");
+        return true;
+    };
     std::string baseOrigen;
     std::string baseDestino;
-    if (!montajeDe(e, origen, baseOrigen) || !montajeDe(e, destino, baseDestino)) {
+    std::string relOrigen;
+    std::string relDestinoBase;
+    if (!baseYRelativa(origen, baseOrigen, relOrigen)
+        || !baseYRelativa(destino, baseDestino, relDestinoBase)) {
         return false;
+    }
+    // Una ruta suelta de destino tiene que EXISTIR y ser un directorio, como en `cp`: no se
+    // crea un árbol en cualquier sitio de la máquina por una errata.
+    if (esRutaSuelta(destino)) {
+        Ubicacion ub;
+        if (!ubicacionDe(e, destino, ub)) {
+            return false;
+        }
+        if (!ub.existe || !ub.esDirectorio) {
+            std::fprintf(stderr, TC("t_no_es_directorio", "no es un directorio: %s\n"),
+                         ub.ruta.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
     }
     const bool borra = pet.tiene("--delete");
     const bool simula = pet.tiene("--check");
@@ -5692,17 +6278,35 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     // es el árbol entero.
     // `detail` viene ya troceado por «/»; se rejunta para volver a tener la ruta relativa
     // tal y como se escribió, que es sobre la que actúan las llaves.
-    const auto rutaDe = [](const ZfsmUrl& u) { return B::join(u.detail, "/"); };
+    const auto rutaDe = [&](const ZfsmUrl& u) {
+        return &u == &origen ? relOrigen : relDestinoBase;
+    };
     // Si un patrón ya las ha expandido (`#content/*.log`), esas; todas a UN solo rsync,
     // como hace la shell, para que `--delete` las considere juntas.
-    const std::vector<std::string> relativas =
-        !e.rsyncRelativas.empty() ? e.rsyncRelativas : AV::contentPaths(rutaDe(origen));
+    std::vector<std::string> relativas =
+        !e.rsyncRelativas.empty() ? e.rsyncRelativas : AV::contentPaths(relOrigen);
+    // Las que vienen de un patrón sobre `#path` llevan la ruta entera desde la raíz; en
+    // Windows, con la unidad delante, que es la base y no parte de la ruta relativa.
+    if (esRutaSuelta(origen) && !e.rsyncRelativas.empty()) {
+        for (std::string& rel : relativas) {
+            if (rel.size() >= 2 && CS::isDriveSegment(rel.substr(0, 2))) {
+                baseOrigen = rel.substr(0, 2) + "/";
+                rel = rel.size() > 3 ? rel.substr(3) : std::string();
+            }
+        }
+    }
     if (relativas.empty()) {
         std::fprintf(stderr,
                      TC("t_rsync_llaves_mal",
                         "«%s» no se entiende: las llaves se escriben «{a,b,c}», sin anidar y "
                         "sin piezas vacías\n"),
-                     rutaDe(origen).c_str());
+                     relOrigen.c_str());
+        return false;
+    }
+    // Sincronizar la raíz entera de una máquina no es algo que nadie quiera por una errata.
+    if (esRutaSuelta(origen) && relativas.size() == 1 && relativas.front().empty()) {
+        std::fputs(TC("t_rsync_raiz", "rsync: el origen no puede ser la raíz de la máquina\n"),
+                   stderr);
         return false;
     }
     const auto dentroDelArbol = [](const std::string& rel, const char* cual) {
@@ -5803,21 +6407,31 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 relDestino = unir(relDestino, hojaDe(par.first));
             }
             // El directorio de destino tiene que EXISTIR: el receptor del árbol lo exige.
-            // `--mutate-advanced-fromdir-prepare` lo monta, lo resuelve y lo crea.
+            // En un dataset, `--mutate-advanced-fromdir-prepare` lo monta, lo resuelve y lo
+            // crea. En una ruta suelta ya se comprobó que existe; solo se crea, con
+            // `--mutate-prepare-dir`, el subdirectorio con nombre de un patrón.
             std::string prepOut;
             std::string prepErr;
             int prepRc = -1;
-            const std::vector<std::string> prep =
-                AV::argvFromDirPrepare(destino.zfsName(), relDestino);
-            if (prep.empty()
-                || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
-                || prepRc != 0) {
-                std::fputs(TC("t_rsync_destino_no", "no se pudo preparar el destino\n"), stderr);
-                return false;
+            std::string dirPreparado;
+            const std::string dirDestino = unir(baseDestino, rutaDe(destino));
+            if (esRutaSuelta(destino) && relDestino == rutaDe(destino)) {
+                dirPreparado = dirDestino;
+            } else {
+                const std::vector<std::string> prep =
+                    esRutaSuelta(destino) ? AV::argvPrepareDir(dirDestino, hojaDe(par.first))
+                                          : AV::argvFromDirPrepare(destino.zfsName(), relDestino);
+                if (prep.empty()
+                    || !ejecutarAgente(*e.ses, dst, prep, prepOut, prepErr, prepRc, nullptr, 60000)
+                    || prepRc != 0) {
+                    std::fputs(TC("t_rsync_destino_no", "no se pudo preparar el destino\n"), stderr);
+                    return false;
+                }
+                dirPreparado = B::trim(AV::preparedPath(prepOut));
             }
             std::string salidaEnvio;
             const auto hecho = TR::launchTreeJob(
-                e.ses->transporte, llama, src, dst, par.first, B::trim(AV::preparedPath(prepOut)),
+                e.ses->transporte, llama, src, dst, par.first, dirPreparado,
                 /*mismaConexion=*/false, e.ses->verboso, /*comoTrabajo=*/false,
                 borra && !fichero, simula,
                 &salidaEnvio);
@@ -5959,9 +6573,23 @@ bool cmdLabelclear(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    const ZfsmUrl conexion = subeHasta(pet.objetivo, Objetivo::Conexion);
-    const std::string dispositivo = pet.uno("dispositivo");
-    if (dispositivo.empty() || dispositivo.front() != '/') {
+    ZfsmUrl conexion = subeHasta(pet.objetivo, Objetivo::Conexion);
+    // `labelclear zfsm://fc16#path/dev/sda9`: la URL da la máquina y el dispositivo. Con
+    // `--on` además, tienen que coincidir.
+    std::string dispositivo;
+    std::string maquina;
+    const bool conOn = !pet.valor("on").empty() || !pet.valor("from").empty();
+    if (!rutaDeRanura(e, pet.uno("dispositivo"), conOn ? conexion.connection : std::string(),
+                      dispositivo, &maquina)) {
+        return false;
+    }
+    if (!maquina.empty() && B::toLowerAscii(maquina) != B::toLowerAscii(conexion.connection)) {
+        conexion = ZfsmUrl{};
+        conexion.kind = ZfsmKind::Connection;
+        conexion.connection = maquina;
+    }
+    if (dispositivo.empty() || (dispositivo.front() != '/'
+                                && !(dispositivo.size() > 1 && dispositivo[1] == ':'))) {
         std::fputs(TC("t_labelclear_ruta", "labelclear necesita la ruta del dispositivo, como "
                       "«/dev/sda9»\n"), stderr);
         e.ultimoRc = 2;
@@ -5995,6 +6623,10 @@ bool cmdInfo(Estado& e, const LineaAnalizada& linea) {
     if (nodoDe(destino) == Nodo::Raiz) {
         std::fprintf(stdout, "kind\troot\nconnections\t%zu\n", e.conns.perfiles.size());
         return true;
+    }
+    // Un fichero o un directorio: qué es y a qué dataset pertenece.
+    if (esSeccionDeFicheros(destino) && (esRutaSuelta(destino) || !destino.detail.empty())) {
+        return infoDeRuta(e, destino);
     }
     // **Un pool, un dataset o un snapshot: SU detalle, no el de la conexión.** Antes `info`
     // daba siempre la salud del daemon, pidiera uno lo que pidiera.
@@ -6175,39 +6807,32 @@ std::vector<std::string> nombresDeContenido(Estado& e, const ZfsmUrl& destino) {
     if (!p) {
         return out;
     }
+    // Vale para `#content` y para `#path`: la ruta sale de rutaDeFicheros y los nombres, del
+    // agente. Antes era `ls -A -p` (o `Get-ChildItem`) por SSH: una shell para pulsar el
+    // tabulador, y dos sintaxis que mantener.
     std::string base;
-    bool esWindows = false;
-    if (!rutaDeContenido(e, destino, base, esWindows, /*callado=*/true)) {
+    if (!rutaDeFicheros(e, destino, base, /*callado=*/true)) {
         return out;
     }
-    std::string orden;
-    if (esWindows) {
-        std::string entrecomillada = base;
-        B::replaceAll(entrecomillada, "'", "''");
-        orden = "$ErrorActionPreference='SilentlyContinue'; $p='" + entrecomillada + "'; "
-                "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
-                "  $_.Name + $(if($_.PSIsContainer){'/'}else{''}) }";
-    } else {
-        // `-p` pone la barra a los directorios, y es POSIX: no hace falta `find` ni `stat`.
-        const std::string guion = "p=" + B::shSingleQuote(base)
-                                  + "; [ -d \"$p\" ] && ls -A -p \"$p\" 2>/dev/null";
-        orden = "sh -lc " + B::shSingleQuote(guion);
-    }
-    const B::ConnectionProfile perfil = conSudo(e, *p);
-    std::string salida;
+    std::string texto;
     std::string err;
     int rc = -1;
-    if (!T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, orden), 12000, salida,
-                   err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false, /*echoOutputToLog=*/false)
+    if (!ejecutarAgente(*e.ses, *p, PET::pathContents(base), texto, err, rc, nullptr, 12000)
         || rc != 0) {
         return out;
     }
-    for (const std::string& l : B::split(salida, "\n", true)) {
-        const std::string n = B::trim(l);
+    B::json::Value raiz;
+    if (!B::json::parse(texto, raiz, nullptr)) {
+        return out;
+    }
+    for (const auto& v : raiz["entries"].toArray()) {
+        const std::string n = v["name"].toString();
         if (!n.empty()) {
-            out.push_back(n);
+            // Los directorios, con la barra puesta: es lo que uno escribe a continuación.
+            out.push_back(n + (v["type"].toString() == "d" ? "/" : ""));
         }
     }
+    std::sort(out.begin(), out.end());
     return out;
 }
 
@@ -6323,21 +6948,25 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         if (barra == std::string::npos) {
             // Todavía se está escribiendo el nombre de la sección. Solo se ofrecen donde
             // significan algo: en una conexión o en la raíz no hay contenido ni propiedades.
+            // En una máquina, `#path/`; en un dataset o una instantánea, las suyas. Las que
+            // llevan algo detrás se ofrecen con la barra puesta, como un directorio:
+            // `#permissions` no lleva nada.
             std::vector<std::string> out;
+            std::vector<std::string> secciones;
             const Nodo n = nodoDe(sitio);
-            if (n != Nodo::Dataset && n != Nodo::Snapshot) {
-                return out;
+            if (n == Nodo::Conexion) {
+                secciones = {std::string("#") + B::zfsmSection::kPath + "/"};
+            } else if (n == Nodo::Dataset || n == Nodo::Snapshot) {
+                secciones = {std::string("#") + B::zfsmSection::kContent + "/",
+                             std::string("#") + B::zfsmSection::kProperties + "/",
+                             std::string("#") + B::zfsmSection::kPermissions};
             }
-            for (const std::string& s : {std::string("#") + B::zfsmSection::kContent,
-                                         std::string("#") + B::zfsmSection::kProperties,
-                                         std::string("#") + B::zfsmSection::kPermissions}) {
+            for (const std::string& s : secciones) {
                 if (B::startsWith(s, resto)) {
                     out.push_back(prefijo + s);
                 }
             }
-            // `#content` y `#properties` llevan «/…» detrás; `#permissions` no lleva nada.
-            puedeSeguir = out.size() == 1
-                          && !B::endsWith(out.front(), std::string("#") + B::zfsmSection::kPermissions);
+            puedeSeguir = out.size() == 1 && out.front().back() == '/';
             return out;
         }
         const std::string seccion = B::toLowerAscii(resto.substr(1, barra - 1));
@@ -6351,7 +6980,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
                 return {};
             }
             candidatos = propiedadesDe(e, sitio);
-        } else if (seccion == B::zfsmSection::kContent) {
+        } else if (seccion == B::zfsmSection::kContent || seccion == B::zfsmSection::kPath) {
             // Se resuelve el directorio ya escrito —sin la barra final, que `resuelve` no
             // espera— y se preguntan sus nombres.
             std::string dir = prefijo + yaEscrito;
@@ -6364,7 +6993,7 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
             }
             candidatos = nombresDeContenido(e, donde);
         } else {
-            return {};   // `#permissions` no tiene hijos
+            return {};   // `#permissions` no tiene hijos, y una sección desconocida tampoco
         }
         std::vector<std::string> out;
         for (const std::string& c : candidatos) {
@@ -6396,6 +7025,18 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     std::string err;
     if (!resuelve(e, base.empty() ? std::string(".") : base, sitio, err)) {
         return {};
+    }
+    // Dentro de `#path/…` o `#content/…`, un nombre suelto es un fichero de ese directorio,
+    // no un dataset hijo: lo mismo que lee `resuelve`.
+    if (esSeccionDeFicheros(sitio)) {
+        std::vector<std::string> out;
+        for (const std::string& n : nombresDeContenido(e, sitio)) {
+            if (B::startsWith(n, cola)) {
+                out.push_back(base + n);
+            }
+        }
+        puedeSeguir = out.size() == 1 && out.front().back() == '/';
+        return out;
     }
     std::vector<std::string> out;
     for (const std::string& h : hijosDe(e, sitio)) {
@@ -6429,6 +7070,10 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
             }
             if (n == Nodo::Dataset || n == Nodo::Snapshot) {
                 sigue.push_back(parcial + "#");
+            }
+            // Una máquina sigue con «/» (sus pools) o con `#path/` (sus ficheros).
+            if (n == Nodo::Conexion) {
+                sigue.push_back(parcial + "#" + B::zfsmSection::kPath + "/");
             }
             if (!sigue.empty()) {
                 puedeSeguir = true;
@@ -6676,11 +7321,12 @@ public:
             if (!resolver(prefijo, u)) {
                 return false;
             }
+            // `#content` o `#path`: la ruta sale de rutaDeFicheros y los nombres, del mismo
+            // verbo para las dos.
             std::string base;
-            bool esWindows = false;
             std::string out;
-            if (!rutaDeContenido(e_, u, base, esWindows, /*callado=*/false)
-                || !agente(e_, u, PET::directoryContents(base), out)) {
+            if (!rutaDeFicheros(e_, u, base, /*callado=*/false)
+                || !agente(e_, u, PET::pathContents(base), out)) {
                 return false;
             }
             std::vector<L::DirectoryEntry> entradas;
@@ -6842,7 +7488,8 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
             if (i == filtroEn) {
                 d.filtro.patron = piezas[i].crudo;
                 d.filtro.ocultos = piezas[i].clase == Pieza::Detalle
-                                   && B::toLowerAscii(prefijo.seccion) == "content";
+                                   && (B::toLowerAscii(prefijo.seccion) == "content"
+                                       || B::toLowerAscii(prefijo.seccion) == "path");
                 d.filtro.clase = piezas[i].clase == Pieza::Hijo ? FiltroFilas::Clase::Hijos
                                  : piezas[i].clase == Pieza::Instantanea
                                      ? FiltroFilas::Clase::Instantaneas
@@ -6865,7 +7512,8 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
                 case Pieza::Detalle:
                     if (B::toLowerAscii(prefijo.seccion) == "properties") {
                         candidatos = en.propiedades(prefijo);
-                    } else if (B::toLowerAscii(prefijo.seccion) == "content") {
+                    } else if (B::toLowerAscii(prefijo.seccion) == "content"
+                               || B::toLowerAscii(prefijo.seccion) == "path") {
                         candidatos = en.contenido(prefijo, /*soloDirectorios=*/i + 1 < piezas.size());
                     } else {
                         err = B::format(T("t_patron_no_seccion", "la sección «%1» no admite comodines"),
@@ -6908,7 +7556,8 @@ bool expandeDestinos(Estado& e, const UrlCruda& u, bool filtraUltimo,
             return false;
         }
         const bool deFicheros = pz.clase == Pieza::Detalle
-                                && B::toLowerAscii(prefijo.seccion) == "content";
+                                && (B::toLowerAscii(prefijo.seccion) == "content"
+                                    || B::toLowerAscii(prefijo.seccion) == "path");
         for (const std::string& c : candidatos) {
             if (deFicheros && !c.empty() && c[0] == '.' && pz.crudo[0] != '.') {
                 continue;  // como la shell: «*» no saca los ocultos
@@ -7629,7 +8278,8 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
         return false;
     }
 
-    const auto corre = [&](const DestinoConcreto& d) {
+    bool vacio = false;   // la última sección se quedó sin filas tras el filtro
+    const auto corre = [&](const DestinoConcreto& d, bool enVarios = false) {
         LineaAnalizada an2 = an;
         an2.opciones.erase("on");
         an2.opciones.erase("from");
@@ -7637,7 +8287,9 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
         an2.objetivo = d.url.empty() ? std::string("/") : d.url;
         e.filtro = d.filtro;
         e.filtro.texto = texto;
+        e.filtro.enVarios = enVarios;
         const bool ok = f(e, an2);
+        vacio = e.filtro.quedoVacio;
         e.filtro = FiltroFilas{};
         return ok;
     };
@@ -7673,10 +8325,16 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     Acumulador acu;
     acumuladorActivo() = &acu;
     bool todoBien = true;
+    std::size_t vacias = 0;
     for (const DestinoConcreto& d : destinos) {
         acu.destinoActual = d.etiqueta();
         CapturaSalida captura;
-        const bool ok = corre(d);
+        bool ok = corre(d, /*enVarios=*/true);
+        if (!ok && vacio) {
+            ok = true;
+            e.ultimoRc = 0;
+            ++vacias;
+        }
         const std::string suelto = captura.termina();
         if (!suelto.empty()) {
             // Lo que la orden imprimió a mano: en su sección, con el destino delante.
@@ -7688,6 +8346,11 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
         todoBien = todoBien && ok;
     }
     acumuladorActivo() = nullptr;
+    if (vacias == destinos.size()) {
+        std::fprintf(stderr, TC("t_nada_coincide", "nada coincide con «%s»\n"), texto.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
     vuelcaAcumulador(acu, e.formato);
     if (!todoBien) {
         e.ultimoRc = 1;

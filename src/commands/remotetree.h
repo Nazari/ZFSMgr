@@ -86,6 +86,11 @@ bool walk(const std::string& root, std::vector<Entry>& output, std::string& erro
 // the same machinery as a tree, without the receiver having to know the difference.
 bool walkSingleFile(const std::string& file, Entry& output, std::string& error);
 
+// Kind, size, time, mode and owner of ANY path —directory, file, link or device— without
+// following a symbolic link. For listing and describing a loose path (`#path`); unlike
+// walkSingleFile it does not insist on a regular file.
+bool describePath(const std::string& path, Entry& output, std::string& error);
+
 // The manifest: what the target already has. One line per entry.
 std::string serializeManifest(const std::vector<Entry>& entries);
 // How many bytes of names follow one header line of the manifest: path, target and, when

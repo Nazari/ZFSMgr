@@ -94,6 +94,12 @@ std::vector<std::string> gsaOfAllPools();
 // ── Files ────────────────────────────────────────────────────────────────────
 
 std::vector<std::string> directoryContents(const std::string& path);
+// Any directory of the machine (`#path`), not only inside a ZFS mountpoint: names and
+// `stat`, never contents. On Windows, "/" lists the drives.
+std::vector<std::string> pathContents(const std::string& path);
+// What a path is and which dataset holds it: exists, type, owner…, dataset, relative,
+// exact_mountpoint, snapshot.
+std::vector<std::string> pathInfo(const std::string& path);
 // `from` and `howMuch` in bytes; zero and zero means the whole file.
 std::vector<std::string> fileContents(const std::string& path, unsigned long long from,
                                             unsigned long long howMuch);

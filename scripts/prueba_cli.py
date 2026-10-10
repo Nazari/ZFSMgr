@@ -995,7 +995,7 @@ def casos_tab_continua(ctx):
     P = POOL_LOCAL
     prepara(ctx)
     U = f"zfsm://local/{P}"
-    nombre = "tabulador: tras un nombre completo propone «/», «@» o «#», sin repetir lo común"
+    nombre = "tabulador: tras un nombre completo propone «/», «@», «#» o «#path/», sin repetir lo común"
     fichero = os.path.join(ctx.dir_tmp, ".maestra")
     r, w = os.pipe()
     with open(fichero) as f:
@@ -1024,6 +1024,10 @@ def casos_tab_continua(ctx):
     conexion = lee(3)
     os.write(fd, f"\x15ls {U}\t".encode())
     pool = lee(4)
+    os.write(fd, b"\x15cd local#\t")
+    seccion = lee(3)
+    os.write(fd, b"\x15cd local#path/et\t")
+    ruta = lee(3)
     os.write(fd, b"\x15exit\r")
     lee(1)
     try:
@@ -1031,20 +1035,97 @@ def casos_tab_continua(ctx):
     except ChildProcessError:
         pass
     problemas = []
-    if not conexion.rstrip().endswith("cd local/"):
-        problemas.append("`cd local<tab>` no escribe «local/»")
+    # Una máquina sigue con «/» (sus pools) o con `#path/` (sus ficheros): se enseñan las dos.
+    if not re.search(r"^\s+local/\s+local#path/\s*$", conexion.replace("\r", ""), re.M):
+        problemas.append("`cd local<tab>` no enseña «local/  local#path/»")
+    if not seccion.rstrip().endswith("cd local#path/"):
+        problemas.append("`cd local#<tab>` no escribe «local#path/»")
+    if not ruta.rstrip().endswith("cd local#path/etc/"):
+        problemas.append("`cd local#path/et<tab>` no escribe «etc/»")
     # Y las opciones se enseñan SIN lo que comparten: «ztfc16/  ztfc16#», no la URL entera
     # repetida delante de cada una.
     if not re.search(rf"^\s+{P}/\s+{P}#\s*$", pool.replace("\r", ""), re.M):
         problemas.append("`ls <pool><tab>` no enseña «<pool>/  <pool>#» sin la URL delante")
     if problemas:
-        ctx.fallos.append((nombre, problemas, (conexion + pool)[-400:]))
+        ctx.fallos.append((nombre, problemas, (conexion + pool + seccion + ruta)[-600:]))
         print(f"  FALLO  {nombre}")
         for x in problemas:
             print(f"         {x}")
     else:
         ctx.pasados.append(nombre)
         print(f"  ok     {nombre}")
+
+
+def casos_path(ctx):
+    """`#path`: una ruta cualquiera de la máquina, entendida en TODAS las órdenes.
+
+    Las que manejan ficheros la usan; las de datasets solo si es EXACTAMENTE el punto de
+    montaje, y nunca suben al dataset que la contiene: `destroy` de un subdirectorio no puede
+    acabar destruyendo el dataset. Lo mismo para `#content/sub` escrito a mano.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    # Los mensajes se comprueban en castellano: sin `--lang` saldrían en inglés.
+    caso = lambda *a, **k: globals()["caso"](*a, idioma="es", **k)
+    R = f"zfsm://local#path/mnt/{P}/datos"
+    U = f"zfsm://local/{P}/datos"
+    caso(ctx, "path: ls de un directorio cualquiera de la máquina",
+         ["ls zfsm://local#path/etc"], rc=0, espera=[r"^hostname\s+file\s"])
+    caso(ctx, "path: ls de un fichero da su fila",
+         ["ls zfsm://local#path/etc/hostname"], rc=0, veces=[(r"^hostname\s+file\s", 1)])
+    caso(ctx, "path: ls de #content tiene las mismas columnas",
+         [f"ls {U}#content"], rc=0, espera=[r"^NOMBRE\s+TIPO\s+TAMAÑO\s+PERMISOS\s+DUEÑO",
+                                            r"^fichero\.txt\s+file\s"])
+    caso(ctx, "path: info dice a qué dataset pertenece y su URL #content",
+         [f"info {R}/fichero.txt"], rc=0,
+         espera=[rf"^dataset\s+{re.escape(U)}$",
+                 rf"^content_url\s+{re.escape(U)}#content/fichero\.txt$"])
+    caso(ctx, "path: info del punto de montaje lo dice",
+         [f"info {R}"], rc=0, espera=[rf"^mountpoint_of\s+{re.escape(U)}$"])
+    caso(ctx, "path: cd a un fichero se niega",
+         [f"cd {R}/fichero.txt"], rc=1, espera=[r"no es un directorio"])
+    caso(ctx, "path: cd a lo que no existe se niega",
+         [f"cd {R}/no-existe"], rc=1, espera=[r"no existe"])
+    caso(ctx, "path: cd y cd .. se mueven por directorios",
+         [f"cd {R}/sub", "cd ..", "pwd", "cd ../../../..", "pwd"], rc=0,
+         espera=[rf"^{re.escape(R)}$", r"^zfsm://local$"])
+    caso(ctx, "content: cd .. sube un directorio, no un dataset",
+         [f"cd {U}#content/sub", "cd ..", "pwd"], rc=0, espera=[rf"^{re.escape(U)}#content$"])
+    caso(ctx, "path: el punto de montaje vale como el dataset, y lo dice",
+         [f"get compression --on {R}"], rc=0, espera=[rf"→ {re.escape(U)}"])
+    caso(ctx, "path: destroy de un subdirectorio se niega y da la URL #content",
+         [f"destroy {R}/sub -y"], rc=1,
+         espera=[rf"no es un dataset; está dentro de {P}/datos", r"#content/sub"],
+         estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$")])
+    caso(ctx, "content: destroy de #content/sub se niega",
+         [f"destroy {U}#content/sub -y"], rc=1, espera=[r"es una ruta dentro de"],
+         estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$")])
+    caso(ctx, "path: una ruta suelta no es una máquina",
+         ["devices zfsm://local#path/dev"], rc=1, espera=[r"no es una conexión"])
+    caso(ctx, "path: #path en un dataset se rechaza",
+         [f"ls {U}#path/x"], espera=[r"cuelga de una máquina"])
+    caso(ctx, "path: comodines en el último tramo",
+         [f"ls {R}/*.txt"], rc=0, espera=[r"^fichero\.txt\s"], no_espera=[r"otro\.txt"])
+    dst = "/var/tmp/zfsmgr-prueba-path"
+    sh(ctx, f"rm -rf {dst} && mkdir -p {dst}", root=True)
+    caso(ctx, "path: rsync de un dataset a una ruta suelta",
+         [f"rsync zfsm://local#path{dst} --on {U}#content/sub --wait"], rc=0,
+         estado=[("el fichero llegó", f"cat {dst}/otro.txt", r"^anidado$")])
+    caso(ctx, "path: rsync a una ruta que no existe se niega",
+         [f"rsync zfsm://local#path{dst}/no-existe --on {U}"], rc=1,
+         espera=[r"no es un directorio"])
+    sh(ctx, f"rm -rf {dst}", root=True)
+    # labelclear por #path, sobre un pool de FICHERO propio: nunca sobre un disco de verdad.
+    img = f"{IMG_DIR}/ztpath.img"
+    sh(ctx, f"zpool destroy ztpath", root=True)
+    sh(ctx, f"rm -f {img} && truncate -s 128M {img}")
+    sh(ctx, f"zpool create -f ztpath {img}", root=True)
+    caso(ctx, "path: labelclear por #path se niega con el pool importado",
+         [f"labelclear zfsm://local#path{img} -f -y"], rc=1)
+    sh(ctx, "zpool destroy ztpath", root=True)
+    caso(ctx, "path: labelclear por #path, con la máquina de la URL",
+         [f"labelclear zfsm://local#path{img} -f -y"], rc=0, espera=[r"borrada la etiqueta"])
+    sh(ctx, f"rm -f {img}")
 
 
 def casos_info_labelclear(ctx):
@@ -1978,7 +2059,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_tab_continua, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

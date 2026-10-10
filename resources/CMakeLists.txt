@@ -85,6 +85,8 @@ cmd:--mutate-set-bind
 cmd:--mutate-zfs-recv-abort
 cmd:--dump-resolve-devices
 cmd:--mutate-zpool-labelclear
+cmd:--dump-path-list
+cmd:--dump-path-info
 copytree:skip-unchanged-delete-dryrun
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.

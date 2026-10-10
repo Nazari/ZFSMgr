@@ -574,6 +574,8 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-zfs-recv-abort");
     caps.push_back("--dump-resolve-devices");
     caps.push_back("--mutate-zpool-labelclear");
+    caps.push_back("--dump-path-list");
+    caps.push_back("--dump-path-info");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -4877,6 +4879,227 @@ ExecResult listaDirectorio(const std::string& ruta) {
     return r;
 }
 
+// --- Rutas sueltas: `zfsm://maq#path/...`.
+//
+// Lo que NO es contenido de un dataset: cualquier directorio de la máquina. A diferencia de
+// `--dump-dir-list`, que se queda dentro de los montajes de ZFS, estos dos verbos aceptan
+// cualquier ruta, y es una decisión tomada a propósito. Solo devuelven NOMBRES y `stat`,
+// nunca contenido (`--dump-file` sigue limitado). Los verbos de copia
+// (`--mutate-copy-local`, `--tree-send-to-peer`) ya leían cualquier ruta como root, así
+// que el límite del listado no protegía nada y sí impedía navegar.
+
+struct MontajeZfs {
+    std::string dataset;
+    std::filesystem::path ruta;   // canonizada y sin separador final
+};
+
+std::filesystem::path canonizaSinBarra(std::string ruta) {
+    while (ruta.size() > 1 && (ruta.back() == '/' || ruta.back() == '\\')
+           && !(ruta.size() == 3 && ruta[1] == ':')) {
+        ruta.pop_back();
+    }
+    std::error_code ec;
+    std::filesystem::path p = std::filesystem::weakly_canonical(ruta, ec);
+    if (ec) {
+        p = std::filesystem::path(ruta);
+    }
+    // weakly_canonical deja la barra final si la había en lo que no existe: fuera, para que
+    // la comparación por componentes no vea un último tramo vacío.
+    std::string t = p.string();
+    while (t.size() > 1 && (t.back() == '/' || t.back() == '\\')
+           && !(t.size() == 3 && t[1] == ':')) {
+        t.pop_back();
+    }
+    return std::filesystem::path(t);
+}
+
+// Cada dataset montado y dónde, según `zfs mount` —no la propiedad: en Windows la
+// propiedad dice «/winpool/sa» y el montaje real es «Z:/sa/», ver rutaDentroDeUnMountpoint—.
+std::vector<MontajeZfs> montajesZfs() {
+    std::vector<MontajeZfs> out;
+    const ExecResult mnt = runExecCapture("zfs", {"mount"});
+    if (mnt.rc != 0) {
+        return out;
+    }
+    for (const std::string& linea : splitLines(mnt.out)) {
+        const std::string l = trim(linea);
+        const std::size_t sep = l.find_first_of(" \t");
+        if (sep == std::string::npos) {
+            continue;
+        }
+        const std::string ruta = trim(l.substr(sep));
+        if (!ruta.empty()) {
+            out.push_back({l.substr(0, sep), canonizaSinBarra(ruta)});
+        }
+    }
+    return out;
+}
+
+char letraDeTipo(const std::filesystem::file_status& st) {
+    using std::filesystem::file_type;
+    switch (st.type()) {
+        case file_type::directory: return 'd';
+        case file_type::regular: return 'f';
+        case file_type::symlink: return 'l';
+        case file_type::block: return 'b';
+        case file_type::character: return 'c';
+        case file_type::fifo: return 'p';
+        case file_type::socket: return 's';
+        default: return 'o';
+    }
+}
+
+zfsmgr::base::json::Value entradaDeRuta(const std::filesystem::path& p) {
+    namespace J = zfsmgr::base::json;
+    J::Value v;
+    std::error_code ec;
+    const auto st = std::filesystem::symlink_status(p, ec);
+    zfsmgr::remotetree::Entry en;
+    std::string err;
+    zfsmgr::remotetree::describePath(p.string(), en, err);
+    std::string nombre = p.filename().string();
+    if (nombre.empty()) {
+        nombre = p.string();
+    }
+    v.set("name", J::Value(nombre));
+    v.set("type", J::Value(std::string(1, ec ? 'o' : letraDeTipo(st))));
+    v.set("size", J::Value(static_cast<long long>(en.size)));
+    v.set("mtime", J::Value(static_cast<long long>(en.mtime)));
+    v.set("mode", J::Value(static_cast<long long>(en.mode)));
+    v.set("owner", J::Value(en.owner));
+    v.set("group", J::Value(en.group));
+    if (!en.target.empty()) {
+        v.set("target", J::Value(en.target));
+    }
+    return v;
+}
+
+// `--dump-path-list <ruta>`: lo que hay en un directorio cualquiera. En Windows, «/» son
+// las unidades: no hay una raíz común por encima de C: y D:.
+ExecResult listaRuta(const std::string& ruta) {
+    namespace J = zfsmgr::base::json;
+    ExecResult r;
+    J::Array entradas;
+#ifdef _WIN32
+    if (ruta.empty() || ruta == "/" || ruta == "\\") {
+        const DWORD mascara = GetLogicalDrives();
+        for (int i = 0; i < 26; ++i) {
+            if (mascara & (1u << i)) {
+                J::Value v;
+                v.set("name", J::Value(std::string(1, static_cast<char>('A' + i)) + ":"));
+                v.set("type", J::Value(std::string("d")));
+                v.set("size", J::Value(0LL));
+                entradas.push_back(v);
+            }
+        }
+        J::Value raiz;
+        raiz.set("entries", J::Value(entradas));
+        r.rc = 0;
+        r.out = J::toCompact(raiz) + "\n";
+        return r;
+    }
+#endif
+    std::error_code ec;
+    if (!std::filesystem::is_directory(ruta, ec)) {
+        r.rc = std::filesystem::exists(ruta, ec) ? 20 : 2;
+        r.err = (r.rc == 20 ? "not a directory: " : "no such file or directory: ") + ruta + "\n";
+        return r;
+    }
+    for (const auto& e : std::filesystem::directory_iterator(
+             ruta, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        entradas.push_back(entradaDeRuta(e.path()));
+    }
+    if (ec) {
+        r.rc = 1;
+        r.err = "could not read the directory: " + ec.message() + "\n";
+        return r;
+    }
+    J::Value raiz;
+    raiz.set("entries", J::Value(entradas));
+    r.rc = 0;
+    r.out = J::toCompact(raiz) + "\n";
+    return r;
+}
+
+// `--dump-path-info <ruta>`: qué es una ruta y a qué dataset pertenece.
+//
+// El cliente lo usa para dos cosas: decir qué hay ahí (`info`, y si `cd` puede entrar), y
+// la EQUIVALENCIA con un dataset. «exact_mountpoint» es lo único que permite tratar la
+// ruta como el dataset; estar solo DENTRO de él no basta, y el cliente nunca sube al
+// contenedor —`destroy` de un subdirectorio no puede acabar destruyendo el dataset—.
+ExecResult describeRuta(const std::string& ruta) {
+    namespace J = zfsmgr::base::json;
+    ExecResult r;
+    J::Value v;
+    v.set("path", J::Value(ruta));
+    std::error_code ec;
+    const bool existe = std::filesystem::exists(std::filesystem::symlink_status(ruta, ec));
+    v.set("exists", J::Value(existe && !ec));
+    // Siguiendo enlaces: un enlace a un directorio es un sitio al que se puede entrar.
+    std::error_code ecDir;
+    v.set("is_dir", J::Value(std::filesystem::is_directory(ruta, ecDir) && !ecDir));
+    if (existe && !ec) {
+        J::Value e = entradaDeRuta(std::filesystem::path(ruta));
+        for (const char* k : {"type", "size", "mtime", "mode", "owner", "group", "target"}) {
+            if (e.contains(k)) {
+                v.set(k, e[k]);
+            }
+        }
+    }
+    // El montaje más largo que la contiene, comparando POR COMPONENTES: «/mnt/datos2» no
+    // está dentro de «/mnt/datos».
+    const std::filesystem::path pedida = canonizaSinBarra(ruta);
+    const MontajeZfs* mejor = nullptr;
+    std::size_t mejorLargo = 0;
+    std::vector<MontajeZfs> montajes = montajesZfs();
+    for (const MontajeZfs& m : montajes) {
+        auto itB = m.ruta.begin();
+        auto itP = pedida.begin();
+        std::size_t largo = 0;
+        bool dentro = true;
+        for (; itB != m.ruta.end(); ++itB, ++itP, ++largo) {
+            if (itP == pedida.end() || *itB != *itP) {
+                dentro = false;
+                break;
+            }
+        }
+        if (dentro && (!mejor || largo > mejorLargo)) {
+            mejor = &m;
+            mejorLargo = largo;
+        }
+    }
+    if (mejor) {
+        std::vector<std::string> resto;
+        auto itP = pedida.begin();
+        for (std::size_t i = 0; i < mejorLargo && itP != pedida.end(); ++i) {
+            ++itP;
+        }
+        for (; itP != pedida.end(); ++itP) {
+            if (!itP->empty()) {
+                resto.push_back(itP->string());
+            }
+        }
+        // Dentro de `.zfs/snapshot/<s>`, lo que hay es la instantánea, no el dataset.
+        std::string instantanea;
+        if (resto.size() >= 3 && resto[0] == ".zfs" && resto[1] == "snapshot") {
+            instantanea = resto[2];
+            resto.erase(resto.begin(), resto.begin() + 3);
+        }
+        std::string relativa;
+        for (const std::string& t : resto) {
+            relativa += (relativa.empty() ? "" : "/") + t;
+        }
+        v.set("dataset", J::Value(mejor->dataset));
+        v.set("mountpoint", J::Value(mejor->ruta.generic_string()));
+        v.set("relative", J::Value(relativa));
+        v.set("snapshot", J::Value(instantanea));
+        v.set("exact_mountpoint", J::Value(relativa.empty()));
+    }
+    r.rc = 0;
+    r.out = J::toCompact(v) + "\n";
+    return r;
+}
+
 // Un fichero, en base64 y con tope.
 //
 // En base64 porque la respuesta del RPC viaja como LÍNEAS recortadas: unos bytes crudos
@@ -8226,6 +8449,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // que sin eso «léeme un fichero» sería «léeme /etc/shadow». Estar bajo un punto de
     // montaje de ZFS es lo que separa «el contenido que la aplicación enseña» de «cualquier
     // cosa de la máquina».
+    if (cmd == "--dump-path-list" || cmd == "--dump-path-info") {
+        if (params.empty()) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " " + cmd + " <path>\n";
+            return r;
+        }
+        return cmd == "--dump-path-list" ? listaRuta(params[0]) : describeRuta(params[0]);
+    }
     if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
         if (params.empty()) {
             r.rc = 2;
@@ -10439,6 +10670,16 @@ int main(int argc, char* argv[]) {
     }
     // Los mismos dos verbos, también por línea de órdenes: es como se llega al agente
     // cuando todavía no hay daemon escuchando, y como se prueban a mano.
+    if (cmd == "--dump-path-list" || cmd == "--dump-path-info") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult r = cmd == "--dump-path-list" ? listaRuta(args[2]) : describeRuta(args[2]);
+        std::cout << r.out;
+        std::cerr << r.err;
+        return r.rc;
+    }
     if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

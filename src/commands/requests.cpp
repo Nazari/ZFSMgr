@@ -180,6 +180,14 @@ std::vector<std::string> directoryContents(const std::string& ruta) {
     return withOne("--dump-dir-list", ruta);
 }
 
+std::vector<std::string> pathContents(const std::string& ruta) {
+    return withOne("--dump-path-list", ruta);
+}
+
+std::vector<std::string> pathInfo(const std::string& ruta) {
+    return withOne("--dump-path-info", ruta);
+}
+
 std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
                                             unsigned long long cuanto) {
     const std::string r = limpia(ruta);

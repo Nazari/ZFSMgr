@@ -66,6 +66,10 @@ constexpr const char* kProperties = "properties";
 constexpr const char* kPermissions = "permissions";
 constexpr const char* kInfo = "info";
 constexpr const char* kDaemon = "daemon";
+// A loose path of the MACHINE, outside any dataset: `zfsm://host#path/etc/hosts`. It hangs
+// from a connection, never from a dataset (inside a dataset that is `#content`). See
+// copyspec::loosePathOf.
+constexpr const char* kPath = "path";
 }  // namespace zfsmSection
 
 struct ZfsmUrl {

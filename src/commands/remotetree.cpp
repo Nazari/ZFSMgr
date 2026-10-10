@@ -438,6 +438,39 @@ bool walkSingleFile(const std::string& fichero, Entry& salida, std::string& erro
     return !salida.path.empty();
 }
 
+bool describePath(const std::string& ruta, Entry& salida, std::string& error) {
+    error.clear();
+    salida = Entry{};
+    std::error_code ec;
+    const fs::path p(ruta);
+    const fs::file_status st = fs::symlink_status(p, ec);
+    if (ec || !fs::exists(st)) {
+        error = "no such file or directory: " + ruta;
+        return false;
+    }
+    salida.path = conBarras(p.filename().generic_string());
+    if (fs::is_symlink(st)) {
+        salida.kind = EntryKind::Symlink;
+        std::error_code e2;
+        salida.target = fs::read_symlink(p, e2).generic_string();
+    } else if (fs::is_directory(st)) {
+        salida.kind = EntryKind::Directory;
+    } else {
+        salida.kind = EntryKind::File;
+        std::error_code e2;
+        if (fs::is_regular_file(st)) {
+            salida.size = static_cast<std::uint64_t>(fs::file_size(p, e2));
+            if (e2) {
+                salida.size = 0;
+            }
+        }
+    }
+    bool okF = false;
+    salida.mtime = fechaDe(p, okF);
+    anotaDuenoYModo(p.string(), salida);
+    return true;
+}
+
 std::string serializeManifest(const std::vector<Entry>& entradas) {
     std::string out;
     for (const Entry& e : entradas) {

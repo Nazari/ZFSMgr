@@ -558,6 +558,33 @@ int main() {
         // Un nombre que SE PARECE a «..» pero no lo es: prohibirlo seria prohibir nombres
         // validos por parecido.
         comprobar(lee("/var/tmp/..copia", nullptr).ok(), "cp: «..copia» es un nombre legitimo");
+
+        // --- `#path` para todas las ordenes: la ruta que nombra y la vuelta.
+        {
+            const auto p = CS::loosePathOf(url("zfsm://unib#path/etc/hosts"));
+            comprobar(p.ok(), "path: una ruta suelta vale");
+            igual(p.absolute, "/etc/hosts", "path: con la barra inicial repuesta");
+            igual(p.connection, "unib", "path: y su maquina");
+            igual(CS::loosePathOf(url("zfsm://unib#path")).absolute, "/",
+                  "path: sin detalle es la raiz");
+            igual(CS::loosePathOf(url("zfsm://w11#path/C:/Users/x")).absolute, "C:/Users/x",
+                  "path: en Windows el primer tramo es la unidad");
+            igual(CS::loosePathOf(url("zfsm://w11#path/c:")).absolute, "C:/",
+                  "path: la unidad sola es su raiz, en mayuscula");
+            igual(CS::labelOf(CS::loosePathOf(url("zfsm://unib/p/ds#path/x")).failure),
+                  CS::labelOf(CS::Failure::PathOnDataset), "path: no cuelga de un dataset");
+            igual(CS::labelOf(CS::loosePathOf(url("zfsm://unib#path/a/../etc")).failure),
+                  CS::labelOf(CS::Failure::EscapesTree), "path: sin «..»");
+            const auto u = CS::urlOfLoosePath("unib", "/etc/hosts");
+            igual(zfsmgr::base::formatZfsmUrl(u), "zfsm://unib#path/etc/hosts",
+                  "path: la vuelta da la misma URL");
+            igual(zfsmgr::base::formatZfsmUrl(CS::urlOfLoosePath("w11", "C:\\Users\\x")),
+                  "zfsm://w11#path/C:/Users/x", "path: la vuelta de Windows");
+            igual(zfsmgr::base::formatZfsmUrl(CS::urlOfLoosePath("unib", "/")),
+                  "zfsm://unib#path", "path: la vuelta de la raiz");
+            igual(CS::labelOf(lee("zfsm://unib#path", "zfsm://unib#path").failure),
+                  CS::labelOf(CS::Failure::NotAbsolute), "cp: copiar «/» entero no");
+        }
         comprobar(lee("/var/tmp/uno..dos", nullptr).ok(), "cp: y «uno..dos» tambien");
 
         // Con que nombre aterriza en el destino.

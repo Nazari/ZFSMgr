@@ -242,6 +242,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_ls_3", "los ficheros de dentro"}},
       {"ls #content/fotos/2024",
        {"t_ej_ls_4", "solo ese subárbol"}},
+      {"ls zfsm://unib#path/var/log",
+       {"t_ej_ls_path", "una ruta cualquiera de la máquina, fuera de ZFS"}},
       {"ls #properties",
        {"t_ej_ls_5", "todas las propiedades"}},
       {"ls #properties/compression",
@@ -610,6 +612,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_rsync_5", "espera aquí en vez de devolver el trabajo"}},
       {"rsync zfsm://casa/tank/copia --on zfsm://casa/tank/datos#content/fotos",
        {"t_ej_rsync_6", "solo ese subárbol del origen"}},
+      {"rsync zfsm://unibody#path/srv/espejo --on zfsm://casa#path/var/www",
+       {"t_ej_rsync_7", "entre rutas sueltas de dos máquinas, fuera de ZFS"}},
       {"rsync zfsm://casa/tank/copia --on zfsm://casa/tank/datos#content/{fotos,docs}",
        {"t_ej_rsync_7", "dos subárboles al mismo destino"}},
      }},
@@ -821,7 +825,10 @@ const std::vector<Orden> kOrdenes = {
       {"t_dos_reglas_8d26b6", "Dos reglas quitan ambigüedad a una ruta relativa: si el primer tramo nombra una "
       "CONEXIÓN, la ruta es absoluta; y si es el POOL en el que ya estás, es el nombre ZFS "
       "completo."},
-      {"t_se_comprue_d745a0", "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."}},
+      {"t_se_comprue_d745a0", "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete."},
+      {"t_cd_ficheros", "Dentro de `#content/…` o de `#path/…` lo relativo son directorios, como en una "
+      "shell: `cd sub` baja y `cd ..` sube uno; desde la raíz de la sección, `cd ..` vuelve al "
+      "dataset o a la máquina. Tiene que ser un directorio que exista."}},
      Objetivo::Cualquiera,
      {}},
     {"pwd", {"t_navegaci_n_60cb06", "Navegación"}, {"", ""}, {"t_la_url_act_1bd7d8", "La URL actual."}, {}, {}},
@@ -829,6 +836,8 @@ const std::vector<Orden> kOrdenes = {
      {"t_lista_lo_q_661d7f", "Lista lo que hay. En la raíz las conexiones, en una conexión los pools, en un dataset "
      "sus hijos y snapshots."},
      {{{"t_content_ru_7a5f3d", "#content[/ruta]"}, {"t_los_ficher_2b8359", "Los ficheros de dentro."}},
+      {{"t_path_ruta", "#path[/ruta]"},
+       {"t_path_ruta_q", "En una máquina: cualquier ruta suya, dentro o fuera de ZFS."}},
       {{"t_properties_5ce56d", "#properties[/prop]"}, {"t_las_propie_137429", "Las propiedades."}},
       {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}}},
      {{"t_ls_ram_ddt", "RAM DDT es la memoria que ZFS dedica AHORA MISMO a la tabla de "
@@ -845,7 +854,7 @@ const std::vector<Orden> kOrdenes = {
       "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}},
      Objetivo::Cualquiera,
      {}},
-    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_info_res2", "El detalle de lo que se nombre: una conexión (con su daemon), un pool —también uno sin importar, con sus dispositivos—, un dataset o un snapshot."}, {}, {},
+    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_info_res3", "El detalle de lo que se nombre: una conexión (con su daemon), un pool —también uno sin importar, con sus dispositivos—, un dataset, un snapshot o un fichero (`#content`, `#path`) y el dataset al que pertenece."}, {}, {},
      Objetivo::Cualquiera, {}},
 
     // --- Conexiones
@@ -1204,8 +1213,11 @@ const std::vector<Orden> kOrdenes = {
       "shell de por medio."},
       {"t_rsync_det4", "`#content/<subruta>` acota el origen a ese subárbol, y `#content/{a,b}` copia "
       "varios de una vez. Con varios orígenes se rechaza `--delete`: cada uno borraría lo que acaba "
-      "de dejar el anterior."}},
-     Objetivo::Dataset,
+      "de dejar el anterior."},
+      {"t_rsync_det5", "Cualquiera de los dos extremos puede ser una ruta suelta de la máquina, "
+      "`zfsm://maq#path/var/datos`, fuera de cualquier dataset. Como destino tiene que existir y "
+      "ser un directorio."}},
+     Objetivo::Cualquiera,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
     {"breakdown", {"t_acciones_79bd0e", "Acciones"},
      {"t_bd_uso", "<subdir> <dataset-nuevo> [<subdir> <dataset-nuevo>...]"},
@@ -1507,6 +1519,9 @@ void imprimeAyuda(int ancho) {
     std::fprintf(stderr, "%s\n",
                  TC("t_ayuda_indice_patrones",
                     "«help patrones» explica los comodines: ls tank/*, destroy tank@auto-*…"));
+    std::fprintf(stderr, "%s\n",
+                 TC("t_ayuda_indice_urls",
+                    "«help urls» explica cómo se nombra cada cosa, ficheros incluidos (#content, #path)."));
 }
 
 
@@ -1514,6 +1529,40 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
     // No es una orden sino un TEMA: los comodines valen en muchas, y repetirlo en la ficha
     // de cada una sería tenerlo escrito veinte veces, que es como acaba desigual.
     const std::string tema = B::toLowerAscii(B::trim(nombre));
+    if (tema == "urls" || tema == "url" || tema == "rutas" || tema == "paths") {
+        std::fprintf(stderr, "\n%s\n\n",
+                     TC("t_ayuda_urls",
+                        "Cómo se nombra cada cosa\n"
+                        "\n"
+                        "  zfsm://                          la raíz: las conexiones\n"
+                        "  zfsm://maq                       una máquina\n"
+                        "  zfsm://maq/tank/datos            un pool o un dataset\n"
+                        "  zfsm://maq/tank/datos@ayer       un snapshot\n"
+                        "  zfsm://maq/tank/datos#content/a  un fichero o directorio DEL dataset\n"
+                        "  zfsm://maq#path/var/log          cualquier ruta de la máquina\n"
+                        "  zfsm://w11#path/C:/Users         en Windows, la unidad va primero\n"
+                        "\n"
+                        "#path cuelga de la máquina, nunca de un dataset: dentro de un dataset es\n"
+                        "#content. Se entiende en TODAS las órdenes; lo que cambia es qué puede\n"
+                        "hacer cada una con ella:\n"
+                        "\n"
+                        "  ls, cd, info, cp, rsync      la ruta es lo que manejan\n"
+                        "  todir, fromdir, labelclear,  la ruta en vez de «/ruta» suelta; la URL\n"
+                        "  import -d, discos de pool    dice además en qué máquina\n"
+                        "  las de datasets y pools      SOLO si la ruta es exactamente el punto de\n"
+                        "                               montaje (o .zfs/snapshot/<s>); se enseña\n"
+                        "                               a qué equivale antes de actuar\n"
+                        "\n"
+                        "Estar DENTRO de un dataset no basta, y nunca se sube al que la contiene:\n"
+                        "  destroy zfsm://m#path/mnt/tank/datos/fotos\n"
+                        "  → no es un dataset; está dentro de tank/datos:\n"
+                        "    zfsm://m/tank/datos#content/fotos\n"
+                        "Lo mismo para «#content/sub» escrito a mano.\n"
+                        "\n"
+                        "Dentro de #content o #path, «cd sub» y «cd ..» se mueven por directorios,\n"
+                        "y el tabulador ofrece los nombres de cada uno."));
+        return true;
+    }
     if (tema == "patrones" || tema == "patterns" || tema == "comodines" || tema == "wildcards") {
         std::fprintf(stderr, "\n%s\n\n",
                      TC("t_ayuda_patrones",
@@ -1525,7 +1574,7 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "  {a,b*}   alternativas, cada una con sus comodines; admite espacios\n"
                         "\n"
                         "Valen en cualquier tramo: conexión, pool, dataset, @snapshot y el\n"
-                        "detalle de #properties y #content. Distinguen mayúsculas, como ZFS.\n"
+                        "detalle de #properties, #content y #path. Distinguen mayúsculas, como ZFS.\n"
                         "Un comodín literal se escribe codificado: %2A es un «*» de verdad.\n"
                         "\n"
                         "En «ls», el último tramo FILTRA lo que se lista:\n"

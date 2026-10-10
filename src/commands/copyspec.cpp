@@ -1,4 +1,6 @@
 #include "copyspec.h"
+
+#include <cctype>
 #include "i18n.h"
 
 #include "strutil.h"
@@ -57,6 +59,64 @@ std::string labelOf(Failure f) {
     return {};
 }
 
+bool isDriveSegment(const std::string& tramo) {
+    return tramo.size() == 2 && tramo[1] == ':'
+           && ((tramo[0] >= 'A' && tramo[0] <= 'Z') || (tramo[0] >= 'a' && tramo[0] <= 'z'));
+}
+
+LoosePath loosePathOf(const ZfsmUrl& url) {
+    LoosePath r;
+    if (url.connection.empty()) {
+        r.failure = Failure::NoConnection;
+        return r;
+    }
+    if (!url.dataset.empty()) {
+        r.failure = Failure::PathOnDataset;
+        return r;
+    }
+    if (tieneSaltoAtras(url.detail)) {
+        r.failure = Failure::EscapesTree;
+        return r;
+    }
+    r.connection = url.connection;
+    std::vector<std::string> tramos;
+    for (const std::string& t : url.detail) {
+        if (!t.empty() && t != ".") {
+            tramos.push_back(t);
+        }
+    }
+    // La barra inicial se repone: en la URL no se escribe dos veces —`#path/var/tmp` y no
+    // `#path//var/tmp`— pero la ruta es absoluta. En Windows la raíz es la unidad.
+    if (!tramos.empty() && isDriveSegment(tramos.front())) {
+        std::string unidad = tramos.front();
+        unidad[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(unidad[0])));
+        tramos.erase(tramos.begin());
+        r.absolute = unidad + "/" + juntaTramos(tramos);
+    } else {
+        r.absolute = "/" + juntaTramos(tramos);
+    }
+    return r;
+}
+
+ZfsmUrl urlOfLoosePath(const std::string& connection, const std::string& absolute) {
+    ZfsmUrl u;
+    u.kind = ZfsmKind::Connection;
+    u.connection = connection;
+    u.section = zfsmSection::kPath;
+    std::string t = absolute;
+    for (char& c : t) {
+        if (c == '\\') {
+            c = '/';
+        }
+    }
+    for (const std::string& tramo : split(t, "/", false)) {
+        if (!tramo.empty() && tramo != ".") {
+            u.detail.push_back(tramo);
+        }
+    }
+    return u;
+}
+
 Reading readEnd(const std::string& texto, const ZfsmUrl& resuelta,
                 const std::string& conexionLocal) {
     Reading r;
@@ -102,20 +162,19 @@ Reading readEnd(const std::string& texto, const ZfsmUrl& resuelta,
             r.failure = Failure::PathOnDataset;
             return r;
         }
-        if (tieneSaltoAtras(resuelta.detail)) {
-            r.failure = Failure::EscapesTree;
+        const LoosePath suelta = loosePathOf(resuelta);
+        if (!suelta.ok()) {
+            r.failure = suelta.failure;
             return r;
         }
-        const std::string ruta = juntaTramos(resuelta.detail);
-        if (ruta.empty()) {
+        // Copiar «/» entero no es algo que nadie quiera por una errata.
+        if (juntaTramos(resuelta.detail).empty()) {
             r.failure = Failure::NotAbsolute;
             return r;
         }
         r.end.kind = EndKind::PlainPath;
-        r.end.connection = resuelta.connection;
-        // La barra inicial se repone: en la URL no se escribe dos veces
-        // —`#path/var/tmp` y no `#path//var/tmp`— pero la ruta es absoluta.
-        r.end.absolute = "/" + ruta;
+        r.end.connection = suelta.connection;
+        r.end.absolute = suelta.absolute;
         return r;
     }
 
