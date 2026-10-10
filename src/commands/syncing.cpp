@@ -1,4 +1,5 @@
 #include "syncing.h"
+#include "i18n.h"
 
 #include "helpers.h"
 #include "strutil.h"
@@ -10,25 +11,25 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return {};
         case Failure::SameObject:
-            return "el origen y el destino son el mismo";
+            return i18n::tr("t_cmd_syncing_origen_destino_son_mismo", "el origen y el destino son el mismo");
         case Failure::SourceIsNotDataset:
-            return "el origen tiene que ser un dataset, no un snapshot";
+            return i18n::tr("t_cmd_syncing_origen_tiene_ser_dataset", "el origen tiene que ser un dataset, no un snapshot");
         case Failure::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no un snapshot";
+            return i18n::tr("t_cmd_syncing_destino_tiene_ser_dataset", "el destino tiene que ser un dataset, no un snapshot");
         case Failure::WindowsEndpoint:
             // Ya no lo devuelve nadie: se queda para no romper a quien lo lea de un dato
             // guardado, y porque el `switch` tiene que ser exhaustivo.
-            return "un extremo Windows por este camino";
+            return i18n::tr("t_cmd_syncing_extremo_windows_por_este", "un extremo Windows por este camino");
         case Failure::DifferentMachine:
-            return "los dos extremos tienen que estar en la misma máquina";
+            return i18n::tr("t_cmd_syncing_dos_extremos_tienen_estar", "los dos extremos tienen que estar en la misma máquina");
         case Failure::SourceNotMounted:
-            return "el origen no está montado, y sincronizar compara ficheros";
+            return i18n::tr("t_cmd_syncing_origen_esta_montado_sincronizar", "el origen no está montado, y sincronizar compara ficheros");
         case Failure::TargetNotMounted:
-            return "el destino no está montado, y sincronizar compara ficheros";
+            return i18n::tr("t_cmd_syncing_destino_esta_montado_sincronizar", "el destino no está montado, y sincronizar compara ficheros");
         case Failure::UnusablePath:
-            return "alguno de los dos no tiene un punto de montaje utilizable";
+            return i18n::tr("t_cmd_syncing_alguno_dos_tiene_punto", "alguno de los dos no tiene un punto de montaje utilizable");
         case Failure::NoDaemon:
-            return "hace falta el daemon en esa máquina";
+            return i18n::tr("t_cmd_syncing_hace_falta_daemon_esa", "hace falta el daemon en esa máquina");
     }
     return {};
 }

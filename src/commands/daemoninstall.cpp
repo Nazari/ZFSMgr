@@ -1,4 +1,5 @@
 #include "daemoninstall.h"
+#include "i18n.h"
 
 #include "agentversion.h"
 #include "daemonpayload.h"
@@ -35,13 +36,13 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return "sin fallo";
         case Failure::UnreadableBinary:
-            return "el binario del daemon no se puede leer o está vacío";
+            return i18n::tr("t_cmd_daemoninstall_binario_daemon_puede_leer", "el binario del daemon no se puede leer o está vacío");
         case Failure::UploadFailed:
-            return "no se pudo copiar el binario a la máquina";
+            return i18n::tr("t_cmd_daemoninstall_pudo_copiar_binario_maquina", "no se pudo copiar el binario a la máquina");
         case Failure::InstallFailed:
-            return "la instalación falló en la máquina";
+            return i18n::tr("t_cmd_daemoninstall_instalacion_fallo_maquina", "la instalación falló en la máquina");
         case Failure::UnsupportedOpenZfs:
-            return "esa máquina no tiene una versión de OpenZFS con la que esto funcione";
+            return i18n::tr("t_cmd_daemoninstall_esa_maquina_tiene_version", "esa máquina no tiene una versión de OpenZFS con la que esto funcione");
     }
     return "sin fallo";
 }
@@ -250,7 +251,8 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
             return r;
         }
         if (traza) {
-            traza("OpenZFS " + zfs.version + " en la otra máquina: vale");
+            traza(format(i18n::tr("t_cmd_daemoninstall_zfs_vale", "OpenZFS %1 en la otra máquina: vale"),
+                         {zfs.version}));
         }
     }
 

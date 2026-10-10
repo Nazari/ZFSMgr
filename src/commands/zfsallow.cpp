@@ -1,4 +1,5 @@
 #include "zfsallow.h"
+#include "i18n.h"
 
 #include "strutil.h"
 
@@ -49,9 +50,9 @@ const char* keyOf(Who q) {
 std::string labelOf(Scope a) {
     switch (a) {
         case Scope::Local:               return "solo aquí";
-        case Scope::Descendants:       return "solo en los descendientes";
-        case Scope::LocalAndDescendants: return "aquí y en los descendientes";
-        case Scope::OnCreate:             return "al crear un descendiente";
+        case Scope::Descendants:       return i18n::tr("t_cmd_zfsallow_solo_descendientes", "solo en los descendientes");
+        case Scope::LocalAndDescendants: return i18n::tr("t_cmd_zfsallow_aqui_descendientes", "aquí y en los descendientes");
+        case Scope::OnCreate:             return i18n::tr("t_cmd_zfsallow_al_crear_descendiente", "al crear un descendiente");
         case Scope::Set:            return "conjunto de permisos";
     }
     return {};

@@ -1,4 +1,5 @@
 #include "peers.h"
+#include "i18n.h"
 
 #include "json.h"
 #include "strutil.h"
@@ -86,10 +87,10 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return {};
         case Failure::NoOtherConnections:
-            return "no hay ninguna otra conexión que entregar";
+            return i18n::tr("t_cmd_peers_hay_ninguna_otra_conexion", "no hay ninguna otra conexión que entregar");
         case Failure::NoTlsMaterial:
-            return "ninguna de las otras conexiones tiene material TLS: instale su daemon "
-                   "primero, que es quien lo genera";
+            return i18n::tr("t_cmd_peers_ninguna_otras_conexiones_tiene", "ninguna de las otras conexiones tiene material TLS: instale su daemon "
+                   "primero, que es quien lo genera");
     }
     return {};
 }

@@ -1,4 +1,5 @@
 #include "transfer.h"
+#include "i18n.h"
 
 #include "strutil.h"
 #include "transportcmd.h"
@@ -31,9 +32,9 @@ const char* keyOf(Failure f) {
 
 std::string labelOf(Route c) {
     switch (c) {
-        case Route::AsyncJob: return "como trabajo en el daemon";
+        case Route::AsyncJob: return i18n::tr("t_cmd_transfer_como_trabajo_daemon", "como trabajo en el daemon");
         case Route::DaemonToDaemon:    return "de daemon a daemon";
-        case Route::SshPipeline:       return "por una tubería SSH";
+        case Route::SshPipeline:       return i18n::tr("t_cmd_transfer_por_tuberia_ssh", "por una tubería SSH");
         case Route::None_:          return "ninguno";
     }
     return {};
@@ -44,19 +45,19 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return {};
         case Failure::SameObject:
-            return "el origen y el destino son el mismo";
+            return i18n::tr("t_cmd_transfer_origen_destino_son_mismo", "el origen y el destino son el mismo");
         case Failure::SourceIsNotSnapshot:
-            return "el origen tiene que ser un snapshot";
+            return i18n::tr("t_cmd_transfer_origen_tiene_ser_snapshot", "el origen tiene que ser un snapshot");
         case Failure::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no un snapshot";
+            return i18n::tr("t_cmd_transfer_destino_tiene_ser_dataset", "el destino tiene que ser un dataset, no un snapshot");
         case Failure::WindowsEndpoint:
-            return "no está disponible cuando algún extremo es Windows: hace falta "
-                   "transmitir por una tubería, y el agente de Windows todavía no lo hace";
+            return i18n::tr("t_cmd_transfer_esta_disponible_cuando_algun", "no está disponible cuando algún extremo es Windows: hace falta "
+                   "transmitir por una tubería, y el agente de Windows todavía no lo hace");
         case Failure::NoJobSupport:
-            return "hace falta que los dos daemons admitan trabajos en segundo plano, "
-                   "porque quien lo pide no puede esperar a que termine";
+            return i18n::tr("t_cmd_transfer_hace_falta_dos_daemons", "hace falta que los dos daemons admitan trabajos en segundo plano, "
+                   "porque quien lo pide no puede esperar a que termine");
         case Failure::ZfsTooOld:
-            return "alguno de los extremos usa un OpenZFS anterior al 2.3.3";
+            return i18n::tr("t_cmd_transfer_alguno_extremos_usa_openzfs", "alguno de los extremos usa un OpenZFS anterior al 2.3.3");
     }
     return {};
 }
@@ -374,15 +375,15 @@ std::string labelOf(JobFailure f) {
         case JobFailure::None_:
             return {};
         case JobFailure::ReceiverNotListening:
-            return "el daemon del destino no pudo ponerse a escuchar";
+            return i18n::tr("t_cmd_transfer_daemon_destino_pudo_ponerse", "el daemon del destino no pudo ponerse a escuchar");
         case JobFailure::BadListenAnswer:
-            return "el destino contestó algo que no es un puerto y un testigo";
+            return i18n::tr("t_cmd_transfer_destino_contesto_algo_es", "el destino contestó algo que no es un puerto y un testigo");
         case JobFailure::NoReturnAddress:
-            return "no se pudo averiguar con qué dirección ve el origen a este equipo";
+            return i18n::tr("t_cmd_transfer_pudo_averiguar_con_direccion", "no se pudo averiguar con qué dirección ve el origen a este equipo");
         case JobFailure::SenderDidNotStart:
-            return "el daemon del origen no arrancó el envío";
+            return i18n::tr("t_cmd_transfer_daemon_origen_arranco_envio", "el daemon del origen no arrancó el envío");
         case JobFailure::NoJobId:
-            return "el origen arrancó el envío pero no dijo con qué identificador seguirlo";
+            return i18n::tr("t_cmd_transfer_origen_arranco_envio_pero", "el origen arrancó el envío pero no dijo con qué identificador seguirlo");
     }
     return {};
 }
@@ -480,7 +481,7 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
     Job t;
     if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
         t.failure = JobFailure::ReceiverNotListening;
-        t.detail = "falta el directorio de origen o el de destino";
+        t.detail = i18n::tr("t_cmd_transfer_falta_directorio_origen_o", "falta el directorio de origen o el de destino");
         return t;
     }
 
@@ -565,17 +566,17 @@ std::string labelOf(LevelFailure f) {
         case LevelFailure::None_:
             return {};
         case LevelFailure::TargetNotAtSource:
-            return "el snapshot de origen ya no está en su dataset";
+            return i18n::tr("t_cmd_transfer_snapshot_origen_ya_esta", "el snapshot de origen ya no está en su dataset");
         case LevelFailure::TargetHasNoSnapshots:
-            return "el destino no tiene ningún snapshot: no hay base común desde la que "
-                   "seguir; para llevarlo entero, copie";
+            return i18n::tr("t_cmd_transfer_destino_tiene_ningun_snapshot", "el destino no tiene ningún snapshot: no hay base común desde la que "
+                   "seguir; para llevarlo entero, copie");
         case LevelFailure::BaseNotAtSource:
-            return "el último snapshot del destino no existe en el origen: son historias "
-                   "distintas y no hay incremental posible";
+            return i18n::tr("t_cmd_transfer_ultimo_snapshot_destino_existe", "el último snapshot del destino no existe en el origen: son historias "
+                   "distintas y no hay incremental posible");
         case LevelFailure::TargetIsNewer:
-            return "el destino tiene un snapshot más moderno que el que se quiere enviar";
+            return i18n::tr("t_cmd_transfer_destino_tiene_snapshot_mas", "el destino tiene un snapshot más moderno que el que se quiere enviar");
         case LevelFailure::AlreadyLevel:
-            return "el destino ya está nivelado en ese snapshot";
+            return i18n::tr("t_cmd_transfer_destino_ya_esta_nivelado", "el destino ya está nivelado en ese snapshot");
     }
     return {};
 }

@@ -1,4 +1,5 @@
 #include "zfsmurl.h"
+#include "i18n.h"
 
 #include "strutil.h"
 
@@ -113,7 +114,7 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
     error.clear();
     const std::string t = trim(texto);
     if (!startsWith(toLowerAscii(t), kEsquema)) {
-        error = "no empieza por zfsm://";
+        error = i18n::tr("t_cmd_zfsmurl_empieza_por_zfsm", "no empieza por zfsm://");
         return false;
     }
     std::string resto = t.substr(std::char_traits<char>::length(kEsquema));
@@ -139,11 +140,11 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
         rutaCruda = resto.substr(barra + 1);
     }
     if (autoridadCruda.empty()) {
-        error = "falta la conexión";
+        error = i18n::tr("t_cmd_zfsmurl_falta_conexion", "falta la conexión");
         return false;
     }
     if (!percentDecode(autoridadCruda, out.connection) || out.connection.empty()) {
-        error = "conexión mal codificada";
+        error = i18n::tr("t_cmd_zfsmurl_conexion_mal_codificada", "conexión mal codificada");
         return false;
     }
 
@@ -154,15 +155,15 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
         snapCrudo = rutaCruda.substr(arroba + 1);
         rutaCruda = rutaCruda.substr(0, arroba);
         if (snapCrudo.find('@') != std::string::npos) {
-            error = "dos '@' en la misma URL";
+            error = i18n::tr("t_cmd_zfsmurl_dos_misma_url", "dos '@' en la misma URL");
             return false;
         }
         if (snapCrudo.find('/') != std::string::npos) {
-            error = "el snapshot no puede llevar '/'";
+            error = i18n::tr("t_cmd_zfsmurl_snapshot_puede_llevar", "el snapshot no puede llevar '/'");
             return false;
         }
         if (snapCrudo.empty()) {
-            error = "'@' sin nombre de snapshot";
+            error = i18n::tr("t_cmd_zfsmurl_sin_nombre_snapshot", "'@' sin nombre de snapshot");
             return false;
         }
     }
@@ -175,7 +176,7 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
     }
     for (const std::string& tr : tramos) {
         if (tr.empty()) {
-            error = "tramo de ruta vacío";
+            error = i18n::tr("t_cmd_zfsmurl_tramo_ruta_vacio", "tramo de ruta vacío");
             return false;
         }
     }
@@ -184,7 +185,7 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
         if (tramos.empty()) {
             // Lo único que no puede llevar snapshot es la conexión. El POOL sí: en ZFS
             // es un dataset como cualquier otro y `zfs snapshot winpool@snap1` funciona.
-            error = "un snapshot necesita un dataset";
+            error = i18n::tr("t_cmd_zfsmurl_snapshot_necesita_dataset", "un snapshot necesita un dataset");
             return false;
         }
         if (!percentDecode(snapCrudo, out.snapshot) || out.snapshot.empty()) {
@@ -209,7 +210,7 @@ bool parseZfsmUrl(const std::string& texto, ZfsmUrl& out, std::string& error) {
             return false;
         }
         if (partes.empty()) {
-            error = "'#' sin sección";
+            error = i18n::tr("t_cmd_zfsmurl_sin_seccion", "'#' sin sección");
             return false;
         }
         out.section = toLowerAscii(partes.front());

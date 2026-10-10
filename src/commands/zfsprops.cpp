@@ -62,9 +62,9 @@ const std::vector<std::string>& valuesOf(const std::string& propiedad) {
 // rechaza, y ahí entra tanto una bandera inventada como un nombre de dataset suelto.
 const std::vector<SendFlag>& sendFlagCatalog() {
     static const std::vector<SendFlag> kTabla = {
-        {"-D", false, "t_nat_send_D", "Deduplicado (obsoleto; el mandato aún lo acepta)."},
-        {"-L", false, "t_nat_send_L", "Permite bloques grandes en el flujo."},
-        {"-P", false, "t_nat_send_P", "Estadísticas en formato analizable."},
+        {"-D", false, "t_nat_send_Dmay", "Deduplicado (obsoleto; el mandato aún lo acepta)."},
+        {"-L", false, "t_nat_send_Lmay", "Permite bloques grandes en el flujo."},
+        {"-P", false, "t_nat_send_Pmay", "Estadísticas en formato analizable."},
         {"-b", false, "t_nat_send_b", "Solo los bloques que ocupan espacio."},
         {"-c", false, "t_nat_send_c", "Comprimido tal cual está en disco."},
         {"-e", false, "t_nat_send_e", "Con los bloques embebidos, sin expandirlos."},
@@ -72,11 +72,11 @@ const std::vector<SendFlag>& sendFlagCatalog() {
         {"-n", false, "t_nat_send_n", "Ensayo: no manda nada, dice qué mandaría."},
         {"-p", false, "t_nat_send_p", "Con las propiedades del dataset."},
         {"-s", false, "t_nat_send_s", "Reanudable: deja testigo si se corta."},
-        {"-V", false, "t_nat_send_V", "Fija la versión del flujo."},
+        {"-V", false, "t_nat_send_Vmay", "Fija la versión del flujo."},
         {"-v", false, "t_nat_send_v", "Cuenta lo que va mandando."},
         {"-w", false, "t_nat_send_w", "En crudo: lo cifrado viaja sin descifrar."},
-        {"-R", false, "t_nat_send_R", "Replicación: con descendientes y snapshots."},
-        {"-X", true,  "t_nat_send_X", "Con -R, deja fuera ese dataset (o varios, con comas)."}
+        {"-R", false, "t_nat_send_Rmay", "Replicación: con descendientes y snapshots."},
+        {"-X", true,  "t_nat_send_Xmay", "Con -R, deja fuera ese dataset (o varios, con comas)."}
     };
     return kTabla;
 }

@@ -1,4 +1,5 @@
 #include "copyspec.h"
+#include "i18n.h"
 
 #include "strutil.h"
 
@@ -39,19 +40,19 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return {};
         case Failure::NoConnection:
-            return "falta decir de qué máquina";
+            return i18n::tr("t_cmd_copyspec_falta_decir_maquina", "falta decir de qué máquina");
         case Failure::BadSection:
-            return "esa sección no nombra ficheros: use «#content/…» dentro de un dataset o "
-                   "«#path/…» para una ruta suelta";
+            return i18n::tr("t_cmd_copyspec_esa_seccion_nombra_ficheros", "esa sección no nombra ficheros: use «#content/…» dentro de un dataset o "
+                   "«#path/…» para una ruta suelta");
         case Failure::PathOnDataset:
-            return "«#path» cuelga de una máquina, no de un dataset: dentro de un dataset la "
-                   "subruta se nombra con «#content/…»";
+            return i18n::tr("t_cmd_copyspec_path_cuelga_maquina_dataset", "«#path» cuelga de una máquina, no de un dataset: dentro de un dataset la "
+                   "subruta se nombra con «#content/…»");
         case Failure::NotAbsolute:
-            return "una ruta suelta tiene que ser absoluta, empezando por «/»";
+            return i18n::tr("t_cmd_copyspec_ruta_suelta_tiene_ser", "una ruta suelta tiene que ser absoluta, empezando por «/»");
         case Failure::EscapesTree:
-            return "la subruta no puede llevar «..»";
+            return i18n::tr("t_cmd_copyspec_subruta_puede_llevar", "la subruta no puede llevar «..»");
         case Failure::Empty:
-            return "no se dijo ni origen ni destino";
+            return i18n::tr("t_cmd_copyspec_dijo_ni_origen_ni", "no se dijo ni origen ni destino");
     }
     return {};
 }

@@ -1,4 +1,5 @@
 #include "gsa.h"
+#include "i18n.h"
 
 #include "strutil.h"
 
@@ -188,17 +189,17 @@ std::string labelOf(Failure f) {
         case Failure::None_:
             return "sin fallo";
         case Failure::RetentionNotAnInteger:
-            return "la retención no es un entero mayor o igual que 0";
+            return i18n::tr("t_cmd_gsa_retencion_es_entero_mayor", "la retención no es un entero mayor o igual que 0");
         case Failure::EnabledWithNoRetention:
-            return "la programación está activada y no guarda ningún snapshot";
+            return i18n::tr("t_cmd_gsa_programacion_esta_activada_guarda", "la programación está activada y no guarda ningún snapshot");
         case Failure::LevelWithNoTarget:
-            return "nivelar está puesto y no hay destino";
+            return i18n::tr("t_cmd_gsa_nivelar_esta_puesto_hay", "nivelar está puesto y no hay destino");
         case Failure::MalformedTarget:
-            return "el destino tiene que ser «Conexión::Pool/Dataset»";
+            return i18n::tr("t_cmd_gsa_destino_tiene_ser_conexion", "el destino tiene que ser «Conexión::Pool/Dataset»");
         case Failure::TargetHasNoConnection:
-            return "el destino nombra una conexión que no existe";
+            return i18n::tr("t_cmd_gsa_destino_nombra_conexion_existe", "el destino nombra una conexión que no existe");
         case Failure::ClashesWithRecursive:
-            return "ya hay una programación recursiva que lo cubre";
+            return i18n::tr("t_cmd_gsa_ya_hay_programacion_recursiva", "ya hay una programación recursiva que lo cubre");
     }
     return "sin fallo";
 }

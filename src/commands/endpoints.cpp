@@ -1,4 +1,5 @@
 #include "endpoints.h"
+#include "i18n.h"
 
 namespace zfsmgr::base::endpoints {
 
@@ -20,7 +21,7 @@ std::string labelOf(Action a) {
         case Action::Clone:      return "Clonar aquí";
         case Action::Send:      return "Copiar aquí";
         case Action::Move:       return "Mover aquí";
-        case Action::Sync: return "Sincronizar aquí";
+        case Action::Sync: return i18n::tr("t_cmd_endpoints_sincronizar_aqui", "Sincronizar aquí");
         case Action::Level:     return "Nivelar";
     }
     return {};
@@ -31,25 +32,25 @@ std::string labelOf(NotApplicable n) {
         case NotApplicable::None_:
             return {};
         case NotApplicable::NoSource:
-            return "no hay ningún origen marcado";
+            return i18n::tr("t_cmd_endpoints_hay_ningun_origen_marcado", "no hay ningún origen marcado");
         case NotApplicable::SameObject:
-            return "el origen y el destino son el mismo";
+            return i18n::tr("t_cmd_endpoints_origen_destino_son_mismo", "el origen y el destino son el mismo");
         case NotApplicable::SourceIsNotSnapshot:
-            return "el origen tiene que ser un snapshot";
+            return i18n::tr("t_cmd_endpoints_origen_tiene_ser_snapshot", "el origen tiene que ser un snapshot");
         case NotApplicable::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no un snapshot";
+            return i18n::tr("t_cmd_endpoints_destino_tiene_ser_dataset", "el destino tiene que ser un dataset, no un snapshot");
         case NotApplicable::DifferentDataset:
-            return "comparar es entre dos puntos del mismo dataset";
+            return i18n::tr("t_cmd_endpoints_comparar_es_entre_dos", "comparar es entre dos puntos del mismo dataset");
         case NotApplicable::DifferentMachine:
-            return "los dos extremos tienen que estar en la misma máquina";
+            return i18n::tr("t_cmd_endpoints_dos_extremos_tienen_estar", "los dos extremos tienen que estar en la misma máquina");
         case NotApplicable::DifferentPool:
-            return "mover es dentro del mismo pool; entre pools se copia";
+            return i18n::tr("t_cmd_endpoints_mover_es_dentro_mismo", "mover es dentro del mismo pool; entre pools se copia");
         case NotApplicable::SourceIsNotDataset:
-            return "el origen tiene que ser un dataset, no un snapshot";
+            return i18n::tr("t_cmd_endpoints_origen_tiene_ser_dataset", "el origen tiene que ser un dataset, no un snapshot");
         case NotApplicable::TargetInsideSource:
-            return "el destino cuelga del origen: no se puede meter dentro de sí mismo";
+            return i18n::tr("t_cmd_endpoints_destino_cuelga_origen_puede", "el destino cuelga del origen: no se puede meter dentro de sí mismo");
         case NotApplicable::NotInTheWebYet:
-            return "todavía no está en la web: hágalo desde la interfaz o el intérprete";
+            return i18n::tr("t_cmd_endpoints_todavia_esta_web_hagalo", "todavía no está en la web: hágalo desde la interfaz o el intérprete");
     }
     return {};
 }

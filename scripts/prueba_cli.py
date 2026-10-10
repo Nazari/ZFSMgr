@@ -755,6 +755,21 @@ def casos_terminos_openzfs(ctx):
                         r"(?i)la retención «"])
 
 
+def casos_mensajes_capa_base(ctx):
+    """Los mensajes que se generan en src/commands también se traducen.
+
+    Antes eran literales en castellano y salían así con --lang en: «dos '@' en la misma URL».
+    """
+    caso(ctx, "capa base: un error de URL sale en inglés con --lang en",
+         ["ls zfsm://local/x@a@b"], rc=1, idioma="en",
+         espera=[r"two '@' in the same URL"], no_espera=[r"misma URL"])
+    caso(ctx, "capa base: un error de cp sale en inglés con --lang en",
+         ["cp zfsm://local/x#properties/y /tmp"], rc=1, idioma="en",
+         espera=[r"that section names no files"], no_espera=[r"no nombra ficheros"])
+    caso(ctx, "capa base: y en castellano sigue en castellano",
+         ["ls zfsm://local/x@a@b"], rc=1, idioma="es", espera=[r"dos '@' en la misma URL"])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1638,7 +1653,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]
