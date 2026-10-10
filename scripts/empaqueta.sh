@@ -238,6 +238,10 @@ ZFSMIN_MENOR="$(sed -n 's/.*kOpenZfsMinimoMenor *= *\([0-9]*\);.*/\1/p' "${RAIZ}
 poda() {
   [[ "${PODAR}" -eq 1 ]] || return 0
   case "$1" in
+    # Los agentes de macOS llegan ya recortados y FIRMADOS (buildall-cross.sh,
+    # firma_agente_macos): recortarlos aquí rompería la firma, y con ella el permiso de
+    # «Acceso total al disco» que macOS ata al certificado.
+    */agents/macos-*/*) return 0 ;;
     *.exe) x86_64-w64-mingw32-strip "$1" 2>/dev/null || true ;;
     *) llvm-strip "$1" 2>/dev/null || strip "$1" 2>/dev/null || true ;;
   esac

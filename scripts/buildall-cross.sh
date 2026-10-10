@@ -263,6 +263,39 @@ cache_agent_binary() {
     fi
   fi
   cp -f "${src}" "${dst}"
+  case "${platform_arch}" in
+    macos-*) firma_agente_macos "${dst}" ;;
+  esac
+}
+
+# El agente de macOS, recortado y FIRMADO con un certificado estable.
+#
+# Firmado «ad hoc» —lo que hace el enlazador—, macOS ata el «Acceso total al disco» a la
+# huella exacta del binario, y cada actualización lo pierde: el agente deja de ver los pools
+# por importar hasta que alguien vuelve a concederlo a mano en cada Mac (mmela, 2026-10-10).
+# Con un certificado propio el requisito es «identifier org.zfsmgr.agent y certificado raíz
+# = <huella del certificado>», que no cambia de una versión a otra.
+#
+# El certificado es AUTOFIRMADO (no hay Developer ID de pago, decisión del 2026-08-02) y
+# vive fuera del repositorio, en ${ZFSMGR_FIRMA_DIR:-~/.config/zfsmgr-firma}: certificado.pem
+# y clave.pem. Si se pierde la clave, todos los Mac piden el permiso una vez más.
+#
+# Se recorta ANTES de firmar: recortar después invalida la firma. Por eso el empaquetador ya
+# no recorta estos agentes.
+firma_agente_macos() {
+  local bin="$1"
+  local dir="${ZFSMGR_FIRMA_DIR:-${HOME}/.config/zfsmgr-firma}"
+  llvm-strip "${bin}" 2>/dev/null || true
+  local firmador="${RCODESIGN:-}"
+  [[ -n "${firmador}" ]] || firmador="$(command -v rcodesign || true)"
+  if [[ -z "${firmador}" || ! -f "${dir}/certificado.pem" || ! -f "${dir}/clave.pem" ]]; then
+    echo "AVISO: ${bin} queda firmado ad hoc (falta rcodesign o el certificado en ${dir})." >&2
+    echo "       macOS pedirá otra vez el «Acceso total al disco» tras cada actualización." >&2
+    return 0
+  fi
+  "${firmador}" sign --pem-source "${dir}/certificado.pem" --pem-source "${dir}/clave.pem" \
+    --binary-identifier org.zfsmgr.agent --timestamp-url none "${bin}" >/dev/null
+  echo "Firmado ${bin} con el certificado de ${dir}"
 }
 
 has_platform() {
