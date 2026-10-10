@@ -667,7 +667,9 @@ def casos_patrones_copia(ctx):
     # `jobs -a`: todas las conexiones, desde la raíz, con la columna CONEXIÓN; y --detail
     # dice qué hace cada trabajo (lo compone el agente al recibirlo).
     caso(ctx, "jobs -a: desde la raíz, con la columna CONEXIÓN",
-         ["jobs -a --all"], idioma="es", espera=[r"^CONEXIÓN\s+ID\s+ESTADO"])
+         ["jobs -a --history"], idioma="es", espera=[r"^CONEXIÓN\s+ID\s+ESTADO"])
+    caso(ctx, "jobs --all ya no existe: se llama --history",
+         ["jobs -a --all"], rc=1, idioma="es", espera=[r"«--all» no es una opción de jobs"])
     caso(ctx, "jobs sin -a en la raíz pide una conexión",
          ["jobs"], rc=1, idioma="es", espera=[r"jobs -a"])
     # Varios orígenes en la misma máquina: UN trabajo, no uno por fichero.
@@ -675,7 +677,7 @@ def casos_patrones_copia(ctx):
          [f"cp {U}/datos#content/*.log {U}/otro"], rc=0, idioma="es",
          veces=[(r"en marcha como trabajo", 1)])
     caso(ctx, "jobs --detail: el trabajo de cp dice qué copia y adónde",
-         [f"jobs --on {U} --all --detail"], idioma="es",
+         [f"jobs --on {U} --history --detail"], idioma="es",
          espera=[r"QUÉ HACE", r"cp /mnt/\S+/datos/x1\.log -> /mnt/\S+/otro/x1\.log \(\+1\)"])
     caso(ctx, "patrones cp: dos orígenes que llegarían con el mismo nombre se niegan",
          [f"cp {U}/datos#content/d*/y.log {U}/hijoB --wait"], rc=1, idioma="es",
@@ -1152,7 +1154,7 @@ def casos_acciones(ctx):
     fila = ""
     for _ in range(30):
         # `format` es un VERBO del intérprete; `--format` solo vale al arrancar el binario.
-        _, vista = cli(ctx, ["format tsv", "jobs --all --on zfsm://local"])
+        _, vista = cli(ctx, ["format tsv", "jobs --history --on zfsm://local"])
         # Por el identificador, no por la posición: la tabla lleva delante la columna de la
         # conexión desde que `jobs -a` junta varias máquinas.
         for l in vista.splitlines():
@@ -1167,7 +1169,7 @@ def casos_acciones(ctx):
     if not ident:
         problemas.append(f"no se obtuvo identificador de trabajo: «{salida.strip()[:120]}»")
     elif not fila:
-        problemas.append(f"el trabajo {ident} no aparece en «jobs --all»")
+        problemas.append(f"el trabajo {ident} no aparece en «jobs --history»")
     else:
         campos = fila.split("\t")
         estado, bytes_, ritmo = campos[1], campos[4], campos[5]
@@ -1353,7 +1355,7 @@ def casos_entre_maquinas(ctx):
                   f"bash -c 'zfs mount {R}/de_fc16 2>/dev/null; cat /mnt/{R}/de_fc16/inc.txt'",
                   r"incremental", True)])
     caso(ctx, "jobs: la máquina enseña sus trabajos",
-         ["cd Local", "jobs --all"], espera=[r"done|failed|ID|JOB"])
+         ["cd Local", "jobs --history"], espera=[r"done|failed|ID|JOB"])
 
 
 # `casos_pool_export` va el ÚLTIMO de los locales A PROPÓSITO: exporta el pool, y si algo

@@ -4231,7 +4231,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     // así no hay que aprender un vocabulario aparte ni mantener una tabla de traducción
     // entre lo que se escribe y lo que devuelve el daemon.
     std::set<std::string> estados;
-    if (!pet.tiene("--all")) {
+    if (!pet.tiene("--history")) {
         for (const char* est : {"running", "queued", "done", "failed", "cancelled"}) {
             if (pet.tiene(std::string("--") + est)) {
                 estados.insert(est);
@@ -4329,7 +4329,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
         // dice cuál era el filtro para que la respuesta signifique lo que parece.
         std::fputs(estados.empty()
                        ? TC("t_no_hay_tra_f891dc", "no hay trabajos\n")
-                       : TC("t_no_hay_tra_filtro", "no hay trabajos en curso (pruebe «jobs --all»)\n"),
+                       : TC("t_no_hay_tra_filtro2", "no hay trabajos en curso (pruebe «jobs --history»)\n"),
                    stderr);
     }
     t.imprime(e.formato);

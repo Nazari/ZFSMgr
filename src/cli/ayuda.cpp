@@ -680,7 +680,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
      {
       {"jobs",
        {"t_ej_jobs_1", "los que corren o esperan turno"}},
-      {"jobs --all",
+      {"jobs --history",
        {"t_ej_jobs_2", "todos, incluidos los terminados"}},
       {"jobs -a",
        {"t_ej_jobs_6", "los de todas las conexiones"}},
@@ -1257,11 +1257,11 @@ const std::vector<Orden> kOrdenes = {
      nativasDeSend()},
 
     // --- Trabajos
-    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso2", "[-a] [--detail] [--all|--<estado>...]"},
+    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso3", "[-a] [--detail] [--history|--<estado>...]"},
      {"t_jobs_res", "Los trabajos EN CURSO de la máquina."},
      {{{"t_jobs_a", "-a"}, {"t_jobs_a_q", "Los de TODAS las conexiones, en una sola tabla."}},
       {{"t_jobs_detail", "--detail"}, {"t_jobs_detail_q", "Añade qué hace cada uno: qué copia y adónde, qué snapshot manda…"}},
-      {{"t_jobs_all", "--all"}, {"t_jobs_all_q", "Todos, incluidos los terminados."}},
+      {{"t_jobs_history", "--history"}, {"t_jobs_history_q", "Todos, incluidos los terminados."}},
       {{"t_jobs_est", "--running / --queued / --done / --failed / --cancelled"},
        {"t_jobs_est_q", "Solo esos estados. Se pueden combinar."}}},
      {{"t_jobs_det", "Sin argumentos salen los que están corriendo o encolados, que es lo que uno "
