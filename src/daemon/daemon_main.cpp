@@ -312,6 +312,10 @@ struct DaemonJob {
     std::string finishedAtUtc;
     std::string errorText;
     std::vector<std::string> progressLines; // ring buffer, max 5
+    // Qué hace, para quien mira `jobs`: «cp /origen -> /destino (+2)», «send pool/ds@s ->
+    // host:puerto». Se compone al recibirlo, que es cuando se tienen los argumentos; el
+    // verbo solo (`--mutate-copy-local`) no dice qué se está copiando ni adónde.
+    std::string description;
 };
 
 std::mutex g_jobsMutex;
@@ -8869,6 +8873,7 @@ static void persistJobsLocked() {
           << ",\"startedAt\":\"" << jsonEscape(j.startedAtUtc)
           << "\",\"finishedAt\":\"" << jsonEscape(j.finishedAtUtc)
           << "\",\"error\":\"" << jsonEscape(j.errorText)
+          << "\",\"desc\":\"" << jsonEscape(j.description)
           << "\"}";
     }
     f << "\n]\n";
@@ -8915,6 +8920,7 @@ static void loadPersistedJobsAtStartup() {
         j.sendFlags     = v["sendFlags"].toString();
         j.pipeCmd       = v["pipeCmd"].toString();
         j.dstDataset    = v["dstDataset"].toString();
+        j.description   = v["desc"].toString();
         j.bytesTransferred = static_cast<uint64_t>(v["bytes"].toInt());
         j.rateMiBs      = v["rateMiBs"].toDouble();
         j.elapsedSecs   = static_cast<long>(v["elapsedSecs"].toInt());
@@ -9103,6 +9109,56 @@ std::string dumpClassForCommand(const std::string& cmd) {
 // respuesta para elegir camino antes de pedir nada, y dos listas iguales que alguien tiene
 // que acordarse de tocar a la vez son dos listas que acaban diciendo cosas distintas. El
 // daemon enlaza `zfsmgr_commands`, así que puede preguntar en vez de repetir.
+// La descripción legible de un trabajo, a partir de lo que se pidió. Rutas y nombres, sin
+// prosa: es un dato, y el cliente lo enseña tal cual en cualquier idioma.
+std::string describeJob(const std::string& cmd, const std::vector<std::string>& params) {
+    // Las cargas de copia son un array JSON en base64: [borrar, enSeco, (rsh, host,)
+    // origen1, destino1, …]. `inicio` es dónde empiezan los pares.
+    const auto pares = [&](const char* verbo, std::size_t inicio) {
+        std::string json;
+        zfsmgr::base::json::Value v;
+        if (params.empty() || !zfsmgr::base::base64Decode(params[0], json)
+            || !zfsmgr::base::json::parse(json, v, nullptr) || !v.isArray()) {
+            return std::string(verbo);
+        }
+        const auto a = v.toArray();
+        if (a.size() < inicio + 2) {
+            return std::string(verbo);
+        }
+        std::string d = std::string(verbo) + " " + a[inicio].toString() + " -> "
+                        + a[inicio + 1].toString();
+        const std::size_t mas = (a.size() - inicio) / 2 - 1;
+        if (mas > 0) {
+            d += " (+" + std::to_string(mas) + ")";
+        }
+        if (a[0].toString() == "1") {
+            d += " --delete";
+        }
+        return d;
+    };
+    if (cmd == "--mutate-copy-local") {
+        return pares("cp", 2);
+    }
+    if (cmd == "--mutate-rsync-local") {
+        return pares("rsync", 4);
+    }
+    if (cmd == "--tree-send-to-peer" && params.size() >= 3) {
+        return "tree " + params[0] + " -> " + params[1] + ":" + params[2];
+    }
+    // breakdown/assemble/todir: el verbo sin prefijo y sus argumentos.
+    std::string d = cmd;
+    for (const char* pre : {"--mutate-advanced-", "--mutate-"}) {
+        if (d.rfind(pre, 0) == 0) {
+            d = d.substr(std::strlen(pre));
+            break;
+        }
+    }
+    for (const std::string& x : params) {
+        d += " " + x;
+    }
+    return d.size() > 300 ? d.substr(0, 300) + "…" : d;
+}
+
 bool isAsyncSubmittableCommand(const std::string& cmd) {
     return zfsmgr::commands::requests::canEnqueue(cmd);
 }
@@ -9679,6 +9735,10 @@ int runServeLoop() {
                     job.baseSnap  = (rpcArgs.size() > 4) ? rpcArgs[4] : "";
                     job.sendFlags = (rpcArgs.size() > 5) ? rpcArgs[5] : "";
                     job.resumeToken = (rpcArgs.size() > 6) ? rpcArgs[6] : "";
+                    job.description = "send "
+                                      + (job.resumeToken.empty() ? job.snap : std::string("(resume)"))
+                                      + (job.baseSnap.empty() ? std::string() : " since " + job.baseSnap)
+                                      + " -> " + job.peerHost + ":" + std::to_string(job.peerPort);
                     job.state     = JobState::Running;
                     job.startedAtUtc = utcNowIsoString();
                     const std::string jobId = job.id;
@@ -9701,6 +9761,8 @@ int runServeLoop() {
                     job.id = generateJobId();
                     job.type = "mutation";
                     job.submittedCmd = rpcArgs[0];
+                    job.description = describeJob(
+                        rpcArgs[0], std::vector<std::string>(rpcArgs.begin() + 1, rpcArgs.end()));
                     job.state = JobState::Running;
                     job.startedAtUtc = utcNowIsoString();
                     const std::string jobId = job.id;
@@ -9740,7 +9802,8 @@ int runServeLoop() {
                            << "ELAPSED_SECS=" << j.elapsedSecs << "\n"
                            << "STARTED_AT=" << j.startedAtUtc << "\n"
                            << "FINISHED_AT=" << j.finishedAtUtc << "\n"
-                           << "ERROR=" << j.errorText << "\n";
+                           << "ERROR=" << j.errorText << "\n"
+                           << "DESCRIPTION=" << j.description << "\n";
                         if (!j.progressLines.empty())
                             js << "PROGRESS_LINE=" << j.progressLines.back() << "\n";
                         if (j.type == "mutation") {
@@ -9782,6 +9845,7 @@ int runServeLoop() {
                        << ",\"started\":\"" << jsonEscape(j->startedAtUtc)
                        << "\",\"finished\":\"" << jsonEscape(j->finishedAtUtc)
                        << "\",\"error\":\"" << jsonEscape(j->errorText)
+                       << "\",\"desc\":\"" << jsonEscape(j->description)
                        << "\"}\n";
                     ++count;
                 }

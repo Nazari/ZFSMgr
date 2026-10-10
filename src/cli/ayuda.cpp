@@ -682,6 +682,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_jobs_1", "los que corren o esperan turno"}},
       {"jobs --all",
        {"t_ej_jobs_2", "todos, incluidos los terminados"}},
+      {"jobs -a",
+       {"t_ej_jobs_6", "los de todas las conexiones"}},
+      {"jobs -a --detail",
+       {"t_ej_jobs_7", "y qué hace cada uno"}},
       {"jobs --running",
        {"t_ej_jobs_3", "solo los que corren ahora"}},
       {"jobs --queued",
@@ -1253,9 +1257,11 @@ const std::vector<Orden> kOrdenes = {
      nativasDeSend()},
 
     // --- Trabajos
-    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso", "[--all|--<estado>...]"},
+    {"jobs", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_jobs_uso2", "[-a] [--detail] [--all|--<estado>...]"},
      {"t_jobs_res", "Los trabajos EN CURSO de la máquina."},
-     {{{"t_jobs_all", "--all"}, {"t_jobs_all_q", "Todos, incluidos los terminados."}},
+     {{{"t_jobs_a", "-a"}, {"t_jobs_a_q", "Los de TODAS las conexiones, en una sola tabla."}},
+      {{"t_jobs_detail", "--detail"}, {"t_jobs_detail_q", "Añade qué hace cada uno: qué copia y adónde, qué snapshot manda…"}},
+      {{"t_jobs_all", "--all"}, {"t_jobs_all_q", "Todos, incluidos los terminados."}},
       {{"t_jobs_est", "--running / --queued / --done / --failed / --cancelled"},
        {"t_jobs_est_q", "Solo esos estados. Se pueden combinar."}}},
      {{"t_jobs_det", "Sin argumentos salen los que están corriendo o encolados, que es lo que uno "
@@ -1264,7 +1270,7 @@ const std::vector<Orden> kOrdenes = {
       "líneas."},
       {"t_jobs_det2", "El filtro se pide por el NOMBRE DEL ESTADO, el mismo que sale en la columna "
       "ESTADO, para no tener que aprender un vocabulario aparte."}},
-     Objetivo::Conexion, {}},
+     Objetivo::None_, {}},
     {"job", {"t_trabajos_e_ae8ad9", "Trabajos en segundo plano"}, {"t_id_cancel__aab412", "<id> | cancel <id>"},
      {"t_el_estado__9c5ecc", "El estado de un trabajo, o su cancelación."},
      {},

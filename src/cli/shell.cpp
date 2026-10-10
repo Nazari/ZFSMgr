@@ -4214,7 +4214,15 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     if (!prepara(e, linea, pet)) {
         return false;
     }
-    const ZfsmUrl& destino = pet.objetivo;
+    // La conexión del sitio actual (o de --on). No se exige en la declaración porque con
+    // `-a` vale desde cualquier sitio, también desde la raíz.
+    const ZfsmUrl destino = subeHasta(pet.objetivo, Objetivo::Conexion);
+    if (!pet.tiene("-a") && destino.connection.empty()) {
+        std::fputs(TC("t_jobs_falta_conexion",
+                      "hace falta estar en una conexión, o «jobs -a» para todas\n"),
+                   stderr);
+        return false;
+    }
     // Por omisión, SOLO lo que está corriendo. Un daemon que lleva meses en pie acumula
     // trabajos terminados, y enseñarlos todos convierte «¿qué está pasando ahora?» —que es
     // la pregunta que uno tiene al teclear `jobs`— en buscar entre decenas de líneas.
@@ -4234,43 +4242,87 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
             estados.insert("queued");  // encolado es «todavía va a pasar», no historia
         }
     }
-    std::string out;
-    if (!agente(e, destino, PET::jobList(), out, 30000)) {
-        return false;
+    // `-a`: los de TODAS las conexiones, una detrás de otra en la misma tabla, que por eso
+    // lleva la columna CONEXIÓN. Sin `-a`, los de la conexión en la que se está.
+    const bool todas = pet.tiene("-a");
+    // `--detail`: qué hace cada uno —«cp /origen -> /destino», «send pool/ds@s -> host»—,
+    // que el agente compone al recibirlo. El tipo solo («mutation») no lo dice.
+    const bool detalle = pet.tiene("--detail");
+    std::vector<std::pair<std::string, ZfsmUrl>> maquinas;   // (id, url)
+    if (todas) {
+        for (const auto& p : e.conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (e.conns.desconectada(id)) {
+                continue;
+            }
+            ZfsmUrl u;
+            u.kind = ZfsmKind::Connection;
+            u.connection = id;
+            maquinas.emplace_back(id, u);
+        }
+    } else {
+        maquinas.emplace_back(destino.connection, destino);
     }
     Tabla t;
     t.nombreJson = "jobs";
-    t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_estado", "ESTADO"), T("t_cab_tipo", "TIPO"),
+    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_id", "ID"),
+                        T("t_cab_estado", "ESTADO"), T("t_cab_tipo", "TIPO"),
                         T("t_cab_instantanea", "SNAPSHOT"), T("t_cab_bytes", "BYTES"),
                         T("t_cab_mib_s", "MiB/s"), T("t_cab_segundos", "SEGUNDOS"),
                         T("t_cab_error", "ERROR")};
-    t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
+    t.campos = {"connection", "id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
                Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
-    // Cada línea es «JOB={…json…}», que se analiza con el JSON de la capa base.
-    for (const std::string& linea : B::split(out, "\n", true)) {
-        if (!B::startsWith(linea, "JOB=")) {
+    if (detalle) {
+        t.cabecerasTexto.push_back(T("t_cab_que_hace", "QUÉ HACE"));
+        t.campos.push_back("description");
+        t.tipos.push_back(Tipo::Cadena);
+    }
+    bool algunaFallo = false;
+    for (const auto& [idMaquina, url] : maquinas) {
+        std::string out;
+        if (!agente(e, url, PET::jobList(), out, 30000)) {
+            // Con -a, una máquina que no contesta no tapa a las demás: se dice y se sigue.
+            if (!todas) {
+                return false;
+            }
+            algunaFallo = true;
             continue;
         }
-        B::json::Value j;
-        std::string err;
-        if (!B::json::parse(linea.substr(4), j, &err)) {
-            continue;
+        // Cada línea es «JOB={…json…}», que se analiza con el JSON de la capa base.
+        for (const std::string& linea : B::split(out, "\n", true)) {
+            if (!B::startsWith(linea, "JOB=")) {
+                continue;
+            }
+            B::json::Value j;
+            std::string err;
+            if (!B::json::parse(linea.substr(4), j, &err)) {
+                continue;
+            }
+            if (!estados.empty() && estados.count(j["state"].toString()) == 0) {
+                continue;
+            }
+            // El ritmo con DOS decimales: `std::to_string` de un double da seis, y «0.000000»
+            // ocupa una columna entera para no decir nada.
+            char ritmo[32];
+            std::snprintf(ritmo, sizeof(ritmo), "%.2f", j["rate"].toDouble());
+            // El texto de error puede traer saltos de línea; en una tabla los rompe.
+            std::string textoErr = j["error"].toString();
+            B::replaceAll(textoErr, "\n", " ");
+            B::replaceAll(textoErr, "\r", " ");
+            std::vector<std::string> fila{idMaquina, j["id"].toString(), j["state"].toString(),
+                                          j["type"].toString(), j["snap"].toString(),
+                                          std::to_string(j["bytes"].toInt()), ritmo,
+                                          std::to_string(j["elapsed"].toInt()), B::trim(textoErr)};
+            if (detalle) {
+                const std::string d = j["desc"].toString();
+                fila.push_back(d.empty() ? std::string("-") : d);   // agente anterior: no lo dice
+            }
+            t.filas.push_back(fila);
         }
-        if (!estados.empty() && estados.count(j["state"].toString()) == 0) {
-            continue;
-        }
-        // El ritmo con DOS decimales: `std::to_string` de un double da seis, y «0.000000»
-        // ocupa una columna entera para no decir nada.
-        char ritmo[32];
-        std::snprintf(ritmo, sizeof(ritmo), "%.2f", j["rate"].toDouble());
-        // El texto de error puede traer saltos de línea; en una tabla los rompe.
-        std::string textoErr = j["error"].toString();
-        B::replaceAll(textoErr, "\n", " ");
-        B::replaceAll(textoErr, "\r", " ");
-        t.filas.push_back({j["id"].toString(), j["state"].toString(), j["type"].toString(),
-                           j["snap"].toString(), std::to_string(j["bytes"].toInt()), ritmo,
-                           std::to_string(j["elapsed"].toInt()), B::trim(textoErr)});
+    }
+    if (algunaFallo) {
+        e.ultimoRc = 1;
     }
     if (t.filas.empty()) {
         // Con filtro puesto, «no hay trabajos» es engañoso: puede haber diez terminados. Se
