@@ -234,6 +234,17 @@ zm_instala_compartido() {
       zm_corre install -m 0755 "${a}" "${destino}/agents/${k}/"
     done
   done
+  # Y los CLI de todas las plataformas: los que `install-daemon` manda a otra máquina para
+  # ponerle al día su zfsmgr-cli. En <compartido>/cli/<plataforma>/zfsmgr-cli[.exe].
+  for c in "${ZM_AQUI}"/cli/zfsmgr-cli-*; do
+    [ -f "${c}" ] || continue
+    n="$(basename "${c}")"
+    k="${n#zfsmgr-cli-}"
+    ext=""
+    case "${k}" in *.exe) k="${k%.exe}"; ext=".exe" ;; esac
+    zm_corre mkdir -p "${destino}/cli/${k}"
+    zm_corre install -m 0755 "${c}" "${destino}/cli/${k}/zfsmgr-cli${ext}"
+  done
 }
 
 zm_desinstala_cli_suelto() {

@@ -528,6 +528,63 @@ std::string rutaDelAgente(const std::string& plataforma, const std::string& arqu
     return {};
 }
 
+std::string rutaDelCli(const std::string& plataforma, const std::string& arquitectura) {
+    const std::string ext = plataforma == "windows" ? ".exe" : "";
+    const std::string dir = dirDelEjecutable();
+    std::error_code ec;
+    for (const std::string& arq : aliasDeArquitectura(arquitectura)) {
+        const std::string clave = plataforma + "-" + arq;
+        std::vector<std::string> cands;
+        for (const std::string& base : {dir + "/cli/", dir + "/../cli/", dir + "/../Resources/cli/",
+                                        dir + "/../share/zfsmgr/cli/"}) {
+            cands.push_back(base + clave + "/zfsmgr-cli" + ext);
+        }
+        // En el árbol de fuentes: cada plataforma en su directorio de compilación, que es de
+        // donde los coge también el empaquetador.
+        const std::string deCompilacion = clave == "linux-x86_64"     ? "linux"
+                                          : clave == "freebsd-x86_64" ? "cross-freebsd"
+                                          : clave == "macos-amd64"    ? "cross-macos-amd64"
+                                          : clave == "macos-arm64"    ? "cross-macos-arm64"
+                                          : clave == "windows-x86_64" ? "cross-windows"
+                                                                      : std::string();
+        if (!deCompilacion.empty()) {
+            for (const std::string& base : {dir + "/../", dir + "/../builds/", dir + "/builds/",
+                                            std::string("builds/")}) {
+                cands.push_back(base + deCompilacion + "/zfsmgr-cli" + ext);
+            }
+        }
+        for (const std::string& cand : cands) {
+            if (std::filesystem::is_regular_file(cand, ec)) {
+                return std::filesystem::canonical(cand, ec).string();
+            }
+        }
+    }
+    return {};
+}
+
+std::string dirDeCatalogos() {
+    const std::string dir = dirDelEjecutable();
+    std::error_code ec;
+    for (const std::string& d : {dir + "/i18n", dir + "/../i18n", dir + "/../share/zfsmgr/i18n",
+                                 dir + "/../Resources/i18n"}) {
+        if (std::filesystem::is_regular_file(d + "/es.json", ec)) {
+            return std::filesystem::canonical(d, ec).string();
+        }
+    }
+    return {};
+}
+
+std::string dirDeAgentes() {
+    // El directorio que contiene los de todas las plataformas: el padre del de cualquiera.
+    for (const char* plataforma : {"linux", "macos", "freebsd", "windows"}) {
+        const std::string a = rutaDelAgente(plataforma, "");
+        if (!a.empty()) {
+            return std::filesystem::path(a).parent_path().parent_path().string();
+        }
+    }
+    return {};
+}
+
 bool guardarConexion(Sesion& s, const B::ConnectionProfile& p, std::string& error) {
     error.clear();
     if (B::trim(p.id).empty()) {

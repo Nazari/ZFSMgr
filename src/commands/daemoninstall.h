@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "connectionprofile.h"
 #include "helpers.h"
@@ -97,6 +99,50 @@ Result uninstallLocal(const std::string& platform, bool simulate,
 
 Result install(TransportSession& ses, const ConnectionProfile& profile,
                   const std::string& binaryPath,
+                  const std::function<void(const std::string&)>& trace = {},
+                  bool verbose = false);
+
+// --- El CLI de la otra máquina.
+//
+// `install-daemon` pone al día también el `zfsmgr-cli` de la otra punta, si ya tiene uno:
+// un daemon nuevo con un CLI viejo al lado es una máquina a medio actualizar. Va por el
+// mismo camino que el agente —SSH con sudo, el contenido por la entrada estándar— y por la
+// misma razón: es parte del despliegue, no una operación del día a día.
+
+// Lo que hay en la otra máquina. Sin `found`, no tiene CLI y NO se le instala: ponerlo donde
+// nadie lo pidió no es actualizar.
+struct CliProbe {
+    bool found{false};
+    bool isLink{false};        // un enlace —el del .app en macOS—: es de otro, no se toca
+    std::string path;          // dónde está
+    std::string fullVersion;   // «0.99.3.829775496», o vacío si es anterior a decirla
+};
+CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& profile, bool verbose);
+// La sonda y su lectura, públicas para poder probarlas sin máquina.
+std::string cliProbeCommand();
+CliProbe readCliProbe(const std::string& output);
+
+// Un tar (ustar) en memoria con esos ficheros: (nombre dentro del tar, ruta local). Vacío y
+// `error` relleno si alguno no se puede leer o su nombre no cabe.
+std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& entries,
+                       std::string& error);
+
+// El guion que coloca el kit —bin/zfsmgr-cli, i18n/, agents/— donde ya estaba el CLI:
+// `binPath` y, a su lado, `<prefijo>/share/zfsmgr`, que es donde el CLI busca sus catálogos y
+// agentes. El binario se sustituye por renombrado, así que uno en marcha no se rompe.
+std::string cliInstallScript(const std::string& binPath);
+
+// Sube el kit y lo coloca. `cliBinary` es el de la plataforma de la otra punta; `i18nDir` y
+// `agentsDir`, los de este equipo.
+//
+// `allClis` son los CLI de TODAS las plataformas (clave «linux-x86_64», ruta): se dejan en
+// share/zfsmgr/cli/ para que esa máquina quede igual que una instalada con el paquete, y no
+// reparta CLI viejos si un día se lanza `install-daemon` desde ella.
+Result installCli(TransportSession& ses, const ConnectionProfile& profile,
+                  const std::string& cliBinary, const std::string& i18nDir,
+                  const std::string& agentsDir,
+                  const std::vector<std::pair<std::string, std::string>>& allClis,
+                  const std::string& binPath,
                   const std::function<void(const std::string&)>& trace = {},
                   bool verbose = false);
 

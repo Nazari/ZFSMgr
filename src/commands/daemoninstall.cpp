@@ -10,6 +10,8 @@
 #include "transportrpc.h"
 #include "transporttunnel.h"
 
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -327,6 +329,174 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     T::closeTunnelForConnection(ses, perfil);
     T::clearRemoteDaemonTlsCacheForConnection(perfil);
     T::clearLocalDaemonTlsCache();
+    return r;
+}
+
+std::string cliProbeCommand() {
+    // `command -v` primero, por si se instaló con otro prefijo; y las dos rutas de siempre
+    // detrás, porque una sesión SSH no interactiva —macOS sobre todo— no lleva /usr/local/bin
+    // en el PATH. Sin sudo: solo se mira.
+    return "for p in \"$(command -v zfsmgr-cli 2>/dev/null)\" /usr/local/bin/zfsmgr-cli "
+           "/usr/bin/zfsmgr-cli; do "
+           "if [ -n \"$p\" ] && [ -e \"$p\" ]; then "
+           "if [ -L \"$p\" ]; then echo \"ZFSMGR_CLI_LINK=$p\"; else echo \"ZFSMGR_CLI=$p\"; fi; "
+           "echo \"ZFSMGR_CLI_VER=$(\"$p\" version 2>/dev/null | head -1)\"; break; fi; done; true";
+}
+
+CliProbe readCliProbe(const std::string& salida) {
+    CliProbe r;
+    for (const std::string& linea : split(salida, "\n", true)) {
+        const std::string l = trim(linea);
+        if (startsWith(l, "ZFSMGR_CLI_LINK=")) {
+            r.found = true;
+            r.isLink = true;
+            r.path = l.substr(16);
+        } else if (startsWith(l, "ZFSMGR_CLI=")) {
+            r.found = true;
+            r.path = l.substr(11);
+        } else if (startsWith(l, "ZFSMGR_CLI_VER=")) {
+            // «zfsmgr-cli 0.99.3 (0.99.3.829775496)»: la huella entre paréntesis. Uno
+            // anterior a decirla solo trae «zfsmgr-cli 0.99.3», y se queda vacía: no se sabe
+            // qué compilación es, y eso se trata como «a actualizar».
+            const std::size_t a = l.find('(');
+            const std::size_t b = l.find(')', a == std::string::npos ? 0 : a);
+            if (a != std::string::npos && b != std::string::npos && b > a + 1) {
+                r.fullVersion = trim(l.substr(a + 1, b - a - 1));
+            }
+        }
+    }
+    return r;
+}
+
+CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
+    if (T::isWindowsConnection(p)) {
+        return {};  // en Windows no se toca: el CLI llega con su instalador
+    }
+    std::string out;
+    std::string err;
+    int rc = -1;
+    T::runSsh(ses, p, cliProbeCommand(), 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
+    return readCliProbe(out);
+}
+
+std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& entradas,
+                       std::string& error) {
+    error.clear();
+    std::string tar;
+    for (const auto& e : entradas) {
+        const std::string& nombre = e.first;
+        if (nombre.empty() || nombre.size() > 99) {
+            error = "nombre que no cabe en el tar: " + nombre;
+            return {};
+        }
+        const std::string datos = leeFicheroEntero(e.second);
+        std::error_code ec;
+        if (datos.empty() && std::filesystem::file_size(e.second, ec) != 0) {
+            error = "no se pudo leer " + e.second;
+            return {};
+        }
+        if (ec) {
+            error = "no se pudo leer " + e.second;
+            return {};
+        }
+        // La cabecera ustar: 512 bytes, números en octal y terminados en NUL.
+        char cab[512] = {0};
+        const auto octal = [&](std::size_t pos, std::size_t largo, unsigned long long v) {
+            std::snprintf(cab + pos, largo, "%0*llo", static_cast<int>(largo - 1), v);
+        };
+        std::memcpy(cab, nombre.data(), nombre.size());
+        octal(100, 8, 0755);
+        octal(108, 8, 0);
+        octal(116, 8, 0);
+        octal(124, 12, datos.size());
+        octal(136, 12, 0);
+        std::memset(cab + 148, ' ', 8);   // la suma se calcula con su propio campo en blanco
+        cab[156] = '0';                   // fichero corriente
+        std::memcpy(cab + 257, "ustar", 6);
+        std::memcpy(cab + 263, "00", 2);
+        unsigned int suma = 0;
+        for (unsigned char ch : cab) {
+            suma += ch;
+        }
+        std::snprintf(cab + 148, 8, "%06o", suma);
+        cab[155] = ' ';
+        tar.append(cab, sizeof(cab));
+        tar += datos;
+        tar.append((512 - datos.size() % 512) % 512, '\0');
+    }
+    tar.append(1024, '\0');   // fin del archivo: dos bloques vacíos
+    return tar;
+}
+
+std::string cliInstallScript(const std::string& binPath) {
+    const std::string bin = shSingleQuote(binPath);
+    return "set -e; d=$(mktemp -d /tmp/zfsmgr-cli.XXXXXX); trap 'rm -rf \"$d\"' EXIT; "
+           "tar -xf - -C \"$d\"; "
+           "bin=" + bin + "; share=\"$(dirname \"$(dirname \"$bin\")\")/share/zfsmgr\"; "
+           // Por renombrado: el fichero viejo sigue existiendo para quien lo tenga abierto.
+           "install -m 0755 \"$d/bin/zfsmgr-cli\" \"$bin.nuevo\"; mv -f \"$bin.nuevo\" \"$bin\"; "
+           "mkdir -p \"$share/i18n\" \"$share/agents\"; "
+           "for j in \"$d\"/i18n/*.json; do [ -f \"$j\" ] && cp -f \"$j\" \"$share/i18n/\"; done; "
+           "for a in \"$d\"/agents/*/; do [ -d \"$a\" ] || continue; k=$(basename \"$a\"); "
+           "mkdir -p \"$share/agents/$k\"; cp -f \"$a\"* \"$share/agents/$k/\"; "
+           "chmod 0755 \"$share/agents/$k\"/*; done; "
+           "for c in \"$d\"/cli/*/; do [ -d \"$c\" ] || continue; k=$(basename \"$c\"); "
+           "mkdir -p \"$share/cli/$k\"; cp -f \"$c\"* \"$share/cli/$k/\"; "
+           "chmod 0755 \"$share/cli/$k\"/*; done; "
+           "\"$bin\" version";
+}
+
+Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
+                  const std::string& cliBinary, const std::string& i18nDir,
+                  const std::string& agentsDir,
+                  const std::vector<std::pair<std::string, std::string>>& todosLosCli,
+                  const std::string& binPath,
+                  const std::function<void(const std::string&)>& traza, bool verboso) {
+    Result r;
+    std::vector<std::pair<std::string, std::string>> kit;
+    kit.emplace_back("bin/zfsmgr-cli", cliBinary);
+    std::error_code ec;
+    for (const auto& j : std::filesystem::directory_iterator(i18nDir, ec)) {
+        if (j.path().extension() == ".json") {
+            kit.emplace_back("i18n/" + j.path().filename().string(), j.path().string());
+        }
+    }
+    for (const auto& d : std::filesystem::directory_iterator(agentsDir, ec)) {
+        if (!d.is_directory()) {
+            continue;
+        }
+        for (const auto& a : std::filesystem::directory_iterator(d.path(), ec)) {
+            if (a.is_regular_file()) {
+                kit.emplace_back("agents/" + d.path().filename().string() + "/"
+                                     + a.path().filename().string(),
+                                 a.path().string());
+            }
+        }
+    }
+    for (const auto& c : todosLosCli) {
+        const std::string ext = std::filesystem::path(c.second).extension().string();
+        kit.emplace_back("cli/" + c.first + "/zfsmgr-cli" + ext, c.second);
+    }
+    std::string err;
+    const std::string tar = tarArchive(kit, err);
+    if (tar.empty()) {
+        r.fallo = Failure::UnreadableBinary;
+        r.detail = err;
+        return r;
+    }
+    r.version = agentversion::versionInBinary(cliBinary);
+    r.versionBehind = !r.version.empty() && r.version != agentversion::expected();
+    std::string out;
+    std::string errSsh;
+    int rc = -1;
+    if (!T::runSsh(ses, perfil, H::withSudoStreamInputCommand(perfil, cliInstallScript(binPath)),
+                   300000, out, errSsh, rc, traza, traza, {}, tar, false, verboso)
+        || rc != 0) {
+        r.fallo = Failure::InstallFailed;
+        r.rc = rc;
+        r.detail = trim(errSsh.empty() ? out : errSsh);
+        return r;
+    }
     return r;
 }
 

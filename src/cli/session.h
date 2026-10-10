@@ -154,6 +154,15 @@ std::string dirDelEjecutable();
 // una máquina que parece atendida y no lo está.
 std::string rutaDelAgente(const std::string& plataforma, const std::string& arquitectura);
 
+// Lo mismo para el CLI de otra plataforma, el que `install-daemon` manda a la otra máquina.
+// Instalado, junto a los agentes (share/zfsmgr/cli/<plataforma>-<arq>/); en el árbol de
+// fuentes, donde lo deja cada compilación. Vacío si este equipo no lo tiene.
+std::string rutaDelCli(const std::string& plataforma, const std::string& arquitectura);
+
+// Los catálogos y los agentes de ESTE equipo: lo que acompaña al CLI cuando se manda.
+std::string dirDeCatalogos();
+std::string dirDeAgentes();
+
 // Ejecuta un verbo del agente por RPC TIPADO: argv, sin intérprete de por medio.
 //
 // **No hay respaldo por shell, y es deliberado.** En la interfaz existe por historia; aquí

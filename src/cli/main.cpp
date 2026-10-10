@@ -9,6 +9,7 @@
 //
 // Ver docs/diseno_tecnico_capa_base_sin_qt.md.
 
+#include "agentversion.h"
 #include "connectionjson.h"
 #include "processes.h"
 #include "daemoninstall.h"
@@ -312,7 +313,10 @@ int main(int argc, char** argv) {
     // fue exactamente lo que hizo que el binario se cayera al arrancar sin argumentos.
     if (!op.orden.empty() && op.orden[0] == "version") {
 #ifdef ZFSMGR_APP_VERSION
-        std::printf("%s %s\n", kNombre, ZFSMGR_APP_VERSION);
+        // Con la huella entre paréntesis: `install-daemon` la lee del CLI de la otra máquina
+        // para saber si es esta misma compilación, y el número de versión solo no lo dice.
+        std::printf("%s %s (%s)\n", kNombre, ZFSMGR_APP_VERSION,
+                    zfsmgr::base::agentversion::expected().c_str());
 #else
         std::printf(TC("t_sin_version", "%s (sin versión)\n"), kNombre);
 #endif

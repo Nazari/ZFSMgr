@@ -27,6 +27,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+#include <iterator>
 #include <cerrno>
 #include <csignal>
 #include "json.h"
@@ -2114,6 +2115,67 @@ int main() {
         // ejecutaria con exito sin instalar nada, que es la forma silenciosa de fallar.
         igual(DI::installScript("loquesea", "9.9.9.1", "7"), lin,
               "daemoninstall: lo desconocido cae al guion de Linux");
+
+        // --- El CLI de la otra maquina.
+        //
+        // La sonda: las tres respuestas posibles. Un CLI anterior a decir su huella se queda
+        // sin `fullVersion`, que quien llama trata como «a actualizar».
+        {
+            const auto r = DI::readCliProbe(
+                "ZFSMGR_CLI=/usr/local/bin/zfsmgr-cli\nZFSMGR_CLI_VER=zfsmgr-cli 0.99.3 (0.99.3.123456789)\n");
+            comprobar(r.found && !r.isLink, "cli: encontrado y no es enlace");
+            igual(r.path, "/usr/local/bin/zfsmgr-cli", "cli: la ruta");
+            igual(r.fullVersion, "0.99.3.123456789", "cli: la huella entre parentesis");
+            const auto viejo = DI::readCliProbe(
+                "ZFSMGR_CLI=/usr/bin/zfsmgr-cli\nZFSMGR_CLI_VER=zfsmgr-cli 0.99.3\n");
+            comprobar(viejo.found && viejo.fullVersion.empty(), "cli: uno viejo, sin huella");
+            const auto enlace = DI::readCliProbe(
+                "ZFSMGR_CLI_LINK=/usr/local/bin/zfsmgr-cli\nZFSMGR_CLI_VER=zfsmgr-cli 0.99.3 (x)\n");
+            comprobar(enlace.found && enlace.isLink, "cli: el enlace del .app se reconoce");
+            comprobar(!DI::readCliProbe("").found, "cli: sin respuesta no hay CLI");
+        }
+        // El guion coloca el binario por renombrado, deja catalogos, agentes y CLI junto a el,
+        // y termina preguntandole la version al nuevo.
+        {
+            const std::string g = DI::cliInstallScript("/opt/x/bin/zfsmgr-cli");
+            comprobar(g.find("bin='/opt/x/bin/zfsmgr-cli'") != std::string::npos, "cli: la ruta entrecomillada");
+            comprobar(g.find("mv -f \"$bin.nuevo\" \"$bin\"") != std::string::npos, "cli: por renombrado");
+            comprobar(g.find("/share/zfsmgr") != std::string::npos, "cli: share/zfsmgr al lado");
+            comprobar(g.find("$share/cli/$k") != std::string::npos, "cli: los CLI de todas las plataformas");
+            comprobar(g.rfind("version") == g.size() - 7, "cli: termina con version");
+        }
+        // El tar: el del sistema lo lee y saca lo mismo que entro, con su ruta.
+        {
+            const std::string dir = "/tmp/zfsmgr-tar-prueba-" + std::to_string(::getpid());
+            std::system(("rm -rf " + dir + " && mkdir -p " + dir + "/src " + dir + "/out").c_str());
+            {
+                std::ofstream(dir + "/src/a.bin", std::ios::binary) << std::string("hola\0mundo", 10);
+                std::ofstream(dir + "/src/vacio.json");
+                std::string grande(1300, 'x');
+                std::ofstream(dir + "/src/g.bin", std::ios::binary) << grande;
+            }
+            std::string err;
+            const std::string tar = DI::tarArchive({{"bin/zfsmgr-cli", dir + "/src/a.bin"},
+                                                    {"i18n/vacio.json", dir + "/src/vacio.json"},
+                                                    {"agents/linux-x86_64/zfsmgr_agent", dir + "/src/g.bin"}},
+                                                   err);
+            comprobar(!tar.empty() && err.empty(), "tar: se arma", err);
+            comprobar(tar.size() % 512 == 0, "tar: bloques de 512");
+            std::ofstream(dir + "/k.tar", std::ios::binary) << tar;
+            const int rc = std::system(("tar -xf " + dir + "/k.tar -C " + dir + "/out 2>/dev/null").c_str());
+            comprobar(rc == 0, "tar: el tar del sistema lo extrae");
+            const auto lee = [](const std::string& f) {
+                std::ifstream in(f, std::ios::binary);
+                return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            };
+            igual(lee(dir + "/out/bin/zfsmgr-cli"), std::string("hola\0mundo", 10), "tar: binario con NUL intacto");
+            igual(lee(dir + "/out/agents/linux-x86_64/zfsmgr_agent"), std::string(1300, 'x'), "tar: mas de un bloque");
+            comprobar(std::filesystem::exists(dir + "/out/i18n/vacio.json"), "tar: un fichero vacio tambien va");
+            std::string err2;
+            comprobar(DI::tarArchive({{std::string(120, 'n'), dir + "/src/a.bin"}}, err2).empty() && !err2.empty(),
+                      "tar: un nombre que no cabe se rechaza");
+            std::system(("rm -rf " + dir).c_str());
+        }
 
         // La plataforma sale del perfil, sin preguntarle a la maquina.
         zfsmgr::base::ConnectionProfile perfilMac;

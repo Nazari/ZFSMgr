@@ -1338,11 +1338,13 @@ const std::vector<Orden> kOrdenes = {
     {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_install_daemon_uso", "[--on <url>] [-a [--check]]"},
      {"t_instala_o__7022d3", "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema."},
      {{{"t_install_daemon_a", "-a"},
-       {"t_install_daemon_a_q", "En TODAS las conexiones conocidas: instala donde falta y actualiza "
-        "donde se ha quedado atrás. Las que están al día o van por delante no se tocan."}},
+       {"t_install_daemon_a_q", "En TODAS las conexiones conocidas: instala el daemon donde falta y pone "
+        "al día el daemon y el zfsmgr-cli donde se han quedado atrás. Lo que está al día o va "
+        "por delante no se toca."}},
       {{"t_install_daemon_check", "--check"},
        {"t_install_daemon_check_q", "Con -a: enseña qué haría en cada una, sin tocar nada."}}},
-     {{"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
+     {{"t_install_daemon_cli_det", "También pone al día el zfsmgr-cli de esa máquina, si ya tiene uno: su binario, sus catálogos y los agentes y CLI de todas las plataformas que lleva al lado. Donde no hay CLI no se instala, y no se tocan el enlace que deja el .app en macOS, Windows ni el CLI que se está ejecutando."},
+      {"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "
       "PARECE atendida y no lo está."},
       {"t_mac_acceso_disco_ayuda", "En macOS queda UN PASO a mano: concederle «Acceso total al disco» al agente en "

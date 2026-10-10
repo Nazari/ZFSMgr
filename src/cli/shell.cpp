@@ -3737,6 +3737,115 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
 // **No hay respaldo por guion.** Si no está el binario de esa plataforma, no se instala
 // nada: un agente de guion no habla TLS, y dejarlo puesto da una máquina que PARECE
 // atendida y no lo está.
+// --- El CLI de la otra máquina, junto con su daemon.
+//
+// Un daemon nuevo con un `zfsmgr-cli` viejo al lado es una máquina a medio actualizar, así
+// que `install-daemon` pone al día también el CLI. Solo donde ya hay uno: instalarlo donde
+// nadie lo pidió no es actualizar.
+struct PlanCli {
+    enum class Accion { NoHay, Windows, Enlace, EsEste, AlDia, PorDelante, Actualizar, SinBinario };
+    Accion accion{Accion::NoHay};
+    B::daemoninstall::CliProbe sonda;
+    std::string binario;  // el de su plataforma, en este equipo
+};
+
+PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
+    namespace DI = B::daemoninstall;
+    PlanCli plan;
+    if (T::isWindowsConnection(perfil)) {
+        plan.accion = PlanCli::Accion::Windows;
+        return plan;
+    }
+    plan.sonda = DI::probeRemoteCli(e.ses->transporte, perfil, e.ses->verboso);
+    if (!plan.sonda.found) {
+        return plan;
+    }
+    if (plan.sonda.isLink) {
+        plan.accion = PlanCli::Accion::Enlace;  // el de un .app: lo actualiza su instalador
+        return plan;
+    }
+    // El que se está ejecutando no se sustituye a sí mismo a mitad de una orden.
+    if (T::isLocalConnection(perfil)) {
+        std::error_code ec;
+        const auto a = std::filesystem::canonical(plan.sonda.path, ec);
+        const auto b = std::filesystem::canonical(dirDelEjecutable() + "/zfsmgr-cli", ec);
+        if (!a.empty() && a == b) {
+            plan.accion = PlanCli::Accion::EsEste;
+            return plan;
+        }
+    }
+    if (!plan.sonda.fullVersion.empty()) {
+        switch (B::agentversion::verdictFor(plan.sonda.fullVersion, B::agentversion::expected())) {
+            case B::agentversion::Verdict::UpToDate: plan.accion = PlanCli::Accion::AlDia; return plan;
+            case B::agentversion::Verdict::Ahead: plan.accion = PlanCli::Accion::PorDelante; return plan;
+            case B::agentversion::Verdict::Update: break;
+        }
+    }
+    plan.binario = rutaDelCli(DI::platformOf(perfil),
+                              DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso));
+    plan.accion = plan.binario.empty() || dirDeAgentes().empty() || dirDeCatalogos().empty()
+                      ? PlanCli::Accion::SinBinario
+                      : PlanCli::Accion::Actualizar;
+    return plan;
+}
+
+std::string textoDePlanCli(const PlanCli& plan) {
+    switch (plan.accion) {
+        case PlanCli::Accion::NoHay: return T("t_cli_plan_no_hay", "no tiene: no se instala");
+        case PlanCli::Accion::Windows: return T("t_cli_plan_windows", "Windows: no se toca");
+        case PlanCli::Accion::Enlace: return T("t_cli_plan_enlace", "es el del .app: no se toca");
+        case PlanCli::Accion::EsEste: return T("t_cli_plan_este", "es el que está en marcha: no se toca");
+        case PlanCli::Accion::AlDia: return T("t_instala_accion_al_dia", "al día: no se toca");
+        case PlanCli::Accion::PorDelante:
+            return T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+        case PlanCli::Accion::Actualizar: return T("t_instala_accion_actualizar", "actualizar");
+        case PlanCli::Accion::SinBinario:
+            return T("t_cli_plan_sin_binario", "a actualizar, pero este equipo no tiene su CLI");
+    }
+    return {};
+}
+
+// Lo pone al día según el plan. Cuenta lo que hace; `false` solo si se intentó y falló.
+bool actualizaCli(Estado& e, const B::ConnectionProfile& perfilConSudo, const PlanCli& plan) {
+    namespace DI = B::daemoninstall;
+    const std::string quien = perfilConSudo.name.empty() ? perfilConSudo.id : perfilConSudo.name;
+    if (plan.accion != PlanCli::Accion::Actualizar) {
+        if (plan.accion != PlanCli::Accion::NoHay && plan.accion != PlanCli::Accion::Windows) {
+            std::fprintf(stderr, TC("t_cli_de", "zfsmgr-cli de %s: %s\n"), quien.c_str(),
+                         textoDePlanCli(plan).c_str());
+        }
+        return plan.accion != PlanCli::Accion::SinBinario;
+    }
+    std::fprintf(stderr, TC("t_cli_desplegando", "actualizando zfsmgr-cli en %s (%s)...\n"),
+                 quien.c_str(), plan.sonda.path.c_str());
+    std::vector<std::pair<std::string, std::string>> todos;
+    for (const auto& pa : std::vector<std::pair<std::string, std::string>>{
+             {"linux", "x86_64"}, {"freebsd", "x86_64"}, {"macos", "amd64"},
+             {"macos", "arm64"}, {"windows", "x86_64"}}) {
+        const std::string ruta = rutaDelCli(pa.first, pa.second);
+        if (!ruta.empty()) {
+            todos.emplace_back(pa.first + "-" + pa.second, ruta);
+        }
+    }
+    const DI::Result r = DI::installCli(
+        e.ses->transporte, perfilConSudo, plan.binario, dirDeCatalogos(), dirDeAgentes(), todos,
+        plan.sonda.path, [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); },
+        e.ses->verboso);
+    if (!r.ok()) {
+        std::fprintf(stderr, TC("t_cli_fallo", "no se pudo actualizar zfsmgr-cli en %s: %s\n"),
+                     quien.c_str(), r.detail.c_str());
+        return false;
+    }
+    if (r.versionBehind) {
+        std::fprintf(stderr,
+                     TC("t_cli_empaquetado_viejo",
+                        "aviso: el zfsmgr-cli empaquetado para esa máquina es %s y este es %s\n"),
+                     r.version.c_str(), B::agentversion::expected().c_str());
+    }
+    std::fprintf(stderr, TC("t_cli_actualizado", "zfsmgr-cli actualizado en %s\n"), quien.c_str());
+    return true;
+}
+
 bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -3860,13 +3969,19 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     // ningún pool para importar. Todo parece bien salvo el resultado, que es la peor forma
     // de fallar; por eso se dice aquí, al instalar, y no cuando la lista salga vacía. La
     // interfaz gráfica ya lo avisa —`mainwindow_connections.cpp`—, y el intérprete callaba.
+    // Y el CLI de esa máquina, si tiene uno. Un fallo aquí no deshace el daemon, pero se
+    // cuenta: la máquina queda a medias y la orden lo dice.
+    const bool cliBien = actualizaCli(e, perfil, planDelCli(e, perfil));
     if (r.isMac) {
         std::fputs(TC("t_mac_acceso_disco", "\nEn macOS hace falta concederle «Acceso total al disco» al agente, o no verá\n"
                      "los discos y no encontrará pools que importar:\n"
                      "  Configuración del Sistema → Privacidad y Seguridad → Acceso total al\n"
                      "  disco → añadir /usr/local/libexec/zfsmgr-agent\n"), stderr);
     }
-    return true;
+    if (!cliBien) {
+        e.ultimoRc = 1;
+    }
+    return cliBien;
 }
 
 // --- Trabajos en segundo plano.
@@ -6369,10 +6484,13 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
         std::string nombre;
         std::string version;
         Accion accion;
+        PlanCli cli;
+        const B::ConnectionProfile* perfil{nullptr};
     };
     std::vector<Fila> filas;
     for (const auto& p : e.conns.perfiles) {
         Fila fila;
+        fila.perfil = &p;
         fila.id = p.id.empty() ? p.name : p.id;
         fila.nombre = p.name.empty() ? fila.id : p.name;
         if (e.conns.desconectada(fila.id)) {
@@ -6399,14 +6517,16 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                 case B::agentversion::Verdict::Ahead: fila.accion = Accion::PorDelante; break;
             }
         }
+        fila.cli = planDelCli(e, conSudo(e, p));
         filas.push_back(fila);
     }
 
     Tabla t;
     t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_daemon", "DAEMON"),
-                        T("t_cab_accion", "ACCIÓN")};
-    t.campos = {"connection", "daemon", "action"};
-    std::vector<std::string> aTocar;
+                        T("t_cab_accion", "ACCIÓN"), T("t_cab_cli", "CLI"),
+                        T("t_cab_accion_cli", "ACCIÓN CLI")};
+    t.campos = {"connection", "daemon", "action", "cli", "cli_action"};
+    std::vector<const Fila*> aTocar;
     for (const Fila& fila : filas) {
         std::string accion;
         switch (fila.accion) {
@@ -6420,10 +6540,18 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                 accion = T("t_instala_accion_desconectada", "desconectada: se salta");
                 break;
         }
-        if (fila.accion == Accion::Instalar || fila.accion == Accion::Actualizar) {
-            aTocar.push_back(fila.id);
+        const bool agenteToca = fila.accion == Accion::Instalar || fila.accion == Accion::Actualizar;
+        const bool cliToca = fila.cli.accion == PlanCli::Accion::Actualizar;
+        if (agenteToca || cliToca) {
+            aTocar.push_back(&fila);
         }
-        t.filas.push_back({fila.id, fila.version.empty() ? "-" : fila.version, accion});
+        const bool desconectada = fila.accion == Accion::Desconectada;
+        t.filas.push_back({fila.id, fila.version.empty() ? "-" : fila.version, accion,
+                           fila.cli.sonda.found ? (fila.cli.sonda.fullVersion.empty()
+                                                       ? std::string("?")
+                                                       : fila.cli.sonda.fullVersion)
+                                                : std::string("-"),
+                           desconectada ? std::string("-") : textoDePlanCli(fila.cli)});
     }
     t.imprime(e.formato);
     if (aTocar.empty()) {
@@ -6435,9 +6563,9 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
         std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
         return true;
     }
-    if (!confirma(e, B::format(T("t_instala_todas_conf",
-                                 "Se va a instalar o actualizar el daemon (%1) en %2 conexiones. "
-                                 "¿Continuar?"),
+    if (!confirma(e, B::format(T("t_instala_todas_conf2",
+                                 "Se van a poner al día %2 conexiones con %1: el daemon y, donde "
+                                 "lo tengan, zfsmgr-cli. ¿Continuar?"),
                                {esperada, std::to_string(aTocar.size())}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         e.ultimoRc = 1;
@@ -6447,16 +6575,25 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
     e.asumirSi = true;
     std::size_t bien = 0;
     std::vector<std::string> fallidas;
-    for (const std::string& id : aTocar) {
+    for (const Fila* fila : aTocar) {
+        const std::string& id = fila->id;
         std::fprintf(stderr, "\n== %s\n", id.c_str());
-        LineaAnalizada una = an;
-        una.banderas.erase(std::remove(una.banderas.begin(), una.banderas.end(), "-a"),
-                           una.banderas.end());
-        una.opciones.erase("check");
-        una.objetivo = "zfsm://" + B::percentEncodeSegment(id);
         // Cada una con su propio código: el fallo de una no se arrastra a la siguiente.
         e.ultimoRc = 0;
-        if (f(e, una)) {
+        bool ok = false;
+        if (fila->accion == Accion::Instalar || fila->accion == Accion::Actualizar) {
+            // El daemon, y con él el CLI: `install-daemon` hace las dos cosas.
+            LineaAnalizada una = an;
+            una.banderas.erase(std::remove(una.banderas.begin(), una.banderas.end(), "-a"),
+                               una.banderas.end());
+            una.opciones.erase("check");
+            una.objetivo = "zfsm://" + B::percentEncodeSegment(id);
+            ok = f(e, una);
+        } else {
+            // El daemon ya está al día: solo el CLI, sin reinstalar el servicio por nada.
+            ok = actualizaCli(e, conSudo(e, *fila->perfil), fila->cli);
+        }
+        if (ok) {
             ++bien;
         } else {
             fallidas.push_back(id);

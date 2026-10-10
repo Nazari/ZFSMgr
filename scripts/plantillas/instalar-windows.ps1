@@ -119,6 +119,14 @@ if ($conGui) {
     Corre { Copy-Item -Force (Join-Path $Aqui 'i18n\*.json') (Join-Path $Bin 'i18n') } "copiar los catalogos"
     # Los agentes en {app}\agents, que es bin\..\agents: donde el CLI los busca.
     Corre { Copy-Item -Recurse -Force (Join-Path $Aqui 'agents') $App } "copiar los agentes"
+    # Y los CLI de todas las plataformas en {app}\cli\<plataforma>: los que install-daemon
+    # manda a otra maquina para ponerle al dia su zfsmgr-cli.
+    foreach ($c in Get-ChildItem (Join-Path $Aqui 'cli') -Filter 'zfsmgr-cli-*') {
+        $k = $c.BaseName -replace '^zfsmgr-cli-', ''
+        $dirK = Join-Path (Join-Path $App 'cli') $k
+        Corre { New-Item -ItemType Directory -Force -Path $dirK | Out-Null } "crear $dirK"
+        Corre { Copy-Item -Force $c.FullName (Join-Path $dirK ('zfsmgr-cli' + $c.Extension)) } "copiar el CLI de $k"
+    }
     $actual = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     if (-not (($actual -split ';') | Where-Object { $_.TrimEnd('\') -eq $Bin.TrimEnd('\') })) {
         Corre { [Environment]::SetEnvironmentVariable('Path', "$actual;$Bin", 'Machine') } "anadir $Bin al PATH"
