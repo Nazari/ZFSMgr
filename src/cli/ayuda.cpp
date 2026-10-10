@@ -751,6 +751,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_install_daemon_4", "pone al día todas las conexiones conocidas"}},
       {"install-daemon zfsm://*",
        {"t_ej_install_daemon_5", "reinstala en todas, aunque estén al día"}},
+      {"install-daemon --on zfsm://unib --force",
+       {"t_ej_install_daemon_6", "aunque tenga trabajos en curso, que se cortan"}},
      }},
     {"format",
      {

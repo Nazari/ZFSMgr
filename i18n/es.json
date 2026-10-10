@@ -469,6 +469,7 @@
     "t_ej_install_daemon_3": "qué haría en cada conexión, sin tocar nada",
     "t_ej_install_daemon_4": "pone al día todas las conexiones conocidas",
     "t_ej_install_daemon_5": "reinstala en todas, aunque estén al día",
+    "t_ej_install_daemon_6": "aunque tenga trabajos en curso, que se cortan",
     "t_ej_job_1": "el estado de un trabajo",
     "t_ej_job_2": "lo cancela; no deshace lo ya hecho",
     "t_ej_jobs_1": "los que corren o esperan turno",

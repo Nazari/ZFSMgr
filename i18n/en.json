@@ -499,6 +499,7 @@
     "t_ej_install_daemon_3": "what it would do on each connection, without touching anything",
     "t_ej_install_daemon_4": "brings every known connection up to date",
     "t_ej_install_daemon_5": "reinstalls on all of them, even if up to date",
+    "t_ej_install_daemon_6": "even with jobs in progress, which are cut off",
     "t_ej_job_1": "a job's state",
     "t_ej_job_2": "cancels it; does not undo what is done",
     "t_ej_jobs_1": "the ones running or queued",
