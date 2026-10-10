@@ -1032,7 +1032,7 @@ def casos_acciones(ctx):
     sh(ctx, f"mkdir -p {base}/destino/choque.txt && echo x > {base}/choque.txt", root=True)
     caso(ctx, "cp: se niega a meter un fichero dentro de un directorio homónimo",
          [f"cp {base}/choque.txt {base}/destino --wait"],
-         espera=[r"ya hay un DIRECTORIO"],
+         espera=[r"already has a DIRECTORY|ya hay un DIRECTORIO"],
          estado=[("y no ha anidado nada",
                   f"bash -c 'test -e {base}/destino/choque.txt/choque.txt && echo ANIDÓ || echo LIMPIO'",
                   r"^LIMPIO$")])
@@ -1120,7 +1120,7 @@ def casos_entre_maquinas(ctx):
     sh(ctx, f"zfs snapshot -r {R}/datos@env", True, root=True)
     caso(ctx, "send: fc16 -> unib, completo",
          [f"cd Local/{L}/datos@env", f"send zfsm://unib/{R}/de_fc16 --wait"],
-         espera=[r"done"], no_espera=[r"failed|no movió"],
+         espera=[r"done"], no_espera=[r"failed|no movió|did not move"],
          estado=[("el dataset está en unib", f"zfs list -H -o name {R}/de_fc16",
                   rf"^{R}/de_fc16$", True),
                  ("con el fichero dentro",
@@ -1128,7 +1128,7 @@ def casos_entre_maquinas(ctx):
                   r"hola desde fc16", True)])
     caso(ctx, "send: unib -> fc16, completo",
          [f"cd unib/{R}/datos@env", f"send zfsm://local/{L}/de_unib --wait"],
-         espera=[r"done"], no_espera=[r"failed|no movió"],
+         espera=[r"done"], no_espera=[r"failed|no movió|did not move"],
          estado=[("el dataset está en fc16", f"zfs list -H -o name {L}/de_unib",
                   rf"^{L}/de_unib$"),
                  ("con el fichero dentro",

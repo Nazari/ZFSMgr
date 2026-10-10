@@ -89,3 +89,14 @@ Listado de cambios.
 
    En resumen: lo que se buscaba —una sola forma de decir «copia esto ahí»— ya está hecho con
    `cp`. Lo que queda no es duplicación, son operaciones distintas que se parecen por fuera.
+
+9. [ABIERTO 2026-10-10] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
+   códigos que traduzca el CLI? Hoy cada error del daemon sale como una frase ya escrita
+   —en castellano hasta la 1.0; en inglés desde ella, como solución provisional— y el cliente
+   la imprime tal cual, así que no puede traducirla ni decidir según ella sin comparar
+   cadenas. La forma correcta es la de `transport::Failure`: el agente devuelve un CÓDIGO
+   estable (y los datos variables aparte: la ruta, el dataset) y el cliente lo convierte en
+   texto en el idioma de quien lo lee. Tiene que contestarse antes de tocarlo: cuántos de
+   los ~200 mensajes son códigos de verdad y cuántos son salida cruda de `zfs`/`zpool` que
+   el agente reenvía (esa no se puede codificar), y cómo convivir con agentes viejos que
+   solo mandan texto.

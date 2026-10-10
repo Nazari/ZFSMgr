@@ -262,7 +262,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
     std::error_code ec;
     const fs::path base = fs::path(raiz);
     if (!fs::is_directory(base, ec) || ec) {
-        error = "no es un directorio: " + raiz;
+        error = "not a directory: " + raiz;
         return false;
     }
 
@@ -276,12 +276,12 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
 
     fs::recursive_directory_iterator it(base, fs::directory_options::skip_permission_denied, ec);
     if (ec) {
-        error = "no se pudo recorrer " + raiz + ": " + ec.message();
+        error = "could not walk " + raiz + ": " + ec.message();
         return false;
     }
     for (; it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) {
-            error = "no se pudo recorrer " + raiz + ": " + ec.message();
+            error = "could not walk " + raiz + ": " + ec.message();
             return false;
         }
         const fs::path& p = it->path();
@@ -421,7 +421,7 @@ bool walkSingleFile(const std::string& fichero, Entry& salida, std::string& erro
     std::error_code ec;
     const fs::path p(fichero);
     if (!fs::is_regular_file(fs::symlink_status(p, ec)) || ec) {
-        error = "no es un fichero corriente: " + fichero;
+        error = "not a regular file: " + fichero;
         return false;
     }
     salida.path = conBarras(p.filename().generic_string());
@@ -525,16 +525,16 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
         std::size_t lr = 0;
         std::size_t ld = 0;
         if (!(iss >> letra >> tam >> fecha >> modo >> lr >> ld)) {
-            error = "línea de manifiesto ilegible: " + linea;
+            error = "unreadable manifest line: " + linea;
             return false;
         }
         Entry e;
         if (!tipoDe(letra, e.kind)) {
-            error = "tipo desconocido en el manifiesto: " + std::string(1, letra);
+            error = "unknown type in the manifest: " + std::string(1, letra);
             return false;
         }
         if (i + lr + ld > texto.size()) {
-            error = "manifiesto truncado en los nombres";
+            error = "manifest truncated in the names";
             return false;
         }
         e.size = tam;
@@ -555,7 +555,7 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
         std::size_t lg = 0;
         if (iss >> uid >> gid >> lu >> lg) {
             if (i + lu + lg > texto.size()) {
-                error = "manifiesto truncado en el dueño";
+                error = "manifest truncated in the owner";
                 return false;
             }
             e.uid = uid;
@@ -566,7 +566,7 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
         }
         salida.push_back(e);
     }
-    error = "el manifiesto no termina en «E»";
+    error = "the manifest does not end in «E»";
     return false;
 }
 
@@ -712,7 +712,7 @@ bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largo
         return false;
     }
     if (!accionDe(letra, salida.action)) {
-        error = "acción desconocida: " + std::string(1, letra);
+        error = "unknown action: " + std::string(1, letra);
         return false;
     }
     salida.entry = Entry{};
@@ -765,7 +765,7 @@ bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error) 
     hexOut.clear();
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
     if (f == nullptr) {
-        error = "no se pudo abrir " + ruta;
+        error = "could not open " + ruta;
         return false;
     }
     // EVP y no `SHA256_Init/Update/Final`: esos están obsoletos desde OpenSSL 3.0 y avisan
@@ -774,7 +774,7 @@ bool fileHash(const std::string& ruta, std::string& hexOut, std::string& error) 
     if (ctx == nullptr || EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
         if (ctx != nullptr) { EVP_MD_CTX_free(ctx); }
         std::fclose(f);
-        error = "no se pudo iniciar el resumen";
+        error = "could not start the digest";
         return false;
     }
     std::vector<unsigned char> buf(65536);
@@ -803,7 +803,7 @@ bool signaturesOf(const std::string& ruta, std::size_t tamBloque, std::vector<Si
     salida.clear();
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
     if (f == nullptr) {
-        error = "no se pudo abrir " + ruta;
+        error = "could not open " + ruta;
         return false;
     }
     std::vector<unsigned char> buf(tamBloque);
@@ -841,7 +841,7 @@ std::string serializeSignatures(const std::vector<Signature>& f) {
 bool parseSignatures(const std::string& datos, std::vector<Signature>& salida, std::string& error) {
     salida.clear();
     if (datos.size() % 20 != 0) {
-        error = "las firmas llegan a medias";
+        error = "the signatures arrive incomplete";
         return false;
     }
     for (std::size_t i = 0; i < datos.size(); i += 20) {
@@ -863,12 +863,12 @@ bool delta(const std::string& ruta, const std::vector<Signature>& firmas, std::s
     salida.clear();
     bytesLiterales = 0;
     if (tamBloque == 0) {
-        error = "tamaño de bloque cero";
+        error = "zero block size";
         return false;
     }
     std::FILE* f = std::fopen(ruta.c_str(), "rb");
     if (f == nullptr) {
-        error = "no se pudo abrir " + ruta;
+        error = "could not open " + ruta;
         return false;
     }
 

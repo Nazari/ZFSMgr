@@ -526,7 +526,7 @@ private Q_SLOTS:
         std::filesystem::create_directories(destino);
         const Result r = copyTree(f.string(), destino.string(), Options{});
         QVERIFY(!r.ok);
-        QVERIFY2(r.error.find("DIRECTORIO") != std::string::npos, r.error.c_str());
+        QVERIFY2(r.error.find("DIRECTORY") != std::string::npos, r.error.c_str());
     }
 
     void laPasadaEnSecoDeUnFicheroNoEscribe() {

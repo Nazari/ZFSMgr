@@ -941,12 +941,12 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
     namespace fs = std::filesystem;
     struct stat st {};
     if (::lstat(node.c_str(), &st) != 0) {
-        err = "no se pudo consultar " + node.string();
+        err = "could not stat " + node.string();
         return false;
     }
     if (st.st_dev != dev) {
-        err = "hay un sistema de ficheros montado en " + node.string()
-              + "; se aborta el borrado para no destruir su contenido";
+        err = "there is a filesystem mounted at " + node.string()
+              + "; deletion aborted so as not to destroy its contents";
         return false;
     }
     if (S_ISDIR(st.st_mode)) {
@@ -957,12 +957,12 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
             }
         }
         if (ec) {
-            err = "no se pudo listar " + node.string();
+            err = "could not list " + node.string();
             return false;
         }
     }
     if (::remove(node.c_str()) != 0) {
-        err = "no se pudo borrar " + node.string();
+        err = "could not delete " + node.string();
         return false;
     }
     return true;
@@ -993,9 +993,9 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     (void)params;
     ExecResult noAqui;
     noAqui.rc = 2;
-    noAqui.err = "Desglosar no está disponible en Windows: sus datasets se montan planos bajo "
-                 "la letra del pool y no admiten un punto de montaje propio, así que el "
-                 "dataset nuevo no quedaría donde estaba el directorio\n";
+    noAqui.err = "Breakdown is not available on Windows: its datasets are mounted flat under "
+                 "the pool's drive letter and do not accept their own mountpoint, so the "
+                 "new dataset would not end up where the directory was\n";
     return noAqui;
 #endif
     ExecResult r;
@@ -1005,8 +1005,8 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     // convertir `a/b/c` sin convertir `a` ni `b`, pidiendo el nombre plano `a:b:c`.
     if (params.size() < 3 || (params.size() - 1) % 2 != 0) {
         r.rc = 2;
-        r.err = "usage: --mutate-advanced-breakdown <dataset> <dir> <nombre> "
-                "[<dir> <nombre>...]\n";
+        r.err = "usage: --mutate-advanced-breakdown <dataset> <dir> <name> "
+                "[<dir> <name>...]\n";
         return r;
     }
     const std::string dataset = params[0];
@@ -1091,7 +1091,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
         if (name.empty()) {
             r.rc = 2;
-            r.err = "nombre de dataset vacío para " + rel + "\n";
+            r.err = "empty dataset name for " + rel + "\n";
             return r;
         }
         // El nombre lo escribe el usuario, así que se valida aquí y no solo en la
@@ -1100,7 +1100,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             || name.find("//") != std::string::npos
             || name.find("..") != std::string::npos) {
             r.rc = 2;
-            r.err = "nombre de dataset no válido: " + name + "\n";
+            r.err = "invalid dataset name: " + name + "\n";
             return r;
         }
         for (const char c : name) {
@@ -1109,13 +1109,13 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                             || c == ':' || c == ' ' || c == '/';
             if (!ok) {
                 r.rc = 2;
-                r.err = "carácter no permitido por ZFS en el nombre: " + name + "\n";
+                r.err = "character not allowed by ZFS in the name: " + name + "\n";
                 return r;
             }
         }
         if (!seenNames.insert(name).second) {
             r.rc = 2;
-            r.err = "dos directorios piden el mismo nombre de dataset: " + name + "\n";
+            r.err = "two directories ask for the same dataset name: " + name + "\n";
             return r;
         }
         rels.push_back(rel);
@@ -1123,7 +1123,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     }
     if (rels.empty()) {
         r.rc = 2;
-        r.err = "no se indicó ningún directorio\n";
+        r.err = "no directory was given\n";
         return r;
     }
 
@@ -1181,9 +1181,9 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             if (itMp != dsByMountpoint.end()) {
                 pending.push_back(Pending{rel, name, itMp->second, std::string(), true});
                 r.out += "already_dataset=" + itMp->second + " -> " + child + "\n";
-                reportJobProgress("[BREAKDOWN] " + std::to_string(i + 1) + " de "
+                reportJobProgress("[BREAKDOWN] " + std::to_string(i + 1) + " of "
                                   + std::to_string(rels.size()) + ": " + rel
-                                  + " — ya era dataset, solo se renombra");
+                                  + " — already a dataset, only renamed");
                 continue;
             }
         }
@@ -1206,10 +1206,10 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         // lleva los temporales al volver.
         if (jobCancelRequested()) {
             r.rc = 125;
-            r.err = "cancelado por el usuario antes de modificar nada\n";
+            r.err = "cancelled by the user before changing anything\n";
             return r;
         }
-        reportJobProgress("[BREAKDOWN] copiando " + std::to_string(i + 1) + " de "
+        reportJobProgress("[BREAKDOWN] copying " + std::to_string(i + 1) + " of "
                           + std::to_string(rels.size()) + ": " + rel);
         // El dataset temporal se crea distinto en cada plataforma, y no por gusto.
         //
@@ -1225,7 +1225,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         tmpMp = makeTempDir("zfsmgr-breakdown-child-");
         if (tmpMp.empty()) {
             r.rc = 125;
-            r.err = "no se pudo crear el punto de montaje temporal\n";
+            r.err = "could not create the temporary mountpoint\n";
             return r;
         }
         // Nombre plano: hijo DIRECTO del dataset base, así no hay intermedios que crear.
@@ -1242,7 +1242,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             GUID g;
             if (CoCreateGuid(&g) != S_OK) {
                 r.rc = 125;
-                r.err = "no se pudo generar el nombre del dataset temporal\n";
+                r.err = "could not generate the temporary dataset name\n";
                 return r;
             }
             char sfx[64];
@@ -1260,7 +1260,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         if (tmpMp.empty()) {
             (void)runExecCapture("zfs", {"destroy", tmpName});
             r.rc = 125;
-            r.err = "el dataset temporal no quedó montado en ningún sitio\n";
+            r.err = "the temporary dataset was not left mounted anywhere\n";
             return r;
         }
 #endif
@@ -1270,7 +1270,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         {
         // El dataset temporal es el que crece mientras se copia.
         CopyProgressSampler sampler(tmpName,
-                                    "[BREAKDOWN] " + std::to_string(i + 1) + " de "
+                                    "[BREAKDOWN] " + std::to_string(i + 1) + " of "
                                         + std::to_string(rels.size()) + ": " + rel);
         for (int attempt = 0; attempt < 5; ++attempt) {
             // -x: nunca bajar a un dataset montado dentro. Las exclusiones ya cubren los
@@ -1294,7 +1294,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         // Con la marca [BREAKDOWN]: la interfaz FILTRA las líneas de progreso y solo
         // deja pasar las que la llevan. Sin ella se descartaban en silencio y la caja
         // de Progreso seguía vacía aunque el daemon las estuviera emitiendo.
-        reportJobProgress("[BREAKDOWN] copiado " + std::to_string(i + 1) + " de "
+        reportJobProgress("[BREAKDOWN] copied " + std::to_string(i + 1) + " of "
                           + std::to_string(rels.size()) + ": " + rel);
     }
 
@@ -1344,9 +1344,9 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
                 (void)runExecCapture("zfs", {"mount", it->second});
             }
             r.rc = 1;
-            r.err = "no se pudo desmontar " + kv.second + ", montado en " + kv.first
-                    + ", que queda dentro de un directorio a convertir. No se ha borrado "
-                      "nada.\n" + um.err;
+            r.err = "could not unmount " + kv.second + ", mounted at " + kv.first
+                    + ", which is inside a directory to convert. Nothing has been "
+                      "deleted.\n" + um.err;
             return r;
         }
         unmounted.push_back(kv);
@@ -1361,7 +1361,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         struct stat rootSt {};
         if (::lstat(srcPath.c_str(), &rootSt) != 0) {
             r.rc = 1;
-            r.err = "no se pudo consultar " + srcPath.string() + "\n";
+            r.err = "could not stat " + srcPath.string() + "\n";
             return r;
         }
         // La misma lectura sirve para dos cosas: el dispositivo, para no cruzar montajes al
@@ -1403,8 +1403,8 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             // temporales son la única copia. Destruirlos sería perder los datos: se
             // desarma la limpieza y se dice dónde están.
             cleanup.armed = false;
-            ren.err += "\nLos datos están a salvo en datasets temporales bajo " + dataset
-                       + ". Renómbrelos a mano; NO los destruya.\n";
+            ren.err += "\nThe data is safe in temporary datasets under " + dataset
+                       + ". Rename them by hand; do NOT destroy them.\n";
             for (const Pending* q : byDepth) {
                 ren.err += "  " + q->tmpName + "  ->  " + dataset + "/" + q->name + "\n";
             }
@@ -1430,7 +1430,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             // Igual que arriba: el dataset ya tiene su nombre bueno y contiene los
             // únicos datos. Solo le falta el punto de montaje.
             cleanup.armed = false;
-            setMp.err += "\nEl dataset " + child + " tiene los datos; falta fijarle "
+            setMp.err += "\nThe dataset " + child + " has the data; it still needs "
                          "mountpoint=" + srcPath.string() + "\n";
             return setMp;
         }
@@ -1442,11 +1442,11 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         // esto sería un cambio a peor. Se dice y se sigue.
         if (p->permisosLeidos) {
             if (::chmod(srcPath.c_str(), p->modo) != 0) {
-                r.out += "[BREAKDOWN] aviso: no se pudo poner el modo original en "
+                r.out += "[BREAKDOWN] warning: could not restore the original mode on "
                          + srcPath.string() + "\n";
             }
             if (::chown(srcPath.c_str(), p->uid, p->gid) != 0) {
-                r.out += "[BREAKDOWN] aviso: no se pudo poner el dueño original en "
+                r.out += "[BREAKDOWN] warning: could not restore the original owner on "
                          + srcPath.string() + "\n";
             }
         }
@@ -1456,7 +1456,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
             fs::remove_all(p->tmpMp, tmpEc);
         }
         r.out += "[BREAKDOWN] ok " + p->rel + " -> " + child
-                 + (p->alreadyDataset ? " (renombrado, sin copiar)" : "") + "\n";
+                 + (p->alreadyDataset ? " (renamed, not copied)" : "") + "\n";
     }
 
     // Devolver a su sitio los que se desmontaron para poder borrar. Los seleccionados ya
@@ -1475,7 +1475,7 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         if (!datasetIsMounted(it->second)) {
             const ExecResult rm = runExecCapture("zfs", {"mount", it->second});
             if (rm.rc != 0 && !datasetIsMounted(it->second)) {
-                r.out += "[BREAKDOWN] aviso: no se pudo volver a montar " + it->second + "\n";
+                r.out += "[BREAKDOWN] warning: could not remount " + it->second + "\n";
             }
         }
     }
@@ -1548,7 +1548,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // lo que uno escribe si se fía del texto de ayuda. Decir «hecho» cuando no se ha
         // hecho nada es el peor fallo posible aquí, así que ahora se cuenta y se dice.
         if (runExecCapture("zfs", {"list", "-H", "-o", "name", child}).rc != 0) {
-            r.out += "[ASSEMBLE] ya absorbido " + child + "\n";
+            r.out += "[ASSEMBLE] already absorbed " + child + "\n";
             ++saltados;
             continue;
         }
@@ -1579,8 +1579,8 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         if (!permisosLeidos) {
             // No es motivo para abortar —los datos son lo importante— pero sí para decirlo:
             // el directorio quedará con los del temporal y alguien tendrá que arreglarlo.
-            r.out += "[ASSEMBLE] aviso: no se pudieron leer los permisos de " + childMp
-                     + "; el directorio quedará con los del temporal\n";
+            r.out += "[ASSEMBLE] warning: could not read the permissions of " + childMp
+                     + "; the directory will keep those of the temporary one\n";
         }
 #endif
         const std::size_t pos = child.find_last_of('/');
@@ -1601,14 +1601,14 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
 #ifdef _WIN32
         if (child.rfind(dataset + "/", 0) != 0) {
             r.rc = 1;
-            r.err = "el dataset " + child + " no cuelga de " + dataset + "; no se ensambla\n";
+            r.err = "the dataset " + child + " does not hang from " + dataset + "; not assembled\n";
             return r;
         }
 #else
         if (childMp.rfind(parentMp + "/", 0) != 0) {
             r.rc = 1;
-            r.err = "el dataset " + child + " está montado en " + childMp + ", fuera de "
-                    + parentMp + "; no se ensambla\n";
+            r.err = "the dataset " + child + " is mounted at " + childMp + ", outside "
+                    + parentMp + "; not assembled\n";
             return r;
         }
 #endif
@@ -1617,15 +1617,15 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         // volcaban en RAM y la operación moría con "No space left on device".
         if (jobCancelRequested()) {
             r.rc = 125;
-            r.err = "cancelado por el usuario\n";
+            r.err = "cancelled by the user\n";
             return r;
         }
-        reportJobProgress("[ASSEMBLE] ensamblando " + std::to_string(i) + " de "
+        reportJobProgress("[ASSEMBLE] assembling " + std::to_string(i) + " of "
                           + std::to_string(orderedChildren.size()) + ": " + bn);
         const std::string tmp = makeTempDirIn(parentMp, ".zfsmgr-assemble-");
         if (tmp.empty()) {
             r.rc = 125;
-            r.err = "no se pudo crear el directorio temporal en " + parentMp + "\n";
+            r.err = "could not create the temporary directory in " + parentMp + "\n";
             return r;
         }
         // La escala se borra pase lo que pase. Solo se limpiaba en el camino bueno, así
@@ -1714,7 +1714,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
         }
 
         std::unique_ptr<CopyProgressSampler> sampler(new CopyProgressSampler(
-            dataset, "[ASSEMBLE] " + std::to_string(i) + " de "
+            dataset, "[ASSEMBLE] " + std::to_string(i) + " of "
                          + std::to_string(orderedChildren.size()) + ": " + bn));
         // -x: copiar SOLO lo propio del dataset. Lo que hay bajo los puntos de montaje
         // de sus hijos pertenece a esos hijos y se queda con ellos.
@@ -1739,7 +1739,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 r.rc = 42;
                 r.err = "verify_failed=" + child + " pending="
                         + (pending < 0 ? std::string("unknown") : std::to_string(pending))
-                        + " (no se destruye el dataset)\n";
+                        + " (the dataset is not destroyed)\n";
                 return r;
             }
         }
@@ -1766,7 +1766,7 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
             }
             if (kidMp.empty()) {
                 r.rc = 1;
-                r.err = "no se pudo determinar el mountpoint de " + kid + "\n";
+                r.err = "could not determine the mountpoint of " + kid + "\n";
                 return r;
             }
             // Explícito antes de renombrar: si fuera heredado, al cambiar de padre se
@@ -1799,8 +1799,8 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 return mv;
             }
             reparented.push_back(Reparented{target, kidMp});
-            r.out += "[ASSEMBLE] conservado " + kid + " -> " + target
-                     + " (montado en " + kidMp + ")\n";
+            r.out += "[ASSEMBLE] kept " + kid + " -> " + target
+                     + " (mounted at " + kidMp + ")\n";
         }
 
         // Sin -r: a estas alturas no le queda ningún descendiente, y un destroy no
@@ -1861,11 +1861,11 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
 #ifndef _WIN32
         if (permisosLeidos) {
             if (::chmod(dst.c_str(), permisosOrigen.st_mode & 07777) != 0) {
-                r.out += "[ASSEMBLE] aviso: no se pudo poner el modo original en " + dst.string()
+                r.out += "[ASSEMBLE] warning: could not restore the original mode on " + dst.string()
                          + "\n";
             }
             if (::chown(dst.c_str(), permisosOrigen.st_uid, permisosOrigen.st_gid) != 0) {
-                r.out += "[ASSEMBLE] aviso: no se pudo poner el dueño original en " + dst.string()
+                r.out += "[ASSEMBLE] warning: could not restore the original owner on " + dst.string()
                          + "\n";
             }
         }
@@ -1897,14 +1897,14 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
                 }
                 const ExecResult mnt = runExecCapture("zfs", {"mount", ds});
                 if (mnt.rc != 0 && !datasetIsMounted(ds)) {
-                    r.out += "[ASSEMBLE] aviso: no se pudo montar " + ds + "\n";
+                    r.out += "[ASSEMBLE] warning: could not mount " + ds + "\n";
                 }
             }
         }
         // Ya están montados con su nombre nuevo: el guard no debe tocarlos.
         remountGuard.armed = false;
         stagingCleanup.armed = false;  // la escala ya se movió a su sitio definitivo
-        reportJobProgress("[ASSEMBLE] ensamblado " + std::to_string(i) + " de "
+        reportJobProgress("[ASSEMBLE] assembled " + std::to_string(i) + " of "
                           + std::to_string(orderedChildren.size()) + ": " + bn);
         r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
         ++hechos;
@@ -1913,12 +1913,12 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
     // «hecho» sobre una operación que no tocó nada.
     if (hechos == 0) {
         r.rc = 1;
-        r.err = "ninguno de los nombres dados es un dataset hijo de este; "
-                "van con su nombre COMPLETO, no relativo\n";
+        r.err = "none of the given names is a child dataset of this one; "
+                "they go by their FULL name, not a relative one\n";
         return r;
     }
     if (saltados > 0) {
-        r.out += "[ASSEMBLE] " + std::to_string(saltados) + " no estaban\n";
+        r.out += "[ASSEMBLE] " + std::to_string(saltados) + " were not there\n";
     }
     r.rc = 0;
     return r;
@@ -2505,10 +2505,10 @@ std::string motivoParaNoCambiarClave(const std::string& dataset, const std::stri
     if (kl.rc != 0 || ubicacion.empty() || ubicacion == "prompt" || ubicacion == "-") {
         return {};
     }
-    return "este dataset toma su clave de «" + ubicacion
-           + "», no de una frase tecleada: cambiar la frase aquí no tendría ningún efecto.\n"
-             "Cambie primero el contenido de esa ubicación, o pase «-o keylocation=prompt» si "
-             "quiere que a partir de ahora la clave se pida.\n";
+    return "this dataset takes its key from «" + ubicacion
+           + "», not from a typed passphrase: changing the passphrase here would have no effect.\n"
+             "Change the contents of that location first, or pass «-o keylocation=prompt» if "
+             "you want the key to be prompted for from now on.\n";
 }
 
 ExecResult runGenericMutationCapture(const std::string& tool, const std::string& payloadB64) {
@@ -2556,26 +2556,26 @@ static ExecResult runPrepareDirCapture(const std::vector<std::string>& params) {
     const std::string rel = trim(params[1]);
     if (base.empty() || base.front() != '/') {
         r.rc = 2;
-        r.err = "la base tiene que ser una ruta absoluta\n";
+        r.err = "the base must be an absolute path\n";
         return r;
     }
     if (rel.empty() || rel.front() == '/' || rel.front() == '\\'
         || rel.find("..") != std::string::npos) {
         r.rc = 2;
-        r.err = "la parte relativa no puede estar vacía, ser absoluta ni llevar «..»\n";
+        r.err = "the relative part cannot be empty, absolute or contain «..»\n";
         return r;
     }
     std::error_code ec;
     if (!std::filesystem::is_directory(base, ec) || ec) {
         r.rc = 2;
-        r.err = "la base no existe o no es un directorio: " + base + "\n";
+        r.err = "the base does not exist or is not a directory: " + base + "\n";
         return r;
     }
     const std::string destino = base + (base.back() == '/' ? "" : "/") + rel;
     std::filesystem::create_directories(destino, ec);
     if (ec || !std::filesystem::is_directory(destino, ec)) {
         r.rc = 1;
-        r.err = "no se pudo crear " + destino + "\n";
+        r.err = "could not create " + destino + "\n";
         return r;
     }
     r.rc = 0;
@@ -2721,7 +2721,7 @@ struct AltMountGuard {
         const ExecResult mpNow = getDatasetMountpointCapture(ds);
         const std::string effective = (mpNow.rc == 0) ? trim(mpNow.out) : std::string();
         if (effective != tmpDir) {
-            errMsg = "el dataset " + ds + " quedó montado en " + effective + " y no en "
+            errMsg = "the dataset " + ds + " was mounted at " + effective + " and not at "
                      + tmpDir + "\n";
             return false;
         }
@@ -2850,7 +2850,7 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         const std::string occupant = datasetMountedExactlyAt(dstDir);
         if (!occupant.empty() && occupant != dataset) {
             r.rc = 2;
-            r.err = "el destino " + dstDir + " es el punto de montaje del dataset " + occupant
+            r.err = "the target " + dstDir + " is the mountpoint of the dataset " + occupant
                     + "\n";
             return r;
         }
@@ -2903,7 +2903,7 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         }
         if (members.empty()) {
             r.rc = 1;
-            r.err = "no se pudo resolver el dataset de origen\n";
+            r.err = "could not resolve the source dataset\n";
             return r;
         }
         // De hojas hacia arriba. Así cada dataset se copia SOLO con lo suyo (-x) y, al
@@ -2947,15 +2947,15 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             if (!found) {
                 const std::string mp = (tab == std::string::npos) ? std::string()
                                                                   : trim(line.substr(tab + 1));
-                outside += "  " + name + "  (montado en " + (mp.empty() ? "?" : mp) + ")\n";
+                outside += "  " + name + "  (mounted at " + (mp.empty() ? "?" : mp) + ")\n";
             }
         }
         if (!outside.empty()) {
             r.rc = 2;
-            r.err = "No se puede llevar " + dataset + " a un directorio: tiene descendientes "
-                    "montados FUERA de " + rootMpForCheck + ", así que su contenido no iría "
-                    "al destino y además impedirían destruirlo:\n" + outside
-                    + "Mueva o desglose esos datasets antes, o elija otro destino.\n";
+            r.err = "Cannot turn " + dataset + " into a directory: it has descendants "
+                    "mounted OUTSIDE " + rootMpForCheck + ", so their contents would not go "
+                    "to the target and would also prevent destroying it:\n" + outside
+                    + "Move or break down those datasets first, or choose another target.\n";
             return r;
         }
     }
@@ -2985,8 +2985,8 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
                     (void)runExecCapture("zfs", {"mount", *it});
                 }
                 r.rc = 1;
-                r.err = "no se pudo desmontar " + ds + ", que está dentro de " + dataset
-                        + "; no se ha modificado nada\n" + um.err;
+                r.err = "could not unmount " + ds + ", which is inside " + dataset
+                        + "; nothing has been changed\n" + um.err;
                 return r;
             }
             nestedUnmounted.push_back(ds);
@@ -3077,7 +3077,7 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         if (from.empty()) {
             fs::remove_all(staging, ec);
             r.rc = 1;
-            r.err = "no se pudo resolver el mountpoint de " + m.name + "\n";
+            r.err = "could not resolve the mountpoint of " + m.name + "\n";
             return r;
         }
         const fs::path to = m.rel.empty() ? staging : (staging / fs::path(m.rel));
@@ -3085,16 +3085,16 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         if (ec) {
             fs::remove_all(staging, ec);
             r.rc = 1;
-            r.err = "no se pudo crear " + to.string() + "\n";
+            r.err = "could not create " + to.string() + "\n";
             return r;
         }
         if (jobCancelRequested()) {
             fs::remove_all(staging, ec);
             r.rc = 125;
-            r.err = "cancelado por el usuario antes de modificar nada\n";
+            r.err = "cancelled by the user before changing anything\n";
             return r;
         }
-        const std::string label = "[TODIR] " + std::to_string(i + 1) + " de "
+        const std::string label = "[TODIR] " + std::to_string(i + 1) + " of "
                                   + std::to_string(members.size()) + ": "
                                   + (m.rel.empty() ? std::string(".") : m.rel);
         reportJobProgress(label);
@@ -3126,7 +3126,7 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
             return r;
         }
     }
-    reportJobProgress("[TODIR] copia terminada; colocando en su sitio");
+    reportJobProgress("[TODIR] copy finished; putting it in place");
 
     // Desmontar TODOS los miembros antes de tocar el destino. Los que tienen mountpoint
     // explícito no se movieron al reubicar el raíz, así que siguen montados dentro del
@@ -3138,8 +3138,8 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         if (um.rc != 0 && still.rc == 0 && trim(still.out) == "yes") {
             fs::remove_all(staging, ec);
             r.rc = 1;
-            r.err = "no se pudo desmontar " + m.name
-                    + ", que está dentro del destino; no se ha modificado nada\n" + um.err;
+            r.err = "could not unmount " + m.name
+                    + ", which is inside the target; nothing has been changed\n" + um.err;
             return r;
         }
     }
@@ -3194,12 +3194,12 @@ ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params)
         for (const Member& m : members) {
             ExecResult d = runExecCapture("zfs", {"destroy", m.name});
             if (d.rc != 0) {
-                d.err += "\nLos datos ya están copiados en " + dstDir
-                         + "; el dataset " + m.name + " no se pudo destruir y sigue ahí.\n";
+                d.err += "\nThe data is already copied to " + dstDir
+                         + "; the dataset " + m.name + " could not be destroyed and is still there.\n";
                 if (!backupGuard.backup.empty()) {
                     // El respaldo NO se borra al salir por error, y se dice dónde está:
                     // es el contenido anterior del destino y ya nadie va a reponerlo.
-                    d.err += "El contenido anterior de " + dstDir + " quedó guardado en "
+                    d.err += "The previous contents of " + dstDir + " were saved in "
                              + backupGuard.backup.string() + "\n";
                 }
                 return d;
@@ -3807,8 +3807,8 @@ bool buildRsyncLocalPlan(const std::string& payloadB64,
         // negarse que dejar un árbol que no se pidió.
         std::error_code ecDst;
         if (origenEsFichero && std::filesystem::is_directory(p.second, ecDst) && !ecDst) {
-            errMsg = "no se puede copiar el fichero «" + p.first + "»: en el destino ya hay "
-                       "un DIRECTORIO que se llama igual («" + p.second + "»)\n";
+            errMsg = "cannot copy the file «" + p.first + "»: the target already has "
+                       "a DIRECTORY with the same name («" + p.second + "»)\n";
             return false;
         }
         const std::string barra = origenEsFichero ? "" : "/";
@@ -3841,13 +3841,13 @@ ExecResult runCopyLocalCapture(const std::string& payloadB64) {
     std::string errJson;
     if (!zfsmgr::base::json::parse(decoded, raiz, &errJson) || !raiz.isArray()) {
         r.rc = 2;
-        r.err = "carga no es una lista: " + errJson + "\n";
+        r.err = "payload is not a list: " + errJson + "\n";
         return r;
     }
     const auto campos = raiz.toArray();
     if (campos.size() < 4 || (campos.size() - 2) % 2 != 0) {
         r.rc = 2;
-        r.err = "la carga necesita [borrar, enSeco, origen, destino, …]\n";
+        r.err = "the payload needs [delete, dryRun, source, target, …]\n";
         return r;
     }
     zfsmgr::copytree::Options opt;
@@ -3863,7 +3863,7 @@ ExecResult runCopyLocalCapture(const std::string& payloadB64) {
         if (origen.empty() || origen.front() != '/' || destino.empty()
             || destino.front() != '/') {
             r.rc = 2;
-            r.err = "las rutas tienen que ser absolutas\n";
+            r.err = "paths must be absolute\n";
             return r;
         }
         const zfsmgr::copytree::Result cr =
@@ -4103,7 +4103,7 @@ ExecResult ejecutaTuberiaZfsLocal(const std::vector<std::string>&,
                                   const std::vector<std::string>&) {
     ExecResult r;
     r.rc = 2;
-    r.err = "la tubería local «zfs send | zfs recv» no está portada a Windows\n";
+    r.err = "the local «zfs send | zfs recv» pipe is not ported to Windows\n";
     return r;
 }
 #endif // _WIN32
@@ -4802,7 +4802,7 @@ ExecResult listaDirectorio(const std::string& ruta) {
     }
     if (ec) {
         r.rc = 1;
-        r.err = "no se pudo leer el directorio: " + ec.message() + "\n";
+        r.err = "could not read the directory: " + ec.message() + "\n";
         return r;
     }
     zfsmgr::base::json::Value raiz;
@@ -4835,19 +4835,19 @@ ExecResult leeFichero(const std::string& ruta, std::uintmax_t desde, std::uintma
     const std::uintmax_t tam = std::filesystem::file_size(ruta, ec);
     if (ec) {
         r.rc = 1;
-        r.err = "no se pudo mirar el fichero: " + ec.message() + "\n";
+        r.err = "could not stat the file: " + ec.message() + "\n";
         return r;
     }
     if (cuanto > 0) {
         if (cuanto > kTope) {
             r.rc = 2;
-            r.err = "un trozo no puede pasar de 8 MiB\n";
+            r.err = "a chunk cannot exceed 8 MiB\n";
             return r;
         }
         std::ifstream f(ruta, std::ios::binary);
         if (!f) {
             r.rc = 1;
-            r.err = "no se pudo abrir el fichero\n";
+            r.err = "could not open the file\n";
             return r;
         }
         f.seekg(static_cast<std::streamoff>(desde));
@@ -4861,13 +4861,13 @@ ExecResult leeFichero(const std::string& ruta, std::uintmax_t desde, std::uintma
     }
     if (tam > kTope) {
         r.rc = 27;
-        r.err = "el fichero pasa de 8 MiB: pídalo por trozos con «<desde> <cuanto>»\n";
+        r.err = "the file exceeds 8 MiB: ask for it in chunks with «<from> <count>»\n";
         return r;
     }
     std::ifstream f(ruta, std::ios::binary);
     if (!f) {
         r.rc = 1;
-        r.err = "no se pudo abrir el fichero\n";
+        r.err = "could not open the file\n";
         return r;
     }
     std::ostringstream ss;
@@ -4950,7 +4950,7 @@ std::string gsaCreateSnapshot(const std::string& ds, const std::string& klass,
     const ExecResult check = runExecCapture("zfs",
         {"list", "-H", "-t", "snapshot", "-o", "name", full});
     if (check.rc == 0 && trim(check.out).find(full) != std::string::npos) {
-        log("GSA snapshot skip for " + ds + ": " + snapName + " ya existe");
+        log("GSA snapshot skip for " + ds + ": " + snapName + " already exists");
         return snapName;
     }
     std::vector<std::string> args = {"snapshot"};
@@ -5174,7 +5174,7 @@ bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     zfsmgr::base::json::Value resp;
     std::string errJson;
     if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
-        error = "respuesta ilegible del par: " + errJson;
+        error = "unreadable answer from the peer: " + errJson;
         return false;
     }
     const int rc = static_cast<int>(resp["rc"].toInt(1));
@@ -5182,7 +5182,7 @@ bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     if (rc != 0) {
         error = trim(resp["stderr"].toString());
         if (error.empty()) {
-            error = "el par respondió " + std::to_string(rc);
+            error = "the peer answered " + std::to_string(rc);
         }
         return false;
     }
@@ -5251,8 +5251,8 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
         // este programa está quitando de todas partes. El daemon ya sabe hablar con otro
         // daemon: mTLS, verbos tipados y un flujo por socket con reanudación.
         if (!gsaCargaPeer(conexionDestino, peer)) {
-            log("GSA level skip for " + ds + ": no hay credenciales del par «" + conexionDestino
-                + "» en " + kPeersPath);
+            log("GSA level skip for " + ds + ": no credentials for the peer «" + conexionDestino
+                + "» in " + kPeersPath);
             return;
         }
         peerListo = true;
@@ -5346,7 +5346,7 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
     // abre. Es el mismo camino que usa «copy» desde la aplicación, con su testigo de un
     // solo uso, así que la transfer se puede reanudar y no pasa por ningún intérprete.
     if (!peerListo) {
-        log("GSA level skip for " + ds + ": el par no está resuelto");
+        log("GSA level skip for " + ds + ": the peer is not resolved");
         return;
     }
     std::string respuesta;
@@ -5357,9 +5357,9 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
         // 127.0.0.1 salvo que se le diga otra cosa (AGENT_BIND en su agent.conf). Con la
         // aplicación delante eso no se nota porque abre un túnel SSH, pero aquí no hay
         // nadie que lo abra: nivelar exige que el par sea alcanzable.
-        log("GSA level error for " + ds + ": el par no pudo escuchar: " + errPeer);
-        log("GSA level hint: el daemon de " + peer.host + " tiene que escuchar en una dirección "
-            "alcanzable (AGENT_BIND en su agent.conf); por omisión solo atiende en 127.0.0.1");
+        log("GSA level error for " + ds + ": the peer could not listen: " + errPeer);
+        log("GSA level hint: the daemon on " + peer.host + " must listen on a reachable "
+            "address (AGENT_BIND in its agent.conf); by default it only listens on 127.0.0.1");
         return;
     }
     std::string puerto;
@@ -5370,7 +5370,7 @@ void gsaLevelSnapshot(const std::string& ds, bool recursive,
         if (s.rfind("TOKEN=", 0) == 0) testigo = s.substr(6);
     }
     if (puerto.empty() || testigo.empty()) {
-        log("GSA level error for " + ds + ": el par no devolvió puerto y testigo");
+        log("GSA level error for " + ds + ": the peer returned no port and token");
         return;
     }
     const ExecResult env = runZfsSendToPeerCapture(
@@ -5541,7 +5541,7 @@ void runGsaSchedulerThread() {
         try {
             gsaRunOnce(log);
         } catch (...) {
-            daemonLog("ERROR", "gsa: excepción sin capturar en la pasada");
+            daemonLog("ERROR", "gsa: uncaught exception in the pass");
         }
     }
 }
@@ -5966,7 +5966,7 @@ static void runTransferReceiveSession(TransferSocket listenFd,
 #ifdef __APPLE__
     int inPipe[2] = {-1, -1};
     if (pipe(inPipe) != 0) {
-        daemonLog("ERROR", "recv-listen: no se pudo crear la tubería de entrada");
+        daemonLog("ERROR", "recv-listen: could not create the input pipe");
         closeTransferSocket(clientFd);
         return;
     }
@@ -6042,7 +6042,7 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     if (pid > 0) { waitpid(pid, &recvStatus, 0); }
     const int recvRc = decodeWaitStatus(recvStatus);
     if (recvRc != 0) {
-        daemonLog("ERROR", "recv-listen: zfs recv sobre «" + dataset + "» falló (rc=" +
+        daemonLog("ERROR", "recv-listen: zfs recv on «" + dataset + "» failed (rc=" +
                                std::to_string(recvRc) + ") " + trim(recvErr));
     }
 #else
@@ -6084,7 +6084,7 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     CloseHandle(outWr);
     if (!started) {
         CloseHandle(inWr); CloseHandle(outRd); closeTransferSocket(clientFd);
-        daemonLog("ERROR", "recv-listen: no se pudo lanzar zfs recv");
+        daemonLog("ERROR", "recv-listen: could not launch zfs recv");
         return;
     }
 
@@ -6209,12 +6209,12 @@ static bool abrePuertoDeTransferencia(TransferSocket& listenFd, int& puerto,
     if (wantsExplicitBind) {
         // Si el usuario fijó una dirección, se respeta tal cual y no se elige familia.
         if (!tryBind(AF_UNSPEC, cfg2.transferBindAddr.c_str())) {
-            error = "no se pudo escuchar en " + cfg2.transferBindAddr; return false;
+            error = "could not listen on " + cfg2.transferBindAddr; return false;
         }
     } else if (!tryBind(AF_INET6, "::")) {
         // Sin IPv6 en la máquina, IPv4 a secas: es mejor que no escuchar.
         if (!tryBind(AF_INET, "0.0.0.0")) {
-            error = "no se pudo abrir el puerto de transferencia"; return false;
+            error = "could not open the transfer port"; return false;
         }
     }
 
@@ -6295,7 +6295,7 @@ static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
     for (;;) {
         std::string linea;
         if (!leeLinea(s, linea)) {
-            error = "se cortó la conexión leyendo el manifiesto";
+            error = "the connection dropped while reading the manifest";
             return false;
         }
         acumulado += linea;
@@ -6310,12 +6310,12 @@ static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
         // tenía algo dentro. Con el destino vacío el manifiesto es solo «E» y no se notaba.
         std::size_t largo = 0;
         if (!AR::manifestNamesLength(linea, largo)) {
-            error = "línea de manifiesto ilegible";
+            error = "unreadable manifest line";
             return false;
         }
         std::string nombres(largo, '\0');
         if (largo > 0 && !leeExacto(s, nombres.data(), largo)) {
-            error = "se cortó la conexión leyendo un nombre";
+            error = "the connection dropped while reading a name";
             return false;
         }
         acumulado += nombres;
@@ -6347,14 +6347,14 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
     std::string recibido;
     if (!leeLinea(cliente, recibido, 128) || recibido != token) {
         closeTransferSocket(cliente);
-        daemonLog("WARN", "tree-recv: testigo que no coincide; conexión rechazada");
+        daemonLog("WARN", "tree-recv: token does not match; connection rejected");
         return;
     }
 
     std::vector<AR::Entry> mias;
     std::string err;
     if (!AR::walk(raiz, mias, err)) {
-        daemonLog("ERROR", "tree-recv: no se pudo recorrer «" + raiz + "»: " + err);
+        daemonLog("ERROR", "tree-recv: could not walk «" + raiz + "»: " + err);
         (void)mandaTodo(cliente, "E\n");
         closeTransferSocket(cliente);
         return;
@@ -6450,7 +6450,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
     for (;;) {
         std::string linea;
         if (!leeLinea(cliente, linea)) {
-            fallo = "se cortó la conexión";
+            fallo = "the connection dropped";
             break;
         }
         if (linea == "E") {
@@ -6473,7 +6473,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             std::size_t ldueno = 0;
             std::size_t lgrupo = 0;
             if (!(iss >> letra >> modo >> fecha >> tamFinal >> lrp >> lhash)) {
-                fallo = "cabecera de parche ilegible";
+                fallo = "unreadable patch header";
                 break;
             }
             // Opcionales: si la cabecera venía de un emisor anterior a esto, el `iss` no
@@ -6488,14 +6488,14 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 || (lhash > 0 && !leeExacto(cliente, hashEsperado.data(), lhash))
                 || (ldueno > 0 && !leeExacto(cliente, duenoP.data(), ldueno))
                 || (lgrupo > 0 && !leeExacto(cliente, grupoP.data(), lgrupo))) {
-                fallo = "se cortó leyendo la cabecera del parche";
+                fallo = "dropped while reading the patch header";
                 break;
             }
             const std::filesystem::path vieja =
                 (base / std::filesystem::path(rutaP)).lexically_normal();
             const std::string viejaTxt = vieja.generic_string();
             if (viejaTxt.rfind(base.lexically_normal().generic_string(), 0) != 0) {
-                fallo = "ruta fuera del árbol: " + rutaP;
+                fallo = "path outside the tree: " + rutaP;
                 break;
             }
             const std::size_t tamBloque =
@@ -6508,7 +6508,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
             while (bienP) {
                 std::string li;
                 if (!leeLinea(cliente, li)) {
-                    fallo = "se cortó leyendo el parche";
+                    fallo = "dropped while reading the patch";
                     bienP = false;
                     break;
                 }
@@ -6547,7 +6547,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     while (cuantos > 0) {
                         const std::size_t t = std::min(cuantos, tro.size());
                         if (!leeExacto(cliente, tro.data(), t)) {
-                            fallo = "se cortó leyendo datos del parche";
+                            fallo = "dropped while reading patch data";
                             bienP = false;
                             break;
                         }
@@ -6558,7 +6558,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                         cuantos -= t;
                     }
                 } else {
-                    fallo = "instrucción de parche desconocida";
+                    fallo = "unknown patch instruction";
                     bienP = false;
                 }
             }
@@ -6578,7 +6578,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 if (ecR) {
                     ++fallidas;
                     if (primerMotivo.empty()) {
-                        primerMotivo = "no se pudo colocar «" + rutaP + "»: " + ecR.message();
+                        primerMotivo = "could not put in place «" + rutaP + "»: " + ecR.message();
                     }
                 } else {
                     AR::setMode(vieja.string(), modo);
@@ -6591,8 +6591,8 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 std::filesystem::remove(temporal, ecR);
                 ++fallidas;
                 if (primerMotivo.empty()) {
-                    primerMotivo = "el parche de «" + rutaP
-                                   + "» no reconstruyó el fichero esperado";
+                    primerMotivo = "the patch for «" + rutaP
+                                   + "» did not rebuild the expected file";
                 }
             }
             continue;
@@ -6611,7 +6611,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         std::string nombres(lr + ld + ldu + lgr, '\0');
         if (lr + ld + ldu + lgr > 0
             && !leeExacto(cliente, nombres.data(), lr + ld + ldu + lgr)) {
-            fallo = "se cortó la conexión leyendo un nombre";
+            fallo = "the connection dropped while reading a name";
             break;
         }
         op.entry.path = nombres.substr(0, lr);
@@ -6626,7 +6626,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         const std::string dTxt = destino.generic_string();
         const std::string bTxt = base.lexically_normal().generic_string();
         if (dTxt.rfind(bTxt, 0) != 0) {
-            fallo = "ruta fuera del árbol: " + op.entry.path;
+            fallo = "path outside the tree: " + op.entry.path;
             break;
         }
 
@@ -6637,7 +6637,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 std::filesystem::create_directories(destino, ec);
                 // `create_directories` sobre uno que ya está no es un error, pero devuelve
                 // falso sin código: solo se mira el código.
-                bienOp = anota(ec, "crear el directorio", op.entry.path);
+                bienOp = anota(ec, "create the directory", op.entry.path);
                 AR::setMode(destino.string(), op.entry.mode);
                 AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
                              op.entry.group);
@@ -6659,7 +6659,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 if (f == nullptr) {
                     ++fallidas;
                     if (primerMotivo.empty()) {
-                        primerMotivo = "no se pudo escribir «" + op.entry.path + "»";
+                        primerMotivo = "could not write «" + op.entry.path + "»";
                     }
                 }
                 std::vector<char> buf(65536);
@@ -6677,7 +6677,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                         f = nullptr;
                         ++fallidas;
                         if (primerMotivo.empty()) {
-                            primerMotivo = "no se pudo escribir entero «" + op.entry.path + "»";
+                            primerMotivo = "could not write all of «" + op.entry.path + "»";
                         }
                     }
                     quedan -= trozo;
@@ -6688,7 +6688,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     bienOp = false;
                 }
                 if (!bien) {
-                    fallo = "se cortó la conexión escribiendo " + op.entry.path;
+                    fallo = "the connection dropped while writing " + op.entry.path;
                     break;
                 }
                 if (!bienOp) {
@@ -6709,7 +6709,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 // o el modo de desarrollador. Cuando no lo hay, esto falla y hay que DECIRLO:
                 // callarlo dejaba el enlace pendiente en todas las pasadas siguientes
                 // mientras el trabajo se apuntaba como terminado.
-                bienOp = anota(ec, "crear el enlace simbólico", op.entry.path);
+                bienOp = anota(ec, "create the symbolic link", op.entry.path);
                 // Un enlace tiene su propio dueño, distinto del de su destino. `setOwner`
                 // usa `lchown`, así que cambia el enlace y no aquello a lo que apunta.
                 AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
@@ -6722,7 +6722,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                 std::error_code borrado;
                 std::filesystem::remove(destino, borrado);
                 std::filesystem::create_hard_link(orig, destino, ec);
-                bienOp = anota(ec, "crear el enlace duro", op.entry.path);
+                bienOp = anota(ec, "create the hard link", op.entry.path);
                 break;
             }
             case AR::Action::Delete:
@@ -6749,7 +6749,7 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
 
     if (fallo.empty() && fallidas > 0) {
         daemonLog("WARN", "tree-recv: " + std::to_string(fallidas)
-                              + " operaciones no se pudieron aplicar; la primera: "
+                              + " operations could not be applied; the first: "
                               + primerMotivo);
         (void)mandaTodo(cliente, "PARCIAL " + std::to_string(hechas) + " "
                                      + std::to_string(fallidas) + " " + primerMotivo + "\n");
@@ -6766,19 +6766,19 @@ static ExecResult runTreeRecvListenCapture(const std::string& raiz, bool waitInl
     ExecResult r;
     if (trim(raiz).empty()) {
         r.rc = 2;
-        r.err = "falta el directorio\n";
+        r.err = "the directory is missing\n";
         return r;
     }
     std::error_code ec;
     if (!std::filesystem::is_directory(raiz, ec)) {
         r.rc = 2;
-        r.err = "no es un directorio: " + raiz + "\n";
+        r.err = "not a directory: " + raiz + "\n";
         return r;
     }
     const std::string token = generateTransferToken();
     if (token.empty()) {
         r.rc = 1;
-        r.err = "no se pudo generar el testigo de transferencia\n";
+        r.err = "could not generate the transfer token\n";
         return r;
     }
     TransferSocket listenFd{};
@@ -6836,7 +6836,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         && !ecTipo) {
         if (borra) {
             r.rc = 2;
-            r.err = "--delete no vale con un fichero suelto: " + raiz + "\n";
+            r.err = "--delete does not apply to a single file: " + raiz + "\n";
             return r;
         }
         AR::Entry unico;
@@ -6863,7 +6863,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     if (!mandaTodo(sock, token + "\n")) {
         closeTransferSocket(sock);
         r.rc = 1;
-        r.err = "no se pudo saludar al receptor\n";
+        r.err = "could not greet the receiver\n";
         return r;
     }
 
@@ -6902,14 +6902,14 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             || !mandaTodo(sock, cual)) {
             closeTransferSocket(sock);
             r.rc = 1;
-            r.err = "se cortó al pedir las firmas\n";
+            r.err = "dropped while asking for signatures\n";
             return r;
         }
     }
     if (!mandaTodo(sock, "E\n")) {
         closeTransferSocket(sock);
         r.rc = 1;
-        r.err = "se cortó al pedir las firmas\n";
+        r.err = "dropped while asking for signatures\n";
         return r;
     }
 
@@ -6920,7 +6920,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         if (!leeLinea(sock, linea)) {
             closeTransferSocket(sock);
             r.rc = 1;
-            r.err = "se cortó leyendo las firmas\n";
+            r.err = "dropped while reading signatures\n";
             return r;
         }
         if (linea == "E") {
@@ -6934,21 +6934,21 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         if (!(iss >> letra >> tamBloque >> bytes >> lr) || letra != 'G') {
             closeTransferSocket(sock);
             r.rc = 1;
-            r.err = "respuesta de firmas ilegible\n";
+            r.err = "unreadable signatures answer\n";
             return r;
         }
         std::string ruta(lr, '\0');
         if (lr > 0 && !leeExacto(sock, ruta.data(), lr)) {
             closeTransferSocket(sock);
             r.rc = 1;
-            r.err = "se cortó leyendo el nombre de unas firmas\n";
+            r.err = "dropped while reading a signatures name\n";
             return r;
         }
         std::string crudas(bytes, '\0');
         if (bytes > 0 && !leeExacto(sock, crudas.data(), bytes)) {
             closeTransferSocket(sock);
             r.rc = 1;
-            r.err = "se cortó leyendo unas firmas\n";
+            r.err = "dropped while reading signatures\n";
             return r;
         }
         std::vector<AR::Signature> fs;
@@ -7079,13 +7079,13 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     if (!bien) {
         closeTransferSocket(sock);
         r.rc = 1;
-        r.err = "se cortó el envío del árbol\n";
+        r.err = "the tree transfer dropped\n";
         return r;
     }
 
     std::string respuesta;
     if (!leeLinea(sock, respuesta)) {
-        respuesta = "ERR sin respuesta del receptor";
+        respuesta = "ERR no answer from the receiver";
     }
     closeTransferSocket(sock);
     if (respuesta.rfind("PARCIAL ", 0) == 0) {
@@ -7093,7 +7093,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         // árbol no quedó igual, aunque la mayoría de las operaciones sí entraran.
         r.rc = 1;
         r.out = informe;
-        r.err = "no se pudo aplicar todo: " + trim(respuesta.substr(8)) + "\n";
+        r.err = "could not apply everything: " + trim(respuesta.substr(8)) + "\n";
         return r;
     }
     if (respuesta.rfind("OK ", 0) != 0) {
@@ -7122,7 +7122,7 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
     }
     const std::string token = generateTransferToken();
     if (token.empty()) {
-        r.rc = 1; r.err = "no se pudo generar el testigo de transferencia\n"; return r;
+        r.rc = 1; r.err = "could not generate the transfer token\n"; return r;
     }
 
     TransferSocket listenFd{};
@@ -7186,7 +7186,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         std::string mala;
         if (!zfsmgr::base::zfsprops::areValidSendFlags(flagsStr, mala)) {
             r.rc = 2;
-            r.err = "bandera de send no admitida: " + mala + "\n";
+            r.err = "send flag not allowed: " + mala + "\n";
             return r;
         }
     }
@@ -7203,7 +7203,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
     }
     if (snap.empty() && resumeToken.empty()) {
-        r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer: sin snapshot ni testigo\n"; return r;
+        r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer: neither snapshot nor token\n"; return r;
     }
 
     // Resolver, crear el socket sin herencia y conectar: lo hace `conectaConElPar`, que es
@@ -7242,7 +7242,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     SpawnedStdout child = spawnReadingStdout("zfs", sendArgs);
     if (!child.ok) {
         closeTransferSocket(sockFd);
-        r.rc = 1; r.err = "no se pudo lanzar zfs send\n"; return r;
+        r.rc = 1; r.err = "could not launch zfs send\n"; return r;
     }
 
     std::uint64_t totalBytes = 0;
@@ -7340,12 +7340,12 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         // el otro extremo dejó de leer. Decirlo con esas palabras evita que se busque el
         // problema en la red, que es donde no está.
         r.rc = 1;
-        r.err = "el receptor dejó de leer: " + std::to_string(kAtascoMaximoS) +
-                " s sin poder enviar un solo byte\n";
+        r.err = "the receiver stopped reading: " + std::to_string(kAtascoMaximoS) +
+                " s without being able to send a single byte\n";
     } else if (!relayOk) {
         r.rc = 1;
-        r.err = "se cortó la conexión con el receptor; mira el registro de la máquina de "
-                "destino para saber por qué falló zfs recv\n";
+        r.err = "the connection to the receiver dropped; check the log on the target "
+                "machine to see why zfs recv failed\n";
     } else if (r.rc != 0) {
         r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
         if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
@@ -7385,14 +7385,14 @@ static ExecResult runDumpBlockDevicesCapture() {
                                   {"-J", "-b", "-o", "NAME,PATH,SIZE,FSTYPE,MOUNTPOINT,TYPE"});
     if (l.rc != 0) {
         r.rc = l.rc;
-        r.err = l.err.empty() ? std::string("lsblk no disponible\n") : l.err;
+        r.err = l.err.empty() ? std::string("lsblk not available\n") : l.err;
         return r;
     }
     zfsmgr::base::json::Value raiz;
     std::string errJson;
     if (!zfsmgr::base::json::parse(l.out, raiz, &errJson)) {
         r.rc = 1;
-        r.err = "no se pudo analizar la salida de lsblk: " + errJson + "\n";
+        r.err = "could not parse lsblk output: " + errJson + "\n";
         return r;
     }
     zfsmgr::base::json::Array salida;
@@ -7478,7 +7478,7 @@ static ExecResult runDumpBlockDevicesCapture() {
     ExecResult lista = runExecCapture("diskutil", {"list"});
     if (lista.rc != 0) {
         r.rc = lista.rc;
-        r.err = lista.err.empty() ? std::string("diskutil no disponible\n") : lista.err;
+        r.err = lista.err.empty() ? std::string("diskutil not available\n") : lista.err;
         return r;
     }
     std::vector<std::string> ids;
@@ -7699,7 +7699,7 @@ static ExecResult runDumpBlockDevicesCapture() {
     }
     if (ps.rc != 0) {
         r.rc = ps.rc;
-        r.err = ps.err.empty() ? std::string("no se pudo consultar los discos\n") : ps.err;
+        r.err = ps.err.empty() ? std::string("could not query the disks\n") : ps.err;
         return r;
     }
 
@@ -7835,7 +7835,7 @@ static ExecResult runDumpBlockDevicesCapture() {
     // Se dice que no está portado en vez de devolver una lista vacía, que se leería como
     // «esta máquina no tiene discos».
     r.rc = 2;
-    r.err = "--dump-block-devices no está portado a esta plataforma todavía\n";
+    r.err = "--dump-block-devices is not ported to this platform yet\n";
     return r;
 #endif
 }
@@ -7916,8 +7916,8 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         it->second.state     = JobState::Failed;
         it->second.errorText =
             vacioSinSerlo
-                ? std::string("el envío terminó sin error pero no movió un solo byte: "
-                              "el receptor no llegó a recibir nada")
+                ? std::string("the send finished without error but did not move a single byte: "
+                              "the receiver never received anything")
                 : trim(r.err);
     }
     it->second.finishedAtUtc = utcNowIsoString();
@@ -7925,7 +7925,7 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
     daemonLog((r.rc == 0 && !vacioSinSerlo) ? "INFO" : "ERROR",
               "job " + jobId + " finished rc=" + std::to_string(r.rc)
                   + " bytes=" + std::to_string(it->second.bytesTransferred)
-                  + (vacioSinSerlo ? " (completo y sin mover un byte: se marca fallido)" : ""));
+                  + (vacioSinSerlo ? " (complete without moving a byte: marked as failed)" : ""));
 }
 
 ExecResult executeAgentCommandCapture(const std::string& cmd,
@@ -8049,12 +8049,12 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
         if (params.empty()) {
             r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " " + cmd + " <ruta>\n";
+            r.err = std::string("usage: ") + argv0 + " " + cmd + " <path>\n";
             return r;
         }
         if (!rutaDentroDeUnMountpoint(params[0])) {
             r.rc = 13;
-            r.err = "la ruta no está dentro de ningún punto de montaje de ZFS\n";
+            r.err = "the path is not inside any ZFS mountpoint\n";
             return r;
         }
         if (cmd == "--dump-dir-list") {
@@ -8369,13 +8369,13 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         zfsmgr::base::json::Value comprobacion;
         std::string errJson;
         if (!zfsmgr::base::json::parse(contenido, comprobacion, &errJson)) {
-            r.rc = 2; r.err = "peers.json no es JSON valido: " + errJson + "\n"; return r;
+            r.rc = 2; r.err = "peers.json is not valid JSON: " + errJson + "\n"; return r;
         }
         const std::string tmp = std::string(kPeersPath) + ".tmp";
         {
             std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
             if (!f.is_open()) {
-                r.rc = 1; r.err = std::string("no se pudo escribir ") + tmp + "\n"; return r;
+                r.rc = 1; r.err = std::string("could not write ") + tmp + "\n"; return r;
             }
             f << contenido;
         }
@@ -8386,11 +8386,11 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         std::filesystem::rename(tmp, kPeersPath, ec);
         if (ec) {
             std::filesystem::remove(tmp, ec);
-            r.rc = 1; r.err = std::string("no se pudo colocar ") + kPeersPath + "\n"; return r;
+            r.rc = 1; r.err = std::string("could not put in place ") + kPeersPath + "\n"; return r;
         }
         r.rc = 0;
         r.out = std::string("PEERS=") + kPeersPath + "\n";
-        daemonLog("INFO", "peers actualizados por el cliente");
+        daemonLog("INFO", "peers updated by the client");
         return r;
     }
     // En qué dirección escucha el daemon. Hace falta para que otro daemon pueda pedirle que
@@ -8413,14 +8413,14 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         const std::string dir = trim(params[0]);
         if (dir != "0.0.0.0" && dir != "::" && dir != "127.0.0.1") {
             r.rc = 2;
-            r.err = "solo se admite 0.0.0.0, :: o 127.0.0.1: el cliente llega por un tunel "
-                    "contra 127.0.0.1 y una direccion suelta le cortaria el acceso\n";
+            r.err = "only 0.0.0.0, :: or 127.0.0.1 are allowed: the client arrives through a tunnel "
+                    "to 127.0.0.1 and any other address would cut off its access\n";
             return r;
         }
         std::ifstream in(kDefaultAgentConfigPath);
         if (!in.is_open()) {
             r.rc = 1;
-            r.err = std::string("no se pudo leer ") + kDefaultAgentConfigPath + "\n";
+            r.err = std::string("could not read ") + kDefaultAgentConfigPath + "\n";
             return r;
         }
         std::vector<std::string> lineas;
@@ -8442,7 +8442,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         {
             std::ofstream out(tmp, std::ios::trunc);
             if (!out.is_open()) {
-                r.rc = 1; r.err = std::string("no se pudo escribir ") + tmp + "\n"; return r;
+                r.rc = 1; r.err = std::string("could not write ") + tmp + "\n"; return r;
             }
             for (const std::string& x : lineas) {
                 out << x << "\n";
@@ -8456,10 +8456,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (ec) {
             std::filesystem::remove(tmp, ec);
             r.rc = 1;
-            r.err = std::string("no se pudo colocar ") + kDefaultAgentConfigPath + "\n";
+            r.err = std::string("could not put in place ") + kDefaultAgentConfigPath + "\n";
             return r;
         }
-        daemonLog("INFO", "AGENT_BIND cambiado a " + dir + "; reiniciando para aplicarlo");
+        daemonLog("INFO", "AGENT_BIND changed to " + dir + "; restarting to apply it");
         r.rc = 0;
         r.out = "BIND=" + dir + "\nRESTARTING=1\n";
         // Se responde ANTES de salir, y se sale en otro hilo: el gestor de servicios lo
@@ -8607,7 +8607,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             r.rc = 2;
             r.err = std::string("usage: ") + argv0 + " " + cmd
                     + " <src> <dst> [--one-file-system] [--delete] [--dry-run]"
-                      " [--no-skip-unchanged] [--exclude=<nombre>]...\n";
+                      " [--no-skip-unchanged] [--exclude=<name>]...\n";
             return r;
         }
         zfsmgr::copytree::Options opt;
@@ -8639,7 +8639,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
             if (pending < 0) {
                 // NO se responde 0: el llamante borra el origen cuando ve un cero, así
                 // que «no se pudo comprobar» tiene que llegar como fallo.
-                r.rc = 1; r.err = "no se pudo verificar la copia\n"; return r;
+                r.rc = 1; r.err = "could not verify the copy\n"; return r;
             }
             r.rc = 0;
             r.out = "PENDING=" + std::to_string(pending) + "\n";
@@ -9593,7 +9593,7 @@ int runServeLoop() {
                 } else if (rpcArgs.size() > 5 &&
                            !zfsmgr::base::zfsprops::areValidSendFlags(rpcArgs[5], malaBandera)) {
                     exec.rc = 2;
-                    exec.err = "bandera de send no admitida: " + malaBandera + "\n";
+                    exec.err = "send flag not allowed: " + malaBandera + "\n";
                 } else {
                     DaemonJob job;
                     job.id = generateJobId();
@@ -10183,7 +10183,7 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         if (!rutaDentroDeUnMountpoint(args[2])) {
-            std::cerr << "la ruta no está dentro de ningún punto de montaje de ZFS\n";
+            std::cerr << "the path is not inside any ZFS mountpoint\n";
             return 13;
         }
         const ExecResult r =

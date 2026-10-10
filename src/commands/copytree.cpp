@@ -272,13 +272,13 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
                   std::string& err) {
     std::FILE* in = std::fopen(src.string().c_str(), "rb");
     if (!in) {
-        err = "no se pudo leer " + src.string();
+        err = "could not read " + src.string();
         return false;
     }
     std::FILE* out = std::fopen(dst.string().c_str(), "wb");
     if (!out) {
         std::fclose(in);
-        err = "no se pudo crear " + dst.string();
+        err = "could not create " + dst.string();
         return false;
     }
     // Se marca disperso con el fichero ya creado y antes de escribir nada.
@@ -287,7 +287,7 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
     out = std::fopen(dst.string().c_str(), "r+b");
     if (!out) {
         std::fclose(in);
-        err = "no se pudo abrir para escribir " + dst.string();
+        err = "could not open for writing " + dst.string();
         return false;
     }
 
@@ -310,14 +310,14 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
         if (holePending > 0) {
             if (std::fseek(out, static_cast<long>(holePending), SEEK_CUR) != 0) {
                 ok = false;
-                err = "no se pudo dejar el hueco en " + dst.string();
+                err = "could not leave the hole in " + dst.string();
                 break;
             }
             holePending = 0;
         }
         if (std::fwrite(buf.data(), 1, n, out) != n) {
             ok = false;
-            err = "no se pudo escribir en " + dst.string();
+            err = "could not write to " + dst.string();
             break;
         }
         written += n;
@@ -336,7 +336,7 @@ bool copyFileData(const fs::path& src, const fs::path& dst, std::uint64_t& bytes
         std::error_code rec;
         fs::resize_file(dst, finalSize, rec);
         if (rec) {
-            err = "no se pudo fijar el tamaño de " + dst.string() + ": " + rec.message();
+            err = "could not set the size of " + dst.string() + ": " + rec.message();
             return false;
         }
     }
@@ -396,7 +396,7 @@ struct Walker {
         std::error_code ec;
         fs::directory_iterator it(src, fs::directory_options::skip_permission_denied, ec);
         if (ec) {
-            res.error = "no se pudo listar " + src.string() + ": " + ec.message();
+            res.error = "could not list " + src.string() + ": " + ec.message();
             return false;
         }
         for (const fs::directory_entry& entry : it) {
@@ -432,7 +432,7 @@ struct Walker {
                 if (!opt.dryRun) {
                     fs::create_directories(to, ec);
                     if (ec) {
-                        res.error = "no se pudo crear " + to.string() + ": " + ec.message();
+                        res.error = "could not create " + to.string() + ": " + ec.message();
                         return false;
                     }
                 }
@@ -526,7 +526,7 @@ struct Walker {
             std::error_code rmec;
             fs::remove_all(victim, rmec);
             if (rmec) {
-                res.error = "no se pudo borrar " + victim.string() + ": " + rmec.message();
+                res.error = "could not delete " + victim.string() + ": " + rmec.message();
                 return false;
             }
         }
@@ -616,12 +616,12 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
     // directorio sería repartir esa decisión entre dos sitios.
     if (fs::is_regular_file(src, ec) && !ec) {
         if (fs::is_directory(dst, ec)) {
-            r.error = "en el destino ya hay un DIRECTORIO que se llama igual: " + dstDir;
+            r.error = "the target already has a DIRECTORY with the same name: " + dstDir;
             return r;
         }
         fs::create_directories(dst.parent_path(), ec);
         if (ec && !fs::is_directory(dst.parent_path())) {
-            r.error = "no se pudo crear " + dst.parent_path().string() + ": " + ec.message();
+            r.error = "could not create " + dst.parent_path().string() + ": " + ec.message();
             return r;
         }
         if (opt.dryRun) {
@@ -640,7 +640,7 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
         return r;
     }
     if (!fs::is_directory(src, ec)) {
-        r.error = "el origen no es un fichero ni un directorio: " + srcDir;
+        r.error = "the source is neither a file nor a directory: " + srcDir;
         return r;
     }
     // En SECO no se crea el destino. Parece obvio y no lo era: `create_directories` estaba
@@ -650,7 +650,7 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
     if (!opt.dryRun) {
         fs::create_directories(dst, ec);
         if (ec && !fs::is_directory(dst)) {
-            r.error = "no se pudo crear el destino " + dstDir + ": " + ec.message();
+            r.error = "could not create the target " + dstDir + ": " + ec.message();
             return r;
         }
     }
