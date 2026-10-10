@@ -662,8 +662,12 @@ def casos_patrones_copia(ctx):
     # --- cp: varios orígenes a UN destino.
     caso(ctx, "patrones cp: *.log copia los que casan, sin los ocultos",
          [f"cp {U}/datos#content/*.log {U}/hijoA --wait"], rc=0, idioma="es",
-         espera=[r"2 bien, 0 fallaron"],
+         espera=[r"2 destinos casan"],
          estado=[("hijoA tiene x1.log y x2.log", hay(f"/mnt/{P}/hijoA"), r"\Ax1\.log\nx2\.log\n?\Z")])
+    # Varios orígenes en la misma máquina: UN trabajo, no uno por fichero.
+    caso(ctx, "patrones cp: varios orígenes sin --wait son UN solo trabajo",
+         [f"cp {U}/datos#content/*.log {U}/otro"], rc=0, idioma="es",
+         veces=[(r"en marcha como trabajo", 1)])
     caso(ctx, "patrones cp: dos orígenes que llegarían con el mismo nombre se niegan",
          [f"cp {U}/datos#content/d*/y.log {U}/hijoB --wait"], rc=1, idioma="es",
          espera=[r"mismo nombre"],
