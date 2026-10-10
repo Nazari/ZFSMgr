@@ -46,9 +46,9 @@ std::string labelOf(Failure f) {
         case Failure::SameObject:
             return "el origen y el destino son el mismo";
         case Failure::SourceIsNotSnapshot:
-            return "el origen tiene que ser una instantánea";
+            return "el origen tiene que ser un snapshot";
         case Failure::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no una instantánea";
+            return "el destino tiene que ser un dataset, no un snapshot";
         case Failure::WindowsEndpoint:
             return "no está disponible cuando algún extremo es Windows: hace falta "
                    "transmitir por una tubería, y el agente de Windows todavía no lo hace";
@@ -565,17 +565,17 @@ std::string labelOf(LevelFailure f) {
         case LevelFailure::None_:
             return {};
         case LevelFailure::TargetNotAtSource:
-            return "la instantánea de origen ya no está en su dataset";
+            return "el snapshot de origen ya no está en su dataset";
         case LevelFailure::TargetHasNoSnapshots:
-            return "el destino no tiene ninguna instantánea: no hay base común desde la que "
+            return "el destino no tiene ningún snapshot: no hay base común desde la que "
                    "seguir; para llevarlo entero, copie";
         case LevelFailure::BaseNotAtSource:
-            return "la última instantánea del destino no existe en el origen: son historias "
+            return "el último snapshot del destino no existe en el origen: son historias "
                    "distintas y no hay incremental posible";
         case LevelFailure::TargetIsNewer:
-            return "el destino tiene una instantánea más moderna que la que se quiere enviar";
+            return "el destino tiene un snapshot más moderno que el que se quiere enviar";
         case LevelFailure::AlreadyLevel:
-            return "el destino ya está nivelado en esa instantánea";
+            return "el destino ya está nivelado en ese snapshot";
     }
     return {};
 }

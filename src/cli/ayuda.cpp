@@ -265,7 +265,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"create datos compression=zstd atime=off",
        {"t_ej_create_2", "el hijo, ya con sus propiedades"}},
       {"create @ayer",
-       {"t_ej_create_3", "una instantánea del dataset actual"}},
+       {"t_ej_create_3", "un snapshot del dataset actual"}},
       {"create @ayer -r",
        {"t_ej_create_4", "y de todos sus descendientes"}},
       {"create tank sda sdb",
@@ -288,7 +288,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"destroy tank/pruebas",
        {"t_ej_destroy_1", "el dataset, preguntando antes"}},
       {"destroy @ayer",
-       {"t_ej_destroy_2", "solo esa instantánea"}},
+       {"t_ej_destroy_2", "solo ese snapshot"}},
       {"destroy tank/pruebas -r",
        {"t_ej_destroy_3", "con sus descendientes"}},
       {"destroy tank/pruebas -R",
@@ -414,7 +414,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"schedule --daily 7 --to unibody::sback/copia",
        {"t_ej_schedule_5", "y nivela contra otra máquina"}},
       {"schedule --level",
-       {"t_ej_schedule_6", "nivelar tras cada instantánea"}},
+       {"t_ej_schedule_6", "nivelar tras cada snapshot"}},
       {"schedule --no-level",
        {"t_ej_schedule_7", "y dejar de hacerlo"}},
       {"schedule --off",
@@ -439,16 +439,16 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
     {"rollback",
      {
       {"rollback @ayer",
-       {"t_ej_rollback_1", "vuelve el dataset a esa instantánea"}},
+       {"t_ej_rollback_1", "vuelve el dataset a ese snapshot"}},
       {"rollback @ayer -r",
        {"t_ej_rollback_2", "descartando las posteriores"}},
       {"rollback",
-       {"t_ej_rollback_3", "estando ya en la instantánea"}},
+       {"t_ej_rollback_3", "estando ya en el snapshot"}},
      }},
     {"clone",
      {
       {"clone recuperado",
-       {"t_ej_clone_1", "cuelga del dataset de la instantánea actual"}},
+       {"t_ej_clone_1", "cuelga del dataset del snapshot actual"}},
       {"clone tank/recuperado",
        {"t_ej_clone_2", "con nombre completo, en otro sitio del pool"}},
       {"clone tank/recuperado --from /casa/tank/datos@ayer",
@@ -457,7 +457,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
     {"holds",
      {
       {"holds",
-       {"t_ej_holds_1", "las retenciones de la instantánea actual"}},
+       {"t_ej_holds_1", "los holds del snapshot actual"}},
       {"holds tank/datos@ayer",
        {"t_ej_holds_2", "las de otra"}},
      }},
@@ -471,7 +471,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
     {"release",
      {
       {"release antes-de-migrar",
-       {"t_ej_release_1", "quita la retención"}},
+       {"t_ej_release_1", "quita el hold"}},
       {"release antes-de-migrar -r",
        {"t_ej_release_2", "y la de los descendientes"}},
      }},
@@ -480,7 +480,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"diff @hoy",
        {"t_ej_diff_1", "qué cambió entre el sitio actual y esa"}},
       {"diff @hoy --from @ayer",
-       {"t_ej_diff_2", "entre dos instantáneas concretas"}},
+       {"t_ej_diff_2", "entre dos snapshots concretos"}},
      }},
     {"status",
      {
@@ -660,7 +660,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
     {"send",
      {
       {"send zfsm://casa/tank/copia",
-       {"t_ej_send_1", "manda la instantánea actual a otro dataset"}},
+       {"t_ej_send_1", "manda el snapshot actual a otro dataset"}},
       {"send zfsm://unibody/sback/copia",
        {"t_ej_send_2", "a otra máquina"}},
       {"send zfsm://casa/tank/copia --from @ayer",
@@ -810,7 +810,7 @@ const std::vector<Orden> kOrdenes = {
     {"pwd", {"t_navegaci_n_60cb06", "Navegación"}, {"", ""}, {"t_la_url_act_1bd7d8", "La URL actual."}, {}, {}},
     {"ls", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"},
      {"t_lista_lo_q_661d7f", "Lista lo que hay. En la raíz las conexiones, en una conexión los pools, en un dataset "
-     "sus hijos e instantáneas."},
+     "sus hijos y snapshots."},
      {{{"t_content_ru_7a5f3d", "#content[/ruta]"}, {"t_los_ficher_2b8359", "Los ficheros de dentro."}},
       {{"t_properties_5ce56d", "#properties[/prop]"}, {"t_las_propie_137429", "Las propiedades."}},
       {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}}},
@@ -834,7 +834,7 @@ const std::vector<Orden> kOrdenes = {
     // --- Conexiones
     {"create", {"t_grupo_crear", "Crear y destruir, en cualquier nivel"}, {"t_create_uso2", "<nombre>|@<nombre> …"},
      {"t_create_res2", "Crea un nodo DONDE ESTÁS: en la raíz una conexión, en una conexión un pool, en un "
-     "dataset un hijo, y con « @ » delante una instantánea."},
+     "dataset un hijo, y con « @ » delante un snapshot."},
      {{{"t_name_type__f51f24", "--name <n> / --type <LOCAL|SSH> / --os <s>"}, {"t_conexi_n_n_42c7eb", "Conexión: nombre visible, LOCAL o SSH, sistema."}},
       {{"t_host_port__2ddcc9", "--host <h> / --port <n> / --user <u> / --key <ruta>"}, {"t_conexi_n_c_c0e9ec", "Conexión: cómo se llega a la máquina."}},
       {{"t_sudo_d34723", "--sudo"}, {"t_conexi_n_l_0e9498", "Conexión: la máquina necesita elevar."}},
@@ -843,17 +843,17 @@ const std::vector<Orden> kOrdenes = {
       {{"t_o_p_v_o_p__3f8555", "-o p=v / -O p=v / --mountpoint <ruta>"}, {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
       {{"t_f_0abbcb", "-f"}, {"t_pool_fuerz_68fe4a", "Pool: fuerza aunque parezcan en uso."}},
       {{"t_prop_valor_4ef240", "prop=valor"}, {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}},
-      {{"t_create_arroba", "@<nombre>"}, {"t_create_arroba_q", "Instantánea del dataset donde está."}},
-      {{"t_r_90cdb7", "-r"}, {"t_tambi_n_de_5714fd", "Instantánea: también de los descendientes."}}},
+      {{"t_create_arroba", "@<nombre>"}, {"t_create_arroba_q", "Snapshot del dataset donde está."}},
+      {{"t_r_90cdb7", "-r"}, {"t_tambi_n_de_5714fd", "Snapshot: también de los descendientes."}}},
      {{"t_la_contras_46d37f", "La contraseña NUNCA se pasa por argumento: iría en argv y se vería en `ps` para "
       "cualquier usuario de la máquina. O se teclea, o entra por un descriptor."},
       {"t_se_guarda__a5a7bd", "Se guarda cifrada con la contraseña maestra. Sin ella no se guarda en claro."},
       {"t_crear_un_p_9b7a8c", "Crear un POOL es la orden más destructiva de todas: escribe en los dispositivos que "
       "se le den y lo que hubiera en ellos se pierde. La confirmación los enumera uno a "
       "uno."},
-      {"t_create_arroba_det", "Un nombre con « @ » delante crea una instantánea y no un hijo: `create @ayer` "
-      "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue una "
-      "instantánea en la URL, así que no hay una regla nueva que recordar."}},
+      {"t_create_arroba_det", "Un nombre con « @ » delante crea un snapshot y no un hijo: `create @ayer` "
+      "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue un "
+      "snapshot en la URL, así que no hay una regla nueva que recordar."}},
      // `create` vale en TODOS los niveles —raíz, conexión, dataset— y decide por dónde se
      // está. Declarando `Dataset`, el preámbulo exigía estar en uno y crear un pool desde
      // el intérprete era imposible: `create <pool> <disco>` en una conexión moría con
@@ -875,13 +875,13 @@ const std::vector<Orden> kOrdenes = {
       {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
      {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
-      "funciona—. En un dataset o instantánea, `zfs destroy`."}},
+      "funciona—. En un dataset o snapshot, `zfs destroy`."}},
      // Lo mismo que `create`: en una conexión la quita, en la raíz de un pool destruye el
      // pool, y en un dataset o una instantánea es `zfs destroy` —lo que dice el párrafo de
      // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
      Objetivo::Cualquiera,
      {},
-     {{"-f", false, {"t_nat_destroy_f", "Fuerza el desmontaje de lo que esté en uso."}}, {"-n", false, {"t_nat_destroy_n", "Ensayo: no borra nada, dice qué borraría."}}, {"-p", false, {"t_nat_destroy_p", "Con las estadísticas en formato analizable."}}, {"-R", false, {"t_nat_destroy_Rmay", "También los clones que dependan de ello."}}, {"-r", false, {"t_nat_destroy_r", "También sus descendientes."}}, {"-v", false, {"t_nat_destroy_v", "Cuenta lo que va borrando."}}, {"-d", false, {"t_nat_destroy_d", "Lo marca para borrarlo cuando se suelte la última retención."}}}},
+     {{"-f", false, {"t_nat_destroy_f", "Fuerza el desmontaje de lo que esté en uso."}}, {"-n", false, {"t_nat_destroy_n", "Ensayo: no borra nada, dice qué borraría."}}, {"-p", false, {"t_nat_destroy_p", "Con las estadísticas en formato analizable."}}, {"-R", false, {"t_nat_destroy_Rmay", "También los clones que dependan de ello."}}, {"-r", false, {"t_nat_destroy_r", "También sus descendientes."}}, {"-v", false, {"t_nat_destroy_v", "Cuenta lo que va borrando."}}, {"-d", false, {"t_nat_destroy_d", "Lo marca para borrarlo cuando se quite el último hold."}}}},
     {"devices", {"t_conexiones_3785cd", "Conexiones"}, {"t_devices_uso", "[--free]"},
      {"t_devices_res", "Los discos de la máquina, para elegir dónde crear un pool."},
      {{{"t_devices_free", "--free"}, {"t_devices_free_q", "Solo los que no están en uso."}}},
@@ -940,7 +940,7 @@ const std::vector<Orden> kOrdenes = {
       "una ruta, y no habría forma de saber cuál de los dos es—."}},
      Objetivo::DatasetOInstantanea,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-f", false, {"t_nat_rename_f", "Fuerza el desmontaje del destino si hace falta."}}, {"-p", false, {"t_nat_rename_p", "Crea los padres que falten en el nombre nuevo."}}, {"-u", false, {"t_nat_rename_u", "No vuelve a montarlo después."}}, {"-r", false, {"t_nat_rename_r", "Renombra la instantánea en todos los descendientes."}}}},
+     {{"-f", false, {"t_nat_rename_f", "Fuerza el desmontaje del destino si hace falta."}}, {"-p", false, {"t_nat_rename_p", "Crea los padres que falten en el nombre nuevo."}}, {"-u", false, {"t_nat_rename_u", "No vuelve a montarlo después."}}, {"-r", false, {"t_nat_rename_r", "Renombra el snapshot en todos los descendientes."}}}},
     {"mount", {"t_dataset_105268", "Datasets"}, {"t_f_9bd72b", "[-f]"}, {"t_lo_monta_6d9042", "Lo monta."}, {}, {},
      Objetivo::Dataset,
      {},
@@ -970,7 +970,7 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Dataset, {}},
     {"schedule", {"t_grupo_snapshots", "Snapshots"},
      {"t_sch_uso", "[--daily <n>] [--recursive] [--to <Con::pool/ds>] [--off|--clear]"},
-     {"t_sch_res", "La programación de instantáneas del dataset. Sin opciones, la enseña."},
+     {"t_sch_res", "La programación de snapshots del dataset. Sin opciones, la enseña."},
      {{{"t_sch_ret", "--hourly <n> / --daily <n> / --weekly <n> / --monthly <n> / --yearly <n>"},
        {"t_sch_ret_q", "Cuántas guardar de cada clase. 0 es «ninguna de esas»."}},
       {{"t_sch_rec", "--recursive / --no-recursive"},
@@ -978,7 +978,7 @@ const std::vector<Orden> kOrdenes = {
       {{"t_sch_to", "--to <Conexión::pool/dataset>"},
        {"t_sch_to_q", "A dónde se nivela lo programado."}},
       {{"t_sch_level", "--level / --no-level"},
-       {"t_sch_level_q", "Nivelar contra el destino después de cada instantánea. Exige --to."}},
+       {"t_sch_level_q", "Nivelar contra el destino después de cada snapshot. Exige --to."}},
       {{"t_sch_off", "--off"}, {"t_sch_off_q", "La apaga CONSERVANDO lo configurado."}},
       {{"t_sch_clear", "--clear"}, {"t_sch_clear_q", "Borra la programación: como si nunca la hubiera tenido."}}},
      {{"t_sch_det1", "Fijar cualquier valor la ACTIVA: `schedule --daily 7` quiere decir «guarda siete "
@@ -987,10 +987,10 @@ const std::vector<Orden> kOrdenes = {
       {"t_sch_det2", "La programación no es un fichero de este programa: son PROPIEDADES del dataset "
        "—`org.fc16.gsa:*`—, así que sobrevive a reinstalar el cliente y viaja con el pool "
        "si se exporta. Se pueden ver con «ls #properties»."},
-      {"t_sch_det3", "Quien hace las instantáneas es el agente GSA de esa máquina, no este programa: "
+      {"t_sch_det3", "Quien hace los snapshots es el agente GSA de esa máquina, no este programa: "
        "si no está instalado, la programación queda escrita y no pasa nada. Las reglas se "
        "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
-       "haría instantáneas y las borraría."}},
+       "haría snapshots y los borraría."}},
      Objetivo::Dataset, {}},
     {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso", "[--all]"},
      {"t_schs_res", "Qué hay programado en esta máquina."},
@@ -1014,18 +1014,18 @@ const std::vector<Orden> kOrdenes = {
 
     // --- Instantáneas
     {"rollback", {"t_grupo_snapshots", "Snapshots"}, {"t_nombre_f_r_74bf0b", "[@<nombre>] [-f|-r|-R]"},
-     {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de una instantánea, DESCARTANDO lo posterior."}, {}, {},
+     {"t_vuelve_el__e58a57", "Vuelve el dataset al estado de un snapshot, DESCARTANDO lo posterior."}, {}, {},
      Objetivo::Snapshot,
      {},
-     {{"-r", false, {"t_nat_rollback_r", "Destruye las instantáneas posteriores a esa."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
-    {"clone", {"t_grupo_snapshots", "Snapshots"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@instantánea>]"},
-     {"t_crea_un_da_97befd", "Crea un dataset a partir de una instantánea."},
+     {{"-r", false, {"t_nat_rollback_r", "Destruye los snapshots posteriores a ese."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
+    {"clone", {"t_grupo_snapshots", "Snapshots"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@snapshot>]"},
+     {"t_crea_un_da_97befd", "Crea un dataset a partir de un snapshot."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}},
-     {{"t_clone_det1", "Un nombre RELATIVO cuelga del dataset de la instantánea: estando en "
+     {{"t_clone_det1", "Un nombre RELATIVO cuelga del dataset del snapshot: estando en "
        "`tank/datos@ayer`, «clone copia» deja `tank/datos/copia`. Para ponerlo en otro "
        "sitio se da el nombre ZFS entero: «clone tank/copia»."},
-      {"t_clone_det2", "El clon comparte los bloques con la instantánea, así que al principio no ocupa "
-       "casi nada — y esa instantánea NO se puede destruir mientras el clon exista. Para "
+      {"t_clone_det2", "El clon comparte los bloques con el snapshot, así que al principio no ocupa "
+       "casi nada — y ese snapshot NO se puede destruir mientras el clon exista. Para "
        "romper esa atadura está «promote»."},
       {"t_clone_det3", "Ejemplo:\n"
        "  cd /local/tank/datos@ayer\n"
@@ -1033,18 +1033,18 @@ const std::vector<Orden> kOrdenes = {
        "o desde cualquier sitio: «clone tank/recuperado --from /local/tank/datos@ayer»."}},
      Objetivo::Snapshot,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
-    {"holds", {"t_grupo_snapshots", "Snapshots"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Las retenciones de una instantánea."}, {}, {},
+    {"holds", {"t_grupo_snapshots", "Snapshots"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Los holds de un snapshot."}, {}, {},
      Objetivo::Snapshot,
      {}},
     {"hold", {"t_grupo_snapshots", "Snapshots"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"},
-     {"t_pone_una_r_c46735", "Pone una retención: impide borrarla hasta quitarla."}, {}, {},
+     {"t_pone_una_r_c46735", "Pone un hold: impide borrar el snapshot hasta quitarlo."}, {}, {},
      Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-r", false, {"t_nat_hold_r", "También en las instantáneas de los descendientes."}}}},
-    {"release", {"t_grupo_snapshots", "Snapshots"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita una retención."}, {}, {},
+     {{"-r", false, {"t_nat_hold_r", "También en los snapshots de los descendientes."}}}},
+    {"release", {"t_grupo_snapshots", "Snapshots"}, {"t_etiqueta_r_8becce", "<etiqueta> [-r]"}, {"t_quita_una__478a77", "Quita un hold."}, {}, {},
      Objetivo::Snapshot,
      {{"etiqueta", Ranura::Tipo::Texto, Ranura::Cuantas::Una}},
-     {{"-r", false, {"t_nat_release_r", "También en las instantáneas de los descendientes."}}}},
+     {{"-r", false, {"t_nat_release_r", "También en los snapshots de los descendientes."}}}},
     {"diff", {"t_grupo_snapshots", "Snapshots"}, {"t_hasta_from_64dcd2", "<@hasta> [--from <@desde>]"},
      {"t_qu_cambi_e_bca99a", "Qué cambió entre dos puntos del mismo dataset."},
      {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_el_punto_d_3efe61", "El punto de partida. Sin ella, el sitio actual."}}}, {},
@@ -1167,8 +1167,8 @@ const std::vector<Orden> kOrdenes = {
      {{{"t_rsync_del", "--delete"}, {"t_rsync_del_q", "Borra en el destino lo que ya no está en el origen."}},
       {{"t_rsync_check", "--check"}, {"t_rsync_check_q", "Simula y enseña qué haría, sin tocar nada."}},
       {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
-     {{"t_rsync_det", "Copia FICHEROS, no instantáneas: da igual si lo que hay debajo son datasets o "
-      "directorios corrientes, mientras esté montado. Para mandar una instantánea está `send`."},
+     {{"t_rsync_det", "Copia FICHEROS, no snapshots: da igual si lo que hay debajo son datasets o "
+      "directorios corrientes, mientras esté montado. Para mandar un snapshot está `send`."},
       {"t_rsync_det2", "Sin `--delete` solo añade y actualiza; lo que sobre en el destino se queda. Con "
       "`--delete` el destino acaba idéntico al origen, y eso INCLUYE borrar."},
       {"t_rsync_det3", "Vale entre máquinas distintas: el árbol va de agente a agente, sin `tar` ni "
@@ -1190,7 +1190,7 @@ const std::vector<Orden> kOrdenes = {
      {{"t_bd_det1", "Los argumentos van en PARES: cada subdirectorio con el nombre del dataset que "
        "lo sustituye. El contenido no se mueve de sitio para quien mira desde fuera: donde "
        "había un directorio queda un dataset con lo mismo dentro, y ya con sus propiedades, "
-       "sus instantáneas y su cuota."},
+       "sus snapshots y su cuota."},
       {"t_bd_det2", "El nombre NO tiene que reflejar la ruta: crear un dataset solo exige que exista "
        "su padre por nombre, así que `breakdown a/b/c a:b:c` convierte el de tres niveles "
        "sin convertir `a` ni `b`."},
@@ -1229,9 +1229,9 @@ const std::vector<Orden> kOrdenes = {
 
     // --- Transferencias
     {"send", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, {"t_destino_bb3347", "<destino>"},
-     {"t_manda_una__2d0418", "Manda una instantánea a otro dataset, aquí o en otra máquina."},
-     {{{"t_from_insta_ce64b3", "--from <@instantánea>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
-      {{"t_base_insta_074a40", "--base <@instantánea>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
+     {"t_manda_una__2d0418", "Manda un snapshot a otro dataset, aquí o en otra máquina."},
+     {{{"t_from_insta_ce64b3", "--from <@snapshot>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
+      {{"t_base_insta_074a40", "--base <@snapshot>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
       {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
      {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
@@ -1483,13 +1483,13 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "  [abc]    uno de esos; [a-z] un rango; [!x] cualquiera menos x\n"
                         "  {a,b*}   alternativas, cada una con sus comodines; admite espacios\n"
                         "\n"
-                        "Valen en cualquier tramo: conexión, pool, dataset, @instantánea y el\n"
+                        "Valen en cualquier tramo: conexión, pool, dataset, @snapshot y el\n"
                         "detalle de #properties y #content. Distinguen mayúsculas, como ZFS.\n"
                         "Un comodín literal se escribe codificado: %2A es un «*» de verdad.\n"
                         "\n"
                         "En «ls», el último tramo FILTRA lo que se lista:\n"
                         "  ls tank/user/M*                  los hijos de tank/user que empiezan por M\n"
-                        "  ls tank/data@auto-2024-*         solo esas instantáneas\n"
+                        "  ls tank/data@auto-2024-*         solo esos snapshots\n"
                         "  ls tank#properties/{a*, b*}      las propiedades por a o por b\n"
                         "  ls zfsm://{fc16,unib}/*          los pools de las dos máquinas\n"
                         "\n"

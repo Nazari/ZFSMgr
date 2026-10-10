@@ -190,7 +190,7 @@ std::string labelOf(Failure f) {
         case Failure::RetentionNotAnInteger:
             return "la retención no es un entero mayor o igual que 0";
         case Failure::EnabledWithNoRetention:
-            return "la programación está activada y no guarda ninguna instantánea";
+            return "la programación está activada y no guarda ningún snapshot";
         case Failure::LevelWithNoTarget:
             return "nivelar está puesto y no hay destino";
         case Failure::MalformedTarget:

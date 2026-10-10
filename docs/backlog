@@ -40,7 +40,15 @@ Listado de cambios.
    	- La ayuda solo referencia 6 imágenes en total para toda la GUI. Para lo que ha crecido la aplicación es poco: hay que decidir qué merece captura y qué no, en vez de dejar las que hay por inercia.
    Al hacerla, contrastar contra el código como se hizo con la auditoría anterior (project_help_docs_audit): lo que dice la ayuda frente a lo que hace la aplicación, no frente a lo que uno recuerda.
 
-7. Dejar en inglés los nombres de OpenZFS en el texto del CLI. Hoy se traduce «snapshot» por
+7. [HECHO 2026-10-10, solo CLI] Dejar en inglés los nombres de OpenZFS en el texto del CLI.
+   Criterio aplicado: pasan a inglés los NOMBRES DE PRODUCTO que se teclean —snapshot, hold,
+   bookmark (este no aparecía)—, en masculino («el snapshot», «los holds»). Se quedan en
+   castellano los conceptos genéricos que no son de ZFS: punto de montaje, volumen, clon,
+   cuota, compresión, propiedad. 53 claves de i18n/es.json más los textos de respaldo del
+   código y los mensajes de src/commands. NO son hold: la «retención» del GSA (cuántos
+   snapshots guardar) ni el «marcador» que es la «@». La GUI comparte catálogo: las claves
+   comunes cambian con el CLI, las suyas propias siguen con «instantánea» (no va en la 1.0).
+   La batería barre la ayuda de las órdenes de snapshots para que no reaparezca. Hoy se traduce «snapshot» por
    «instantánea», y eso es un término del producto, no una palabra corriente: el usuario lo
    busca en la documentación de OpenZFS, lo teclea en `zfs list -t snapshot` y lo lee en los
    mensajes de `zfs`. El rótulo de la categoría de `help` ya se cambió a «Snapshots» el

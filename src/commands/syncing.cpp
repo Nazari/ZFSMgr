@@ -12,9 +12,9 @@ std::string labelOf(Failure f) {
         case Failure::SameObject:
             return "el origen y el destino son el mismo";
         case Failure::SourceIsNotDataset:
-            return "el origen tiene que ser un dataset, no una instantánea";
+            return "el origen tiene que ser un dataset, no un snapshot";
         case Failure::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no una instantánea";
+            return "el destino tiene que ser un dataset, no un snapshot";
         case Failure::WindowsEndpoint:
             // Ya no lo devuelve nadie: se queda para no romper a quien lo lea de un dato
             // guardado, y porque el `switch` tiene que ser exhaustivo.

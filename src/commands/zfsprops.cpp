@@ -68,14 +68,14 @@ const std::vector<SendFlag>& sendFlagCatalog() {
         {"-b", false, "t_nat_send_b", "Solo los bloques que ocupan espacio."},
         {"-c", false, "t_nat_send_c", "Comprimido tal cual está en disco."},
         {"-e", false, "t_nat_send_e", "Con los bloques embebidos, sin expandirlos."},
-        {"-h", false, "t_nat_send_h", "Se lleva también las retenciones."},
+        {"-h", false, "t_nat_send_h", "Se lleva también los holds."},
         {"-n", false, "t_nat_send_n", "Ensayo: no manda nada, dice qué mandaría."},
         {"-p", false, "t_nat_send_p", "Con las propiedades del dataset."},
         {"-s", false, "t_nat_send_s", "Reanudable: deja testigo si se corta."},
         {"-V", false, "t_nat_send_V", "Fija la versión del flujo."},
         {"-v", false, "t_nat_send_v", "Cuenta lo que va mandando."},
         {"-w", false, "t_nat_send_w", "En crudo: lo cifrado viaja sin descifrar."},
-        {"-R", false, "t_nat_send_R", "Replicación: con descendientes e instantáneas."},
+        {"-R", false, "t_nat_send_R", "Replicación: con descendientes y snapshots."},
         {"-X", true,  "t_nat_send_X", "Con -R, deja fuera ese dataset (o varios, con comas)."}
     };
     return kTabla;

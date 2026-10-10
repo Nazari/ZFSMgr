@@ -361,7 +361,7 @@ bool resuelve(const Estado& e, const std::string& textoEntrada, ZfsmUrl& out, st
                     base.dataset += "/" + nombre;
                     break;
                 case Nodo::Snapshot:
-                    err = B::format(T("t_snap_sin_hijos", "una instantánea no tiene hijos: %1"), {nombre});
+                    err = B::format(T("t_snap_sin_hijos", "un snapshot no tiene hijos: %1"), {nombre});
                     return false;
             }
             if (!snap.empty()) {
@@ -704,9 +704,9 @@ std::string nombreDe(Objetivo pedido) {
         case Objetivo::Conexion: return T("t_obj_conexion", "una conexión");
         case Objetivo::Pool: return T("t_obj_pool", "un pool");
         case Objetivo::Dataset: return T("t_obj_dataset", "un dataset");
-        case Objetivo::Snapshot: return T("t_obj_snap", "una instantánea");
+        case Objetivo::Snapshot: return T("t_obj_snap", "un snapshot");
         case Objetivo::DatasetOInstantanea:
-            return T("t_obj_ds_snap", "un dataset o una instantánea");
+            return T("t_obj_ds_snap", "un dataset o un snapshot");
     }
     return {};
 }
@@ -1462,7 +1462,7 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
         deDataset.detail.clear();
         std::fprintf(stderr,
                      TC("t_permisos_de_instantanea",
-                        "una instantánea no tiene permisos delegados: son del dataset. "
+                        "un snapshot no tiene permisos delegados: son del dataset. "
                         "Pruebe «ls #permissions --on %s»\n"),
                      B::formatZfsmUrl(deDataset).c_str());
         return false;
@@ -1709,8 +1709,8 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
                     // que para esto no existe; lo que hay que montar es el dataset.
                     std::fprintf(stderr,
                                  TC("t_snap_padre_no_montado",
-                                    "%s no se puede listar: lo que hay dentro de una "
-                                    "instantánea se ve bajo el punto de montaje de su "
+                                    "%s no se puede listar: lo que hay dentro de un "
+                                    "snapshot se ve bajo el punto de montaje de su "
                                     "dataset, y %s no está montado\n"),
                                  destino.zfsName().c_str(), destino.dataset.c_str());
                 } else {
@@ -1810,7 +1810,7 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
             return listaDataset(e, destino);
         case Nodo::Snapshot:
             // Una instantánea no tiene hijos; lo interesante es lo que hay dentro.
-            std::fputs(TC("t_una_instan_e727ff", "una instantánea no tiene hijos: pruebe «ls #content» o «ls #properties»\n"), stderr);
+            std::fputs(TC("t_una_instan_e727ff", "un snapshot no tiene hijos: pruebe «ls #content» o «ls #properties»\n"), stderr);
             return false;
     }
     return false;
@@ -1946,7 +1946,7 @@ bool creaInstantanea(Estado& e, const Peticion& pet, const ZfsmUrl& destinoEntra
     // dataset— no tienen dónde ir, así que se DICE. Callarlas sería justo el fallo que se
     // está persiguiendo: aceptar algo y no hacerle caso.
     for (const std::string& n : pet.nativas()) {
-        std::fprintf(stderr, TC("t_bandera_no_instantanea", "«%s» no vale al crear una instantánea: "
+        std::fprintf(stderr, TC("t_bandera_no_instantanea", "«%s» no vale al crear un snapshot: "
                      "solo -r\n"), n.c_str());
         return false;
     }
@@ -2077,12 +2077,12 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     if (pet.lista("texto").empty()) {
-        std::fputs(TC("t_uso_clone__ea5ed7", "uso: clone <nuevo-dataset> [--from <@instantánea>]\n"), stderr);
+        std::fputs(TC("t_uso_clone__ea5ed7", "uso: clone <nuevo-dataset> [--from <@snapshot>]\n"), stderr);
         return false;
     }
     const ZfsmUrl& origen = pet.objetivo;
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"), textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser un snapshot (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     // El nombre se toma como hijo del sitio actual salvo que ya venga con ruta, igual que en
@@ -3148,7 +3148,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         B::gsa::Schedule tmp;
         B::gsa::Reason m;
         if (!B::gsa::fromProperties(uno, tmp, m)) {
-            std::fprintf(stderr, TC("t_sch_no_entero", "«%s» no es un número de instantáneas válido "
+            std::fprintf(stderr, TC("t_sch_no_entero", "«%s» no es un número de snapshots válido "
                          "para --%s\n"), v.c_str(), opcion);
             return false;
         }
@@ -3606,7 +3606,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         banderasSend += (banderasSend.empty() ? "" : " ") + n;
     }
     if (pet.lista("destino").empty() && pet.valor("to").empty()) {
-        std::fputs(TC("t_uso_copy_d_f6efbc", "uso: send <destino> [--from <@instantánea>] [--base <@instantánea>]\n"
+        std::fputs(TC("t_uso_copy_d_f6efbc", "uso: send <destino> [--from <@snapshot>] [--base <@snapshot>]\n"
                      "          [banderas de zfs send] [--wait]\n"
                      "  El destino es una URL: puede estar en OTRA máquina.\n"
                      "  Sin --from se usa el sitio actual como origen.\n"
@@ -3616,7 +3616,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     }
     const ZfsmUrl& origen = pet.objetivo;
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__886ec5", "el origen tiene que ser una INSTANTÁNEA (ahora: %s)\n"), textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__886ec5", "el origen tiene que ser un SNAPSHOT (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     ZfsmUrl destino;
@@ -3919,7 +3919,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     Tabla t;
     t.nombreJson = "jobs";
     t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_estado", "ESTADO"), T("t_cab_tipo", "TIPO"),
-                        T("t_cab_instantanea", "INSTANTÁNEA"), T("t_cab_bytes", "BYTES"),
+                        T("t_cab_instantanea", "SNAPSHOT"), T("t_cab_bytes", "BYTES"),
                         T("t_cab_mib_s", "MiB/s"), T("t_cab_segundos", "SEGUNDOS"),
                         T("t_cab_error", "ERROR")};
     t.campos = {"id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
@@ -4474,14 +4474,15 @@ bool cmdHolds(Estado& e, const LineaAnalizada& linea) {
                    20000, out, err, rc, {}, {}, {}, {}, false, e.ses->verboso)
         || rc != 0) {
         const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        std::fprintf(stderr, "%s\n", detalle.empty() ? "no se pudieron leer las retenciones"
-                                                      : detalle.c_str());
+        std::fprintf(stderr, "%s\n", detalle.empty()
+                                       ? TC("t_holds_ilegibles", "no se pudieron leer los holds")
+                                       : detalle.c_str());
         e.ultimoRc = rc == 0 ? 1 : rc;
         return false;
     }
     Tabla t;
     t.nombreJson = "holds";
-    t.cabecerasTexto = {T("t_cab_instantanea", "INSTANTÁNEA"), T("t_cab_etiqueta", "ETIQUETA"),
+    t.cabecerasTexto = {T("t_cab_instantanea", "SNAPSHOT"), T("t_cab_etiqueta", "ETIQUETA"),
                         T("t_cab_creada", "CREADA")};
     t.campos = {"snapshot", "tag", "created"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
@@ -4510,14 +4511,19 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
     if (argv.empty()) {
         std::fputs(TC("t_retencion_invalida",
                       "la etiqueta no puede llevar espacios, arrobas ni barras, y hay que "
-                      "nombrar una instantánea\n"),
+                      "nombrar un snapshot\n"),
                    stderr);
         return false;
     }
     if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_s_la_reten_cb09d7", "%s la retención «%s» en %s\n"), poner ? "puesta" : "quitada", pet.uno("etiqueta").c_str(), destino.zfsName().c_str());
+    // Una frase entera por caso: «puesta»/«quitada» iban como literales sin traducir, y en
+    // inglés salía «puesta the hold».
+    std::fprintf(stderr,
+                 poner ? TC("t_hold_puesto", "puesto el hold «%s» en %s\n")
+                       : TC("t_hold_quitado", "quitado el hold «%s» en %s\n"),
+                 pet.uno("etiqueta").c_str(), destino.zfsName().c_str());
     return true;
 }
 
@@ -4528,7 +4534,7 @@ bool cmdDiff(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     if (pet.lista("destino").empty()) {
-        std::fputs(TC("t_uso_diff_i_10a43a", "uso: diff <@instantánea-o-dataset> [--from <@instantánea>]\n"
+        std::fputs(TC("t_uso_diff_i_10a43a", "uso: diff <@snapshot-o-dataset> [--from <@snapshot>]\n"
                      "  Compara dos puntos del MISMO dataset. Sin --from se usa el sitio\n"
                      "  actual como origen.\n"), stderr);
         return false;
@@ -4541,7 +4547,7 @@ bool cmdDiff(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     if (origen.snapshot.empty()) {
-        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser una instantánea (ahora: %s)\n"), textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_el_origen__604ce4", "el origen tiene que ser un snapshot (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
     std::string out;

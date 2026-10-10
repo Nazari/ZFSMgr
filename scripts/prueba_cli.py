@@ -739,6 +739,22 @@ def casos_patrones_copia(ctx):
          no_espera=[r"desplegando"])
 
 
+def casos_terminos_openzfs(ctx):
+    """Los nombres de OpenZFS se dejan en inglés en el texto del CLI (backlog, punto 7).
+
+    «snapshot», «hold» y «bookmark» son términos del producto: se teclean en `zfs`, salen en
+    sus mensajes y se buscan en su documentación. Traducirlos obligaba a traducir de vuelta.
+    Se barre la ayuda de las órdenes que tratan con ellos, que es donde más aparecían.
+    """
+    ordenes = ["ls", "create", "destroy", "hold", "holds", "release", "clone", "rollback",
+               "send", "diff", "schedule", "rsync", "rename", "breakdown", "patrones"]
+    for o in ordenes:
+        caso(ctx, f"términos OpenZFS: «help {o}» no traduce snapshot ni hold",
+             [f"help {o}"], rc=0, idioma="es",
+             no_espera=[r"(?i)instant[áa]ne", r"(?i)\bretenciones\b", r"(?i)una retención\b",
+                        r"(?i)la retención «"])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -799,13 +815,16 @@ def casos_instantaneas(ctx):
          [f"cd Local/{P}/datos@s1", "ls #permissions"], idioma="en",
          espera=[r"no delegated permissions"], no_espera=[r"snapshot delimiter"])
 
-    caso(ctx, "hold: la retención queda puesta",
-         [f"cd Local/{P}/datos@s1", "hold prueba"],
+    # El mensaje en una frase por idioma: «puesta»/«quitada» iban sin traducir.
+    caso(ctx, "hold: el hold queda puesto",
+         [f"cd Local/{P}/datos@s1", "hold prueba"], idioma="es",
+         espera=[r"puesto el hold «prueba»"],
          estado=[("el hold existe", f"zfs holds -H {P}/datos@s1", r"prueba")])
     caso(ctx, "holds: y se ve desde el CLI",
          [f"cd Local/{P}/datos@s1", "holds"], espera=[r"prueba"])
-    caso(ctx, "release: la retención se suelta",
-         [f"cd Local/{P}/datos@s1", "release prueba"],
+    caso(ctx, "release: el hold se quita, y en inglés lo dice en inglés",
+         [f"cd Local/{P}/datos@s1", "release prueba"], idioma="en",
+         espera=[r"hold «prueba» released"], no_espera=[r"quitad"],
          estado=[("ya no hay hold", f"zfs holds -H {P}/datos@s1", r"^$")])
     caso(ctx, "clone: se crea un dataset desde la instantánea",
          [f"cd Local/{P}/datos", "clone clonado --from @s1"],
@@ -1619,7 +1638,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

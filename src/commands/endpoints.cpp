@@ -35,9 +35,9 @@ std::string labelOf(NotApplicable n) {
         case NotApplicable::SameObject:
             return "el origen y el destino son el mismo";
         case NotApplicable::SourceIsNotSnapshot:
-            return "el origen tiene que ser una instantánea";
+            return "el origen tiene que ser un snapshot";
         case NotApplicable::TargetIsNotDataset:
-            return "el destino tiene que ser un dataset, no una instantánea";
+            return "el destino tiene que ser un dataset, no un snapshot";
         case NotApplicable::DifferentDataset:
             return "comparar es entre dos puntos del mismo dataset";
         case NotApplicable::DifferentMachine:
@@ -45,7 +45,7 @@ std::string labelOf(NotApplicable n) {
         case NotApplicable::DifferentPool:
             return "mover es dentro del mismo pool; entre pools se copia";
         case NotApplicable::SourceIsNotDataset:
-            return "el origen tiene que ser un dataset, no una instantánea";
+            return "el origen tiene que ser un dataset, no un snapshot";
         case NotApplicable::TargetInsideSource:
             return "el destino cuelga del origen: no se puede meter dentro de sí mismo";
         case NotApplicable::NotInTheWebYet:
