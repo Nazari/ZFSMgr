@@ -312,6 +312,11 @@ std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& s
 // recursively it would be a single one, and that is noted in the design.
 Resume findResumeToken(TransportSession& ses, const ConnectionProfile& target,
                          const std::string& objective, bool verbose);
+// The same, asking the agent through `call`. The one above goes by `tryAgentRpcOverSsh`,
+// which does not serve the Local connection: from the shell, a partial receive on THIS
+// machine was never found.
+Resume findResumeToken(const AgentCall& call, const ConnectionProfile& target,
+                       const std::string& objective);
 
 // ---------------------------------------------------------------------------
 // Levelling: bringing the target up to date with the source WITHOUT sending it all again.

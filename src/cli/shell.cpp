@@ -3711,7 +3711,74 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     if (!base.empty() && base.front() == '@') {
         base = origen.dataset + base;
     }
-    if (!confirma(e, B::format(T("t_conf_copy",
+
+    // ¿Una recepción a medias en el destino?
+    //
+    // Si la hay, `zfs recv` no acepta otro envío hasta que se decida qué hacer con ella, y lo
+    // que llegaba al usuario era su error crudo; la salida era `zfs recv -A` a mano en la
+    // otra máquina, teniendo allí un daemon como root que sabe hacerlo. Se mira ANTES de
+    // preguntar nada, y sin una decisión explícita no se toca.
+    const bool reanudar = pet.tiene("--resume");
+    const bool descartar = pet.tiene("--discard-partial");
+    if (reanudar && descartar) {
+        std::fputs(TC("t_send_resume_y_discard",
+                      "«--resume» y «--discard-partial» son lo contrario: una de las dos\n"),
+                   stderr);
+        e.ultimoRc = 2;
+        return false;
+    }
+    const TR::Resume aMedias = TR::findResumeToken(
+        [&](const B::ConnectionProfile& maquina, const std::vector<std::string>& args,
+            int timeoutMs, std::string& out, std::string& err, int& rc) {
+            return ejecutarAgente(*e.ses, maquina, args, out, err, rc, nullptr, timeoutMs);
+        },
+        *pDestino, destino.dataset);
+    std::string testigo;
+    if (aMedias.any()) {
+        if (!reanudar && !descartar) {
+            std::fprintf(stderr,
+                         TC("t_send_hay_parcial",
+                            "%s tiene una recepción que se cortó a medias, y no acepta otro envío "
+                            "hasta decidir qué hacer con ella:\n"
+                            "  --resume            la continúa desde donde quedó\n"
+                            "  --discard-partial   la descarta (se pierde lo recibido) y empieza de cero\n"),
+                         aMedias.heldBy.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (reanudar) {
+            testigo = aMedias.token;
+        } else {
+            if (!confirma(e, B::format(T("t_conf_descartar_parcial",
+                                         "Se va a DESCARTAR la recepción a medias de %1 en %2: "
+                                         "se pierde lo ya recibido. ¿Continuar?"),
+                                       {aMedias.heldBy, destino.connection}))) {
+                std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+                return false;
+            }
+            std::string out;
+            if (!agente(e, destino, PET::abortResumableReceive(aMedias.heldBy), out, 60000)) {
+                return false;
+            }
+            std::fprintf(stderr, TC("t_parcial_descartada", "descartada la recepción a medias de %s\n"),
+                         aMedias.heldBy.c_str());
+        }
+    } else if (reanudar) {
+        std::fprintf(stderr, TC("t_send_nada_que_reanudar",
+                                "%s no tiene ninguna recepción a medias que continuar\n"),
+                     destino.dataset.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+
+    if (!testigo.empty()) {
+        if (!confirma(e, B::format(T("t_conf_reanudar",
+                                     "Se va a continuar la recepción a medias de %1 en %2. ¿Continuar?"),
+                                   {aMedias.heldBy, destino.connection}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
+    } else if (!confirma(e, B::format(T("t_conf_copy",
                                  "Se va a %1 %2 de %3 a %4 en %5.\nSi el destino existe y "
                                  "difiere, `zfs recv -F` lo SOBRESCRIBE. ¿Continuar?"),
                                {base.empty() ? T("t_copiar", "copiar")
@@ -3739,7 +3806,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     const TR::Job trabajo =
         TR::launchJob(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
                          destino.dataset,
-                         base, banderasSend, /*testigoReanudacion=*/std::string(), mismaMaquina,
+                         base, banderasSend, testigo, mismaMaquina,
                          e.ses->verboso);
     if (!trabajo.ok()) {
         const std::string detalle = B::trim(trabajo.detail);

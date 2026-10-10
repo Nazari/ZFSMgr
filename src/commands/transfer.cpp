@@ -270,6 +270,16 @@ std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& o
 
 Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
                          const std::string& objetivo, bool verboso) {
+    const AgentCall llama = [&](const ConnectionProfile& maquina, const std::vector<std::string>& args,
+                                int timeoutMs, std::string& out, std::string& err, int& rc) {
+        return transport::tryAgentRpcOverSsh(ses, maquina, args, timeoutMs, out, err, rc, {}, {},
+                                             verboso);
+    };
+    return findResumeToken(llama, destino, objetivo);
+}
+
+Resume findResumeToken(const AgentCall& llama, const ConnectionProfile& destino,
+                       const std::string& objetivo) {
     const std::string diana = trim(objetivo);
     if (diana.empty()) {
         return {};
@@ -278,9 +288,7 @@ Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
         std::string out;
         std::string err;
         int rc = -1;
-        if (!transport::tryAgentRpcOverSsh(ses, destino,
-                                           {"--dump-zfs-get-prop", "receive_resume_token", ds},
-                                           15000, out, err, rc, {}, {}, verboso)
+        if (!llama(destino, {"--dump-zfs-get-prop", "receive_resume_token", ds}, 15000, out, err, rc)
             || rc != 0) {
             // Que no se pueda leer NO significa que no haya nada a medias: puede que el
             // dataset aún no exista, que es el caso normal en una copia nueva.
@@ -295,9 +303,7 @@ Resume findResumeToken(TransportSession& ses, const ConnectionProfile& destino,
     std::string hijos;
     std::string err;
     int rc = -1;
-    if (transport::tryAgentRpcOverSsh(ses, destino, {"--dump-zfs-list-children", diana}, 15000,
-                                      hijos, err, rc, {}, {}, verboso)
-        && rc == 0) {
+    if (llama(destino, {"--dump-zfs-list-children", diana}, 15000, hijos, err, rc) && rc == 0) {
         for (const std::string& cruda : split(hijos, "\n", true)) {
             const std::string ds = trim(cruda);
             if (ds.empty() || ds == diana) {

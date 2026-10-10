@@ -848,6 +848,43 @@ def casos_diff_relativo(ctx):
          [f"diff @s2 --from {U}@s1"], rc=0, espera=[r"^\+\s+\S*/nuevo\.txt"])
 
 
+def casos_recepcion_a_medias(ctx):
+    """Una recepción cortada deja un testigo en el destino, y `send` tiene que decidir.
+
+    Antes el CLI no lo miraba: llegaba el error crudo de zfs recv y la salida era
+    `zfs recv -A` a mano. El corte se provoca de verdad —el flujo truncado con `head`—, no
+    se simula.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    sh(ctx, f"bash -c 'head -c 8000000 /dev/urandom > /mnt/{P}/datos/grande.bin'", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@corte", root=True)
+    corta = (f"bash -c 'zfs destroy -r {P}/medias 2>/dev/null; "
+             f"zfs send {P}/datos@corte | head -c 2000000 | zfs recv -s {P}/medias 2>/dev/null; true'")
+    testigo = f"zfs get -H -o value receive_resume_token {P}/medias"
+    md5 = (f"bash -c 'zfs mount {P}/medias 2>/dev/null; "
+           f"md5sum < /mnt/{P}/datos/grande.bin; md5sum < /mnt/{P}/medias/grande.bin'")
+    U = f"zfsm://local/{P}"
+    sh(ctx, corta, root=True)
+    caso(ctx, "send: con una recepción a medias se niega y explica las dos salidas",
+         [f"send {U}/medias --on {U}/datos@corte --wait"], rc=1, idioma="es",
+         espera=[r"se cortó a medias", r"--resume", r"--discard-partial"],
+         estado=[("el testigo sigue", testigo, r"^1-")])
+    caso(ctx, "send --resume: la continúa y el fichero llega entero",
+         [f"send {U}/medias --on {U}/datos@corte --resume --wait"], rc=0,
+         estado=[("ya no hay testigo", testigo, r"^-$"),
+                 ("mismo contenido", md5, r"\A(\w+)\s+-\n\1\s+-\s*\Z")])
+    sh(ctx, corta, root=True)
+    caso(ctx, "send --discard-partial: la descarta y manda de cero",
+         [f"send {U}/medias --on {U}/datos@corte --discard-partial --wait"], rc=0, idioma="es",
+         espera=[r"descartada la recepción a medias"],
+         estado=[("ya no hay testigo", testigo, r"^-$"),
+                 ("mismo contenido", md5, r"\A(\w+)\s+-\n\1\s+-\s*\Z")])
+    caso(ctx, "send --resume sin nada a medias se niega",
+         [f"send {U}/otra --on {U}/datos@corte --resume --wait"], rc=1, idioma="es",
+         espera=[r"no tiene ninguna recepción a medias"])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1732,7 +1769,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

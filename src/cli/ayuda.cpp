@@ -671,6 +671,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_send_5", "espera aquí en vez de devolver el trabajo"}},
       {"send zfsm://unibody/sback/copia -R -w",
        {"t_ej_send_6", "replicación, y lo cifrado viaja en crudo"}},
+      {"send zfsm://unibody/sback/copia --resume",
+       {"t_ej_send_7", "continúa una recepción que se cortó"}},
+      {"send zfsm://unibody/sback/copia --discard-partial",
+       {"t_ej_send_8", "la descarta y vuelve a empezar"}},
      }},
     {"jobs",
      {
@@ -1232,8 +1236,14 @@ const std::vector<Orden> kOrdenes = {
      {"t_manda_una__2d0418", "Manda un snapshot a otro dataset, aquí o en otra máquina."},
      {{{"t_from_insta_ce64b3", "--from <@snapshot>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
       {{"t_base_insta_074a40", "--base <@snapshot>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
-      {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+      {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}},
+      {{"t_send_resume", "--resume"}, {"t_send_resume_q", "Si el destino tiene una recepción que se cortó, la continúa desde donde quedó."}},
+      {{"t_send_discard", "--discard-partial"}, {"t_send_discard_q", "Si el destino tiene una recepción que se cortó, la DESCARTA —se pierde lo ya recibido— y manda de cero."}}},
      {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
+      {"t_send_parcial_det", "Si una recepción se cortó, el destino guarda un testigo para continuarla y no "
+       "acepta otro envío hasta que se decida: se avisa y no se toca nada. «--resume» la "
+       "continúa con las MISMAS banderas con que empezó —el testigo las lleva dentro—; si "
+       "fueron ellas las que la hicieron fallar, «--discard-partial» empieza de cero."},
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
       "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
       {"t_send_windows_ok", "Funciona también con un extremo Windows: su agente emite y recibe el flujo desde la fase 2, comprobado contra una máquina real."}},
