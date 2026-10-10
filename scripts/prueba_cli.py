@@ -664,10 +664,19 @@ def casos_patrones_copia(ctx):
          [f"cp {U}/datos#content/*.log {U}/hijoA --wait"], rc=0, idioma="es",
          espera=[r"2 destinos casan"],
          estado=[("hijoA tiene x1.log y x2.log", hay(f"/mnt/{P}/hijoA"), r"\Ax1\.log\nx2\.log\n?\Z")])
+    # `jobs -a`: todas las conexiones, desde la raíz, con la columna CONEXIÓN; y --detail
+    # dice qué hace cada trabajo (lo compone el agente al recibirlo).
+    caso(ctx, "jobs -a: desde la raíz, con la columna CONEXIÓN",
+         ["jobs -a --all"], idioma="es", espera=[r"^CONEXIÓN\s+ID\s+ESTADO"])
+    caso(ctx, "jobs sin -a en la raíz pide una conexión",
+         ["jobs"], rc=1, idioma="es", espera=[r"jobs -a"])
     # Varios orígenes en la misma máquina: UN trabajo, no uno por fichero.
     caso(ctx, "patrones cp: varios orígenes sin --wait son UN solo trabajo",
          [f"cp {U}/datos#content/*.log {U}/otro"], rc=0, idioma="es",
          veces=[(r"en marcha como trabajo", 1)])
+    caso(ctx, "jobs --detail: el trabajo de cp dice qué copia y adónde",
+         [f"jobs --on {U} --all --detail"], idioma="es",
+         espera=[r"QUÉ HACE", r"cp /mnt/\S+/datos/x1\.log -> /mnt/\S+/otro/x1\.log \(\+1\)"])
     caso(ctx, "patrones cp: dos orígenes que llegarían con el mismo nombre se niegan",
          [f"cp {U}/datos#content/d*/y.log {U}/hijoB --wait"], rc=1, idioma="es",
          espera=[r"mismo nombre"],
@@ -1144,9 +1153,12 @@ def casos_acciones(ctx):
     for _ in range(30):
         # `format` es un VERBO del intérprete; `--format` solo vale al arrancar el binario.
         _, vista = cli(ctx, ["format tsv", "jobs --all --on zfsm://local"])
+        # Por el identificador, no por la posición: la tabla lleva delante la columna de la
+        # conexión desde que `jobs -a` junta varias máquinas.
         for l in vista.splitlines():
-            if ident and l.startswith(ident):
-                fila = l
+            if ident and ident in l.split("\t"):
+                c = l.split("\t")
+                fila = "\t".join(c[c.index(ident):])
         if fila and fila.split("\t")[1] in ("done", "failed", "cancelled"):
             break
         sh(ctx, "sleep 2")
