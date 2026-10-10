@@ -109,7 +109,18 @@ file(GLOB_RECURSE ZFSMGR_AGENT_FINGERPRINT_FILES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/../src/commands/*.cpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/../src/commands/*.h"
      "${CMAKE_CURRENT_SOURCE_DIR}/../src/daemon/*.cpp"
-     "${CMAKE_CURRENT_SOURCE_DIR}/../src/daemon/*.h")
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/daemon/*.h"
+     # Y el CLI con sus catálogos: `install-daemon` pone al día también el zfsmgr-cli de la
+     # otra máquina comparando ESTA huella, que es la que dice `zfsmgr-cli version`. Sin
+     # ellos, un arreglo solo del CLI —el BOM de PowerShell, 2026-10-10— dejaba la huella
+     # igual y los CLI remotos se daban por al día con el binario viejo. Que el agente
+     # figure entonces como «a actualizar» cuesta un reinicio de servicio, y a cambio la
+     # pregunta «¿es la misma compilación que la mía?» tiene una sola respuesta.
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/cli/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/cli/*.h"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/cli/*.l"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../src/cli/*.y"
+     "${CMAKE_CURRENT_SOURCE_DIR}/../i18n/*.json")
 list(SORT ZFSMGR_AGENT_FINGERPRINT_FILES)
 set(ZFSMGR_AGENT_FINGERPRINT_INPUT "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 foreach(_zfsmgr_fp_file IN LISTS ZFSMGR_AGENT_FINGERPRINT_FILES)

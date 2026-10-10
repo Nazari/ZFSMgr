@@ -241,7 +241,19 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     out.clear();
     if (!hayTerminal()) {
         // Sin terminal no hay nada que editar: se lee la línea y ya.
-        return static_cast<bool>(std::getline(std::cin, out));
+        //
+        // Salvo el BOM de UTF-8 al principio de la entrada. PowerShell lo antepone a lo que
+        // pasa por una tubería cuando su codificación de salida es UTF-8 con BOM —una
+        // configuración corriente—, y entonces la primera orden llegaba como «\xEF\xBB\xBFls»:
+        // «orden desconocida», con un carácter invisible delante. Igual con un guion
+        // guardado así por un editor de Windows.
+        static bool primera = true;
+        const bool leida = static_cast<bool>(std::getline(std::cin, out));
+        if (leida && primera && out.rfind("\xEF\xBB\xBF", 0) == 0) {
+            out.erase(0, 3);
+        }
+        primera = false;
+        return leida;
     }
     ModoCrudo crudo;
     if (!crudo.ok()) {

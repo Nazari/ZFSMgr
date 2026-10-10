@@ -270,7 +270,7 @@ def casos_lectura(ctx):
          # En minúsculas y en tabla, la MISMA forma que `refresh`. Antes eran tres líneas
          # propias más el volcado crudo del agente en MAYÚSCULAS=valor, dos convenciones en
          # la misma salida y sin pasar por el formateador.
-         espera=[r"^status\s+OK", r"^version\s+0\.", r"^api\s+\d"],
+         espera=[r"^status\s+OK", r"^version\s+\d+\.\d+\.\d+\.\d+", r"^api\s+\d"],
          no_espera=[r"STATUS=OK", r"CAPS="])
 
 
@@ -766,6 +766,10 @@ def casos_mensajes_capa_base(ctx):
     caso(ctx, "capa base: un error de cp sale en inglés con --lang en",
          ["cp zfsm://local/x#properties/y /tmp"], rc=1, idioma="en",
          espera=[r"that section names no files"], no_espera=[r"no nombra ficheros"])
+    # PowerShell antepone un BOM a lo que pasa por una tubería si su codificación de salida
+    # es UTF-8 con BOM: la primera orden llegaba con un carácter invisible delante.
+    caso(ctx, "entrada: un BOM de UTF-8 delante de la primera orden se ignora",
+         ["\ufeffls zfsm://local*"], rc=0, espera=[r"^local\s"], no_espera=[r"desconocida|unknown"])
     caso(ctx, "capa base: y en castellano sigue en castellano",
          ["ls zfsm://local/x@a@b"], rc=1, idioma="es", espera=[r"dos '@' en la misma URL"])
 
