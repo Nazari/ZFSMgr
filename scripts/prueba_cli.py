@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import time
 import shlex
 import shutil
 import subprocess
@@ -887,6 +888,74 @@ def casos_recepcion_a_medias(ctx):
     caso(ctx, "send --resume sin nada a medias se niega",
          [f"send {U}/otra --on {U}/datos@corte --resume --wait"], rc=1, idioma="es",
          espera=[r"no tiene ninguna recepción a medias"])
+
+
+def casos_editor_ancho(ctx):
+    """El editor de línea no puede pintar más ancho que el terminal.
+
+    Con una línea más larga que el terminal, el repintado volvía con «\\r» al principio de
+    la fila FÍSICA y no al de la línea: al pegar una orden larga se imprimía una copia
+    entera por cada carácter. Se prueba con un pseudoterminal de 60 columnas de verdad: cada
+    repintado —los tramos que empiezan por el indicador— tiene que caber en 59.
+    """
+    import pty, select, fcntl, termios, struct
+    nombre = "editor: una orden más larga que el terminal no se repite al pegarla"
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+    r, w = os.pipe()
+    with open(fichero) as f:
+        os.write(w, f.read().encode())
+    os.close(w)
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.dup2(r, 9)
+        os.execv(CLI, [CLI, "--lang", "es", "--password-fd", "9"])
+    os.close(r)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 60, 0, 0))
+    salida = b""
+
+    def lee(t):
+        nonlocal salida
+        fin = time.time() + t
+        while time.time() < fin:
+            listo, _, _ = select.select([fd], [], [], 0.1)
+            if listo:
+                try:
+                    salida += os.read(fd, 65536)
+                except OSError:
+                    return
+
+    lee(3)
+    os.write(fd, ("ls zfsm://local/" + "x" * 180).encode())  # pegada de golpe
+    lee(2)
+    os.write(fd, b"\x01")   # Ctrl-A: el cursor al principio, con la línea desplazada
+    lee(0.5)
+    os.write(fd, b"\r")
+    lee(3)
+    os.write(fd, b"exit\r")
+    lee(1)
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:
+        pass
+    texto = salida.decode("utf-8", "replace")
+    repintados = [t for t in re.split(r"[\r\n]", texto) if t.startswith("zfsm://")]
+    problemas = []
+    if len(repintados) < 100:
+        problemas.append(f"solo {len(repintados)} repintados: no se tecleó la orden")
+    elif max(len(t) for t in repintados) > 59:
+        problemas.append(f"un repintado ocupa {max(len(t) for t in repintados)} columnas en un "
+                         "terminal de 60")
+    # Y que la orden llegó ENTERA, aunque no se viera entera.
+    if "x" * 180 not in texto.replace("\r", "").split("cannot open '", 1)[-1][:200]:
+        problemas.append("la orden no llegó entera")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, texto[-400:]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
 
 
 def casos_propiedades(ctx):
@@ -1773,7 +1842,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

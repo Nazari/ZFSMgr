@@ -5,12 +5,14 @@
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
+#include <vector>
 
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
 #else
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -117,6 +119,37 @@ std::size_t columnas(const std::string& s) {
     return n;
 }
 
+// El ancho del terminal en columnas, o 80 si no se puede saber.
+std::size_t anchoDelTerminal() {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE), &info)) {
+        const int w = info.srWindow.Right - info.srWindow.Left + 1;
+        if (w > 10) {
+            return static_cast<std::size_t>(w);
+        }
+    }
+#else
+    winsize w{};
+    if (ioctl(STDERR_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 10) {
+        return w.ws_col;
+    }
+#endif
+    return 80;
+}
+
+// Los bytes donde empieza cada carácter de `s`, y uno más con el final.
+std::vector<std::size_t> inicios(const std::string& s) {
+    std::vector<std::size_t> v;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if ((static_cast<unsigned char>(s[i]) & 0xC0) != 0x80) {
+            v.push_back(i);
+        }
+    }
+    v.push_back(s.size());
+    return v;
+}
+
 // El byte donde empieza el carácter anterior a `pos`. Delete un byte partiría una letra
 // acentuada por la mitad y dejaría basura en la línea.
 std::size_t bytesAtras(const std::string& s, std::size_t pos) {
@@ -184,13 +217,42 @@ void LectorDeLinea::repinta(const std::string& indicador, const std::string& lin
     // Se reescribe la línea ENTERA en vez de llevar la cuenta de lo que cambió, que es
     // donde se cuelan los desajustes; y el cursor se coloca reescribiendo hasta él, no
     // moviéndolo.
-    const std::string completa = indicador + linea;
+    //
+    // **Y nunca más ancho que el terminal.** Con `\r` solo se vuelve al principio de la fila
+    // FÍSICA: si la línea se partía en dos, cada repintado empezaba en la segunda y dejaba la
+    // primera atrás, así que al pegar una orden larga se imprimía una copia entera por cada
+    // carácter. Se pinta solo el trozo que cabe, siguiendo al cursor —como `readline` en una
+    // sola línea—, con «<» cuando hay texto escondido a la izquierda.
+    const std::size_t anchoTerminal = anchoDelTerminal();
+    const std::size_t anchoIndicador = columnas(indicador);
+    // Una columna menos que el terminal: escribir en la última hace saltar de fila a algunos.
+    const std::size_t hueco =
+        anchoTerminal > anchoIndicador + 11 ? anchoTerminal - anchoIndicador - 1 : 10;
+    const std::vector<std::size_t> pos = inicios(linea);
+    const std::size_t total = pos.size() - 1;  // caracteres de la línea
+    std::size_t enCursor = 0;                 // caracteres antes del cursor
+    while (enCursor < total && pos[enCursor] < cursor) {
+        ++enCursor;
+    }
+    std::size_t desde = 0;
+    std::string marca;
+    if (total >= hueco && enCursor >= hueco) {
+        // El cursor al borde derecho, y «<» ocupando la primera columna.
+        desde = enCursor - (hueco - 2);
+        marca = "<";
+    }
+    const std::size_t caben = hueco - marca.size();
+    const std::size_t hasta = std::min(total, desde + caben);
+    const std::string visible = linea.substr(pos[desde], pos[hasta] - pos[desde]);
+    const std::string hastaCursor = linea.substr(pos[desde], pos[enCursor] - pos[desde]);
+
+    const std::string completa = indicador + marca + visible;
     const std::size_t ancho = columnas(completa);
     std::string salida = "\r" + completa;
     if (anchoPintado > ancho) {
         salida += std::string(anchoPintado - ancho, ' ');
     }
-    salida += "\r" + indicador + linea.substr(0, cursor);
+    salida += "\r" + indicador + marca + hastaCursor;
     std::fputs(salida.c_str(), stderr);
     std::fflush(stderr);
     anchoPintado = ancho;
