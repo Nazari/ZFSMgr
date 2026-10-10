@@ -40,8 +40,8 @@ Variables opcionales:
   RELEASE_LOG_DIR directorio donde guardar logs por fase
 
 Artefactos publicados (los genera scripts/empaqueta.sh, que llama buildall-cross.sh):
-  - zfsmgr-<version>.zip        CLI + interfaz, un instalador por sistema
-  - zfsmgr-cli-<version>.zip    solo CLI, la misma estructura
+  - zfsmgr-cli-<version>.zip    solo CLI, un instalador por sistema (desde la 1.0.0 es lo
+                                único que se publica; el completo con interfaz no se sube)
   - y la suma SHA-256 de cada uno
 
 Resolución de artefactos:
@@ -178,7 +178,9 @@ resolve_release_artifacts() {
   ZIP_CLI="${artifacts_dir}/zfsmgr-cli-${VERSION}.zip"
   RELEASE_FILES=()
   local f
-  for f in "${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256" "${ZIP_CLI}" "${ZIP_CLI}.sha256"; do
+  # Desde la 1.0.0 se publica SOLO el CLI: la interfaz gráfica no está probada y no se
+  # espera hasta la 2.0.0. El zip completo se sigue generando, pero no se sube.
+  for f in "${ZIP_CLI}" "${ZIP_CLI}.sha256"; do
     [[ -f "${f}" ]] && RELEASE_FILES+=("${f}")
   done
 }
@@ -366,8 +368,8 @@ else
   resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 fi
 
-[[ ${#RELEASE_FILES[@]} -eq 4 ]] \
-  || fail "faltan los zip de ${VERSION} o sus sumas en ${ARTIFACTS_DIR} (los genera scripts/empaqueta.sh)"
+[[ ${#RELEASE_FILES[@]} -eq 2 ]] \
+  || fail "falta el zip de CLI de ${VERSION} o su suma en ${ARTIFACTS_DIR} (los genera scripts/empaqueta.sh)"
 log "Artefactos resueltos:"
 for _f in "${RELEASE_FILES[@]}"; do
   log "  ${_f}"
@@ -399,6 +401,11 @@ GH_RELEASE_CMD=(gh release create "${TAG}"
   --verify-tag
   --generate-notes
 )
+# Las notas escritas a mano van DELANTE de las generadas: son las que dicen el alcance.
+NOTAS="${PROJECT_ROOT:-${SCRIPT_DIR}/..}/docs/notas/${VERSION}.md"
+if [[ -f "${NOTAS}" ]]; then
+  GH_RELEASE_CMD+=(--notes-file "${NOTAS}")
+fi
 run_logged github-release "${GH_RELEASE_CMD[@]}"
 
 log "Release creada correctamente"

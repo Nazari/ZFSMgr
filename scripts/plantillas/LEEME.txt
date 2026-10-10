@@ -28,6 +28,9 @@ Windows: el daemon no se instala desde aquí; se instala con «install-daemon» 
 
 La configuración del usuario (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) nunca se toca.
 
+Versión 1.x: SOLO se publica y se prueba el CLI (zfsmgr-cli) y su daemon. La interfaz
+gráfica NO está probada en esta versión y no se espera hasta la 2.0.0.
+
 
 ZFSMgr @VERSION@  (@PAQUETE@) — English
 -------------------------------------
@@ -54,3 +57,6 @@ Windows: the daemon is not installed from here; use «install-daemon» from anot
        machine, over SSH.
 
 Your configuration (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) is never touched.
+
+Version 1.x: ONLY the CLI (zfsmgr-cli) and its daemon are published and tested. The
+graphical interface is NOT tested in this version and is not expected before 2.0.0.

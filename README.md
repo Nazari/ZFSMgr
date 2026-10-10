@@ -15,6 +15,27 @@ If you are looking for a **ZFS GUI manager**, **OpenZFS GUI**, **remote ZFS mana
 
 ZFSMgr is not a simple pool browser. It is intended to be a **complete graphical manager for ZFS and OpenZFS environments**, including **remote pools and datasets on other machines**.
 
+## Version 1.0.0: command line only
+
+**ZFSMgr 1.0.0 publishes the command line client (`zfsmgr-cli`) and its daemon
+(`zfsmgr-agent`) only.** The graphical interface described further down is **not part of
+this release**: it has not been tested against 1.0.0 and is not expected before
+**version 2.0.0**. Everything below about the GUI describes that future work, not what
+1.0.0 ships.
+
+Quick start:
+
+```sh
+# Download zfsmgr-cli-1.0.0.zip from the Releases page (curl avoids macOS quarantine)
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip
+unzip zfsmgr-cli-1.0.0.zip && cd zfsmgr-cli-1.0.0
+sh instalar-linux.sh          # or instalar-macos.sh / instalar-freebsd.sh / instalar-windows.cmd
+zfsmgr-cli                    # interactive shell; «help» lists the commands
+```
+
+From one machine, `zfsmgr-cli install-daemon -a` installs or updates the daemon —and the
+CLI, where there is one— on every known connection.
+
 ## Beta notice and legal disclaimer
 
 This software is currently a **BETA** release and is provided **"AS IS"**.
