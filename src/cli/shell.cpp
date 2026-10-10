@@ -6403,6 +6403,39 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
             out.push_back(base + h);
         }
     }
+    // Lo escrito ya ES el único candidato —`cd local<tab>` en zfsm://—: no hay nada que
+    // alargar y el tabulador no hacía nada. Se ofrece lo que puede seguir: «/» si hay hijos
+    // —una conexión siempre—, «@» si tiene instantáneas, y «#» donde hay secciones, en un
+    // dataset o una instantánea. Con uno solo se escribe; con varios se enseñan.
+    if (out.size() == 1 && out.front() == parcial) {
+        ZfsmUrl elegido;
+        if (resuelve(e, parcial, elegido, err)) {
+            std::vector<std::string> sigue;
+            const Nodo n = nodoDe(elegido);
+            bool hayHijos = n == Nodo::Conexion;
+            bool hayInstantaneas = false;
+            if (n == Nodo::Dataset) {
+                for (const std::string& h : hijosDe(e, elegido)) {
+                    if (!h.empty()) {
+                        (h.front() == '@' ? hayInstantaneas : hayHijos) = true;
+                    }
+                }
+            }
+            if (hayHijos) {
+                sigue.push_back(parcial + "/");
+            }
+            if (hayInstantaneas) {
+                sigue.push_back(parcial + "@");
+            }
+            if (n == Nodo::Dataset || n == Nodo::Snapshot) {
+                sigue.push_back(parcial + "#");
+            }
+            if (!sigue.empty()) {
+                puedeSeguir = true;
+                return sigue;
+            }
+        }
+    }
     // Un pool, un dataset o una conexión admiten «/» y otro nombre detrás, así que no se
     // cierran: es lo que permite bajar con el tabulador sin borrar el espacio a cada paso.
     puedeSeguir = out.size() == 1;

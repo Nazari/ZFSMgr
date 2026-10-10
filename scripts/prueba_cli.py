@@ -984,6 +984,67 @@ def casos_editor_ancho(ctx):
         print(f"  ok     {nombre}")
 
 
+def casos_tab_continua(ctx):
+    """El tabulador sobre un nombre ya escrito entero ofrece lo que puede seguir.
+
+    `cd local<tab>` en zfsm:// no hacía nada: el único candidato era lo ya escrito y no había
+    nada que alargar. Ahora una conexión sigue con «/», y un dataset ofrece «/» (si tiene
+    hijos), «@» (si tiene instantáneas) y «#».
+    """
+    import pty, select
+    P = POOL_LOCAL
+    prepara(ctx)
+    U = f"zfsm://local/{P}"
+    nombre = "tabulador: tras un nombre completo propone «/», «@» o «#»"
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+    r, w = os.pipe()
+    with open(fichero) as f:
+        os.write(w, f.read().encode())
+    os.close(w)
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.dup2(r, 9)
+        os.execv(CLI, [CLI, "--lang", "es", "--password-fd", "9"])
+    os.close(r)
+
+    def lee(t):
+        salida = b""
+        fin = time.time() + t
+        while time.time() < fin:
+            listo, _, _ = select.select([fd], [], [], 0.1)
+            if listo:
+                try:
+                    salida += os.read(fd, 65536)
+                except OSError:
+                    break
+        return salida.decode("utf-8", "replace")
+
+    lee(3)
+    os.write(fd, b"cd local\t")
+    conexion = lee(3)
+    os.write(fd, f"\x15ls {U}\t".encode())
+    pool = lee(4)
+    os.write(fd, b"\x15exit\r")
+    lee(1)
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:
+        pass
+    problemas = []
+    if not conexion.rstrip().endswith("cd local/"):
+        problemas.append("`cd local<tab>` no escribe «local/»")
+    if f"{U}/" not in pool or f"{U}#" not in pool:
+        problemas.append("`ls <pool><tab>` no ofrece «/» y «#»")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, (conexion + pool)[-400:]))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+
 def casos_info_labelclear(ctx):
     """`info` describe el objeto pedido, y `labelclear` borra la etiqueta de lo que no está en uso.
 
@@ -1915,7 +1976,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_tab_continua, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]
