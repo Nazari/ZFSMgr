@@ -8040,6 +8040,13 @@ std::string resolveDeviceName(const std::string& nombre) {
 // zpool considera «podría estar en uso» sin estarlo de verdad, como un pool exportado.
 ExecResult runZpoolLabelclear(const std::vector<std::string>& params) {
     ExecResult r;
+#ifdef _WIN32
+    // En Windows no hay rutas de dispositivo que zpool labelclear acepte por esta vía.
+    (void)params;
+    r.rc = 2;
+    r.err = "zpool labelclear is not supported on Windows\n";
+    return r;
+#else
     if (params.empty() || params[0].empty() || params[0].front() != '/') {
         r.rc = 2;
         r.err = "usage: --mutate-zpool-labelclear <absolute device path> [force]\n";
@@ -8088,6 +8095,7 @@ ExecResult runZpoolLabelclear(const std::vector<std::string>& params) {
         r.out = "CLEARED=" + dev + "\n";
     }
     return r;
+#endif
 }
 
 ExecResult executeAgentCommandCapture(const std::string& cmd,
