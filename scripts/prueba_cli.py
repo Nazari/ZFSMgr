@@ -831,6 +831,23 @@ def casos_clave_ssh(ctx):
     shutil.rmtree(cfg)
 
 
+def casos_diff_relativo(ctx):
+    """En `diff`, un «@snapshot» suelto se completa con el dataset del OTRO extremo.
+
+    Desde la raíz, `diff zfsm://…/datos@s2 --from @s1` contestaba «hace falta estar en un
+    dataset» con el dataset escrito en la orden.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    sh(ctx, f"bash -c 'echo nuevo > /mnt/{P}/datos/nuevo.txt'", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@s2", root=True)
+    U = f"zfsm://local/{P}/datos"
+    caso(ctx, "diff: --from @snap se completa con el dataset del destino",
+         [f"diff {U}@s2 --from @s1"], rc=0, espera=[r"^\+\s+\S*/nuevo\.txt"])
+    caso(ctx, "diff: y un destino @snap con el dataset de --from",
+         [f"diff @s2 --from {U}@s1"], rc=0, espera=[r"^\+\s+\S*/nuevo\.txt"])
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1715,7 +1732,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

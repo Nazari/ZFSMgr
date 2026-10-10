@@ -4717,7 +4717,41 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
 }
 
 // Qué cambió entre dos instantáneas del mismo dataset.
-bool cmdDiff(Estado& e, const LineaAnalizada& linea) {
+bool cmdDiff(Estado& e, const LineaAnalizada& lineaOriginal) {
+    // Un «@snapshot» suelto en un extremo se completa con el dataset del OTRO, no con el
+    // sitio actual: `diff` compara dos puntos del MISMO dataset, así que es el único que
+    // puede ser. Antes `diff zfsm://c/tank/ds@b --from @a` desde la raíz contestaba «hace
+    // falta estar en un dataset», con el dataset escrito en la propia orden.
+    LineaAnalizada linea = lineaOriginal;
+    {
+        const auto itFrom = linea.opciones.find("from");
+        auto itDest = linea.ranuras.find("destino");
+        const bool fromSuelto = itFrom != linea.opciones.end() && !itFrom->second.empty()
+                                && itFrom->second.front() == '@';
+        const bool destSuelto = itDest != linea.ranuras.end() && !itDest->second.empty()
+                                && itDest->second.front() == '@';
+        const auto completaCon = [&](const std::string& otroTexto, const std::string& suelto,
+                                     std::string& completo) {
+            ZfsmUrl otro;
+            std::string err;
+            if (!resuelve(e, otroTexto, otro, err) || otro.zfsName().empty()) {
+                return false;
+            }
+            otro.snapshot.clear();
+            otro.section.clear();
+            otro.detail.clear();
+            completo = B::formatZfsmUrl(otro) + suelto;
+            return true;
+        };
+        std::string completo;
+        if (fromSuelto && itDest != linea.ranuras.end() && !destSuelto
+            && completaCon(itDest->second, itFrom->second, completo)) {
+            linea.opciones["from"] = completo;
+        } else if (destSuelto && itFrom != linea.opciones.end() && !fromSuelto
+                   && completaCon(itFrom->second, itDest->second, completo)) {
+            itDest->second = completo;
+        }
+    }
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
