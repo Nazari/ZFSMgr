@@ -670,6 +670,12 @@ def casos_patrones_copia(ctx):
          ["jobs -a --history"], idioma="es", espera=[r"^CONEXIÓN\s+ID\s+ESTADO"])
     caso(ctx, "jobs --all ya no existe: se llama --history",
          ["jobs -a --all"], rc=1, idioma="es", espera=[r"«--all» no es una opción de jobs"])
+    # schedules: lo mismo que jobs. `-a` son todas las conexiones, y la columna se llama
+    # CONEXIÓN en las dos tablas.
+    caso(ctx, "schedules -a: desde la raíz, con la columna CONEXIÓN",
+         ["schedules -a"], rc=0, idioma="es", espera=[r"^CONEXIÓN\s+DATASET"])
+    caso(ctx, "schedules --all ya no existe: es -a",
+         ["schedules --all"], rc=1, idioma="es", espera=[r"«--all» no es una opción de schedules"])
     caso(ctx, "jobs sin -a en la raíz pide una conexión",
          ["jobs"], rc=1, idioma="es", espera=[r"jobs -a"])
     # Varios orígenes en la misma máquina: UN trabajo, no uno por fichero.

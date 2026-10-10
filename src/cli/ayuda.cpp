@@ -426,7 +426,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
      {
       {"schedules",
        {"t_ej_schedules_1", "lo programado en esta máquina"}},
-      {"schedules --all",
+      {"schedules -a",
        {"t_ej_schedules_2", "en todas las conexiones"}},
      }},
     {"change-key",
@@ -1002,13 +1002,13 @@ const std::vector<Orden> kOrdenes = {
        "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
        "haría snapshots y los borraría."}},
      Objetivo::Dataset, {}},
-    {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso", "[--all]"},
+    {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso2", "[-a]"},
      {"t_schs_res", "Qué hay programado en esta máquina."},
-     {{{"t_schs_all", "--all"}, {"t_schs_all_q", "En todas las conexiones, no solo en esta."}}},
-     {{"t_schs_det", "Por omisión mira SOLO la máquina actual: con --all hay que preguntarle a cada "
+     {{{"t_schs_a", "-a"}, {"t_schs_a_q", "En todas las conexiones, no solo en esta."}}},
+     {{"t_schs_det2", "Por omisión mira SOLO la máquina actual: con -a hay que preguntarle a cada "
        "una, y una apagada se cobra su plazo de espera entero — justo cuando uno está "
        "mirando por qué algo no salió."}},
-     Objetivo::Conexion, {}},
+     Objetivo::None_, {}},
     {"change-key", {"t_dataset_105268", "Datasets"}, {"t_ck_uso", "[--password-fd <n>]"},
      {"t_ck_res", "Cambia la frase de paso de un dataset cifrado."},
      {{{"t_edit_pfd", "--password-fd <n>"}, {"t_ck_fd_q", "La frase nueva, por descriptor. Sin ella se "

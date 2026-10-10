@@ -2708,7 +2708,7 @@ bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& rai
 Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entry>>& filas) {
     Tabla t;
     t.nombreJson = "schedules";
-    t.cabecerasTexto = {T("t_cab_maquina", "MÁQUINA"), T("t_cab_dataset", "DATASET"),
+    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_dataset", "DATASET"),
                         T("t_cab_activa", "ACTIVA"), T("t_cab_recursiva", "RECURSIVA"),
                         T("t_cab_hora", "HORA"), T("t_cab_dia", "DÍA"), T("t_cab_sem", "SEM"),
                         T("t_cab_mes", "MES"), T("t_cab_ano", "AÑO"),
@@ -3128,7 +3128,16 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
     }
     std::vector<std::pair<std::string, B::gsa::Entry>> filas;
     std::vector<std::string> maquinas;
-    if (pet.tiene("--all")) {
+    // `-a`, como en `jobs -a` e `install-daemon -a`: todas las conexiones, desde cualquier
+    // sitio. Sin él, la conexión en la que se está.
+    const std::string actual = subeHasta(pet.objetivo, Objetivo::Conexion).connection;
+    if (!pet.tiene("-a") && actual.empty()) {
+        std::fputs(TC("t_schs_falta_conexion",
+                      "hace falta estar en una conexión, o «schedules -a» para todas\n"),
+                   stderr);
+        return false;
+    }
+    if (pet.tiene("-a")) {
         for (const auto& p : e.conns.perfiles) {
             const std::string id = p.id.empty() ? p.name : p.id;
             if (!e.conns.desconectada(id)) {
@@ -3136,7 +3145,7 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
             }
         }
     } else {
-        maquinas.push_back(pet.objetivo.connection);
+        maquinas.push_back(actual);
     }
     for (const std::string& id : maquinas) {
         ZfsmUrl u;
