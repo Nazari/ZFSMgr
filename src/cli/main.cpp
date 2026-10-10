@@ -17,6 +17,9 @@
 #include "session.h"
 
 #include "transporttunnel.h"
+#include "transportcmd.h"
+#include "transportrpc.h"
+#include "helpers.h"
 #include "shell.h"
 #include "tabla.h"
 #include "json.h"
@@ -39,7 +42,9 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 #endif
+#include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -333,11 +338,17 @@ int main(int argc, char** argv) {
                               || op.orden[0] == "uninstall-daemon-local")) {
         const bool quitar = op.orden[0] == "uninstall-daemon-local";
         bool simular = false;
+        bool comprobar = false;
+        bool forzar = false;
         for (std::size_t i = 1; i < op.orden.size(); ++i) {
             if (op.orden[i] == "--simular" || op.orden[i] == "--check") {
                 simular = true;
+            } else if (op.orden[i] == "--comprobar" && !quitar) {
+                comprobar = true;
+            } else if (op.orden[i] == "--force" && !quitar) {
+                forzar = true;
             } else {
-                std::fprintf(stderr, TC("t_idl_uso2", "uso: %s %s [--simular]\n"), kNombre,
+                std::fprintf(stderr, TC("t_idl_uso3", "uso: %s %s [--simular] [--comprobar] [--force]\n"), kNombre,
                              op.orden[0].c_str());
                 return 2;
             }
@@ -373,6 +384,55 @@ int main(int argc, char** argv) {
                 return 1;
             }
             return 0;
+        }
+        // **Con trabajos en curso no se reinstala**: reinstalar reinicia el servicio y lo que
+        // estuviera copiando muere a medias. Se pregunta al daemon que está en marcha, con su
+        // propio material TLS —esto corre como root—; si no hay daemon o no contesta, no hay
+        // trabajos que proteger. `--comprobar` solo hace esto: lo usa el instalador ANTES de
+        // tocar nada, para no dejar un CLI nuevo con el daemon viejo a medio camino.
+        if ((comprobar || !forzar) && !simular) {
+            const auto lee = [](const std::string& ruta) {
+                std::ifstream f(ruta, std::ios::binary);
+                std::ostringstream ss;
+                ss << f.rdbuf();
+                return ss.str();
+            };
+            namespace TT = zfsmgr::base::transport;
+            const TT::LocalAgentConfig cfg = TT::loadLocalAgentConfig();
+            const std::string srv = lee(cfg.tlsCertPath);
+            const std::string cli = lee(cfg.tlsClientCertPath);
+            const std::string key = lee(cfg.tlsClientKeyPath);
+            std::vector<std::string> enCurso;
+            if (!srv.empty() && !cli.empty() && !key.empty()) {
+                std::string out;
+                std::string err;
+                int rc = -1;
+                if (TT::runLocalAgentRpc({"--job-list"}, srv, cli, key,
+                                         cfg.port > 0 ? cfg.port : static_cast<std::uint16_t>(47653),
+                                         5000, out, err, rc)
+                    && rc == 0) {
+                    enCurso = zfsmgr::base::helpers::activeJobIds(out);
+                }
+            }
+            if (!enCurso.empty()) {
+                std::fprintf(stderr,
+                             TC("t_idl_trabajos",
+                                "el daemon de esta máquina tiene %zu trabajos en curso, y "
+                                "reinstalarlo los cortaría a medias:\n"),
+                             enCurso.size());
+                for (const std::string& id : enCurso) {
+                    std::fprintf(stderr, "  %s\n", id.c_str());
+                }
+                if (!comprobar) {
+                    std::fputs(TC("t_idl_trabajos_2",
+                                  "Espere a que terminen, o repita con --force para cortarlos.\n"),
+                               stderr);
+                }
+                return 3;
+            }
+            if (comprobar) {
+                return 0;
+            }
         }
         const std::string agente = zfsmgr::cli::rutaDelAgente(plataforma, arquitectura);
         if (agente.empty()) {

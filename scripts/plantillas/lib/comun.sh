@@ -17,6 +17,7 @@ DESINSTALAR=0
 SOLO_CLI=0
 DAEMON=preguntar            # preguntar | si | no
 ACEPTO_EXPERIMENTAL=0
+FORZAR=0                    # reinstalar el daemon aunque tenga trabajos en curso
 
 zm_log() { echo "[zfsmgr] $*"; }
 zm_err() { echo "[zfsmgr] $*" >&2; }
@@ -30,6 +31,7 @@ Uso: sh ${ZM_GUION} [opciones]
   --solo-cli            No instala la interfaz gráfica aunque el paquete la traiga
   --con-daemon          Instala o actualiza el daemon local sin preguntar
   --sin-daemon          No toca el daemon local
+  --forzar              Actualiza el daemon aunque tenga trabajos en curso (se cortan)
   --simular             Dice lo que haría, sin tocar nada
   --desinstalar         Quita lo que instaló (la configuración ~/.config/ZFSMgr no se toca)
   -h, --help            Esta ayuda
@@ -45,6 +47,7 @@ zm_opciones() {
       --solo-cli) SOLO_CLI=1; shift ;;
       --con-daemon) DAEMON=si; shift ;;
       --sin-daemon) DAEMON=no; shift ;;
+      --forzar) FORZAR=1; shift ;;
       --simular) SIMULAR=1; shift ;;
       --desinstalar) DESINSTALAR=1; shift ;;
       --acepto-experimental) ACEPTO_EXPERIMENTAL=1; shift ;;
@@ -289,6 +292,40 @@ zm_prueba_gui() {
   zm_log "${salida}  ->  ${gui}"
 }
 
+# --- Trabajos en curso del daemon que ya hay, ANTES de tocar nada.
+#
+# Reinstalar el daemon reinicia el servicio, y lo que estuviera copiando muere a medias: dos
+# copias de 16 y 50 GB quedaron por la mitad en fc16 el 2026-10-10 por una reinstalación. Se
+# pregunta con el CLI DEL PAQUETE —el instalado puede ser anterior a saber hacerlo— y antes de
+# instalar nada, para no dejar un CLI nuevo con un daemon viejo si hubiera que parar.
+#
+# Con --con-daemon y trabajos en curso, se para sin tocar nada. Si solo se iba a preguntar,
+# se instala el CLI y el daemon se deja como está. --forzar lo reinstala igual.
+zm_comprueba_trabajos() {
+  [ "${DAEMON}" = no ] && return 0
+  [ -f /usr/local/libexec/zfsmgr-agent ] || return 0
+  [ "${SIMULAR}" -eq 1 ] && return 0
+  [ "${FORZAR}" -eq 1 ] && return 0
+  zm_eleva_root
+  [ "${ZM_ELEVA_ROOT}" = "__no__" ] && return 0
+  nuevo="${ZM_AQUI}/cli/zfsmgr-cli-${ZM_CLAVE}"
+  [ -x "${nuevo}" ] || return 0
+  # Con `set -e` un código distinto de 0 terminaría el guion aquí mismo: se recoge aparte.
+  rc=0
+  ${ZM_ELEVA_ROOT} "${nuevo}" install-daemon-local --comprobar || rc=$?
+  case ${rc} in
+    0) return 0 ;;
+    3)
+      if [ "${DAEMON}" = si ]; then
+        zm_muere "no se ha instalado nada. Espere a que terminen o repita con --forzar."
+      fi
+      zm_err "el daemon NO se actualiza mientras tenga trabajos en curso (--forzar lo haría)."
+      DAEMON=no
+      ;;
+    *) return 0 ;;   # no se pudo preguntar: no hay trabajos que proteger
+  esac
+}
+
 # --- El daemon local.
 #
 # Lo instala el propio CLI con `install-daemon-local`, que ejecuta EL MISMO guion que
@@ -332,7 +369,11 @@ zm_daemon() {
     return 0
   fi
   zm_log "instalando el daemon local…"
-  ${ZM_ELEVA_ROOT} "${cli}" install-daemon-local || zm_muere "el daemon NO se instaló (ver arriba)"
+  if [ "${FORZAR}" -eq 1 ]; then
+    ${ZM_ELEVA_ROOT} "${cli}" install-daemon-local --force || zm_muere "el daemon NO se instaló (ver arriba)"
+  else
+    ${ZM_ELEVA_ROOT} "${cli}" install-daemon-local || zm_muere "el daemon NO se instaló (ver arriba)"
+  fi
 }
 
 zm_desinstala_daemon() {

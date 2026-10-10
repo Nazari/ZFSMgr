@@ -42,6 +42,7 @@ fi
 
 zm_sumas
 zm_openzfs
+zm_comprueba_trabajos
 zm_instala_cli_suelto
 zm_prueba_cli
 if [ -d "${ZM_AQUI}/gui" ]; then

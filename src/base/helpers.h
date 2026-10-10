@@ -195,6 +195,11 @@ bool sshHostKeyChanged(const std::string& sshError, std::string& donde);
 // dentro que nadie ve hasta que deja de funcionar.
 bool sshKeyMissing(const ConnectionProfile& p, std::string& ruta);
 
+// Los trabajos corriendo o encolados, por identificador, de la salida de `--job-list`
+// (líneas «JOB={…}»). Es lo que miran install-daemon e install-daemon-local antes de
+// reinstalar un daemon: reiniciarlo corta a medias lo que esté copiando.
+std::vector<std::string> activeJobIds(const std::string& jobListOutput);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 

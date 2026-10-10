@@ -43,6 +43,7 @@ fi
 
 zm_sumas
 zm_openzfs
+zm_comprueba_trabajos
 
 con_gui=1
 if [ "${SOLO_CLI}" -eq 1 ]; then

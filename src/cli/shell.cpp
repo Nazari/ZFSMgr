@@ -3908,19 +3908,7 @@ std::vector<std::string> trabajosEnCurso(Estado& e, const B::ConnectionProfile& 
     if (!ejecutarAgente(*e.ses, p, PET::jobList(), out, err, rc, nullptr, 15000) || rc != 0) {
         return ids;
     }
-    for (const std::string& linea : B::split(out, "\n", true)) {
-        if (!B::startsWith(linea, "JOB=")) {
-            continue;
-        }
-        B::json::Value j;
-        if (B::json::parse(linea.substr(4), j, nullptr)) {
-            const std::string estado = j["state"].toString();
-            if (estado == "running" || estado == "queued") {
-                ids.push_back(j["id"].toString());
-            }
-        }
-    }
-    return ids;
+    return H::activeJobIds(out);
 }
 
 // --- El CLI de la otra máquina, junto con su daemon.

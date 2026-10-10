@@ -817,6 +817,25 @@ std::string mdnsFallbackHost(const std::string& sshError, const std::string& hos
     return h + ".local";
 }
 
+std::vector<std::string> activeJobIds(const std::string& salida) {
+    std::vector<std::string> ids;
+    for (const std::string& linea : split(salida, "\n", true)) {
+        const std::string l = trim(linea);
+        if (!startsWith(l, "JOB=")) {
+            continue;
+        }
+        json::Value j;
+        if (!json::parse(l.substr(4), j, nullptr)) {
+            continue;
+        }
+        const std::string estado = j["state"].toString();
+        if (estado == "running" || estado == "queued") {
+            ids.push_back(j["id"].toString());
+        }
+    }
+    return ids;
+}
+
 bool sshKeyMissing(const ConnectionProfile& p, std::string& ruta) {
     ruta = trim(p.keyPath);
     if (ruta.empty() || toLowerAscii(trim(p.connType)) == "local") {

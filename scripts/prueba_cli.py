@@ -1784,6 +1784,12 @@ def casos_arranque(ctx):
     if os.geteuid() != 0:
         caso_argv(ctx, "install-daemon-local sin root se niega",
                   ["--lang", "es", "install-daemon-local"], rc=1, espera=[r"como root"])
+    # `--comprobar` es suya: el instalador la usa ANTES de tocar nada para no reinstalar un
+    # daemon con trabajos en curso. Sin root se niega como las demás, sin dar el «uso».
+    if os.geteuid() != 0:
+        caso_argv(ctx, "install-daemon-local --comprobar se reconoce (y pide root)",
+                  ["--lang", "es", "install-daemon-local", "--comprobar"], rc=1,
+                  espera=[r"como root"], no_espera=[r"uso:"])
     # Sus opciones son SUYAS: antes, cualquier «--algo» detrás de la orden se tomaba por
     # opción global y se rechazaba sin llegar a preguntarle.
     caso_argv(ctx, "install-daemon-local: una opción que no es suya da el uso",
