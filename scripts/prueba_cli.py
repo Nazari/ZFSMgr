@@ -995,7 +995,7 @@ def casos_tab_continua(ctx):
     P = POOL_LOCAL
     prepara(ctx)
     U = f"zfsm://local/{P}"
-    nombre = "tabulador: tras un nombre completo propone «/», «@» o «#»"
+    nombre = "tabulador: tras un nombre completo propone «/», «@» o «#», sin repetir lo común"
     fichero = os.path.join(ctx.dir_tmp, ".maestra")
     r, w = os.pipe()
     with open(fichero) as f:
@@ -1033,8 +1033,10 @@ def casos_tab_continua(ctx):
     problemas = []
     if not conexion.rstrip().endswith("cd local/"):
         problemas.append("`cd local<tab>` no escribe «local/»")
-    if f"{U}/" not in pool or f"{U}#" not in pool:
-        problemas.append("`ls <pool><tab>` no ofrece «/» y «#»")
+    # Y las opciones se enseñan SIN lo que comparten: «ztfc16/  ztfc16#», no la URL entera
+    # repetida delante de cada una.
+    if not re.search(rf"^\s+{P}/\s+{P}#\s*$", pool.replace("\r", ""), re.M):
+        problemas.append("`ls <pool><tab>` no enseña «<pool>/  <pool>#» sin la URL delante")
     if problemas:
         ctx.fallos.append((nombre, problemas, (conexion + pool)[-400:]))
         print(f"  FALLO  {nombre}")

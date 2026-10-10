@@ -191,6 +191,26 @@ std::string prefijoComun(const std::vector<std::string>& v) {
     return p;
 }
 
+// Lo que se ENSEÑA de cada opción cuando hay varias: solo lo que la distingue, desde el
+// último separador que comparten todas. Como bash con los directorios: tras
+// `cd local/back/<tab>` se ve «libvirt-images  tooling  user», no tres veces
+// «local/back/» delante. Tras una «@» se deja la arroba, para que se lea como instantánea;
+// tras un «=» quedan los valores de la propiedad.
+std::vector<std::string> loQueSeEnsena(const std::vector<std::string>& opciones) {
+    const std::string comun = prefijoComun(opciones);
+    const std::size_t sep = comun.find_last_of("/=@");
+    if (sep == std::string::npos) {
+        return opciones;
+    }
+    const std::size_t corte = comun[sep] == '@' ? sep : sep + 1;
+    std::vector<std::string> out;
+    for (const std::string& o : opciones) {
+        // Si una opción es justo el prefijo, cortada no quedaría nada: se enseña entera.
+        out.push_back(o.size() > corte ? o.substr(corte) : o);
+    }
+    return out;
+}
+
 }  // namespace
 
 void LectorDeLinea::recuerda(const std::string& linea) {
@@ -291,7 +311,7 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
         // Ya no se puede alargar: se enseñan, que es la otra cosa que puede querer quien
         // pulsa el tabulador dos veces.
         std::fprintf(stderr, "\n");
-        for (const std::string& o : opciones) {
+        for (const std::string& o : loQueSeEnsena(opciones)) {
             std::fprintf(stderr, "  %s", o.c_str());
         }
         std::fprintf(stderr, "\n");
