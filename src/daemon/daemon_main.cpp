@@ -218,31 +218,51 @@ bool permisosCambiaronTrasArranque() {
 #endif
 }
 
-// El dispositivo que no se pudo abrir, o vacío si se pudo con alguno.
+// Una partición ZFS que el agente no puede abrir, o vacío si puede con todas.
+//
+// **Se miran las particiones ZFS, no un disco cualquiera.** La regla anterior era «si se
+// puede abrir uno, el permiso está concedido», y es falsa: sin «Acceso total al disco»,
+// macOS deja abrir el disco INTERNO (/dev/disk0s1) y bloquea los EXTERNOS, que es donde
+// suelen estar los pools. Medido en mmela el 2026-10-10: disk0s1 se abría y disk4s1 —el del
+// pool— daba EPERM, así que el pool importable no aparecía y nadie lo decía. `diskutil list`
+// no necesita el permiso y dice qué particiones son de tipo ZFS: son esas las que importan.
 std::string discoIlegible() {
 #ifdef __APPLE__
-    std::string primeroIlegible;
-    for (int disco = 0; disco < 8; ++disco) {
-        for (int rodaja = 1; rodaja <= 8; ++rodaja) {
-            const std::string ruta =
-                "/dev/disk" + std::to_string(disco) + "s" + std::to_string(rodaja);
-            if (::access(ruta.c_str(), F_OK) != 0) {
-                continue;
-            }
-            const int fd = ::open(ruta.c_str(), O_RDONLY);
-            if (fd >= 0) {
-                ::close(fd);
-                return {};   // uno legible basta: el permiso está concedido
-            }
-            if (errno != EPERM && errno != EACCES) {
-                return {};   // ocupado u otra cosa: no es un problema de permisos
-            }
-            if (primeroIlegible.empty()) {
-                primeroIlegible = ruta;
-            }
+    FILE* p = ::popen("/usr/sbin/diskutil list 2>/dev/null", "r");
+    if (!p) {
+        return {};
+    }
+    std::vector<std::string> zfs;
+    char buf[512];
+    while (std::fgets(buf, sizeof(buf), p)) {
+        const std::string linea(buf);
+        // «   1:                        ZFS                         256.1 GB   disk4s1»
+        if (linea.find(" ZFS ") == std::string::npos) {
+            continue;
+        }
+        std::istringstream iss(linea);
+        std::string tok;
+        std::string ultimo;
+        while (iss >> tok) {
+            ultimo = tok;
+        }
+        if (ultimo.rfind("disk", 0) == 0) {
+            zfs.push_back("/dev/" + ultimo);
         }
     }
-    return primeroIlegible;
+    ::pclose(p);
+    for (const std::string& ruta : zfs) {
+        const int fd = ::open(ruta.c_str(), O_RDONLY);
+        if (fd >= 0) {
+            ::close(fd);
+            continue;
+        }
+        if (errno == EPERM || errno == EACCES) {
+            return ruta;
+        }
+        // Ocupado —un pool importado tiene el disco abierto— u otra cosa: no es el permiso.
+    }
+    return {};
 #else
     return {};
 #endif
@@ -9542,6 +9562,21 @@ int runServeLoop() {
                     hs << "ZED_LAST_EVENT_UTC=" << lastEvent << "\n";
                 }
                 hs << "JOBS_SUPPORT=1\n";
+#ifdef __APPLE__
+                // Si puede leer las particiones ZFS. Sin «Acceso total al disco» el agente
+                // contesta, lista lo importado y no ve ni un pool por importar: el cliente
+                // tiene que poder DECIRLO en el listado de la conexión, no dejar adivinar.
+                {
+                    const std::string ilegible = discoIlegible();
+                    hs << "DISK_ACCESS=" << (ilegible.empty() ? "ok" : "denied") << "\n";
+                    if (!ilegible.empty()) {
+                        hs << "DISK_UNREADABLE=" << ilegible << "\n";
+                        if (permisosCambiaronTrasArranque()) {
+                            hs << "DISK_ACCESS_RESTART=1\n";
+                        }
+                    }
+                }
+#endif
                 hs << "CAPS=" << agentCapabilityList() << "\n";
                 exec.rc = 0;
                 exec.out = hs.str();

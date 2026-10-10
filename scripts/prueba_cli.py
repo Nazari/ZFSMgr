@@ -771,6 +771,11 @@ def casos_mensajes_capa_base(ctx):
     # es UTF-8 con BOM: la primera orden llegaba con un carácter invisible delante.
     caso(ctx, "entrada: un BOM de UTF-8 delante de la primera orden se ignora",
          ["\ufeffls zfsm://local*"], rc=0, espera=[r"^local\s"], no_espera=[r"desconocida|unknown"])
+    # La columna AVISOS del listado de conexiones: en macOS dice si el agente no puede leer
+    # los discos; en una máquina sin problemas va vacía, no ausente.
+    caso(ctx, "ls de la raíz: columna AVISOS, vacía si no pasa nada",
+         ["ls zfsm://local*"], rc=0, idioma="es",
+         espera=[r"\sAVISOS\s*$", r"^local\s.*\s-\s*$"])
     caso(ctx, "capa base: y en castellano sigue en castellano",
          ["ls zfsm://local/x@a@b"], rc=1, idioma="es", espera=[r"dos '@' en la misma URL"])
 
@@ -821,7 +826,7 @@ def casos_clave_ssh(ctx):
           espera=[r"creada la conexión pclave"])
     os.remove(clave)
     corre("clave SSH: si desaparece, se avisa y queda desconectada", "ls zfsm://pclave*", 0,
-          espera=[r"la clave SSH de «pclave» no existe", r"^pclave\s.*\sno\s+-\s*$"])
+          espera=[r"la clave SSH de «pclave» no existe", r"^pclave\s.*\sno\s+-\s+-\s*$"])
     corre("clave SSH: el aviso no se repite", "ls zfsm://pclave*", 0,
           no_espera=[r"aviso: la clave"])
     corre("clave SSH: connect se niega mientras falte", "connect zfsm://pclave", 1,

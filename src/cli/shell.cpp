@@ -125,6 +125,9 @@ struct Estado {
     // La versión de agente de cada conexión, recordada durante la sesión. Ver
     // listaConexiones: preguntarla cuesta una ida y vuelta por máquina.
     std::map<std::string, std::string> versionDaemon;
+    // Lo que el daemon dice que le impide trabajar bien, por conexión: hoy, en macOS, que no
+    // puede leer los discos («sin acceso al disco»). Vacío si nada.
+    std::map<std::string, std::string> avisoDaemon;
     // Los pools de cada conexión. Ver destinoDePool: se usan para decidir si el primer
     // argumento suelto nombra un pool o es un argumento de la orden.
     std::map<std::string, std::set<std::string>> poolsPorConexion;
@@ -1017,6 +1020,8 @@ bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> column
 void olvidaVersionDaemon(Estado& e, const B::ConnectionProfile& p) {
     e.versionDaemon.erase(p.id);
     e.versionDaemon.erase(p.name);
+    e.avisoDaemon.erase(p.id);
+    e.avisoDaemon.erase(p.name);
 }
 
 // TODO lo que la sesión recuerda de una conexión y que una de estas órdenes deja obsoleto: el
@@ -1045,6 +1050,9 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
     t.cabecerasTexto.push_back(T("t_cab_daemon", "DAEMON"));
     t.campos.push_back("daemon");
     t.tipos.push_back(Tipo::Cadena);
+    t.cabecerasTexto.push_back(T("t_cab_avisos", "AVISOS"));
+    t.campos.push_back("warnings");
+    t.tipos.push_back(Tipo::Cadena);
     const std::string esperada = B::agentversion::expected();
     for (std::size_t i = 0; i < t.filas.size() && i < e.conns.perfiles.size(); ++i) {
         const auto& p = e.conns.perfiles[i];
@@ -1062,7 +1070,14 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
                 u.connection = id;
                 std::string salida;
                 if (agente(e, u, {"--health"}, salida, 8000)) {
-                    version = clavesDe(salida)["VERSION"];
+                    auto claves = clavesDe(salida);
+                    version = claves["VERSION"];
+                    if (claves["DISK_ACCESS"] == "denied") {
+                        e.avisoDaemon[id] = claves["DISK_ACCESS_RESTART"] == "1"
+                                                ? T("t_aviso_disco_reiniciar",
+                                                    "sin acceso al disco: reiniciar el agente")
+                                                : T("t_aviso_disco", "sin acceso al disco");
+                    }
                 }
                 // Se recuerda durante la sesión, incluido el fallo: repetir `ls --daemon`
                 // no vuelve a esperar por una máquina que ya no contestó.
@@ -1088,11 +1103,26 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
             }
         }
         t.filas[i].push_back(version);
+        const auto aviso = e.avisoDaemon.find(id);
+        t.filas[i].push_back(aviso == e.avisoDaemon.end() ? std::string("-") : aviso->second);
     }
     if (!aplicaFiltro(e, t, {0, 1})) {
         return false;
     }
     t.imprime(e.formato);
+    // Y qué hacer, una vez, debajo de la tabla: la columna dice QUÉ pasa, esto CÓMO se arregla.
+    for (const auto& fila : t.filas) {
+        if (fila.size() >= 2 && fila.back() != "-") {
+            std::fputs(TC("t_aviso_disco_remedio",
+                          "aviso: un agente de macOS sin «Acceso total al disco» no ve los pools por "
+                          "importar.\n  Configuración del Sistema > Privacidad y Seguridad > Acceso "
+                          "total al disco > /usr/local/libexec/zfsmgr-agent,\n  y después reiniciar "
+                          "el agente en esa máquina: sudo launchctl kickstart -k "
+                          "system/org.zfsmgr.agent\n"),
+                       stderr);
+            break;
+        }
+    }
     return true;
 }
 
@@ -1118,13 +1148,14 @@ void avisaSondaImportables(const std::string& sonda, bool huboPools) {
     std::fprintf(stderr, TC("t_sonda_ilegible", "aviso: el agente no puede leer %s, así que un "
                             "pool sin importar NO aparece aquí.\n"), donde.c_str());
     if (lectura.diagnosis == D::ProbablyNeedsRestart) {
-        std::fputs(TC("t_sonda_reinicio", "  El permiso del sistema cambió DESPUÉS de que el "
+        std::fputs(TC("t_sonda_reinicio_cli", "  El permiso del sistema cambió DESPUÉS de que el "
                       "agente arrancara, y macOS lo decide al arrancar el proceso:\n"
-                      "  reinícialo (Conexiones > Reinstalar/Actualizar daemon).\n"), stderr);
+                      "  reinícielo en esa máquina: sudo launchctl kickstart -k system/org.zfsmgr.agent\n"), stderr);
     } else {
-        std::fputs(TC("t_sonda_permiso", "  En macOS: Configuración del Sistema > Privacidad y "
+        std::fputs(TC("t_sonda_permiso_cli", "  En macOS: Configuración del Sistema > Privacidad y "
                       "Seguridad > Acceso total al disco >\n"
-                      "  añadir /usr/local/libexec/zfsmgr-agent, y reiniciar el agente después.\n"),
+                      "  /usr/local/libexec/zfsmgr-agent, y después reiniciar el agente en esa máquina:\n"
+                      "  sudo launchctl kickstart -k system/org.zfsmgr.agent\n"),
                    stderr);
     }
 }
@@ -4072,7 +4103,15 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         int rcSalud = -1;
         if (ejecutarAgente(*e.ses, *p, {"--health"}, salida, err, rcSalud, &ultimoMotivo, 4000)
             && rcSalud == 0) {
-            versionNueva = clavesDe(salida)["VERSION"];
+            auto claves = clavesDe(salida);
+            versionNueva = claves["VERSION"];
+            // Lo que el listado enseñará en AVISOS: sin esto, la versión quedaba recordada
+            // y el aviso no, así que `ls` en la misma sesión no volvía a preguntar.
+            const std::string id = p->id.empty() ? p->name : p->id;
+            e.avisoDaemon.erase(id);
+            if (claves["DISK_ACCESS"] == "denied") {
+                e.avisoDaemon[id] = T("t_aviso_disco", "sin acceso al disco");
+            }
         }
     }
     if (versionNueva.empty()) {
