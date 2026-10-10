@@ -128,6 +128,10 @@ struct Estado {
     // Lo que el daemon dice que le impide trabajar bien, por conexión: hoy, en macOS, que no
     // puede leer los discos («sin acceso al disco»). Vacío si nada.
     std::map<std::string, std::string> avisoDaemon;
+    // Los pools importables por conexión, para el tabulador de `import`: la sonda tarda un
+    // par de segundos y pulsar el tabulador dos veces no tiene por qué esperar dos veces.
+    std::map<std::string, std::pair<std::chrono::steady_clock::time_point, std::vector<std::string>>>
+        importablesCache;
     // Los pools de cada conexión. Ver destinoDePool: se usan para decidir si el primer
     // argumento suelto nombra un pool o es un argumento de la orden.
     std::map<std::string, std::set<std::string>> poolsPorConexion;
@@ -5862,6 +5866,41 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         return out;
     }
 
+    // --- `import <pool>`: los pools que se pueden importar en la conexión en la que se está.
+    //
+    // Caía en el caso general, que ofrece los HIJOS del sitio actual —los pools ya
+    // importados—: justo los que no se pueden importar. Visto en mmela con un pool recién
+    // exportado que el tabulador no proponía.
+    if (orden == "import" && palabras.size() == 1) {
+        const ZfsmUrl conexion = subeHasta(e.actual, Objetivo::Conexion);
+        if (conexion.connection.empty()) {
+            return {};
+        }
+        const std::string clave = B::toLowerAscii(conexion.connection);
+        const auto ahora = std::chrono::steady_clock::now();
+        auto it = e.importablesCache.find(clave);
+        if (it == e.importablesCache.end() || ahora - it->second.first > std::chrono::seconds(30)) {
+            std::vector<std::string> nombres;
+            std::string sonda;
+            if (agente(e, conexion, PET::importableProbe(), sonda, 60000)) {
+                std::set<std::string> vistos;
+                for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(sonda)) {
+                    if (!imp.pool.empty() && vistos.insert(imp.pool).second) {
+                        nombres.push_back(imp.pool);
+                    }
+                }
+            }
+            it = e.importablesCache.insert_or_assign(clave, std::make_pair(ahora, nombres)).first;
+        }
+        std::vector<std::string> out;
+        for (const std::string& n : it->second.second) {
+            if (B::startsWith(n, parcial)) {
+                out.push_back(n);
+            }
+        }
+        return out;
+    }
+
     // --- Las SECCIONES: `#content`, `#properties`, `#permissions`, y lo que cuelga.
     //
     // Van antes que la URL corriente porque el « # » no es un separador de URL: partiendo
@@ -7316,8 +7355,10 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
                                   "Se van a poner a cero los errores contados del pool (para limpiar "
                                   "la PANTALLA la orden es «cls»)");
          }},
-        {"export", [](Estado& s, const LineaAnalizada& l) { return cmdPoolSimple(s, l, "export", "export", "Se va a exportar el pool y dejará de estar disponible"); }},
-        {"import", cmdImport},
+        // Las dos vacían la lista de importables del tabulador: lo que era importable ya no
+        // lo es, y al revés.
+        {"export", [](Estado& s, const LineaAnalizada& l) { s.importablesCache.clear(); return cmdPoolSimple(s, l, "export", "export", "Se va a exportar el pool y dejará de estar disponible"); }},
+        {"import", [](Estado& s, const LineaAnalizada& l) { s.importablesCache.clear(); return cmdImport(s, l); }},
         {"status", cmdStatus},
         {"jobs", cmdJobs},
         {"job", cmdJob},
