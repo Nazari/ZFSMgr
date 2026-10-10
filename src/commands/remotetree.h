@@ -61,7 +61,16 @@ struct Entry {
     std::uint32_t gid{0};
     std::string owner;
     std::string group;
+
+    // Lleva ACL o atributos extendidos (ver hasExtraMetadata). NO viaja en el manifiesto:
+    // solo lo usa el emisor para avisar de que eso no se conserva.
+    bool extraMetadata{false};
 };
+
+// Whether a path carries ACLs or extended attributes that a copy between machines does not
+// preserve. Ignores what every file carries without it mattering: the SELinux label, macOS
+// provenance, and FreeBSD's trivial NFSv4 ACL (the mode in another form).
+bool hasExtraMetadata(const std::string& path);
 
 // Walks `root` and returns its contents, sorted by path.
 //

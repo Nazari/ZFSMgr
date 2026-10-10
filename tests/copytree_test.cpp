@@ -1,5 +1,8 @@
 #include "copytree.h"
 #include "remotetree.h"
+#ifdef __linux__
+#include <sys/xattr.h>
+#endif
 
 #include <QtTest/QtTest>
 
@@ -431,6 +434,29 @@ private Q_SLOTS:
         QVERIFY(x.mtime != 0);
         // Un directorio no es un fichero suelto: va por el recorrido de siempre.
         QVERIFY(!AR::walkSingleFile(src_.string(), x, err));
+    }
+
+    // La copia entre máquinas no lleva ACL ni xattr, y lo AVISA. Para eso el emisor tiene que
+    // distinguir un fichero que los lleva de uno que no.
+    void distingueLosFicherosConXattr() {
+#ifdef __linux__
+        writeFile(src_ / "limpio.txt", "a");
+        writeFile(src_ / "con.txt", "b");
+        QVERIFY(!AR::hasExtraMetadata((src_ / "limpio.txt").string()));
+        if (::setxattr((src_ / "con.txt").c_str(), "user.prueba", "1", 1, 0) != 0) {
+            QSKIP("este sistema de ficheros no admite xattr de usuario");
+        }
+        QVERIFY(AR::hasExtraMetadata((src_ / "con.txt").string()));
+        // Y el recorrido lo anota en la entrada, que es de donde lo cuenta el emisor.
+        std::vector<AR::Entry> e;
+        std::string err;
+        QVERIFY(AR::walk(src_.string(), e, err));
+        for (const auto& x : e) {
+            QCOMPARE(x.extraMetadata, x.path == "con.txt");
+        }
+#else
+        QSKIP("solo en Linux");
+#endif
     }
 
     void lasRutasVanSiempreConBarras() {

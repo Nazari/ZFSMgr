@@ -1065,12 +1065,13 @@ def casos_acciones(ctx):
     # Lo que se RECHAZA, en vez de interpretarse.
     caso(ctx, "cp: una sección que no nombra ficheros se rechaza",
          [f"cp zfsm://local/{P}/datos#properties {base}/destino"],
-         espera=[r"no nombra ficheros"])
+         idioma="es", espera=[r"no nombra ficheros"])
     caso(ctx, "cp: un «..» en la ruta se rechaza",
-         [f"cp /var/../etc/shadow {base}/destino"], espera=[r"no puede llevar «\.\.»"])
+         [f"cp /var/../etc/shadow {base}/destino"], idioma="es",
+         espera=[r"no puede llevar «\.\.»"])
     caso(ctx, "cp: «#path» colgando de un dataset se rechaza",
          [f"cp zfsm://local/{P}/datos#path/x {base}/destino"],
-         espera=[r"cuelga de una máquina"])
+         idioma="es", espera=[r"cuelga de una máquina"])
     sh(ctx, f"rm -rf {base}", root=True)
 
     caso(ctx, "rsync: sincroniza ficheros entre dos datasets montados",

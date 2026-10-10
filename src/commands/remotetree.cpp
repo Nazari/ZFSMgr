@@ -21,11 +21,82 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(__FreeBSD__)
+#include <sys/acl.h>
+#include <sys/extattr.h>
+#elif defined(__APPLE__)
+#include <sys/acl.h>
+#include <sys/xattr.h>
+#else
+#include <sys/xattr.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
 
 namespace zfsmgr::remotetree {
+
+// ¿Lleva ACL o atributos extendidos que la copia entre máquinas no conserva?
+//
+// Solo se mira para AVISAR: el árbol no los transporta, y perderlos sin decirlo era lo peor
+// del caso —una carpeta de Samba llega con el contenido bien y los permisos de Windows
+// perdidos—. Se descarta lo que todo fichero lleva sin que perderlo importe, o se avisaría
+// siempre y el aviso dejaría de leerse: la etiqueta SELinux (la pone el destino al crear),
+// la procedencia que macOS pega a cualquier fichero, y en FreeBSD la ACL «trivial» que ZFS
+// da a todo fichero y que no es más que el modo escrito de otra forma.
+bool hasExtraMetadata(const std::string& ruta) {
+#if defined(_WIN32)
+    (void)ruta;
+    return false;
+#elif defined(__FreeBSD__)
+    if (::extattr_list_link(ruta.c_str(), EXTATTR_NAMESPACE_USER, nullptr, 0) > 0) {
+        return true;
+    }
+    acl_t acl = ::acl_get_link_np(ruta.c_str(), ACL_TYPE_NFS4);
+    if (acl) {
+        int trivial = 1;
+        const bool conAcl = ::acl_is_trivial_np(acl, &trivial) == 0 && trivial == 0;
+        ::acl_free(acl);
+        if (conAcl) {
+            return true;
+        }
+    }
+    return false;
+#else
+#if defined(__APPLE__)
+    acl_t acl = ::acl_get_link_np(ruta.c_str(), ACL_TYPE_EXTENDED);
+    if (acl) {
+        ::acl_free(acl);
+        return true;
+    }
+    const ssize_t largo = ::listxattr(ruta.c_str(), nullptr, 0, XATTR_NOFOLLOW);
+#else
+    const ssize_t largo = ::llistxattr(ruta.c_str(), nullptr, 0);
+#endif
+    if (largo <= 0) {
+        return false;
+    }
+    std::string nombres(static_cast<std::size_t>(largo), '\0');
+#if defined(__APPLE__)
+    const ssize_t leido = ::listxattr(ruta.c_str(), nombres.data(), nombres.size(), XATTR_NOFOLLOW);
+#else
+    const ssize_t leido = ::llistxattr(ruta.c_str(), nombres.data(), nombres.size());
+#endif
+    if (leido <= 0) {
+        return false;
+    }
+    for (std::size_t i = 0; i < static_cast<std::size_t>(leido);) {
+        const std::string n(nombres.c_str() + i);
+        i += n.size() + 1;
+        if (n.empty() || n == "security.selinux" || n == "com.apple.provenance") {
+            continue;
+        }
+        return true;
+    }
+    return false;
+#endif
+}
+
 namespace {
 
 // La fecha, en segundos desde el epoch, leída del sistema y no de `std::filesystem`.
@@ -272,6 +343,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
 #else
             (void)unSoloSistema;
 #endif
+            en.extraMetadata = hasExtraMetadata(p.string());
             salida.push_back(en);
             continue;
         }
@@ -307,6 +379,7 @@ bool walk(const std::string& raiz, std::vector<Entry>& salida, std::string& erro
             }
         }
 #endif
+        en.extraMetadata = hasExtraMetadata(p.string());
         salida.push_back(en);
     }
 
@@ -361,6 +434,7 @@ bool walkSingleFile(const std::string& fichero, Entry& salida, std::string& erro
     bool okF = false;
     salida.mtime = fechaDe(p, okF);
     anotaDuenoYModo(p.string(), salida);
+    salida.extraMetadata = hasExtraMetadata(p.string());
     return !salida.path.empty();
 }
 

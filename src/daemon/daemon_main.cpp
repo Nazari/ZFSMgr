@@ -6959,10 +6959,19 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     }
 
     std::string informe;
+    // Lo que se copia y llevaba ACL o atributos extendidos: el árbol no los transporta, y se
+    // DICE en vez de perderlos en silencio. Quien llama lo traduce a un aviso.
+    std::size_t sinMetadatos = 0;
     for (const AR::Operation& o : plan.operations) {
         informe += AR::describe(o);
         informe += '\n';
+        if ((o.action == AR::Action::Send || o.action == AR::Action::MakeDirectory)
+            && o.entry.extraMetadata) {
+            ++sinMetadatos;
+        }
     }
+    const std::string lineaMetadatos =
+        sinMetadatos > 0 ? "SIN_ACL_XATTR=" + std::to_string(sinMetadatos) + "\n" : std::string();
 
     if (enSeco) {
         // No se manda nada: se cierra con «E» para que el otro extremo no espere.
@@ -6971,7 +6980,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         r.rc = 0;
         r.out = informe + "PENDIENTES=" + std::to_string(plan.operations.size())
                 + "\nBYTES=" + std::to_string(plan.bytes)
-                + "\nIGUALES=" + std::to_string(plan.unchanged) + "\n";
+                + "\nIGUALES=" + std::to_string(plan.unchanged) + "\n" + lineaMetadatos;
         return r;
     }
 
@@ -7101,7 +7110,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         r.out += "\nAHORRADOS=" + std::to_string(bytesAhorrados)
                  + "\nENVIADOS=" + std::to_string(bytesLiteralesTotal);
     }
-    r.out += "\n";
+    r.out += "\n" + lineaMetadatos;
     return r;
 }
 

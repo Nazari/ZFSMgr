@@ -595,6 +595,7 @@ struct Peticion {
 };
 
 bool zfsGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
+void avisaSinMetadatos(const std::string& salida);
 bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
                   const std::string& nombre);
@@ -3510,6 +3511,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
             // `fallo` y no `ok()`: sin encolar no hay identificador, y `ok()` exige uno.
             if (hecho.failure == TR::JobFailure::None_) {
                 std::fputs(salidaEnvio.c_str(), stdout);
+                avisaSinMetadatos(salidaEnvio);
                 return true;
             }
             // Que no se pueda por aquí no es un error de la orden: se sigue por la tubería,
@@ -4726,6 +4728,28 @@ bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
     return true;
 }
 
+
+// La copia entre máquinas no conserva ACL ni atributos extendidos, y el agente que envía
+// cuenta los ficheros que los llevaban (`SIN_ACL_XATTR=n`). Se dice aquí, en una frase y en
+// el idioma de quien lo lee: `send` es la vía que lo conserva todo.
+void avisaSinMetadatos(const std::string& salida) {
+    const std::size_t pos = salida.find("SIN_ACL_XATTR=");
+    if (pos == std::string::npos) {
+        return;
+    }
+    const std::size_t ini = pos + std::string("SIN_ACL_XATTR=").size();
+    const std::size_t fin = salida.find('\n', ini);
+    const std::string n = B::trim(salida.substr(ini, fin == std::string::npos ? std::string::npos : fin - ini));
+    if (n.empty() || n == "0") {
+        return;
+    }
+    std::fprintf(stderr,
+                 TC("t_aviso_sin_acl_xattr",
+                    "aviso: %s ficheros llevaban ACL o atributos extendidos, y la copia entre "
+                    "máquinas no los conserva; para llevarlos tal cual, use «send»\n"),
+                 n.c_str());
+}
+
 // «Sincronizar» de la interfaz: copia el CONTENIDO de un dataset a otro con rsync.
 //
 // Faltaba entera en el intérprete, y encima el hueco estaba disimulado: existía un `sync`
@@ -4896,6 +4920,7 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
         return false;
     }
     std::fputs(salidaEnvio.c_str(), stdout);
+    avisaSinMetadatos(salidaEnvio);
     return true;
 }
 
@@ -5203,6 +5228,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                 break;
             }
             std::fputs(salidaEnvio.c_str(), stdout);
+            avisaSinMetadatos(salidaEnvio);
         }
         if (!todoBien) {
             e.ultimoRc = 1;
