@@ -2206,7 +2206,9 @@ bool imprimeFicheros(Estado& e, const std::vector<B::json::Value>& entradas) {
         }
         t.filas.push_back({nombre, nombreDeTipo(tipo),
                            tipo == "f" ? std::to_string(v["size"].toInt()) : "",
-                           v.contains("mode") ? modoComoLs(tipo, v["mode"].toInt()) : "",
+                           // Sin bits de modo —Windows— se deja en blanco: «----------»
+                           // diría «sin permisos», que es otra cosa.
+                           v["mode"].toInt() != 0 ? modoComoLs(tipo, v["mode"].toInt()) : "",
                            v["owner"].toString(), v["group"].toString(),
                            fechaCorta(v["mtime"].toInt())});
     }
@@ -2291,7 +2293,9 @@ bool infoDeRuta(Estado& e, const ZfsmUrl& destino) {
     if (ub.tipo == "f") {
         t.filas.push_back({"size", std::to_string(ub.tam)});
     }
-    t.filas.push_back({"mode", modoComoLs(ub.tipo, ub.modo)});
+    if (ub.modo != 0) {
+        t.filas.push_back({"mode", modoComoLs(ub.tipo, ub.modo)});
+    }
     if (!ub.dueno.empty()) {
         t.filas.push_back({"owner", ub.dueno});
     }
