@@ -325,9 +325,22 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             // plataforma puede reportar SSL_ERROR_SYSCALL con EAGAIN, que significa lo
             // mismo. Tomarlo por un corte cerraría la espera antes de tiempo, y eso en una
             // transfer larga es dar por muerta una operación que va bien.
+            //
+            // **Y en Windows no lo dice `errno`, sino `WSAGetLastError()`** (WSAETIMEDOUT).
+            // Mirando solo `errno`, en Windows cada trozo agotado se tomaba por un cierre:
+            // cualquier respuesta que tardara más de 300 ms —listar los pools, sin ir más
+            // lejos— acababa en «el daemon no respondió», y el CLI de Windows no podía
+            // hablar con su propio daemon. Desde Linux, el mismo daemon contestaba bien.
+#ifdef _WIN32
+            const int wsa = WSAGetLastError();
+            const bool esperaDelSistema =
+                (motivo == SSL_ERROR_SYSCALL
+                 && (wsa == WSAETIMEDOUT || wsa == WSAEWOULDBLOCK || wsa == WSAEINTR));
+#else
             const bool esperaDelSistema =
                 (motivo == SSL_ERROR_SYSCALL
                  && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR));
+#endif
             const bool soloEsperando =
                 (motivo == SSL_ERROR_WANT_READ || motivo == SSL_ERROR_WANT_WRITE
                  || esperaDelSistema);
