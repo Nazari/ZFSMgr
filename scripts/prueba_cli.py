@@ -727,6 +727,17 @@ def casos_patrones_copia(ctx):
     caso(ctx, "ls zfsm:// lista las conexiones",
          ["ls zfsm://"], rc=0, espera=[r"^local\s"], no_espera=[r"falta la conexión"])
 
+    # --- install-daemon -a: el plan, sin tocar nada. Cada conexión sale con su acción; la
+    # instalación de verdad no se prueba aquí (reinicia servicios en otras máquinas).
+    caso(ctx, "install-daemon -a --check enseña qué haría en cada conexión",
+         ["install-daemon -a --check"], rc=0, idioma="es",
+         espera=[r"^CONEXIÓN\s+DAEMON\s+ACCIÓN", r"^local\s",
+                 r"no se ha tocado nada|nada que hacer"],
+         no_espera=[r"desplegando"])
+    caso(ctx, "install-daemon -a con destino se niega",
+         ["install-daemon -a zfsm://local"], rc=2, idioma="es", espera=[r"no lleva destino"],
+         no_espera=[r"desplegando"])
+
 
 def casos_propiedades(ctx):
     P = POOL_LOCAL

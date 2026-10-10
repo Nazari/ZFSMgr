@@ -109,6 +109,25 @@ int compare(const std::string& a, const std::string& b) {
     return 0;
 }
 
+Verdict verdictFor(const std::string& instalada, const std::string& esperada) {
+    if (trim(instalada) == trim(esperada)) {
+        return Verdict::UpToDate;
+    }
+    // La parte de publicación: todo menos el último tramo, si hay cuatro.
+    const auto publicacion = [](const std::string& v) {
+        const std::string t = trim(v);
+        std::size_t puntos = 0;
+        for (std::size_t i = 0; i < t.size(); ++i) {
+            if (t[i] == '.' && ++puntos == 3) {
+                return t.substr(0, i);
+            }
+        }
+        return t;
+    };
+    return compare(publicacion(instalada), publicacion(esperada)) > 0 ? Verdict::Ahead
+                                                                     : Verdict::Update;
+}
+
 std::string versionInBinary(const std::string& ruta) {
     std::ifstream f(ruta, std::ios::binary);
     if (!f) {

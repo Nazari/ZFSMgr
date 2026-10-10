@@ -737,6 +737,12 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_install_daemon_1", "instala o actualiza el de esta máquina"}},
       {"install-daemon --on zfsm://mmela",
        {"t_ej_install_daemon_2", "el de otra"}},
+      {"install-daemon -a --check",
+       {"t_ej_install_daemon_3", "qué haría en cada conexión, sin tocar nada"}},
+      {"install-daemon -a",
+       {"t_ej_install_daemon_4", "pone al día todas las conexiones conocidas"}},
+      {"install-daemon zfsm://*",
+       {"t_ej_install_daemon_5", "reinstala en todas, aunque estén al día"}},
      }},
     {"format",
      {
@@ -1329,9 +1335,13 @@ const std::vector<Orden> kOrdenes = {
        "trabajos que arrancó y por qué falló alguno. Con la aplicación gráfica se veía en su "
        "pestaña; desde el intérprete no había forma de mirarlo."}},
      Objetivo::Conexion, {}},
-    {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_on_url_b3e711", "[--on <url>]"},
+    {"install-daemon", {"t_daemon_48e665", "Daemon"}, {"t_install_daemon_uso", "[--on <url>] [-a [--check]]"},
      {"t_instala_o__7022d3", "Instala o actualiza el daemon y lo arranca con el gestor de servicios del sistema."},
-     {},
+     {{{"t_install_daemon_a", "-a"},
+       {"t_install_daemon_a_q", "En TODAS las conexiones conocidas: instala donde falta y actualiza "
+        "donde se ha quedado atrás. Las que están al día o van por delante no se tocan."}},
+      {{"t_install_daemon_check", "--check"},
+       {"t_install_daemon_check_q", "Con -a: enseña qué haría en cada una, sin tocar nada."}}},
      {{"t_no_hay_res_b51cef", "No hay respaldo por guion: si falta el binario nativo de esa plataforma no se "
       "instala nada. Un agente de guion no habla TLS, y dejarlo puesto da una máquina que "
       "PARECE atendida y no lo está."},

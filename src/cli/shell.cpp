@@ -1043,11 +1043,13 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
         if (version.empty()) {
             version = "-";
         } else {
-            const int cmp = B::agentversion::compare(version, esperada);
-            if (cmp < 0) {
-                version += " *";       // el agente se ha quedado atrás
-            } else if (cmp > 0) {
-                version += " +";       // el agente va por delante: el viejo es el cliente
+            // Por la versión de publicación, no por la cadena entera: el cuarto número es
+            // una huella y compararlo como número marcaba « + » a un agente de otra
+            // compilación de la misma versión, que es justo uno que hay que actualizar.
+            switch (B::agentversion::verdictFor(version, esperada)) {
+                case B::agentversion::Verdict::UpToDate: break;
+                case B::agentversion::Verdict::Update: version += " *"; break;  // a actualizar
+                case B::agentversion::Verdict::Ahead: version += " +"; break;   // el viejo es el cliente
             }
         }
         t.filas[i].push_back(version);
@@ -6310,9 +6312,140 @@ std::string nombreDeLlegada(const std::string& origen) {
 
 // La envoltura de cada orden: si su destino lleva un patrón, lo resuelve según la regla de
 // la orden; si no, la orden se ejecuta como siempre, sin pasar por nada de esto.
+// `install-daemon -a`: el despliegue a todas las conexiones conocidas, que hasta ahora se
+// hacía a mano máquina a máquina después de cada versión.
+//
+// No es `install-daemon zfsm://*` —que reinstala en todas—: se le pregunta antes a cada una
+// qué versión tiene, y solo se toca la que lo necesita. Una al día no se reinstala (cuesta
+// un reinicio del servicio por nada), y una que va POR DELANTE de este cliente tampoco: sería
+// rebajarla, y lo que hay que actualizar ahí es el cliente. Una desconectada se salta: está
+// apartada a propósito. Las que no contestan se intentan, porque «no contesta» es justo lo
+// que tiene una máquina sin daemon todavía.
+bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
+                          const std::function<bool(Estado&, const LineaAnalizada&)>& f) {
+    if (!an.objetivo.empty() || an.opciones.count("on") || an.opciones.count("from")) {
+        std::fputs(TC("t_instala_todas_destino",
+                      "-a es «todas las conexiones»: no lleva destino\n"),
+                   stderr);
+        e.ultimoRc = 2;
+        return false;
+    }
+    const std::string esperada = B::agentversion::expected();
+    enum class Accion { Instalar, Actualizar, AlDia, PorDelante, Desconectada };
+    struct Fila {
+        std::string id;
+        std::string nombre;
+        std::string version;
+        Accion accion;
+    };
+    std::vector<Fila> filas;
+    for (const auto& p : e.conns.perfiles) {
+        Fila fila;
+        fila.id = p.id.empty() ? p.name : p.id;
+        fila.nombre = p.name.empty() ? fila.id : p.name;
+        if (e.conns.desconectada(fila.id)) {
+            fila.accion = Accion::Desconectada;
+            filas.push_back(fila);
+            continue;
+        }
+        // Se pregunta de nuevo: lo recordado de la sesión puede ser de antes de otra
+        // instalación, y aquí decide si se toca una máquina.
+        olvidaEstadoDeConexion(e, p);
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Connection;
+        u.connection = fila.id;
+        std::string salida;
+        if (agente(e, u, {"--health"}, salida, 8000)) {
+            fila.version = clavesDe(salida)["VERSION"];
+        }
+        if (fila.version.empty()) {
+            fila.accion = Accion::Instalar;
+        } else {
+            switch (B::agentversion::verdictFor(fila.version, esperada)) {
+                case B::agentversion::Verdict::UpToDate: fila.accion = Accion::AlDia; break;
+                case B::agentversion::Verdict::Update: fila.accion = Accion::Actualizar; break;
+                case B::agentversion::Verdict::Ahead: fila.accion = Accion::PorDelante; break;
+            }
+        }
+        filas.push_back(fila);
+    }
+
+    Tabla t;
+    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_daemon", "DAEMON"),
+                        T("t_cab_accion", "ACCIÓN")};
+    t.campos = {"connection", "daemon", "action"};
+    std::vector<std::string> aTocar;
+    for (const Fila& fila : filas) {
+        std::string accion;
+        switch (fila.accion) {
+            case Accion::Instalar: accion = T("t_instala_accion_instalar", "instalar"); break;
+            case Accion::Actualizar: accion = T("t_instala_accion_actualizar", "actualizar"); break;
+            case Accion::AlDia: accion = T("t_instala_accion_al_dia", "al día: no se toca"); break;
+            case Accion::PorDelante:
+                accion = T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+                break;
+            case Accion::Desconectada:
+                accion = T("t_instala_accion_desconectada", "desconectada: se salta");
+                break;
+        }
+        if (fila.accion == Accion::Instalar || fila.accion == Accion::Actualizar) {
+            aTocar.push_back(fila.id);
+        }
+        t.filas.push_back({fila.id, fila.version.empty() ? "-" : fila.version, accion});
+    }
+    t.imprime(e.formato);
+    if (aTocar.empty()) {
+        std::fprintf(stderr, TC("t_instala_nada", "nada que hacer: todas al día (%s)\n"),
+                     esperada.c_str());
+        return true;
+    }
+    if (an.opciones.count("check")) {
+        std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
+        return true;
+    }
+    if (!confirma(e, B::format(T("t_instala_todas_conf",
+                                 "Se va a instalar o actualizar el daemon (%1) en %2 conexiones. "
+                                 "¿Continuar?"),
+                               {esperada, std::to_string(aTocar.size())}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        e.ultimoRc = 1;
+        return false;
+    }
+    const bool asumiaSi = e.asumirSi;
+    e.asumirSi = true;
+    std::size_t bien = 0;
+    std::vector<std::string> fallidas;
+    for (const std::string& id : aTocar) {
+        std::fprintf(stderr, "\n== %s\n", id.c_str());
+        LineaAnalizada una = an;
+        una.banderas.erase(std::remove(una.banderas.begin(), una.banderas.end(), "-a"),
+                           una.banderas.end());
+        una.opciones.erase("check");
+        una.objetivo = "zfsm://" + B::percentEncodeSegment(id);
+        // Cada una con su propio código: el fallo de una no se arrastra a la siguiente.
+        e.ultimoRc = 0;
+        if (f(e, una)) {
+            ++bien;
+        } else {
+            fallidas.push_back(id);
+        }
+    }
+    e.asumirSi = asumiaSi;
+    std::fprintf(stderr, TC("t_patron_resumen", "%s: %zu bien, %zu fallaron\n"), "install-daemon",
+                 bien, fallidas.size());
+    for (const std::string& id : fallidas) {
+        std::fprintf(stderr, TC("t_patron_fallo_uno", "  falló: %s\n"), id.c_str());
+    }
+    e.ultimoRc = fallidas.empty() ? 0 : 1;
+    return fallidas.empty();
+}
+
 bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizada& original,
                         const std::function<bool(Estado&, const LineaAnalizada&)>& f) {
     LineaAnalizada an = original;
+    if (orden == "install-daemon" && an.tiene("-a")) {
+        return instalaDaemonEnTodas(e, an, f);
+    }
 
     // --- Ejecutar sobre varios destinos que MODIFICAN: la lista exacta SIEMPRE —también con
     // -y, para que quede en el registro qué se hizo—, `--check` para verla sin tocar nada,

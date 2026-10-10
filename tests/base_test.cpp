@@ -2304,6 +2304,21 @@ int main() {
         // Lo que no tiene forma de version se compara como texto: no es correcto, pero es
         // predecible, y no debe hacer creer que dos cosas raras son iguales.
         comprobar(AV::compare("no-es-version", "tampoco") != 0, "av: lo informe no se declara igual");
+        // Qué hacer con un agente instalado. El cuarto número es una HUELLA: otra compilación
+        // de la misma versión hay que actualizarla, sea la huella mayor o menor.
+        using V = AV::Verdict;
+        comprobar(AV::verdictFor("0.99.3.589042275", "0.99.3.589042275") == V::UpToDate,
+                  "av: la misma, al dia");
+        comprobar(AV::verdictFor("0.99.3.999999999", "0.99.3.111111111") == V::Update,
+                  "av: misma version con huella MAYOR: se actualiza, no va por delante");
+        comprobar(AV::verdictFor("0.99.3.111111111", "0.99.3.999999999") == V::Update,
+                  "av: misma version con huella menor: se actualiza");
+        comprobar(AV::verdictFor("0.99.2.999999999", "0.99.3.111111111") == V::Update,
+                  "av: version anterior: se actualiza");
+        comprobar(AV::verdictFor("1.0.0.111111111", "0.99.3.999999999") == V::Ahead,
+                  "av: version posterior: va por delante, no se rebaja");
+        comprobar(AV::verdictFor("1.0.0rc1.111111111", "1.0.0.111111111") == V::Update,
+                  "av: un rc instalado se actualiza a su final");
     }
 
     // --- ficheros del almacen y motivos tipificados

@@ -27,6 +27,15 @@ std::string expectedApi();
 // shape is compared as text, which is not correct but is predictable.
 int compare(const std::string& a, const std::string& b);
 
+// What to do with an installed agent, given the one this client expects.
+//
+// NOT `compare` on the full strings: the fourth number is a build FINGERPRINT, not a counter,
+// so «0.99.3.589042275» vs «0.99.3.123456789» orders at random. The release part
+// (maj.min.patch[rcN]) decides ahead/behind; with the same release, a different fingerprint
+// is a different build and it is the client's that should be there.
+enum class Verdict { UpToDate, Update, Ahead };
+Verdict verdictFor(const std::string& installed, const std::string& expected);
+
 // The version an agent binary declares, read out of the FILE.
 //
 // It has to be read that way because the bundled agent is usually for another platform and
