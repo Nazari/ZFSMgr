@@ -2116,6 +2116,28 @@ int main() {
         igual(DI::installScript("loquesea", "9.9.9.1", "7"), lin,
               "daemoninstall: lo desconocido cae al guion de Linux");
 
+        // --- La clave SSH que falta.
+        {
+            namespace H = zfsmgr::base::helpers;
+            zfsmgr::base::ConnectionProfile p;
+            p.connType = "SSH";
+            std::string ruta;
+            comprobar(!H::sshKeyMissing(p, ruta), "clave: sin ruta no falta nada (contrasena)");
+            p.keyPath = "/User/nadie/.ssh/id_ed25519";
+            comprobar(H::sshKeyMissing(p, ruta), "clave: una ruta que no existe falta");
+            igual(ruta, "/User/nadie/.ssh/id_ed25519", "clave: y se dice cual");
+            const std::string f = "/tmp/zfsmgr-clave-prueba-" + std::to_string(::getpid());
+            std::ofstream(f) << "x";
+            p.keyPath = f;
+            comprobar(!H::sshKeyMissing(p, ruta), "clave: un fichero que existe no falta");
+            p.keyPath = "/tmp";
+            comprobar(H::sshKeyMissing(p, ruta), "clave: un directorio no es una clave");
+            p.keyPath = "/no/existe";
+            p.connType = "LOCAL";
+            comprobar(!H::sshKeyMissing(p, ruta), "clave: una LOCAL no usa SSH");
+            std::remove(f.c_str());
+        }
+
         // --- El CLI de la otra maquina.
         //
         // La sonda: las tres respuestas posibles. Un CLI anterior a decir su huella se queda

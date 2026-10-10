@@ -185,6 +185,16 @@ std::string mdnsFallbackHost(const std::string& sshError, const std::string& hos
 // resuelve. Lo que se enseñaba era «IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING».
 bool sshHostKeyChanged(const std::string& sshError, std::string& donde);
 
+// ¿La clave SSH de esta conexión falta? Solo cuenta en una conexión SSH con ruta de clave:
+// sin ruta se entra por contraseña, y una LOCAL no usa SSH. `ruta` sale con la ruta mirada
+// —con «~/» ya expandido— para poder decirla.
+//
+// Una ruta que no existe no se puede dar de alta, y una que desaparece después deja la
+// conexión desconectada: con ella, ssh avisa en CADA orden «Identity file … not accessible»
+// y prueba a entrar por otro lado, así que la conexión parece funcionar con una errata
+// dentro que nadie ve hasta que deja de funcionar.
+bool sshKeyMissing(const ConnectionProfile& p, std::string& ruta);
+
 // Verbs that exist only on the agent's command line, never over RPC.
 bool isCliOnlyAgentCommand(const std::string& verb);
 

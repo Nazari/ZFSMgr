@@ -500,7 +500,41 @@ std::string idDe(const Estado& e, const ZfsmUrl& u);
 // Relee las conexiones y con ellas las marcas de desconexión, que viven en el mismo
 // fichero. Van juntas a propósito: leer unas sin las otras deja el intérprete creyendo que
 // una conexión está disponible cuando acaban de apartarla.
-void recarga(Estado& e) { e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra); }
+// Relee las conexiones del disco, y deja DESCONECTADA la que tenga una clave SSH que ya no
+// existe.
+//
+// Una ruta de clave que desaparece —un disco que no está, un fichero borrado, una errata
+// que se coló antes de comprobarlo al dar de alta— no rompe la conexión a la vista: ssh
+// avisa en cada orden «Identity file … not accessible» y entra por otro lado si puede. Se
+// aparta, se dice UNA vez con su nombre y su ruta, y `connect` la vuelve a poner cuando la
+// clave esté.
+bool sshClaveFalta(const B::ConnectionProfile& p, std::string& ruta);
+void recarga(Estado& e) {
+    e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra);
+    bool cambio = false;
+    for (const auto& p : e.conns.perfiles) {
+        const std::string id = p.id.empty() ? p.name : p.id;
+        std::string ruta;
+        if (!sshClaveFalta(p, ruta) || e.conns.desconectada(id)) {
+            continue;
+        }
+        std::string error;
+        if (marcarDesconectada(*e.ses, id, true, error)) {
+            cambio = true;
+            std::fprintf(stderr,
+                         TC("t_clave_falta_desconectada",
+                            "aviso: la clave SSH de «%s» no existe (%s); la conexión queda "
+                            "desconectada. Cuando la clave esté: connect zfsm://%s\n"),
+                         id.c_str(), ruta.c_str(), id.c_str());
+        }
+    }
+    if (cambio) {
+        e.conns = cargarConexiones(e.ses->dirConfig, e.ses->maestra);
+    }
+}
+bool sshClaveFalta(const B::ConnectionProfile& p, std::string& ruta) {
+    return H::sshKeyMissing(p, ruta);
+}
 
 bool estaApartada(const Estado& e, const std::string& id) { return e.conns.desconectada(id); }
 
@@ -2154,6 +2188,18 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
                                                       p.keyPath)) {
             return false;
         }
+        // Una clave que no está no se da de alta: la conexión «funcionaría» entrando por
+        // otro lado y arrastraría la errata hasta el día que deje de hacerlo.
+        std::string ruta;
+        if (sshClaveFalta(p, ruta)) {
+            std::fprintf(stderr,
+                         TC("t_clave_no_existe_alta",
+                            "la clave SSH «%s» no existe o no se puede leer: no se da de alta la "
+                            "conexión\n"),
+                         ruta.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
     }
     p.port = puertoTexto.empty() ? 0 : std::atoi(puertoTexto.c_str());
 
@@ -2261,6 +2307,16 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         if (!toma("host", p.host, "Host")) return false;
         if (!toma("user", p.username, "Usuario")) return false;
         if (!toma("key", p.keyPath, "Ruta de clave SSH")) return false;
+        std::string ruta;
+        if (sshClaveFalta(p, ruta)) {
+            std::fprintf(stderr,
+                         TC("t_clave_no_existe_edit",
+                            "la clave SSH «%s» no existe o no se puede leer: no se guarda el "
+                            "cambio\n"),
+                         ruta.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
         std::string puerto = std::to_string(p.port);
         if (!toma("port", puerto, "Puerto")) return false;
         p.port = std::atoi(puerto.c_str());
@@ -4458,6 +4514,20 @@ bool cmdConectar(Estado& e, const LineaAnalizada& linea, bool conectar) {
     const ZfsmUrl& destino = pet.objetivo;
     const std::string id = idDe(e, destino);
     std::string error;
+    // Con la clave sin estar, conectarla solo serviría para que `recarga` la vuelva a apartar.
+    if (conectar) {
+        const auto* perfil = buscarConexion(e.conns, id);
+        std::string ruta;
+        if (perfil && sshClaveFalta(*perfil, ruta)) {
+            std::fprintf(stderr,
+                         TC("t_clave_falta_connect",
+                            "la clave SSH de «%s» sigue sin existir (%s): corríjala con «edit» o "
+                            "ponga el fichero, y vuelva a conectarla\n"),
+                         id.c_str(), ruta.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+    }
     if (!marcarDesconectada(*e.ses, id, !conectar, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
@@ -4470,8 +4540,10 @@ bool cmdConectar(Estado& e, const LineaAnalizada& linea, bool conectar) {
         T::clearRemoteDaemonTlsCacheForConnection(*buscarConexion(e.conns, id));
     }
     recarga(e);
-    std::fprintf(stderr, "%s marcada como %s\n", id.c_str(),
-                 conectar ? "conectada" : "desconectada");
+    std::fprintf(stderr,
+                 conectar ? TC("t_marcada_conectada", "%s marcada como conectada\n")
+                          : TC("t_marcada_desconectada", "%s marcada como desconectada\n"),
+                 id.c_str());
     return true;
 }
 

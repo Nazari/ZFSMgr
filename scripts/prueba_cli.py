@@ -770,6 +770,67 @@ def casos_mensajes_capa_base(ctx):
          ["ls zfsm://local/x@a@b"], rc=1, idioma="es", espera=[r"dos '@' en la misma URL"])
 
 
+def casos_clave_ssh(ctx):
+    """Una clave SSH que no existe no se da de alta; si desaparece, la conexión se aparta.
+
+    Sobre una COPIA de la configuración: la del usuario no se toca.
+    """
+    cfg = os.path.join(ctx.dir_tmp, "cfg-clave")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    clave = os.path.join(ctx.dir_tmp, "clave-de-prueba")
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+
+    def corre(nombre, guion, rc, espera=(), no_espera=()):
+        orden = (f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} "
+                 f"--lang es --format text -y")
+        p = subprocess.run(["bash", "-c", orden], input=guion + "\nexit\n", capture_output=True,
+                           text=True, timeout=120)
+        salida = p.stdout + p.stderr
+        problemas = []
+        if p.returncode != rc:
+            problemas.append(f"rc={p.returncode}, esperaba {rc}")
+        problemas += [f"falta: /{x}/" for x in espera if not re.search(x, salida, re.M)]
+        problemas += [f"NO debería salir: /{x}/" for x in no_espera if re.search(x, salida, re.M)]
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    if os.path.exists(clave):
+        os.remove(clave)
+    corre("clave SSH: una ruta que no existe no se da de alta",
+          f"create pclave --type SSH --host 192.0.2.1 --user x --os Linux --key {clave}", 1,
+          espera=[r"no se da de alta"])
+    corre("clave SSH: y la conexión no queda creada", "ls zfsm://pclave*", 1,
+          espera=[r"nada coincide"])
+    with open(clave, "w") as f:
+        f.write("x")
+    corre("clave SSH: con el fichero, sí",
+          f"create pclave --type SSH --host 192.0.2.1 --user x --os Linux --key {clave}", 0,
+          espera=[r"creada la conexión pclave"])
+    os.remove(clave)
+    corre("clave SSH: si desaparece, se avisa y queda desconectada", "ls zfsm://pclave*", 0,
+          espera=[r"la clave SSH de «pclave» no existe", r"^pclave\s.*\sno\s+-\s*$"])
+    corre("clave SSH: el aviso no se repite", "ls zfsm://pclave*", 0,
+          no_espera=[r"aviso: la clave"])
+    corre("clave SSH: connect se niega mientras falte", "connect zfsm://pclave", 1,
+          espera=[r"sigue sin existir"])
+    corre("clave SSH: edit no guarda una ruta que no existe", "edit zfsm://pclave --key /no/existe", 1,
+          espera=[r"no se guarda el cambio"])
+    with open(clave, "w") as f:
+        f.write("x")
+    corre("clave SSH: con la clave de vuelta, connect la recupera", "connect zfsm://pclave", 0,
+          espera=[r"marcada como conectada"])
+    os.remove(clave)
+    shutil.rmtree(cfg)
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1654,7 +1715,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

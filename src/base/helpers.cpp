@@ -10,6 +10,7 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
+#include <fstream>
 #include <cstdlib>
 #include <map>
 #include <regex>
@@ -814,6 +815,30 @@ std::string mdnsFallbackHost(const std::string& sshError, const std::string& hos
         }
     }
     return h + ".local";
+}
+
+bool sshKeyMissing(const ConnectionProfile& p, std::string& ruta) {
+    ruta = trim(p.keyPath);
+    if (ruta.empty() || toLowerAscii(trim(p.connType)) == "local") {
+        return false;
+    }
+    if (startsWith(ruta, "~/")) {
+        const char* home = std::getenv("HOME");
+#ifdef _WIN32
+        if (!home || !*home) {
+            home = std::getenv("USERPROFILE");
+        }
+#endif
+        if (home && *home) {
+            ruta = std::string(home) + ruta.substr(1);
+        }
+    }
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(ruta, ec) || ec) {
+        return true;
+    }
+    std::ifstream f(ruta, std::ios::binary);
+    return !f.good();
 }
 
 bool sshHostKeyChanged(const std::string& sshError, std::string& donde) {

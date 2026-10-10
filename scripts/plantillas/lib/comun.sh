@@ -261,8 +261,17 @@ zm_prueba_cli() {
     exit 1
   fi
   zm_log "${salida}  ->  ${ZM_BIN}"
-  case ":${PATH}:" in
-    *":${PREFIJO}/bin:"*) ;;
+  # El PATH de AQUÍ no es el del usuario: bajo sudo es el `secure_path`, y por SSH sin
+  # terminal es el mínimo. Avisaba en mbp y mmela con /usr/local/bin en el PATH de sus
+  # sesiones. Se mira también /etc/paths y /etc/paths.d, que es de donde lo saca macOS para
+  # las sesiones de verdad.
+  zm_en_path=0
+  case ":${PATH}:" in *":${PREFIJO}/bin:"*) zm_en_path=1 ;; esac
+  if [ "${zm_en_path}" = 0 ] && cat /etc/paths /etc/paths.d/* 2>/dev/null | grep -qx "${PREFIJO}/bin"; then
+    zm_en_path=1
+  fi
+  case "${zm_en_path}" in
+    1) ;;
     *) zm_log "aviso: ${PREFIJO}/bin no está en su PATH." ;;
   esac
 }
