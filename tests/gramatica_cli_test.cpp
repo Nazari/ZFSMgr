@@ -119,12 +119,12 @@ int main(int argc, char** argv) {
         const auto a = analizaLinea("j");
         comprueba(a.verboDesconocido, "«j» no se resuelve: hay dos órdenes con esa letra");
         const auto b = analizaLinea("l");
-        comprueba(b.verboDesconocido, "«l» tampoco: son tres");
+        comprueba(b.verboDesconocido, "«l» tampoco: son cuatro");
         // Y el catálogo lo confirma, que es de donde sale la lista que se le enseña.
         comprueba(zfsmgr::cli::nombresQueEmpiezanPor("j").size() == 2,
                   "el catálogo ve las dos de «j»");
-        comprueba(zfsmgr::cli::nombresQueEmpiezanPor("l").size() == 3,
-                  "y las tres de «l»");
+        comprueba(zfsmgr::cli::nombresQueEmpiezanPor("l").size() == 4,
+                  "y las cuatro de «l»: labelclear, load-key, log y ls");
     }
     {
         // Una letra que no empieza ninguna orden sigue siendo desconocida a secas.

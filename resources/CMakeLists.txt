@@ -83,6 +83,8 @@ cmd:--mutate-set-peers
 cmd:--dump-peers
 cmd:--mutate-set-bind
 cmd:--mutate-zfs-recv-abort
+cmd:--dump-resolve-devices
+cmd:--mutate-zpool-labelclear
 copytree:skip-unchanged-delete-dryrun
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.

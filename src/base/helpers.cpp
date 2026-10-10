@@ -13,6 +13,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <map>
+#include <sstream>
 #include <regex>
 #include <filesystem>
 #include <system_error>
@@ -1437,77 +1438,136 @@ DedupDdt parseDedupDdt(const std::string& text) {
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) {
     std::vector<ImportablePoolInfo> rows;
     const std::regex poolNameRx("^[A-Za-z0-9_.:-]+$");
-    std::string currentPool, currentGuid, currentState, currentReason;
+    // Las agrupaciones del árbol de `config:`, que no son discos.
+    const std::regex grupoRx("^(mirror|raidz[1-3]?|draid[0-9:a-z]*|spare|replacing)(-[0-9]+)?$|^(logs|cache|spares|special|dedup)$");
+    ImportablePoolInfo cur;
     bool collectingStatus = false;
+    bool collectingAction = false;
+    bool enConfig = false;
+    std::size_t sangriaPool = std::string::npos;
 
     auto flushCurrent = [&]() {
-        if (currentPool.empty()) {
-            return;
+        const bool valido = !cur.pool.empty() && std::regex_search(cur.pool, poolNameRx)
+                            && !(cur.state.empty() && cur.reason.empty());
+        if (valido) {
+            if (cur.state.empty()) {
+                cur.state = "UNKNOWN";
+            }
+            rows.push_back(cur);
         }
-        if (!std::regex_search(currentPool, poolNameRx)) {
-            currentPool.clear();
-            currentGuid.clear();
-            currentState.clear();
-            currentReason.clear();
-            collectingStatus = false;
-            return;
-        }
-        if (currentState.empty() && currentReason.empty()) {
-            currentPool.clear();
-            currentGuid.clear();
-            collectingStatus = false;
-            return;
-        }
-        rows.push_back(ImportablePoolInfo{
-            currentPool,
-            currentGuid,
-            currentState.empty() ? std::string("UNKNOWN") : currentState,
-            currentReason,
-        });
-        currentPool.clear();
-        currentGuid.clear();
-        currentState.clear();
-        currentReason.clear();
+        cur = ImportablePoolInfo{};
         collectingStatus = false;
+        collectingAction = false;
+        enConfig = false;
+        sangriaPool = std::string::npos;
     };
 
     for (const std::string& lineRaw : split(text, "\n", false)) {
         const std::string line = trim(lineRaw);
         if (startsWith(line, "pool: ")) {
             flushCurrent();
-            currentPool = trim(mid(line, 6));
+            cur.pool = trim(mid(line, 6));
             continue;
         }
-        if (currentPool.empty()) {
+        if (cur.pool.empty()) {
             continue;
         }
-        if (startsWith(line, "state: ")) {
-            currentState = trim(mid(line, 7));
-            collectingStatus = false;
-            continue;
-        }
-        if (startsWith(line, "id: ")) {
-            currentGuid = trim(mid(line, 4));
-            continue;
-        }
-        if (startsWith(line, "status: ")) {
-            currentReason = trim(mid(line, 8));
-            collectingStatus = true;
-            continue;
-        }
-        if (collectingStatus) {
-            if (startsWith(line, "action:") || startsWith(line, "see:") || startsWith(line, "config:")) {
-                collectingStatus = false;
-            } else if (!line.empty()) {
-                currentReason = trim(currentReason + " " + line);
+        if (enConfig) {
+            if (line.empty()) {
+                if (sangriaPool != std::string::npos && !cur.devices.empty()) {
+                    enConfig = false;   // la línea en blanco DESPUÉS del árbol lo cierra
+                }
+                continue;
+            }
+            // La sangría dice la profundidad: tabuladores y espacios, como los imprime zpool.
+            std::size_t sangria = 0;
+            for (char ch : lineRaw) {
+                if (ch == '\t') {
+                    sangria += 8;
+                } else if (ch == ' ') {
+                    ++sangria;
+                } else {
+                    break;
+                }
+            }
+            std::istringstream iss(line);
+            std::string nombre;
+            std::string estado;
+            iss >> nombre >> estado;
+            std::string resto;
+            std::getline(iss, resto);
+            if (sangriaPool == std::string::npos) {
+                sangriaPool = sangria;   // la primera es la del propio pool
+                continue;
+            }
+            // «logs», «cache», «spares»… van a la MISMA sangría que el pool y no lo cierran:
+            // son secciones del mismo árbol.
+            const bool seccion = nombre == "logs" || nombre == "cache" || nombre == "spares"
+                                 || nombre == "special" || nombre == "dedup";
+            if (sangria <= sangriaPool && seccion) {
+                ImportableDevice d;
+                d.name = nombre;
+                d.depth = 0;
+                d.leaf = false;
+                cur.devices.push_back(d);
+                continue;
+            }
+            if (sangria <= sangriaPool) {
+                enConfig = false;
+            } else {
+                ImportableDevice d;
+                d.name = nombre;
+                d.state = estado;
+                d.detail = trim(resto);
+                d.depth = static_cast<int>((sangria - sangriaPool) / 2);
+                d.leaf = !std::regex_search(nombre, grupoRx);
+                cur.devices.push_back(d);
                 continue;
             }
         }
+        if (startsWith(line, "state: ")) {
+            cur.state = trim(mid(line, 7));
+            collectingStatus = collectingAction = false;
+            continue;
+        }
+        if (startsWith(line, "id: ")) {
+            cur.guid = trim(mid(line, 4));
+            continue;
+        }
+        if (startsWith(line, "status: ")) {
+            cur.reason = trim(mid(line, 8));
+            collectingStatus = true;
+            collectingAction = false;
+            continue;
+        }
+        if (startsWith(line, "action: ")) {
+            cur.action = trim(mid(line, 8));
+            collectingAction = true;
+            collectingStatus = false;
+            continue;
+        }
+        if (startsWith(line, "config:")) {
+            enConfig = true;
+            collectingStatus = collectingAction = false;
+            continue;
+        }
+        if (startsWith(line, "see:")) {
+            collectingStatus = collectingAction = false;
+            continue;
+        }
+        if (collectingStatus && !line.empty()) {
+            cur.reason = trim(cur.reason + " " + line);
+            continue;
+        }
+        if (collectingAction && !line.empty()) {
+            cur.action = trim(cur.action + " " + line);
+            continue;
+        }
         if (startsWith(line, "cannot import")) {
-            if (!currentReason.empty()) {
-                currentReason += " ";
+            if (!cur.reason.empty()) {
+                cur.reason += " ";
             }
-            currentReason += line;
+            cur.reason += line;
         }
     }
     flushCurrent();

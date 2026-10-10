@@ -305,6 +305,13 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"devices --on zfsm://mmela",
        {"t_ej_devices_3", "los de otra máquina"}},
      }},
+    {"labelclear",
+     {
+      {"labelclear /dev/sda9",
+       {"t_ej_labelclear_1", "la etiqueta vieja que deja un pool que ya no existe"}},
+      {"labelclear /dev/sdb1 -f --on zfsm://unib",
+       {"t_ej_labelclear_2", "la de un pool exportado, en otra máquina"}},
+     }},
     {"edit",
      {
       {"edit --name Unibody",
@@ -838,7 +845,7 @@ const std::vector<Orden> kOrdenes = {
       "letra de unidad y los descendientes heredan la del POOL. Se traduce solo."}},
      Objetivo::Cualquiera,
      {}},
-    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_qu_hay_aqu_66e605", "Qué hay aquí y estado del daemon."}, {}, {},
+    {"info", {"t_navegaci_n_60cb06", "Navegación"}, {"t_destino_132a32", "[destino]"}, {"t_info_res2", "El detalle de lo que se nombre: una conexión (con su daemon), un pool —también uno sin importar, con sus dispositivos—, un dataset o un snapshot."}, {}, {},
      Objetivo::Cualquiera, {}},
 
     // --- Conexiones
@@ -903,6 +910,17 @@ const std::vector<Orden> kOrdenes = {
       "en él decide."}},
      Objetivo::Conexion,
      {}},
+    {"labelclear", {"t_pools_2fd96d", "Pools"}, {"t_labelclear_uso", "<dispositivo> [-f]"},
+     {"t_labelclear_res", "Borra la etiqueta de ZFS de un dispositivo que ya no es de ningún pool."},
+     {{{"t_labelclear_f", "-f"}, {"t_labelclear_f_q", "Aunque zpool crea que podría estar en uso (un pool exportado)."}}},
+     {{"t_labelclear_det", "Para lo que se queda atrás: la etiqueta de un pool viejo en un disco "
+       "reutilizado, que sigue saliendo entre los importables. «status <pool>» o «info "
+       "zfsm://maquina/<pool>» de ese pool dicen en qué dispositivo está."},
+      {"t_labelclear_det2", "NUNCA sobre algo en uso: si el dispositivo, o una partición suya, "
+       "pertenece a un pool importado, se niega aunque se pida -f. Borrar esa etiqueta "
+       "sería perder el pool."}},
+     Objetivo::Conexion,
+     {{"dispositivo", Ranura::Tipo::Ruta, Ranura::Cuantas::Una}}},
     {"edit", {"t_conexiones_3785cd", "Conexiones"}, {"t_name_host_73f07e", "[--name <n>] [--host <h>] …"},
      {"t_cambia_una_58f563", "Cambia una conexión. Pulsar Intro conserva el valor actual."},
      // Cada opción con su «<...>»: es lo que le dice al léxico que se lleva por delante el

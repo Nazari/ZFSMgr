@@ -984,6 +984,44 @@ def casos_editor_ancho(ctx):
         print(f"  ok     {nombre}")
 
 
+def casos_info_labelclear(ctx):
+    """`info` describe el objeto pedido, y `labelclear` borra la etiqueta de lo que no está en uso.
+
+    `info` daba siempre la salud de la conexión, pidiera uno lo que pidiera. `labelclear` se
+    prueba sobre un pool de fichero propio: NUNCA sobre un disco de verdad.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    U = f"zfsm://local/{P}"
+    caso(ctx, "info de un pool: sus datos de pool y los de su dataset raíz",
+         [f"info {U}"], rc=0, espera=[r"^kind\s+pool$", r"^pool\.health\s+ONLINE", r"^compression\s"])
+    caso(ctx, "info de un dataset: sus propiedades, no la conexión",
+         [f"info {U}/datos"], rc=0, espera=[r"^kind\s+dataset$", r"^used\s"],
+         no_espera=[r"^connection\s"])
+    caso(ctx, "info de un snapshot",
+         [f"info {U}/datos@s1"], rc=0, espera=[r"^kind\s+snapshot$", r"^referenced\s"])
+    caso(ctx, "info de un pool que no existe lo dice claro",
+         ["info zfsm://local/noexiste-zfsmgr"], rc=1, idioma="es",
+         espera=[r"no es un pool importado ni importable"])
+
+    img = f"{IMG_DIR}/ztlabel.img"
+    sh(ctx, f"bash -c 'zpool destroy ztlabel 2>/dev/null; rm -f {img}; truncate -s 256M {img}'", root=True)
+    sh(ctx, f"zpool create -f -m none ztlabel {img}", root=True)
+    importables = f"bash -c 'zpool import -d {IMG_DIR} 2>&1'"
+    caso(ctx, "labelclear se niega sobre un pool importado, aunque se pida -f",
+         [f"labelclear {img} -f --on zfsm://local"], rc=1,
+         espera=[r"part of an imported pool"],
+         estado=[("el pool sigue importado", "zpool list -H -o name ztlabel", r"^ztlabel$")])
+    sh(ctx, "zpool export ztlabel", root=True)
+    caso(ctx, "labelclear -f sobre un pool exportado borra su etiqueta",
+         [f"labelclear {img} -f --on zfsm://local"], rc=0, idioma="es",
+         espera=[r"borrada la etiqueta"],
+         estado=[("ya no es importable", importables, r"\A(?![\s\S]*pool: ztlabel)")])
+    caso(ctx, "labelclear exige una ruta absoluta",
+         ["labelclear sda9 --on zfsm://local"], rc=2, idioma="es", espera=[r"necesita la ruta"])
+    sh(ctx, f"rm -f {img}", root=True)
+
+
 def casos_propiedades(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -1877,7 +1915,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

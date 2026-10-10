@@ -237,11 +237,24 @@ std::string asciiSafeShellCommand(const std::string& cmd);
 // again fixes nothing and therefore no retry is offered.
 bool looksLikeSudoAuthFailure(const std::string& text);
 
+struct ImportableDevice {
+    std::string name;    // as `zpool import` prints it: «sda1», «b9333c91-…», «media-…»
+    std::string state;   // ONLINE, UNAVAIL…
+    std::string detail;  // what comes after the state: «corrupted data», «cannot open»…
+    int depth{0};        // nesting under the pool line: 1 = top-level vdev, 2 = inside a mirror…
+    bool leaf{true};     // a real device, not a grouping (mirror-0, raidz1-0, logs, cache…)
+};
+
 struct ImportablePoolInfo {
     std::string pool;
     std::string guid;
     std::string state;
     std::string reason;
+    // What the `config:` section says, and `action:`. Without them there was no way to
+    // know WHICH disk an importable pool lives on —or a stale label lingers on—, which is
+    // what you need before doing anything about it.
+    std::string action;
+    std::vector<ImportableDevice> devices;
 };
 
 // Masks the secrets of a command so it can be written into the log. It covers the specific

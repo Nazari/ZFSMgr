@@ -56,6 +56,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_CD V_LS V_PWD V_INFO V_HELP V_EXIT V_FORMAT V_YES V_CLS
 %token <texto> V_MASTER_PASSWORD
 %token <texto> V_CONNECT V_DISCONNECT V_REFRESH V_EDIT V_DEVICES V_INSTALL_DAEMON
+%token <texto> V_LABELCLEAR
 %token <texto> V_JOBS V_JOB V_IMPORT
 %token <texto> V_FLUSH V_UPGRADE V_REGUID V_EXPORT V_STATUS V_HISTORY
 %token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
@@ -108,6 +109,7 @@ orden
     | V_REFRESH destino_opt             { astVerbo(res, $1); }
     | V_EDIT destino_opt                { astVerbo(res, $1); }
     | V_DEVICES destino_opt             { astVerbo(res, $1); }
+    | V_LABELCLEAR dispositivo_lc        { astVerbo(res, $1); }
     | V_INSTALL_DAEMON destino_opt      { astVerbo(res, $1); }
     | V_JOBS destino_opt                { astVerbo(res, $1); }
 /* En estas dos la palabra ya es la ranura, así que la conexión va por URL o por `--on`. */
@@ -255,6 +257,11 @@ componente_texto
 ruta
     : URL                                { astRanura(res, "ruta", $1); }
     | PALABRA                            { astRanura(res, "ruta", $1); }
+    ;
+
+dispositivo_lc
+    : URL                                { astRanura(res, "dispositivo", $1); }
+    | PALABRA                            { astRanura(res, "dispositivo", $1); }
     ;
 
 asignaciones

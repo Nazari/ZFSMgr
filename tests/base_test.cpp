@@ -2116,6 +2116,57 @@ int main() {
         igual(DI::installScript("loquesea", "9.9.9.1", "7"), lin,
               "daemoninstall: lo desconocido cae al guion de Linux");
 
+        // --- La configuración de un pool importable: qué dispositivos y en qué estado.
+        {
+            namespace H = zfsmgr::base::helpers;
+            const std::string m1 =
+                "  pool: m1\n"
+                "    id: 12679178282877643634\n"
+                " state: UNAVAIL\n"
+                "status: The pool was last accessed by another system.\n"
+                "action: The pool cannot be imported due to damaged devices or data.\n"
+                "   see: https://openzfs.github.io/openzfs-docs/msg/ZFS-8000-EY\n"
+                "config:\n"
+                "\n"
+                "\tm1                                      UNAVAIL  insufficient replicas\n"
+                "\t  b9333c91-d88e-4b4f-918d-dc4b045925d5  UNAVAIL  corrupted data\n";
+            const auto r = H::parseZpoolImportOutput(m1);
+            comprobar(r.size() == 1, "importable: un pool");
+            if (r.size() == 1) {
+                igual(r[0].action, "The pool cannot be imported due to damaged devices or data.",
+                      "importable: la accion");
+                comprobar(r[0].devices.size() == 1, "importable: un dispositivo");
+                if (!r[0].devices.empty()) {
+                    igual(r[0].devices[0].name, "b9333c91-d88e-4b4f-918d-dc4b045925d5", "importable: su nombre");
+                    igual(r[0].devices[0].state, "UNAVAIL", "importable: su estado");
+                    igual(r[0].devices[0].detail, "corrupted data", "importable: el motivo");
+                    comprobar(r[0].devices[0].leaf, "importable: es un disco");
+                }
+            }
+            const std::string espejo =
+                "   pool: tank\n     id: 1\n  state: ONLINE\n action: The pool can be imported.\n"
+                " config:\n\n"
+                "\ttank        ONLINE\n"
+                "\t  mirror-0  ONLINE\n"
+                "\t    sda1    ONLINE\n"
+                "\t    sdb1    ONLINE\n"
+                "\tlogs\n"
+                "\t  sdc1      ONLINE\n"
+                "\n"
+                "   pool: otro\n     id: 2\n  state: ONLINE\n";
+            const auto e2 = H::parseZpoolImportOutput(espejo);
+            comprobar(e2.size() == 2, "importable: dos pools, el segundo tras la linea en blanco");
+            if (!e2.empty()) {
+                std::string hojas;
+                for (const auto& d : e2[0].devices) {
+                    if (d.leaf) hojas += d.name + " ";
+                }
+                igual(hojas, "sda1 sdb1 sdc1 ", "importable: las hojas, sin mirror-0 ni logs");
+                comprobar(e2[0].devices.size() >= 3 && e2[0].devices[1].depth == 2,
+                          "importable: sda1 va dentro del mirror");
+            }
+        }
+
         // --- La clave SSH que falta.
         {
             namespace H = zfsmgr::base::helpers;

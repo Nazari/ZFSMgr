@@ -3964,7 +3964,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"cls", V_CLS},
     {"master-password", V_MASTER_PASSWORD},
     {"connect", V_CONNECT}, {"disconnect", V_DISCONNECT}, {"refresh", V_REFRESH},
-    {"edit", V_EDIT}, {"devices", V_DEVICES}, {"install-daemon", V_INSTALL_DAEMON},
+    {"edit", V_EDIT}, {"devices", V_DEVICES}, {"labelclear", V_LABELCLEAR}, {"install-daemon", V_INSTALL_DAEMON},
     {"jobs", V_JOBS}, {"job", V_JOB}, {"import", V_IMPORT},
     {"flush", V_FLUSH}, {"upgrade", V_UPGRADE}, {"reguid", V_REGUID}, {"export", V_EXPORT},
     {"status", V_STATUS}, {"history", V_HISTORY},

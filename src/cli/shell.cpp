@@ -646,8 +646,11 @@ bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 std::map<std::string, std::string> clavesDe(const std::string& texto);
 
 // --- Ejecutar un verbo del agente sobre el destino, contando lo que salga mal.
+// `errorDeOrden`: si se da, el error de la ORDEN (rc ≠ 0) se devuelve ahí en vez de
+// imprimirse, para quien tiene un plan B —`status` de un pool no importado busca entre los
+// importables, y el «no such pool» de zfs solo vale si ese plan B tampoco encuentra nada—.
 bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& args,
-            std::string& out, int timeoutMs = 60000) {
+            std::string& out, int timeoutMs = 60000, std::string* errorDeOrden = nullptr) {
     out.clear();
     std::string error;
     const auto* p = perfilVivoDe(e, destino, error);
@@ -665,7 +668,11 @@ bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& a
     }
     if (rc != 0) {
         const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        std::fprintf(stderr, "%s\n", detalle.empty() ? "la orden falló" : detalle.c_str());
+        if (errorDeOrden) {
+            *errorDeOrden = detalle;
+        } else {
+            std::fprintf(stderr, "%s\n", detalle.empty() ? "la orden falló" : detalle.c_str());
+        }
         e.ultimoRc = rc;
         return false;
     }
@@ -4531,6 +4538,45 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo,
 
 // El estado detallado. Es texto para leer y se saca tal cual: fingir columnas donde
 // `zpool status` dibuja un árbol de vdevs sería inventarse una estructura que no tiene.
+// Un pool que NO está importado pero aparece en la sonda: su estado, su motivo y sus
+// dispositivos, cada uno con la ruta real en esa máquina. Es lo que hace falta para saber,
+// por ejemplo, de qué disco sale una etiqueta vieja antes de limpiarla. `false` si el pool
+// no aparece.
+bool poolImportable(Estado& e, const ZfsmUrl& conexion, const std::string& nombre,
+                    H::ImportablePoolInfo& info, std::map<std::string, std::string>& rutas) {
+    std::string sonda;
+    if (!agente(e, conexion, PET::importableProbe(), sonda, 60000)) {
+        return false;
+    }
+    bool hay = false;
+    for (const H::ImportablePoolInfo& imp : H::parseZpoolImportOutput(sonda)) {
+        if (imp.pool == nombre) {
+            // `zpool import` y `zpool import -s` pueden dar el mismo pool dos veces: se
+            // queda el que trae más dispositivos.
+            if (!hay || imp.devices.size() > info.devices.size()) {
+                info = imp;
+            }
+            hay = true;
+        }
+    }
+    if (!hay) {
+        return false;
+    }
+    std::vector<std::string> nombres;
+    for (const H::ImportableDevice& d : info.devices) {
+        if (d.leaf) {
+            nombres.push_back(d.name);
+        }
+    }
+    std::string out;
+    if (!nombres.empty() && agente(e, conexion, PET::resolveDevices(nombres), out, 20000)) {
+        for (const auto& kv : clavesDe(out)) {
+            rutas[kv.first] = kv.second;
+        }
+    }
+    return true;
+}
+
 bool cmdStatus(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -4542,8 +4588,41 @@ bool cmdStatus(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::poolStatus(destino.pool), out, 60000)) {
-        return false;
+    std::string errZpool;
+    if (!agente(e, destino, PET::poolStatus(destino.pool), out, 60000, &errZpool)) {
+        // ¿No está importado? Si aparece entre los importables, se cuenta lo que se sabe de
+        // él en vez de dejar el «no such pool» de zpool: esa respuesta es cierta y no ayuda.
+        H::ImportablePoolInfo imp;
+        std::map<std::string, std::string> rutas;
+        if (!poolImportable(e, subeHasta(destino, Objetivo::Conexion), destino.pool, imp, rutas)) {
+            if (!errZpool.empty()) {
+                std::fprintf(stderr, "%s\n", errZpool.c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        e.ultimoRc = 0;
+        std::fprintf(stdout, TC("t_status_importable",
+                                "  pool: %s  (NO importado)\n    id: %s\n state: %s\n"),
+                     imp.pool.c_str(), imp.guid.c_str(), imp.state.c_str());
+        if (!imp.reason.empty()) {
+            std::fprintf(stdout, "status: %s\n", imp.reason.c_str());
+        }
+        if (!imp.action.empty()) {
+            std::fprintf(stdout, "action: %s\n", imp.action.c_str());
+        }
+        std::fputs(TC("t_status_dispositivos", "dispositivos:\n"), stdout);
+        for (const H::ImportableDevice& d : imp.devices) {
+            const std::string sangria(static_cast<std::size_t>(2 + 2 * d.depth), ' ');
+            const auto ruta = rutas.find(d.name);
+            const std::string donde = !d.leaf ? std::string()
+                                      : (ruta != rutas.end() && !ruta->second.empty())
+                                          ? "  -> " + ruta->second
+                                          : std::string("  -> ?");
+            std::fprintf(stdout, "%s%s%s  %s  %s\n", sangria.c_str(), d.name.c_str(), donde.c_str(),
+                         d.state.c_str(), d.detail.c_str());
+        }
+        return true;
     }
     std::fprintf(stdout, "%s", out.c_str());
     if (!out.empty() && out.back() != '\n') {
@@ -5778,6 +5857,135 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     return lanzaOEspera(e, pet, origen, argv);
 }
 
+// El detalle de un pool, un dataset, un volumen o un snapshot, en CAMPO/VALOR como el de la
+// conexión. Un pool que no está importado pero aparece en la sonda se describe con lo que
+// dice `zpool import`, dispositivos incluidos.
+bool infoDeObjeto(Estado& e, const ZfsmUrl& destino) {
+    const std::string objeto = destino.zfsName();
+    Tabla t;
+    t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
+    t.campos = {"field", "value"};
+    t.filas.push_back({"url", textoDe(destino)});
+    // Las propiedades que dicen QUÉ es y CÓMO está. Las demás siguen en `ls #properties`.
+    const bool esSnapshot = !destino.snapshot.empty();
+    const std::vector<std::string> claves =
+        esSnapshot ? std::vector<std::string>{"type", "creation", "used", "referenced",
+                                              "compressratio", "userrefs", "clones",
+                                              "defer_destroy"}
+                   : std::vector<std::string>{"type", "creation", "used", "available", "referenced",
+                                              "usedbysnapshots", "compressratio", "compression",
+                                              "dedup", "encryption", "keystatus", "mountpoint",
+                                              "mounted", "canmount", "readonly", "quota",
+                                              "reservation", "recordsize", "volsize", "origin"};
+    std::string out;
+    std::vector<L::Property> props;
+    std::string errProps;
+    std::string errZfs;
+    const bool hayDataset =
+        agente(e, destino, PET::specificProperties(claves, objeto), out, 20000, &errZfs)
+        && L::properties(out, props, errProps) && !props.empty();
+    // Un pool: además, lo que es del POOL (tamaño, salud, fragmentación…), de `zpool list`.
+    const bool esPool = destino.dataset.empty() || destino.dataset == destino.pool;
+    if (esPool && !esSnapshot) {
+        std::string lista;
+        B::json::Value raiz;
+        if (agente(e, destino, PET::poolList(), lista) && B::json::parse(lista, raiz, nullptr)) {
+            for (const auto& kv : raiz["pools"].toObject()) {
+                if (kv.second["name"].toString(kv.first) != destino.pool) {
+                    continue;
+                }
+                t.filas.push_back({"kind", "pool"});
+                for (const auto& pr : kv.second["properties"].toObject()) {
+                    t.filas.push_back({"pool." + pr.first, pr.second["value"].toString()});
+                }
+            }
+        }
+        // No importado: lo que dice la sonda.
+        if (!hayDataset && t.filas.size() == 1) {
+            e.ultimoRc = 0;
+            H::ImportablePoolInfo imp;
+            std::map<std::string, std::string> rutas;
+            if (!poolImportable(e, subeHasta(destino, Objetivo::Conexion), destino.pool, imp, rutas)) {
+                std::fprintf(stderr, TC("t_info_no_existe",
+                                        "%s no es un pool importado ni importable\n"),
+                             destino.pool.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            t.filas.push_back({"kind", "pool (importable)"});
+            t.filas.push_back({"imported", "no"});
+            t.filas.push_back({"guid", imp.guid});
+            t.filas.push_back({"state", imp.state});
+            if (!imp.reason.empty()) t.filas.push_back({"status", imp.reason});
+            if (!imp.action.empty()) t.filas.push_back({"action", imp.action});
+            for (const H::ImportableDevice& d : imp.devices) {
+                if (!d.leaf) {
+                    continue;
+                }
+                const auto ruta = rutas.find(d.name);
+                t.filas.push_back({"device", d.name + "  -> "
+                                                 + (ruta != rutas.end() && !ruta->second.empty()
+                                                        ? ruta->second : std::string("?"))
+                                                 + "  " + d.state
+                                                 + (d.detail.empty() ? "" : "  " + d.detail)});
+            }
+            t.imprime(e.formato);
+            return true;
+        }
+    }
+    if (!hayDataset) {
+        if (!errZfs.empty()) {
+            std::fprintf(stderr, "%s\n", errZfs.c_str());
+        }
+        e.ultimoRc = 1;
+        return false;
+    }
+    if (!esPool || esSnapshot) {
+        t.filas.push_back({"kind", esSnapshot ? "snapshot" : "dataset"});
+    }
+    for (const L::Property& pr : props) {
+        if (pr.value.empty() || pr.value == "-") {
+            continue;   // lo que no aplica (volsize en un sistema de ficheros…) no se enseña
+        }
+        t.filas.push_back({pr.name, pr.value});
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
+// --- `labelclear`: la etiqueta de ZFS de un dispositivo que ya no es de ningún pool.
+bool cmdLabelclear(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const ZfsmUrl conexion = subeHasta(pet.objetivo, Objetivo::Conexion);
+    const std::string dispositivo = pet.uno("dispositivo");
+    if (dispositivo.empty() || dispositivo.front() != '/') {
+        std::fputs(TC("t_labelclear_ruta", "labelclear necesita la ruta del dispositivo, como "
+                      "«/dev/sda9»\n"), stderr);
+        e.ultimoRc = 2;
+        return false;
+    }
+    // Lo que se va a perder, con nombre: la confirmación no dice «¿seguro?» a secas.
+    if (!confirma(e, B::format(T("t_conf_labelclear",
+                                 "Se va a BORRAR la etiqueta de ZFS de %1 en %2. Si era de un "
+                                 "pool, ese pool deja de poder importarse desde ese disco. "
+                                 "¿Continuar?"),
+                               {dispositivo, conexion.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    std::string out;
+    if (!agente(e, conexion, PET::labelClear(dispositivo, pet.tiene("-f")), out, 60000)) {
+        return false;
+    }
+    e.importablesCache.clear();
+    std::fprintf(stderr, TC("t_labelclear_hecho", "borrada la etiqueta de %s\n"),
+                 dispositivo.c_str());
+    return true;
+}
+
 bool cmdInfo(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -5787,6 +5995,11 @@ bool cmdInfo(Estado& e, const LineaAnalizada& linea) {
     if (nodoDe(destino) == Nodo::Raiz) {
         std::fprintf(stdout, "kind\troot\nconnections\t%zu\n", e.conns.perfiles.size());
         return true;
+    }
+    // **Un pool, un dataset o un snapshot: SU detalle, no el de la conexión.** Antes `info`
+    // daba siempre la salud del daemon, pidiera uno lo que pidiera.
+    if (nodoDe(destino) != Nodo::Conexion) {
+        return infoDeObjeto(e, destino);
     }
     std::string error;
     const auto* p = perfilDe(e, destino, error);
@@ -7500,6 +7713,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"info", cmdInfo},
         {"create", cmdCreate},
         {"devices", cmdDevices},
+        {"labelclear", cmdLabelclear},
         {"cp", cmdCp},
         {"rsync", cmdRsync},
         {"rename", cmdRename},

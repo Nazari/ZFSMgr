@@ -49,6 +49,20 @@ std::vector<std::string> poolDedupStatus(const std::string& pool) {
 
 std::vector<std::string> importableProbe() { return {"--dump-zpool-import-probe"}; }
 
+std::vector<std::string> resolveDevices(const std::vector<std::string>& names) {
+    std::vector<std::string> v{"--dump-resolve-devices"};
+    v.insert(v.end(), names.begin(), names.end());
+    return v;
+}
+
+std::vector<std::string> labelClear(const std::string& device, bool force) {
+    std::vector<std::string> v{"--mutate-zpool-labelclear", device};
+    if (force) {
+        v.push_back("force");
+    }
+    return v;
+}
+
 std::vector<std::string> datasetList(const std::string& objeto) {
     return withOne("--dump-zfs-list-all", objeto);
 }

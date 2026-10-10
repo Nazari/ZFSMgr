@@ -38,6 +38,10 @@ std::vector<std::string> poolGuid(const std::string& pool);
 std::vector<std::string> poolDedupStatus(const std::string& pool);
 // The pools that could be imported. It takes no arguments: it asks about all of them.
 std::vector<std::string> importableProbe();
+// The real path of each device name as `zpool` prints it («b9333c91-…» → /dev/sda9).
+std::vector<std::string> resolveDevices(const std::vector<std::string>& names);
+// Clear the ZFS label of a device. Refused by the agent if it belongs to an imported pool.
+std::vector<std::string> labelClear(const std::string& device, bool force);
 
 // ── Dataset reads ────────────────────────────────────────────────────────────
 

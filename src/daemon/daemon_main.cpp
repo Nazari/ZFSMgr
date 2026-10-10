@@ -572,6 +572,8 @@ std::string agentCapabilityList() {
     caps.push_back("--dump-peers");
     caps.push_back("--mutate-set-bind");
     caps.push_back("--mutate-zfs-recv-abort");
+    caps.push_back("--dump-resolve-devices");
+    caps.push_back("--mutate-zpool-labelclear");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -7991,6 +7993,103 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
                   + (vacioSinSerlo ? " (complete without moving a byte: marked as failed)" : ""));
 }
 
+// La ruta real de un dispositivo tal y como lo nombra `zpool`: «sda1», un PARTUUID
+// («b9333c91-…»), «media-…» en macOS, «gpt/etiqueta» en FreeBSD… Se busca en los
+// directorios donde cada sistema pone esos nombres y se resuelven los enlaces. Vacío si no
+// está en esta máquina.
+std::string resolveDeviceName(const std::string& nombre) {
+    if (nombre.empty() || nombre.find("..") != std::string::npos) {
+        return {};
+    }
+    std::vector<std::string> cands;
+    if (nombre.front() == '/') {
+        cands.push_back(nombre);
+    } else {
+#if defined(__APPLE__)
+        for (const char* d : {"/var/run/disk/by-id/", "/var/run/disk/by-serial/", "/var/run/disk/by-path/", "/dev/"}) {
+            cands.push_back(std::string(d) + nombre);
+        }
+#elif defined(__FreeBSD__)
+        for (const char* d : {"/dev/", "/dev/gpt/", "/dev/gptid/", "/dev/diskid/", "/dev/label/"}) {
+            cands.push_back(std::string(d) + nombre);
+        }
+#else
+        for (const char* d : {"/dev/", "/dev/disk/by-partuuid/", "/dev/disk/by-id/", "/dev/disk/by-uuid/",
+                              "/dev/disk/by-partlabel/", "/dev/disk/by-path/", "/dev/disk/by-vdev/",
+                              "/dev/mapper/"}) {
+            cands.push_back(std::string(d) + nombre);
+        }
+#endif
+    }
+    for (const std::string& c : cands) {
+        std::error_code ec;
+        if (std::filesystem::exists(c, ec) && !ec) {
+            const auto real = std::filesystem::canonical(c, ec);
+            return ec ? c : real.string();
+        }
+    }
+    return {};
+}
+
+// --mutate-zpool-labelclear: borrar la etiqueta de ZFS de un dispositivo. Para lo que se
+// queda atrás —un pool viejo en un disco reutilizado, que `zpool import` sigue enseñando—.
+//
+// **Nunca sobre algo que esté en uso.** Se niega si el dispositivo, o una partición suya,
+// pertenece a un pool importado, aunque se pida «force»: `zpool labelclear -f` sí lo haría,
+// y borrar la etiqueta de un disco vivo es perder el pool. «force» solo sirve para lo que
+// zpool considera «podría estar en uso» sin estarlo de verdad, como un pool exportado.
+ExecResult runZpoolLabelclear(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.empty() || params[0].empty() || params[0].front() != '/') {
+        r.rc = 2;
+        r.err = "usage: --mutate-zpool-labelclear <absolute device path> [force]\n";
+        return r;
+    }
+    std::error_code ec;
+    const std::string dev = std::filesystem::canonical(params[0], ec).string();
+    if (ec) {
+        r.rc = 2;
+        r.err = "no such device: " + params[0] + "\n";
+        return r;
+    }
+    struct ::stat st {};
+    if (::stat(dev.c_str(), &st) != 0
+        || !(S_ISBLK(st.st_mode) || S_ISCHR(st.st_mode) || S_ISREG(st.st_mode))) {
+        r.rc = 2;
+        r.err = "not a device or file: " + dev + "\n";
+        return r;
+    }
+    // ¿Lo usa algún pool importado? `-P` da rutas completas y `-L` resuelve los enlaces.
+    const ExecResult estado = runExecCapture("zpool", {"status", "-P", "-L"});
+    for (const std::string& linea : zfsmgr::base::split(estado.out, "\n", true)) {
+        std::istringstream iss(linea);
+        std::string tok;
+        iss >> tok;
+        if (tok.empty() || tok.front() != '/') {
+            continue;
+        }
+        std::error_code ec2;
+        const auto realTok = std::filesystem::canonical(tok, ec2);
+        const std::string usado = ec2 ? tok : realTok.string();
+        // El mismo dispositivo, o una partición suya (/dev/sda → /dev/sda1, /dev/nvme0n1p2).
+        if (usado == dev || usado.rfind(dev, 0) == 0) {
+            r.rc = 1;
+            r.err = dev + " is part of an imported pool (" + usado + "): its label is not cleared\n";
+            return r;
+        }
+    }
+    std::vector<std::string> args{"labelclear"};
+    if (params.size() > 1 && params[1] == "force") {
+        args.push_back("-f");
+    }
+    args.push_back(dev);
+    r = runExecCapture("zpool", args);
+    if (r.rc == 0) {
+        r.out = "CLEARED=" + dev + "\n";
+    }
+    return r;
+}
+
 ExecResult executeAgentCommandCapture(const std::string& cmd,
                                       const std::vector<std::string>& params,
                                       const char* argv0) {
@@ -8052,6 +8151,16 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return r;
     }
     if (cmd == "--dump-zpool-guid-status-batch") return runDumpZpoolGuidStatusBatchCapture();
+    if (cmd == "--dump-resolve-devices") {
+        r.rc = 0;
+        for (const std::string& n : params) {
+            r.out += n + "=" + resolveDeviceName(n) + "\n";
+        }
+        return r;
+    }
+    if (cmd == "--mutate-zpool-labelclear") {
+        return runZpoolLabelclear(params);
+    }
     if (cmd == "--dump-zpool-guid") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zpool-guid <pool>\n"; return r; }
         return runExecCapture("zpool", {"get", "-H", "-o", "value", "guid", params[0]});
@@ -10252,6 +10361,13 @@ int main(int argc, char* argv[]) {
         const ExecResult e = executeAgentCommandCapture(cmd, params, args[0].c_str());
         if (!e.out.empty()) std::cout << e.out;
         if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
+    if (cmd == "--dump-resolve-devices" || cmd == "--mutate-zpool-labelclear") {
+        const ExecResult e = executeAgentCommandCapture(
+            cmd, std::vector<std::string>(args.begin() + 2, args.end()), args[0].c_str());
+        if (!e.out.empty()) { std::cout << e.out; }
+        if (!e.err.empty()) { std::cerr << e.err; }
         return e.rc;
     }
     if (cmd == "--dump-zpool-guid") {
