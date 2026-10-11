@@ -1257,6 +1257,12 @@ def casos_tab_continua(ctx):
     seccion = lee(3)
     os.write(fd, b"\x15cd local#path/et\t")
     ruta = lee(3)
+    # «..» se completa con su barra, como en bash: no ofrecía nada porque ningún hijo se
+    # llama así. En una URL de datasets y dentro de `#path`.
+    os.write(fd, b"\x15cd local/..\t")
+    subir = lee(3)
+    os.write(fd, b"\x15ls zfsm://local#path/etc/..\t")
+    subir_path = lee(3)
     os.write(fd, b"\x15exit\r")
     lee(1)
     try:
@@ -1271,12 +1277,17 @@ def casos_tab_continua(ctx):
         problemas.append("`cd local#<tab>` no escribe «local#path/»")
     if not ruta.rstrip().endswith("cd local#path/etc/"):
         problemas.append("`cd local#path/et<tab>` no escribe «etc/»")
+    if not subir.rstrip().endswith("cd local/../"):
+        problemas.append("`cd local/..<tab>` no escribe «../»")
+    if not subir_path.rstrip().endswith("ls zfsm://local#path/etc/../"):
+        problemas.append("`ls …#path/etc/..<tab>` no escribe «../»")
     # Y las opciones se enseñan SIN lo que comparten: «ztfc16/  ztfc16#», no la URL entera
     # repetida delante de cada una.
     if not re.search(rf"^\s+{P}/\s+{P}#\s*$", pool.replace("\r", ""), re.M):
         problemas.append("`ls <pool><tab>` no enseña «<pool>/  <pool>#» sin la URL delante")
     if problemas:
-        ctx.fallos.append((nombre, problemas, (conexion + pool + seccion + ruta)[-600:]))
+        ctx.fallos.append((nombre, problemas,
+                           (conexion + pool + seccion + ruta + subir + subir_path)[-600:]))
         print(f"  FALLO  {nombre}")
         for x in problemas:
             print(f"         {x}")

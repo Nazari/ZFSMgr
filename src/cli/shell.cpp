@@ -7682,6 +7682,14 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
                 return {};
             }
             candidatos = nombresDeContenido(e, donde);
+            // «..» y «.» con su barra, como en la URL corriente (ver más abajo). Se suman a
+            // los nombres: aquí uno puede empezar por punto, y `.bashrc` no debe taparse.
+            if (cola == "." || cola == "..") {
+                ZfsmUrl conPuntos;
+                if (resuelve(e, prefijo + yaEscrito + cola, conPuntos, err)) {
+                    candidatos.push_back(cola + "/");
+                }
+            }
         } else {
             return {};   // `#permissions` no tiene hijos, y una sección desconocida tampoco
         }
@@ -7716,6 +7724,17 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
     if (!resuelve(e, base.empty() ? std::string(".") : base, sitio, err)) {
         return {};
     }
+    // «..» y «.» se completan con su barra, como en bash: `cd fc16/..<tab>` no ofrecía nada
+    // porque ningún hijo se llama así, y con «../» sí, así que había que teclearla a mano.
+    // Solo si de verdad resuelven. Tras una «@» la cola lleva la arroba delante y no entra.
+    std::string conPuntos;
+    if (cola == "." || cola == "..") {
+        ZfsmUrl destinoPuntos;
+        std::string errPuntos;
+        if (resuelve(e, base + cola, destinoPuntos, errPuntos)) {
+            conPuntos = base + cola + "/";
+        }
+    }
     // Dentro de `#path/…` o `#content/…`, un nombre suelto es un fichero de ese directorio,
     // no un dataset hijo: lo mismo que lee `resuelve`.
     if (esSeccionDeFicheros(sitio)) {
@@ -7725,6 +7744,11 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
                 out.push_back(base + n);
             }
         }
+        // Aquí un nombre SÍ puede empezar por punto (`.bashrc`): «../» se suma a ellos, no
+        // los tapa.
+        if (!conPuntos.empty()) {
+            out.push_back(conPuntos);
+        }
         puedeSeguir = out.size() == 1 && out.front().back() == '/';
         return out;
     }
@@ -7733,6 +7757,13 @@ std::vector<std::string> completaEn(Estado& e, const std::string& linea, std::si
         if (B::startsWith(h, cola)) {
             out.push_back(base + h);
         }
+    }
+    // Un dataset también puede empezar por punto (`tank/.oculto` es un nombre válido; solo
+    // «.» y «..» no lo son): «../» se suma a ellos, igual que en los ficheros.
+    if (!conPuntos.empty()) {
+        out.push_back(conPuntos);
+        puedeSeguir = out.size() == 1;
+        return out;
     }
     // Lo escrito ya ES el único candidato —`cd local<tab>` en zfsm://—: no hay nada que
     // alargar y el tabulador no hacía nada. Se ofrece lo que puede seguir: «/» si hay hijos
