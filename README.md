@@ -1,547 +1,205 @@
-# ZFSMgr: OpenZFS GUI Manager for Local and Remote Systems
+# ZFSMgr: OpenZFS manager for the command line, local and remote
 
-**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, FreeBSD, macOS, and Windows**.
+**ZFSMgr** manages **OpenZFS** pools, datasets, snapshots and transfers on **Linux, macOS,
+FreeBSD and Windows**, on the machine you are sitting at and on any other you can reach over
+SSH, from a single command line tool: **`zfsmgr-cli`**.
 
-If you are looking for a **ZFS GUI manager**, **OpenZFS GUI**, **remote ZFS manager**, or a **desktop ZFS administration tool**, ZFSMgr is designed to cover the whole workflow from one interface:
+## Version 1.0.0: the command line
 
-- pools,
-- datasets,
-- snapshots,
-- properties,
-- delegated permissions,
-- encryption,
-- replication flows,
-- and remote administration over SSH.
+**ZFSMgr 1.0.0 is the command line client (`zfsmgr-cli`) and its daemon (`zfsmgr-agent`).**
+That is what is published, tested and supported in this release.
 
-ZFSMgr is not a simple pool browser. It is intended to be a **complete graphical manager for ZFS and OpenZFS environments**, including **remote pools and datasets on other machines**.
-
-## Version 1.0.0: command line only
-
-**ZFSMgr 1.0.0 publishes the command line client (`zfsmgr-cli`) and its daemon
-(`zfsmgr-agent`) only.** The graphical interface described further down is **not part of
-this release**: it has not been tested against 1.0.0 and is not expected before
-**version 2.0.0**. Everything below about the GUI describes that future work, not what
-1.0.0 ships.
-
-Quick start:
-
-```sh
-# Download zfsmgr-cli-1.0.0.zip from the Releases page (curl avoids macOS quarantine)
-curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip
-unzip zfsmgr-cli-1.0.0.zip && cd zfsmgr-cli-1.0.0
-sh instalar-linux.sh          # or instalar-macos.sh / instalar-freebsd.sh / instalar-windows.cmd
-zfsmgr-cli                    # interactive shell; «help» lists the commands
-```
-
-From one machine, `zfsmgr-cli install-daemon -a` installs or updates the daemon —and the
-CLI, where there is one— on every known connection.
+The graphical interface that ZFSMgr started with is **not part of 1.0.0**. It has not kept up
+with the work of the last months and has not been tested against this version, so it is not
+published. It will return in **version 2.0.0**, built on the same base the CLI uses today.
 
 ## Beta notice and legal disclaimer
 
-This software is currently a **BETA** release and is provided **"AS IS"**.
+This software is provided **"AS IS"**. ZFS administration can destroy data: commands that
+modify ask for confirmation, but they do what you tell them.
 
-- It may contain defects, regressions, data-loss scenarios, or incomplete behaviors.
+- It may contain defects, regressions, data-loss scenarios, or incomplete behaviours.
 - Use it at your own risk, especially on production systems or critical data.
-- The author (Eladio Linares) provides **no warranty** and assumes **no liability** for direct or indirect damage, data loss, service interruption, or any other consequence derived from use.
+- The author (Eladio Linares) provides **no warranty** and assumes **no liability** for direct
+  or indirect damage, data loss, service interruption, or any other consequence of its use.
 
-Legal references:
+Legal references: **GNU GPL v3**, Section 15 (*Disclaimer of Warranty*) and Section 16
+(*Limitation of Liability*).
 
-- **GNU GPL v3**, Section 15: **Disclaimer of Warranty**.
-- **GNU GPL v3**, Section 16: **Limitation of Liability**.
+## Installing
 
-## Releases
+Download `zfsmgr-cli-1.0.0.zip` from the
+[Releases page](https://github.com/Nazari/ZFSMgr/releases). From a terminal, `curl` avoids
+the quarantine that macOS browsers attach to downloads:
 
-- **Current beta line**: check the latest published release here:
-  https://github.com/Nazari/ZFSMgr/releases
-
-## Installing on macOS
-
-ZFSMgr is **not signed with an Apple Developer ID**, and it is not notarized. That
-programme costs money every year and this project does not pay for it. Nothing is
-wrong with the build: it simply means macOS cannot attribute it to a paying developer.
-
-### Recommended: download from the terminal
-
-The Gatekeeper warning is not caused by the file — it is caused by the *quarantine
-attribute* that web browsers attach to anything you download. Command line tools do
-not set it, so downloading this way avoids the problem entirely.
-
-There is a single macOS asset, `ZFSMgr-<version>-macos-universal.app.zip`, which
-runs on both Apple Silicon and Intel — no need to pick an architecture. This
-snippet resolves the current version for you:
-
-```bash
-URL=$(curl -fsSL https://api.github.com/repos/Nazari/ZFSMgr/releases/latest \
-      | grep -o "https://[^\"]*macos-universal\.app\.zip")
-curl -L -o ZFSMgr.app.zip "$URL"
-unzip ZFSMgr.app.zip -d /Applications
-open /Applications/ZFSMgr.app
+```sh
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip.sha256
+sha256sum -c zfsmgr-cli-1.0.0.zip.sha256      # macOS: shasum -a 256 -c …
+unzip zfsmgr-cli-1.0.0.zip && cd zfsmgr-cli-1.0.0
 ```
 
-The bundle inside the archive is always `ZFSMgr.app`, without the version, so
-unzipping over `/Applications` replaces the previous install instead of leaving
-both side by side. The version is in the app's Info.plist.
+The package carries the CLI and the daemon for every platform, and one installer per system:
 
-With the GitHub CLI it is a single command:
-
-```bash
-gh release download --repo Nazari/ZFSMgr --pattern '*macos-universal.app.zip'
-```
-
-### If you already downloaded it with a browser
-
-Remove the quarantine attribute and it will open normally:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/ZFSMgr.app
-```
-
-Alternatively, open **System Settings → Privacy & Security**, and use **Open Anyway**
-next to the message about ZFSMgr.
-
-> On macOS 15 (Sequoia) and later, the old right-click → *Open* shortcut no longer
-> bypasses Gatekeeper. Use either of the two methods above.
-
-### Building it yourself
-
-Software you compile locally is never quarantined, so it just runs:
-
-```bash
-./scripts/build-macos.sh
-```
-
-Requires Xcode command line tools and Qt 6. See `docs/cross-compiling-linux.md` for
-the toolchain details.
-
-## Installing the command-line tool
-
-One client ships next to the window: a client that links no Qt at all and talks to the
-daemon over the same tunnel.
-
-- **`zfsmgr-cli`** — the shell: the same operations as the window, driven from a
-  terminal, with a `zfsm://` URL as the current location.
-
-There used to be a second one, **`zfsmgr-web`**, a local HTTPS server that served the
-same tree to a browser. It was abandoned in 0.99.2 and removed from the tree in 0.99.4:
-what justified it was mounting a dataset from Finder or Explorer over WebDAV, and that
-never worked — `/dav/` only accepts the browser's session cookie, and a file manager
-mounts with a username and a password. See the git history if you need the code.
-
-Where they land depends on how the platform installs software:
-
-| Platform | Installer | Where the tools end up |
+| System | Installer | Notes |
 |---|---|---|
-| Windows | `ZFSMgr-setup.exe` | `%ProgramFiles%\ZFSMgr\bin\`, and the installer offers to add that directory to the system `Path` |
-| Linux | `.deb` / AppImage | `/usr/bin/` — on the `PATH` already |
-| FreeBSD | `.pkg` | `/usr/local/bin/` — on the `PATH` already |
-| macOS | *(none — the `.app` is drag-and-drop)* | inside the bundle, at `ZFSMgr.app/Contents/MacOS/` |
+| Linux | `sudo sh instalar-linux.sh [--con-daemon]` | x86_64 |
+| macOS | `sudo sh instalar-macos.sh [--con-daemon]` | Apple Silicon and Intel |
+| FreeBSD | `sudo sh instalar-freebsd.sh [--con-daemon]` | experimental |
+| Windows | `instalar-windows.cmd` | CLI only; the daemon is installed from another machine |
 
-macOS has no installer, so the links are yours to make:
+Each installer checks the package before touching anything, needs **OpenZFS 2.3 or later**
+when the machine has OpenZFS, and with `--con-daemon` also installs the daemon of that machine.
+Every installer has `--help`.
 
-```bash
-sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-zfsmgr-cli --help
+The other machines do not need the package. Once they are added as connections, one command
+installs or updates the daemon on all of them, and the CLI too where there is one:
+
+```sh
+zfsmgr-cli install-daemon -a          # --check shows the plan without touching anything
 ```
 
-Deleting the `.app` leaves those symlinks dangling; remove them with
-`sudo rm /usr/local/bin/zfsmgr-cli`.
+On macOS the daemon needs **Full Disk Access** to read and write datasets. Grant it in System
+Settings → Privacy & Security; the connection list warns when it is missing.
 
-The AppImage is the graphical application only. It is a single self-contained file, so
-nothing inside it is on your `PATH`; use the `.deb` if you want the shell.
+## A quick tour
 
-## Cross-compiling from Linux
+`zfsmgr-cli` with no arguments is an **interactive shell** where the current location is a
+**`zfsm://` URL**, and every command acts on it:
 
-There is now a Linux cross-compiling base for:
+```text
+zfsm://> cd local/tank/data
+zfsm://local/tank/data> ls
+zfsm://local/tank/data> create @before-upgrade
+zfsm://local/tank/data> send zfsm://backup/pool/data --from @before-upgrade --wait
+zfsm://local/tank/data> cp #content/report.pdf zfsm://laptop#path/home/me/
+```
 
-- Windows
-- FreeBSD
-- macOS (with osxcross)
+A URL names any object on any machine:
 
-Entry point:
+| URL | What it names |
+|---|---|
+| `zfsm://backup` | a machine (a connection) |
+| `zfsm://backup/pool/data` | a pool or a dataset |
+| `zfsm://backup/pool/data@daily` | a snapshot |
+| `zfsm://backup/pool/data#content/dir/file` | a file inside a dataset |
+| `zfsm://backup#path/etc/hosts` | any path on that machine |
+| `zfsm://backup/pool/data#properties` | its properties |
 
-```bash
+Relative names work as in a file system, and **TAB** completes commands, machines, datasets
+and files. URLs accept wildcards and lists (`tank/*`, `tank@auto-*`, `{a,b}`): commands that
+read gather one table, and commands that modify show the exact list and ask before acting.
+`help patterns` and `help urls` explain both.
+
+The commands, as `help` lists them:
+
+```text
+Navigation: cd, pwd, ls, info
+Creating and destroying, at any level: create, destroy
+Connections: devices, edit, connect, disconnect, refresh, repair-mounts,
+             authorize-key, export-trust
+Pools: labelclear, status, history, scrub, trim, initialize, clear, flush,
+       upgrade, reguid, export, import
+Datasets: rename, mount, unmount, promote, get, set, load-key, unload-key,
+          change-key
+Snapshots: schedule, schedules, rollback, clone, holds, hold, release, diff
+Delegated permissions: allow, unallow
+Actions: cp, rsync, breakdown, assemble, todir, fromdir
+Transfers between machines: send
+Background jobs: jobs, job
+Daemon: peers, log, install-daemon
+```
+
+`help <command>` gives what it does, its options and examples.
+
+### Some things it does
+
+- **`send`** a snapshot to another dataset on the same or another machine, in full or
+  incrementally (`--base`), with the native `zfs send` flags. Either end can also be a
+  **file** holding the stream: write a snapshot to `zfsm://nas#path/backups/x.zfs`, or receive
+  one with `--from` that file. An interrupted receive is detected before sending, and you
+  choose to continue it (`--resume`) or start over (`--discard-partial`).
+- **Transfers run as daemon jobs**, directly between the two machines: the data never passes
+  through yours, they survive closing the shell, and `jobs`/`job` follow them. A job only
+  reports `done` once the receiving end confirms it.
+- **`cp`** and **`rsync`** copy files and trees between datasets and paths, across machines,
+  keeping owner, group, mode and times, and warning about ACLs or extended attributes that
+  cannot travel.
+- **`schedule`** automatic snapshots with retention, and **level** a dataset against another
+  machine, run by the daemon itself.
+- **`breakdown`** a directory into child datasets and **`assemble`** them back; **`todir`** and
+  **`fromdir`** move content between a dataset and a directory.
+- **Pools**: create them (including from devices given as `#path/dev/...`), scrub, trim,
+  import with the native flags, look at an exported pool's status, clear old labels.
+- **Delegated permissions** (`allow`/`unallow`), **encryption keys**, **holds**, **diff**,
+  **rollback**, **clone**, **promote**.
+
+## Scripting
+
+Every command works outside the shell too, which is how the history you build interactively
+turns into scripts:
+
+```sh
+zfsmgr-cli --password-fd 3 --format json -y \
+    send zfsm://nas/pool/home --on zfsm://local/tank/home@daily --wait 3< <(pass show zfsmgr)
+```
+
+- `--on <url>` (or `--from`) acts on a location without moving to it.
+- `--format tsv` is for shell scripts —no header, tabs, `-` where there is no value, like
+  `zfs list -H`—; `--format json` is for programs.
+- `-y` skips the confirmations. Without a terminal, a command that needs confirmation refuses
+  instead of guessing.
+- **Secrets are never arguments or environment variables**, which any user can see in `ps`.
+  The master password comes from a descriptor (`--password-fd`) or from the terminal.
+
+## How it works
+
+Each managed machine runs **`zfsmgr-agent`**, a native daemon: a single binary with no runtime
+dependencies, started by systemd, launchd, rc.d or a scheduled task. The CLI talks to it with
+**typed requests** over TLS, tunnelled through SSH for remote machines. **No shell commands
+are sent to the remote machine**: SSH is the transport, not an interpreter.
+
+The daemons also talk to each other: transfers, copies and levelling go from one daemon to
+the other, with a per-transfer token.
+
+On **Windows** (OpenZFS for Windows) everything goes through the agent as well, with no Unix
+tools needed. Some operations are not available there —the ZFS end of `send`, for example—
+and the CLI says so instead of attempting them.
+
+## Configuration
+
+Connections live in `~/.config/ZFSMgr/config.json`, and the daemons' TLS material in
+`trust-store.json` next to it. Passwords and TLS keys are encrypted with a **master password**
+(`master-password` changes it). Several `zfsmgr-cli` can run at the same time: writes are
+atomic and locked between processes.
+
+## Building from source
+
+Requirements: CMake 3.21 or later, a C++17 compiler, OpenSSL, and Qt 6 for the configure step
+(the CLI and the daemon link no Qt; the build files still find it for the future GUI).
+
+```sh
+./scripts/build-linux.sh              # builds/linux/zfsmgr-cli and zfsmgr_agent
+```
+
+All platforms are cross-compiled from a Linux host —Windows with MinGW, FreeBSD with a
+sysroot, macOS with osxcross—, and `scripts/buildall-cross.sh` builds every platform and the
+release zip into `builds/artifacts/`:
+
+```sh
 ./scripts/provision-cross-targets.sh --windows --freebsd
-./scripts/build-cross.sh --target windows --doctor
-./scripts/build-cross.sh --target freebsd --doctor
-./scripts/build-cross.sh --target macos --doctor
+./scripts/buildall-cross.sh
 ```
 
-Documentation:
+See `docs/cross-compiling-linux.md` for the toolchains.
 
-- `docs/cross-compiling-linux.md`
+## The graphical interface (2.0.0)
 
-## Why ZFSMgr
-
-ZFSMgr is designed for users who want a real **GUI for ZFS administration** without giving up low-level OpenZFS functionality.
-
-It gives you:
-
-- a **single unified connection/pool/dataset tree** for all navigation,
-- **logical source/target selection** from the dataset context menu,
-- **remote pool and dataset management** from the same desktop app,
-- a **connectivity matrix** between connections with `SSH` and `rsync` checks,
-- **inline editing** of dataset and pool properties directly in the treeview,
-- **permission delegation management** with `zfs allow` / `zfs unallow`,
-- **automatic snapshot scheduling and leveling** using the remote daemon scheduler,
-- **snapshot-oriented workflows** such as copy, clone, diff, rollback and level/sync,
-- a **graphical pool builder** with OpenZFS-aware VDEV validation,
-- **encrypted dataset creation and mount flows** with passphrase prompts when `keylocation=prompt`,
-- **persistent operational logs** with secret masking,
-- and **native system logging** integration on macOS, Linux and Windows.
-
-## Main capabilities
-
-### Pool management
-
-- Imported and importable pool discovery.
-- Pool import/export.
-- Pool import with rename validation from the context menu.
-- Pool upgrade from the GUI (`zpool upgrade`).
-- Pool creation with device selection and options.
-- Device tree for available block devices, including whole disks and partitions.
-- OpenZFS-aware pool layout builder:
-  - direct devices at pool root for implicit stripe,
-  - `mirror`,
-  - `raidz`, `raidz2`, `raidz3`,
-  - top-level classes such as `log`, `cache`, `special`, `dedup`, `spare`.
-- Live `zpool create` preview with invalid layouts highlighted in red.
-- macOS-specific filtering for internal APFS/synthesized system disks.
-- Mount-state controls in the pool-creation dialog to unmount devices before use.
-- Pool destroy with confirmation.
-- Pool history view.
-- Pool maintenance actions from the GUI:
-  - `zpool sync`
-  - `zpool scrub`
-  - `zpool upgrade`
-  - `zpool reguid`
-  - `zpool trim`
-  - `zpool initialize`
-- Pool information and scheduled-dataset visibility directly in the unified tree.
-
-### Dataset, zvol and snapshot management
-
-- Create dataset, snapshot and zvol.
-- Automatic snapshot scheduling node for filesystem datasets.
-- Create encrypted datasets with passphrase confirmation when using:
-  - `encryption=on` or `aes-*`,
-  - `keyformat=passphrase`,
-  - `keylocation=prompt`.
-- Rename and delete datasets.
-- Pool root fused with its root dataset in the tree:
-  - the pool root keeps pool icon and tooltip,
-  - the duplicate `pool/pool/...` visual level is removed.
-- Context-aware delete actions for:
-  - dataset,
-  - snapshot,
-  - zvol.
-- Mount/unmount operations.
-- Mount encrypted datasets by prompting for the passphrase and loading the key before mount when required.
-- Snapshot rollback.
-- Snapshot selection directly in the unified tree.
-- Optional filtering of automatic snapshots (`GSA-*`) from dataset context menus.
-- Snapshot holds:
-  - create hold,
-  - inspect hold timestamp,
-  - release hold.
-
-### Automatic snapshot scheduling and leveling
-
-- Per-dataset scheduling is defined with ZFS user properties (`org.fc16.gsa:*`):
-  - enabled,
-  - recursive,
-  - hourly/daily/weekly/monthly/yearly retention,
-  - leveling,
-  - destination dataset.
-- Destination values use the `Connection::Pool/Dataset` format.
-- Scheduling execution is handled by the installed remote daemon (`zfsmgr-agent`), not by GUI polling.
-- The daemon owns scheduler integration with the host OS.
-- Connection context menu exposes daemon lifecycle:
-  - install/update (single action),
-  - uninstall,
-  - up-to-date/running state.
-- ZFSMgr auto-checks daemon version/API on refresh/connect and can auto-update when required.
-- TLS/mTLS desynchronization is surfaced on the connection node and triggers a non-interactive daemon refresh/re-cache path instead of requiring manual uninstall/reinstall.
-- Validation avoids conflicting recursive schedules between parent and child datasets.
-- Sequential leveling toward configured destinations is supported.
-- Scheduler events are appended to `GSA.log` and surfaced in the UI log tabs.
-
-### Inline property management
-
-- Dataset, pool and snapshot properties shown **inline in the unified tree**.
-- Visual property groups per scope:
-  - pool,
-  - dataset,
-  - snapshot.
-- Main inline nodes currently include:
-  - `Dataset properties`
-  - `Pool Information`
-    - includes `Devices` (pool vdev/disk hierarchy from `zpool status -P`)
-  - `Datasets programados`
-  - `Info`
-    - `General`
-    - `Daemon`
-    - `Commands`
-- Reorder visible properties by drag and drop.
-- Persist visible properties and order in configuration.
-- Inline editing of property values.
-- Inline inheritance controls for inheritable properties.
-- Property column count configurable from the tree header context menu.
-- Current property-column range:
-  - `4, 6, 8, 10, 12, 14, 16`
-
-### ZFS permissions management
-
-ZFSMgr includes **graphical management of delegated ZFS permissions** per dataset.
-
-Current permission features include:
-
-- A dedicated permissions node in dataset trees.
-- Delegation management based on:
-  - `zfs allow`
-  - `zfs unallow`
-- Support for:
-  - users,
-  - groups,
-  - `everyone`,
-  - local / descendant / local+descendant scopes,
-  - creation-time permissions,
-  - permission sets (`@setname`).
-- Inline permission editing in treeview grids.
-- Draft-based permission editing with batch application through **`Aplicar cambios`**.
-- Remote user/group enumeration on Linux, FreeBSD and macOS.
-- Windows excluded from permission UI in this phase.
-
-### Encryption workflows
-
-- Encryption submenu for encryption-root datasets.
-- `Load key`.
-- `Unload key`.
-- `Change key`.
-- Prompted password entry when `keylocation=prompt`.
-- `Create dataset` and `Mount` integrate passphrase prompts instead of expecting interactive shell input.
-
-### Source/target workflows
-
-ZFSMgr uses a **source / target model** directly in the main window.
-
-That enables:
-
-- snapshot copy (`zfs send` / `zfs recv`),
-- snapshot clone,
-- `zfs diff` integration,
-- level / sync operations,
-- advanced breakdown / assemble operations,
-- `From Dir` and `To Dir` flows.
-
-Selection model:
-
-- `Source` and `Target` are no longer chosen with checks in a connections table.
-- They are selected from the dataset context menu:
-  - `Select as source`
-  - `Select as destination`
-- The current selections are shown in the `Selected datasets` box.
-
-The `Diff` action includes a dedicated results window with grouped tree output for:
-
-- added files,
-- deleted files,
-- modified files,
-- renamed files.
-
-### Background daemon-to-daemon transfers
-
-Copy and Level operations support **background execution**: when both endpoints have an active `zfsmgr-agent`, the transfer runs entirely between the two remote daemons without data passing through the local machine.
-
-Key characteristics:
-
-- The GUI submits the job and returns immediately — **no GUI blocking** during the transfer.
-- The user can **close the GUI** while the transfer runs; the daemon continues independently.
-- Progress is polled every 2.5 seconds and shown in the **Transferencias** tab.
-- Each job can be **cancelled** from the tab, which sends `SIGTERM` to the `zfs send` child process.
-- On reconnect, the GUI automatically recovers any jobs that were running while it was closed.
-- If one or both daemons do not advertise job support (`JOBS_SUPPORT=1` in `--health`), the operation falls back silently to the synchronous pipeline path.
-
-The **Transferencias** tab shows one row per job with state, dataset labels, bytes transferred, rate, and elapsed time.
-
-Design reference: `docs/daemon2daemon.md`
-
-### Connectivity matrix
-
-- `Check connectivity` action in the main application menu.
-- Matrix view with connections as rows and columns.
-- Per-cell checks for:
-  - `SSH`
-  - `rsync`
-- Red cells expose the concrete failure reason in a tooltip.
-- On Unix/macOS, the probe expands `PATH` before checking helper tools such as `sshpass` and `rsync`, so non-interactive shells still see standard Homebrew and `/usr/local` locations.
-- If a direct route is not available, transfers may need to pass through the local machine running ZFSMgr, which is more expensive than a direct remote-to-remote path.
-- The daemon/scheduler path warns when a required leveling route does not have `SSH` connectivity.
-
-### Logging and safety
-
-- Combined in-app log.
-- Persistent rotating logs.
-- Native system log integration:
-  - macOS Unified Logging,
-  - Linux `syslog` / `journald`,
-  - Windows Event Log (best effort).
-- Secret masking (`[secret]`).
-- Command previews and execution traces.
-- Busy-state locking for unsafe concurrent actions.
-- Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
-- Current daemon model security notes:
-  - daemon-rpc uses TLS/mTLS material deployed per connection,
-  - portable daemon trust material is stored in a dedicated encrypted `trust-store.json` instead of copying the full local `config.json`,
-  - when daemon-rpc TLS enters backoff, the connection is marked for attention and ZFSMgr attempts a soft daemon update plus TLS re-cache automatically,
-  - remote execution keeps SSH fallback while daemon-rpc is unavailable,
-  - scheduler events remain auditable via `GSA.log` + app logs.
-- Daemon log tab (`Daemon`): rotating log at `/var/lib/zfsmgr/daemon.log` viewable from the GUI, with a `Heartbeat` button to confirm liveness.
-- ZED event detection is driven by `zpool events -f` in a background thread inside the daemon; the GUI polls `--health` every ~10 s and triggers a tree refresh when a new ZED event timestamp appears.
-- See:
-  - `docs/diseno_tecnico_daemon_nativo_zed.md`
-  - `docs/diseno_configuracion_portable_trust_store.md`
-  - `docs/diseno_y_funcionamiento_gsa.md`
-  - `docs/daemon2daemon.md`
-
-## Remote ZFS management
-
-ZFSMgr is designed to manage **local and remote OpenZFS systems**.
-
-You can work against:
-
-- local Linux systems,
-- remote Linux systems,
-- remote macOS systems,
-- remote Unix-like systems,
-- Windows hosts with the required OpenZFS tooling and compatible shell/runtime.
-
-This makes ZFSMgr suitable as a **remote ZFS GUI manager** for homelabs, NAS hosts, backup servers and multi-machine OpenZFS administration.
-
-## Windows compatibility checks
-
-On Windows, ZFSMgr works **only through the native agent**: it does not run shell
-commands on the remote host and does not require MSYS2, MinGW or any other Unix
-tooling. SSH is the only supported transport, because the typed RPC travels through a
-tunnel opened over the SSH connection itself.
-
-ZFSMgr validates the runtime prerequisites so operations can run safely:
-
-- SSH reachability (Windows 10/11 ship OpenSSH Server).
-- OpenZFS tools availability (`zfs`, `zpool`), including common install paths.
-- Agent presence, whether it is running, and API version match.
-- Mount semantics handling, including effective `driveletter` resolution.
-
-Features the Windows agent does not implement yet are shown **disabled with the
-reason** rather than attempted. That list is declared by the agent itself in its
-health response, so it updates as the agent gains coverage.
-
-If required components are missing, the UI reports the situation clearly in connection status and logs.
-
-## UI model
-
-- Top area:
-  - one unified tree with connections as roots.
-- Middle row:
-  - `Status` and `Progress`,
-  - `Actions` box (`Source`/`Target` + transfer actions),
-  - `Pending changes`.
-- Bottom area:
-  - logs (`Settings`, `Combined log`, `Terminal`, `Daemon`).
-  - `Transferencias` tab: running and recent background daemon transfer jobs.
-
-Important characteristics:
-
-- Connections stay visible in the tree even when disconnected.
-  Their pools disappear until the connection is active again.
-- The effective detail selection comes from the unified tree, while logical `Source` / `Target` are separate selections.
-- Creation dialogs stay open on execution failure so entered values can be corrected and retried.
-- Tree headers include context actions for:
-  - resize this column,
-  - resize all columns,
-  - choose property column count.
-- `Apply changes` batches real pending commands and lists them in `Pending changes` before execution.
-
-## Configuration and data
-
-- User config location: `~/.config/ZFSMgr/` on Linux (Qt-equivalent path on macOS/Windows).
-- Main config file: `config.ini`.
-- Master password used to protect credentials in configuration.
-
-Persistent configuration includes, among other things:
-
-- connections,
-- logical source/target selections,
-- visible property groups,
-- inline property order,
-- tree column widths,
-- UI state relevant to the unified-tree workflow.
-
-## Build requirements
-
-- CMake >= 3.21
-- C++17-capable compiler
-- Qt6 (`Core`, `Gui`, `Widgets`)
-- OpenSSL (especially relevant on Windows/Qt environments)
-
-## Quick build
-
-### Linux
-
-```bash
-./scripts/build-linux.sh
-```
-
-Expected binary: `builds/linux/zfsmgr-gui`
-
-### Linux AppImage (portable)
-
-```bash
-./scripts/build-linux.sh --appimage
-```
-
-What it does:
-
-- builds a Release binary,
-- creates an AppDir,
-- bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
-- generates `ZFSMgr-0.10.0rc1-x86_64.AppImage`.
-
-Notes:
-
-- Current script target: `x86_64`.
-- Requires `curl` and a working Qt toolchain in PATH (`qmake6`/`qmake`).
-- The script auto-downloads `linuxdeploy` tools into `.tools/appimage/`.
-
-### macOS
-
-```bash
-./scripts/build-macos.sh
-```
-
-The script builds the binary and can also generate an unsigned `.app` bundle.
-
-### Windows (PowerShell)
-
-```powershell
-.\scripts\build-windows.ps1
-```
-
-The script auto-detects toolchain/Qt and builds under `builds/windows`.
-
-Installer generation is now explicit:
-
-```powershell
-.\scripts\build-windows.ps1 --inno
-```
-
-Without `--inno`, the script only builds the application and skips Inno Setup packaging. This is also the behavior expected in GitHub Actions.
-
-On Windows, `zfsmgr-gui.exe` is built with an embedded UAC manifest and must be started with administrator privileges.
-
-## Run
-
-After building, run the generated binary for your platform and unlock it with the master password.
+The repository still contains the Qt 6 desktop application (`src/native`). It is **not
+released with 1.0.0** and should be considered unmaintained until 2.0.0, which will bring it
+back on top of the same base layer, daemon and transfers that the CLI uses.
 
 ## Keywords
 
-OpenZFS GUI, ZFS GUI manager, remote ZFS manager, ZFS desktop manager, graphical ZFS administration, ZFS snapshot manager, ZFS permissions GUI, zpool GUI, dataset manager, OpenZFS remote administration.
+OpenZFS CLI, ZFS command line manager, remote ZFS manager, ZFS replication, zfs send to file,
+ZFS snapshot scheduling, zpool management, OpenZFS on Windows, OpenZFS on macOS.
