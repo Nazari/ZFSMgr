@@ -1018,6 +1018,55 @@ def casos_sin_montar(ctx):
     sh(ctx, f"bash -c 'zfs destroy -r {be}; zfs destroy -r {P}/origen'", root=True)
 
 
+def casos_cp_destino(ctx):
+    """`cp` como el de toda la vida según lo que haya en el destino.
+
+    Directorio: dentro y con su nombre. Nada: el destino ES la copia (fichero con ese
+    nombre; directorio creado con su contenido). Fichero: otro fichero lo sobrescribe, un
+    directorio no. Y el directorio de llegada con el dueño y el modo del original, no
+    root:root 0755, que es como lo dejaba el agente al crearlo.
+    """
+    w = "/var/tmp/zfsmgr-prueba-cp"
+    sh(ctx, f"rm -rf {w}", root=True)
+    os.makedirs(f"{w}/src/dir/sub", exist_ok=True)
+    os.makedirs(f"{w}/dst", exist_ok=True)
+    for ruta, texto in (("src/f.txt", "hola"), ("src/dir/a", "x"), ("src/dir/sub/b", "y"),
+                        ("dst/ex.txt", "viejo")):
+        with open(f"{w}/{ruta}", "w") as f:
+            f.write(texto + "\n")
+    os.chmod(f"{w}/src/dir", 0o750)
+    caso(ctx, "cp: fichero a un destino que no existe, con ese nombre",
+         [f"cp {w}/src/f.txt {w}/dst/nuevo.txt --wait"], rc=0,
+         estado=[("nuevo.txt con el contenido", f"cat {w}/dst/nuevo.txt", r"^hola$")])
+    caso(ctx, "cp: directorio a un destino que no existe, crea ese directorio",
+         [f"cp {w}/src/dir {w}/dst/copia --wait"], rc=0,
+         estado=[("con su contenido", f"cat {w}/dst/copia/sub/b", r"^y$"),
+                 ("sin anidar el origen dentro", f"bash -c 'ls {w}/dst/copia'", r"^a\nsub$"),
+                 ("con el dueño y el modo del original",
+                  f"stat -c '%U %a' {w}/dst/copia", rf"^{os.environ.get('USER', 'linarese')} 750$")])
+    caso(ctx, "cp: un fichero sobrescribe a otro",
+         [f"cp {w}/src/f.txt {w}/dst/ex.txt --wait"], rc=0,
+         estado=[("ex.txt sobrescrito", f"cat {w}/dst/ex.txt", r"^hola$")])
+    caso(ctx, "cp: un directorio NO sobrescribe un fichero",
+         [f"cp {w}/src/dir {w}/dst/ex.txt --wait"], rc=1,
+         espera=[r"overwrite the file|sobrescribir el fichero"])
+    caso(ctx, "cp: con varios orígenes el destino tiene que ser un directorio",
+         [f"cp {w}/src/f.txt {w}/src/dir {w}/dst/noexiste --wait"], rc=1,
+         espera=[r"several sources|varios orígenes"],
+         estado=[("no crea nada", f"bash -c 'ls {w}/dst/noexiste 2>&1'", r"No such|No existe")])
+    caso(ctx, "cp: el padre del destino tiene que existir",
+         [f"cp {w}/src/f.txt {w}/nohay/x.txt --wait"], rc=1,
+         espera=[r"does not exist|no existe el directorio"])
+    caso(ctx, "cp: un origen que no existe se dice ANTES de lanzar nada",
+         [f"cp {w}/src/nada.txt {w}/dst/"], rc=1,
+         espera=[r"does not exist: .*nada\.txt|no existe: .*nada\.txt"],
+         no_espera=[r"job|trabajo"])
+    caso(ctx, "cp: a un directorio que existe, dentro y con su nombre",
+         [f"cp {w}/src/dir {w}/dst --wait"], rc=0,
+         estado=[("dst/dir/a", f"cat {w}/dst/dir/a", r"^x$")])
+    sh(ctx, f"rm -rf {w}", root=True)
+
+
 def casos_editor_ancho(ctx):
     """El editor de línea no puede pintar más ancho que el terminal.
 
@@ -1648,6 +1697,29 @@ def casos_entre_maquinas(ctx):
          estado=[("el fichero nuevo llegó a unib",
                   f"bash -c 'zfs mount {R}/de_fc16 2>/dev/null; cat /mnt/{R}/de_fc16/inc.txt'",
                   r"incremental", True)])
+    # `cp` entre máquinas con el destino que no existe: el fichero llega con OTRO nombre
+    # (lo pone el emisor con `--as`) y el directorio de llegada con el dueño del original.
+    w = "/var/tmp/zfsmgr-prueba-cpx"
+    sh(ctx, f"rm -rf {w}", root=True)
+    sh(ctx, f"rm -rf {w}", True, root=True)
+    os.makedirs(f"{w}/dir", exist_ok=True)
+    with open(f"{w}/f.txt", "w") as f:
+        f.write("entre maquinas\n")
+    with open(f"{w}/dir/a", "w") as f:
+        f.write("x\n")
+    os.chmod(f"{w}/dir", 0o750)
+    sh(ctx, f"mkdir -p {w}", True)
+    caso(ctx, "cp entre máquinas: fichero con otro nombre",
+         [f"cp {w}/f.txt zfsm://unib#path{w}/renombrado.txt --wait"], rc=0,
+         estado=[("llega como renombrado.txt", f"cat {w}/renombrado.txt",
+                  r"^entre maquinas$", True)])
+    caso(ctx, "cp entre máquinas: directorio a un destino que no existe",
+         [f"cp {w}/dir zfsm://unib#path{w}/copia --wait"], rc=0,
+         estado=[("con su contenido", f"cat {w}/copia/a", r"^x$", True),
+                 ("con el modo del original, no 755", f"stat -c '%a' {w}/copia", r"^750$",
+                  True)])
+    sh(ctx, f"rm -rf {w}", root=True)
+    sh(ctx, f"rm -rf {w}", True, root=True)
     caso(ctx, "jobs: la máquina enseña sus trabajos",
          ["cd Local", "jobs --history"], espera=[r"done|failed|ID|JOB"])
 
@@ -2165,7 +2237,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_cp_destino, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

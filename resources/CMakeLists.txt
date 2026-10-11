@@ -91,6 +91,7 @@ cmd:--file-recv-listen
 cmd:--file-send-to-peer-async
 cmd:--mutate-mount-ro-temp
 cmd:--mutate-unmount-ro-temp
+cmd:--tree-send-as
 copytree:skip-unchanged-delete-dryrun
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.

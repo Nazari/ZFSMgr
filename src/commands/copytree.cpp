@@ -665,6 +665,12 @@ Result copyTree(const std::string& srcDir, const std::string& dstDir, const Opti
         w.res.ok = false;
         return w.res;
     }
+    // Y la RAÍZ, que el recorrido no visita: solo copia lo que hay dentro. Sin esto el
+    // directorio de llegada se quedaba como lo crea el agente —root:root 0755— aunque su
+    // contenido conservara dueño y modo. Al final, porque escribir dentro cambia su fecha.
+    if (!opt.dryRun) {
+        copyMetadata(src, dst, true);
+    }
     w.res.ok = true;
     return w.res;
 }

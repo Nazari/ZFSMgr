@@ -1189,12 +1189,10 @@ const std::vector<Orden> kOrdenes = {
        "  zfsm://maq/pool/ds#content/sub    un subárbol suyo\n"
        "  zfsm://maq#path/var/tmp/x         una ruta suelta de esa máquina\n"
        "  /var/tmp/x                        atajo de la máquina de aquí"},
-      {"t_cp_det2", "El destino es el CONTENEDOR: `cp A B` deja el contenido de A en `B/A`. "
-       "Para que aterrice con otro nombre está `--as`."},
+      {"t_cp_det2b", "Como el `cp` de toda la vida: si el destino es un directorio, se copia DENTRO con su nombre (`cp A B` deja `B/A`; `--as` le pone otro). Si no existe, el destino ES la copia: un fichero se copia con ese nombre y un directorio crea ese directorio con su contenido. Si es un fichero, otro fichero lo sobrescribe."},
       {"t_cp_det3", "NUNCA borra. Para que el destino acabe idéntico al origen, borrado "
        "incluido, está `rsync --delete`."},
-      {"t_cp_det4", "El directorio de destino tiene que EXISTIR. Es lo que hace `cp` de toda la "
-       "vida, y evita que una errata cree un árbol entero en el sitio equivocado."},
+      {"t_cp_det4b", "Con varios orígenes el destino tiene que ser un directorio que exista. Y siempre tiene que existir el directorio donde va a aterrizar: no se crea un árbol entero por una errata."},
       {"t_cp_det5b", "Entre máquinas va de agente a agente, con delta y sin shell de por medio, un "
        "envío por origen. Dentro de una máquina, con el motor propio y UN solo trabajo aunque "
        "sean varios orígenes."},

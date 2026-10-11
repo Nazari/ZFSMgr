@@ -519,7 +519,8 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
                             const std::string& directorioOrigen,
                             const std::string& directorioDestino, bool mismaConexion,
                             bool verboso, bool comoTrabajo, bool borrarEnDestino, bool enSeco,
-                            std::string* salidaDelEnvio) {
+                            std::string* salidaDelEnvio, const std::string& llegaComo,
+                            bool metadatosDeRaiz) {
     Job t;
     if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
         t.failure = JobFailure::ReceiverNotListening;
@@ -575,6 +576,13 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
     }
     if (enSeco) {
         args.push_back("--dry-run");
+    }
+    if (!llegaComo.empty()) {
+        args.push_back("--as");
+        args.push_back(llegaComo);
+    }
+    if (metadatosDeRaiz) {
+        args.push_back("--root-metadata");
     }
     const ConnectionProfile& quienEnvia = mismaConexion ? destino : origen;
     salida.clear();

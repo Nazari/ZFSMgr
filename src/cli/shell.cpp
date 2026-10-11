@@ -6270,6 +6270,74 @@ std::string hojaDe(const std::string& ruta) {
     return barra == std::string::npos ? ruta : ruta.substr(barra + 1);
 }
 
+// ¿Qué hay en `ruta` de la máquina `conexion`? Lo contesta `--dump-path-info`, que mira
+// cualquier ruta y no solo las de dentro de un montaje. Falso si no se pudo preguntar (el
+// motivo ya está dicho); `existe` falso si se preguntó y no hay nada.
+bool estadoDeRuta(Estado& e, const std::string& conexion, const std::string& ruta, bool& existe,
+                  bool& esDirectorio) {
+    existe = false;
+    esDirectorio = false;
+    ZfsmUrl u;
+    u.kind = ZfsmKind::Connection;
+    u.connection = conexion;
+    std::string out;
+    if (!agente(e, u, PET::pathInfo(ruta), out, 20000)) {
+        return false;
+    }
+    B::json::Value v;
+    std::string err;
+    if (!B::json::parse(out, v, &err)) {
+        std::fprintf(stderr, TC("t_contenido_ilegible", "respuesta ilegible al listar %s: %s\n"),
+                     ruta.c_str(), err.c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    existe = v["exists"].toBool();
+    esDirectorio = v["is_dir"].toBool();
+    return true;
+}
+
+// ¿El agente de `conexion` anuncia `capacidad` en su `--health`? Para lo que un agente
+// anterior no rechazaría sino que IGNORARÍA en silencio, como el `--as` del emisor del árbol.
+bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad) {
+    ZfsmUrl u;
+    u.kind = ZfsmKind::Connection;
+    u.connection = conexion;
+    std::string out;
+    if (!agente(e, u, {"--health"}, out)) {
+        return false;
+    }
+    for (const std::string& linea : B::split(out, "\n", true)) {
+        if (linea.rfind("CAPS=", 0) == 0) {
+            for (const std::string& c : B::split(B::trim(linea.substr(5)), ",", true)) {
+                if (B::trim(c) == capacidad) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// `ruta` partida en su directorio y su último tramo. En Windows el padre de «C:/x» es «C:/»,
+// no «C:», que sería «el directorio actual de la unidad C».
+bool padreYHoja(const std::string& ruta, std::string& padre, std::string& hoja) {
+    std::string r = ruta;
+    while (r.size() > 1 && (r.back() == '/' || r.back() == '\\')) {
+        r.pop_back();
+    }
+    const std::size_t barra = r.find_last_of("/\\");
+    if (barra == std::string::npos || barra + 1 >= r.size()) {
+        return false;
+    }
+    hoja = r.substr(barra + 1);
+    padre = barra == 0 ? std::string("/") : r.substr(0, barra);
+    if (padre.size() == 2 && padre[1] == ':') {
+        padre += "/";
+    }
+    return hoja != "." && hoja != "..";
+}
+
 // ¿`ruta` es un fichero —y no un directorio— en la máquina de `u`? Se mira en el listado de
 // su directorio padre, que es lo que el agente ya sabe contestar. Si no se puede saber, se
 // dice que no: el camino de siempre, el del árbol.
@@ -6382,14 +6450,15 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
     {
         const std::string hoja = hojaDe(rutaOrigen);
         {
-            if (esFichero && nombre != hoja) {
-                // El árbol lleva el nombre del fichero tal cual; renombrarlo al llegar
-                // pediría un verbo más en el receptor.
+            // Con otro nombre lo pone el EMISOR (`--as`), que manda el manifiesto con el
+            // nombre de llegada. Un emisor anterior lo ignoraría y lo mandaría con el suyo:
+            // se mira antes de pedirlo.
+            if (esFichero && nombre != hoja && !agenteAnuncia(e, maqOrigen, "--tree-send-as")) {
                 std::fprintf(stderr,
                              TC("t_cp_as_fichero_remoto",
-                                "un fichero que cambia de máquina llega con su nombre («%s»): "
-                                "«--as» no vale aquí\n"),
-                             hoja.c_str());
+                                "el agente de %s no sabe mandar un fichero con otro nombre (llegaría "
+                                "como «%s»): actualícelo con «install-daemon»\n"),
+                             maqOrigen.c_str(), hoja.c_str());
                 e.ultimoRc = 1;
                 return false;
             }
@@ -6419,7 +6488,10 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
                                          esFichero ? baseDestino : rutaDestino,
                                          /*mismaConexion=*/false, e.ses->verboso,
                                          /*comoTrabajo=*/!esperar && !simula, /*borra=*/false,
-                                         simula, &salidaEnvio);
+                                         simula, &salidaEnvio,
+                                         esFichero && nombre != hojaDe(rutaOrigen) ? nombre
+                                                                                   : std::string(),
+                                         /*metadatosDeRaiz=*/!esFichero);
     if (hecho.failure != TR::JobFailure::None_) {
         std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.failure).c_str(),
                      hecho.detail.c_str());
@@ -6517,6 +6589,69 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
 
+    // **Lo que hace `cp` de toda la vida según lo que haya en el destino:**
+    //   - un directorio: se copia DENTRO, con su nombre (`cp a dir` deja `dir/a`);
+    //   - nada: el destino ES la copia. Un fichero se copia con ese nombre, y un directorio
+    //     crea ese directorio con su contenido. Su padre sí tiene que existir;
+    //   - un fichero: un fichero lo sobrescribe; un directorio no puede.
+    // Con varios orígenes el destino tiene que ser un directorio que exista.
+    //
+    // Antes el destino era SIEMPRE el contenedor: si no existía, el `cp` de un fichero
+    // fallaba con «no es un directorio» y el de un directorio creaba `destino/origen`.
+    std::string llegaComo;           // el nombre lo da el destino, no el origen
+    bool destinoEsFichero = false;   // y lo que hay ahí es un fichero que se sobrescribe
+    {
+        bool existe = false;
+        bool esDir = false;
+        if (!estadoDeRuta(e, destino.connection, rutaDestino, existe, esDir)) {
+            return false;
+        }
+        if (!existe || !esDir) {
+            if (textosOrigen.size() > 1) {
+                std::fprintf(stderr,
+                             TC("t_cp_varios_sin_dir",
+                                "%s no es un directorio: con varios orígenes el destino tiene que "
+                                "ser un directorio que exista\n"),
+                             rutaDestino.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            if (!pet.valor("as").empty()) {
+                std::fprintf(stderr,
+                             TC("t_cp_as_sin_dir",
+                                "%s no es un directorio: el nombre ya lo da el destino, «--as» "
+                                "sobra\n"),
+                             rutaDestino.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            std::string padre;
+            std::string hoja;
+            bool padreExiste = false;
+            bool padreEsDir = false;
+            if (!padreYHoja(rutaDestino, padre, hoja)) {
+                std::fprintf(stderr, TC("t_cp_destino_sin_nombre",
+                                        "no se puede copiar sobre %s\n"),
+                             rutaDestino.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            if (!estadoDeRuta(e, destino.connection, padre, padreExiste, padreEsDir)) {
+                return false;
+            }
+            if (!padreExiste || !padreEsDir) {
+                std::fprintf(stderr, TC("t_cp_padre_no_existe",
+                                        "no existe el directorio %s\n"),
+                             padre.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            rutaDestino = padre;
+            llegaComo = hoja;
+            destinoEsFichero = existe;
+        }
+    }
+
     // Todos los orígenes resueltos ANTES de copiar nada: un error en el tercero no debe
     // dejar copiados los dos primeros.
     struct Copia {
@@ -6534,10 +6669,32 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
         c.maquina = origen.connection;
-        // Con qué nombre aterriza. El destino es el CONTENEDOR, así que `cp A B` deja `B/A`:
-        // es lo que hace `cp` de toda la vida y lo que evita la ambigüedad clásica de que la
-        // misma orden signifique una cosa u otra según si el destino existía ya.
-        c.nombre = CS::landingName(origen, pet.valor("as"));
+        // Que el origen EXISTA, antes de lanzar nada: si no, el trabajo se encolaba y fallaba
+        // después, o la copia local dejaba un destino a medias.
+        {
+            bool existe = false;
+            bool esDir = false;
+            if (!estadoDeRuta(e, c.maquina, c.ruta, existe, esDir)) {
+                return false;
+            }
+            if (!existe) {
+                std::fprintf(stderr, TC("t_cp_origen_no_existe", "no existe: %s\n"),
+                             c.ruta.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+            if (destinoEsFichero && esDir) {
+                std::fprintf(stderr,
+                             TC("t_cp_dir_sobre_fichero",
+                                "no se puede sobrescribir el fichero %s con un directorio\n"),
+                             (rutaDestino + "/" + llegaComo).c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        }
+        // Con qué nombre aterriza: el suyo (o el de `--as`) si el destino es un directorio, y
+        // el del destino si no lo es.
+        c.nombre = llegaComo.empty() ? CS::landingName(origen, pet.valor("as")) : llegaComo;
         if (c.nombre.empty()) {
             std::fputs(TC("t_cp_sin_nombre", "no se puede averiguar con qué nombre copiarlo; "
                           "dígalo con «--as»\n"), stderr);

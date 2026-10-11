@@ -303,12 +303,18 @@ Job launchFromFileJob(TransportSession& ses, const AgentCall& call,
 // **Careful with how the result is checked.** With `asJob` false there is no id to return, so
 // `ok()` —which requires one— would say no even when everything went well: there, what to
 // look at is `failure`. `ok()` means «there is a job to keep track of», not «it went well».
+//
+// `landAs`: the name a SINGLE FILE lands with (`--as` of the sender). It needs the
+// `--tree-send-as` capability; an older sender ignores it and keeps the file's name.
+// `rootMetadata`: send the source root's owner, mode and date too, for a landing directory
+// the agent has just created. An older sender ignores it.
 Job launchTreeJob(TransportSession& ses, const AgentCall& call,
                             const ConnectionProfile& source, const ConnectionProfile& target,
                             const std::string& sourceDirectory,
                             const std::string& targetDirectory, bool sameConnection,
                             bool verbose, bool asJob, bool deleteAtTarget = false,
-                            bool dryRun = false, std::string* sendOutput = nullptr);
+                            bool dryRun = false, std::string* sendOutput = nullptr,
+                            const std::string& landAs = {}, bool rootMetadata = false);
 
 // Which address the SOURCE has to connect to in order to reach the TARGET.
 //

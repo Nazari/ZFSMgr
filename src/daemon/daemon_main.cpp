@@ -568,6 +568,9 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-prepare-dir");
     caps.push_back("--tree-recv-listen");
     caps.push_back("--tree-send-to-peer");
+    // El emisor acepta `--as <nombre>` para un fichero suelto. Un agente anterior IGNORA lo
+    // que no conoce y lo mandaría con su nombre: el cliente mira esto antes de pedirlo.
+    caps.push_back("--tree-send-as");
     caps.push_back("--mutate-set-peers");
     caps.push_back("--dump-peers");
     caps.push_back("--mutate-set-bind");
@@ -847,13 +850,29 @@ bool datasetIsMounted(const std::string& name) {
 // Copia local con el motor del proyecto. Se llamaba `runRsyncCopyMoveCapture` y NO llama a
 // rsync: llama a `copytree::copyTree`. El nombre era un resto de cuando sí lo hacía, y
 // mandaba a buscar una dependencia que no está.
+// Lo que macOS crea en la raíz de CADA volumen montado, y por tanto de cada dataset: el
+// índice de Spotlight, el registro de eventos, la papelera y el icono que pone OpenZFS. No
+// son datos del usuario y se regeneran solos. `.Spotlight-V100` ni siquiera se puede leer
+// —ni como root con Acceso total al disco—, así que Ensamblar o Hacia Dir de un dataset que
+// Spotlight había indexado fallaba con «Operation not permitted» (medido en mbp).
+// Solo en la raíz de lo que se copia, que es donde los pone el sistema.
+std::vector<std::string> conExclusionesDelSistema(std::vector<std::string> excludes) {
+#ifdef __APPLE__
+    for (const char* n : {".Spotlight-V100", ".fseventsd", ".Trashes", ".TemporaryItems",
+                          ".DocumentRevisions-V100", ".VolumeIcon.icns"}) {
+        excludes.emplace_back(n);
+    }
+#endif
+    return excludes;
+}
+
 ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstDir,
                                    const std::vector<std::string>& excludes = {},
                                    bool oneFileSystem = false) {
     ExecResult r;
     zfsmgr::copytree::Options opt;
     opt.oneFileSystem = oneFileSystem;
-    opt.excludes = excludes;
+    opt.excludes = conExclusionesDelSistema(excludes);
     const zfsmgr::copytree::Result cr = zfsmgr::copytree::copyTree(srcDir, dstDir, opt);
     if (!cr.ok) {
         r.rc = 1;
@@ -956,7 +975,7 @@ int countPendingCopyTransfers(const std::string& srcDir, const std::string& dstD
     // contaría como pendiente y la verificación no llegaría nunca a cero.
     zfsmgr::copytree::Options opt;
     opt.oneFileSystem = oneFileSystem;
-    opt.excludes = excludes;
+    opt.excludes = conExclusionesDelSistema(excludes);
     const long long pending = zfsmgr::copytree::countPending(srcDir, dstDir, opt);
     if (pending < 0) {
         return -1;
@@ -7725,7 +7744,8 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     ExecResult r;
     if (params.size() < 4) {
         r.rc = 2;
-        r.err = "usage: --tree-send-to-peer <dir> <host> <port> <token> [--delete] [--dry-run]\n";
+        r.err = "usage: --tree-send-to-peer <dir> <host> <port> <token> [--delete] [--dry-run] "
+                "[--as <name>] [--root-metadata]\n";
         return r;
     }
     std::string raiz = params[0];
@@ -7734,10 +7754,31 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     const std::string token = params[3];
     bool borra = false;
     bool enSeco = false;
+    // `--as`: con qué nombre aterriza un fichero suelto. Es el `cp a.txt otra:/dir/b.txt` de
+    // toda la vida; sin él llegaba siempre como «a.txt».
+    std::string comoLlega;
+    // `--root-metadata`: manda también la RAÍZ (ruta «.») con su dueño, modo y fecha. Lo pide
+    // `cp` cuando el directorio de llegada lo acaba de crear el agente —root:root 0755—; si
+    // no, se quedaba así aunque todo lo de dentro conservara lo suyo. No va por omisión:
+    // en `rsync` la raíz aparecería como cambio en cada pasada. Un receptor anterior la
+    // acepta tal cual: «.» cae dentro del árbol y crear un directorio que existe no falla.
+    bool conRaiz = false;
     for (std::size_t i = 4; i < params.size(); ++i) {
         if (params[i] == "--delete") { borra = true; }
+        else if (params[i] == "--root-metadata") { conRaiz = true; }
         else if (params[i] == "--dry-run") { enSeco = true; }
+        else if (params[i] == "--as" && i + 1 < params.size()) { comoLlega = params[++i]; }
     }
+    if (!comoLlega.empty()
+        && (comoLlega.find_first_of("/\\") != std::string::npos || comoLlega == "."
+            || comoLlega == "..")) {
+        r.rc = 2;
+        r.err = "--as takes a plain name, not a path: " + comoLlega + "\n";
+        return r;
+    }
+    // La ruta en ESTA máquina del fichero suelto, cuando llega con otro nombre: el manifiesto
+    // lleva el nombre de llegada y ya no sirve para abrirlo aquí.
+    std::string ficheroSuelto;
 
     std::vector<AR::Entry> mias;
     std::string err;
@@ -7762,12 +7803,26 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             r.err = err + "\n";
             return r;
         }
+        if (!comoLlega.empty()) {
+            unico.path = comoLlega;
+            ficheroSuelto = raiz;
+        }
         mias.push_back(unico);
         raiz = std::filesystem::path(raiz).parent_path().string();
+    } else if (!comoLlega.empty()) {
+        r.rc = 2;
+        r.err = "--as only applies to a single file: " + raiz + "\n";
+        return r;
     } else if (!AR::walk(raiz, mias, err)) {
         r.rc = 2;
         r.err = err + "\n";
         return r;
+    } else if (conRaiz) {
+        AR::Entry propia;
+        if (AR::describePath(raiz, propia, err) && propia.kind == AR::EntryKind::Directory) {
+            propia.path = ".";
+            mias.insert(mias.begin(), propia);
+        }
     }
 
     const TransferSocket sock = conectaConElPar(peerHost, portStr);
@@ -7902,6 +7957,11 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     }
 
     const std::filesystem::path base(raiz);
+    const auto rutaLocalDe = [&](const std::string& enManifiesto) {
+        return !ficheroSuelto.empty() && enManifiesto == comoLlega
+                   ? ficheroSuelto
+                   : (base / std::filesystem::path(enManifiesto)).string();
+    };
     bool bien = true;
     std::uint64_t bytesLiteralesTotal = 0;
     std::uint64_t bytesAhorrados = 0;
@@ -7916,8 +7976,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             std::uint64_t literales = 0;
             std::string errD;
             std::string hashEntero;
-            const std::string rutaLocal =
-                (std::filesystem::path(raiz) / std::filesystem::path(o.entry.path)).string();
+            const std::string rutaLocal = rutaLocalDe(o.entry.path);
             if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales,
                           errD)
                 && AR::fileHash(rutaLocal, hashEntero, errD)) {
@@ -7970,7 +8029,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         if (o.action != AR::Action::Send) {
             continue;
         }
-        const std::string rutaLocal = (base / std::filesystem::path(o.entry.path)).string();
+        const std::string rutaLocal = rutaLocalDe(o.entry.path);
         std::FILE* f = std::fopen(rutaLocal.c_str(), "rb");
         if (f == nullptr) {
             bien = false;
