@@ -10,6 +10,7 @@
 #include "connectionjson.h"
 #include "gsa.h"
 #include "copyspec.h"
+#include "compresion.h"
 #include "refreshparse.h"
 #include "storefiles.h"
 #include "syncing.h"
@@ -4527,6 +4528,8 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 // Que sea un trabajo y no una espera es lo que permite mandar terabytes y cerrar la
 // sesión. Con `--wait` se espera aquí, sondeando.
 
+bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
+
 // Que el fichero de destino de un `send` está entero en su sitio.
 //
 // El trabajo es del EMISOR, y que acabe bien dice que mandó todo, no que el otro lado lo
@@ -4710,6 +4713,49 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_el_destino_e077ee", "el destino tiene que ser un dataset\n"), stderr);
         return false;
     }
+    // `--comp`: el fichero de destino se guarda comprimido. Solo tiene sentido ahí: al LEER
+    // un fichero el formato se reconoce por sus primeros bytes, y un dataset no es un fichero.
+    zfsmgr::compresion::Eleccion compresion;
+    if (!pet.valor("comp").empty()) {
+        std::string errComp;
+        if (ficheroDestino.empty()) {
+            std::fputs(TC("t_send_comp_sin_fichero",
+                          "«--comp» es para un FICHERO de destino; al leer uno con «--from» el "
+                          "formato se reconoce solo\n"),
+                       stderr);
+            e.ultimoRc = 2;
+            return false;
+        }
+        if (!zfsmgr::compresion::leeEleccion(pet.valor("comp"), compresion, errComp)) {
+            std::fprintf(stderr, "--comp: %s\n", errComp.c_str());
+            e.ultimoRc = 2;
+            return false;
+        }
+        if (compresion.formato != zfsmgr::compresion::Formato::Ninguno
+            && !agenteAnuncia(e, destino.connection, "--file-stream-compression")) {
+            std::fprintf(stderr,
+                         TC("t_send_comp_agente_viejo",
+                            "el agente de %s no sabe guardar el fichero comprimido (lo dejaría sin "
+                            "comprimir): actualícelo con «install-daemon»\n"),
+                         destino.connection.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        // Con -c o -w los bloques ya van comprimidos o cifrados: comprimir otra vez gasta CPU
+        // y apenas gana. Se dice y se hace, que puede haber motivo.
+        const std::string banderasConEspacios = " " + banderasSend + " ";
+        const bool yaComprimido = banderasConEspacios.find(" -c ") != std::string::npos
+                                  || banderasConEspacios.find(" -w ") != std::string::npos
+                                  || banderasConEspacios.find("--compressed") != std::string::npos
+                                  || banderasConEspacios.find("--raw") != std::string::npos;
+        if (compresion.formato != zfsmgr::compresion::Formato::Ninguno && yaComprimido) {
+            std::fputs(TC("t_send_comp_ya_comprimido",
+                          "aviso: con «-c» o «-w» los bloques ya viajan comprimidos o cifrados; "
+                          "volver a comprimirlos apenas gana\n"),
+                       stderr);
+        }
+    }
+    const bool comprimido = compresion.formato != zfsmgr::compresion::Formato::Ninguno;
     // Lo que el flujo ya trae no se puede pedir otra vez: un fichero es el flujo que es.
     if (!ficheroOrigen.empty() && (!pet.valor("base").empty() || !banderasSend.empty())) {
         std::fputs(TC("t_send_fichero_sin_banderas",
@@ -4843,7 +4889,12 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                               "¿Continuar?"),
                             {origen.zfsName(), origen.connection, ficheroDestino,
                              destino.connection});
-        if (!confirma(e, que)) {
+        const std::string queConCompresion =
+            comprimido ? B::format(T("t_conf_send_comprimido", "Comprimido con %1.\n"),
+                                   {zfsmgr::compresion::textoDe(compresion)})
+                             + que
+                       : que;
+        if (!confirma(e, queConCompresion)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
@@ -4886,7 +4937,9 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         !ficheroDestino.empty()
             ? TR::launchToFileJob(e.ses->transporte, llama, *pOrigen, *pDestino,
                                   origen.zfsName(), ficheroDestino, sobrescribir, base,
-                                  banderasSend, mismaMaquina, e.ses->verboso)
+                                  banderasSend, mismaMaquina, e.ses->verboso,
+                                  comprimido ? zfsmgr::compresion::textoDe(compresion)
+                                             : std::string())
         : !ficheroOrigen.empty()
             ? TR::launchFromFileJob(e.ses->transporte, llama, *pOrigen, *pDestino, ficheroOrigen,
                                     destino.dataset, mismaMaquina, e.ses->verboso)
@@ -4933,11 +4986,15 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         }
         if (estado != "running") {
             const std::string err = k.count("ERROR") ? k.at("ERROR") : std::string();
-            std::fprintf(stderr, "trabajo %s: %s%s\n", jobId.c_str(), estado.c_str(),
+            std::fprintf(stderr, TC("t_trabajo_estado_fin", "trabajo %s: %s%s\n"), jobId.c_str(), estado.c_str(),
                          err.empty() ? "" : (" — " + err).c_str());
             e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
             if (e.ultimoRc == 0 && !ficheroDestino.empty()) {
-                const long long bytes = k.count("BYTES") ? std::atoll(k.at("BYTES").c_str()) : -1;
+                // Comprimido, el fichero no mide lo que se mandó: basta con que exista con su
+                // nombre, que el receptor solo le da al flujo entero y bien comprimido.
+                const long long bytes = comprimido ? -1
+                                        : k.count("BYTES") ? std::atoll(k.at("BYTES").c_str())
+                                                           : -1;
                 if (!ficheroCompleto(e, destino, ficheroDestino, bytes)) {
                     e.ultimoRc = 1;
                 }

@@ -499,9 +499,13 @@ Job launchToFileJob(TransportSession& ses, const AgentCall& llama,
                     const ConnectionProfile& origen, const ConnectionProfile& destino,
                     const std::string& instantanea, const std::string& fichero,
                     bool sobrescribir, const std::string& desdeInstantanea,
-                    const std::string& banderas, bool mismaConexion, bool verboso) {
-    return lanzaFlujo(ses, llama, origen, destino,
-                      {"--file-recv-listen", fichero, sobrescribir ? "1" : "0"},
+                    const std::string& banderas, bool mismaConexion, bool verboso,
+                    const std::string& compresion) {
+    std::vector<std::string> escuchar = {"--file-recv-listen", fichero, sobrescribir ? "1" : "0"};
+    if (!trim(compresion).empty()) {
+        escuchar.push_back(trim(compresion));
+    }
+    return lanzaFlujo(ses, llama, origen, destino, escuchar,
                       "--zfs-send-to-peer-async", instantanea,
                       {trim(desdeInstantanea), trim(banderas)}, mismaConexion, verboso);
 }

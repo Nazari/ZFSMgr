@@ -694,6 +694,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_send_9", "vuelca el flujo en un fichero de otra máquina"}},
       {"send zfsm://casa/tank/restaurado --from zfsm://unibody#path/copias/tank-ayer.zfs",
        {"t_ej_send_10", "lo recibe de ese fichero, como si fuera el snapshot"}},
+      {"send zfsm://unibody#path/copias/tank-ayer.zfs.zst --comp zstd",
+       {"t_ej_send_11", "el fichero, comprimido con zstd"}},
+      {"send zfsm://unibody#path/copias/tank-ayer.zfs.gz --comp gzip:9",
+       {"t_ej_send_12", "con gzip, al máximo"}},
      }},
     {"jobs",
      {
@@ -1302,7 +1306,8 @@ const std::vector<Orden> kOrdenes = {
       {{"t_base_insta_074a40", "--base <@snapshot>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
       {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}},
       {{"t_send_resume", "--resume"}, {"t_send_resume_q", "Si el destino tiene una recepción que se cortó, la continúa desde donde quedó."}},
-      {{"t_send_discard", "--discard-partial"}, {"t_send_discard_q", "Si el destino tiene una recepción que se cortó, la DESCARTA —se pierde lo ya recibido— y manda de cero."}}},
+      {{"t_send_discard", "--discard-partial"}, {"t_send_discard_q", "Si el destino tiene una recepción que se cortó, la DESCARTA —se pierde lo ya recibido— y manda de cero."}},
+      {{"t_send_comp", "--comp <gzip|lz4|zstd>[:<nivel>]"}, {"t_send_comp_q", "Con un FICHERO de destino, lo guarda comprimido. Al leer uno con «--from» no hace falta: se reconoce solo."}}},
      {{"t_el_destino_bfb232", "El destino es una URL: puede estar en OTRA máquina."},
       {"t_send_parcial_det", "Si una recepción se cortó, el destino guarda un testigo para continuarla y no "
        "acepta otro envío hasta que se decida: se avisa y no se toca nada. «--resume» la "
@@ -1319,7 +1324,15 @@ const std::vector<Orden> kOrdenes = {
        "montaje de un dataset, o la raíz de «.zfs/snapshot/<s>» como origen. Con un fichero de "
        "origen no valen «--base», las banderas de zfs send ni «--resume»: el flujo ya se hizo."},
       {"t_send_windows_no", "El extremo de ZFS no puede estar en Windows: allí el flujo no "
-       "está portado. Un fichero en Windows sí vale."}},
+       "está portado. Un fichero en Windows sí vale."},
+      {"t_send_comp_det", "La compresión la hace la máquina del FICHERO, al escribirlo o al "
+       "leerlo, y el extremo de ZFS recibe o manda el flujo crudo. Niveles: gzip 1–9 (6 por "
+       "omisión), lz4 0–12 (0, el rápido; de 3 en adelante es HC) y zstd 1–19 (3). Al leer, el "
+       "formato se reconoce por los primeros bytes y no por la extensión, que puede mentir; un "
+       "fichero comprimido cortado o dañado falla con su motivo antes de que «zfs recv» lo "
+       "acepte."},
+      {"t_send_comp_det2", "Con «-c» o «-w» los bloques ya viajan comprimidos o cifrados, y "
+       "volver a comprimirlos apenas gana: se avisa, pero se hace."}},
      Objetivo::Snapshot,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}},
      nativasDeSend()},

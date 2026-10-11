@@ -103,7 +103,13 @@ Listado de cambios.
    el agente reenvía (esa no se puede codificar), y cómo convivir con agentes viejos que
    solo mandan texto.
 
-10. [ABIERTO 2026-10-11, confirmado que se quiere] `send` con ficheros COMPRIMIDOS: gzip, lz4 y zstd.
+10. [HECHO 2026-10-11] `send` con ficheros COMPRIMIDOS: gzip, lz4 y zstd.
+   Lo decidido: se escribe con `--comp <formato>[:<nivel>]` y se lee reconociendo los primeros
+   bytes. Comprime y descomprime el agente de la máquina del FICHERO; el extremo de ZFS ve el
+   flujo crudo. Las tres bibliotecas van en `third_party/`, compiladas estáticas con la cadena
+   de cada plataforma (en ningún sysroot estaban las tres). Con -c/-w se avisa pero se hace.
+   Probado entre fc16, unib, mbp y w11 en los dos sentidos, con fichero cortado y dañado.
+   Lo que sigue es el planteamiento original:
    Desde la 1.0.0 `send` vuelca el flujo en un fichero y lo recibe de uno, pero siempre en
    crudo. Se pide poder escribirlo comprimido y leerlo comprimido.
    Lo que hay que decidir antes de escribir código:

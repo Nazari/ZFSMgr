@@ -982,6 +982,85 @@ def casos_send_fichero(ctx):
             f"zfs destroy -r {P}/defichero; rm -rf {dst}'", root=True)
 
 
+def casos_send_comprimido(ctx):
+    """`send … --comp`: el fichero de flujo, comprimido; y al leerlo, reconocido por sus bytes.
+
+    Lo que importa: que se comprima DE VERDAD (los primeros bytes y el tamaño), que vuelva
+    idéntico, que el formato se reconozca aunque la extensión mienta, y que un fichero
+    comprimido cortado o dañado falle con su motivo en vez de pasar por bueno.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    caso = lambda *a, **k: globals()["caso"](*a, idioma="es", **k)
+    dst = "/var/tmp/zfsmgr-prueba-comp"
+    F = f"zfsm://local#path{dst}"
+    U = f"zfsm://local/{P}"
+    sh(ctx, f"rm -rf {dst} && mkdir -p {dst}", root=True)
+    # Comprimible a propósito: con datos aleatorios no se vería si comprime o no.
+    sh(ctx, f"bash -c 'yes zfsmgr-prueba-de-compresion | head -c 6000000 > /mnt/{P}/datos/texto.txt'",
+       root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@sc1", root=True)
+    caso(ctx, "send --comp: el flujo crudo, para comparar",
+         [f"send {F}/crudo.zfs --on {U}/datos@sc1 --wait"], rc=0, espera=[r"guardado en "])
+    magia = {"gzip": "1f 8b", "lz4": "04 22 4d 18", "zstd": "28 b5 2f fd"}
+    for fmt, ext in (("gzip", "gz"), ("lz4", "lz4"), ("zstd", "zst")):
+        f = f"{dst}/c.zfs.{ext}"
+        caso(ctx, f"send --comp {fmt}: el fichero sale comprimido",
+             [f"send {F}/c.zfs.{ext} --on {U}/datos@sc1 --comp {fmt} --wait"], rc=0,
+             espera=[r"guardado en "],
+             estado=[(f"empieza por la firma de {fmt}", f"od -An -tx1 -N4 {f}",
+                      rf"^\s*{magia[fmt]}"),
+                     ("y ocupa menos que el crudo",
+                      f"bash -c 'test $(stat -c %s {f}) -lt $(stat -c %s {dst}/crudo.zfs) && echo MENOR'",
+                      r"^MENOR$"),
+                     ("solo para root", f"stat -c %a {f}", r"^600$")])
+        md5 = (f"bash -c 'zfs mount {P}/de_{fmt} 2>/dev/null; md5sum < /mnt/{P}/datos/texto.txt; "
+               f"md5sum < /mnt/{P}/de_{fmt}/texto.txt'")
+        caso(ctx, f"send --from un fichero {fmt}: se reconoce solo y vuelve idéntico",
+             [f"send {U}/de_{fmt} --from {F}/c.zfs.{ext} --wait"], rc=0,
+             estado=[("llegó el snapshot", f"zfs list -H -o name {P}/de_{fmt}@sc1",
+                      rf"^{P}/de_{fmt}@sc1$"),
+                     ("mismo contenido", md5, r"\A(\w+)\s+-\n\1\s+-\s*\Z")])
+    # La extensión miente: es zstd con nombre de gzip, y se lee por sus bytes.
+    sh(ctx, f"cp {dst}/c.zfs.zst {dst}/miente.gz", root=True)
+    caso(ctx, "send --from: el formato sale de los bytes, no de la extensión",
+         [f"send {U}/miente --from {F}/miente.gz --wait"], rc=0,
+         estado=[("llegó", f"zfs list -H -o name {P}/miente@sc1", rf"^{P}/miente@sc1$")])
+    sh(ctx, f"bash -c 'head -c $(( $(stat -c %s {dst}/c.zfs.zst) / 2 )) {dst}/c.zfs.zst > {dst}/corto.zst'",
+       root=True)
+    caso(ctx, "send --from un fichero comprimido CORTADO falla y dice por qué",
+         [f"send {U}/cortado_c --from {F}/corto.zst --wait"], rc=1,
+         espera=[r"cut short|damaged|incomplete"],
+         estado=[("no llegó ningún snapshot",
+                  f"bash -c 'zfs list -H -t snapshot -o name {P}/cortado_c 2>&1 | grep -c @ || true'",
+                  r"^0$")])
+    # Dañado: un byte cambiado en medio. Con XOR, para que cambie SEGURO: escribir un valor
+    # fijo no cambiaba nada si el byte ya lo tenía, y la prueba pasaba sin dañar el fichero.
+    sh(ctx, f"cp {dst}/c.zfs.lz4 {dst}/danado.lz4", root=True)
+    sh(ctx, f"python3 -I -c \"import sys; p = sys.argv[1]; b = bytearray(open(p, 'rb').read()); "
+            f"b[len(b) // 2] ^= 0x5a; open(p, 'wb').write(b)\" {dst}/danado.lz4", root=True)
+    caso(ctx, "send --from un fichero comprimido DAÑADO falla",
+         [f"send {U}/danado_c --from {F}/danado.lz4 --wait"], rc=1,
+         espera=[r"damaged|cut short|invalid|incomplete|checksum"],
+         estado=[("el fichero estaba de verdad dañado",
+                  f"bash -c 'cmp -s {dst}/c.zfs.lz4 {dst}/danado.lz4 || echo DISTINTO'",
+                  r"^DISTINTO$")])
+    caso(ctx, "send --comp a un dataset se niega: es para un fichero",
+         [f"send {U}/x --on {U}/datos@sc1 --comp zstd"], rc=2,
+         espera=[r"es para un FICHERO de destino"])
+    caso(ctx, "send --comp con un nivel fuera de rango se niega antes de nada",
+         [f"send {F}/n.zfs --on {U}/datos@sc1 --comp zstd:25"], rc=2,
+         espera=[r"el nivel de zstd va de 1 a 19"],
+         estado=[("no se creó nada", f"bash -c 'ls {dst} | grep -c \"^n\\.zfs\" || true'",
+                  r"^0$")])
+    caso(ctx, "send --comp con un formato desconocido se niega",
+         [f"send {F}/n.zfs --on {U}/datos@sc1 --comp bzip2"], rc=2,
+         espera=[r"compresión desconocida «bzip2»"])
+    sh(ctx, f"bash -c 'for d in de_gzip de_lz4 de_zstd miente cortado_c danado_c; do "
+            f"zfs recv -A {P}/$d 2>/dev/null; zfs destroy -r {P}/$d 2>/dev/null; done; "
+            f"rm -rf {dst}'", root=True)
+
+
 def casos_sin_montar(ctx):
     """Un dataset SIN MONTAR: leerlo, y Desglosar/Ensamblar un entorno de arranque.
 
@@ -2329,7 +2408,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

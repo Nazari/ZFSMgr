@@ -248,6 +248,8 @@ add_library(zfsmgr_base STATIC
 add_library(zfsmgr_commands STATIC
     ../src/commands/copyspec.cpp
     ../src/commands/copyspec.h
+    ../src/commands/compresionformato.cpp
+    ../src/commands/compresion.h
     ../src/commands/datasets.cpp
     ../src/commands/datasets.h
     ../src/commands/snapshots.cpp
@@ -309,6 +311,50 @@ target_compile_definitions(zfsmgr_base PRIVATE
 target_link_libraries(zfsmgr_base PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_include_directories(zfsmgr_commands PUBLIC ../src ../src/base ../src/commands)
 target_link_libraries(zfsmgr_commands PUBLIC zfsmgr_base)
+
+# Compresión de los ficheros de `send` (gzip, lz4, zstd). Las tres bibliotecas se compilan
+# desde `third_party/` —fuentes oficiales, versiones y sumas en su README— con la MISMA
+# cadena que el resto: así salen iguales en las cinco plataformas, estáticas, y el agente
+# sigue sin dependencias en tiempo de ejecución. Buscarlas en cada sysroot (FreeBSD,
+# osxcross, MinGW) no era viable: en ninguno estaban las tres.
+#
+# Solo la enlazan el agente y las pruebas: comprimir y descomprimir lo hace el agente que
+# tiene el fichero; el CLI solo pasa `--comp`.
+set(ZFSMGR_TERCEROS ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
+file(GLOB ZFSMGR_ZSTD_FUENTES
+    ${ZFSMGR_TERCEROS}/zstd/common/*.c
+    ${ZFSMGR_TERCEROS}/zstd/compress/*.c
+    ${ZFSMGR_TERCEROS}/zstd/decompress/*.c)
+set(ZFSMGR_LZ4_FUENTES
+    ${ZFSMGR_TERCEROS}/lz4/lz4.c ${ZFSMGR_TERCEROS}/lz4/lz4frame.c
+    ${ZFSMGR_TERCEROS}/lz4/lz4hc.c ${ZFSMGR_TERCEROS}/lz4/xxhash.c)
+set(ZFSMGR_ZLIB_FUENTES
+    ${ZFSMGR_TERCEROS}/zlib/adler32.c ${ZFSMGR_TERCEROS}/zlib/compress.c
+    ${ZFSMGR_TERCEROS}/zlib/crc32.c ${ZFSMGR_TERCEROS}/zlib/deflate.c
+    ${ZFSMGR_TERCEROS}/zlib/inffast.c ${ZFSMGR_TERCEROS}/zlib/inflate.c
+    ${ZFSMGR_TERCEROS}/zlib/inftrees.c ${ZFSMGR_TERCEROS}/zlib/trees.c
+    ${ZFSMGR_TERCEROS}/zlib/uncompr.c ${ZFSMGR_TERCEROS}/zlib/zutil.c)
+add_library(zfsmgr_compresion STATIC
+    ../src/commands/compresion.cpp
+    ../src/commands/compresion.h
+    ${ZFSMGR_ZSTD_FUENTES} ${ZFSMGR_LZ4_FUENTES} ${ZFSMGR_ZLIB_FUENTES})
+target_link_libraries(zfsmgr_compresion PUBLIC zfsmgr_commands)
+target_include_directories(zfsmgr_compresion
+    PUBLIC ../src/commands
+    PRIVATE ${ZFSMGR_TERCEROS}/zlib ${ZFSMGR_TERCEROS}/lz4 ${ZFSMGR_TERCEROS}/zstd)
+# - Sin el ensamblador de zstd (huf_decompress_amd64.S): no se copió, y en los cruces y en
+#   MSVC daba más problemas de los que resuelve.
+# - lz4 y zstd traen cada uno su xxhash: con el prefijo de lz4 no chocan sus símbolos.
+target_compile_definitions(zfsmgr_compresion PRIVATE ZSTD_DISABLE_ASM)
+set_source_files_properties(${ZFSMGR_LZ4_FUENTES} PROPERTIES COMPILE_DEFINITIONS "XXH_NAMESPACE=LZ4_")
+set_target_properties(zfsmgr_compresion PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# El código de terceros no se juzga con las reglas de este proyecto: `-Werror=switch` y la
+# C4062 convertida en error son nuestras.
+if(MSVC)
+    target_compile_options(zfsmgr_compresion PRIVATE $<$<COMPILE_LANGUAGE:C>:/wd4062 /W0>)
+else()
+    target_compile_options(zfsmgr_compresion PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=switch -w>)
+endif()
 if(WIN32)
     # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
     # y no con quien la use: si no, cada consumidor tendría que acordarse.
@@ -335,7 +381,7 @@ if(ZFSMGR_AGENT_ONLY)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
-    target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands zfsmgr_compresion OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
     if(WIN32)
         target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
         # Igual que en la compilación completa: el agente viaja SOLO, así que no puede
@@ -544,7 +590,7 @@ target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/comman
 target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
 )
-target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(zfsmgr_agent PRIVATE zfsmgr_commands zfsmgr_compresion OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 if(WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt advapi32)
     # Enlazado estático del runtime en Windows: sin esto el .exe necesita
@@ -738,7 +784,7 @@ if(BUILD_TESTING)
     # Nombrarlo otra vez aquí lo pone al final del todo, después de `ws2_32`, y el enlazador
     # de MinGW —que resuelve en un solo pase— deja sin resolver los símbolos de sockets que
     # usa libcrypto: cientos de «undefined reference to `__imp_WSAGetLastError`».
-    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands)
+    target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands zfsmgr_compresion)
     add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
     # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite

@@ -22,6 +22,7 @@
 #include "storewarnings.h"
 #include "connectionprofile.h"
 #include "copyspec.h"
+#include "compresion.h"
 #include "helpers.h"
 #ifndef _WIN32
 #include <sys/file.h>
@@ -4497,6 +4498,106 @@ int main() {
         comprobar(matchesRawPattern("my%20data*", "my data 1"), "crudo: espacio codificado");
         comprobar(!checkRawPattern("{a,b") && !checkRawPattern("a%2") && checkRawPattern("a*"),
                   "crudo: detecta patrones mal formados");
+    }
+
+    // --- compresión de los ficheros de `send`
+    {
+        namespace CZ = zfsmgr::compresion;
+        CZ::Eleccion el;
+        std::string err;
+        comprobar(CZ::leeEleccion("zstd", el, err) && el.formato == CZ::Formato::Zstd && el.nivel == 3,
+                  "comp: zstd sin nivel toma el 3");
+        comprobar(CZ::leeEleccion("GZIP:9", el, err) && el.formato == CZ::Formato::Gzip && el.nivel == 9,
+                  "comp: mayúsculas y nivel");
+        comprobar(CZ::leeEleccion("lz4", el, err) && el.nivel == 0, "comp: lz4 por omisión es el rápido");
+        comprobar(!CZ::leeEleccion("zstd:20", el, err) && !err.empty(), "comp: nivel de zstd fuera de rango");
+        comprobar(!CZ::leeEleccion("gzip:0", el, err), "comp: gzip empieza en 1");
+        comprobar(!CZ::leeEleccion("gzip:x", el, err) && !CZ::leeEleccion("gzip:", el, err),
+                  "comp: un nivel que no es número");
+        comprobar(!CZ::leeEleccion("bzip2", el, err), "comp: formato desconocido");
+        comprobar(CZ::leeEleccion("none", el, err) && el.formato == CZ::Formato::Ninguno,
+                  "comp: none es sin comprimir");
+        comprobar(!CZ::leeEleccion("none:3", el, err), "comp: none no lleva nivel");
+        CZ::Eleccion z9{CZ::Formato::Zstd, 9};
+        igual(CZ::textoDe(z9), "zstd:9", "comp: texto canónico");
+
+        // Un flujo de prueba que comprime algo pero no todo: repetitivo y con ruido.
+        std::string original;
+        unsigned int semilla = 12345;
+        for (int i = 0; i < 3 * 1024 * 1024; ++i) {
+            semilla = semilla * 1103515245u + 12345u;
+            original.push_back(static_cast<char>((i % 4096 < 2048) ? 'A' + (i % 7) : (semilla >> 16)));
+        }
+        const unsigned char crudo[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        comprobar(CZ::detecta(crudo, sizeof(crudo)) == CZ::Formato::Ninguno,
+                  "comp: un flujo crudo no se toma por comprimido");
+        for (const char* nombre : {"gzip", "lz4", "zstd", "lz4:9"}) {
+            CZ::Eleccion e;
+            comprobar(CZ::leeEleccion(nombre, e, err), std::string("comp: elección ") + nombre);
+            auto c = CZ::creaCompresor(e, err);
+            comprobar(c != nullptr, std::string("comp: compresor ") + nombre);
+            if (!c) {
+                continue;
+            }
+            // En trozos irregulares, como llegan por el socket.
+            std::string comprimido;
+            std::size_t pos = 0;
+            std::size_t trozo = 1;
+            bool trozosBien = true;
+            while (pos < original.size()) {
+                const std::size_t n = std::min(trozo, original.size() - pos);
+                trozosBien = c->comprime(original.data() + pos, n, comprimido, err) && trozosBien;
+                pos += n;
+                trozo = trozo * 3 + 7;
+            }
+            comprobar(trozosBien, std::string("comp: comprime en trozos ") + nombre);
+            comprobar(c->termina(comprimido, err), std::string("comp: termina ") + nombre);
+            comprobar(comprimido.size() < original.size(),
+                      std::string("comp: ") + nombre + " reduce el tamaño");
+            comprobar(CZ::detecta(reinterpret_cast<const unsigned char*>(comprimido.data()),
+                                  comprimido.size()) == e.formato,
+                      std::string("comp: se reconoce ") + nombre + " por sus primeros bytes");
+
+            auto d = CZ::creaDescompresor(e.formato, err);
+            std::string vuelta;
+            pos = 0;
+            trozo = 5;
+            bool bien = d != nullptr;
+            while (bien && pos < comprimido.size()) {
+                const std::size_t n = std::min(trozo, comprimido.size() - pos);
+                bien = d->descomprime(comprimido.data() + pos, n, vuelta, err);
+                pos += n;
+                trozo = trozo * 2 + 1;
+            }
+            comprobar(bien && vuelta == original, std::string("comp: ida y vuelta ") + nombre);
+            comprobar(d && d->completo(), std::string("comp: ") + nombre + " entero se da por completo");
+
+            // CORTADO: lo que distingue un fichero a medias de uno entero.
+            auto d2 = CZ::creaDescompresor(e.formato, err);
+            std::string media;
+            const bool bien2 = d2->descomprime(comprimido.data(), comprimido.size() / 2, media, err);
+            comprobar(bien2 && !d2->completo(),
+                      std::string("comp: ") + nombre + " cortado NO se da por completo");
+
+            // Dos frames seguidos, como `cat a b`: se aceptan.
+            auto d3 = CZ::creaDescompresor(e.formato, err);
+            std::string doble;
+            const std::string dos = comprimido + comprimido;
+            comprobar(d3->descomprime(dos.data(), dos.size(), doble, err) && d3->completo()
+                          && doble == original + original,
+                      std::string("comp: ") + nombre + " con dos frames seguidos");
+
+            // Dañado: un byte cambiado en medio. Con la suma de comprobación, lz4 y zstd lo
+            // ven; gzip también, por su CRC.
+            std::string danado = comprimido;
+            danado[danado.size() / 2] = static_cast<char>(danado[danado.size() / 2] ^ 0x5a);
+            auto d4 = CZ::creaDescompresor(e.formato, err);
+            std::string basura;
+            err.clear();
+            const bool ok4 = d4->descomprime(danado.data(), danado.size(), basura, err);
+            comprobar(!ok4 || basura != original,
+                      std::string("comp: ") + nombre + " dañado no pasa por bueno");
+        }
     }
 
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);

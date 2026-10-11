@@ -263,11 +263,16 @@ Job launchJob(TransportSession& ses, const AgentCall& call,
 //
 // The protocol is the dataset-to-dataset one, so the ZFS end does not know there is a file at
 // the other.
+//
+// `compression` («zstd:3», as `compresion::textoDe` writes it) makes the target compress the
+// file as it writes it; empty, it is written raw. It needs the target to announce
+// `--file-stream-compression`: an older agent ignores it and writes the file uncompressed.
 Job launchToFileJob(TransportSession& ses, const AgentCall& call,
                     const ConnectionProfile& source, const ConnectionProfile& target,
                     const std::string& snapshot, const std::string& file, bool overwrite,
                     const std::string& fromSnapshot, const std::string& flags,
-                    bool sameConnection, bool verbose);
+                    bool sameConnection, bool verbose,
+                    const std::string& compression = std::string());
 Job launchFromFileJob(TransportSession& ses, const AgentCall& call,
                       const ConnectionProfile& source, const ConnectionProfile& target,
                       const std::string& file, const std::string& recvTarget,

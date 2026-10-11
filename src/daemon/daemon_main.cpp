@@ -56,6 +56,7 @@ typedef int pid_t;
 
 #include "requests.h"
 #include "remotetree.h"
+#include "compresion.h"
 #include "copytree.h"
 #include "json.h"
 #include "peers.h"
@@ -580,6 +581,10 @@ std::string agentCapabilityList() {
     caps.push_back("--dump-path-list");
     caps.push_back("--dump-path-info");
     caps.push_back("--file-recv-listen");
+    // Escribe el fichero comprimido (tercer parámetro) y lee los comprimidos al enviarlos. Un
+    // agente anterior IGNORA el tercer parámetro y lo dejaría sin comprimir: el cliente mira
+    // esto antes de pedirlo.
+    caps.push_back("--file-stream-compression");
     caps.push_back("--file-send-to-peer-async");
 #if !defined(_WIN32) && !defined(__APPLE__)
     caps.push_back("--mutate-mount-ro-temp");
@@ -8137,7 +8142,8 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 // —un cierre normal si su `zfs send` acabó bien, abortado si no (ver cierraConRechazo)—, así
 // que un `recv` que devuelve error deja el parcial fuera y lo borra.
 static void runFileReceiveSession(TransferSocket listenFd, const std::string& token,
-                                  const std::string& ruta) {
+                                  const std::string& ruta,
+                                  const zfsmgr::compresion::Eleccion& comp) {
     struct timeval tv{};
     tv.tv_sec = 300;
     fd_set rfds;
@@ -8188,11 +8194,44 @@ static void runFileReceiveSession(TransferSocket listenFd, const std::string& to
         return;
     }
 
+    // `--comp`: se comprime aquí, al escribir, y el emisor de `zfs send` no se entera.
+    std::string errCompresor;
+    std::unique_ptr<zfsmgr::compresion::Compresor> compresor;
+    if (comp.formato != zfsmgr::compresion::Formato::Ninguno) {
+        compresor = zfsmgr::compresion::creaCompresor(comp, errCompresor);
+    }
+    std::uint64_t escritos = 0;
+    // Todo lo que va al fichero pasa por aquí: sin comprimir, los bytes del socket; con
+    // compresión, lo que devuelve el compresor.
+    const auto escribe = [&](const char* datos, std::size_t n) -> bool {
+        std::size_t hecho = 0;
+        while (hecho < n) {
+#ifndef _WIN32
+            const ssize_t w = ::write(fd, datos + hecho, n - hecho);
+            if (w < 0 && errno == EINTR) { continue; }
+            if (w <= 0) { return false; }
+            hecho += static_cast<std::size_t>(w);
+#else
+            DWORD w = 0;
+            const DWORD ahora = static_cast<DWORD>(std::min<std::size_t>(n - hecho, 1u << 30));
+            if (!WriteFile(fh, datos + hecho, ahora, &w, nullptr) || w == 0) {
+                return false;
+            }
+            hecho += w;
+#endif
+        }
+        escritos += n;
+        return true;
+    };
+
     std::vector<char> buf(256 * 1024);
+    std::string comprimido;
     std::uint64_t movidos = 0;
     bool recepcionRota = false;
     bool escrituraRota = false;
+    bool compresionRota = comp.formato != zfsmgr::compresion::Formato::Ninguno && !compresor;
     for (;;) {
+        if (compresionRota) { break; }
         const int n = recv(clientFd, buf.data(), static_cast<int>(buf.size()), 0);
         if (n == 0) { break; }                       // fin normal: el flujo está entero
         if (n < 0) {
@@ -8202,29 +8241,38 @@ static void runFileReceiveSession(TransferSocket listenFd, const std::string& to
             recepcionRota = true;
             break;
         }
-        int hecho = 0;
-        while (hecho < n) {
-#ifndef _WIN32
-            const ssize_t w = ::write(fd, buf.data() + hecho, static_cast<size_t>(n - hecho));
-            if (w < 0 && errno == EINTR) { continue; }
-            if (w <= 0) { escrituraRota = true; break; }
-            hecho += static_cast<int>(w);
-#else
-            DWORD w = 0;
-            if (!WriteFile(fh, buf.data() + hecho, static_cast<DWORD>(n - hecho), &w, nullptr)
-                || w == 0) {
-                escrituraRota = true;
+        if (compresor) {
+            comprimido.clear();
+            if (!compresor->comprime(buf.data(), static_cast<std::size_t>(n), comprimido,
+                                     errCompresor)) {
+                compresionRota = true;
                 break;
             }
-            hecho += static_cast<int>(w);
-#endif
+            if (!escribe(comprimido.data(), comprimido.size())) { escrituraRota = true; break; }
+        } else if (!escribe(buf.data(), static_cast<std::size_t>(n))) {
+            escrituraRota = true;
+            break;
         }
-        if (escrituraRota) { break; }
         movidos += static_cast<std::uint64_t>(n);
     }
+    // El final del frame, solo si el flujo llegó entero: uno cortado no se cierra, se tira.
+    if (compresor && !recepcionRota && !escrituraRota && !compresionRota) {
+        comprimido.clear();
+        if (!compresor->termina(comprimido, errCompresor)) {
+            compresionRota = true;
+        } else if (!escribe(comprimido.data(), comprimido.size())) {
+            escrituraRota = true;
+        }
+    }
     std::string errEscritura = escrituraRota ? "write failed" : std::string();
+    if (compresionRota) {
+        escrituraRota = true;
+        errEscritura = "compression failed: " + errCompresor;
+    }
 #ifndef _WIN32
-    if (escrituraRota) { errEscritura = std::string("write failed: ") + std::strerror(errno); }
+    if (escrituraRota && !compresionRota) {
+        errEscritura = std::string("write failed: ") + std::strerror(errno);
+    }
     // A disco antes de darle el nombre: si no, un corte de luz justo después podría dejar
     // con el nombre bueno un fichero al que le falta el final.
     if (!escrituraRota && !recepcionRota && ::fsync(fd) != 0) {
@@ -8275,7 +8323,10 @@ static void runFileReceiveSession(TransferSocket listenFd, const std::string& to
         closeTransferSocket(clientFd);
         return;
     }
-    daemonLog("INFO", "file-recv-listen " + ruta + ": " + std::to_string(movidos) + " bytes");
+    daemonLog("INFO", "file-recv-listen " + ruta + ": " + std::to_string(movidos) + " bytes"
+                          + (compresor ? " -> " + std::to_string(escritos) + " "
+                                             + zfsmgr::compresion::textoDe(comp)
+                                       : std::string()));
     informaAlEmisor(clientFd, 0, std::string());
     closeTransferSocket(clientFd);
 }
@@ -8287,10 +8338,19 @@ static void runFileReceiveSession(TransferSocket listenFd, const std::string& to
 // receptor, igual que en el árbol de ficheros—, la ruta no puede ser un directorio, y un
 // fichero que ya existe solo se reemplaza si se pide.
 static ExecResult runFileRecvListenCapture(const std::string& ruta, bool sobrescribir,
-                                           bool waitInline = false) {
+                                           bool waitInline = false,
+                                           const std::string& compTexto = std::string()) {
     ExecResult r;
     std::string err;
     if (!rutaDeFlujoValida(ruta, err)) {
+        r.rc = 2;
+        r.err = err + "\n";
+        return r;
+    }
+    // La compresión se valida ANTES de abrir el puerto: con un formato mal escrito, el emisor
+    // no tiene que llegar a conectar.
+    zfsmgr::compresion::Eleccion comp;
+    if (!compTexto.empty() && !zfsmgr::compresion::leeEleccion(compTexto, comp, err)) {
         r.rc = 2;
         r.err = err + "\n";
         return r;
@@ -8332,12 +8392,13 @@ static ExecResult runFileRecvListenCapture(const std::string& ruta, bool sobresc
     }
     if (waitInline) {
         std::cout << "PORT=" << puerto << "\nTOKEN=" << token << "\n" << std::flush;
-        runFileReceiveSession(listenFd, token, ruta);
+        runFileReceiveSession(listenFd, token, ruta, comp);
         r.rc = 0;
         return r;
     }
-    std::thread([listenFd, token, ruta]() { runFileReceiveSession(listenFd, token, ruta); })
-        .detach();
+    std::thread([listenFd, token, ruta, comp]() {
+        runFileReceiveSession(listenFd, token, ruta, comp);
+    }).detach();
     r.rc = 0;
     r.out = "PORT=" + std::to_string(puerto) + "\nTOKEN=" + token + "\n";
     return r;
@@ -8472,13 +8533,77 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     };
     bool cancelled = false;
     bool lecturaFallida = false;
+    // Un fichero de flujo COMPRIMIDO se descomprime aquí, antes de mandarlo: el `zfs recv`
+    // del otro lado recibe el flujo crudo y no se entera. El formato se reconoce por los
+    // primeros bytes, no por la extensión, que puede mentir; lo que no es gzip, lz4 ni zstd
+    // se manda tal cual.
+    std::unique_ptr<zfsmgr::compresion::Descompresor> descompresor;
+    zfsmgr::compresion::Formato formatoFichero = zfsmgr::compresion::Formato::Ninguno;
+    bool primerTrozo = true;
+    std::string descomprimido;
+    std::string motivoLectura;
+    // El siguiente trozo que hay que mandar, ya descomprimido. 0 al acabar, negativo si falla
+    // la lectura o el fichero comprimido está dañado o cortado (el motivo, en `motivoLectura`).
+    const auto siguienteTrozo = [&](const char*& datos) -> long {
+        for (;;) {
+            const long leidos = readSpawnedStdout(child, buf.data(), buf.size());
+            if (leidos < 0) {
+                return leidos;
+            }
+            if (desdeFichero && primerTrozo) {
+                primerTrozo = false;
+                formatoFichero = zfsmgr::compresion::detecta(
+                    reinterpret_cast<const unsigned char*>(buf.data()),
+                    static_cast<std::size_t>(leidos));
+                if (formatoFichero != zfsmgr::compresion::Formato::Ninguno) {
+                    std::string errDesc;
+                    descompresor = zfsmgr::compresion::creaDescompresor(formatoFichero, errDesc);
+                    if (!descompresor) {
+                        motivoLectura = errDesc;
+                        return -1;
+                    }
+                    daemonLog("INFO", "file-to-peer " + ficheroOrigen + ": "
+                                          + zfsmgr::compresion::nombreDe(formatoFichero)
+                                          + " file, decompressing");
+                }
+            }
+            if (!descompresor) {
+                datos = buf.data();
+                return leidos;
+            }
+            if (leidos == 0) {
+                // Fin del fichero: tiene que acabar justo al final de un frame. Si no, está
+                // cortado, y mandarlo así daría al otro lado un flujo a medias.
+                if (!descompresor->completo()) {
+                    motivoLectura = std::string("the ") + zfsmgr::compresion::nombreDe(formatoFichero)
+                                    + " file is cut short: it ends in the middle of a frame";
+                    return -1;
+                }
+                return 0;
+            }
+            descomprimido.clear();
+            std::string errDesc;
+            if (!descompresor->descomprime(buf.data(), static_cast<std::size_t>(leidos),
+                                           descomprimido, errDesc)) {
+                motivoLectura = errDesc;
+                return -1;
+            }
+            if (!descomprimido.empty()) {
+                datos = descomprimido.data();
+                return static_cast<long>(descomprimido.size());
+            }
+            // Este trozo no dio nada todavía (una cabecera, un bloque a medias): otro.
+        }
+    };
     for (;;) {
-        const long n = readSpawnedStdout(child, buf.data(), buf.size());
+        const char* datos = nullptr;
+        const long n = siguienteTrozo(datos);
         if (n < 0) { lecturaFallida = true; }
         if (n <= 0) { break; }
         long done = 0;
         while (done < n) {
-            const int w = send(sockFd, buf.data() + done, static_cast<int>(n - done), 0);
+            const int w = send(sockFd, datos + done,
+                               static_cast<int>(std::min<long>(n - done, 1L << 30)), 0);
             if (w > 0) {
                 done += w;
                 ultimoAvance = std::chrono::steady_clock::now();
@@ -8590,7 +8715,9 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
                 "machine to see why zfs recv failed\n";
     } else if (lecturaFallida) {
         r.rc = 1;
-        r.err = "could not read the stream file " + ficheroOrigen + "\n";
+        r.err = motivoLectura.empty()
+                    ? "could not read the stream file " + ficheroOrigen + "\n"
+                    : ficheroOrigen + ": " + motivoLectura + "\n";
     } else if (r.rc != 0) {
         r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
         if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
@@ -10088,10 +10215,11 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return runZfsRecvListenCapture(params[0], force);
     }
     if (cmd == "--file-recv-listen") {
-        // params: fichero [sobrescribir=0|1]
-        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --file-recv-listen <file> [overwrite=1]\n"; return r; }
+        // params: fichero [sobrescribir=0|1 [compresión]]
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --file-recv-listen <file> [overwrite=1 [gzip|lz4|zstd[:level]]]\n"; return r; }
         const bool sobrescribir = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
-        return runFileRecvListenCapture(params[0], sobrescribir);
+        return runFileRecvListenCapture(params[0], sobrescribir, false,
+                                        params.size() > 2 ? params[2] : std::string());
     }
 
 #ifndef _WIN32
@@ -12214,7 +12342,8 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         const bool sobrescribir = args.size() > 3 && (args[3] == "1" || toLower(args[3]) == "true");
-        const ExecResult e = runFileRecvListenCapture(args[2], sobrescribir, /*waitInline=*/true);
+        const ExecResult e = runFileRecvListenCapture(args[2], sobrescribir, /*waitInline=*/true,
+                                                      args.size() > 4 ? args[4] : std::string());
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
     }

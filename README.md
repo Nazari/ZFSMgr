@@ -154,7 +154,8 @@ Daemon: peers, log, install-daemon
 - **`send`** a snapshot to another dataset on the same or another machine, in full or
   incrementally (`--base`), with the native `zfs send` flags. Either end can also be a
   **file** holding the stream: write a snapshot to `zfsm://nas#path/backups/x.zfs`, or receive
-  one with `--from` that file. An interrupted receive is detected before sending, and you
+  one with `--from` that file. With `--comp gzip|lz4|zstd[:level]` the file is stored
+  compressed; reading one needs nothing, the format is recognised by its first bytes. An interrupted receive is detected before sending, and you
   choose to continue it (`--resume`) or start over (`--discard-partial`).
 - **Transfers run as daemon jobs**, directly between the two machines: the data never passes
   through yours, they survive closing the shell, and `jobs`/`job` follow them. A job only
