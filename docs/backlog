@@ -100,3 +100,30 @@ Listado de cambios.
    los ~200 mensajes son códigos de verdad y cuántos son salida cruda de `zfs`/`zpool` que
    el agente reenvía (esa no se puede codificar), y cómo convivir con agentes viejos que
    solo mandan texto.
+
+10. [ABIERTO 2026-10-11] `send` con ficheros COMPRIMIDOS: gzip, lz4 y zstd.
+   Desde la 1.0.0 `send` vuelca el flujo en un fichero y lo recibe de uno, pero siempre en
+   crudo. Se pide poder escribirlo comprimido y leerlo comprimido.
+   Lo que hay que decidir antes de escribir código:
+   	- Cómo se elige al ESCRIBIR: por la extensión del destino (`.gz`, `.lz4`, `.zst`), con
+   	  una opción explícita (`--compress gzip|lz4|zstd[:nivel]`), o las dos con la opción
+   	  mandando. Al LEER no hace falta preguntar: se reconoce por los primeros bytes —gzip
+   	  `1f 8b`, lz4 (formato frame) `04 22 4d 18`, zstd `28 b5 2f fd`— y no por la extensión,
+   	  que puede mentir.
+   	- Dónde se comprime. Lo natural es en el extremo del FICHERO (el receptor que escribe,
+   	  el emisor que lee), que es donde ya está `--file-recv-listen` / `--file-send-to-peer-
+   	  async`; así el extremo de ZFS no se entera. Comprimir en el emisor de `zfs send`
+   	  ahorraría red, pero obliga a tocar el relé común de todas las transferencias.
+   	- Bibliotecas o programas. El agente no tiene dependencias en tiempo de ejecución y se
+   	  compila para cinco plataformas: zlib, liblz4 y libzstd tendrían que ir enlazadas
+   	  estáticamente en las cinco (incluida la cadena de MinGW y el agente universal de
+   	  macOS). Lanzar los programas `gzip`/`lz4`/`zstd` es más fácil pero no existen de serie
+   	  en Windows ni siempre en las demás.
+   	- `zfs send -c` (y `-w` en cifrados) ya manda los bloques comprimidos o cifrados: volver a
+   	  comprimir apenas gana nada y gasta CPU. Avisarlo, o al menos no elegirlo por omisión.
+   Lo que cambia por dentro: `ficheroCompleto` compara el tamaño del fichero con los bytes
+   enviados, y comprimido no van a coincidir; el veredicto del receptor ya dice si se guardó
+   bien, así que esa comprobación tendría que pasar a usar el tamaño que informe el receptor.
+   Pruebas: los tres formatos en los dos sentidos con md5 del dataset recibido, un fichero
+   comprimido CORTADO que tiene que fallar con su motivo (el descompresor lo detecta antes que
+   `zfs recv`), y un fichero de un formato con la extensión de otro.
