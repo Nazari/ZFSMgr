@@ -260,7 +260,13 @@ std::string howTheSourceSeesMe(TransportSession& ses, const ConnectionProfile& o
     int rc = -1;
     // `allowAgentRpc=false` a propósito: con el valor de siempre la orden se desviaba al
     // daemon por RPC, y allí `$SSH_CLIENT` no existe porque no es una sesión SSH.
-    if (!transport::runSsh(ses, origen, "echo $SSH_CLIENT", 8000, out, err, rc, {}, {}, {}, {},
+    //
+    // En Windows la orden la ejecuta PowerShell, donde `$SSH_CLIENT` es una variable SUYA,
+    // vacía: la del entorno es `$env:SSH_CLIENT`. Con la de Unix, cualquier transferencia de
+    // una máquina Windows hacia la conexión Local se quedaba sin dirección de vuelta.
+    const std::string orden = transport::isWindowsConnection(origen) ? "echo $env:SSH_CLIENT"
+                                                                     : "echo $SSH_CLIENT";
+    if (!transport::runSsh(ses, origen, orden, 8000, out, err, rc, {}, {}, {}, {},
                            /*allowAgentRpc=*/false, verboso)
         || rc != 0) {
         return {};
