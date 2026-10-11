@@ -578,7 +578,7 @@ std::string agentCapabilityList() {
     caps.push_back("--dump-path-info");
     caps.push_back("--file-recv-listen");
     caps.push_back("--file-send-to-peer-async");
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     caps.push_back("--mutate-mount-ro-temp");
     caps.push_back("--mutate-unmount-ro-temp");
 #endif
@@ -5357,15 +5357,25 @@ ExecResult listaRuta(const std::string& ruta) {
 //
 // Medido: en Linux hace falta `-o zfsutil` (si no, mount.zfs exige mountpoint=legacy); en
 // FreeBSD basta `mount -t zfs`. En los dos `zfs mount` lo enseña en el temporal y la
-// propiedad `mountpoint` queda como estaba.
+// propiedad `mountpoint` queda como estaba. En macOS no se ofrece: ver abajo.
 static const char* const kPrefijoMontajeRo = "/tmp/zfsmgr-ro-";
 
 ExecResult montaSoloLecturaTemporal(const std::string& dataset) {
     ExecResult r;
-#ifdef _WIN32
+#if defined(_WIN32)
     (void)dataset;
     r.rc = 2;
     r.err = "a temporary read-only mount is not available on Windows\n";
+    return r;
+#elif defined(__APPLE__)
+    // En macOS NO: su `mount_zfs` ignora `-o ro` y el montaje queda en lectura-escritura
+    // (medido en mbp: se escribió un fichero en un montaje pedido «ro»); `readonly` lo
+    // rechaza y `mount -u -r` falla. Un montaje de solo lectura que escribe es peor que no
+    // tenerlo.
+    (void)dataset;
+    r.rc = 2;
+    r.err = "a temporary read-only mount is not available on macOS: its mount_zfs ignores "
+            "read-only and the mount would be writable\n";
     return r;
 #else
     if (trim(dataset).empty() || dataset.find('@') != std::string::npos) {
@@ -5402,9 +5412,6 @@ ExecResult montaSoloLecturaTemporal(const std::string& dataset) {
 #if defined(__linux__)
     const std::vector<std::string> args = {"-t", "zfs", "-o", "ro,zfsutil", dataset, directorio};
     const std::string programa = "mount";
-#elif defined(__APPLE__)
-    const std::vector<std::string> args = {"-o", "ro", dataset, directorio};
-    const std::string programa = "/usr/local/zfs/bin/mount_zfs";
 #else
     const std::vector<std::string> args = {"-t", "zfs", "-o", "ro", dataset, directorio};
     const std::string programa = "mount";

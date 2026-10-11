@@ -1589,7 +1589,8 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "\n"
                         "Un dataset SIN MONTAR se puede mirar igual: #content lo monta en solo\n"
                         "lectura en un temporal, sin cambiar su punto de montaje, y lo suelta al\n"
-                        "salir de él. Para escribir no se monta nada: eso es «mount». No en Windows."));
+                        "salir de él. Para escribir no se monta nada: eso es «mount». No en Windows\n"
+                        "ni en macOS, cuyo mount_zfs no respeta el solo lectura."));
         return true;
     }
     if (tema == "patrones" || tema == "patterns" || tema == "comodines" || tema == "wildcards") {
