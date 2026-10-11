@@ -2909,9 +2909,25 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
                          "contraseña maestra:\n"
                          "es con la que se cifra en config.json, y sin ella no se guarda en "
                          "claro.\n"), stderr);
+            // Es una maestra NUEVA —si hubiera otra, ya se habría pedido al entrar—, así que
+            // se pide dos veces, como en `master-password`: sin eco, un dedazo dejaría
+            // cifrado con algo que nadie conoce.
             std::string maestra;
-            if (!preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "), maestra, err)) {
+            std::string otra;
+            if (!preguntarSecretoPorTerminal(T("t_p_maestra_nueva", "Contraseña maestra nueva: "),
+                                             maestra, err)
+                || !preguntarSecretoPorTerminal(T("t_mp_p2", "Repítala: "), otra, err)) {
                 std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+            const bool iguales = maestra == otra;
+            for (char& c : otra) { c = '\0'; }
+            if (!iguales || maestra.empty()) {
+                for (char& c : maestra) { c = '\0'; }
+                std::fputs(iguales ? TC("t_mp_vacia", "la contraseña maestra no puede quedar vacía\n")
+                                   : TC("t_maestras_no_coinciden",
+                                        "las dos contraseñas no coinciden; no se ha creado nada\n"),
+                           stderr);
                 return false;
             }
             e.ses->maestra = maestra;

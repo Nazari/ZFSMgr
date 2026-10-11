@@ -52,15 +52,52 @@ Each installer checks the package before touching anything, needs **OpenZFS 2.3 
 when the machine has OpenZFS, and with `--con-daemon` also installs the daemon of that machine.
 Every installer has `--help`.
 
-The other machines do not need the package. Once they are added as connections, one command
-installs or updates the daemon on all of them, and the CLI too where there is one:
+You install the package on **one** machine, the one you will work from. The other machines
+get their daemon from there, but only once you have told the CLI about them: see below.
 
-```sh
-zfsmgr-cli install-daemon -a          # --check shows the plan without touching anything
+## Getting started
+
+**1. Start the shell.** Run `zfsmgr-cli` with no arguments. The first time there is a single
+connection, `Local`, which is the machine you are on. When it needs to elevate on this machine
+it asks for your sudo password.
+
+**2. Add every other machine as a connection.** `install-daemon -a` only reaches the
+connections you have created; it does not discover machines on its own. At the root,
+`zfsm://`, `create` makes a connection:
+
+```text
+zfsm://> create nas --type SSH --host nas.local --user me --sudo
+zfsm://> create laptop --type SSH --host laptop.local --user me --key ~/.ssh/id_ed25519
 ```
 
-On macOS the daemon needs **Full Disk Access** to read and write datasets. Grant it in System
-Settings → Privacy & Security; the connection list warns when it is missing.
+- `--sudo` when that user has to elevate there, which it does for ZFS. The password is typed
+  in, or comes through `--password-fd`; it is never an argument.
+- Passwords are stored encrypted with a **master password**, which the shell asks you to
+  choose the first time it has something to encrypt.
+- Each machine has to be reachable by SSH with that user and have **OpenZFS 2.3 or later**.
+- `authorize-key nas` copies this machine's SSH key to `nas`, so it stops asking for the SSH
+  password.
+
+`ls` at `zfsm://` lists the connections, whether they answer and which daemon version each one
+runs. `edit` changes a connection and `destroy` removes it.
+
+**3. Install the daemons.** With the connections in place:
+
+```text
+zfsm://> install-daemon -a --check      # what it would do on each one, touching nothing
+zfsm://> install-daemon -a              # installs or updates the daemon everywhere
+```
+
+It installs the daemon where it is missing, updates it where it is older, and updates
+`zfsmgr-cli` on the machines that already have one. It is the same command for later updates:
+install the new package here, then run `install-daemon -a` again.
+
+On macOS the daemon needs **Full Disk Access** to read and write datasets: grant it in System
+Settings → Privacy & Security to `/usr/local/libexec/zfsmgr-agent`. The connection list warns
+when it is missing.
+
+**4. Work.** `cd nas/tank` and every command acts there. `help` lists the commands and
+`help <command>` explains one.
 
 ## A quick tour
 
@@ -136,12 +173,14 @@ Daemon: peers, log, install-daemon
 
 ## Scripting
 
-Every command works outside the shell too, which is how the history you build interactively
-turns into scripts:
+The shell reads its commands from standard input, so a script is the same commands you type,
+one per line:
 
 ```sh
-zfsmgr-cli --password-fd 3 --format json -y \
-    send zfsm://nas/pool/home --on zfsm://local/tank/home@daily --wait 3< <(pass show zfsmgr)
+zfsmgr-cli --password-fd 3 --format json -y 3< <(pass show zfsmgr) <<'END'
+send zfsm://nas/pool/home --on zfsm://local/tank/home@daily --wait
+ls zfsm://nas/pool
+END
 ```
 
 - `--on <url>` (or `--from`) acts on a location without moving to it.
@@ -149,8 +188,15 @@ zfsmgr-cli --password-fd 3 --format json -y \
   `zfs list -H`—; `--format json` is for programs.
 - `-y` skips the confirmations. Without a terminal, a command that needs confirmation refuses
   instead of guessing.
+- In a script, a syntax error or an unknown command stops the session instead of carrying on
+  with the next line.
 - **Secrets are never arguments or environment variables**, which any user can see in `ps`.
-  The master password comes from a descriptor (`--password-fd`) or from the terminal.
+  The master password comes from a descriptor (`--password-fd`) or from the terminal, and so
+  do connection passwords (`create … --password-fd 4`) and passphrases (`load-key
+  --password-fd 4`).
+
+On the command line itself, outside the shell, there are only `version`, `connections list`,
+`url parse <url>` and `--help`.
 
 ## How it works
 
