@@ -420,19 +420,22 @@ std::string whereItConnects(TransportSession& ses, const ConnectionProfile& orig
     return trim(destino.host);
 }
 
-Job launchJob(TransportSession& ses, const AgentCall& llama,
-                     const ConnectionProfile& origen, const ConnectionProfile& destino,
-                     const std::string& instantanea, const std::string& destinoDelRecv,
-                     const std::string& desdeInstantanea, const std::string& banderas,
-                     const std::string& testigoReanudacion, bool mismaConexion, bool verboso) {
+namespace {
+
+// Los tres pasos de un trabajo de flujo, sea cual sea cada punta: el destino escucha con
+// `escuchar`, se averigua la dirección, y el origen lanza `enviar` seguido de «host puerto
+// testigo» y de `resto`. Con un dataset o un fichero en cada extremo cambian solo los verbos.
+Job lanzaFlujo(TransportSession& ses, const AgentCall& llama, const ConnectionProfile& origen,
+               const ConnectionProfile& destino, const std::vector<std::string>& escuchar,
+               const std::string& enviar, const std::string& queSeEnvia,
+               const std::vector<std::string>& resto, bool mismaConexion, bool verboso) {
     Job t;
 
     // 1. Que el destino se ponga a escuchar.
     std::string salida;
     std::string err;
     int rc = -1;
-    if (!llama(destino, {"--zfs-recv-listen", destinoDelRecv, "1"}, 12000, salida, err, rc)
-        || rc != 0) {
+    if (!llama(destino, escuchar, 12000, salida, err, rc) || rc != 0) {
         t.failure = JobFailure::ReceiverNotListening;
         t.detail = trim(err.empty() ? salida : err);
         return t;
@@ -452,19 +455,10 @@ Job launchJob(TransportSession& ses, const AgentCall& llama,
         return t;
     }
 
-    // 3. Que el origen arranque el envío. Con el testigo puesto, los tres campos de en
-    // medio van vacíos: `zfs send -t` lleva dentro qué continuar.
-    const bool reanudando = !trim(testigoReanudacion).empty();
-    const std::vector<std::string> args = {
-        "--zfs-send-to-peer-async",
-        reanudando ? std::string() : instantanea,
-        haciaDonde,
-        std::to_string(escucha.port),
-        escucha.token,
-        reanudando ? std::string() : trim(desdeInstantanea),
-        reanudando ? std::string() : trim(banderas),
-        trim(testigoReanudacion),
-    };
+    // 3. Que el origen arranque el envío.
+    std::vector<std::string> args = {enviar, queSeEnvia, haciaDonde,
+                                     std::to_string(escucha.port), escucha.token};
+    args.insert(args.end(), resto.begin(), resto.end());
     // Lo lanza el emisor, salvo en la misma conexión: allí las dos puntas son la misma
     // máquina y el que manda es el mismo daemon.
     const ConnectionProfile& quienEnvia = mismaConexion ? destino : origen;
@@ -482,6 +476,42 @@ Job launchJob(TransportSession& ses, const AgentCall& llama,
         t.detail = trim(salida);
     }
     return t;
+}
+
+}  // namespace
+
+Job launchJob(TransportSession& ses, const AgentCall& llama,
+                     const ConnectionProfile& origen, const ConnectionProfile& destino,
+                     const std::string& instantanea, const std::string& destinoDelRecv,
+                     const std::string& desdeInstantanea, const std::string& banderas,
+                     const std::string& testigoReanudacion, bool mismaConexion, bool verboso) {
+    // Con el testigo puesto, la instantánea, la base y las banderas van vacías: `zfs send -t`
+    // lleva dentro qué continuar.
+    const bool reanudando = !trim(testigoReanudacion).empty();
+    return lanzaFlujo(ses, llama, origen, destino, {"--zfs-recv-listen", destinoDelRecv, "1"},
+                      "--zfs-send-to-peer-async", reanudando ? std::string() : instantanea,
+                      {reanudando ? std::string() : trim(desdeInstantanea),
+                       reanudando ? std::string() : trim(banderas), trim(testigoReanudacion)},
+                      mismaConexion, verboso);
+}
+
+Job launchToFileJob(TransportSession& ses, const AgentCall& llama,
+                    const ConnectionProfile& origen, const ConnectionProfile& destino,
+                    const std::string& instantanea, const std::string& fichero,
+                    bool sobrescribir, const std::string& desdeInstantanea,
+                    const std::string& banderas, bool mismaConexion, bool verboso) {
+    return lanzaFlujo(ses, llama, origen, destino,
+                      {"--file-recv-listen", fichero, sobrescribir ? "1" : "0"},
+                      "--zfs-send-to-peer-async", instantanea,
+                      {trim(desdeInstantanea), trim(banderas)}, mismaConexion, verboso);
+}
+
+Job launchFromFileJob(TransportSession& ses, const AgentCall& llama,
+                      const ConnectionProfile& origen, const ConnectionProfile& destino,
+                      const std::string& fichero, const std::string& destinoDelRecv,
+                      bool mismaConexion, bool verboso) {
+    return lanzaFlujo(ses, llama, origen, destino, {"--zfs-recv-listen", destinoDelRecv, "1"},
+                      "--file-send-to-peer-async", fichero, {}, mismaConexion, verboso);
 }
 
 Job launchTreeJob(TransportSession& ses, const AgentCall& llama,

@@ -916,6 +916,53 @@ def casos_recepcion_a_medias(ctx):
          espera=[r"no tiene ninguna recepción a medias"])
 
 
+def casos_send_fichero(ctx):
+    """`send` con un FICHERO en una punta: volcar el flujo en él, o recibirlo de él.
+
+    Lo que de verdad importa aquí no es que el fichero aparezca, sino que un flujo roto NO se
+    dé por bueno: antes el trabajo era del emisor y acababa «done» en cuanto mandaba el último
+    byte, aunque el `zfs recv` del otro lado lo rechazara. Ahora el receptor devuelve su
+    veredicto. El corte se provoca de verdad, truncando el fichero con `head`.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    caso = lambda *a, **k: globals()["caso"](*a, idioma="es", **k)
+    dst = "/var/tmp/zfsmgr-prueba-flujo"
+    F = f"zfsm://local#path{dst}"
+    U = f"zfsm://local/{P}"
+    sh(ctx, f"rm -rf {dst} && mkdir -p {dst}", root=True)
+    sh(ctx, f"bash -c 'head -c 3000000 /dev/urandom > /mnt/{P}/datos/flujo.bin'", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@sf1", root=True)
+    md5 = (f"bash -c 'zfs mount {P}/defichero 2>/dev/null; "
+           f"md5sum < /mnt/{P}/datos/flujo.bin; md5sum < /mnt/{P}/defichero/flujo.bin'")
+    caso(ctx, "send: vuelca el flujo en un fichero, solo para root",
+         [f"send {F}/s.zfs --on {U}/datos@sf1 --wait"], rc=0, espera=[r"guardado en "],
+         estado=[("el fichero está y es 600", f"stat -c %a {dst}/s.zfs", r"^600$"),
+                 ("no queda el parcial", f"ls {dst}", r"(?s)\A(?!.*zfsmgr-part)")])
+    caso(ctx, "send --from un fichero: lo recibe como si fuera el snapshot",
+         [f"send {U}/defichero --from {F}/s.zfs --wait"], rc=0,
+         estado=[("llegó el snapshot", f"zfs list -H -o name {P}/defichero@sf1", rf"^{P}/defichero@sf1$"),
+                 ("mismo contenido", md5, r"\A(\w+)\s+-\n\1\s+-\s*\Z")])
+    sh(ctx, f"bash -c 'head -c 1000000 {dst}/s.zfs > {dst}/corto.zfs'", root=True)
+    caso(ctx, "send --from un fichero cortado FALLA, y dice por qué",
+         [f"send {U}/cortado --from {F}/corto.zfs --wait"], rc=1,
+         espera=[r"failed", r"incomplete stream"])
+    caso(ctx, "send a un directorio pide el nombre del fichero",
+         [f"send {F} --on {U}/datos@sf1"], rc=2, espera=[r"es un directorio"])
+    caso(ctx, "send a un directorio que no existe se niega antes de nada",
+         [f"send {F}/no-existe/s.zfs --on {U}/datos@sf1"], rc=1, espera=[r"no existe en local"])
+    caso(ctx, "send de un fichero a otro es cp",
+         [f"send {F}/otro.zfs --from {F}/s.zfs"], rc=2, espera=[r"eso es «cp»"])
+    caso(ctx, "send --from un fichero no admite --base ni banderas",
+         [f"send {U}/x --from {F}/s.zfs -R"], rc=2, espera=[r"no valen «--base» ni las banderas"])
+    caso(ctx, "send --from la raíz de .zfs/snapshot vale como el snapshot",
+         [f"send {F}/s2.zfs --from zfsm://local#path/mnt/{P}/datos/.zfs/snapshot/sf1 --wait"],
+         rc=0, espera=[rf"→ {re.escape(U)}/datos@sf1"],
+         estado=[("el fichero está", f"stat -c %s {dst}/s2.zfs", r"^\d+$")])
+    sh(ctx, f"bash -c 'zfs recv -A {P}/cortado; zfs destroy -r {P}/cortado; "
+            f"zfs destroy -r {P}/defichero; rm -rf {dst}'", root=True)
+
+
 def casos_editor_ancho(ctx):
     """El editor de línea no puede pintar más ancho que el terminal.
 
@@ -2059,7 +2106,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

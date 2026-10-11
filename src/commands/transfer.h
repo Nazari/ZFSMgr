@@ -252,6 +252,27 @@ Job launchJob(TransportSession& ses, const AgentCall& call,
                      const std::string& fromSnapshot, const std::string& flags,
                      const std::string& resumeToken, bool sameConnection, bool verbose);
 
+// The same job with a FILE at one end: the file holds a `zfs send` stream.
+//
+// - `launchToFileJob`: the snapshot's stream is written to `file` on the target machine. The
+//   target writes to a temporary name and renames it only when the stream arrived whole, so a
+//   file with the requested name is always a complete stream. An existing file is replaced
+//   only with `overwrite`; the directory has to exist.
+// - `launchFromFileJob`: `file`, on the source machine, is received into `recvTarget` as if it
+//   came from a `zfs send`.
+//
+// The protocol is the dataset-to-dataset one, so the ZFS end does not know there is a file at
+// the other.
+Job launchToFileJob(TransportSession& ses, const AgentCall& call,
+                    const ConnectionProfile& source, const ConnectionProfile& target,
+                    const std::string& snapshot, const std::string& file, bool overwrite,
+                    const std::string& fromSnapshot, const std::string& flags,
+                    bool sameConnection, bool verbose);
+Job launchFromFileJob(TransportSession& ses, const AgentCall& call,
+                      const ConnectionProfile& source, const ConnectionProfile& target,
+                      const std::string& file, const std::string& recvTarget,
+                      bool sameConnection, bool verbose);
+
 // ── The part that does go and ask the machines ───────────────────────────────
 
 // The same three-step dance, but carrying a FILE TREE instead of a snapshot: the target

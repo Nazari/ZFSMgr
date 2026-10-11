@@ -287,7 +287,7 @@ enum class JobState { Queued, Running, Done, Failed, Cancelled };
 
 struct DaemonJob {
     std::string id;
-    std::string type;          // "send-to-peer" | "pipe-local"
+    std::string type;          // "send-to-peer" | "file-to-peer" | "pipe-local" | "mutation"
     std::string snap;
     std::string peerHost;
     int         peerPort{0};
@@ -576,6 +576,8 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-zpool-labelclear");
     caps.push_back("--dump-path-list");
     caps.push_back("--dump-path-info");
+    caps.push_back("--file-recv-listen");
+    caps.push_back("--file-send-to-peer-async");
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
@@ -5331,8 +5333,11 @@ const char* const kPeersPath = "/etc/zfsmgr/peers.json";
 // usarlo desde el nivelado sin mover cuatrocientas líneas de sitio.
 using TransferProgressFn =
     std::function<bool(std::uint64_t totalBytes, long elapsedSecs, double rateMiBs)>;
+// Con `ficheroOrigen`, lo que se manda es ese fichero —un flujo ya volcado— en vez de la
+// salida de `zfs send`; los parámetros son entonces «"" host puerto testigo».
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
-                                          const TransferProgressFn& onProgress);
+                                          const TransferProgressFn& onProgress,
+                                          const std::string& ficheroOrigen = std::string());
 
 struct GsaPeer {
     std::string id;
@@ -5910,6 +5915,107 @@ static void closeTransferSocket(TransferSocket s) {
 #endif
 }
 
+// Cierra abortando la conexión (RST): al otro lado, `recv` devuelve un ERROR y no un fin de
+// datos. Es la forma de decirle al receptor «lo que te ha llegado no está entero».
+static void cierraConRechazo(TransferSocket s) {
+    if (s == kSocketInvalido) {
+        return;
+    }
+    struct linger l{};
+    l.l_onoff = 1;
+    l.l_linger = 0;
+    (void)setsockopt(s, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
+    closeTransferSocket(s);
+}
+
+// --- El veredicto del receptor.
+//
+// El trabajo de una transferencia es del EMISOR, y antes acababa en cuanto había mandado el
+// último byte: un `zfs recv` que rechazaba el flujo al final, o un fichero de destino que no
+// se podía escribir, dejaban el trabajo como «done». Así que el receptor, al terminar,
+// devuelve por el mismo socket cómo le fue —«RC=<n>» y, si falló, «ERR=<motivo>»—, y el
+// emisor lo espera antes de darse por bueno.
+//
+// Es compatible en los dos sentidos: un emisor antiguo ya cerró y no lo lee —escribir en ese
+// socket no hace daño, el daemon ignora SIGPIPE—, y un receptor antiguo cierra sin decir nada,
+// que el emisor toma como «sin noticias» y no como un fallo.
+static void informaAlEmisor(TransferSocket s, int rc, const std::string& motivo) {
+    std::string linea = "RC=" + std::to_string(rc) + "\n";
+    if (rc != 0) {
+        std::string unaLinea = trim(motivo);
+        for (char& c : unaLinea) {
+            if (c == '\n' || c == '\r') { c = ' '; }
+        }
+        if (unaLinea.size() > 900) { unaLinea.resize(900); }
+        if (!unaLinea.empty()) { linea += "ERR=" + unaLinea + "\n"; }
+    }
+    (void)send(s, linea.c_str(), static_cast<int>(linea.size()), 0);
+}
+
+// Lo que contestó el receptor, si contestó. `hayVeredicto` falso quiere decir que cerró sin
+// decir nada —un receptor anterior a esto— o que no se pudo leer.
+struct VeredictoDelReceptor {
+    bool hayVeredicto{false};
+    int rc{0};
+    std::string motivo;
+};
+
+// Cierra el sentido de ida —es el fin de datos del receptor— y espera su veredicto. El plazo
+// es largo a propósito: tras el último byte, `zfs recv` todavía tiene que asentar lo
+// recibido, y con flujos grandes eso no son segundos. `sigue` se consulta cada segundo para
+// atender una cancelación.
+static VeredictoDelReceptor leeVeredicto(TransferSocket s, const std::function<bool()>& sigue,
+                                         std::chrono::milliseconds plazo) {
+    VeredictoDelReceptor v;
+    std::string recibido;
+    const auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - t0 < plazo) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(s, &rfds);
+        struct timeval tv{};
+        tv.tv_sec = 1;
+        const int sel = select(static_cast<int>(s) + 1, &rfds, nullptr, nullptr, &tv);
+        if (sel < 0) {
+#ifndef _WIN32
+            if (errno == EINTR) { continue; }
+#endif
+            break;
+        }
+        if (sel == 0) {
+            if (sigue && !sigue()) { break; }
+            continue;
+        }
+        char buf[1024];
+        const int n = recv(s, buf, sizeof(buf), 0);
+        if (n <= 0) { break; }
+        recibido.append(buf, static_cast<std::size_t>(n));
+        if (recibido.size() > 4096) { break; }
+    }
+    std::istringstream lineas(recibido);
+    std::string l;
+    while (std::getline(lineas, l)) {
+        if (l.rfind("RC=", 0) == 0) {
+            try {
+                v.rc = std::stoi(l.substr(3));
+                v.hayVeredicto = true;
+            } catch (...) {}
+        } else if (l.rfind("ERR=", 0) == 0) {
+            v.motivo = l.substr(4);
+        }
+    }
+    return v;
+}
+
+static VeredictoDelReceptor esperaVeredicto(TransferSocket s, const std::function<bool()>& sigue) {
+#ifdef _WIN32
+    shutdown(s, SD_SEND);
+#else
+    shutdown(s, SHUT_WR);
+#endif
+    return leeVeredicto(s, sigue, std::chrono::minutes(30));
+}
+
 // ---------------------------------------------------------------------------
 // Descriptores de transfer que NO se heredan.
 //
@@ -6135,13 +6241,93 @@ static SpawnedStdout spawnReadingStdout(const std::string& program,
     return s;
 }
 
+// --- Ficheros con un flujo de `zfs send` dentro.
+//
+// `send` puede volcar el flujo en un fichero y recibirlo de uno. Las dos puntas usan el
+// mismo protocolo que una transferencia entre datasets —testigo y flujo por el socket—, así
+// que el extremo de ZFS no cambia: el que recibe en un dataset no sabe si al otro lado hay un
+// `zfs send` o un fichero, y el que emite no sabe si al otro lado hay un `zfs recv`.
+
+// Una ruta absoluta de esta máquina, sin «..»: «/x/y», o en Windows «C:/x» o «C:\x».
+static bool rutaDeFlujoValida(const std::string& ruta, std::string& err) {
+    bool absoluta = !ruta.empty() && ruta.front() == '/';
+#ifdef _WIN32
+    absoluta = absoluta
+               || (ruta.size() >= 3 && std::isalpha(static_cast<unsigned char>(ruta[0]))
+                   && ruta[1] == ':' && (ruta[2] == '/' || ruta[2] == '\\'));
+#endif
+    if (!absoluta) {
+        err = "not an absolute path: " + ruta;
+        return false;
+    }
+    std::string tramo;
+    for (std::size_t i = 0; i <= ruta.size(); ++i) {
+        if (i == ruta.size() || ruta[i] == '/' || ruta[i] == '\\') {
+            if (tramo == "..") {
+                err = "«..» is not allowed in the path: " + ruta;
+                return false;
+            }
+            tramo.clear();
+        } else {
+            tramo.push_back(ruta[i]);
+        }
+    }
+    return true;
+}
+
+// Abre un fichero de flujo para leerlo como si fuera la salida de un `zfs send`: el relé del
+// emisor no distingue. Sin proceso detrás, matarlo no hace nada y esperarlo devuelve 0.
+//
+// Sin herencia, como todo descriptor del daemon (ver más arriba): un hijo lanzado por otro
+// hilo no tiene por qué quedarse con el fichero abierto.
+static SpawnedStdout abreFicheroComoFlujo(const std::string& ruta, std::string& err) {
+    SpawnedStdout s;
+    if (!rutaDeFlujoValida(ruta, err)) {
+        return s;
+    }
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(ruta, ec)) {
+        err = std::filesystem::exists(ruta, ec) ? "not a regular file: " + ruta
+                                                : "the file does not exist: " + ruta;
+        return s;
+    }
+#ifndef _WIN32
+    const int fd = ::open(ruta.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        err = "cannot open " + ruta + ": " + std::strerror(errno);
+        return s;
+    }
+    s.readEnd = fd;
+#else
+    const HANDLE h = CreateFileW(std::filesystem::path(ruta).wstring().c_str(), GENERIC_READ,
+                                 FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                 FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        err = "cannot open " + ruta + " (error " + std::to_string(GetLastError()) + ")";
+        return s;
+    }
+    s.readEnd = h;
+#endif
+    s.ok = true;
+    return s;
+}
+
 // Devuelve bytes leídos, 0 en fin de datos, negativo en error.
 static long readSpawnedStdout(SpawnedStdout& s, char* buf, std::size_t len) {
 #ifndef _WIN32
-    return static_cast<long>(read(s.readEnd, buf, len));
+    for (;;) {
+        const ssize_t n = read(s.readEnd, buf, len);
+        if (n < 0 && errno == EINTR) { continue; }
+        return static_cast<long>(n);
+    }
 #else
     DWORD n = 0;
-    if (!ReadFile(s.readEnd, buf, static_cast<DWORD>(len), &n, nullptr)) { return 0; }
+    if (!ReadFile(s.readEnd, buf, static_cast<DWORD>(len), &n, nullptr)) {
+        // Una tubería cuyo escritor terminó contesta ERROR_BROKEN_PIPE: es su fin de datos.
+        // Cualquier otro fallo —leyendo un fichero de flujo, por ejemplo— es un error, y
+        // tomarlo por el final daría por bueno un flujo cortado.
+        return GetLastError() == ERROR_BROKEN_PIPE ? 0 : -1;
+    }
     return static_cast<long>(n);
 #endif
 }
@@ -6313,7 +6499,10 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     close(inPipe[1]);
     std::signal(SIGPIPE, sigpipePrevio);
 #endif
-    close(clientFd);
+    // El socket se queda abierto hasta saber cómo acabó `zfs recv`: por él va el veredicto
+    // al emisor (ver informaAlEmisor). Si el hijo muere antes de tiempo no hay espera de
+    // más: la salida de error se cierra con él, el waitpid vuelve al momento, y al cerrar
+    // aquí con datos sin leer el emisor recibe el corte como antes.
     std::string recvErr;
     if (hayTuberia) {
         close(errPipe[1]);
@@ -6328,11 +6517,15 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     }
     int recvStatus = 0;
     if (pid > 0) { waitpid(pid, &recvStatus, 0); }
-    const int recvRc = decodeWaitStatus(recvStatus);
+    const int recvRc = pid > 0 ? decodeWaitStatus(recvStatus) : 127;
     if (recvRc != 0) {
         daemonLog("ERROR", "recv-listen: zfs recv on «" + dataset + "» failed (rc=" +
                                std::to_string(recvRc) + ") " + trim(recvErr));
     }
+    informaAlEmisor(clientFd, recvRc,
+                    "zfs recv on " + dataset + " failed (exit " + std::to_string(recvRc) + "): "
+                        + trim(recvErr));
+    close(clientFd);
 #else
     // En Windows NO se le puede pasar el socket como entrada al proceso.
     //
@@ -6410,7 +6603,6 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     // Cerrar la escritura es lo que le da fin de datos a `zfs recv`. Sin esto se queda
     // esperando más flujo y no termina nunca.
     CloseHandle(inWr);
-    closeTransferSocket(clientFd);
 
     drainThread.join();
     WaitForSingleObject(pi.hProcess, INFINITE);
@@ -6418,6 +6610,10 @@ static void runTransferReceiveSession(TransferSocket listenFd,
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+    informaAlEmisor(clientFd, static_cast<int>(exitCode),
+                    "zfs recv on " + dataset + " failed (exit " + std::to_string(exitCode)
+                        + "): " + trim(childOutput));
+    closeTransferSocket(clientFd);
     daemonLog(exitCode == 0 ? "INFO" : "ERROR",
               "recv-listen " + dataset + ": rc=" + std::to_string(exitCode)
                   + " bytes=" + std::to_string(moved)
@@ -7442,6 +7638,219 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
     return r;
 }
 
+// Espera al emisor, comprueba el testigo y escribe el flujo en un fichero.
+//
+// Se escribe en «<ruta>.zfsmgr-part» y solo al final se le da su nombre: un fichero con el
+// nombre pedido es SIEMPRE un flujo entero. Lo que decide si lo es es cómo cierra el emisor
+// —un cierre normal si su `zfs send` acabó bien, abortado si no (ver cierraConRechazo)—, así
+// que un `recv` que devuelve error deja el parcial fuera y lo borra.
+static void runFileReceiveSession(TransferSocket listenFd, const std::string& token,
+                                  const std::string& ruta) {
+    struct timeval tv{};
+    tv.tv_sec = 300;
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(listenFd, &rfds);
+    const int sel = select(static_cast<int>(listenFd) + 1, &rfds, nullptr, nullptr, &tv);
+    if (sel <= 0) {
+        closeTransferSocket(listenFd);
+        daemonLog("ERROR", "file-recv-listen " + ruta + ": the sender never connected");
+        return;
+    }
+    const TransferSocket clientFd = aceptaTransferSocket(listenFd);
+    closeTransferSocket(listenFd);
+    if (clientFd == kSocketInvalido) {
+        return;
+    }
+    std::string recvToken;
+    recvToken.reserve(65);
+    char ch = 0;
+    while (recvToken.size() < 65) {
+        const int n = recv(clientFd, &ch, 1, 0);
+        if (n <= 0 || ch == '\n') { break; }
+        recvToken.push_back(ch);
+    }
+    if (recvToken != token) {
+        closeTransferSocket(clientFd);
+        return;
+    }
+
+    const std::string parcial = ruta + ".zfsmgr-part";
+    // Solo para root: el flujo lleva dentro los datos del dataset, sean de quien sean.
+#ifndef _WIN32
+    const int fd = ::open(parcial.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    const bool abierto = fd >= 0;
+    const std::string errApertura = abierto ? std::string() : std::strerror(errno);
+#else
+    const HANDLE fh = CreateFileW(std::filesystem::path(parcial).wstring().c_str(), GENERIC_WRITE,
+                                  0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const bool abierto = fh != INVALID_HANDLE_VALUE;
+    const std::string errApertura =
+        abierto ? std::string() : "error " + std::to_string(GetLastError());
+#endif
+    if (!abierto) {
+        // Abortado: el emisor tiene que enterarse de que aquí no se guarda nada.
+        informaAlEmisor(clientFd, 1, "cannot create " + parcial + ": " + errApertura);
+        cierraConRechazo(clientFd);
+        daemonLog("ERROR", "file-recv-listen: cannot create " + parcial + ": " + errApertura);
+        return;
+    }
+
+    std::vector<char> buf(256 * 1024);
+    std::uint64_t movidos = 0;
+    bool recepcionRota = false;
+    bool escrituraRota = false;
+    for (;;) {
+        const int n = recv(clientFd, buf.data(), static_cast<int>(buf.size()), 0);
+        if (n == 0) { break; }                       // fin normal: el flujo está entero
+        if (n < 0) {
+#ifndef _WIN32
+            if (errno == EINTR) { continue; }
+#endif
+            recepcionRota = true;
+            break;
+        }
+        int hecho = 0;
+        while (hecho < n) {
+#ifndef _WIN32
+            const ssize_t w = ::write(fd, buf.data() + hecho, static_cast<size_t>(n - hecho));
+            if (w < 0 && errno == EINTR) { continue; }
+            if (w <= 0) { escrituraRota = true; break; }
+            hecho += static_cast<int>(w);
+#else
+            DWORD w = 0;
+            if (!WriteFile(fh, buf.data() + hecho, static_cast<DWORD>(n - hecho), &w, nullptr)
+                || w == 0) {
+                escrituraRota = true;
+                break;
+            }
+            hecho += static_cast<int>(w);
+#endif
+        }
+        if (escrituraRota) { break; }
+        movidos += static_cast<std::uint64_t>(n);
+    }
+    std::string errEscritura = escrituraRota ? "write failed" : std::string();
+#ifndef _WIN32
+    if (escrituraRota) { errEscritura = std::string("write failed: ") + std::strerror(errno); }
+    // A disco antes de darle el nombre: si no, un corte de luz justo después podría dejar
+    // con el nombre bueno un fichero al que le falta el final.
+    if (!escrituraRota && !recepcionRota && ::fsync(fd) != 0) {
+        escrituraRota = true;
+        errEscritura = std::string("fsync failed: ") + std::strerror(errno);
+    }
+    ::close(fd);
+#else
+    if (!escrituraRota && !recepcionRota && !FlushFileBuffers(fh)) {
+        escrituraRota = true;
+        errEscritura = "flush failed";
+    }
+    CloseHandle(fh);
+#endif
+    std::error_code ec;
+    if (recepcionRota || escrituraRota) {
+        std::filesystem::remove(parcial, ec);
+        const std::string motivo =
+            (recepcionRota ? std::string("the stream arrived incomplete") : errEscritura)
+            + " after " + std::to_string(movidos) + " bytes; nothing was kept";
+        daemonLog("ERROR", "file-recv-listen " + ruta + ": " + motivo);
+        // Con la escritura rota, el emisor puede seguir mandando: se le dice por qué y se
+        // corta, para que su envío dé error en vez de terminar como si se hubiera guardado.
+        informaAlEmisor(clientFd, 1, "cannot save " + ruta + ": " + motivo);
+        cierraConRechazo(clientFd);
+        return;
+    }
+#ifndef _WIN32
+    std::filesystem::rename(parcial, ruta, ec);
+    const bool renombrado = !ec;
+    const std::string errRenombrado = ec ? ec.message() : std::string();
+#else
+    // MoveFileEx y no std::filesystem::rename: aquí sí hay que reemplazar un fichero que ya
+    // existe —se pidió sobrescribirlo—, y eso es lo que garantiza MOVEFILE_REPLACE_EXISTING.
+    const bool renombrado =
+        MoveFileExW(std::filesystem::path(parcial).wstring().c_str(),
+                    std::filesystem::path(ruta).wstring().c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    const std::string errRenombrado =
+        renombrado ? std::string() : "error " + std::to_string(GetLastError());
+#endif
+    if (!renombrado) {
+        std::filesystem::remove(parcial, ec);
+        daemonLog("ERROR", "file-recv-listen: cannot rename " + parcial + " to " + ruta + ": "
+                               + errRenombrado);
+        informaAlEmisor(clientFd, 1, "cannot rename " + parcial + " to " + ruta + ": "
+                                         + errRenombrado);
+        closeTransferSocket(clientFd);
+        return;
+    }
+    daemonLog("INFO", "file-recv-listen " + ruta + ": " + std::to_string(movidos) + " bytes");
+    informaAlEmisor(clientFd, 0, std::string());
+    closeTransferSocket(clientFd);
+}
+
+// Abre un puerto para recibir un flujo de `zfs send` y guardarlo en `ruta`.
+//
+// Lo que se puede comprobar antes se comprueba aquí, y no al llegar el flujo: el directorio
+// tiene que existir —crear directorios como root a petición de quien conecta no es cosa del
+// receptor, igual que en el árbol de ficheros—, la ruta no puede ser un directorio, y un
+// fichero que ya existe solo se reemplaza si se pide.
+static ExecResult runFileRecvListenCapture(const std::string& ruta, bool sobrescribir,
+                                           bool waitInline = false) {
+    ExecResult r;
+    std::string err;
+    if (!rutaDeFlujoValida(ruta, err)) {
+        r.rc = 2;
+        r.err = err + "\n";
+        return r;
+    }
+    std::error_code ec;
+    const std::filesystem::path p(ruta);
+    if (!std::filesystem::is_directory(p.parent_path(), ec)) {
+        r.rc = 1;
+        r.err = "the directory does not exist: " + p.parent_path().string() + "\n";
+        return r;
+    }
+    if (std::filesystem::is_directory(p, ec)) {
+        r.rc = 1;
+        r.err = "it is a directory: " + ruta + "\n";
+        return r;
+    }
+    if (std::filesystem::exists(p, ec) && !sobrescribir) {
+        r.rc = 1;
+        r.err = "the file already exists: " + ruta + "\n";
+        return r;
+    }
+    if (std::filesystem::exists(p, ec) && !std::filesystem::is_regular_file(p, ec)) {
+        r.rc = 1;
+        r.err = "not a regular file: " + ruta + "\n";
+        return r;
+    }
+    const std::string token = generateTransferToken();
+    if (token.empty()) {
+        r.rc = 1;
+        r.err = "could not generate the transfer token\n";
+        return r;
+    }
+    TransferSocket listenFd{};
+    int puerto = 0;
+    if (!abrePuertoDeTransferencia(listenFd, puerto, err)) {
+        r.rc = 1;
+        r.err = err + "\n";
+        return r;
+    }
+    if (waitInline) {
+        std::cout << "PORT=" << puerto << "\nTOKEN=" << token << "\n" << std::flush;
+        runFileReceiveSession(listenFd, token, ruta);
+        r.rc = 0;
+        return r;
+    }
+    std::thread([listenFd, token, ruta]() { runFileReceiveSession(listenFd, token, ruta); })
+        .detach();
+    r.rc = 0;
+    r.out = "PORT=" + std::to_string(puerto) + "\nTOKEN=" + token + "\n";
+    return r;
+}
+
 // Conecta con el receptor y le entrega el flujo de `zfs send`.
 //
 // Portable desde la fase 2. La versión POSIX ya bombeaba —lee de una tubería y escribe
@@ -7451,8 +7860,10 @@ static ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force
 // Devuelve false para pedir que la transfer se interrumpa. Se llama en cada vuelta
 // del relé, igual que la comprobación de cancelación que hacía el camino asíncrono.
 static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
-                                          const TransferProgressFn& onProgress = nullptr) {
+                                          const TransferProgressFn& onProgress = nullptr,
+                                          const std::string& ficheroOrigen) {
     ExecResult r;
+    const bool desdeFichero = !ficheroOrigen.empty();
     // params: snap peer_host peer_port token [base_snap [send_flags]]
     if (params.size() < 4) {
         r.rc = 2;
@@ -7490,8 +7901,20 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     if (peerHost.empty() || peerPort <= 0 || token.size() != 64) {
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
     }
-    if (snap.empty() && resumeToken.empty()) {
+    if (snap.empty() && resumeToken.empty() && !desdeFichero) {
         r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer: neither snapshot nor token\n"; return r;
+    }
+    // El fichero se abre ANTES de conectar: si no existe, el receptor no tiene por qué
+    // quedarse esperando un flujo que no va a llegar.
+    SpawnedStdout child;
+    if (desdeFichero) {
+        std::string errFichero;
+        child = abreFicheroComoFlujo(ficheroOrigen, errFichero);
+        if (!child.ok) {
+            r.rc = 1;
+            r.err = errFichero + "\n";
+            return r;
+        }
     }
 
     // Resolver, crear el socket sin herencia y conectar: lo hace `conectaConElPar`, que es
@@ -7501,6 +7924,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     const std::string portStr = std::to_string(peerPort);
     const TransferSocket sockFd = conectaConElPar(peerHost, portStr);
     if (sockFd == kSocketInvalido) {
+        if (desdeFichero) { waitSpawnedStdout(child); }
         r.rc = 1;
         r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n";
         return r;
@@ -7527,7 +7951,9 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         sendArgs.push_back(snap);
     }
 
-    SpawnedStdout child = spawnReadingStdout("zfs", sendArgs);
+    if (!desdeFichero) {
+        child = spawnReadingStdout("zfs", sendArgs);
+    }
     if (!child.ok) {
         closeTransferSocket(sockFd);
         r.rc = 1; r.err = "could not launch zfs send\n"; return r;
@@ -7553,8 +7979,10 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         lastReport = now;
     };
     bool cancelled = false;
+    bool lecturaFallida = false;
     for (;;) {
         const long n = readSpawnedStdout(child, buf.data(), buf.size());
+        if (n < 0) { lecturaFallida = true; }
         if (n <= 0) { break; }
         long done = 0;
         while (done < n) {
@@ -7596,9 +8024,6 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
             reportProgress(false);
         }
     }
-    closeTransferSocket(sockFd);
-    if (!onProgress) { reportProgress(true); }
-
     // Si el relé no llegó a su fin —el otro extremo rechazó, se cortó la red, o alguien
     // canceló— hay que MATAR al emisor antes de esperarlo. Cerrar la tubería no basta:
     // `zfs send` puede estar dentro del núcleo sin escribir nada, y entonces el `waitpid`
@@ -7606,11 +8031,42 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     //
     // Cuando el relé terminó bien no se toca: ahí el hijo ya ha salido solo, y mandarle una
     // señal sería pedirle que muera a algo que ya está muerto.
-    if (!relayOk || cancelled) {
+    if (!relayOk || cancelled || lecturaFallida) {
         matarSpawnedStdout(child);
     }
     std::string childErr;
     r.rc = waitSpawnedStdout(child, &childErr);
+
+    // El socket se cierra DESPUÉS de saber cómo acabó el emisor, porque el cierre es lo que
+    // le dice al receptor si el flujo está entero. Un cierre normal es su fin de datos; uno
+    // abortado (RST) le llega como un error. Antes se cerraba siempre igual, así que un
+    // `zfs send` que fallaba a la mitad se leía al otro lado como un flujo terminado: un
+    // `zfs recv` lo rechazaba por su cuenta, pero un FICHERO de destino se habría quedado
+    // con medio flujo dándolo por bueno.
+    VeredictoDelReceptor veredicto;
+    if (!relayOk && !atascado && !cancelled) {
+        // El receptor cortó. Si fue porque `zfs recv` rechazó el flujo, antes de cerrar dejó
+        // dicho por qué, y eso explica mucho más que «se cortó la conexión».
+        veredicto = leeVeredicto(sockFd, nullptr, std::chrono::milliseconds(1500));
+    }
+    if (relayOk && !cancelled && !lecturaFallida && r.rc == 0) {
+        veredicto = esperaVeredicto(sockFd, [&]() {
+            if (!onProgress) { return true; }
+            const long transcurrido = static_cast<long>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - t0).count());
+            const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+            const bool sigue = onProgress(totalBytes, transcurrido,
+                                          transcurrido > 0 ? mib / static_cast<double>(transcurrido)
+                                                           : mib);
+            if (!sigue) { cancelled = true; }
+            return sigue;
+        });
+        closeTransferSocket(sockFd);
+    } else {
+        cierraConRechazo(sockFd);
+    }
+    if (!onProgress) { reportProgress(true); }
     if (cancelled) {
         // Cancelar no es fallar: quien pidió parar ya sabe por qué, y `zfs send` sale
         // con error simplemente porque se le cerró la tubería debajo.
@@ -7630,13 +8086,29 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         r.rc = 1;
         r.err = "the receiver stopped reading: " + std::to_string(kAtascoMaximoS) +
                 " s without being able to send a single byte\n";
+    } else if (!relayOk && veredicto.hayVeredicto && veredicto.rc != 0) {
+        r.rc = 1;
+        r.err = "the receiver failed: "
+                + (veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc)
+                                            : veredicto.motivo)
+                + "\n";
     } else if (!relayOk) {
         r.rc = 1;
         r.err = "the connection to the receiver dropped; check the log on the target "
                 "machine to see why zfs recv failed\n";
+    } else if (lecturaFallida) {
+        r.rc = 1;
+        r.err = "could not read the stream file " + ficheroOrigen + "\n";
     } else if (r.rc != 0) {
         r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
         if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
+    } else if (veredicto.hayVeredicto && veredicto.rc != 0) {
+        // Todo salió de aquí, y el otro lado dice que no lo pudo usar.
+        r.rc = 1;
+        r.err = "the receiver failed: "
+                + (veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc)
+                                            : veredicto.motivo)
+                + "\n";
     }
     return r;
 }
@@ -8131,10 +8603,12 @@ static ExecResult runDumpBlockDevicesCapture() {
 static void runZfsSendToPeerAsync(const std::string& jobId) {
     std::string snap, peerHost, baseSnap, sendFlags, token, resumeToken;
     int peerPort = 0;
+    bool desdeFichero = false;
     {
         std::lock_guard<std::mutex> lock(g_jobsMutex);
         auto it = g_jobs.find(jobId);
         if (it == g_jobs.end()) { return; }
+        desdeFichero = it->second.type == "file-to-peer";
         snap      = it->second.snap;
         peerHost  = it->second.peerHost;
         peerPort  = it->second.peerPort;
@@ -8178,9 +8652,14 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         return true;
     };
 
-    const std::vector<std::string> params{
-        snap, peerHost, std::to_string(peerPort), token, baseSnap, sendFlags, resumeToken};
-    const ExecResult r = runZfsSendToPeerCapture(params, onProgress);
+    // Desde un fichero, `snap` es su ruta: lo que se manda es el flujo ya volcado.
+    const std::vector<std::string> params =
+        desdeFichero ? std::vector<std::string>{std::string(), peerHost,
+                                                std::to_string(peerPort), token}
+                     : std::vector<std::string>{snap, peerHost, std::to_string(peerPort), token,
+                                                baseSnap, sendFlags, resumeToken};
+    const ExecResult r =
+        runZfsSendToPeerCapture(params, onProgress, desdeFichero ? snap : std::string());
 
     std::lock_guard<std::mutex> lock(g_jobsMutex);
     auto it = g_jobs.find(jobId);
@@ -9105,6 +9584,12 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
         const bool force = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
         return runZfsRecvListenCapture(params[0], force);
+    }
+    if (cmd == "--file-recv-listen") {
+        // params: fichero [sobrescribir=0|1]
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --file-recv-listen <file> [overwrite=1]\n"; return r; }
+        const bool sobrescribir = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
+        return runFileRecvListenCapture(params[0], sobrescribir);
     }
 
 #ifndef _WIN32
@@ -10096,6 +10581,45 @@ int runServeLoop() {
                         persistJobsLocked();
                     }
                     daemonLog("INFO", "job " + jobId + " started type=send-to-peer snap=" + job.snap);
+                    std::thread([jobId]() { runZfsSendToPeerAsync(jobId); }).detach();
+                    exec.rc  = 0;
+                    exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
+                }
+            } else if (cmd == "--file-send-to-peer-async") {
+                // args: fichero peerHost peerPort token
+                //
+                // El mismo trabajo que el de arriba, con un fichero de flujo en lugar de un
+                // `zfs send`: comparte relé, avance, cancelación y la regla del envío vacío.
+                std::string errFichero;
+                SpawnedStdout prueba;
+                if (rpcArgs.size() < 4) {
+                    exec.rc = 1;
+                    exec.err = "usage: --file-send-to-peer-async <file> <peerHost> <peerPort> <token>\n";
+                // Que el fichero exista y se pueda leer se dice AQUÍ: si no, la orden devuelve
+                // un identificador de trabajo y el trabajo muere al instante.
+                } else if (!(prueba = abreFicheroComoFlujo(rpcArgs[0], errFichero)).ok) {
+                    exec.rc = 1;
+                    exec.err = errFichero + "\n";
+                } else {
+                    waitSpawnedStdout(prueba);
+                    DaemonJob job;
+                    job.id = generateJobId();
+                    job.type      = "file-to-peer";
+                    job.snap      = rpcArgs[0];
+                    job.peerHost  = rpcArgs[1];
+                    try { job.peerPort = std::stoi(rpcArgs[2]); } catch (...) {}
+                    job.token     = rpcArgs[3];
+                    job.description = "send file " + job.snap + " -> " + job.peerHost + ":"
+                                      + std::to_string(job.peerPort);
+                    job.state     = JobState::Running;
+                    job.startedAtUtc = utcNowIsoString();
+                    const std::string jobId = job.id;
+                    {
+                        std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                        g_jobs[jobId] = job;
+                        persistJobsLocked();
+                    }
+                    daemonLog("INFO", "job " + jobId + " started type=file-to-peer file=" + job.snap);
                     std::thread([jobId]() { runZfsSendToPeerAsync(jobId); }).detach();
                     exec.rc  = 0;
                     exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
@@ -11168,6 +11692,16 @@ int main(int argc, char* argv[]) {
         }
         const bool force = args.size() > 3 && (args[3] == "1" || toLower(args[3]) == "true");
         const ExecResult e = runZfsRecvListenCapture(args[2], force, /*waitInline=*/true);
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
+    if (cmd == "--file-recv-listen") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const bool sobrescribir = args.size() > 3 && (args[3] == "1" || toLower(args[3]) == "true");
+        const ExecResult e = runFileRecvListenCapture(args[2], sobrescribir, /*waitInline=*/true);
         if (!e.err.empty()) std::cerr << e.err;
         return e.rc;
     }

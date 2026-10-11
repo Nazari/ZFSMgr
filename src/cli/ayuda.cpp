@@ -686,6 +686,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_send_7", "continúa una recepción que se cortó"}},
       {"send zfsm://unibody/sback/copia --discard-partial",
        {"t_ej_send_8", "la descarta y vuelve a empezar"}},
+      {"send zfsm://unibody#path/copias/tank-ayer.zfs",
+       {"t_ej_send_9", "vuelca el flujo en un fichero de otra máquina"}},
+      {"send zfsm://casa/tank/restaurado --from zfsm://unibody#path/copias/tank-ayer.zfs",
+       {"t_ej_send_10", "lo recibe de ese fichero, como si fuera el snapshot"}},
      }},
     {"jobs",
      {
@@ -1271,7 +1275,7 @@ const std::vector<Orden> kOrdenes = {
     // --- Transferencias
     {"send", {"t_transferen_bb3ab8", "Transferencias entre máquinas"}, {"t_destino_bb3347", "<destino>"},
      {"t_manda_una__2d0418", "Manda un snapshot a otro dataset, aquí o en otra máquina."},
-     {{{"t_from_insta_ce64b3", "--from <@snapshot>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual."}},
+     {{{"t_from_insta_ce64b3", "--from <@snapshot>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual. También un fichero con un flujo."}},
       {{"t_base_insta_074a40", "--base <@snapshot>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
       {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}},
       {{"t_send_resume", "--resume"}, {"t_send_resume_q", "Si el destino tiene una recepción que se cortó, la continúa desde donde quedó."}},
@@ -1283,7 +1287,16 @@ const std::vector<Orden> kOrdenes = {
        "fueron ellas las que la hicieron fallar, «--discard-partial» empieza de cero."},
       {"t_va_como_tr_731e1f", "Va como TRABAJO del daemon, que es lo que permite mandar terabytes y cerrar la "
       "sesión. Se sigue con «job <id>» en la máquina de ORIGEN."},
-      {"t_send_windows_ok", "Funciona también con un extremo Windows: su agente emite y recibe el flujo desde la fase 2, comprobado contra una máquina real."}},
+      {"t_send_ficheros", "Cualquiera de las dos puntas puede ser un FICHERO con el flujo dentro "
+       "(«#path/…» o «#content/…»): de destino se vuelca en él, y con «--from» se recibe de él "
+       "como si fuera el snapshot. El fichero se escribe con otro nombre y solo toma el suyo "
+       "cuando el flujo llegó entero, y solo lo puede leer root. Uno que ya existe se sustituye "
+       "previa confirmación; el directorio tiene que existir."},
+      {"t_send_ficheros_2", "Un directorio no es un fichero: solo vale si es el punto de "
+       "montaje de un dataset, o la raíz de «.zfs/snapshot/<s>» como origen. Con un fichero de "
+       "origen no valen «--base», las banderas de zfs send ni «--resume»: el flujo ya se hizo."},
+      {"t_send_windows_no", "El extremo de ZFS no puede estar en Windows: allí el flujo no "
+       "está portado. Un fichero en Windows sí vale."}},
      Objetivo::Snapshot,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}},
      nativasDeSend()},

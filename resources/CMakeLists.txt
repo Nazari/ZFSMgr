@@ -87,6 +87,8 @@ cmd:--dump-resolve-devices
 cmd:--mutate-zpool-labelclear
 cmd:--dump-path-list
 cmd:--dump-path-info
+cmd:--file-recv-listen
+cmd:--file-send-to-peer-async
 copytree:skip-unchanged-delete-dryrun
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.

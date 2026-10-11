@@ -1018,6 +1018,12 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
     //
     // Desde la POSICIÓN dentro de `#content` se sigue actuando sobre el dataset, como
     // siempre: estando en `ds#content/docs`, `snapshot` es del dataset en el que se está.
+    // En `send`, un fichero escrito como origen puede ser un flujo ya volcado: lo decide
+    // cmdSend, que es quien sabe mirar si es un fichero o el directorio de una instantánea.
+    if (std::string(orden->nombre) == "send" && !explicito.empty()
+        && esSeccionDeFicheros(p.objetivo)) {
+        return true;
+    }
     {
         const bool quiereZfs = orden->objetivo == Objetivo::Pool
                                || orden->objetivo == Objetivo::Dataset
@@ -4201,6 +4207,43 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 // Que sea un trabajo y no una espera es lo que permite mandar terabytes y cerrar la
 // sesión. Con `--wait` se espera aquí, sondeando.
 
+// Que el fichero de destino de un `send` está entero en su sitio.
+//
+// El trabajo es del EMISOR, y que acabe bien dice que mandó todo, no que el otro lado lo
+// guardara: el último tramo puede estar aún en el búfer del receptor cuando falla al
+// escribirlo, y entonces el receptor borra el parcial sin que el emisor se entere. Así que
+// con `--wait` se mira el fichero: que exista con su nombre —el receptor solo se lo da a un
+// flujo entero— y que mida lo que se mandó. El nombre se lo pone tras cerrar, así que se le
+// dan unos segundos.
+bool ficheroCompleto(Estado& e, const ZfsmUrl& donde, const std::string& ruta, long long bytes) {
+    long long tam = -1;
+    for (int intento = 0; intento < 20; ++intento) {
+        std::string out;
+        B::json::Value v;
+        if (agente(e, donde, PET::pathInfo(ruta), out, 20000) && B::json::parse(out, v, nullptr)
+            && v["exists"].toBool()) {
+            tam = v["size"].toInt();
+            if (bytes < 0 || tam == bytes) {
+                std::fprintf(stderr, TC("t_send_fichero_guardado", "guardado en %s (%s)\n"),
+                             ruta.c_str(), B::humanSize(std::to_string(tam)).c_str());
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    if (tam < 0) {
+        std::fprintf(stderr, TC("t_send_fichero_no_quedo",
+                                "el envío terminó, pero %s no está en %s: el receptor no pudo "
+                                "guardarlo (su registro dice por qué)\n"),
+                     ruta.c_str(), donde.connection.c_str());
+    } else {
+        std::fprintf(stderr, TC("t_send_fichero_corto",
+                                "%s mide %lld bytes y se mandaron %lld\n"),
+                     ruta.c_str(), tam, bytes);
+    }
+    return false;
+}
+
 // Send una instantánea a otro dataset, en esta máquina o en otra.
 //
 // Con `--base` es INCREMENTAL: solo viaja lo que cambió desde esa instantánea, que es lo
@@ -4230,12 +4273,52 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                      "          [banderas de zfs send] [--wait]\n"
                      "  El destino es una URL: puede estar en OTRA máquina.\n"
                      "  Sin --from se usa el sitio actual como origen.\n"
+                     "  Cualquiera de los dos puede ser un fichero con el flujo («#path/…»).\n"
                      "  Con --base solo viaja lo que cambió desde ahí (lo que la interfaz\n"
                      "  llama «Nivelar»).\n"), stderr);
         return false;
     }
-    const ZfsmUrl& origen = pet.objetivo;
-    if (origen.snapshot.empty()) {
+    // Cualquiera de las dos puntas puede ser un FICHERO con un flujo de `zfs send` dentro:
+    // el destino, para volcarlo; el origen (`--from`), para recibirlo como si viniera de una
+    // instantánea. Un directorio no es un flujo: solo vale si equivale a un dataset o a una
+    // instantánea —su punto de montaje, la raíz de `.zfs/snapshot/<s>`—, como en el resto de
+    // órdenes.
+    ZfsmUrl origen = pet.objetivo;
+    std::string ficheroOrigen;
+    if (esSeccionDeFicheros(origen)) {
+        const std::string escrito = textoDe(origen);
+        Ubicacion ub;
+        if (!ubicacionDe(e, origen, ub)) {
+            return false;
+        }
+        if (!ub.existe) {
+            std::fprintf(stderr, TC("t_send_no_existe", "%s no existe\n"), escrito.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        if (ub.esDirectorio) {
+            if (!ub.esMontaje || ub.dataset.empty()) {
+                std::fprintf(stderr, TC("t_send_origen_dir",
+                                        "%s es un directorio: el origen es un fichero con el "
+                                        "flujo, o la raíz de «.zfs/snapshot/<s>»\n"),
+                             escrito.c_str());
+                e.ultimoRc = 2;
+                return false;
+            }
+            if (!equivaleADataset(e, origen, escrito)) {
+                return false;
+            }
+        } else if (ub.tipo != "f" && ub.tipo != "l") {
+            std::fprintf(stderr, TC("t_send_no_es_fichero",
+                                    "%s no es un fichero normal: el flujo tiene que estar en uno\n"),
+                         escrito.c_str());
+            e.ultimoRc = 1;
+            return false;
+        } else {
+            ficheroOrigen = ub.ruta;
+        }
+    }
+    if (ficheroOrigen.empty() && origen.snapshot.empty()) {
         std::fprintf(stderr, TC("t_el_origen__886ec5", "el origen tiene que ser un SNAPSHOT (ahora: %s)\n"), textoDe(origen).c_str());
         return false;
     }
@@ -4245,8 +4328,75 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    if (destino.dataset.empty()) {
+    std::string ficheroDestino;
+    bool sobrescribir = false;
+    if (esSeccionDeFicheros(destino)) {
+        const std::string escrito = textoDe(destino);
+        if (!ficheroOrigen.empty()) {
+            std::fputs(TC("t_send_fichero_a_fichero",
+                          "de un fichero a otro no hay nada que enviar: eso es «cp»\n"),
+                       stderr);
+            e.ultimoRc = 2;
+            return false;
+        }
+        Ubicacion ub;
+        if (!ubicacionDe(e, destino, ub)) {
+            return false;
+        }
+        if (ub.existe && ub.esDirectorio) {
+            // El punto de montaje de un dataset es ese dataset. Cualquier otro directorio
+            // es un sitio donde guardar el fichero, y su nombre no se inventa.
+            if (!(ub.esMontaje && !ub.dataset.empty() && ub.instantanea.empty())) {
+                std::fprintf(stderr, TC("t_send_destino_dir",
+                                        "%s es un directorio: el flujo se guarda en un fichero; "
+                                        "escriba también su nombre\n"),
+                             escrito.c_str());
+                e.ultimoRc = 2;
+                return false;
+            }
+            if (!equivaleADataset(e, destino, escrito)) {
+                return false;
+            }
+        } else if (ub.existe && ub.tipo != "f") {
+            std::fprintf(stderr, TC("t_send_destino_raro",
+                                    "%s existe y no es un fichero normal\n"),
+                         escrito.c_str());
+            e.ultimoRc = 2;
+            return false;
+        } else {
+            ficheroDestino = ub.ruta;
+            sobrescribir = ub.existe;
+            // El directorio tiene que existir: el daemon no crea directorios como root a
+            // petición de quien conecta. Se mira AHORA, antes de pedir confirmación.
+            std::string padre = ficheroDestino.substr(0, ficheroDestino.find_last_of('/'));
+            if (padre.empty() || padre.back() == ':') {
+                padre += "/";
+            }
+            std::string infoPadre;
+            B::json::Value v;
+            if (!agente(e, destino, PET::pathInfo(padre), infoPadre, 20000)) {
+                return false;
+            }
+            if (!B::json::parse(infoPadre, v, nullptr) || !v["is_dir"].toBool()) {
+                std::fprintf(stderr, TC("t_send_sin_directorio",
+                                        "el directorio %s no existe en %s\n"),
+                             padre.c_str(), destino.connection.c_str());
+                e.ultimoRc = 1;
+                return false;
+            }
+        }
+    }
+    if (ficheroDestino.empty() && destino.dataset.empty()) {
         std::fputs(TC("t_el_destino_e077ee", "el destino tiene que ser un dataset\n"), stderr);
+        return false;
+    }
+    // Lo que el flujo ya trae no se puede pedir otra vez: un fichero es el flujo que es.
+    if (!ficheroOrigen.empty() && (!pet.valor("base").empty() || !banderasSend.empty())) {
+        std::fputs(TC("t_send_fichero_sin_banderas",
+                      "con un fichero de origen no valen «--base» ni las banderas de zfs send: "
+                      "el flujo se hizo al volcarlo\n"),
+                   stderr);
+        e.ultimoRc = 2;
         return false;
     }
     const auto* pOrigen = perfilVivoDe(e, origen, error);
@@ -4259,9 +4409,11 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    // None_ de los dos extremos puede ser Windows: el flujo por socket no está portado
-    // allí. Decirlo AQUÍ evita un fallo a mitad de transfer que no se entiende.
-    if (T::isWindowsConnection(*pOrigen) || T::isWindowsConnection(*pDestino)) {
+    // El extremo de ZFS no puede ser Windows: el flujo por socket no está portado allí.
+    // Decirlo AQUÍ evita un fallo a mitad de transfer que no se entiende. Un FICHERO en
+    // Windows sí vale: guardarlo o leerlo no pasa por `zfs`.
+    if ((ficheroOrigen.empty() && T::isWindowsConnection(*pOrigen))
+        || (ficheroDestino.empty() && T::isWindowsConnection(*pDestino))) {
         std::fputs(TC("t_la_transfe_6f9799", "la transferencia por socket no está disponible en Windows.\n"
                      "Para llevar datos a o desde una máquina Windows, use «todir» y "
                      "«fromdir».\n"), stderr);
@@ -4289,7 +4441,25 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         e.ultimoRc = 2;
         return false;
     }
-    const TR::Resume aMedias = TR::findResumeToken(
+    // Un fichero no tiene recepciones a medias, y continuar una necesita el `zfs send -t`
+    // del origen: un fichero solo puede dar el flujo desde el principio.
+    if ((reanudar || descartar) && !ficheroDestino.empty()) {
+        std::fputs(TC("t_send_fichero_sin_parcial",
+                      "un fichero de destino no tiene recepciones a medias: «--resume» y "
+                      "«--discard-partial» no aplican\n"),
+                   stderr);
+        e.ultimoRc = 2;
+        return false;
+    }
+    if (reanudar && !ficheroOrigen.empty()) {
+        std::fputs(TC("t_send_fichero_no_reanuda",
+                      "un fichero no puede continuar una recepción a medias: hace falta la "
+                      "instantánea de origen, o «--discard-partial» para empezar de cero\n"),
+                   stderr);
+        e.ultimoRc = 2;
+        return false;
+    }
+    const TR::Resume aMedias = !ficheroDestino.empty() ? TR::Resume{} : TR::findResumeToken(
         [&](const B::ConnectionProfile& maquina, const std::vector<std::string>& args,
             int timeoutMs, std::string& out, std::string& err, int& rc) {
             return ejecutarAgente(*e.ses, maquina, args, out, err, rc, nullptr, timeoutMs);
@@ -4340,6 +4510,33 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
+    } else if (!ficheroDestino.empty()) {
+        const std::string que =
+            sobrescribir
+                ? B::format(T("t_conf_send_fichero_existe",
+                              "Se va a volcar el flujo de %1 (en %2) al fichero %3 de %4, que YA "
+                              "EXISTE y se sustituye. ¿Continuar?"),
+                            {origen.zfsName(), origen.connection, ficheroDestino,
+                             destino.connection})
+                : B::format(T("t_conf_send_fichero",
+                              "Se va a volcar el flujo de %1 (en %2) al fichero %3 de %4. "
+                              "¿Continuar?"),
+                            {origen.zfsName(), origen.connection, ficheroDestino,
+                             destino.connection});
+        if (!confirma(e, que)) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
+    } else if (!ficheroOrigen.empty()) {
+        if (!confirma(e, B::format(T("t_conf_send_desde_fichero",
+                                     "Se va a recibir el flujo del fichero %1 (en %2) en %3 de %4.\n"
+                                     "Si el destino existe y difiere, `zfs recv -F` lo SOBRESCRIBE. "
+                                     "¿Continuar?"),
+                                   {ficheroOrigen, origen.connection, destino.dataset,
+                                    destino.connection}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
     } else if (!confirma(e, B::format(T("t_conf_copy",
                                  "Se va a %1 %2 de %3 a %4 en %5.\nSi el destino existe y "
                                  "difiere, `zfs recv -F` lo SOBRESCRIBE. ¿Continuar?"),
@@ -4366,10 +4563,16 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         return ejecutarAgente(*e.ses, maquina, args, out, err, rc, &motivo, timeoutMs);
     };
     const TR::Job trabajo =
-        TR::launchJob(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
-                         destino.dataset,
-                         base, banderasSend, testigo, mismaMaquina,
-                         e.ses->verboso);
+        !ficheroDestino.empty()
+            ? TR::launchToFileJob(e.ses->transporte, llama, *pOrigen, *pDestino,
+                                  origen.zfsName(), ficheroDestino, sobrescribir, base,
+                                  banderasSend, mismaMaquina, e.ses->verboso)
+        : !ficheroOrigen.empty()
+            ? TR::launchFromFileJob(e.ses->transporte, llama, *pOrigen, *pDestino, ficheroOrigen,
+                                    destino.dataset, mismaMaquina, e.ses->verboso)
+            : TR::launchJob(e.ses->transporte, llama, *pOrigen, *pDestino, origen.zfsName(),
+                            destino.dataset, base, banderasSend, testigo, mismaMaquina,
+                            e.ses->verboso);
     if (!trabajo.ok()) {
         const std::string detalle = B::trim(trabajo.detail);
         std::fprintf(stderr, "%s%s%s\n", TR::labelOf(trabajo.failure).c_str(),
@@ -4382,8 +4585,14 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     std::fprintf(stdout, "%s\n", jobId.c_str());
     std::fprintf(stderr, TC("t_transferen_07aa2e", "transferencia en marcha como trabajo %s en %s\n"), jobId.c_str(), origen.connection.c_str());
 
+    // El trabajo es de la MÁQUINA de origen. Con un fichero, la URL del origen es una ruta, y
+    // `job --on <ruta>` contestaría que no es una conexión.
+    ZfsmUrl maquinaOrigen;
+    maquinaOrigen.kind = ZfsmKind::Connection;
+    maquinaOrigen.connection = origen.connection;
     if (!pet.tiene("--wait")) {
-        std::fprintf(stderr, TC("t_siga_con_j_2debd4", "siga con «job %s --on %s»\n"), jobId.c_str(), textoDe(origen).c_str());
+        std::fprintf(stderr, TC("t_siga_con_j_2debd4", "siga con «job %s --on %s»\n"), jobId.c_str(),
+                     textoDe(ficheroOrigen.empty() ? origen : maquinaOrigen).c_str());
         return true;
     }
     // Con --wait se espera aquí. Se sondea cada dos segundos: más a menudo es carga sin
@@ -4392,7 +4601,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         std::string est;
-        if (!agente(e, origen, PET::jobStatus(jobId), est, 20000)) {
+        if (!agente(e, maquinaOrigen, PET::jobStatus(jobId), est, 20000)) {
             return false;
         }
         const auto k = clavesDe(est);
@@ -4407,6 +4616,12 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
             std::fprintf(stderr, "trabajo %s: %s%s\n", jobId.c_str(), estado.c_str(),
                          err.empty() ? "" : (" — " + err).c_str());
             e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
+            if (e.ultimoRc == 0 && !ficheroDestino.empty()) {
+                const long long bytes = k.count("BYTES") ? std::atoll(k.at("BYTES").c_str()) : -1;
+                if (!ficheroCompleto(e, destino, ficheroDestino, bytes)) {
+                    e.ultimoRc = 1;
+                }
+            }
             return e.ultimoRc == 0;
         }
     }
