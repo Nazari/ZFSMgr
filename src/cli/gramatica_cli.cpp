@@ -133,10 +133,11 @@ LineaAnalizada analizaLinea(const std::string& linea) {
                     break;
                 }
             }
-            out.error = std::string("uso: ") + o->nombre + " "
+            out.error = zfsmgr::base::i18n::tr("t_uso_prefijo", "uso: ") + o->nombre + " "
                         + zfsmgr::base::i18n::tr(o->uso.clave, o->uso.es);
             if (!out.faltaRanura.empty()) {
-                out.error += "  (falta <" + out.faltaRanura + ">)";
+                out.error += "  (" + zfsmgr::base::i18n::tr("t_falta_ranura", "falta") + " <"
+                             + out.faltaRanura + ">)";
             }
         }
     }

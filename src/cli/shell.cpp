@@ -3966,17 +3966,71 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
     }
     const ZfsmUrl& destino = pet.objetivo;
     if (std::string(op) == "load-key") {
-        // La frase de paso NUNCA por argumento: iría en `argv` y se vería en `ps` en las
-        // dos máquinas. El verbo dedicado la lleva en base64 dentro de la petición RPC.
-        std::string frase;
-        std::string err;
-        if (!preguntarSecretoPorTerminal("Frase de paso: ", frase, err)) {
-            std::fprintf(stderr, "%s\n", err.c_str());
+        // Antes de pedir NADA se mira el dataset. Si no, la frase se tecleaba para nada y
+        // después salía el error crudo de `zfs`: en un dataset sin cifrar, con la clave ya
+        // cargada, o en uno que hereda la clave de su raíz de cifrado.
+        const auto prop = [&](const char* nombre) {
+            std::string v;
+            (void)agente(e, destino, PET::datasetProperty(nombre, destino.dataset), v);
+            return B::trim(v);
+        };
+        const std::string cifrado = prop("encryption");
+        if (cifrado.empty() || cifrado == "off" || cifrado == "-") {
+            std::fprintf(stderr, TC("t_lk_sin_cifrar", "%s no está cifrado: no tiene clave\n"),
+                         destino.dataset.c_str());
+            e.ultimoRc = 1;
             return false;
         }
+        // La clave de un dataset que hereda el cifrado es la de su RAÍZ de cifrado, y `zfs`
+        // solo acepta cargarla ahí. Cargar esa es lo que se quiere decir y no borra ni cambia
+        // nada, así que se hace diciéndolo.
+        std::string raiz = prop("encryptionroot");
+        if (raiz.empty() || raiz == "-") {
+            raiz = destino.dataset;
+        }
+        ZfsmUrl objetivo = destino;
+        if (raiz != destino.dataset) {
+            std::fprintf(stderr,
+                         TC("t_lk_raiz",
+                            "la clave de %s es la de su raíz de cifrado, %s: se carga esa\n"),
+                         destino.dataset.c_str(), raiz.c_str());
+            objetivo.dataset = raiz;
+        }
+        const auto propRaiz = [&](const char* nombre) {
+            std::string v;
+            (void)agente(e, objetivo, PET::datasetProperty(nombre, objetivo.dataset), v);
+            return B::trim(v);
+        };
+        if (propRaiz("keystatus") == "available") {
+            std::fprintf(stderr, TC("t_lk_ya_cargada", "la clave de %s ya está cargada\n"),
+                         objetivo.dataset.c_str());
+            return true;
+        }
+        // La frase de paso NUNCA por argumento: iría en `argv` y se vería en `ps` en las
+        // dos máquinas. El verbo dedicado la lleva en base64 dentro de la petición RPC.
+        //
+        // Con `keylocation` en un fichero no hay nada que preguntar: `zfs` la lee de ahí y
+        // no mira la entrada estándar.
+        std::string frase;
+        std::string err;
+        const std::string dondeEsta = propRaiz("keylocation");
+        if (dondeEsta == "prompt" || dondeEsta.empty() || dondeEsta == "-") {
+            const std::string fd = pet.valor("password-fd");
+            const bool leida = !fd.empty()
+                                   ? leerSecretoDeDescriptor(std::atoi(fd.c_str()), frase, err)
+                                   : preguntarSecretoPorTerminal(
+                                         T("t_p_frase", "Frase de paso: "), frase, err);
+            if (!leida) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+        } else {
+            std::fprintf(stderr, TC("t_lk_de_fichero", "la clave se lee de %s\n"),
+                         dondeEsta.c_str());
+        }
         std::string out;
-        const bool ok = agente(e, destino,
-                               PET::loadKey(destino.dataset, frase),
+        const bool ok = agente(e, objetivo,
+                               PET::loadKey(objetivo.dataset, frase),
                                out);
         for (char& c : frase) {
             c = '\0';
@@ -3984,7 +4038,7 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         if (!ok) {
             return false;
         }
-        std::fprintf(stderr, TC("t_clave_carg_09d2f4", "clave cargada en %s\n"), destino.dataset.c_str());
+        std::fprintf(stderr, TC("t_clave_carg_09d2f4", "clave cargada en %s\n"), objetivo.dataset.c_str());
         return true;
     }
     // Cambiar la frase. Va aparte de `zfsGeneric` por lo mismo que `load-key`: la frase no
@@ -9143,6 +9197,29 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             continue;
         }
         if (orden == "help" || orden == "?") {
+            // `help load-key --on ..` enseña la ayuda y NO ejecuta nada. Se dice, porque lo
+            // que se escribió detrás parece una orden que uno esperaba ver hecha.
+            // `--on`/`--from` y las opciones no llegan como texto: se reconstruyen de lo
+            // analizado para enseñar la orden tal y como se escribió.
+            std::string resto;
+            for (std::size_t i = 1; i < args.size(); ++i) {
+                resto += " " + args[i];
+            }
+            if (!an.objetivo.empty()) {
+                resto += " --on " + an.objetivo;
+            }
+            for (const auto& kv : an.opciones) {
+                resto += " --" + kv.first + (kv.second.empty() ? "" : " " + kv.second);
+            }
+            for (const std::string& b : an.banderas) {
+                resto += " " + b;
+            }
+            if (!args.empty() && !resto.empty()) {
+                std::fprintf(stderr,
+                             TC("t_help_no_ejecuta",
+                                "help solo enseña la ayuda y no ejecuta nada: ¿quería «%s%s»?\n"),
+                             args.front().c_str(), resto.c_str());
+            }
             if (!args.empty()) {
                 if (!imprimeAyudaDe(args.front(), anchoTerminal())) {
                     std::fprintf(stderr, TC("t_no_hay_nin_fea411", "no hay ninguna orden «%s»\n"), args.front().c_str());

@@ -51,8 +51,19 @@ class Contexto:
         self.fallos = []
 
 
+# Órdenes que actúan sobre TODOS los pools de la máquina, no solo sobre los de prueba. La
+# batería corre en máquinas con pools de verdad —en fc16, entornos de arranque con /usr y
+# /var heredados— y una de estas los toca. Se rechazan antes de llegar al shell.
+ORDENES_GLOBALES = re.compile(
+    r"\b(zfs\s+(mount|unmount|umount|load-key|unload-key)|zpool\s+(import|export))\b"
+    r"[^;|&]*\s-[a-zA-Z]*a\b"
+    r"|\bzfs\s+(mount|unmount|umount)\s*$")
+
+
 def sh(ctx, orden, en_remoto=False, root=False):
     """Una orden de shell en fc16 o en unib. Devuelve (rc, salida)."""
+    if ORDENES_GLOBALES.search(orden):
+        raise SystemExit(f"orden global rechazada en la batería: {orden}")
     if root:
         orden = "sudo -S -p '' " + orden
     if en_remoto:
@@ -68,7 +79,7 @@ def sh(ctx, orden, en_remoto=False, root=False):
     return p.returncode, (p.stdout + p.stderr)
 
 
-def cli(ctx, ordenes, timeout=180, idioma=None):
+def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
     """Manda órdenes al intérprete y devuelve (rc, salida).
 
     La contraseña maestra va por el DESCRIPTOR 9, abierto con la redirección del shell.
@@ -86,7 +97,15 @@ def cli(ctx, ordenes, timeout=180, idioma=None):
     # el castellano: el catálogo inglés ya decía «Snapshots» desde siempre. Cuando lo que se
     # afirma es un texto, hay que decir en qué lengua se afirma.
     lang = f" --lang {shlex.quote(idioma)}" if idioma else ""
-    orden = f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --format text{lang} -y"
+    # `frase`: un secreto para la orden (`load-key --password-fd 8`). Por fichero 0600 y
+    # descriptor, igual que la maestra: nunca por argumento ni por entorno.
+    extra = ""
+    if frase is not None:
+        ruta = os.path.join(ctx.dir_tmp, ".frase")
+        with open(os.open(ruta, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(frase + "\n")
+        extra = f"exec 8<{ruta}; "
+    orden = f"{extra}exec 9<{fichero}; exec {CLI!r} --password-fd 9 --format text{lang} -y"
     p = subprocess.run(["bash", "-c", orden], input=guion, capture_output=True,
                        text=True, timeout=timeout)
     return p.returncode, (p.stdout + p.stderr)
@@ -124,7 +143,7 @@ def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
 
 
 def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, veces=(),
-         idioma=None):
+         idioma=None, frase=None):
     """Un caso: órdenes al CLI, y después comprobaciones contra la máquina.
 
     `veces` son pares (patrón, n): el patrón tiene que aparecer EXACTAMENTE n veces. Existe
@@ -134,7 +153,7 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, vece
     listado raro; con varios, no hay forma de saber si son dos pools homónimos o el mismo
     contado dos veces.
     """
-    rc_real, salida = cli(ctx, list(ordenes), idioma=idioma)
+    rc_real, salida = cli(ctx, list(ordenes), idioma=idioma, frase=frase)
     problemas = []
     if rc is not None and rc_real != rc:
         problemas.append(f"rc={rc_real}, esperaba {rc}")
@@ -1067,6 +1086,65 @@ def casos_cp_destino(ctx):
     sh(ctx, f"rm -rf {w}", root=True)
 
 
+def casos_load_key(ctx):
+    """`load-key` mira el dataset ANTES de pedir la frase.
+
+    Sin cifrar o con la clave ya cargada no pide nada; en un hijo que hereda el cifrado
+    carga la de su raíz de cifrado y lo dice; con `keylocation` en un fichero la lee de ahí.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    frase = "frase-de-la-bateria"
+    ruta_frase = os.path.join(ctx.dir_tmp, "frase-cif")
+    ruta_clave = os.path.join(ctx.dir_tmp, "clave-fich")
+    with open(os.open(ruta_frase, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        f.write(frase + "\n")
+    with open(os.open(ruta_clave, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as f:
+        f.write(os.urandom(32))
+    # Se crea leyendo la frase de un fichero y después se pasa a `prompt`: por la entrada
+    # estándar no se puede, porque `sudo -S` se come la primera línea.
+    sh(ctx, f"zfs create -o encryption=on -o keyformat=passphrase "
+            f"-o keylocation=file://{ruta_frase} {P}/cif", root=True)
+    sh(ctx, f"zfs set keylocation=prompt {P}/cif", root=True)
+    sh(ctx, f"zfs create {P}/cif/hijo", root=True)
+    sh(ctx, f"zfs create -o encryption=on -o keyformat=raw "
+            f"-o keylocation=file://{ruta_clave} {P}/fich", root=True)
+    descarga = (f"bash -c 'zfs unmount {P}/cif/hijo; zfs unmount {P}/cif; "
+                f"zfs unload-key {P}/cif; zfs unmount {P}/fich; zfs unload-key {P}/fich'")
+    sh(ctx, descarga, root=True)
+
+    caso(ctx, "help con opciones avisa de que no ejecuta nada",
+         ["cd Local", "help load-key --on .."],
+         espera=[r"did you mean «load-key --on \.\.»|¿quería «load-key --on \.\.»"])
+    caso(ctx, "load-key: sin cifrar, lo dice sin pedir frase",
+         [f"load-key --on Local/{P}/datos"], rc=1,
+         espera=[r"not encrypted|no está cifrado"], no_espera=[r"assphrase|rase de paso"])
+    caso(ctx, "load-key: en un hijo carga la de su raíz de cifrado",
+         [f"load-key --on Local/{P}/cif/hijo --password-fd 8"], rc=0, frase=frase,
+         espera=[rf"encryption root, {P}/cif|raíz de cifrado, {P}/cif",
+                 rf"key loaded on {P}/cif$|clave cargada en {P}/cif$"],
+         estado=[("la clave está cargada", f"zfs get -H -o value keystatus {P}/cif",
+                  r"^available$")])
+    caso(ctx, "load-key: con la clave ya cargada no pide nada",
+         [f"load-key --on Local/{P}/cif"], rc=0,
+         espera=[r"already loaded|ya está cargada"])
+    sh(ctx, descarga, root=True)
+    caso(ctx, "load-key: con la frase equivocada no carga",
+         [f"load-key --on Local/{P}/cif --password-fd 8"], frase="no-es-esta-frase",
+         espera=[r"Incorrect key provided"], no_espera=[r"key loaded|clave cargada"],
+         estado=[("la clave sigue sin cargar", f"zfs get -H -o value keystatus {P}/cif",
+                  r"^unavailable$")])
+    caso(ctx, "load-key: con keylocation en un fichero no pide frase",
+         [f"load-key --on Local/{P}/fich"], rc=0,
+         espera=[r"read from file://|se lee de file://"], no_espera=[r"assphrase|rase de paso"],
+         estado=[("la clave está cargada", f"zfs get -H -o value keystatus {P}/fich",
+                  r"^available$")])
+    caso(ctx, "el uso de una orden mal escrita sale en el idioma de la sesión",
+         ["cd Local", "help send @a --wait -n"], rc=2, idioma="en",
+         espera=[r"^usage: help"], no_espera=[r"^uso:"])
+    sh(ctx, f"bash -c 'zfs destroy -r {P}/cif; zfs destroy -r {P}/fich'", root=True)
+
+
 def casos_editor_ancho(ctx):
     """El editor de línea no puede pintar más ancho que el terminal.
 
@@ -1646,7 +1724,7 @@ def casos_pool_export(ctx):
     # que cada pool salía en dos bloques idénticos de siete líneas. `no_espera` sola no lo
     # veía —el listado sí estaba— y por eso el caso pasaba con el defecto dentro.
     caso(ctx, "import: sin nombre lista los importables (la ayuda lo promete)",
-         ["cd Local", "import"], no_espera=[r"falta <"])
+         ["cd Local", "import"], no_espera=[r"falta <|missing <"])
     # La cuenta va sobre la CABECERA, no sobre un pool concreto: `ztfc16` está sobre fichero
     # en /var/tmp y `zpool import` sin `-d` no mira ahí, así que el único pool que puede
     # salir aquí es el que tenga la máquina de verdad —y eso cambia de una máquina a otra—.
@@ -1658,8 +1736,11 @@ def casos_pool_export(ctx):
          no_espera=[r"^config:", r"^\s+state: "])
     # Se devuelve por shell: `zpool import` sin `-d` no mira en /var/tmp, y el CLI no
     # ofrece esa opción. Si no se recupera, todo lo que venga después falla sin motivo.
+    # `zpool import` ya monta los datasets de ESE pool, y solo los de ese. Aquí había un
+    # `zfs mount -a`, que monta los de TODOS los pools importados: el 2026-10-11 montó los
+    # hijos de un entorno de arranque de otro pool (/usr, /var, /home, /etc heredados) encima
+    # de los de fc16 y tumbó la máquina. Ver `sh`, que ya no deja pasar órdenes globales.
     sh(ctx, f"zpool import -d {IMG_DIR} {P}", root=True)
-    sh(ctx, f"zfs mount -a", root=True)
 
 
 def casos_entre_maquinas(ctx):
@@ -2237,7 +2318,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_cp_destino, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

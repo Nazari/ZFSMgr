@@ -404,6 +404,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
      {
       {"load-key",
        {"t_ej_load_key_1", "pide la frase y carga la clave"}},
+      {"load-key --on ..",
+       {"t_ej_load_key_2", "la del dataset de arriba, sin moverse"}},
+      {"load-key --password-fd 3",
+       {"t_ej_load_key_3", "la frase por descriptor, para un guion"}},
      }},
     {"unload-key",
      {
@@ -1005,7 +1009,16 @@ const std::vector<Orden> kOrdenes = {
       "`mountpoint` no ofrece nada, que es mejor que inventar."}},
      Objetivo::DatasetOInstantanea,
      {{"props", Ranura::Tipo::Property, Ranura::Cuantas::UnaOMas}}},
-    {"load-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."}, {}, {},
+    {"load-key", {"t_dataset_105268", "Datasets"}, {"t_lk_uso", "[--password-fd <n>]"},
+     {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."},
+     {{{"t_edit_pfd", "--password-fd <n>"}, {"t_lk_fd_q", "La frase, por descriptor. Sin ella se "
+       "teclea."}}},
+     {{"t_lk_det1", "En un dataset que hereda el cifrado, la clave es la de su RAÍZ de cifrado "
+       "(`encryptionroot`), y es esa la que se carga: se dice antes de pedir la frase."},
+      {"t_lk_det2", "No pide nada si el dataset no está cifrado o si la clave ya está cargada. Si "
+       "`keylocation` apunta a un fichero, la clave se lee de ahí."},
+      {"t_lk_det3", "La frase NUNCA viaja por argumento: va cifrada dentro de la petición al daemon, "
+       "que se la da a `zfs load-key` por la entrada estándar."}},
      Objetivo::Dataset, {}},
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
