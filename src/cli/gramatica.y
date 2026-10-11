@@ -189,9 +189,9 @@ orden
 /* --- Acciones sobre los DATOS --------------------------------------------------------
  * Llevan una URL o una ruta como argumento, así que el origen va por `--on`/`--from` y no
  * posicionalmente: si no, no habría forma de saber cuál de las dos URL es cuál. */
-    | V_SEND URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
-    | V_RSYNC URL                        { astVerbo(res, $1); astRanura(res, "destino", $2); }
-    | V_DIFF URL                         { astVerbo(res, $1); astRanura(res, "destino", $2); }
+    | V_SEND ranura_destino              { astVerbo(res, $1); }
+    | V_RSYNC ranura_destino             { astVerbo(res, $1); }
+    | V_DIFF ranura_destino              { astVerbo(res, $1); }
     | V_TODIR ruta                       { astVerbo(res, $1); }
     | V_FROMDIR ruta                     { astVerbo(res, $1); }
 /* `cp` lleva los DOS extremos como posiciones, no uno por `--on`: aquí sí se sabe cuál es
@@ -252,6 +252,18 @@ componente_texto
     : palabra      { $$ = $1; }
     | URL          { $$ = $1; }
     | ASIGNACION   { $$ = $1; }
+    ;
+
+/* El destino de `send`, `rsync` y `diff`, también como nombre suelto.
+ *
+ * Era solo URL, y una palabra sin barra no lo es para el léxico: `send oses` estando en
+ * `zfsm://local/tstpl2` moría con la línea de uso, aunque el intérprete resuelve «oses»
+ * relativo a la posición igual que en `cd oses` o `mount oses`. Hacía falta escribir
+ * `./oses` o la URL entera. Las tres órdenes no tienen otra ranura posicional —el origen va
+ * por `--on`/`--from`—, así que admitir la palabra no compite con nada. */
+ranura_destino
+    : URL                                { astRanura(res, "destino", $1); }
+    | palabra                            { astRanura(res, "destino", $1); }
     ;
 
 ruta

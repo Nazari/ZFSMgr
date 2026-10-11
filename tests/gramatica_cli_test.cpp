@@ -171,6 +171,17 @@ int main(int argc, char** argv) {
         comprueba(a.tiene("wait"), "«send --wait»: es una bandera");
     }
     {
+        // Un nombre suelto, relativo a la posición: antes moría con la línea de uso.
+        const auto a = analizaLinea("send oses --from zfsm://local/back#content/x.zfs");
+        comprueba(a.error.empty(), "«send <nombre>»: un destino sin barra se acepta");
+        igual(a.uno("destino"), "oses", "«send <nombre>»: el nombre es el destino");
+        igual(a.opciones.at("from"), "zfsm://local/back#content/x.zfs", "«send --from»: el origen");
+        const auto r = analizaLinea("rsync copia --on @ayer");
+        igual(r.uno("destino"), "copia", "«rsync <nombre>»: también");
+        const auto d = analizaLinea("diff stop");
+        igual(d.uno("destino"), "stop", "«diff stop»: una palabra de fase vale como nombre");
+    }
+    {
         const auto a = analizaLinea("install-daemon oldlau");
         igual(a.objetivo, "oldlau", "«install-daemon oldlau»: una conexión se nombra sin barra");
     }
