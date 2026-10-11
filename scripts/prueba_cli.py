@@ -2211,6 +2211,9 @@ def main():
             limpia(ctx)
             if ctx.remoto:
                 limpia(ctx, remoto=True)
+        # Va siempre, también con --sin-limpieza: dentro está la maestra en claro, y
+        # quedaba un directorio por ejecución en /tmp.
+        shutil.rmtree(ctx.dir_tmp, ignore_errors=True)
 
     print(f"\n{'='*60}")
     print(f"{len(ctx.pasados)} pasados, {len(ctx.fallos)} fallos")

@@ -55,6 +55,7 @@
     "t_bd_det4": "Example, standing on zfsm://local/tank/media:\n  breakdown fotos fotos videos videos\nleaves tank/media/fotos and tank/media/videos where two directories were.",
     "t_bd_det5": "With the dataset NOT MOUNTED —a bootable system with mountpoint=/, which cannot be mounted in its place—, it is mounted on a temporary directory while the operation lasts and then its mountpoint is given back, with its source (received, inherited…), without mounting anything. The new children INHERIT theirs with canmount=on: once the parent is back at /, they sit at /usr, /var…, which is where that system mounts them when it boots. Not on Windows.",
     "t_bd_det6": "For the same reason, if the pool is imported automatically when THIS machine boots, «zfs mount -a» would mount those children on top of its own: the confirmation warns about it with both ways out (import it with -N, or cachefile=none). If an operation is cut halfway, «repair-mounts» puts the dataset back in its place.",
+    "t_bd_canmount_off": "%1 has canmount=off: it cannot be mounted and holds no files of its own. If you meant one of its children, name it with «--on» or go into it with «cd».\n",
     "t_bd_hijos_heredan": "The new datasets inherit theirs (canmount=on) and are left unmounted.",
     "t_bd_montaje_temporal": "%1 is not mounted: it will be mounted on a temporary directory while the operation lasts, and its mountpoint (%2) will be given back afterwards.",
     "t_bd_nuevo": "<new-dataset>",

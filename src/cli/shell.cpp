@@ -4052,7 +4052,8 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
 // pool se importa solo al arrancar esta máquina, `zfs mount -a` montaría los hijos nuevos
 // —que heredan /usr, /var…— encima de los de este sistema. No se toca el pool: se dice, con
 // las dos salidas.
-std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos) {
+std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos, bool& rechaza) {
+    rechaza = false;
     {
         std::vector<Estado::MontajeLectura> quedan;
         for (const auto& m : e.montajesLectura) {
@@ -4079,6 +4080,21 @@ std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos) 
     std::string error;
     const auto* p = perfilVivoDe(e, d, error);
     if (!p || T::isWindowsConnection(*p)) {
+        return {};
+    }
+    // Con canmount=off no se monta de ninguna forma, y suele ser un contenedor sin ficheros
+    // propios: lo normal es que se quisiera uno de sus hijos. Se dice ANTES de confirmar,
+    // no después de que el agente falle.
+    std::string canmount;
+    (void)agente(e, d, PET::datasetProperty("canmount", d.dataset), canmount);
+    if (B::trim(canmount) == "off") {
+        std::fputs(B::format(T("t_bd_canmount_off",
+                               "%1 tiene canmount=off: no se puede montar y no guarda ficheros "
+                               "propios. Si se refería a uno de sus hijos, indíquelo con «--on» "
+                               "o entre en él con «cd».\n"),
+                             {d.dataset}).c_str(),
+                   stderr);
+        rechaza = true;
         return {};
     }
     std::string mp;
@@ -4125,7 +4141,11 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
                      "  Convierte cada directorio del dataset en un dataset hijo.\n"), stderr);
         return false;
     }
-    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/true);
+    bool rechaza = false;
+    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/true, rechaza);
+    if (rechaza) {
+        return false;
+    }
     if (!confirma(e, (sinMontar.empty() ? std::string() : sinMontar + "\n")
                          + B::format(T("t_conf_breakdown",
                                        "Se van a convertir %1 directorios de %2 en datasets hijos. "
@@ -4162,7 +4182,11 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
                      "  Deshace lo de breakdown: devuelve cada dataset hijo a directorio.\n"), stderr);
         return false;
     }
-    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/false);
+    bool rechaza = false;
+    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/false, rechaza);
+    if (rechaza) {
+        return false;
+    }
     if (!confirma(e, (sinMontar.empty() ? std::string() : sinMontar + "\n")
                          + B::format(T("t_conf_assemble",
                                        "Se van a reintegrar %1 datasets hijos en %2 como "
