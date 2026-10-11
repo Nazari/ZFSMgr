@@ -2473,10 +2473,12 @@ int main() {
             temporal = temporal || f.path().filename().string().find(".tmp-") != std::string::npos;
         }
         comprobar(!temporal, "concurrencia: la escritura no deja temporales");
+#ifndef _WIN32
         const auto permisos = std::filesystem::status(dirC + "/config.json").permissions();
         comprobar((permisos & (std::filesystem::perms::group_all | std::filesystem::perms::others_all))
                       == std::filesystem::perms::none,
                   "concurrencia: config.json sigue siendo solo del dueño");
+#endif
 
         // Una maestra que ya no abre el fichero —otro proceso la cambió— no escribe nada.
         const auto contenido = [&]() {
@@ -2506,7 +2508,9 @@ int main() {
                       "concurrencia: y dentro se puede guardar");
         }
 
-        // Entre procesos: mientras éste lo tiene, otro no puede tomarlo.
+        // Entre procesos: mientras éste lo tiene, otro no puede tomarlo. Con `fork`, así que
+        // solo fuera de Windows; allí el cerrojo es LockFileEx y esto no lo comprueba.
+#ifndef _WIN32
         const auto otroLoConsigue = [&]() {
             const pid_t hijo = fork();
             if (hijo == 0) {
@@ -2563,6 +2567,7 @@ int main() {
             hayHijo = hayHijo || id == "hijo";
         }
         comprobar(hayPadre && hayHijo, "concurrencia: los dos cambios están, ninguno se perdió");
+#endif
         std::filesystem::remove_all(dirC);
     }
 

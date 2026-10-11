@@ -495,7 +495,9 @@ private Q_SLOTS:
             std::ofstream o(f);
             o << "contenido";
         }
+#ifndef _WIN32
         ::chmod(f.string().c_str(), 0640);
+#endif
         const std::filesystem::path destino = dst_ / "copiado.txt";
         const Result r = copyTree(f.string(), destino.string(), Options{});
         QVERIFY2(r.ok, r.error.c_str());
@@ -507,10 +509,12 @@ private Q_SLOTS:
             i >> leido;
             QCOMPARE(QString::fromStdString(leido), QString("contenido"));
         }
-        // El modo viaja, como en el resto del motor.
+        // El modo viaja, como en el resto del motor. En Windows no hay modo POSIX que mirar.
+#ifndef _WIN32
         struct stat st {};
         QCOMPARE(::lstat(destino.string().c_str(), &st), 0);
         QCOMPARE(uint32_t(st.st_mode & 07777), uint32_t(0640));
+#endif
     }
 
     void unFicheroNoSeMeteDentroDeUnDirectorioHomonimo() {
@@ -623,6 +627,9 @@ private Q_SLOTS:
         // `en.mode` se rellenaba en UN solo sitio —la rama del fichero corriente— asi que
         // los directorios viajaban con modo 0 y el receptor se saltaba el chmod: un
         // `drwx------` llegaba al otro lado como `drwxr-xr-x`.
+#ifdef _WIN32
+        QSKIP("el modo de un directorio es de POSIX: en Windows no hay nada que anotar");
+#else
         namedirs();
         const std::filesystem::path d = src_ / "cerrado";
         std::filesystem::create_directories(d);
@@ -639,6 +646,7 @@ private Q_SLOTS:
             }
         }
         QVERIFY2(visto, "el directorio no salio en el recorrido");
+#endif
     }
 
     void unNombreConSaltoDeLineaNoRompeElManifiesto() {
