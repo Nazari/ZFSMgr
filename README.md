@@ -4,12 +4,12 @@
 FreeBSD and Windows**, on the machine you are sitting at and on any other you can reach over
 SSH, from a single command line tool: **`zfsmgr-cli`**.
 
-## Version 1.0.0: the command line
+## Version 1.x: the command line
 
-**ZFSMgr 1.0.0 is the command line client (`zfsmgr-cli`) and its daemon (`zfsmgr-agent`).**
+**ZFSMgr 1.x is the command line client (`zfsmgr-cli`) and its daemon (`zfsmgr-agent`).**
 That is what is published, tested and supported in this release.
 
-The graphical interface that ZFSMgr started with is **not part of 1.0.0**. It has not kept up
+The graphical interface that ZFSMgr started with is **not part of 1.x**. It has not kept up
 with the work of the last months and has not been tested against this version, so it is not
 published. It will return in **version 2.0.0**, built on the same base the CLI uses today.
 
@@ -28,15 +28,15 @@ Legal references: **GNU GPL v3**, Section 15 (*Disclaimer of Warranty*) and Sect
 
 ## Installing
 
-Download `zfsmgr-cli-1.0.0.zip` from the
+Download `zfsmgr-cli-1.1.0.zip` from the
 [Releases page](https://github.com/Nazari/ZFSMgr/releases). From a terminal, `curl` avoids
 the quarantine that macOS browsers attach to downloads:
 
 ```sh
-curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip
-curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.0.0/zfsmgr-cli-1.0.0.zip.sha256
-sha256sum -c zfsmgr-cli-1.0.0.zip.sha256      # macOS: shasum -a 256 -c …
-unzip zfsmgr-cli-1.0.0.zip && cd zfsmgr-cli-1.0.0
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.1.0/zfsmgr-cli-1.1.0.zip
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.1.0/zfsmgr-cli-1.1.0.zip.sha256
+sha256sum -c zfsmgr-cli-1.1.0.zip.sha256      # macOS: shasum -a 256 -c …
+unzip zfsmgr-cli-1.1.0.zip && cd zfsmgr-cli-1.1.0
 ```
 
 The package carries the CLI and the daemon for every platform, and one installer per system:
@@ -243,7 +243,7 @@ See `docs/cross-compiling-linux.md` for the toolchains.
 ## The graphical interface (2.0.0)
 
 The repository still contains the Qt 6 desktop application (`src/native`). It is **not
-released with 1.0.0** and should be considered unmaintained until 2.0.0, which will bring it
+released with 1.x** and should be considered unmaintained until 2.0.0, which will bring it
 back on top of the same base layer, daemon and transfers that the CLI uses.
 
 ## Keywords
