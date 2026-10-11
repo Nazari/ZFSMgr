@@ -81,13 +81,26 @@ bool pareceVersionDeAgente(const std::string& tramo) {
 //
 // Se lee a través de un puntero que el compilador no puede seguir (`asm` vacío), así que la
 // cadena tiene que existir de verdad, entera, en los datos del programa.
+//
+// MSVC —el del CI de Windows— no conoce `__attribute__` ni el `asm` en línea de gcc, y la
+// línea dejó de compilar allí. Con él se lee el puntero como `volatile`: tampoco puede dar
+// por sabido su valor, así que la cadena tiene que estar entera en los datos.
+#if defined(_MSC_VER)
+const char kMarcaHuella[] = "ZFSMGR_HUELLA=" ZFSMGR_AGENT_VERSION_STRING;
+#else
 __attribute__((used)) const char kMarcaHuella[] = "ZFSMGR_HUELLA=" ZFSMGR_AGENT_VERSION_STRING;
+#endif
 
 }  // namespace
 
 std::string expected() {
+#if defined(_MSC_VER)
+    const char* volatile opaco = kMarcaHuella;
+    const char* p = opaco;
+#else
     const char* p = kMarcaHuella;
     asm volatile("" : "+r"(p));
+#endif
     return std::string(p + sizeof("ZFSMGR_HUELLA=") - 1);
 }
 
