@@ -13,16 +13,18 @@ Listado de cambios.
 ------ Nuevo Backlog, olvidar lo de arriba -----
 1. [DESCARTADO 2026-08-19] Evaluar que cada artefacto con su versión. Ahora mismo se usa el mismo codigo de version para cli, daemons y gui. Cada uno debe llevar la suya e ir evolucionando por separado, manteniendo los contratos ( la 0.93.1 de cli puede hablar con las versiones 0.1.0 a 0.1.9 de los daemons y lo mismo para la gui)
 
-2. crear nuevos artefactos:
+2. [DESCARTADO 2026-10-11] crear nuevos artefactos:
 	- Integración con Finder, Explorer y Dolphin
 	- La idea sería que apareciese un nuevo punto de montaje que fuese la raíz: zfsm://
 	- Que Finder, Explorer y Dolphin admitiesen URL del tipo zfsm://
    Necesito una propuesta de viabilidad para ello
 
-3. Crear nuevo artefacto servidor https de HTML5 que sea lo más parecido posible a la GUI Qt actual.
-4. Eliminar por completo Qt del proyecto, solo quedarían el resto de artefactos (daemon, cli, https server e integraciones con los exploradores de archivo mencionados)
+3. [DESCARTADO 2026-10-11] Crear nuevo artefacto servidor https de HTML5 que sea lo más parecido posible a la GUI Qt actual.
+4. [APLAZADO 2026-10-11 a la 2.0] Eliminar por completo Qt del proyecto, solo quedarían el resto de artefactos (daemon, cli, https server e integraciones con los exploradores de archivo mencionados)
+   La GUI se habla al empezar la 2.0. En principio no parece que se vaya a quitar Qt, pero esa
+   decisión no se toma ahora.
 
-5. Retirar la dependencia de rsync también en Unix, sustituyéndolo por el árbol por el socket entre daemons (src/arbolremoto), que ya se usa entre máquinas y dentro de Windows y que ya lleva transferencia delta con el algoritmo de rsync.
+5. [SIGUE EN PIE 2026-10-11] Retirar la dependencia de rsync también en Unix, sustituyéndolo por el árbol por el socket entre daemons (src/arbolremoto), que ya se usa entre máquinas y dentro de Windows y que ya lleva transferencia delta con el algoritmo de rsync.
    NO se puede hacer todavía: hoy rsync se invoca con -aHWS más -A y -X cuando el sistema los admite, y el árbol preserva menos. Faltan cuatro cosas, en este orden de importancia:
    	- [HECHO 2026-10-08] Propietario y grupo. Era la grave. Se llevan uid/gid Y sus nombres en el manifiesto y en la cabecera de operación, y se resuelve en destino por nombre cayendo a numérico. De paso se arreglaron dos cosas más que estaban dentro del mismo saco y no eran lo mismo: el MODO de los directorios no se capturaba —`en.mode` se rellenaba en un solo sitio, la rama del fichero— y su FECHA se capturaba y no se aplicaba, y había que ponerla al final porque escribir dentro la cambia. Medido entre fc16 y unib antes y después.
    	- Fecha exacta. Hoy viaja en segundos enteros y eso no detecta un cambio dentro del mismo segundo que además conserve el tamaño. Se vio en vivo en oldlau: un fichero con contenido distinto salió como IGUAL. Mandar también nanosegundos y comparar exacto cuando los dos lados los tienen.
@@ -32,7 +34,7 @@ Listado de cambios.
    El orden es primero PARIDAD DEMOSTRADA y después retirada, y la paridad hay que medirla contra rsync sobre el mismo árbol comparando propietarios, huecos y atributos uno a uno; no vale con que «parezca igual». Mientras tanto rsync se queda: hoy preserva cosas que el árbol pierde sin decirlo.
    El motivo para hacerlo es el mismo que llevó el árbol a Windows: con dos mecanismos, el menos usado acumula fallos que nadie ve.
 
-6. Revisión completa de la ayuda de la GUI Qt (help/es, help/en). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
+6. [APLAZADO a la 2.0] Revisión completa de la ayuda de la GUI Qt (help/es, help/en). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
    Lo que ya se sabe y sirve de punto de partida:
    	- Las capturas manuales crearpool.png y creardataset.png son de abril y el capturador automático NO cubre esos diálogos. O se le añaden esos dos estados, o se retiran de la ayuda.
    	- En help/img/auto quedan tres huérfanas que ni se generan ni se usan: connection-gsa-menu.png, permissions-node.png y schedule-snapshots-node.png. Las dos últimas no se pueden generar hasta que se arregle lo del punto 9 del backlog antiguo (el nodo 'Datasets programados' exige dos opciones de visualización a la vez, y setShowPoolInfoNodeForTest está declarada en mainwindow.h SIN implementar: falla al enlazar, no al compilar).
@@ -90,7 +92,7 @@ Listado de cambios.
    En resumen: lo que se buscaba —una sola forma de decir «copia esto ahí»— ya está hecho con
    `cp`. Lo que queda no es duplicación, son operaciones distintas que se parecen por fuera.
 
-9. [ABIERTO 2026-10-10] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
+9. [ABIERTO 2026-10-10, confirmado que se quiere 2026-10-11] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
    códigos que traduzca el CLI? Hoy cada error del daemon sale como una frase ya escrita
    —en castellano hasta la 1.0; en inglés desde ella, como solución provisional— y el cliente
    la imprime tal cual, así que no puede traducirla ni decidir según ella sin comparar
@@ -101,7 +103,7 @@ Listado de cambios.
    el agente reenvía (esa no se puede codificar), y cómo convivir con agentes viejos que
    solo mandan texto.
 
-10. [ABIERTO 2026-10-11] `send` con ficheros COMPRIMIDOS: gzip, lz4 y zstd.
+10. [ABIERTO 2026-10-11, confirmado que se quiere] `send` con ficheros COMPRIMIDOS: gzip, lz4 y zstd.
    Desde la 1.0.0 `send` vuelca el flujo en un fichero y lo recibe de uno, pero siempre en
    crudo. Se pide poder escribirlo comprimido y leerlo comprimido.
    Lo que hay que decidir antes de escribir código:
