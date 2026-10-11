@@ -1245,13 +1245,25 @@ const std::vector<Orden> kOrdenes = {
        "«job <id>» y el intérprete queda libre."},
       {"t_bd_det4", "Ejemplo, estando en zfsm://local/tank/media:\n"
        "  breakdown fotos fotos videos videos\n"
-       "deja tank/media/fotos y tank/media/videos donde había dos directorios."}},
+       "deja tank/media/fotos y tank/media/videos donde había dos directorios."},
+      {"t_bd_det5", "Con el dataset SIN MONTAR —un sistema arrancable con mountpoint=/, que no se puede "
+       "montar en su sitio—, se monta en un directorio temporal mientras dura y después se le "
+       "devuelve su punto de montaje, con su origen (recibido, heredado…), sin montar nada. "
+       "Los hijos nuevos HEREDAN el suyo con canmount=on: al volver el padre a /, quedan en "
+       "/usr, /var…, que es donde los monta ese sistema al arrancar. No en Windows."},
+      {"t_bd_det6", "Por eso mismo, si el pool se importa solo al arrancar ESTA máquina, «zfs mount -a» "
+       "montaría esos hijos encima de los suyos: la confirmación lo avisa con las dos salidas "
+       "(importarlo con -N, o cachefile=none). Si una operación se corta a medias, "
+       "«repair-mounts» devuelve el dataset a su sitio."}},
      Objetivo::Dataset,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<dataset-hijo> [<dataset-hijo>...]"},
      {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve un dataset hijo a ser un directorio."},
      {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
-     {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."}},
+     {{"t_los_hijos__aa9ae2", "Los hijos se pueden dar con nombre relativo: se completan con el dataset actual."},
+      {"t_as_det2", "Con el dataset SIN MONTAR, igual que breakdown: en un temporal mientras dura, y "
+       "después su punto de montaje de vuelta, sin montar nada. Se niega si alguno de los hijos "
+       "a reintegrar tiene punto de montaje PROPIO: se montaría en esa ruta de esta máquina."}},
      Objetivo::Dataset,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"todir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_9d9336", "<directorio-destino>"},
@@ -1573,7 +1585,11 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "Lo mismo para «#content/sub» escrito a mano.\n"
                         "\n"
                         "Dentro de #content o #path, «cd sub» y «cd ..» se mueven por directorios,\n"
-                        "y el tabulador ofrece los nombres de cada uno."));
+                        "y el tabulador ofrece los nombres de cada uno.\n"
+                        "\n"
+                        "Un dataset SIN MONTAR se puede mirar igual: #content lo monta en solo\n"
+                        "lectura en un temporal, sin cambiar su punto de montaje, y lo suelta al\n"
+                        "salir de él. Para escribir no se monta nada: eso es «mount». No en Windows."));
         return true;
     }
     if (tema == "patrones" || tema == "patterns" || tema == "comodines" || tema == "wildcards") {

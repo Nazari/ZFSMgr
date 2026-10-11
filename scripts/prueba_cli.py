@@ -963,6 +963,61 @@ def casos_send_fichero(ctx):
             f"zfs destroy -r {P}/defichero; rm -rf {dst}'", root=True)
 
 
+def casos_sin_montar(ctx):
+    """Un dataset SIN MONTAR: leerlo, y Desglosar/Ensamblar un entorno de arranque.
+
+    El caso real es un sistema arrancable con `mountpoint=/`: montarlo en su sitio taparía la
+    raíz de la máquina. Para leer se monta en solo lectura en un temporal sin tocar
+    propiedades; para Desglosar y Ensamblar, en un punto de montaje temporal que después se
+    devuelve —con su origen: aquí `received`— SIN MONTAR NADA. Lo que de verdad se comprueba
+    es eso último: devolverle el punto de montaje al padre montaba sus hijos nuevos (en la VM
+    de FreeBSD, encima de su /usr). Aquí las rutas caen bajo /mnt/<pool>, así que un fallo no
+    pisa nada de la máquina; la prueba con `/` se hizo a mano en la VM.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    caso = lambda *a, **k: globals()["caso"](*a, idioma="es", **k)
+    U = f"zfsm://local/{P}"
+    be = f"{P}/arranque"
+    w = "/tmp/zfsmgr-prueba-sinmontar"
+    sh(ctx, f"bash -c 'zfs create -o mountpoint=/mnt/{P}/sistema -o canmount=noauto {P}/origen && "
+            f"mkdir -p {w} && mount -t zfs -o zfsutil {P}/origen {w} && "
+            f"mkdir -p {w}/usr/bin {w}/etc && echo kali > {w}/etc/hostname && echo b > {w}/usr/bin/ls && "
+            f"umount {w} && rmdir {w} && zfs snapshot {P}/origen@a && "
+            f"zfs send -p {P}/origen@a | zfs recv -u {be}'", root=True)
+    montado = f"zfs get -H -o value mounted {be}"
+    punto = f"zfs get -H -o value,source mountpoint {be}"
+    temporales = "bash -c 'ls -d /tmp/zfsmgr-ro-* /tmp/zfsmgr-sync-* 2>/dev/null | wc -l'"
+    caso(ctx, "sin montar: ls de #content lo monta en solo lectura, y lo suelta",
+         [f"ls {U}/arranque#content/etc"], rc=0,
+         espera=[r"se monta en solo lectura", r"^hostname\s+file\s"],
+         estado=[("sigue sin montar", montado, r"^no$"),
+                 ("su punto de montaje no cambia", punto, r"^/mnt/\S+/sistema\s+received$"),
+                 ("no queda ningún temporal", temporales, r"^0$")])
+    caso(ctx, "sin montar: cp HACIA él se niega, no escribe en la ruta de la propiedad",
+         [f"cp zfsm://local#path/etc/hostname {U}/arranque#content/etc/"], rc=1,
+         espera=[r"no se escribe en él"])
+    caso(ctx, "sin montar: breakdown en un temporal, y le devuelve su punto RECIBIDO sin montar nada",
+         [f"breakdown usr usr --on {U}/arranque --wait"], rc=0,
+         espera=[r"\[BREAKDOWN\] ok usr"],
+         estado=[("el padre, sin montar", montado, r"^no$"),
+                 ("el padre, con su punto recibido", punto, r"^/mnt/\S+/sistema\s+received$"),
+                 ("el hijo, heredado y SIN MONTAR",
+                  f"zfs get -H -o value mounted,canmount {be}/usr", r"\Ano\non\s*\Z"),
+                 ("el hijo hereda", f"zfs get -H -o source mountpoint {be}/usr", r"^inherited"),
+                 ("sin migas", f"zfs get -H -s local -o value org.fc16.zfsmgr:savedmountpoint {be}",
+                  r"\A\s*\Z"),
+                 ("no queda ningún temporal", temporales, r"^0$")])
+    caso(ctx, "sin montar: assemble lo devuelve a directorio, también sin montar nada",
+         [f"assemble usr --on {U}/arranque --wait"], rc=0,
+         estado=[("el hijo ya no está", f"bash -c 'zfs list -H {be}/usr 2>&1; true'", r"does not exist"),
+                 ("el padre, sin montar y con su punto", punto, r"^/mnt/\S+/sistema\s+received$"),
+                 ("no queda ningún temporal", temporales, r"^0$")])
+    caso(ctx, "sin montar: el contenido vuelve a estar en usr/bin",
+         [f"ls {U}/arranque#content/usr/bin"], rc=0, espera=[r"^ls\s+file\s"])
+    sh(ctx, f"bash -c 'zfs destroy -r {be}; zfs destroy -r {P}/origen'", root=True)
+
+
 def casos_editor_ancho(ctx):
     """El editor de línea no puede pintar más ancho que el terminal.
 
@@ -1430,8 +1485,12 @@ def casos_acciones(ctx):
          [f"cd Local/{P}/datos", f"assemble {P}/datos/hijosub --wait"],
          estado=[("el dataset ya no existe", f"zfs list -H -o name {P}/datos/hijosub 2>&1",
                   r"does not exist|no existe")])
+    # El destino se BORRA antes: sobrevivía entre ejecuciones, y la prueba leía el fichero de
+    # una pasada anterior dando por bueno un `todir` que había fallado (pasó el 2026-10-11).
+    sh(ctx, "rm -rf /var/tmp/zfsmgr-pruebas/volcado /var/tmp/zfsmgr-pruebas/volcado.zfsmgr-new",
+       root=True)
     caso(ctx, "todir: vuelca el dataset en un directorio llano",
-         [f"cd Local/{P}/datos", "todir /var/tmp/zfsmgr-pruebas/volcado --wait"],
+         [f"cd Local/{P}/datos", "todir /var/tmp/zfsmgr-pruebas/volcado --wait"], rc=0,
          estado=[("el fichero está en el directorio",
                   "bash -c 'cat /var/tmp/zfsmgr-pruebas/volcado/fichero.txt 2>&1'",
                   r"hola")])
@@ -2106,7 +2165,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_sin_montar, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

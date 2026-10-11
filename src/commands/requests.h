@@ -100,6 +100,10 @@ std::vector<std::string> pathContents(const std::string& path);
 // What a path is and which dataset holds it: exists, type, owner…, dataset, relative,
 // exact_mountpoint, snapshot.
 std::vector<std::string> pathInfo(const std::string& path);
+// Mounts an unmounted dataset READ-ONLY on a temporary directory without touching any of its
+// properties (answers MOUNTPOINT= and TEMPORARY=0|1), and releases it again. Not on Windows.
+std::vector<std::string> mountReadOnlyTemporarily(const std::string& dataset);
+std::vector<std::string> unmountReadOnlyTemporary(const std::string& directory);
 // `from` and `howMuch` in bytes; zero and zero means the whole file.
 std::vector<std::string> fileContents(const std::string& path, unsigned long long from,
                                             unsigned long long howMuch);

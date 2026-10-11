@@ -142,6 +142,14 @@ struct Estado {
     std::map<std::string, std::set<std::string>> poolsPorConexion;
     // Las propiedades de cada sitio, para el completado. Ver propiedadesDe.
     std::map<std::string, std::vector<std::string>> propsPorSitio;
+    // Datasets sin montar que esta sesión ha montado EN SOLO LECTURA en un temporal para
+    // leer dentro (ver dondeEstaMontado). Se sueltan al salir de ellos y al terminar.
+    struct MontajeLectura {
+        std::string conexion;
+        std::string dataset;
+        std::string dir;
+    };
+    std::vector<MontajeLectura> montajesLectura;
     Sesion* ses{nullptr};
     Conexiones conns;
     ZfsmUrl actual;   // conexión vacía = raíz
@@ -1800,6 +1808,165 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
 // Vive aparte de quien la lista porque hay dos que la necesitan: la orden `ls` y el
 // TABULADOR, que completa nombres de fichero sin enseñar nada. `callado` es para el
 // segundo: una pulsación de tabulador no debe escribir errores por pantalla.
+// --- Dónde está montado un dataset, DE VERDAD.
+//
+// La propiedad `mountpoint` dice dónde se montaría, no dónde está. Fiarse de ella daba dos
+// fallos, los dos peores que un error porque contestan algo creíble y ajeno:
+//   - Sin montar, la ruta de la propiedad puede existir y ser de OTRO: un entorno de
+//     arranque con `mountpoint=/` hacía que `cp …kali#content/etc/hostname` leyera el
+//     /etc/hostname de la máquina, y que copiar HACIA él escribiera en el /etc de la máquina.
+//   - Montado en otro sitio —a mano, o por nosotros en un temporal—, la propiedad sigue
+//     diciendo `/`.
+// Así que se pregunta a `zfs mount`. Y un dataset sin montar, para LEER, se monta en solo
+// lectura en un temporal sin tocar sus propiedades (el verbo del agente lo explica); para
+// ESCRIBIR no se monta nada: eso es `mount`, y lo decide quien lo administra.
+
+// El montaje temporal de esta sesión para ese dataset, o vacío.
+std::string montajeLecturaDe(const Estado& e, const std::string& conexion, const std::string& dataset) {
+    for (const auto& m : e.montajesLectura) {
+        if (B::toLowerAscii(m.conexion) == B::toLowerAscii(conexion) && m.dataset == dataset) {
+            return m.dir;
+        }
+    }
+    return {};
+}
+
+// Dónde está montado según `zfs mount -j`, o vacío si no aparece.
+std::string montajeReal(Estado& e, const ZfsmUrl& u, const std::string& dataset) {
+    std::string out;
+    if (!agente(e, u, PET::mounts(), out, 20000)) {
+        return {};
+    }
+    B::json::Value v;
+    if (!B::json::parse(out, v, nullptr)) {
+        return {};
+    }
+    std::string mp = v["datasets"][dataset]["mountpoint"].toString();
+    while (mp.size() > 1 && (mp.back() == '/' || mp.back() == '\\') && mp[mp.size() - 2] != ':') {
+        mp.pop_back();
+    }
+    return mp;
+}
+
+// La ruta donde se abre `dataset`. `paraEscribir` no monta nada; `callado` (el tabulador) no
+// monta ni dice nada: pulsar TAB no debería dejar cosas montadas.
+bool dondeEstaMontado(Estado& e, const ZfsmUrl& u, const std::string& dataset, bool paraEscribir,
+                      bool callado, std::string& ruta) {
+    ruta = montajeLecturaDe(e, u.connection, dataset);
+    if (!ruta.empty()) {
+        if (paraEscribir) {
+            if (!callado) {
+                std::fprintf(stderr, TC("t_montaje_ro_no_escribe",
+                                        "%s no está montado: solo se ha montado en solo lectura "
+                                        "para mirarlo, y ahí no se escribe. Para escribir, móntelo "
+                                        "en su sitio con «mount»\n"),
+                             dataset.c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        return true;
+    }
+    std::string montado;
+    if (!agente(e, u, PET::datasetProperty("mounted", dataset), montado)) {
+        return false;
+    }
+    if (B::trim(montado) != "no") {
+        ruta = montajeReal(e, u, dataset);
+        if (!ruta.empty()) {
+            return true;
+        }
+        // No aparece en `zfs mount` aunque diga que está montado: se recurre a la
+        // propiedad, que es lo que se hacía siempre.
+        std::string mp;
+        if (!agente(e, u, PET::datasetProperty("mountpoint", dataset), mp)) {
+            return false;
+        }
+        ruta = B::trim(mp);
+        if (ruta.empty() || ruta == "none" || ruta == "-" || ruta == "legacy") {
+            if (!callado) {
+                std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"),
+                             dataset.c_str());
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
+        return true;
+    }
+    // Sin montar.
+    std::string error;
+    const auto* p = perfilVivoDe(e, u, error);
+    const bool esWindows = p && T::isWindowsConnection(*p);
+    if (paraEscribir || callado || esWindows) {
+        if (callado) {
+        } else if (paraEscribir) {
+            std::fprintf(stderr, TC("t_no_montado_escribir",
+                                    "%s no está montado: no se escribe en él. Para escribir, "
+                                    "móntelo con «mount»\n"),
+                         dataset.c_str());
+        } else {
+            std::fprintf(stderr, TC("t_no_montado_content", "%s no está montado: no hay contenido que "
+                                    "listar\n"), dataset.c_str());
+        }
+        e.ultimoRc = 1;
+        return false;
+    }
+    std::string out;
+    std::string fallo;
+    if (!agente(e, u, PET::mountReadOnlyTemporarily(dataset), out, 60000, &fallo)) {
+        std::fprintf(stderr, TC("t_montaje_ro_fallo",
+                                "%s no está montado, y no se pudo montar en solo lectura para "
+                                "mirarlo: %s\n"),
+                     dataset.c_str(), fallo.c_str());
+        return false;
+    }
+    const auto claves = clavesDe(out);
+    ruta = claves.count("MOUNTPOINT") ? B::trim(claves.at("MOUNTPOINT")) : std::string();
+    if (ruta.empty()) {
+        std::fprintf(stderr, "%s\n", B::trim(out).c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    if (claves.count("TEMPORARY") && B::trim(claves.at("TEMPORARY")) == "1") {
+        e.montajesLectura.push_back({u.connection, dataset, ruta});
+        std::fprintf(stderr, TC("t_montaje_ro_hecho",
+                                "%s no está montado: se monta en solo lectura en %s mientras se "
+                                "use, sin cambiar su punto de montaje\n"),
+                     dataset.c_str(), ruta.c_str());
+    }
+    return true;
+}
+
+// Suelta los montajes temporales que ya no hacen falta: todos, o los que no contienen la
+// posición. Uno ocupado —un trabajo de copia que aún lee de ahí— se queda para la próxima.
+void sueltaMontajesLectura(Estado& e, bool todos) {
+    std::vector<Estado::MontajeLectura> quedan;
+    for (const auto& m : e.montajesLectura) {
+        const bool dentro = B::toLowerAscii(e.actual.connection) == B::toLowerAscii(m.conexion)
+                            && e.actual.dataset == m.dataset;
+        if (!todos && dentro) {
+            quedan.push_back(m);
+            continue;
+        }
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Connection;
+        u.connection = m.conexion;
+        std::string out;
+        std::string fallo;
+        if (!agente(e, u, PET::unmountReadOnlyTemporary(m.dir), out, 30000, &fallo)) {
+            if (todos) {
+                std::fprintf(stderr, TC("t_montaje_ro_queda",
+                                        "%s sigue montado en solo lectura en %s (%s); se suelta "
+                                        "con «umount %s» o al reiniciar\n"),
+                             m.dataset.c_str(), m.dir.c_str(), fallo.c_str(), m.dir.c_str());
+            } else {
+                quedan.push_back(m);
+            }
+        }
+    }
+    e.montajesLectura = quedan;
+}
+
 bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool& esWindows,
                      bool callado) {
     std::string error;
@@ -1826,7 +1993,9 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
     //
     // Se pregunta por el DATASET aunque se venga de una instantánea: el contenido de una
     // instantánea se lee bajo el `.zfs` del dataset, que también hace falta montado.
-    {
+    base.clear();
+    esWindows = T::isWindowsConnection(*p);
+    if (esWindows) {
         std::string montado;
         if (!agente(e, destino, PET::datasetProperty("mounted", destino.dataset), montado)) {
             return false;
@@ -1838,11 +2007,6 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
             }
             return false;
         }
-    }
-
-    base.clear();
-    esWindows = T::isWindowsConnection(*p);
-    if (esWindows) {
         std::string letra;
         if (!agente(e, destino, PET::datasetProperty("driveletter", destino.pool), letra)) {
             return false;
@@ -1881,43 +2045,26 @@ bool rutaDeContenido(Estado& e, const ZfsmUrl& destino, std::string& base, bool&
         //
         // El apaño de más abajo —añadir «/.zfs/snapshot/<nombre>»— ya estaba escrito, pero
         // era inalcanzable: la consulta fallaba antes de llegar a él.
-        const std::string objetoMontaje =
-            destino.snapshot.empty() ? destino.zfsName() : destino.dataset;
-        std::string mp;
-        if (!agente(e, destino, PET::datasetProperty("mountpoint", objetoMontaje), mp)) {
+        // Un VOLUMEN no es que no esté montado: es que no se monta nunca. Es un dispositivo
+        // de bloques, y lo que haya dentro —si es que hay un sistema de ficheros— lo sabe
+        // quien lo formateó, no ZFS. Decir «no está montado» manda a buscar un `zfs mount`
+        // que no existe para esto. Para una instantánea se pregunta por su DATASET.
+        std::string tipo;
+        if (agente(e, destino, PET::datasetProperty("type", destino.dataset), tipo)
+            && B::toLowerAscii(B::trim(tipo)) == "volume") {
+            if (!callado) {
+                std::fprintf(stderr,
+                             TC("t_es_un_volumen",
+                                "%s es un VOLUMEN: un dispositivo de bloques, no tiene "
+                                "ficheros que listar\n"),
+                             destino.zfsName().c_str());
+            }
             return false;
         }
-        base = B::trim(mp);
-        if (base.empty() || base == "none" || base == "-") {
-            if (!callado) {
-                // Un VOLUMEN no es que no esté montado: es que no se monta nunca. Es un
-                // dispositivo de bloques, y lo que haya dentro —si es que hay un sistema de
-                // ficheros— lo sabe quien lo formateó, no ZFS. Decir «no está montado»
-                // manda a buscar un `zfs mount` que no existe para esto.
-                std::string tipo;
-                const bool esVolumen =
-                    agente(e, destino, PET::datasetProperty("type", objetoMontaje), tipo)
-                    && B::toLowerAscii(B::trim(tipo)) == "volume";
-                if (esVolumen) {
-                    std::fprintf(stderr,
-                                 TC("t_es_un_volumen",
-                                    "%s es un VOLUMEN: un dispositivo de bloques, no tiene "
-                                    "ficheros que listar\n"),
-                                 destino.zfsName().c_str());
-                } else if (!destino.snapshot.empty()) {
-                    // Una instantánea NO se monta: lo suyo se ve bajo el punto de montaje de
-                    // su dataset. Decir que «no está montada» manda a buscar un `zfs mount`
-                    // que para esto no existe; lo que hay que montar es el dataset.
-                    std::fprintf(stderr,
-                                 TC("t_snap_padre_no_montado",
-                                    "%s no se puede listar: lo que hay dentro de un "
-                                    "snapshot se ve bajo el punto de montaje de su "
-                                    "dataset, y %s no está montado\n"),
-                                 destino.zfsName().c_str(), destino.dataset.c_str());
-                } else {
-                    std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"), destino.zfsName().c_str());
-                }
-            }
+        // Dónde está montado DE VERDAD el dataset —también el de una instantánea, cuyo
+        // contenido se lee bajo su `.zfs`—. Si no lo está, se monta en solo lectura en un
+        // temporal para mirarlo: ver dondeEstaMontado.
+        if (!dondeEstaMontado(e, destino, destino.dataset, /*paraEscribir=*/false, callado, base)) {
             return false;
         }
         // En una instantánea el contenido vive bajo el directorio oculto `.zfs`.
@@ -3894,6 +4041,79 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
 
 // --- Las cuatro acciones de Avanzado.
 
+// Lo que hay que decir antes de Desglosar o Ensamblar un dataset SIN MONTAR, y prepararlo.
+//
+// El agente lo monta en un temporal mientras dura y le devuelve después su punto de montaje
+// (ver AltMountGuard en el daemon). Aquí se suelta antes el montaje de solo lectura que esta
+// sesión pudiera tener sobre él —estando dentro con `cd`—, que estorbaría: el agente lo vería
+// «montado» en un sitio donde no se puede escribir.
+//
+// Y en Desglosar, el aviso acordado con el usuario: si el padre tiene `mountpoint=/` y su
+// pool se importa solo al arrancar esta máquina, `zfs mount -a` montaría los hijos nuevos
+// —que heredan /usr, /var…— encima de los de este sistema. No se toca el pool: se dice, con
+// las dos salidas.
+std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos) {
+    {
+        std::vector<Estado::MontajeLectura> quedan;
+        for (const auto& m : e.montajesLectura) {
+            if (B::toLowerAscii(m.conexion) == B::toLowerAscii(d.connection) && m.dataset == d.dataset) {
+                std::string out;
+                std::string fallo;
+                ZfsmUrl u;
+                u.kind = ZfsmKind::Connection;
+                u.connection = m.conexion;
+                if (!agente(e, u, PET::unmountReadOnlyTemporary(m.dir), out, 30000, &fallo)) {
+                    quedan.push_back(m);
+                }
+                continue;
+            }
+            quedan.push_back(m);
+        }
+        e.montajesLectura = quedan;
+    }
+    std::string montado;
+    if (!agente(e, d, PET::datasetProperty("mounted", d.dataset), montado)
+        || B::trim(montado) != "no") {
+        return {};
+    }
+    std::string error;
+    const auto* p = perfilVivoDe(e, d, error);
+    if (!p || T::isWindowsConnection(*p)) {
+        return {};
+    }
+    std::string mp;
+    (void)agente(e, d, PET::datasetProperty("mountpoint", d.dataset), mp);
+    mp = B::trim(mp);
+    std::string texto = B::format(T("t_bd_montaje_temporal",
+                                    "%1 no está montado: se montará en un directorio temporal "
+                                    "mientras dure la operación, y después se le devolverá su "
+                                    "punto de montaje (%2)."),
+                                  {d.dataset, mp});
+    if (creaHijos) {
+        texto += " " + T("t_bd_hijos_heredan",
+                         "Los datasets nuevos heredan el suyo (canmount=on) y quedan sin montar.");
+    }
+    if (creaHijos && mp == "/") {
+        std::string props;
+        std::string cache;
+        B::json::Value v;
+        if (agente(e, d, PET::poolProperties(d.pool), props, 20000)
+            && B::json::parse(props, v, nullptr)) {
+            cache = v["pools"][d.pool]["properties"]["cachefile"]["value"].toString();
+        }
+        if (cache.empty() || cache == "-") {
+            texto += "\n" + B::format(
+                T("t_bd_riesgo_arranque",
+                  "AVISO: el pool %1 se importa solo al arrancar %2 (cachefile por omisión), y "
+                  "entonces «zfs mount -a» montaría los datasets nuevos —que heredan /usr, "
+                  "/var…— encima de los de ese sistema. Para evitarlo: impórtelo con «zpool "
+                  "import -N %1», o quítelo de la caché con «zpool set cachefile=none %1»."),
+                {d.pool, d.connection});
+        }
+    }
+    return texto;
+}
+
 bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
@@ -3905,10 +4125,13 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
                      "  Convierte cada directorio del dataset en un dataset hijo.\n"), stderr);
         return false;
     }
-    if (!confirma(e, B::format(T("t_conf_breakdown",
-                                 "Se van a convertir %1 directorios de %2 en datasets hijos. "
-                                 "¿Continuar?"),
-                               {std::to_string(pet.lista("texto").size() / 2), destino.dataset}))) {
+    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/true);
+    if (!confirma(e, (sinMontar.empty() ? std::string() : sinMontar + "\n")
+                         + B::format(T("t_conf_breakdown",
+                                       "Se van a convertir %1 directorios de %2 en datasets hijos. "
+                                       "¿Continuar?"),
+                                     {std::to_string(pet.lista("texto").size() / 2),
+                                      destino.dataset}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -3939,10 +4162,13 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
                      "  Deshace lo de breakdown: devuelve cada dataset hijo a directorio.\n"), stderr);
         return false;
     }
-    if (!confirma(e, B::format(T("t_conf_assemble",
-                                 "Se van a reintegrar %1 datasets hijos en %2 como "
-                                 "directorios. ¿Continuar?"),
-                               {std::to_string(pet.lista("texto").size()), destino.dataset}))) {
+    const std::string sinMontar = preparaMontajeTemporal(e, destino, /*creaHijos=*/false);
+    if (!confirma(e, (sinMontar.empty() ? std::string() : sinMontar + "\n")
+                         + B::format(T("t_conf_assemble",
+                                       "Se van a reintegrar %1 datasets hijos en %2 como "
+                                       "directorios. ¿Continuar?"),
+                                     {std::to_string(pet.lista("texto").size()),
+                                      destino.dataset}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -5975,18 +6201,11 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
 // El punto de montaje de un dataset. Solo Unix: en Windows la ruta no es la que dice
 // `mountpoint` —el pool se monta en una letra de unidad— y ahí la sincronización va por
 // otro camino, que no está portado al intérprete.
-bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out) {
-    std::string mp;
-    if (!agente(e, u, PET::datasetProperty("mountpoint", u.zfsName()), mp)) {
-        return false;
-    }
-    out = B::trim(mp);
-    if (out.empty() || out == "none" || out == "-" || out.front() != '/') {
-        std::fprintf(stderr, TC("t_s_no_est_m_7fb2be", "%s no está montado en ningún sitio\n"),
-                     u.zfsName().c_str());
-        return false;
-    }
-    return true;
+// Dónde se abre el dataset de un extremo de `cp` o `rsync`. Se pregunta a `zfs mount`, no a
+// la propiedad: sin montar, la ruta de la propiedad puede ser de otro (ver dondeEstaMontado).
+// Para leer, un dataset sin montar se monta en solo lectura; para escribir, no.
+bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out, bool paraEscribir) {
+    return dondeEstaMontado(e, u, u.zfsName(), paraEscribir, /*callado=*/false, out);
 }
 
 
@@ -6246,7 +6465,7 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
     // La ruta ABSOLUTA de cada extremo. Un dataset no la tiene hasta que se le pregunta a la
     // máquina dónde está montado: el `mountpoint` de la propiedad no siempre es donde se
     // puede abrir —en Windows dice «/pool/ds», que no existe— y por eso se pregunta.
-    const auto rutaReal = [&](const CS::End& x, std::string& out) -> bool {
+    const auto rutaReal = [&](const CS::End& x, std::string& out, bool paraEscribir) -> bool {
         if (x.kind == CS::EndKind::PlainPath) {
             out = x.absolute;
             return true;
@@ -6257,7 +6476,7 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
         u.dataset = x.zfsName;
         u.pool = B::split(x.zfsName, "/", false).front();
         std::string base;
-        if (!montajeDe(e, u, base)) {
+        if (!montajeDe(e, u, base, paraEscribir)) {
             return false;
         }
         out = base;
@@ -6270,7 +6489,7 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
     CS::End destino;
     std::string rutaDestino;
     if (!extremo(args.back(), TC("t_cp_destino", "destino"), destino)
-        || !rutaReal(destino, rutaDestino)) {
+        || !rutaReal(destino, rutaDestino, /*paraEscribir=*/true)) {
         return false;
     }
 
@@ -6287,7 +6506,7 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
     for (const std::string& texto : textosOrigen) {
         CS::End origen;
         Copia c;
-        if (!extremo(texto, TC("t_cp_origen", "origen"), origen) || !rutaReal(origen, c.ruta)) {
+        if (!extremo(texto, TC("t_cp_origen", "origen"), origen) || !rutaReal(origen, c.ruta, /*paraEscribir=*/false)) {
             return false;
         }
         c.maquina = origen.connection;
@@ -6454,10 +6673,11 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     // y lo que va tras `#content`; en una ruta suelta, la raíz de la máquina («/», o la
     // unidad en Windows) y el resto de la ruta. Así las llaves y la comprobación de «..»
     // valen igual para las dos formas.
-    const auto baseYRelativa = [&e](const ZfsmUrl& u, std::string& base, std::string& rel) {
+    const auto baseYRelativa = [&e](const ZfsmUrl& u, std::string& base, std::string& rel,
+                                    bool paraEscribir) {
         if (!esRutaSuelta(u)) {
             rel = B::join(u.detail, "/");
-            return montajeDe(e, u, base);
+            return montajeDe(e, u, base, paraEscribir);
         }
         std::vector<std::string> tramos = u.detail;
         base = "/";
@@ -6472,8 +6692,8 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     std::string baseDestino;
     std::string relOrigen;
     std::string relDestinoBase;
-    if (!baseYRelativa(origen, baseOrigen, relOrigen)
-        || !baseYRelativa(destino, baseDestino, relDestinoBase)) {
+    if (!baseYRelativa(origen, baseOrigen, relOrigen, /*paraEscribir=*/false)
+        || !baseYRelativa(destino, baseDestino, relDestinoBase, /*paraEscribir=*/true)) {
         return false;
     }
     // Una ruta suelta de destino tiene que EXISTIR y ser un directorio, como en `cp`: no se
@@ -8579,6 +8799,16 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
 
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi) {
     Estado e;
+    // Al salir —por donde sea: `exit`, fin de la entrada o una orden que falla en un guion—
+    // se sueltan los montajes de solo lectura que queden.
+    struct AlSalir {
+        Estado& e;
+        ~AlSalir() {
+            if (!e.montajesLectura.empty()) {
+                sueltaMontajesLectura(e, /*todos=*/true);
+            }
+        }
+    } alSalir{e};
     e.ses = &ses;
     e.formato = formato;
     e.asumirSi = asumirSi;
@@ -8891,7 +9121,15 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
             }
             continue;
         }
-        if (!ejecutaConPatrones(e, orden, an, it->second)) {
+        const bool bien = ejecutaConPatrones(e, orden, an, it->second);
+        // Los montajes de solo lectura que ya no contienen la posición se sueltan aquí,
+        // tras cada orden: un `ls` de un dataset sin montar no deja nada montado detrás.
+        if (!e.montajesLectura.empty()) {
+            const int rcOrden = e.ultimoRc;
+            sueltaMontajesLectura(e, /*todos=*/false);
+            e.ultimoRc = rcOrden;
+        }
+        if (!bien) {
             if (e.ultimoRc == 0) {
                 e.ultimoRc = 1;
             }

@@ -579,6 +579,10 @@ std::string agentCapabilityList() {
     caps.push_back("--file-recv-listen");
     caps.push_back("--file-send-to-peer-async");
 #ifndef _WIN32
+    caps.push_back("--mutate-mount-ro-temp");
+    caps.push_back("--mutate-unmount-ro-temp");
+#endif
+#ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
     caps.push_back("--mutate-rsync-local");
@@ -1018,6 +1022,292 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
 //
 // Ensamblar —el camino inverso— SÍ funciona allí y se conserva: verificado en la misma
 // máquina, los datasets vuelven a ser directorios en su sitio.
+#ifndef _WIN32
+// ── Punto de montaje TEMPORAL para escribir en un dataset sin montar ─────────
+//
+// Desglosar, Ensamblar, Hacia Dir y la sincronización por tar necesitan el dataset montado y
+// con escritura. Si no lo está —un entorno de arranque con `mountpoint=/` y `canmount=noauto`
+// no puede montarse «en su sitio» sin taparle la raíz a la máquina—, se le pone un punto de
+// montaje temporal en /tmp mientras dura la operación y después se le devuelve el suyo.
+//
+// El original se anota en dos propiedades de usuario ANTES de tocar nada: el valor y de
+// dónde venía. Si la operación muere a medias —SIGKILL, un corte de luz, el daemon
+// sustituido—, son la miga de pan con la que `repair-mounts` lo deja como estaba.
+//
+// De dónde venía importa: `kali` lo tenía RECIBIDO (`mountpoint=/ received`), y devolvérselo
+// con `zfs set` lo dejaba como `local`, que ya no sigue a lo que llegue en el siguiente envío.
+constexpr const char* kSavedMountpointProp = "org.fc16.zfsmgr:savedmountpoint";
+constexpr const char* kSavedMountpointSourceProp = "org.fc16.zfsmgr:savedmountpointsource";
+
+// «local», «received», «inherited», «default» —o vacío si no se pudo saber—.
+std::string origenDeMountpoint(const std::string& ds) {
+    const ExecResult r = runExecCapture("zfs", {"get", "-H", "-o", "source", "mountpoint", ds});
+    if (r.rc != 0) {
+        return {};
+    }
+    const std::string o = trim(r.out);
+    if (o.rfind("inherited", 0) == 0) {
+        return "inherited";
+    }
+    if (o == "local" || o == "received" || o == "default") {
+        return o;
+    }
+    return {};
+}
+
+// Devuelve el punto de montaje como estaba, con su origen, SIN MONTAR NADA.
+//
+// Cambiar el `mountpoint` de un dataset MONTA todos los de su árbol que lo heredan y tienen
+// `canmount=on`, aunque no estuvieran montados: libzfs los recoge en su lista de cambios y
+// los monta al final. Medido en fc16 sobre un pool de prueba, y vivido en la VM de FreeBSD:
+// devolverle a un entorno de arranque su `/` montó sus hijos nuevos en el /usr y el /var de
+// la máquina, y la máquina se quedó sin login ni sshd.
+//
+// `zfs set -u` cambia sin montar. Pero devolver un valor RECIBIDO o heredado es `zfs inherit`,
+// que no tiene `-u`; así que mientras tanto los del árbol con `canmount=on` pasan a `noauto`,
+// que no se monta solo, y después vuelven a `on`, que tampoco monta al ponerlo (medido).
+// `yaMontados`: los que estaban montados antes de empezar. A esos no se les protege —que ZFS
+// los vuelva a montar en su sitio de siempre es lo que tiene que pasar— y así no se les
+// cambia `canmount` de «default» a «local» sin necesidad.
+bool restauraMountpoint(const std::string& ds, const std::string& valor, const std::string& origen,
+                        std::string& err, const std::set<std::string>& yaMontados = {}) {
+    ExecResult res;
+    if (origen == "received" || origen == "inherited" || origen == "default") {
+        std::vector<std::string> protegidos;
+        const ExecResult cm = runExecCapture(
+            "zfs", {"get", "-H", "-r", "-t", "filesystem", "-o", "name,value", "canmount", ds});
+        for (const std::string& linea : splitLines(cm.out)) {
+            const std::size_t tab = linea.find('\t');
+            if (tab != std::string::npos && trim(linea.substr(tab + 1)) == "on"
+                && !yaMontados.count(linea.substr(0, tab))) {
+                const std::string nombre = linea.substr(0, tab);
+                if (runExecCapture("zfs", {"set", "canmount=noauto", nombre}).rc == 0) {
+                    protegidos.push_back(nombre);
+                }
+            }
+        }
+        res = origen == "received" ? runExecCapture("zfs", {"inherit", "-S", "mountpoint", ds})
+                                   : runExecCapture("zfs", {"inherit", "mountpoint", ds});
+        for (const std::string& n : protegidos) {
+            (void)runExecCapture("zfs", {"set", "canmount=on", n});
+        }
+    } else if (!valor.empty() && valor != "-") {
+        res = runExecCapture("zfs", {"set", "-u", "mountpoint=" + valor, ds});
+    } else {
+        err = "no saved mountpoint for " + ds;
+        return false;
+    }
+    // Y se comprueba que quedó el VALOR de antes: `inherit -S` sin valor recibido, por
+    // ejemplo, hereda, y eso no es lo que había.
+    const ExecResult ahora = getZfsPropertyCapture(ds, "mountpoint");
+    if (res.rc == 0 && ahora.rc == 0 && !valor.empty() && valor != "-" && trim(ahora.out) != valor) {
+        res = runExecCapture("zfs", {"set", "-u", "mountpoint=" + valor, ds});
+    }
+    if (res.rc != 0) {
+        err = trim(res.err.empty() ? res.out : res.err);
+        return false;
+    }
+    return true;
+}
+
+// Desmonta lo que esté montado DENTRO de `dir` y cuelgue de `ds` (sus descendientes y él),
+// de lo más profundo a lo menos. Hay que hacerlo antes de devolver el punto de montaje: si
+// no, ZFS remonta lo montado en el sitio nuevo, y con `mountpoint=/` eso es la raíz de la
+// máquina.
+void desmontaBajo(const std::string& ds, const std::string& dir) {
+    const ExecResult mnt = runExecCapture("zfs", {"mount"});
+    if (mnt.rc != 0 || dir.empty()) {
+        return;
+    }
+    std::vector<std::pair<std::string, std::string>> dentro;
+    for (const std::string& linea : splitLines(mnt.out)) {
+        std::istringstream iss(linea);
+        std::string nombre;
+        std::string ruta;
+        iss >> nombre >> ruta;
+        const bool suyo = nombre == ds || nombre.rfind(ds + "/", 0) == 0;
+        const bool bajo = ruta == dir || ruta.rfind(dir + "/", 0) == 0;
+        if (suyo && bajo) {
+            dentro.emplace_back(nombre, ruta);
+        }
+    }
+    std::sort(dentro.begin(), dentro.end(), [](const auto& a, const auto& b) {
+        return a.second.size() > b.second.size();
+    });
+    // Varias pasadas: un hijo TAPADO por su padre —montado después, encima— no se puede
+    // desmontar por su ruta hasta que se quita el padre. En la siguiente pasada ya se ve.
+    for (int pasada = 0; pasada < 3 && !dentro.empty(); ++pasada) {
+        std::vector<std::pair<std::string, std::string>> quedan;
+        for (const auto& d : dentro) {
+            if (runExecCapture("zfs", {"unmount", d.first}).rc == 0 || !datasetIsMounted(d.first)) {
+                continue;
+            }
+            // `zfs unmount` del padre intenta antes desmontar lo que cuelga de su ruta, y si
+            // eso está tapado, falla. `umount <ruta>` quita el montaje de más arriba en esa
+            // ruta, que es el padre; en la pasada siguiente sus hijos ya se ven.
+            if (runExecCapture("umount", {d.second}).rc == 0 && !datasetIsMounted(d.first)) {
+                continue;
+            }
+            quedan.push_back(d);
+        }
+        dentro = quedan;
+    }
+}
+
+// Los del árbol de `ds` (él incluido) que están montados ahora.
+std::set<std::string> montadosDelArbol(const std::string& ds) {
+    std::set<std::string> salida;
+    const ExecResult mnt = runExecCapture("zfs", {"mount"});
+    for (const std::string& linea : splitLines(mnt.out)) {
+        std::istringstream iss(linea);
+        std::string nombre;
+        iss >> nombre;
+        if (nombre == ds || nombre.rfind(ds + "/", 0) == 0) {
+            salida.insert(nombre);
+        }
+    }
+    return salida;
+}
+
+struct AltMountGuard {
+    std::string dataset;
+    std::string tmpDir;
+    bool active{false};
+    // Lo que del árbol estaba montado ANTES de empezar. Al terminar, cualquier otro que haya
+    // quedado montado se desmonta: es la red bajo restauraMountpoint, por si ZFS vuelve a
+    // montar algo por su cuenta.
+    std::set<std::string> montadosAntes;
+    // Puntos de montaje que solo se pueden fijar con todo YA desmontado: uno explícito
+    // puesto ahora, con el padre en /tmp, montaría el dataset en esa ruta de la máquina.
+    std::vector<std::pair<std::string, std::string>> mountpointsAlFinal;
+
+    // Moves the dataset onto a scratch mountpoint and mounts it there.
+    bool engage(const std::string& ds, std::string& mpOut, std::string& errMsg) {
+        char tmpl[] = "/tmp/zfsmgr-sync-XXXXXX";
+        const char* dir = mkdtemp(tmpl);
+        if (!dir) {
+            errMsg = "cannot create temporary mountpoint\n";
+            return false;
+        }
+        dataset = ds;
+        tmpDir = dir;
+        montadosAntes = montadosDelArbol(ds);
+        const ExecResult cur = getZfsPropertyCapture(ds, "mountpoint");
+        const std::string savedMp = (cur.rc == 0) ? trim(cur.out) : std::string();
+        const std::string savedSrc = origenDeMountpoint(ds);
+        // Record the original mountpoint before touching anything.
+        (void)runExecCapture("zfs",
+                             {"set", std::string(kSavedMountpointProp) + "=" + savedMp, ds});
+        if (!savedSrc.empty()) {
+            (void)runExecCapture("zfs", {"set", std::string(kSavedMountpointSourceProp) + "="
+                                                    + savedSrc, ds});
+        }
+        // Con `-u`, y montando después SOLO el dataset. Sin él, ZFS montaba en el acto los
+        // hijos con `canmount=on` dentro del directorio vacío de /tmp, y el padre —montado
+        // después— quedaba ENCIMA tapándolos: el hijo seguía montado, pero su ruta caía dentro
+        // del padre y ni se veía ni se podía desmontar por ella (medido al Ensamblar un entorno
+        // de arranque). Los hijos los monta, en orden, quien los necesite.
+        // Montado, `-u` le cambiaría la propiedad dejándolo donde estaba: se desmonta antes.
+        if (datasetIsMounted(ds)) {
+            (void)runExecCapture("zfs", {"unmount", ds});
+        }
+        const ExecResult setRes = runExecCapture("zfs", {"set", "-u", "mountpoint=" + tmpDir, ds});
+        if (setRes.rc != 0) {
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, ds});
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointSourceProp, ds});
+            rmdir(tmpDir.c_str());
+            tmpDir.clear();
+            errMsg = setRes.err.empty() ? "cannot set temporary mountpoint\n" : setRes.err;
+            return false;
+        }
+        active = true;  // from here on the dataset must be restored
+        // `zfs set mountpoint=` YA remonta el dataset si estaba montado, así que montarlo
+        // otra vez falla con "filesystem already mounted" —y eso abortaba la operación
+        // entera por algo que en realidad había salido bien—. Solo se monta si hace falta.
+        if (!datasetIsMounted(ds)) {
+            const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
+            if (mountRes.rc != 0) {
+                errMsg = mountRes.err.empty() ? "cannot mount on temporary mountpoint\n"
+                                              : mountRes.err;
+                return false;
+            }
+        }
+        // Estar montado no basta: tiene que estarlo DONDE toca. Si por lo que sea siguiera
+        // en su sitio anterior, copiar de ahí sería copiar de donde no es.
+        const ExecResult mpNow = getDatasetMountpointCapture(ds);
+        const std::string effective = (mpNow.rc == 0) ? trim(mpNow.out) : std::string();
+        if (effective != tmpDir) {
+            errMsg = "the dataset " + ds + " was mounted at " + effective + " and not at "
+                     + tmpDir + "\n";
+            return false;
+        }
+        mpOut = tmpDir;
+        return true;
+    }
+
+    void release() {
+        if (!active) {
+            if (!tmpDir.empty()) {
+                rmdir(tmpDir.c_str());
+                tmpDir.clear();
+            }
+            return;
+        }
+        active = false;
+        desmontaBajo(dataset, tmpDir);
+        (void)runExecCapture("zfs", {"unmount", dataset});
+        const ExecResult saved = getZfsPropertyCapture(dataset, kSavedMountpointProp);
+        const std::string savedMp = (saved.rc == 0) ? trim(saved.out) : std::string();
+        const ExecResult savedSrc = getZfsPropertyCapture(dataset, kSavedMountpointSourceProp);
+        std::string origen = (savedSrc.rc == 0) ? trim(savedSrc.out) : std::string();
+        if (origen == "-") {
+            origen.clear();
+        }
+        std::string err;
+        const bool vuelto = restauraMountpoint(dataset, savedMp, origen, err, montadosAntes);
+        if (!vuelto) {
+            daemonLog("ERROR", "cannot restore the mountpoint of " + dataset + ": " + err
+                                   + " (repair-mounts will find it)");
+        }
+        // Con `-u`: fijado normal, montaría el dataset en esa ruta de la máquina.
+        for (const auto& mp : mountpointsAlFinal) {
+            (void)runExecCapture("zfs", {"set", "-u", "mountpoint=" + mp.second, mp.first});
+        }
+        for (const std::string& n : montadosDelArbol(dataset)) {
+            if (!montadosAntes.count(n)) {
+                (void)runExecCapture("zfs", {"unmount", n});
+                daemonLog("WARN", n + " was mounted while restoring " + dataset
+                                      + "'s mountpoint; unmounted again");
+            }
+        }
+        // Y lo que estaba montado antes vuelve a estarlo, de menos profundo a más. Si quien
+        // usó el temporal lo dejó a propósito sin montar —Hacia Dir pone canmount=off, o lo
+        // destruye—, `zfs mount` falla y se queda así, que es lo que se quería.
+        std::vector<std::string> volver(montadosAntes.begin(), montadosAntes.end());
+        std::sort(volver.begin(), volver.end(), [](const std::string& a, const std::string& b) {
+            return std::count(a.begin(), a.end(), '/') < std::count(b.begin(), b.end(), '/');
+        });
+        for (const std::string& n : volver) {
+            if (!datasetIsMounted(n)) {
+                (void)runExecCapture("zfs", {"mount", n});
+            }
+        }
+        // La miga de pan solo se retira si el punto de montaje volvió: si no, se queda para
+        // que `repair-mounts` lo encuentre.
+        if (vuelto) {
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, dataset});
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointSourceProp, dataset});
+        }
+        if (!tmpDir.empty()) {
+            rmdir(tmpDir.c_str());
+            tmpDir.clear();
+        }
+    }
+
+    ~AltMountGuard() { release(); }
+};
+#endif
+
 ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
 #ifdef _WIN32
     (void)params;
@@ -1044,7 +1334,27 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
     if (mpRes.rc != 0) {
         return mpRes;
     }
-    const std::string mountpoint = trim(mpRes.out);
+    std::string mountpoint = trim(mpRes.out);
+#ifndef _WIN32
+    // Sin montar —un entorno de arranque con `mountpoint=/`, que no se puede montar en su
+    // sitio sin taparle la raíz a la máquina—, se monta en un temporal mientras dura y
+    // después se le devuelve el suyo. Ver AltMountGuard. Los hijos HEREDAN su punto de
+    // montaje, así que al volver el padre a `/` quedan en `/usr`, `/var`…, que es donde los
+    // monta el sistema cuando arranca.
+    AltMountGuard montajeTemporal;
+    std::string mpOriginal;
+    if (mountpoint.empty()) {
+        const ExecResult mpProp = getZfsPropertyCapture(dataset, "mountpoint");
+        mpOriginal = mpProp.rc == 0 ? trim(mpProp.out) : std::string();
+        std::string errMontaje;
+        if (!montajeTemporal.engage(dataset, mountpoint, errMontaje)) {
+            r.rc = 1;
+            r.err = dataset + " is not mounted and could not be mounted on a temporary place: "
+                    + trim(errMontaje) + "\n";
+            return r;
+        }
+    }
+#endif
     if (mountpoint.empty()) {
         r.rc = 1;
         r.err = "mountpoint=none\n";
@@ -1454,7 +1764,25 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         ExecResult setMp;
         setMp.rc = 0;
 #else
-        ExecResult setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
+        ExecResult setMp;
+        if (montajeTemporal.active) {
+            // Con el padre en el temporal, el hijo HEREDA: así sigue al padre cuando vuelva a
+            // su sitio. Si su nombre no es su ruta (`a:b:c` para `a/b/c`), heredar lo dejaría
+            // en otro sitio, y el punto definitivo —el original del padre más la ruta— solo se
+            // puede fijar con todo desmontado: fijado ahora, lo montaría en esa ruta de ESTA
+            // máquina. Hasta entonces, el del temporal.
+            const bool heredaBien = p->name == p->rel || mpOriginal.empty()
+                                    || mpOriginal.front() != '/';
+            if (heredaBien) {
+                setMp = runExecCapture("zfs", {"inherit", "mountpoint", child});
+            } else {
+                setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
+                montajeTemporal.mountpointsAlFinal.emplace_back(
+                    child, (fs::path(mpOriginal) / fs::path(p->rel)).string());
+            }
+        } else {
+            setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
+        }
 #endif
         if (setMp.rc != 0) {
             // Igual que arriba: el dataset ya tiene su nombre bueno y contiene los
@@ -1510,6 +1838,13 @@ ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& par
         }
     }
     cleanup.armed = false;
+#ifndef _WIN32
+    if (montajeTemporal.active) {
+        r.out += "[BREAKDOWN] " + dataset + " was not mounted: it was mounted at " + mountpoint
+                 + " for the operation and its mountpoint is restored (" + mpOriginal
+                 + "); the new datasets inherit theirs and are left unmounted\n";
+    }
+#endif
     r.rc = 0;
     return r;
 }
@@ -1526,7 +1861,58 @@ ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& para
     if (mpRes.rc != 0) {
         return mpRes;
     }
-    const std::string parentMp = trim(mpRes.out);
+    std::string parentMp = trim(mpRes.out);
+#ifndef _WIN32
+    // Sin montar, en un temporal mientras dura, como Desglosar (ver AltMountGuard).
+    //
+    // Pero ANTES se mira que ninguno de los que se van a montar —los hijos pedidos y lo que
+    // cuelga de ellos— tenga punto de montaje PROPIO. Los que lo heredan siguen al padre al
+    // temporal; uno con el suyo —un `/usr` recibido, por ejemplo— se montaría al ensamblar en
+    // ese `/usr`, que es el de esta máquina. Se niega entero, sin haber tocado nada.
+    AltMountGuard montajeTemporal;
+    if (parentMp.empty()) {
+        const ExecResult props = runExecCapture(
+            "zfs", {"get", "-H", "-r", "-t", "filesystem", "-o", "name,value,source", "mountpoint",
+                    dataset});
+        if (props.rc != 0) {
+            return props;
+        }
+        for (const std::string& linea : splitLines(props.out)) {
+            std::istringstream iss(linea);
+            std::string nombre;
+            std::string valor;
+            std::string origen;
+            std::getline(iss, nombre, '\t');
+            std::getline(iss, valor, '\t');
+            std::getline(iss, origen);
+            // Solo cuenta lo que se va a montar: los hijos pedidos y lo que cuelga de ellos.
+            bool seMonta = false;
+            for (std::size_t k = 1; k < params.size(); ++k) {
+                const std::string hijo = trim(params[k]);
+                seMonta = seMonta || (!hijo.empty()
+                                      && (nombre == hijo || nombre.rfind(hijo + "/", 0) == 0));
+            }
+            if (!seMonta || origen.rfind("inherited", 0) == 0 || valor == "none"
+                || valor == "legacy") {
+                continue;
+            }
+            r.rc = 1;
+            r.err = dataset + " is not mounted, so it would be mounted on a temporary place; but "
+                    + nombre + " has its own mountpoint (" + valor + ", " + trim(origen)
+                    + ") and assembling would mount it there, on this machine. Make it inherit "
+                      "(zfs inherit mountpoint " + nombre + ") or mount " + dataset
+                    + " in its place first\n";
+            return r;
+        }
+        std::string errMontaje;
+        if (!montajeTemporal.engage(dataset, parentMp, errMontaje)) {
+            r.rc = 1;
+            r.err = dataset + " is not mounted and could not be mounted on a temporary place: "
+                    + trim(errMontaje) + "\n";
+            return r;
+        }
+    }
+#endif
     if (parentMp.empty()) {
         r.rc = 2;
         r.err = "mountpoint=none\n";
@@ -2692,7 +3078,6 @@ ExecResult runMutateAdvancedFromDirPrepareCapture(const std::vector<std::string>
 // The original mountpoint is stashed in a ZFS user property before moving it, exactly
 // as the shell helpers did: that way a run killed outright still leaves a breadcrumb
 // identifying the dataset and its intended mountpoint.
-constexpr const char* kSavedMountpointProp = "org.fc16.zfsmgr:savedmountpoint";
 
 std::atomic<pid_t> g_streamChildPid{-1};
 
@@ -2706,83 +3091,6 @@ void onStreamSignal(int) {
     }
 }
 
-struct AltMountGuard {
-    std::string dataset;
-    std::string tmpDir;
-    bool active{false};
-
-    // Moves the dataset onto a scratch mountpoint and mounts it there.
-    bool engage(const std::string& ds, std::string& mpOut, std::string& errMsg) {
-        char tmpl[] = "/tmp/zfsmgr-sync-XXXXXX";
-        const char* dir = mkdtemp(tmpl);
-        if (!dir) {
-            errMsg = "cannot create temporary mountpoint\n";
-            return false;
-        }
-        dataset = ds;
-        tmpDir = dir;
-        const ExecResult cur = getZfsPropertyCapture(ds, "mountpoint");
-        const std::string savedMp = (cur.rc == 0) ? trim(cur.out) : std::string();
-        // Record the original mountpoint before touching anything.
-        (void)runExecCapture("zfs",
-                             {"set", std::string(kSavedMountpointProp) + "=" + savedMp, ds});
-        const ExecResult setRes = runExecCapture("zfs", {"set", "mountpoint=" + tmpDir, ds});
-        if (setRes.rc != 0) {
-            (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, ds});
-            rmdir(tmpDir.c_str());
-            tmpDir.clear();
-            errMsg = setRes.err.empty() ? "cannot set temporary mountpoint\n" : setRes.err;
-            return false;
-        }
-        active = true;  // from here on the dataset must be restored
-        // `zfs set mountpoint=` YA remonta el dataset si estaba montado, así que montarlo
-        // otra vez falla con "filesystem already mounted" —y eso abortaba la operación
-        // entera por algo que en realidad había salido bien—. Solo se monta si hace falta.
-        if (!datasetIsMounted(ds)) {
-            const ExecResult mountRes = runExecCapture("zfs", {"mount", ds});
-            if (mountRes.rc != 0) {
-                errMsg = mountRes.err.empty() ? "cannot mount on temporary mountpoint\n"
-                                              : mountRes.err;
-                return false;
-            }
-        }
-        // Estar montado no basta: tiene que estarlo DONDE toca. Si por lo que sea siguiera
-        // en su sitio anterior, copiar de ahí sería copiar de donde no es.
-        const ExecResult mpNow = getDatasetMountpointCapture(ds);
-        const std::string effective = (mpNow.rc == 0) ? trim(mpNow.out) : std::string();
-        if (effective != tmpDir) {
-            errMsg = "the dataset " + ds + " was mounted at " + effective + " and not at "
-                     + tmpDir + "\n";
-            return false;
-        }
-        mpOut = tmpDir;
-        return true;
-    }
-
-    void release() {
-        if (!active) {
-            if (!tmpDir.empty()) {
-                rmdir(tmpDir.c_str());
-                tmpDir.clear();
-            }
-            return;
-        }
-        active = false;
-        (void)runExecCapture("zfs", {"unmount", dataset});
-        const ExecResult saved = getZfsPropertyCapture(dataset, kSavedMountpointProp);
-        const std::string savedMp = (saved.rc == 0) ? trim(saved.out) : std::string();
-        if (!savedMp.empty() && savedMp != "-") {
-            (void)runExecCapture("zfs", {"set", "mountpoint=" + savedMp, dataset});
-        }
-        (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, dataset});
-        if (!tmpDir.empty()) {
-            rmdir(tmpDir.c_str());
-            tmpDir.clear();
-        }
-    }
-
-    ~AltMountGuard() { release(); }
-};
 
 
 // ── Hacia Dir: dataset -> directorio plano ───────────────────────────────────
@@ -3318,22 +3626,29 @@ ExecResult runRepairAltMountpointsCapture(bool apply) {
         if (!apply) {
             continue;
         }
-        // Mirror the guard's restore order: unmount first, then put the mountpoint
-        // back, then drop the breadcrumb.
+        // Mirror the guard's restore order: unmount what hangs from the temporary place,
+        // then put the mountpoint back —with its source—, then drop the breadcrumb.
+        desmontaBajo(s.dataset, s.currentMp);
         (void)runExecCapture("zfs", {"unmount", s.dataset});
-        bool ok = true;
-        if (!s.savedMp.empty() && s.savedMp != "-") {
-            const ExecResult setRes =
-                runExecCapture("zfs", {"set", "mountpoint=" + s.savedMp, s.dataset});
-            ok = (setRes.rc == 0);
-            if (!ok) {
-                r.err += "cannot restore mountpoint for " + s.dataset + ": " + setRes.err;
-            }
+        const ExecResult src = getZfsPropertyCapture(s.dataset, kSavedMountpointSourceProp);
+        std::string origen = (src.rc == 0) ? trim(src.out) : std::string();
+        if (origen == "-") {
+            origen.clear();
+        }
+        std::string errRest;
+        const bool ok = restauraMountpoint(s.dataset, s.savedMp, origen, errRest);
+        if (!ok) {
+            r.err += "cannot restore mountpoint for " + s.dataset + ": " + errRest + "\n";
         }
         if (ok) {
             // Only drop the breadcrumb once the mountpoint is actually back, so a
             // failed repair stays discoverable on the next run.
             (void)runExecCapture("zfs", {"inherit", kSavedMountpointProp, s.dataset});
+            (void)runExecCapture("zfs", {"inherit", kSavedMountpointSourceProp, s.dataset});
+            // Y el directorio temporal, si es nuestro y quedó vacío.
+            if (s.currentMp.rfind("/tmp/zfsmgr-sync-", 0) == 0) {
+                rmdir(s.currentMp.c_str());
+            }
             out += "REPAIRED=" + s.dataset + " -> " + s.savedMp + "\n";
             ++repaired;
         } else {
@@ -5029,6 +5344,117 @@ ExecResult listaRuta(const std::string& ruta) {
 // la EQUIVALENCIA con un dataset. «exact_mountpoint» es lo único que permite tratar la
 // ruta como el dataset; estar solo DENTRO de él no basta, y el cliente nunca sube al
 // contenedor —`destroy` de un subdirectorio no puede acabar destruyendo el dataset—.
+// --- Montaje TEMPORAL de solo lectura, para mirar dentro de un dataset sin montar.
+//
+// `--mutate-mount-ro-temp <dataset>` lo monta en solo lectura en /tmp/zfsmgr-ro-XXXXXX
+// SIN TOCAR NINGUNA PROPIEDAD, y `--mutate-unmount-ro-temp <dir>` lo desmonta y borra el
+// directorio. Es lo que hace zfsbootmenu con un entorno de arranque: `mount -t zfs` sobre un
+// directorio cualquiera. Un reinicio lo olvida sin dejar nada que reparar, al contrario que
+// cambiar el `mountpoint`, que es lo que hace AltMountGuard para escribir.
+//
+// El caso que lo pidió: un sistema arrancable con `mountpoint=/` y `canmount=noauto`. Montarlo
+// «en su sitio» sería encima de la raíz de la máquina en marcha; aquí nunca se monta ahí.
+//
+// Medido: en Linux hace falta `-o zfsutil` (si no, mount.zfs exige mountpoint=legacy); en
+// FreeBSD basta `mount -t zfs`. En los dos `zfs mount` lo enseña en el temporal y la
+// propiedad `mountpoint` queda como estaba.
+static const char* const kPrefijoMontajeRo = "/tmp/zfsmgr-ro-";
+
+ExecResult montaSoloLecturaTemporal(const std::string& dataset) {
+    ExecResult r;
+#ifdef _WIN32
+    (void)dataset;
+    r.rc = 2;
+    r.err = "a temporary read-only mount is not available on Windows\n";
+    return r;
+#else
+    if (trim(dataset).empty() || dataset.find('@') != std::string::npos) {
+        r.rc = 2;
+        r.err = "a filesystem dataset is required\n";
+        return r;
+    }
+    const ExecResult tipo = getZfsPropertyCapture(dataset, "type");
+    if (tipo.rc != 0) {
+        return tipo;
+    }
+    if (trim(tipo.out) != "filesystem") {
+        r.rc = 2;
+        r.err = dataset + " is a " + trim(tipo.out) + ", not a filesystem\n";
+        return r;
+    }
+    // Montado ya —por ZFS o por nosotros—: se dice dónde, y no se monta otra vez.
+    if (datasetIsMounted(dataset)) {
+        const ExecResult dondeYa = getDatasetMountpointCapture(dataset);
+        r.rc = 0;
+        r.out = "MOUNTPOINT=" + trim(dondeYa.out) + "\nTEMPORARY=0\n";
+        return r;
+    }
+    std::string plantilla = std::string(kPrefijoMontajeRo) + "XXXXXX";
+    std::vector<char> buf(plantilla.begin(), plantilla.end());
+    buf.push_back('\0');
+    const char* dir = mkdtemp(buf.data());
+    if (!dir) {
+        r.rc = 1;
+        r.err = std::string("cannot create the temporary directory: ") + std::strerror(errno) + "\n";
+        return r;
+    }
+    const std::string directorio = dir;
+#if defined(__linux__)
+    const std::vector<std::string> args = {"-t", "zfs", "-o", "ro,zfsutil", dataset, directorio};
+    const std::string programa = "mount";
+#elif defined(__APPLE__)
+    const std::vector<std::string> args = {"-o", "ro", dataset, directorio};
+    const std::string programa = "/usr/local/zfs/bin/mount_zfs";
+#else
+    const std::vector<std::string> args = {"-t", "zfs", "-o", "ro", dataset, directorio};
+    const std::string programa = "mount";
+#endif
+    const ExecResult m = runExecCapture(programa, args);
+    if (m.rc != 0) {
+        rmdir(directorio.c_str());
+        r.rc = m.rc;
+        r.err = "cannot mount " + dataset + " read-only: " + trim(m.err.empty() ? m.out : m.err)
+                + "\n";
+        return r;
+    }
+    daemonLog("INFO", "read-only temporary mount of " + dataset + " at " + directorio);
+    r.rc = 0;
+    r.out = "MOUNTPOINT=" + directorio + "\nTEMPORARY=1\n";
+    return r;
+#endif
+}
+
+ExecResult desmontaSoloLecturaTemporal(const std::string& directorio) {
+    ExecResult r;
+#ifdef _WIN32
+    (void)directorio;
+    r.rc = 2;
+    r.err = "a temporary read-only mount is not available on Windows\n";
+    return r;
+#else
+    // Solo lo que montó el verbo de arriba: con esto no se puede desmontar cualquier cosa.
+    if (directorio.rfind(kPrefijoMontajeRo, 0) != 0 || directorio.find("..") != std::string::npos
+        || directorio.find('/', std::strlen(kPrefijoMontajeRo)) != std::string::npos) {
+        r.rc = 2;
+        r.err = "not a temporary read-only mount of ours: " + directorio + "\n";
+        return r;
+    }
+    const ExecResult u = runExecCapture("umount", {directorio});
+    if (u.rc != 0) {
+        // Ocupado —un trabajo de copia que todavía lee de ahí—: se dice, y el directorio se
+        // queda; quien llamó puede reintentar.
+        r.rc = u.rc;
+        r.err = "cannot unmount " + directorio + ": " + trim(u.err.empty() ? u.out : u.err) + "\n";
+        return r;
+    }
+    rmdir(directorio.c_str());
+    daemonLog("INFO", "read-only temporary mount at " + directorio + " released");
+    r.rc = 0;
+    r.out = "UNMOUNTED=" + directorio + "\n";
+    return r;
+#endif
+}
+
 ExecResult describeRuta(const std::string& ruta) {
     namespace J = zfsmgr::base::json;
     ExecResult r;
@@ -8936,6 +9362,16 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         }
         return cmd == "--dump-path-list" ? listaRuta(params[0]) : describeRuta(params[0]);
     }
+    if (cmd == "--mutate-mount-ro-temp" || cmd == "--mutate-unmount-ro-temp") {
+        if (params.empty()) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " " + cmd
+                    + (cmd == "--mutate-mount-ro-temp" ? " <dataset>\n" : " <dir>\n");
+            return r;
+        }
+        return cmd == "--mutate-mount-ro-temp" ? montaSoloLecturaTemporal(params[0])
+                                               : desmontaSoloLecturaTemporal(params[0]);
+    }
     if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
         if (params.empty()) {
             r.rc = 2;
@@ -11200,6 +11636,17 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         const ExecResult r = cmd == "--dump-path-list" ? listaRuta(args[2]) : describeRuta(args[2]);
+        std::cout << r.out;
+        std::cerr << r.err;
+        return r.rc;
+    }
+    if (cmd == "--mutate-mount-ro-temp" || cmd == "--mutate-unmount-ro-temp") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult r = cmd == "--mutate-mount-ro-temp" ? montaSoloLecturaTemporal(args[2])
+                                                             : desmontaSoloLecturaTemporal(args[2]);
         std::cout << r.out;
         std::cerr << r.err;
         return r.rc;

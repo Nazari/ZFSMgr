@@ -188,6 +188,14 @@ std::vector<std::string> pathInfo(const std::string& ruta) {
     return withOne("--dump-path-info", ruta);
 }
 
+std::vector<std::string> mountReadOnlyTemporarily(const std::string& dataset) {
+    return withOne("--mutate-mount-ro-temp", dataset);
+}
+
+std::vector<std::string> unmountReadOnlyTemporary(const std::string& directorio) {
+    return withOne("--mutate-unmount-ro-temp", directorio);
+}
+
 std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
                                             unsigned long long cuanto) {
     const std::string r = limpia(ruta);

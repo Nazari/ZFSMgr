@@ -89,6 +89,8 @@ cmd:--dump-path-list
 cmd:--dump-path-info
 cmd:--file-recv-listen
 cmd:--file-send-to-peer-async
+cmd:--mutate-mount-ro-temp
+cmd:--mutate-unmount-ro-temp
 copytree:skip-unchanged-delete-dryrun
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.
