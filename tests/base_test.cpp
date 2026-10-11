@@ -24,7 +24,9 @@
 #include "copyspec.h"
 #include "helpers.h"
 #ifndef _WIN32
+#include <sys/file.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 #include <iterator>
@@ -2445,6 +2447,123 @@ int main() {
         comprobar(!ST::saveProfile(dirG, sinId, maestra, av), "guardar: sin id no se guarda");
         comprobar(av.reason == ST::Reason::EmptyId, "guardar: con su motivo");
         std::filesystem::remove_all(dirG);
+    }
+
+    // --- varios procesos sobre los mismos ficheros
+    //
+    // Dos `zfsmgr-cli` —o uno y la interfaz— comparten config.json. Antes se escribía en el
+    // sitio y sin cerrojo: quien leía a la vez lo encontraba a medias, dos cambios
+    // simultáneos perdían uno, y tras cambiar la maestra en uno el otro seguía cifrando con
+    // la vieja.
+    {
+        namespace ST = zfsmgr::base::store;
+        namespace CJ = zfsmgr::base::connjson;
+        const std::string dirC = "/tmp/zfsmgr-base-test-concurrencia";
+        std::filesystem::remove_all(dirC);
+        const std::string maestra = "m";
+        ST::Warning av;
+        zfsmgr::base::ConnectionProfile p;
+        p.id = "uno"; p.name = "Uno"; p.connType = "SSH";
+        p.host = "uno.local"; p.port = 22; p.username = "u"; p.password = "secreta";
+        comprobar(ST::saveProfile(dirC, p, maestra, av), "concurrencia: se prepara");
+
+        // Escritura atómica: no queda ningún temporal, y el permiso sigue siendo del dueño.
+        bool temporal = false;
+        for (const auto& f : std::filesystem::directory_iterator(dirC)) {
+            temporal = temporal || f.path().filename().string().find(".tmp-") != std::string::npos;
+        }
+        comprobar(!temporal, "concurrencia: la escritura no deja temporales");
+        const auto permisos = std::filesystem::status(dirC + "/config.json").permissions();
+        comprobar((permisos & (std::filesystem::perms::group_all | std::filesystem::perms::others_all))
+                      == std::filesystem::perms::none,
+                  "concurrencia: config.json sigue siendo solo del dueño");
+
+        // Una maestra que ya no abre el fichero —otro proceso la cambió— no escribe nada.
+        const auto contenido = [&]() {
+            std::ifstream f(dirC + "/config.json", std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        };
+        const std::string antes = contenido();
+        zfsmgr::base::ConnectionProfile otro = p;
+        otro.id = "otro"; otro.name = "Otro"; otro.password = "x";
+        comprobar(!ST::saveProfile(dirC, otro, "la-vieja", av),
+                  "concurrencia: con la maestra de antes no se guarda");
+        comprobar(av.reason == ST::Reason::MasterChangedElsewhere,
+                  "concurrencia: y dice que se cambió en otro sitio");
+        igual(contenido(), antes, "concurrencia: el fichero no se toca");
+        zfsmgr::base::ConnectionProfile conTls = p;
+        conTls.daemonTlsServerCertPem = "CERT";
+        comprobar(!ST::saveTlsToStore(dirC, conTls, "la-vieja", av)
+                      && av.reason == ST::Reason::MasterChangedElsewhere,
+                  "concurrencia: tampoco el material TLS");
+
+        // Reentrante: quien ya tiene el cerrojo puede guardar sin bloquearse a sí mismo.
+        {
+            const ST::ConfigLock a(dirC);
+            const ST::ConfigLock b(dirC);
+            comprobar(a.held() && b.held(), "concurrencia: el cerrojo es reentrante");
+            comprobar(ST::saveProfile(dirC, otro, maestra, av),
+                      "concurrencia: y dentro se puede guardar");
+        }
+
+        // Entre procesos: mientras éste lo tiene, otro no puede tomarlo.
+        const auto otroLoConsigue = [&]() {
+            const pid_t hijo = fork();
+            if (hijo == 0) {
+                const int fd = ::open((dirC + "/.config.lock").c_str(), O_RDWR);
+                _exit(fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0 ? 0 : 1);
+            }
+            int estado = 0;
+            waitpid(hijo, &estado, 0);
+            return WIFEXITED(estado) && WEXITSTATUS(estado) == 0;
+        };
+        {
+            const ST::ConfigLock a(dirC);
+            comprobar(!otroLoConsigue(), "concurrencia: otro proceso espera mientras se tiene");
+        }
+        comprobar(otroLoConsigue(), "concurrencia: y lo consigue al soltarlo");
+
+        // Lo que de verdad importaba: dos cambios a la vez no pierden ninguno. El padre lee,
+        // deja que el hijo intente guardar, espera y escribe lo leído más lo suyo. Sin
+        // cerrojo, lo que guardó el hijo en medio desaparecía.
+        int tubo[2];
+        comprobar(pipe(tubo) == 0, "concurrencia: tubería");
+        const pid_t hijo = fork();
+        if (hijo == 0) {
+            close(tubo[1]);
+            char c = 0;
+            (void)!read(tubo[0], &c, 1);
+            zfsmgr::base::ConnectionProfile delHijo = p;
+            delHijo.id = "hijo"; delHijo.name = "Hijo";
+            ST::Warning w;
+            _exit(ST::saveProfile(dirC, delHijo, maestra, w) ? 0 : 1);
+        }
+        close(tubo[0]);
+        {
+            const ST::ConfigLock cerrojo(dirC);
+            json::Value raiz = ST::readConfig(dirC, av);
+            (void)!write(tubo[1], "y", 1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            json::Array conns = raiz["connections"].toArray();
+            zfsmgr::base::ConnectionProfile delPadre = p;
+            delPadre.id = "padre"; delPadre.name = "Padre"; delPadre.password.clear();
+            conns.push_back(CJ::connectionToJson(delPadre, std::string()));
+            raiz.set("connections", json::Value(conns));
+            comprobar(ST::writeConfig(dirC, raiz, av), "concurrencia: el padre escribe");
+        }
+        close(tubo[1]);
+        int estado = 0;
+        waitpid(hijo, &estado, 0);
+        comprobar(WIFEXITED(estado) && WEXITSTATUS(estado) == 0, "concurrencia: el hijo guarda");
+        bool hayPadre = false;
+        bool hayHijo = false;
+        for (const json::Value& v : ST::readConfig(dirC, av)["connections"].toArray()) {
+            const std::string id = v["id"].toString();
+            hayPadre = hayPadre || id == "padre";
+            hayHijo = hayHijo || id == "hijo";
+        }
+        comprobar(hayPadre && hayHijo, "concurrencia: los dos cambios están, ninguno se perdió");
+        std::filesystem::remove_all(dirC);
     }
 
     // --- versiones del agente

@@ -39,6 +39,10 @@ std::string labelOf(const Warning& a) {
         case Reason::CannotDecrypt:
             return con("no se pudo descifrar «" + a.field + "»" + (a.connection.empty() ? "" : " de " + a.connection),
                        a.detail);
+        case Reason::MasterChangedElsewhere:
+            return "la contraseña maestra de esta sesión ya no abre la configuración: se cambió "
+                   "en otra (otro zfsmgr-cli o la interfaz). No se ha escrito nada; salga y "
+                   "vuelva a entrar con la nueva";
         case Reason::WrongField:
             return con("campo incorrecto «" + a.field + "»", a.detail);
         case Reason::EmptyId:

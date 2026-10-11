@@ -6,6 +6,7 @@
 #include <QVector>
 
 #include "base/connectionprofile.h"
+#include "base/storefiles.h"
 #include "base/storewarnings.h"
 
 
@@ -106,6 +107,11 @@ public:
     QString trustStorePath() const;
     QJsonObject loadConfigJson(QString* error = nullptr) const;
     bool saveConfigJson(const QJsonObject& root, QString* error = nullptr) const;
+    // Hold it across loadConfigJson → change → saveConfigJson: other processes (the shell)
+    // write the same file, and without it one of two simultaneous changes is lost.
+    zfsmgr::base::store::ConfigLock lockConfig() const {
+        return zfsmgr::base::store::ConfigLock(configDir().toStdString());
+    }
     void ensureAppDefaults() const;
     LoadResult loadConnections() const;
     bool upsertConnection(const ConnectionProfile& profile, QString& error);

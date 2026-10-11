@@ -36,6 +36,9 @@ enum class Reason {
     // KEEPS the ciphertext, so whoever receives it must not use it as though it were the
     // plaintext value. See the design note on pam_faillock.
     CannotDecrypt,                   // connection, field, detail
+    // The session's master password no longer opens the file: another process changed it.
+    // Nothing is written; the session has to be restarted with the new one.
+    MasterChangedElsewhere,          // connection, field
     WrongField,                      // connection, field
 
     // --- Validation

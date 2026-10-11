@@ -15,6 +15,30 @@
 // See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base::store {
 
+// Exclusive access to the two files, between processes.
+//
+// Several `zfsmgr-cli` —and the interface— share the same files, and every change is a
+// read-modify-write: without this, two at the same instant lose one of the two changes. The
+// functions below that change the files take it themselves; whoever does its own
+// read-modify-write —`readConfig`, change, `writeConfig`— holds one of these across all three.
+//
+// Reentrant within the process, so taking it while already holding it is fine. If another
+// process keeps it longer than a few seconds the write goes ahead without it, as before:
+// refusing to save because some other process hung would be worse. The lock is released when
+// its owner dies, so there are no orphans to wait for.
+class ConfigLock {
+public:
+    explicit ConfigLock(const std::string& configDir);
+    ~ConfigLock();
+    ConfigLock(const ConfigLock&) = delete;
+    ConfigLock& operator=(const ConfigLock&) = delete;
+
+    bool held() const { return m_tenido; }
+
+private:
+    bool m_tenido{false};
+};
+
 std::string configPath(const std::string& configDir);
 std::string trustStorePath(const std::string& configDir);
 
@@ -26,6 +50,13 @@ json::Value readTrustStore(const std::string& configDir, Warning& warning);
 // They write with **owner-only** permissions, set BEFORE the contents are poured in: the
 // other way round would leave an instant with the file already full of encrypted secrets and
 // whatever permissions the umask happened to leave.
+//
+// The write is ATOMIC: the whole file goes to a temporary next to it and is renamed over the
+// old one, so a reader in another process sees the old file or the new one, never half of it.
+//
+// `saveProfile`, `saveTlsToStore` and `encryptWhatIsMissing` also check that the session's
+// master password still opens the file (`Reason::MasterChangedElsewhere` if not): after a
+// rotation in another process, writing with the old one would leave fields under two keys.
 bool writeConfig(const std::string& configDir, const json::Value& root, Warning& warning);
 bool writeTrustStore(const std::string& configDir, const json::Value& root, Warning& warning);
 

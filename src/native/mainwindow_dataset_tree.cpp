@@ -3827,6 +3827,7 @@ void MainWindow::saveUserExpandedState() {
         m_userExpandedSaveTimer = new QTimer(this);
         m_userExpandedSaveTimer->setSingleShot(true);
         connect(m_userExpandedSaveTimer, &QTimer::timeout, this, [this]() {
+            const auto cerrojo = m_conns.store.lockConfig();
             QJsonObject root = m_conns.store.loadConfigJson();
             QJsonObject map;
             for (auto it = m_userNodeExpanded.cbegin(); it != m_userNodeExpanded.cend(); ++it) {

@@ -196,6 +196,7 @@ void MainWindow::loadUiSettings() {
 }
 
 void MainWindow::saveUiSettings() const {
+    const auto cerrojo = m_conns.store.lockConfig();
     QString jsonErr;
     QJsonObject root = m_conns.store.loadConfigJson(&jsonErr);
     QJsonObject appObj = root.value(QStringLiteral("app")).toObject();

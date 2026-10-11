@@ -267,6 +267,16 @@ QString ConnectionStore::traduce(const BS::Warning& a) const {
                           QStringLiteral("no se pudo descifrar"),
                           QStringLiteral("could not decrypt"))
                     : detalle);
+        case M::MasterChangedElsewhere:
+            return trk(QStringLiteral("t_cstore_master_changed"),
+                       QStringLiteral("La contraseña maestra de esta sesión ya no abre la "
+                                      "configuración: se cambió en otro proceso (zfsmgr-cli u "
+                                      "otra ventana). No se ha guardado nada; vuelva a abrir "
+                                      "la aplicación con la nueva."),
+                       QStringLiteral("This session's master password no longer opens the "
+                                      "configuration: it was changed in another process "
+                                      "(zfsmgr-cli or another window). Nothing was saved; "
+                                      "reopen the application with the new one."));
         case M::WrongField:
             return trk(QStringLiteral("t_cstore_auto002"),
                        QStringLiteral("%1: %2 incorrecto"),
@@ -427,6 +437,7 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
 }
 
 void ConnectionStore::ensureAppDefaults() const {
+    const auto cerrojo = lockConfig();
     QString loadErr;
     QJsonObject root = loadConfigJson(&loadErr);
     QJsonObject zdefs = root.value(QStringLiteral("ZPoolCreationDefaults")).toObject();
@@ -551,6 +562,9 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         id.replace('/', '_');
     }
 
+    // El nombre repetido se comprueba y se guarda bajo el MISMO cerrojo: si no, otro proceso
+    // podría dar de alta ese nombre entre la comprobación y el guardado.
+    const auto cerrojo = lockConfig();
     QString loadErr;
     QJsonObject root = loadConfigJson(&loadErr);
     if (!loadErr.isEmpty()) {

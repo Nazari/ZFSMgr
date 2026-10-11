@@ -635,6 +635,9 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
         error = T("t_id_vacio", "identificador vacío");
         return false;
     }
+    // Leer, cambiar y escribir bajo el cerrojo: otro zfsmgr-cli —o la interfaz— puede estar
+    // guardando a la vez, y sin él uno de los dos cambios se pierde.
+    const ST::ConfigLock cerrojo(s.dirConfig);
     ST::Warning aviso;
     auto root = ST::readConfig(s.dirConfig, aviso);
     auto app = root["app"];

@@ -328,6 +328,7 @@ int main(int argc, char* argv[]) {
         }
 
         {
+            const auto cerrojo = store.lockConfig();
             QString jsonErr;
             QJsonObject root = store.loadConfigJson(&jsonErr);
             QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
