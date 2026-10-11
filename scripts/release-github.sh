@@ -181,7 +181,11 @@ resolve_release_artifacts() {
   # Desde la 1.0.0 se publica SOLO el CLI: la interfaz gráfica no está probada y no se
   # espera hasta la 2.0.0. El zip completo se sigue generando, pero no se sube.
   for f in "${ZIP_CLI}" "${ZIP_CLI}.sha256"; do
-    [[ -f "${f}" ]] && RELEASE_FILES+=("${f}")
+    # Con `if` y no con `[[ ]] &&`: si el último no existe —lo normal antes de compilar—, la
+    # función devolvería 1 y la trampa de ERR abortaría la release sin decir nada.
+    if [[ -f "${f}" ]]; then
+      RELEASE_FILES+=("${f}")
+    fi
   done
 }
 
@@ -344,7 +348,7 @@ mkdir -p "${LOG_DIR}"
 resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 
 HAS_ALL_ARTIFACTS=0
-[[ ${#RELEASE_FILES[@]} -eq 4 ]] && HAS_ALL_ARTIFACTS=1
+[[ ${#RELEASE_FILES[@]} -eq 2 ]] && HAS_ALL_ARTIFACTS=1
 
 if [[ "${SKIP_BUILD}" -eq 1 ]]; then
   log "Modo skip-build: no se ejecuta buildall-cross.sh"
