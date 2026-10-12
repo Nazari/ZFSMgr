@@ -325,8 +325,8 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
     }
-    const PR::Handover entrega =
-        PR::composeHandover(e.conns.perfiles, destino.connection, uidDeDestino);
+    const PR::Handover entrega = PR::composeHandover(e.conns.perfiles, destino.connection,
+                                                     uidDeDestino, PR::thisMachineName());
     if (!entrega.ok()) {
         std::fprintf(stderr, "%s\n", PR::labelOf(entrega.failure).c_str());
         return false;
@@ -346,6 +346,14 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     }
     std::fprintf(stderr, TC("t_peers_puestos", "entregadas %zu credenciales a %s\n"),
                  nombres.size(), destino.connection.c_str());
+    if (!entrega.localName.empty()) {
+        std::fprintf(stderr,
+                     TC("t_peers_local_red",
+                        "%s alcanzará esta máquina como «%s»: su daemon tiene que atender en la "
+                        "red («peers %s --listen 0.0.0.0»)\n"),
+                     destino.connection.c_str(), PR::thisMachineName().c_str(),
+                     entrega.localName.c_str());
+    }
     return true;
 }
 

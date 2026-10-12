@@ -58,6 +58,9 @@ enum class Failure {
 struct Handover {
     std::string payloadB64;          // for `--mutate-set-peers`
     std::vector<std::string> names;  // what is handed over, so it can be asked about first
+    // The client's Local connection, when it goes in: its daemon must listen on the network
+    // for the target to reach it, and the client can say so.
+    std::string localName;
     Failure failure{Failure::None_};
     bool ok() const { return failure == Failure::None_; }
 };
@@ -73,10 +76,17 @@ struct Handover {
 // written down, and that name is exactly the one that will appear as the target of a
 // levelling.
 Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
-                       const std::string& destination,
-                       // El uid de la máquina de destino, tal y como lo tiene el cliente.
-                       // Vacío si nunca se refrescó esa conexión.
-                       const std::string& destinationUid);
+                         const std::string& destination,
+                         // El uid de la máquina de destino, tal y como lo tiene el cliente.
+                         // Vacío si nunca se refrescó esa conexión.
+                         const std::string& destinationUid,
+                         // The network name of the client's own machine. The client's Local
+                         // connection is handed over with it: from the target, 127.0.0.1 is the
+                         // target itself. Empty → the Local connection is left out.
+                         const std::string& clientHost);
+
+// The network name of this machine, for `clientHost`; empty if it cannot be read.
+std::string thisMachineName();
 
 // --- ¿El destino de una nivelación es ESTA máquina?
 //

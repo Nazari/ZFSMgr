@@ -5,6 +5,12 @@
 #include "strutil.h"
 #include "transportcmd.h"
 
+#ifdef _WIN32
+#include <cstdlib>
+#else
+#include <unistd.h>
+#endif
+
 namespace zfsmgr::base::peers {
 
 View parse(const std::string& salida) {
@@ -87,8 +93,21 @@ std::string labelOf(Failure f) {
     return {};
 }
 
-Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
-                       const std::string& destino, const std::string& uidDestino) {
+std::string thisMachineName() {
+#ifdef _WIN32
+    const char* n = std::getenv("COMPUTERNAME");
+    return n ? trim(n) : std::string();
+#else
+    char n[256] = {};
+    if (gethostname(n, sizeof(n) - 1) != 0) {
+        return {};
+    }
+    return trim(n);
+#endif
+}
+
+Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const std::string& destino,
+                         const std::string& uidDestino, const std::string& clientHost) {
     Handover e;
     json::Array pares;
     bool habiaOtras = false;
@@ -102,12 +121,19 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles,
             || p.daemonTlsClientKeyPem.empty()) {
             continue;  // sin material TLS no hay nada que entregar
         }
+        // The Local connection is the CLIENT's machine. Its profile says 127.0.0.1, which from
+        // the target is the target itself: it goes with the client's network name, or not at
+        // all.
+        const bool esLocal = transport::isLocalConnection(p);
+        if (esLocal && trim(clientHost).empty()) {
+            continue;
+        }
         json::Value uno;
         uno.set("id", json::Value(id));
-        // Una conexión local se le entrega como 127.0.0.1 y no por su nombre de red: desde
-        // la máquina de destino, «ella misma» es el bucle local.
-        uno.set("host",
-                json::Value(transport::isLocalConnection(p) ? std::string("127.0.0.1") : p.host));
+        uno.set("host", json::Value(esLocal ? trim(clientHost) : p.host));
+        if (esLocal) {
+            e.localName = id;
+        }
         uno.set("port", json::Value(static_cast<double>(p.daemonTlsPort)));
         uno.set("server_cert_pem", json::Value(p.daemonTlsServerCertPem));
         uno.set("client_cert_pem", json::Value(p.daemonTlsClientCertPem));

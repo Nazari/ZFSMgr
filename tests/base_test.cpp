@@ -3810,7 +3810,7 @@ void caso49() {
         const std::vector<zfsmgr::base::ConnectionProfile> tres = {
             perfil("local", true), perfil("unibody", true), perfil("oldlau", true)};
 
-        const PE::Handover e1 = PE::composeHandover(tres, "local", "uid-de-local");
+        const PE::Handover e1 = PE::composeHandover(tres, "local", "uid-de-local", "fc16");
         comprobar(e1.ok(), "peers: se puede entregar");
         comprobar(e1.names.size() == 2, "peers: van las OTRAS dos, no la de destino");
         comprobar(!e1.payloadB64.empty(), "peers: hay carga");
@@ -3848,7 +3848,7 @@ void caso49() {
             // Un uid vacío NO es un error: una conexión que no se ha refrescado nunca no lo
             // tiene, y la entrega tiene que funcionar igual —al otro lado se decidirá por el
             // nombre, como siempre—. Exigirlo convertiria una mejora en un bloqueo.
-            const PE::Handover sinUid = PE::composeHandover(tres, "local", "");
+            const PE::Handover sinUid = PE::composeHandover(tres, "local", "", "fc16");
             comprobar(sinUid.ok(), "peers: sin uid se entrega igual");
             std::string json;
             comprobar(zfsmgr::base::base64Decode(sinUid.payloadB64, json),
@@ -3915,15 +3915,41 @@ void caso49() {
             comprobar(!PE::destinationIsSelf("local", nada), "soy-yo: sin datos, no");
         }
 
+        {
+            // --- The client's Local connection goes with the client's network name.
+            //
+            // Its profile says 127.0.0.1; handed over like that, the target dialled itself and
+            // its levelling failed with «the daemon certificate is not the expected one».
+            zfsmgr::base::ConnectionProfile yo = perfil("local", true);
+            yo.connType = "Local";
+            yo.host = "127.0.0.1";
+            const std::vector<zfsmgr::base::ConnectionProfile> conLocal = {yo,
+                                                                           perfil("unib", true)};
+            const PE::Handover h = PE::composeHandover(conLocal, "unib", "uid-u", "fc16");
+            std::string json;
+            comprobar(zfsmgr::base::base64Decode(h.payloadB64, json), "peers local: base64");
+            comprobar(json.find("\"host\":\"fc16\"") != std::string::npos,
+                      "peers local: goes with the client's name");
+            comprobar(json.find("127.0.0.1") == std::string::npos,
+                      "peers local: never as 127.0.0.1");
+            igual(h.localName, std::string("local"),
+                  "peers local: reported, to warn about listening");
+
+            // Without a name for the client's machine it is left out, not handed over wrong.
+            const PE::Handover sinNombre = PE::composeHandover(conLocal, "unib", "uid-u", "");
+            igual(PE::labelOf(sinNombre.failure), PE::labelOf(PE::Failure::NoTlsMaterial),
+                  "peers local: without a name, nothing usable to hand over");
+            comprobar(sinNombre.localName.empty(), "peers local: and not reported");
+        }
+
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».
         const std::vector<zfsmgr::base::ConnectionProfile> sinTls = {perfil("local", true),
                                                                     perfil("unibody", false)};
-        igual(PE::labelOf(PE::composeHandover(sinTls, "local", "").failure),
-              PE::labelOf(PE::Failure::NoTlsMaterial),
-              "peers: las hay pero sin certificados");
-        igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local", "").failure),
-              PE::labelOf(PE::Failure::NoOtherConnections),
-              "peers: no hay ninguna otra");
+        igual(PE::labelOf(PE::composeHandover(sinTls, "local", "", "fc16").failure),
+              PE::labelOf(PE::Failure::NoTlsMaterial), "peers: las hay pero sin certificados");
+        igual(
+            PE::labelOf(PE::composeHandover({perfil("local", true)}, "local", "", "fc16").failure),
+            PE::labelOf(PE::Failure::NoOtherConnections), "peers: no hay ninguna otra");
     }
 
     {

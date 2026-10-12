@@ -3749,9 +3749,9 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     for (const ConnectionProfile& p : m_conns.profiles) {
         perfiles.push_back(toBaseProfile(p));
     }
-    const auto entrega =
-        zfsmgr::base::peers::composeHandover(perfiles, nombreDestino.toStdString(),
-                                             uidDestino.toStdString());
+    const auto entrega = zfsmgr::base::peers::composeHandover(
+        perfiles, nombreDestino.toStdString(), uidDestino.toStdString(),
+        zfsmgr::base::peers::thisMachineName());
     if (!entrega.ok()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  QString::fromStdString(

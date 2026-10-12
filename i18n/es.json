@@ -1027,6 +1027,7 @@
     "t_peers_det5": "Con el comodín, el puerto del daemon queda alcanzable desde la red, protegido por mTLS con el certificado de cliente FIJADO. No es una exposición nueva: el puerto de transferencia ya escucha en todas las interfaces con un testigo de un solo uso, y está peor protegido que éste.",
     "t_peers_listen": "--listen <0.0.0.0|::|127.0.0.1>",
     "t_peers_listen_q": "En qué dirección atiende su daemon. Reinicia el daemon.",
+    "t_peers_local_red": "%s alcanzará esta máquina como «%s»: su daemon tiene que atender en la red («peers %s --listen 0.0.0.0»)\n",
     "t_peers_puestos": "entregadas %zu credenciales a %s\n",
     "t_peers_push": "--push",
     "t_peers_push_q": "Le entrega las credenciales de las demás conexiones.",
