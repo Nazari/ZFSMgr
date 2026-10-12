@@ -64,6 +64,7 @@ typedef int pid_t;
 #include "base/processes.h"
 #include "base/osinfo.h"
 #include "commands/gsa.h"
+#include "base/agentmsg.h"
 #include "base/strutil.h"
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
@@ -400,6 +401,18 @@ static void runZfsSendToPeerAsync(const std::string& jobId);
 // ExecResult y la ejecución de procesos vienen de la capa base: son los mismos que usa
 // el cliente, así que una corrección beneficia a los dos.
 using zfsmgr::base::ExecResult;
+
+// Un fallo DEL PROPIO AGENTE, como código del catálogo (`base/agentmsg`) con sus argumentos.
+// En `err` va además la frase en inglés: es lo que leen los clientes anteriores a los
+// códigos y lo que queda en el registro. Ver agentmsg.h.
+ExecResult fallo(int rc, const std::string& codigo, std::vector<std::string> args) {
+    ExecResult r;
+    r.rc = rc;
+    r.code = codigo;
+    r.err = zfsmgr::base::agentmsg::inEnglish(codigo, args) + "\n";
+    r.args = std::move(args);
+    return r;
+}
 using zfsmgr::base::runExecCapture;
 using zfsmgr::base::runExecCaptureWithStdin;
 using zfsmgr::base::runExecStreaming;
@@ -5701,8 +5714,26 @@ static std::string generateJobId();
 struct GsaPaso {
     bool hecho{false};    // se intentó algo
     bool ok{true};
-    std::string error;
+    std::string error;    // la frase en inglés: el registro y los clientes viejos
+    std::string codigo;   // y el código, para que el CLI la diga en su idioma (agentmsg)
+    std::vector<std::string> args;
+
+    void falla(const std::string& c, std::vector<std::string> a) {
+        ok = false;
+        codigo = c;
+        args = std::move(a);
+        error = zfsmgr::base::agentmsg::inEnglish(codigo, args);
+    }
 };
+
+// El último fallo de una petición a un par, como código, en ESTE hilo. Lo deja `gsaPeerRpc`
+// junto a su texto; así quien lo recibe puede guardarlo con código sin que la función tenga
+// que devolver una cosa más.
+struct GsaFallo {
+    std::string codigo;
+    std::vector<std::string> args;
+};
+thread_local GsaFallo t_gsaFalloPar;
 
 // Los snapshots de UN dataset (sin descendientes), del más viejo al más nuevo, con su guid.
 //
@@ -5792,8 +5823,7 @@ GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool rec
     std::vector<zfsmgr::base::gsa::SnapRef> snaps;
     std::string err;
     if (!gsaSnapshotsDe(ds, snaps, err)) {
-        paso.ok = false;
-        paso.error = "cannot list the snapshots of " + ds + ": " + err;
+        paso.falla("gsa_list_snapshots_failed", {ds, err});
         log("ERROR", "GSA snapshot error for " + ds + ": " + paso.error);
         return paso;
     }
@@ -5830,8 +5860,7 @@ GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool rec
     args.push_back(ds + "@" + nombre);
     const ExecResult r = runExecCapture("zfs", args);
     if (r.rc != 0) {
-        paso.ok = false;
-        paso.error = trim(r.err).empty() ? "zfs snapshot failed" : trim(r.err);
+        paso.falla("gsa_snapshot_failed", {ds, trim(r.err).empty() ? "exit " + std::to_string(r.rc) : trim(r.err)});
         log("ERROR", "GSA snapshot error for " + ds + ": " + paso.error);
         nombre.clear();
         return paso;
@@ -5854,8 +5883,7 @@ GsaPaso gsaPoda(const std::string& ds, const std::string& klass, int keep, bool 
     std::string err;
     if (!gsaSnapshotsDe(ds, snaps, err)) {
         paso.hecho = true;
-        paso.ok = false;
-        paso.error = "cannot list the snapshots of " + ds + ": " + err;
+        paso.falla("gsa_list_snapshots_failed", {ds, err});
         log("ERROR", "GSA prune error for " + ds + ": " + paso.error);
         return paso;
     }
@@ -5881,8 +5909,7 @@ GsaPaso gsaPoda(const std::string& ds, const std::string& klass, int keep, bool 
         args.push_back(ds + "@" + n);
         const ExecResult r = runExecCapture("zfs", args);
         if (r.rc != 0) {
-            paso.ok = false;
-            paso.error = "cannot destroy " + ds + "@" + n + ": " + trim(r.err);
+            paso.falla("gsa_destroy_failed", {ds + "@" + n, trim(r.err)});
             log("ERROR", "GSA prune error for " + ds + "@" + n + ": " + trim(r.err));
         } else {
             ++borrados;
@@ -6053,22 +6080,32 @@ GsaRpc gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     std::string respuesta;
     std::string errTls;
     if (!zfsmgr::base::tlsRequestLine(cfg, zfsmgr::base::json::toCompact(req), respuesta, errTls)) {
-        error = "cannot reach the daemon of «" + peer.id + "» at " + peer.host + ":"
-                + std::to_string(peer.port) + ": " + trim(errTls);
+        t_gsaFalloPar = {"peer_unreachable",
+                         {peer.id, peer.host + ":" + std::to_string(peer.port), trim(errTls)}};
+        error = zfsmgr::base::agentmsg::inEnglish(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
         return GsaRpc::NoLlega;
     }
     zfsmgr::base::json::Value resp;
     std::string errJson;
     if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
-        error = "unreadable answer from the daemon of «" + peer.id + "»: " + errJson;
+        t_gsaFalloPar = {"peer_bad_answer", {peer.id, errJson}};
+        error = zfsmgr::base::agentmsg::inEnglish(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
         return GsaRpc::NoLlega;
     }
     const int rc = static_cast<int>(resp["rc"].toInt(1));
     salida = resp["stdout"].toString();
     if (rc != 0) {
         error = trim(resp["stderr"].toString());
-        if (error.empty()) {
-            error = "the daemon of «" + peer.id + "» answered " + std::to_string(rc);
+        // El par ya puede contestar con código (agentmsg): se conserva tal cual.
+        if (!resp["code"].toString().empty()) {
+            std::vector<std::string> a;
+            for (const auto& x : resp["args"].toArray()) a.push_back(x.toString());
+            t_gsaFalloPar = {resp["code"].toString(), a};
+        } else if (!error.empty()) {
+            t_gsaFalloPar = {"text", {error}};
+        } else {
+            t_gsaFalloPar = {"peer_refused", {peer.id, std::to_string(rc)}};
+            error = zfsmgr::base::agentmsg::inEnglish(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
         }
         return GsaRpc::Rechaza;
     }
@@ -6228,8 +6265,7 @@ ExecResult ejecutaTuberiaZfsLocalConAvance(const std::vector<std::string>&,
                                            const TransferProgressFn&) {
     ExecResult r;
     r.rc = 2;
-    r.err = "the local «zfs send | zfs recv» pipe is not ported to Windows\n";
-    return r;
+    return fallo(2, "local_pipe_windows", {});
 }
 #endif
 
@@ -6280,10 +6316,7 @@ ExecResult gsaEnviaFlujo(bool isLocal, const GsaPeer& peer, const std::string& c
     std::string errPeer;
     if (gsaPeerRpc(peer, "--zfs-recv-listen", {recvEn, incremental ? "1" : "0"}, respuesta,
                    errPeer) != GsaRpc::Ok) {
-        r.rc = 1;
-        r.err = "the daemon of «" + conexion + "» could not listen: " + errPeer
-                + " (it must listen on a reachable address: «peers --listen» on it)";
-        return r;
+        return fallo(1, "peer_cannot_listen", {conexion, errPeer});
     }
     std::string puerto;
     std::string testigo;
@@ -6293,9 +6326,7 @@ ExecResult gsaEnviaFlujo(bool isLocal, const GsaPeer& peer, const std::string& c
         if (x.rfind("TOKEN=", 0) == 0) testigo = x.substr(6);
     }
     if (puerto.empty() || testigo.empty()) {
-        r.rc = 1;
-        r.err = "the daemon of «" + conexion + "» returned no port and token";
-        return r;
+        return fallo(1, "peer_no_port", {conexion});
     }
     // runZfsSendToPeerCapture recibe: snap host puerto testigo [base [banderas [reanudar]]].
     // Se le da el argv ya partido: el snapshot es el último, y lo de en medio son banderas
@@ -6343,15 +6374,24 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
     namespace G = zfsmgr::base::gsa;
     GsaNivelado res;
     res.paso.hecho = true;
-    const auto falla = [&](const std::string& motivo) {
-        res.paso.ok = false;
-        res.paso.error = motivo;
-        log("ERROR", "GSA level error for " + ds + ": " + motivo);
+    const auto falla = [&](const std::string& codigo, std::vector<std::string> args) {
+        res.paso.falla(codigo, std::move(args));
+        log("ERROR", "GSA level error for " + ds + ": " + res.paso.error);
         return res;
+    };
+    // Un envío que falló: con su propio código si lo trae (no escuchar, sin puerto…), y si
+    // no, envuelto en «falló el envío a …» con lo que dijo.
+    const auto fallaEnvio = [&](const char* codigoEnvoltorio, const std::string& donde,
+                                const ExecResult& r) {
+        if (!r.code.empty()) {
+            return falla(r.code, r.args);
+        }
+        return falla(codigoEnvoltorio,
+                     {donde, trim(r.err).empty() ? "exit " + std::to_string(r.rc) : trim(r.err)});
     };
     const std::size_t sep = dstSpec.find("::");
     if (sep == std::string::npos || sep == 0 || sep + 2 >= dstSpec.size()) {
-        return falla("invalid destination «" + dstSpec + "»");
+        return falla("gsa_bad_destination", {dstSpec});
     }
     const std::string conexionDestino = trim(dstSpec.substr(0, sep));
     const std::string dstDataset = trim(dstSpec.substr(sep + 2));
@@ -6361,17 +6401,16 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
     std::vector<G::SnapRef> origen;
     std::string err;
     if (!gsaSnapshotsDe(ds, origen, err)) {
-        return falla("cannot list the snapshots of the source: " + err);
+        return falla("gsa_list_snapshots_failed", {ds, err});
     }
     if (origen.empty()) {
-        return falla("the source has no snapshots to send");
+        return falla("gsa_source_no_snapshots", {});
     }
 
     GsaPeer peer;
     if (!isLocal && !gsaCargaPeer(conexionDestino, peer)) {
         // Que falte el par NO es «saltarse» esta nivelación: es un fallo, y se dice qué hacer.
-        return falla("no credentials for the connection «" + conexionDestino + "» in "
-                     + std::string(kPeersPath) + "; run «peers --push» on this machine");
+        return falla("gsa_no_peer_credentials", {conexionDestino, std::string(kPeersPath)});
     }
 
     // ── Lo que quedó A MEDIAS en el destino, primero.
@@ -6411,7 +6450,7 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
                                 + "); it is discarded and the levelling starts over");
                 std::string e;
                 if (!enDestinoAborta(isLocal, peer, aMedias.heldBy, e)) {
-                    return falla("cannot discard the partial receive on " + aMedias.heldBy + ": " + e);
+                    return falla("gsa_cannot_discard_partial", {aMedias.heldBy, e});
                 }
             } else {
                 log("INFO", "GSA level resuming " + ds + " -> " + dstUrl + " on " + aMedias.heldBy);
@@ -6419,11 +6458,10 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
                                                     {"send", "-t", aMedias.token}, aMedias.heldBy,
                                                     /*incremental=*/false, aMedias.token, avance);
                 if (gsaParado()) {
-                    return falla(g_stop.load() ? "the daemon is stopping" : "cancelled");
+                    return falla(g_stop.load() ? "daemon_stopping" : "cancelled", {});
                 }
                 if (rr.rc != 0) {
-                    return falla("resuming the partial receive on " + dstUrl + " failed: "
-                                 + (trim(rr.err).empty() ? "exit " + std::to_string(rr.rc) : trim(rr.err)));
+                    return fallaEnvio("gsa_resume_failed", dstUrl, rr);
                 }
                 log("INFO", "GSA level resumed " + ds + " -> " + dstUrl);
             }
@@ -6437,21 +6475,21 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         const ExecResult chk = runExecCapture("zfs", {"list", "-H", "-o", "name", dstDataset});
         destinoExiste = (chk.rc == 0);
         if (!destinoExiste && trim(chk.err).find("does not exist") == std::string::npos) {
-            return falla("cannot look at " + dstUrl + ": " + trim(chk.err));
+            return falla("gsa_cannot_look_at", {dstUrl, trim(chk.err)});
         }
         if (destinoExiste && !gsaSnapshotsDe(dstDataset, destino, err)) {
-            return falla("cannot list the snapshots of " + dstUrl + ": " + err);
+            return falla("gsa_list_snapshots_failed", {dstUrl, err});
         }
     } else {
         std::string salida;
         std::string errPeer;
         switch (gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)) {
             case GsaRpc::NoLlega:
-                return falla(errPeer);
+                return falla(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
             case GsaRpc::Rechaza:
                 // Solo «no existe» es la primera nivelación; cualquier otra negativa es un fallo.
                 if (errPeer.find("does not exist") == std::string::npos) {
-                    return falla("cannot look at " + dstUrl + ": " + errPeer);
+                    return falla("gsa_cannot_look_at", {dstUrl, errPeer});
                 }
                 destinoExiste = false;
                 break;
@@ -6484,15 +6522,13 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
     const G::LevelPlan plan = G::planLevel(origen, destino, destinoExiste);
     if (plan.kind == G::LevelPlan::Kind::Conflict) {
         if (plan.conflicting.empty()) {
-            return falla(dstUrl + " exists and has no snapshot in common with the source; nothing "
-                         "was sent (receiving would overwrite it)");
+            return falla("gsa_target_unrelated", {dstUrl});
         }
         std::string lista;
         for (const std::string& n : plan.conflicting) {
             lista += (lista.empty() ? "" : ", ") + n;
         }
-        return falla(dstUrl + " has snapshots the source does not have after the last common one ("
-                     + lista + "); nothing was sent, «zfs recv -F» would destroy them");
+        return falla("gsa_target_has_own", {dstUrl, lista});
     }
 
     // Acciones sobre el destino, en la máquina que toque.
@@ -6549,12 +6585,10 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         const ExecResult r = gsaEnviaFlujo(isLocal, peer, conexionDestino, sendArgv, dstDataset,
                                            incremental, std::string(), avance);
         if (gsaParado()) {
-            return falla(g_stop.load() ? "the daemon is stopping" : "cancelled");
+            return falla(g_stop.load() ? "daemon_stopping" : "cancelled", {});
         }
         if (r.rc != 0) {
-            return falla("sending to " + dstUrl + " failed"
-                         + (trim(r.err).empty() ? " (exit " + std::to_string(r.rc) + ")"
-                                                : ": " + trim(r.err)));
+            return fallaEnvio("gsa_send_failed", dstUrl, r);
         }
         res.enviado = ultimo;
         res.guidBase = origen.back().guid;
@@ -6575,9 +6609,8 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
             ++res.borradosEnDestino;
             log("INFO", "GSA level pruned " + dstDataset + "@" + n);
         } else {
-            res.podaDestino.ok = false;
-            res.podaDestino.error = "cannot destroy " + dstDataset + "@" + n + " on «"
-                                    + conexionDestino + "»: " + e;
+            res.podaDestino.falla("gsa_target_destroy_failed",
+                                  {dstDataset + "@" + n, conexionDestino, e});
             log("ERROR", "GSA level prune error: " + res.podaDestino.error);
         }
     }
@@ -6658,12 +6691,26 @@ void gsaActualizaEntrada(const std::string& ds,
     gsaGuardaEstadoSinBloqueo(raiz);
 }
 
+// El error de un paso en el estado: la frase en inglés —para un CLI anterior a los códigos—
+// y su código con sus argumentos, que el CLI dice en su idioma.
+void gsaPonError(zfsmgr::base::json::Value& v, const std::string& frase, const std::string& codigo,
+                 const std::vector<std::string>& args) {
+    namespace J = zfsmgr::base::json;
+    v.set("error", J::Value(frase));
+    if (!codigo.empty()) {
+        v.set("error_code", J::Value(codigo));
+        J::Array a;
+        for (const auto& x : args) a.push_back(J::Value(x));
+        v.set("error_args", J::Value(std::move(a)));
+    }
+}
+
 zfsmgr::base::json::Value gsaRegistroDe(const GsaPaso& p, long long cuando) {
     zfsmgr::base::json::Value v;
     v.set("time", zfsmgr::base::json::Value(cuando));
     v.set("ok", zfsmgr::base::json::Value(p.ok));
     if (!p.ok) {
-        v.set("error", zfsmgr::base::json::Value(p.error));
+        gsaPonError(v, p.error, p.codigo, p.args);
     }
     return v;
 }
@@ -6833,14 +6880,19 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
                 reg.set("sent", J::Value(n.enviado));
                 reg.set("base_guid", J::Value(n.guidBase));
             } else {
-                std::string motivo = n.paso.error;
+                std::string codigo = n.paso.codigo;
+                std::vector<std::string> args = n.paso.args;
                 if (cancelado) {
-                    motivo = "cancelled by the user (job " + id + ")";
+                    codigo = "gsa_cancelled_by_user";
+                    args = {id};
                     reg.set("cancelled", J::Value(true));
                 } else if (parado) {
-                    motivo = "the daemon stopped while levelling";
+                    codigo = "gsa_daemon_stopped";
+                    args = {};
                 }
-                reg.set("error", J::Value(motivo));
+                const std::string frase = codigo.empty() ? n.paso.error
+                                                         : zfsmgr::base::agentmsg::inEnglish(codigo, args);
+                gsaPonError(reg, frase, codigo, args);
                 // La base sigue siendo la de la última vez que fue bien: es la que hay que
                 // seguir protegiendo de la poda.
                 reg.set("base_guid", J::Value(previo["base_guid"].toString()));
@@ -7040,15 +7092,11 @@ ExecResult runGsaRunOnceCapture(const std::string& ds) {
         return r;
     }
     if (!gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true))) {
-        r.rc = 1;
-        r.err = ds + " has no schedule enabled\n";
-        return r;
+        return fallo(1, "gsa_no_schedule", {ds});
     }
     const std::string ancestro = gsaAncestroRecursivo(ds);
     if (!ancestro.empty()) {
-        r.rc = 1;
-        r.err = ds + " is covered by the recursive schedule of " + ancestro + "; run it there\n";
-        return r;
+        return fallo(1, "gsa_covered_by_recursive", {ds, ancestro});
     }
     std::vector<std::string> lineas;
     const GsaLog log = [&lineas](const char* nivel, const std::string& linea) {
@@ -7162,7 +7210,8 @@ void gsaCierraNivelacionesHuerfanas() {
             reg.set("time", J::Value(ahora));
             reg.set("job", J::Value(e["level_job"]["id"].toString()));
             reg.set("ok", J::Value(false));
-            reg.set("error", J::Value("the daemon restarted while levelling"));
+            gsaPonError(reg, zfsmgr::base::agentmsg::inEnglish("gsa_daemon_restarted", {}),
+                        "gsa_daemon_restarted", {});
             reg.set("base_guid", J::Value(previo["base_guid"].toString()));
             reg.set("sent", J::Value(previo["sent"].toString()));
             e.set("level_result", reg);
@@ -11153,7 +11202,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
 #endif
 
     r.rc = 2;
-    r.err = std::string("unknown command: ") + cmd + "\n";
+    r = fallo(2, "unknown_command", {cmd});
     return r;
 }
 
@@ -12455,10 +12504,20 @@ int runServeLoop() {
             }
         }
 
+        // "code" y "args" solo cuando el fallo es del propio agente y está codificado: un
+        // cliente anterior los ignora y se queda con stderr, como siempre.
+        std::string codigo;
+        if (!exec.code.empty()) {
+            codigo = ",\"code\":\"" + jsonEscape(exec.code) + "\",\"args\":[";
+            for (std::size_t i = 0; i < exec.args.size(); ++i) {
+                codigo += (i ? ",\"" : "\"") + jsonEscape(exec.args[i]) + "\"";
+            }
+            codigo += "]";
+        }
         const std::string response =
             std::string("{\"rc\":") + std::to_string(exec.rc)
             + ",\"stdout\":\"" + jsonEscape(exec.out) + "\""
-            + ",\"stderr\":\"" + jsonEscape(exec.err) + "\"}\n";
+            + ",\"stderr\":\"" + jsonEscape(exec.err) + "\"" + codigo + "}\n";
         (void)SSL_write(ssl, response.data(), static_cast<int>(response.size()));
         SSL_shutdown(ssl);
         SSL_free(ssl);

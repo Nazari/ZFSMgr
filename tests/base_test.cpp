@@ -50,6 +50,8 @@
 #include "transporttunnel.h"
 #include "zfsmurl.h"
 #include "gsa.h"
+#include "agentmsg.h"
+#include "i18n.h"
 #include "zfsprops.h"
 #include <algorithm>
 #include <sstream>
@@ -3669,6 +3671,29 @@ int main() {
                           && mal[0].second.failedStep == "scheduler",
                       "veredicto: un planificador que no pasa es un fallo");
             comprobar(!G::parseState("no es json", parada, err), "estado: basura no se lee");
+        }
+
+        // --- Los mensajes del agente como códigos.
+        {
+            namespace AM = zfsmgr::base::agentmsg;
+            namespace I = zfsmgr::base::i18n;
+            igual(AM::inEnglish("gsa_covered_by_recursive", {"t/a/b", "t/a"}),
+                  "t/a/b is covered by the recursive schedule of t/a; run it there",
+                  "agente: la frase inglesa con sus argumentos en su sitio");
+            igual(AM::inEnglish("no_existe", {"x"}), "", "agente: un código desconocido no da frase");
+            comprobar(!AM::isKnown("no_existe") && AM::isKnown("usage"), "agente: se sabe cuáles hay");
+            const std::string antes = I::language();
+            I::setLanguage("es");
+            igual(AM::inClientLanguage("gsa_no_schedule", {"tank/x"}),
+                  "tank/x no tiene ninguna programación activada", "agente: en castellano");
+            I::setLanguage("en");
+            igual(AM::inClientLanguage("gsa_no_schedule", {"tank/x"}),
+                  "tank/x has no schedule enabled", "agente: en inglés");
+            igual(AM::inClientLanguage("no_existe", {}), "",
+                  "agente: un código que este cliente no conoce deja el texto que vino");
+            I::setLanguage(antes);
+            igual(AM::inEnglish("usage", {}), "usage: ",
+                  "agente: un argumento que falta queda vacío, no rompe la frase");
         }
 
         // --- Cuándo lanzar una nivelación.

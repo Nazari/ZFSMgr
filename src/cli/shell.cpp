@@ -20,6 +20,7 @@
 #include "helpers.h"
 #include "linea.h"
 #include "pantalla.h"
+#include "agentmsg.h"
 #include "json.h"
 #include "processes.h"
 #include "secretinput.h"
@@ -3857,7 +3858,10 @@ B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionP
     }
     if (rc != 0) {
         const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        c.whyNotChecked = detalle.find("unknown command") != std::string::npos
+        // Por el CÓDIGO; el texto, para un daemon anterior a los códigos (que sigue mandándolo
+        // en inglés).
+        c.whyNotChecked = B::agentmsg::lastCode() == "unknown_command"
+                                  || detalle.find("unknown command") != std::string::npos
                               ? T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no "
                                   "informa del estado; «install-daemon» lo actualiza")
                               : detalle;

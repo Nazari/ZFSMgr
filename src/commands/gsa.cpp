@@ -2,6 +2,7 @@
 #include "i18n.h"
 
 #include "strutil.h"
+#include "agentmsg.h"
 #include "json.h"
 #include "zfsmurl.h"
 
@@ -500,6 +501,14 @@ bool parseState(const std::string& texto, ConnectionState& out, std::string& err
             if (r.isObject() && !r["ok"].toBool(true)) {
                 d.failedStep = p.second;
                 d.error = r["error"].toString();
+                // Con código, en el idioma de quien lo lee; si no lo conoce, la frase que vino.
+                const std::string codigo = r["error_code"].toString();
+                if (!codigo.empty()) {
+                    std::vector<std::string> args;
+                    for (const auto& a : r["error_args"].toArray()) args.push_back(a.toString());
+                    const std::string frase = agentmsg::inClientLanguage(codigo, args);
+                    if (!frase.empty()) d.error = frase;
+                }
                 d.errorTime = r["time"].toInt(0);
                 break;
             }

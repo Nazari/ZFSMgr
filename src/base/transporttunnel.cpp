@@ -1,3 +1,4 @@
+#include "agentmsg.h"
 #include "transporttunnel.h"
 
 #include "helpers.h"
@@ -692,6 +693,22 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         rc = static_cast<int>(resp["rc"].toInt(1));
         out = resp["stdout"].toString();
         err = resp["stderr"].toString();
+    // El fallo como CÓDIGO, si el agente lo manda y este cliente lo conoce: la frase en su
+    // idioma en vez de la inglesa que viene en stderr. Ver agentmsg.h.
+    {
+        const std::string codigo = resp["code"].toString();
+        agentmsg::setLastCode(codigo);
+        if (!codigo.empty()) {
+            std::vector<std::string> args;
+            for (const auto& a : resp["args"].toArray()) {
+                args.push_back(a.toString());
+            }
+            const std::string frase = agentmsg::inClientLanguage(codigo, args);
+            if (!frase.empty()) {
+                err = frase + "\n";
+            }
+        }
+    }
         {
             std::lock_guard<std::mutex> lock(ses.mutex);
             const auto it = ses.tunnelsByConnKey.find(rpcConnKey);

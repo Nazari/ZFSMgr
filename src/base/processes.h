@@ -40,6 +40,11 @@ struct ExecResult {
     int rc{1};
     std::string out;
     std::string err;
+    // Lo que falló como CÓDIGO del catálogo de `agentmsg`, con sus argumentos. Vacío cuando
+    // el fallo es texto de otro programa —`zfs`— o no se ha codificado todavía. Viaja en la
+    // respuesta RPC como "code" y "args" junto a `err`, que sigue llevando la frase en inglés.
+    std::string code;
+    std::vector<std::string> args;
 };
 
 // Runs and captures output and error separately.

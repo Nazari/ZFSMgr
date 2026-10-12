@@ -214,6 +214,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/json.h
     ../src/base/i18n.cpp
     ../src/base/i18n.h
+    ../src/base/agentmsg.cpp
+    ../src/base/agentmsg.h
     ../src/base/helpers.cpp
     ../src/base/helpers.h
     ../src/base/transportcmd.cpp
