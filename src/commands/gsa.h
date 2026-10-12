@@ -10,7 +10,7 @@
 //
 // A dataset's schedule does not live in a file belonging to this program: it is made of USER
 // PROPERTIES on the dataset itself, prefixed `org.zfsmgr:schedule-`. What runs them is a thread of
-// the agent of that machine (`runGsaSchedulerThread` in `daemon_main.cpp`), every five
+// the agent of that machine (`runGsaSchedulerThread` in `src/daemon/gsa.cpp`), every five
 // minutes; the shell only reads and writes properties, and reads the scheduler's state.
 //
 // The decisions the scheduler takes —what to send, what to prune on each side, what the

@@ -84,7 +84,7 @@ struct LocalAgentConfig {
 };
 
 // This platform's default paths. They have to match kDefaultTlsDir and
-// kDefaultAgentConfigPath in daemon_main.cpp; they used to be hard-wired to the POSIX ones,
+// kDefaultAgentConfigPath in src/daemon/agent_internal.h; they used to be hard-wired to the POSIX ones,
 // which is why on Windows the Local connection never found its own TLS material.
 const char* defaultAgentConfigPath();
 const char* defaultAgentTlsCertPath();

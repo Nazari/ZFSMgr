@@ -9,7 +9,7 @@
 // SSH from the other side. That separation is exactly what was missing, and it is why there
 // were three different versions of the same thing:
 //
-//   - `daemon_main.cpp:detectOsLine()` opened `/etc/os-release` and parsed it in C++.
+//   - `detectOsLine()` in the agent (src/daemon) opened `/etc/os-release` and parsed it in C++.
 //   - `connectiondialog.cpp` and `mainwindow_refresh.cpp` each sent a
 //     `sh -lc '. /etc/os-release; printf "%s %s" "$NAME" "$VERSION_ID"'`.
 //

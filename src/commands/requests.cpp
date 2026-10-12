@@ -284,7 +284,7 @@ bool canEnqueue(const std::string& verbo) {
     const std::string v = limpia(verbo);
     // **Esta lista tiene un solo dueño, y es esta función.** El daemon la necesita para no
     // fiarse del cliente y los clientes para decidir antes de pedir nada —qué botón pintar,
-    // qué camino tomar—, así que la tentación era escribirla dos veces. `daemon_main.cpp`
+    // qué camino tomar—, así que la tentación era escribirla dos veces. El agente
     // enlaza `zfsmgr_commands` y llama aquí: `isAsyncSubmittableCommand` es una línea.
     return v == "--mutate-advanced-breakdown" || v == "--mutate-advanced-assemble"
            || v == "--mutate-advanced-todir"
