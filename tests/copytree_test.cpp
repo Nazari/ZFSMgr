@@ -369,10 +369,12 @@ private Q_SLOTS:
         QVERIFY(fs::exists(dst_ / "sobra.txt"));
     }
 
-#ifndef _WIN32
     // Un `chmod` en el origen tiene que llegar aunque el contenido no cambie. Antes los
     // metadatos solo se copiaban al copiar los datos.
     void unCambioDeModoLlegaSinCambiarElContenido() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         writeFile(src_ / "f.txt", "x");
         QVERIFY(copyTree(src_.string(), dst_.string(), {}).ok);
         fs::permissions(src_ / "f.txt", fs::perms::owner_read | fs::perms::owner_write);
@@ -381,10 +383,14 @@ private Q_SLOTS:
         QCOMPARE(r.filesCopied, static_cast<std::uint64_t>(0));
         QCOMPARE(fs::status(dst_ / "f.txt").permissions(),
                  fs::perms::owner_read | fs::perms::owner_write);
+#endif
     }
 
     // La fecha de un enlace simbólico es suya, no de a lo que apunta.
     void elEnlaceSimbolicoConservaSuFecha() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         writeFile(src_ / "f.txt", "x");
         fs::create_symlink("f.txt", src_ / "enlace");
         struct timespec t[2] = {{1600000000, 5}, {1600000000, 123456789}};
@@ -398,11 +404,15 @@ private Q_SLOTS:
 #else
         QCOMPARE(static_cast<long long>(st.st_mtim.tv_nsec), 123456789LL);
 #endif
+#endif
     }
 
     // Los ficheros especiales se recrean, como con `rsync -a`. Una FIFO no pide root; los
     // dispositivos sí y los cubre la medición contra rsync.
     void unaFifoSeRecrea() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         QCOMPARE(::mkfifo((src_ / "tubo").c_str(), 0620), 0);
         const Result r = copyTree(src_.string(), dst_.string(), {});
         QVERIFY2(r.ok, r.error.c_str());
@@ -411,12 +421,16 @@ private Q_SLOTS:
         QVERIFY(S_ISFIFO(st.st_mode));
         QCOMPARE(st.st_mode & 07777, static_cast<mode_t>(0620));
         QCOMPARE(r.specialsCreated, static_cast<std::uint64_t>(1));
+#endif
     }
 
     // Reescribir un fichero NO puede tocar a sus enlaces duros del destino que en el
     // origen ya no lo son: se escribe en un temporal y se renombra, como rsync. Antes se
     // escribía encima y el antiguo compañero cambiaba con él.
     void reescribirNoArrastraAUnEnlaceDuroDelDestino() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         writeFile(src_ / "a.txt", "nuevo a, más largo");
         writeFile(src_ / "b.txt", "b");
         writeFile(dst_ / "a.txt", "viejo");
@@ -425,11 +439,15 @@ private Q_SLOTS:
         QVERIFY2(r.ok, r.error.c_str());
         QCOMPARE(readFile(dst_ / "a.txt"), std::string("nuevo a, más largo"));
         QCOMPARE(readFile(dst_ / "b.txt"), std::string("b"));
+#endif
     }
 
     // Un directorio del origen que no se puede leer no puede vaciar su copia con el
     // borrado: antes se recorría como vacío (skip_permission_denied) y se borraba todo.
     void unDirectorioIlegibleNoVaciaSuCopia() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         if (::geteuid() == 0) {
             QSKIP("como root se puede leer todo");
         }
@@ -445,11 +463,15 @@ private Q_SLOTS:
         fs::permissions(dst_ / "cerrado", fs::perms::owner_all);
         QVERIFY(!r.ok);
         QVERIFY2(fs::exists(dst_ / "cerrado" / "f.txt"), "lo que no se pudo leer no se borra");
+#endif
     }
 
     // Los huecos se buscan a grano de 4 KiB: 4 KiB de datos al final de un hueco ocupaban
     // el búfer de lectura entero (256 KiB) de ceros escritos.
     void unPocoDeDatosTrasUnHuecoNoMaterializaElBufer() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         const fs::path f = src_ / "cola.img";
         {
             // Ceros ESCRITOS, no un hueco: así SEEK_DATA no ayuda, igual que en ZFS, que da
@@ -463,13 +485,15 @@ private Q_SLOTS:
         struct stat st {};
         QCOMPARE(::stat((dst_ / "cola.img").c_str(), &st), 0);
         QVERIFY2(st.st_blocks * 512 <= 64 * 1024, "solo el bloque con datos ocupa sitio");
-    }
 #endif
+    }
 
-#ifdef __linux__
     // Un atributo quitado en el origen se quita en el destino, como `rsync -X`. Antes solo
     // se añadían, y una ACL retirada seguía dando permiso en la copia.
     void unAtributoQuitadoSeQuitaEnElDestino() {
+#ifndef __linux__
+        QSKIP("solo en Linux");
+#else
         writeFile(src_ / "f.txt", "x");
         const std::string s = (src_ / "f.txt").string();
         if (::lsetxattr(s.c_str(), "user.zfsmgr_prueba", "v", 1, 0) != 0) {
@@ -481,8 +505,8 @@ private Q_SLOTS:
         QVERIFY2(r.ok, r.error.c_str());
         char buf[8];
         QVERIFY(::lgetxattr((dst_ / "f.txt").c_str(), "user.zfsmgr_prueba", buf, sizeof buf) < 0);
-    }
 #endif
+    }
 
     // La verificación previa al borrado. Es la única red que impide perder datos, así
     // que se prueba tanto que cuenta lo que falta como que llega a cero cuando no falta.
@@ -1270,10 +1294,12 @@ private Q_SLOTS:
         QVERIFY(FM::digestOf(FM::Metadata{}).empty());
     }
 
-#ifndef _WIN32
     // El contenido viaja por tramos: los huecos y los bloques de ceros como una longitud.
     // Y el que escribe los deja como huecos.
     void losHuecosViajanComoLongitudYLleganComoHuecos() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         const fs::path f = src_ / "d.img";
         {
             std::ofstream out(f, std::ios::binary);
@@ -1308,10 +1334,14 @@ private Q_SLOTS:
         struct stat st {};
         QCOMPARE(::stat(tmp.c_str(), &st), 0);
         QVERIFY2(st.st_blocks * 512 <= 128 * 1024, "y llegan como huecos");
+#endif
     }
 
     // FIFO como especial, y un enlace duro A un enlace simbólico como enlace duro.
     void elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         QCOMPARE(::mkfifo((src_ / "tubo").c_str(), 0600), 0);
         fs::create_symlink("x", src_ / "a_sim");
         QCOMPARE(::linkat(AT_FDCWD, (src_ / "a_sim").c_str(), AT_FDCWD, (src_ / "b_duro").c_str(), 0), 0);
@@ -1327,10 +1357,14 @@ private Q_SLOTS:
         QVERIFY(por["a_sim"].kind == AR::EntryKind::Symlink);
         QVERIFY(por["b_duro"].kind == AR::EntryKind::HardLink);
         QCOMPARE(QString::fromStdString(por["b_duro"].target), QStringLiteral("a_sim"));
+#endif
     }
 
     // Un subdirectorio ilegible no corta el recorrido: se apunta.
     void unSubdirectorioIlegibleSeApunta() {
+#ifdef _WIN32
+        QSKIP("esta prueba es de POSIX");
+#else
         if (::geteuid() == 0) {
             QSKIP("como root se puede leer todo");
         }
@@ -1345,8 +1379,8 @@ private Q_SLOTS:
         QVERIFY(ok);
         QCOMPARE(ilegibles.size(), size_t(1));
         QCOMPARE(QString::fromStdString(ilegibles[0]), QStringLiteral("cerrado"));
-    }
 #endif
+    }
 
 private:
     void namedirs() {

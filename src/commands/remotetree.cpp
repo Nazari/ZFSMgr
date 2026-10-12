@@ -16,6 +16,9 @@
 #include <openssl/sha.h>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX  // std::min/std::max, no las macros de windows.h
+#endif
 #include <windows.h>
 #include <winioctl.h>
 #else

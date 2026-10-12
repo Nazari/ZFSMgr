@@ -13,6 +13,9 @@
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX  // std::min/std::max, no las macros de windows.h
+#endif
 #include <windows.h>
 #include <aclapi.h>
 #include <winioctl.h>
