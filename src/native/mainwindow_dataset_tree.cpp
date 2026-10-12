@@ -1122,7 +1122,7 @@ QStringList MainWindow::scheduledDatasetsForPool(int connIdx,
     QStringList programados;
     for (auto it = porDataset.cbegin(); it != porDataset.cend(); ++it) {
         const QString enabledKey =
-            findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
+            findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.zfsmgr:schedule-enabled"));
         if (!enabledKey.isEmpty() && gsaBoolOn(it.value().value(enabledKey))) {
             programados.push_back(it.key());
         }

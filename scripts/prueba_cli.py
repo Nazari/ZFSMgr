@@ -1103,7 +1103,7 @@ def casos_sin_montar(ctx):
                  ("el hijo, heredado y SIN MONTAR",
                   f"zfs get -H -o value mounted,canmount {be}/usr", r"\Ano\non\s*\Z"),
                  ("el hijo hereda", f"zfs get -H -o source mountpoint {be}/usr", r"^inherited"),
-                 ("sin migas", f"zfs get -H -s local -o value org.fc16.zfsmgr:savedmountpoint {be}",
+                 ("sin migas", f"zfs get -H -s local -o value org.zfsmgr:savedmountpoint {be}",
                   r"\A\s*\Z"),
                  ("no queda ningún temporal", temporales, r"^0$")])
     caso(ctx, "sin montar: assemble lo devuelve a directorio, también sin montar nada",
@@ -1795,13 +1795,13 @@ def casos_programacion(ctx):
     caso(ctx, "schedule: programa instantáneas diarias",
          [f"cd Local/{P}/datos", "schedule --daily 7"],
          estado=[("la propiedad GSA queda puesta",
-                  f"zfs get -H -o value org.fc16.gsa:diario {P}/datos", r"^7$")])
+                  f"zfs get -H -o value org.zfsmgr:schedule-daily {P}/datos", r"^7$")])
     caso(ctx, "schedule: sin argumentos la enseña",
          [f"cd Local/{P}/datos", "schedule"], espera=[r"7"])
     caso(ctx, "schedule --clear: la borra",
          [f"cd Local/{P}/datos", "schedule --clear"],
          estado=[("ya no hay programación",
-                  f"zfs get -H -o value org.fc16.gsa:diario {P}/datos", r"^-$")])
+                  f"zfs get -H -o value org.zfsmgr:schedule-daily {P}/datos", r"^-$")])
 
 
 def casos_gsa(ctx):
@@ -1826,16 +1826,16 @@ def casos_gsa(ctx):
                 f"[ -n \"$u\" ] && zfs rename \"$u\" {O}@GSA-daily-$1-000000' _ ")
     sh(ctx, f"zfs set atime=off {O}", root=True)
 
-    caso(ctx, "gsa: --to con «::» ya no se admite y dice la URL",
+    caso(ctx, "gsa: --to sin URL no vale",
          [f"cd Local/{O}", f"schedule --daily 3 --to local::{C}"],
-         rc=1, idioma="es", espera=[r"ya no se admite", rf"--to zfsm://local/{C}"])
+         rc=1, idioma="es", espera=[r"URL de un dataset"])
     caso(ctx, "gsa: --to con una conexión sola no vale",
          [f"cd Local/{O}", "schedule --daily 3 --to zfsm://local"],
          rc=1, idioma="es", espera=[r"URL de un dataset"])
-    caso(ctx, "gsa: --to con la URL, y se guarda en el formato de siempre",
+    caso(ctx, "gsa: --to con la URL, y se guarda como URL",
          [f"cd Local/{O}", f"schedule --daily 3 --to zfsm://local/{C} --level"], rc=0,
          estado=[("destino guardado",
-                  f"zfs get -H -o value org.fc16.gsa:destino {O}", rf"^local::{C}$")])
+                  f"zfs get -H -o value org.zfsmgr:schedule-target {O}", rf"^zfsm://local/{C}$")])
     caso(ctx, "gsa: schedules enseña el destino como URL",
          [f"cd Local/{O}", "schedule"], espera=[rf"zfsm://local/{C}"])
 
@@ -1919,7 +1919,7 @@ def casos_gsa(ctx):
          [f"cd Local/{P}", "schedule run --wait"], rc=1, espera=[r"no schedule enabled"])
     caso(ctx, "gsa: --clear la quita",
          [f"cd Local/{O}", "schedule --clear"], rc=0,
-         estado=[("sin destino", f"zfs get -H -o value org.fc16.gsa:destino {O}", r"^-$")])
+         estado=[("sin destino", f"zfs get -H -o value org.zfsmgr:schedule-target {O}", r"^-$")])
 
 
 def casos_acciones(ctx):

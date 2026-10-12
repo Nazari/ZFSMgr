@@ -7,14 +7,10 @@
 //
 // The agent used to answer every failure with a sentence already written —in Spanish up to
 // 1.0, in English since then— and the client printed it as it came: it could not translate
-// it, nor decide anything by it without comparing strings. Now the agent sends, next to that
-// English sentence, a stable CODE and its ARGUMENTS (`"code"` and `"args"` in the RPC answer),
-// and the client writes the sentence in its own language.
-//
-// Both directions keep working with the other side old:
-//   - an old client ignores the new fields and prints the English sentence, as always;
-//   - a new client talking to an old agent gets no code and prints the sentence it got.
-// A code this client does not know —a newer agent— also leaves the English sentence.
+// it, nor decide anything by it without comparing strings. Now the agent sends a stable CODE
+// and its ARGUMENTS (`"code"` and `"args"` in the RPC answer) instead of the sentence, and the
+// client writes the sentence in its own language. `stderr` only carries text that is not the
+// agent's own —`zfs` output with no code around it—.
 //
 // What comes from OpenZFS cannot be coded: it is `zfs`'s own text. It goes as an ARGUMENT of
 // a code («cannot destroy %1: %2»), so at least the context is translated.
@@ -29,6 +25,11 @@ std::string inEnglish(const std::string& code, const std::vector<std::string>& a
 std::string inClientLanguage(const std::string& code, const std::vector<std::string>& args);
 
 bool isKnown(const std::string& code);
+
+// What the client shows: the sentence in its language, or —a code this client does not know—
+// the code with its arguments. There is no other text to fall back on: the agent sends the
+// code INSTEAD of a sentence.
+std::string render(const std::string& code, const std::vector<std::string>& args);
 
 // The code of the last answer read by the transport IN THIS THREAD, empty if it had none. For
 // the few places that decide by the kind of failure («the daemon does not have this verb»)

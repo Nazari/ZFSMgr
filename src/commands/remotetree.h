@@ -55,8 +55,8 @@ struct Entry {
     // destino se resuelve por NOMBRE y solo se cae al número si ese nombre no existe allí.
     // Es lo que hace rsync, que tiene exactamente el mismo problema.
     //
-    // Vacíos o a cero cuando el manifiesto viene de un agente anterior a esto: entonces no
-    // se toca el dueño, que es mejor que ponerlo mal.
+    // Vacíos o a cero cuando el origen no tiene dueños de Unix (Windows): entonces no se
+    // toca el dueño, que es mejor que ponerlo mal.
     std::uint32_t uid{0};
     std::uint32_t gid{0};
     std::string owner;
@@ -141,8 +141,7 @@ std::string headerOf(const Operation& o);
 bool parseHeader(const std::string& line, Operation& output, std::size_t& pathLen,
                  std::size_t& targetLen,
                  // Los nombres de dueño y grupo también viajan por la cabecera, y
-                 // quien la lee tiene que saber cuántos bytes vienen detrás. Cero
-                 // cuando la manda un agente anterior a esto.
+                 // quien la lee tiene que saber cuántos bytes vienen detrás.
                  std::size_t& ownerLen, std::size_t& groupLen, std::string& error);
 
 // ---------------------------------------------------------------------------
@@ -185,8 +184,8 @@ struct Signature {
 // copiarlo a ciegas entrega los ficheros a quien no toca. Se busca el nombre en el sistema
 // de destino y solo si no existe se cae al número, que es lo que hace rsync.
 //
-// Con el nombre y el número vacíos NO SE TOCA NADA: es lo que llega de un agente anterior a
-// esto, y dejar el dueño como esté vale más que ponerlo mal.
+// Con el nombre y el número vacíos NO SE TOCA NADA: es lo que llega de un origen sin dueños
+// de Unix (Windows), y dejar el dueño como esté vale más que ponerlo mal.
 //
 // Devuelve false solo si se intentó y falló. Cambiar el dueño exige ser root: el agente lo
 // es, pero si alguna vez no lo fuera, esto lo dice en vez de callarlo.

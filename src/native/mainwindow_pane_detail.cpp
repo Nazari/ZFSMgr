@@ -136,7 +136,7 @@ QTableWidget* makeDetailTable(QWidget* parent, const QStringList& headers, int p
                                                       : QHeaderView::Interactive);
             if ((col % perPair) == 0) {
                 // Ancho para un nombre de propiedad entero. Por omisión Qt da unos 100 px y
-                // los nombres largos —`org.fc16.gsa:semanal`, `usedbysnapshots`— salían
+                // los nombres largos —`org.zfsmgr:schedule-weekly`, `usedbysnapshots`— salían
                 // cortados con puntos suspensivos, que en una tabla de propiedades es
                 // justo la columna que no se puede recortar.
                 table->setColumnWidth(col, 150);

@@ -781,19 +781,6 @@ int main() {
         loc.id = "otro"; loc.connType = "LOCAL"; loc.osType.clear();
         comprobar(CJ::isLocalProfile(loc), "tambien lo reconoce por conn_type");
 
-        // PSRP: lo que se olvida es el puerto. 5986 es WinRM, y dejarlo convierte una
-        // conexion rota en una conexion rota SIN explicacion.
-        zfsmgr::base::ConnectionProfile ps;
-        ps.connType = "psrp"; ps.port = 5986; ps.useSudo = true;
-        comprobar(CJ::migratePsrpProfileToSsh(ps), "convierte PSRP sin distinguir caja");
-        igual(ps.connType, "SSH", "pasa a SSH");
-        igual(ps.osType, "Windows", "y a Windows");
-        comprobar(ps.port == 22, "el puerto 5986 se corrige al 22");
-        comprobar(!ps.useSudo, "y se quita el sudo");
-        zfsmgr::base::ConnectionProfile ssh;
-        ssh.connType = "SSH"; ssh.port = 2222;
-        comprobar(!CJ::migratePsrpProfileToSsh(ssh) && ssh.port == 2222, "un SSH no se toca");
-
         // decodeHexAsciiIfUuid imita a QByteArray::fromHex: SALTA lo no hexadecimal.
         const std::string hexUuid =
             "34346162636465662d313233342d353637382d396162632d646566303132333435363738";
@@ -1106,34 +1093,16 @@ int main() {
                   "listados: pero la basura si lo es");
     }
 
-    // --- el destino de la programacion: guardado de una forma, ensenado de otra
-    //
-    // «Conexion::Pool/Dataset» es lo que hay ESCRITO en las propiedades de datasets que ya
-    // existen, y lo que el planificador del daemon parte por «::». No se puede cambiar. Pero
-    // esa nomenclatura es anterior a `zfsm://` y en pantalla convive mal con el resto, asi
-    // que se convierte en los dos sentidos.
+    // --- el destino de la programacion: la URL de un dataset, y sus dos mitades
     {
         namespace G = zfsmgr::base::gsa;
-        igual(G::destinationAsUrl("unibody::tank/copias"), "zfsm://unibody/tank/copias",
-              "gsa: el destino guardado se ensena como URL");
-        igual(G::destinationFromUrl("zfsm://unibody/tank/copias"), "unibody::tank/copias",
-              "gsa: y la URL se guarda como siempre");
-        // La vuelta y vuelta no pierde nada, que es lo unico que impide que las dos mitades
-        // se separen.
-        for (const char* d : {"unibody::tank/copias", "local::fc16", "oldlau::winpool/sb/x"}) {
-            igual(G::destinationFromUrl(G::destinationAsUrl(d)), d,
-                  std::string("gsa: ida y vuelta de «") + d + "»");
-        }
-        // Se admiten las DOS formas al teclear: quien escriba a mano puede poner cualquiera.
-        igual(G::destinationFromUrl("unibody::tank/copias"), "unibody::tank/copias",
-              "gsa: el formato de siempre se acepta tal cual");
-        // Y lo que no tiene forma de nada se deja pasar para que lo rechace la validacion
-        // CON SU MOTIVO, no aqui en silencio.
-        igual(G::destinationAsUrl("sinformato"), "sinformato",
-              "gsa: lo que no tiene la forma se deja como esta");
-        igual(G::destinationFromUrl("zfsm://solomaquina"), "zfsm://solomaquina",
-              "gsa: una URL sin dataset no se convierte a medias");
-        igual(G::destinationAsUrl(""), "", "gsa: el vacio sigue vacio");
+        std::string c, d;
+        comprobar(G::splitTarget("zfsm://unibody/tank/copias", c, d) && c == "unibody"
+                      && d == "tank/copias",
+                  "gsa: el destino se parte en conexión y dataset");
+        comprobar(!G::splitTarget("unibody::tank/copias", c, d), "gsa: «::» no es un destino");
+        comprobar(!G::splitTarget("zfsm://solomaquina", c, d), "gsa: una conexión sola tampoco");
+        comprobar(!G::splitTarget("", c, d), "gsa: ni el vacío");
     }
 
     // --- por dónde van los bytes, y desde dónde se reanuda
@@ -2064,15 +2033,15 @@ int main() {
 
         // Las del usuario SIEMPRE, porque ZFS no las interpreta — y ahí es donde este
         // programa guarda su programación.
-        comprobar(ZP::isInlineEditable("org.fc16.gsa:diario", "filesystem", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("org.zfsmgr:schedule-daily", "filesystem", "local", "off", lin),
                   "zfsprops: las propiedades de usuario se escriben");
-        comprobar(ZP::isUserProperty("org.fc16.gsa:diario"), "zfsprops: llevan dos puntos");
+        comprobar(ZP::isUserProperty("org.zfsmgr:schedule-daily"), "zfsprops: llevan dos puntos");
         comprobar(!ZP::isUserProperty("compression"), "zfsprops: y las de ZFS no");
         // Y SI se escriben en una instantánea, aunque las de ZFS no. No es un descuido de
         // la regla: se le preguntó a ZFS. `zfs set org.fc16.prueba:x=1 pool@s1` la acepta y
         // se lee de vuelta; `zfs set compression=zstd pool@s1` contesta «this property can
         // not be modified for snapshots». La regla dice exactamente eso.
-        comprobar(ZP::isInlineEditable("org.fc16.gsa:diario", "snapshot", "local", "off", lin),
+        comprobar(ZP::isInlineEditable("org.zfsmgr:schedule-daily", "snapshot", "local", "off", lin),
                   "zfsprops: las de usuario SI se escriben en una instantanea");
 
         // Sin saber el tipo se admite lo de cualquiera de los dos, que es lo que hacía la
@@ -3449,32 +3418,32 @@ int main() {
 
         // Leer las propiedades.
         G::Schedule p;
-        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "on"},
-                                       {"org.fc16.gsa:diario", "7"},
-                                       {"org.fc16.gsa:horario", ""}},
+        comprobar(G::fromProperties({{"org.zfsmgr:schedule-enabled", "on"},
+                                       {"org.zfsmgr:schedule-daily", "7"},
+                                       {"org.zfsmgr:schedule-hourly", ""}},
                                       p, m),
                   "gsa: se leen las propiedades");
         comprobar(p.enabled && p.daily == 7 && p.hourly == 0,
                   "gsa: vacío es 0 y «on» es activado");
-        comprobar(G::fromProperties({{"ORG.FC16.GSA:ACTIVADO", "yes"}}, p, m) && p.enabled,
+        comprobar(G::fromProperties({{"ORG.ZFSMGR:SCHEDULE-ENABLED", "yes"}}, p, m) && p.enabled,
                   "gsa: el nombre de la propiedad no distingue mayúsculas");
-        comprobar(G::fromProperties({{"org.fc16.gsa:activado", "quizá"}}, p, m) && !p.enabled,
+        comprobar(G::fromProperties({{"org.zfsmgr:schedule-enabled", "quizá"}}, p, m) && !p.enabled,
                   "gsa: un booleano que no se entiende es «off», que es lo conservador");
-        comprobar(!G::fromProperties({{"org.fc16.gsa:diario", "7d"}}, p, m),
+        comprobar(!G::fromProperties({{"org.zfsmgr:schedule-daily", "7d"}}, p, m),
                   "gsa: «7d» NO es una retención");
-        comprobar(m.failure == G::Failure::RetentionNotAnInteger && m.detail == "org.fc16.gsa:diario",
+        comprobar(m.failure == G::Failure::RetentionNotAnInteger && m.detail == "org.zfsmgr:schedule-daily",
                   "gsa: y se dice cuál de las cinco");
-        comprobar(!G::fromProperties({{"org.fc16.gsa:anual", "-1"}}, p, m),
+        comprobar(!G::fromProperties({{"org.zfsmgr:schedule-yearly", "-1"}}, p, m),
                   "gsa: una retención negativa tampoco");
 
         // Ida y vuelta: lo escrito se vuelve a leer igual.
         G::Schedule q;
-        q.enabled = true; q.recursive = true; q.daily = 7; q.target = "oldlau::tank/copias";
+        q.enabled = true; q.recursive = true; q.daily = 7; q.target = "zfsm://oldlau/tank/copias";
         G::Schedule vuelta;
         comprobar(G::fromProperties(G::toProperties(q), vuelta, m),
                   "gsa: lo escrito se vuelve a leer");
         comprobar(vuelta.enabled && vuelta.recursive && vuelta.daily == 7
-                      && vuelta.target == "oldlau::tank/copias",
+                      && vuelta.target == "zfsm://oldlau/tank/copias",
                   "gsa: y llega igual");
 
         // Las reglas, una a una, con su control.
@@ -3499,10 +3468,10 @@ int main() {
 
         nivelar.target = "tank/copias";
         comprobar(!G::isValid("tank/datos", nivelar, siempreExiste, m),
-                  "gsa: un destino sin «::» NO vale");
+                  "gsa: un destino que no es URL NO vale");
         comprobar(m.failure == G::Failure::MalformedTarget, "gsa: y lo dice");
 
-        nivelar.target = "oldlau::tank/copias";
+        nivelar.target = "zfsm://oldlau/tank/copias";
         comprobar(G::isValid("tank/datos", nivelar, siempreExiste, m),
                   "gsa: con conexión que existe, vale");
         comprobar(!G::isValid("tank/datos", nivelar, nuncaExiste, m),
@@ -3528,16 +3497,15 @@ int main() {
         comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
                   "gsa: el prefijo no basta, hace falta la barra");
 
-        // --- El destino como URL: solo la URL; el formato viejo, deprecado.
+        // --- El destino: solo la URL de un dataset.
         {
             std::string guardado;
             comprobar(G::targetFromUrl("zfsm://unib/sback/copia", guardado, m)
-                          && guardado == "unib::sback/copia",
-                      "gsa: la URL de un dataset se guarda como «conexión::dataset»");
+                          && guardado == "zfsm://unib/sback/copia",
+                      "gsa: la URL de un dataset se guarda tal cual");
             comprobar(!G::targetFromUrl("unib::sback/copia", guardado, m)
-                          && m.failure == G::Failure::LegacyTargetFormat
-                          && m.detail == "zfsm://unib/sback/copia",
-                      "gsa: «::» ya no se admite, y se dice cómo escribirlo");
+                          && m.failure == G::Failure::MalformedTarget,
+                      "gsa: «::» no es un destino");
             comprobar(!G::targetFromUrl("zfsm://unib", guardado, m)
                           && m.failure == G::Failure::MalformedTarget,
                       "gsa: una conexión sola no es un destino");
@@ -3630,7 +3598,7 @@ int main() {
             comprobar(G::parseState(R"({"last_pass":1000,"now":1100,"datasets":{
                 "tank/a":{"destination":"unib::b/a","level":true,
                           "snapshot":{"name":"GSA-daily-x","time":990,"ok":true},
-                          "level_result":{"time":995,"ok":false,"error":"no se pudo conectar"}},
+                          "level_result":{"time":995,"ok":false,"error_code":"text","error_args":["no se pudo conectar"]}},
                 "tank/b":{"snapshot":{"ok":true}}}})", c, err),
                       "estado: se lee", err);
             comprobar(c.datasets.size() == 2 && !c.stale, "estado: dos datasets, el hilo vive");
@@ -3689,8 +3657,10 @@ int main() {
             I::setLanguage("en");
             igual(AM::inClientLanguage("gsa_no_schedule", {"tank/x"}),
                   "tank/x has no schedule enabled", "agente: en inglés");
-            igual(AM::inClientLanguage("no_existe", {}), "",
-                  "agente: un código que este cliente no conoce deja el texto que vino");
+            igual(AM::render("no_existe", {"a", "b"}), "no_existe: a, b",
+                  "agente: un código que este cliente no conoce sale con sus argumentos");
+            igual(AM::render("text", {"cannot open 'x'"}), "cannot open 'x'",
+                  "agente: el texto de zfs sale tal cual");
             I::setLanguage(antes);
             igual(AM::inEnglish("usage", {}), "usage: ",
                   "agente: un argumento que falta queda vacío, no rompe la frase");
@@ -3729,7 +3699,7 @@ int main() {
             std::string err;
             comprobar(G::parseState(R"({"last_pass":10,"now":20,"datasets":{
                 "t/a":{"level_job":{"id":"ab12","state":"running","bytes":4096}},
-                "t/b":{"level_result":{"ok":false,"cancelled":true,"error":"cancelled by the user"}}}})",
+                "t/b":{"level_result":{"ok":false,"cancelled":true,"error_code":"gsa_cancelled_by_user","error_args":["ab12"]}}}})",
                                     c, err),
                       "estado: con un trabajo en curso y otro cancelado", err);
             comprobar(c.datasets[0].levelJob == "ab12" && c.datasets[0].levelJobState == "running"
@@ -3864,18 +3834,17 @@ int main() {
         // El listado. La línea SELF es la que faltaba, y su ausencia es un fallo mudo: sin
         // ella la nivelación GSA contra un dataset de la propia máquina no se ejecuta nunca.
         const PE::View v = PE::parse("SELF\tlocal\n"
-                                        "unibody\tunib.local\t47653\n"
-                                        "oldlau\toldlau.local\t47653\n");
+                                        "unibody\tunib.local\t47653\tuid-u\n"
+                                        "oldlau\toldlau.local\t47653\tuid-o\n");
         igual(v.self, "local", "peers: quién dice ser la máquina");
         comprobar(v.pares.size() == 2, "peers: los dos pares");
         igual(v.pares[0].id, "unibody", "peers: el primero");
         igual(std::to_string(v.pares[1].puerto), "47653", "peers: el puerto llega como número");
 
-        // Un daemon anterior a este cambio NO emite la línea SELF. Tiene que leerse igual, con
-        // el self vacío, en vez de descuadrar la tabla.
-        const PE::View vieja = PE::parse("unibody\tunib.local\t47653\n");
-        comprobar(vieja.self.empty(), "peers: sin SELF, vacío y no un par inventado");
-        comprobar(vieja.pares.size() == 1, "peers: y el par se lee igual");
+        // Sin línea SELF, el self queda vacío en vez de descuadrar la tabla.
+        const PE::View sinSelf = PE::parse("unibody\tunib.local\t47653\tuid-u\n");
+        comprobar(sinSelf.self.empty(), "peers: sin SELF, vacío y no un par inventado");
+        comprobar(sinSelf.pares.size() == 1, "peers: y el par se lee igual");
 
         comprobar(PE::parse("").pares.empty(), "peers: salida vacía, ningún par");
 
@@ -3943,9 +3912,7 @@ int main() {
                       "peers: con el campo presente aunque vacío");
         }
         {
-            // El analizador de `--dump-peers` lee las columnas nuevas, y SIGUE leyendo la
-            // forma antigua de tres columnas: un daemon sin actualizar manda esa, y romper
-            // con él convertiria una actualizacion del cliente en una lista vacia.
+            // El analizador de `--dump-peers`: cuatro columnas, la cuarta el uid.
             const PE::View nueva = PE::parse(
                 "SELF\tlocal\nSELF_UID\tuid-1\nunibody\tunib\t47653\tuid-2\n");
             igual(nueva.self, "local", "peers: lee el self");
@@ -3953,10 +3920,8 @@ int main() {
             comprobar(nueva.pares.size() == 1, "peers: y el par");
             igual(nueva.pares[0].uid, "uid-2", "peers: con su uid");
 
-            const PE::View vieja = PE::parse("SELF\tlocal\nunibody\tunib\t47653\n");
-            comprobar(vieja.pares.size() == 1, "peers: la forma antigua sigue valiendo");
-            igual(vieja.pares[0].uid, "", "peers: sin uid, y eso no es un fallo");
-            igual(vieja.selfUid, "", "peers: ni self_uid");
+            const PE::View corta = PE::parse("SELF\tlocal\nunibody\tunib\t47653\n");
+            comprobar(corta.pares.empty(), "peers: una línea sin uid no es un par");
         }
 
         {
@@ -3992,14 +3957,12 @@ int main() {
             comprobar(!PE::destinationIsSelf("local", o),
                       "soy-yo: mismo nombre y otro uid NO soy yo");
 
-            // El respaldo por nombre, que es lo que sostiene a un peers.json antiguo.
-            PE::SelfMatch viejo;
-            viejo.selfName = "local";
-            viejo.peers = {par("mmela", "")};
-            comprobar(PE::destinationIsSelf("local", viejo),
-                      "soy-yo: sin ningun uid se decide por el nombre, como siempre");
-            comprobar(!PE::destinationIsSelf("mmela", viejo),
-                      "soy-yo: y un par sigue sin serlo");
+            // Sin uid, el nombre NO basta: decide la identidad de la maquina.
+            PE::SelfMatch sinUid;
+            sinUid.selfName = "local";
+            sinUid.peers = {par("mmela", "")};
+            comprobar(!PE::destinationIsSelf("local", sinUid),
+                      "soy-yo: sin ningun uid no se decide por el nombre");
 
             // Sin nada de nada no se afirma nada: mejor no nivelar que nivelar al sitio
             // equivocado.

@@ -321,18 +321,18 @@ bool mountedStateFromText(const QString& value, bool* mountedOut) {
 QString gsaComparableValue(const QString& propName, const QString& rawValue) {
     const QString prop = propName.trimmed();
     const QString value = rawValue.trimmed();
-    if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+    if (!prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
         return rawValue;
     }
-    if (prop.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+    if (prop.compare(QStringLiteral("org.zfsmgr:schedule-target"), Qt::CaseInsensitive) == 0) {
         return (value == QStringLiteral("-")) ? QString() : rawValue;
     }
     if (value.isEmpty() || value == QStringLiteral("-")) {
-        if (prop.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+        if (prop.compare(QStringLiteral("org.zfsmgr:schedule-hourly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-daily"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-weekly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-monthly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-yearly"), Qt::CaseInsensitive) == 0) {
             return QStringLiteral("0");
         }
         return QStringLiteral("off");
@@ -352,19 +352,19 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
     switch (m.failure) {
         case F::RetentionNotAnInteger: {
             struct { const char* prop; const char* clave; const char* es; const char* en; } kCuales[] = {
-                {"org.fc16.gsa:horario", "t_gsa_invalid_hourly_001",
+                {"org.zfsmgr:schedule-hourly", "t_gsa_invalid_hourly_001",
                  "La retención horaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
                  "The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
-                {"org.fc16.gsa:diario", "t_gsa_invalid_daily_001",
+                {"org.zfsmgr:schedule-daily", "t_gsa_invalid_daily_001",
                  "La retención diaria de %1 no es válida. Debe ser un entero mayor o igual que 0.",
                  "The daily retention for %1 is invalid. It must be an integer greater than or equal to 0."},
-                {"org.fc16.gsa:semanal", "t_gsa_invalid_weekly_001",
+                {"org.zfsmgr:schedule-weekly", "t_gsa_invalid_weekly_001",
                  "La retención semanal de %1 no es válida. Debe ser un entero mayor o igual que 0.",
                  "The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
-                {"org.fc16.gsa:mensual", "t_gsa_invalid_monthly_001",
+                {"org.zfsmgr:schedule-monthly", "t_gsa_invalid_monthly_001",
                  "La retención mensual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
                  "The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
-                {"org.fc16.gsa:anual", "t_gsa_invalid_yearly_001",
+                {"org.zfsmgr:schedule-yearly", "t_gsa_invalid_yearly_001",
                  "La retención anual de %1 no es válida. Debe ser un entero mayor o igual que 0.",
                  "The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0."},
             };
@@ -376,10 +376,6 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
             }
             return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.failure));
         }
-        // Solo lo produce `targetFromUrl`, que la interfaz gráfica no usa: su editor sigue
-        // escribiendo el formato que se guarda. Se redacta con el texto de la capa base.
-        case F::LegacyTargetFormat:
-            return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.failure));
         case F::EnabledWithNoRetention:
             return trk(QStringLiteral("t_gsa_requires_retention_001"),
                        QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),
@@ -469,7 +465,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                 if (draft.dirty) {
                     for (auto vit = draft.valuesByProp.cbegin(); vit != draft.valuesByProp.cend(); ++vit) {
                         propValues[vit.key()] = vit.value();
-                        if (vit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                        if (vit.key().startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
                             hasExplicitDraftGsaEdit = true;
                         }
                     }
@@ -478,7 +474,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                             propValues.remove(iit.key());
                             propSources.remove(iit.key());
                         }
-                        if (iit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                        if (iit.key().startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
                             hasExplicitDraftGsaEdit = true;
                         }
                     }
@@ -486,7 +482,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
 
                 bool hasExplicitRuntimeGsaConfig = false;
                 for (auto sit = propSources.cbegin(); sit != propSources.cend(); ++sit) {
-                    if (!sit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                    if (!sit.key().startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
                         continue;
                     }
                     const QString source = sit.value().trimmed().toLower();
@@ -648,15 +644,15 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto gsaPropsForView = []() {
         return QStringList{
-            QStringLiteral("org.fc16.gsa:activado"),
-            QStringLiteral("org.fc16.gsa:recursivo"),
-            QStringLiteral("org.fc16.gsa:horario"),
-            QStringLiteral("org.fc16.gsa:diario"),
-            QStringLiteral("org.fc16.gsa:semanal"),
-            QStringLiteral("org.fc16.gsa:mensual"),
-            QStringLiteral("org.fc16.gsa:anual"),
-            QStringLiteral("org.fc16.gsa:nivelar"),
-            QStringLiteral("org.fc16.gsa:destino"),
+            QStringLiteral("org.zfsmgr:schedule-enabled"),
+            QStringLiteral("org.zfsmgr:schedule-recursive"),
+            QStringLiteral("org.zfsmgr:schedule-hourly"),
+            QStringLiteral("org.zfsmgr:schedule-daily"),
+            QStringLiteral("org.zfsmgr:schedule-weekly"),
+            QStringLiteral("org.zfsmgr:schedule-monthly"),
+            QStringLiteral("org.zfsmgr:schedule-yearly"),
+            QStringLiteral("org.zfsmgr:schedule-level"),
+            QStringLiteral("org.zfsmgr:schedule-target"),
         };
     };
     auto saveCurrentDraft = [this]() {
@@ -1236,15 +1232,15 @@ void MainWindow::applyDatasetPropertyChanges() {
         || hasPendingPermissionDrafts
         ) {
         const QStringList gsaProps = {
-            QStringLiteral("org.fc16.gsa:activado"),
-            QStringLiteral("org.fc16.gsa:recursivo"),
-            QStringLiteral("org.fc16.gsa:horario"),
-            QStringLiteral("org.fc16.gsa:diario"),
-            QStringLiteral("org.fc16.gsa:semanal"),
-            QStringLiteral("org.fc16.gsa:mensual"),
-            QStringLiteral("org.fc16.gsa:anual"),
-            QStringLiteral("org.fc16.gsa:nivelar"),
-            QStringLiteral("org.fc16.gsa:destino"),
+            QStringLiteral("org.zfsmgr:schedule-enabled"),
+            QStringLiteral("org.zfsmgr:schedule-recursive"),
+            QStringLiteral("org.zfsmgr:schedule-hourly"),
+            QStringLiteral("org.zfsmgr:schedule-daily"),
+            QStringLiteral("org.zfsmgr:schedule-weekly"),
+            QStringLiteral("org.zfsmgr:schedule-monthly"),
+            QStringLiteral("org.zfsmgr:schedule-yearly"),
+            QStringLiteral("org.zfsmgr:schedule-level"),
+            QStringLiteral("org.zfsmgr:schedule-target"),
         };
         auto saveCurrentConnContentDraft = [this]() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
@@ -1392,12 +1388,12 @@ void MainWindow::applyDatasetPropertyChanges() {
                     continue;
                 }
                 touchedAnyProperty = true;
-                if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                if (!prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
                     touchedOnlyGsaProperties = false;
                 }
                 if (!hasLoadedCache
                     && prop.compare(QStringLiteral("mounted"), Qt::CaseInsensitive) != 0
-                    && !prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                    && !prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
                     continue;
                 }
                 const bool originalInh = originalInherit.value(prop, false);

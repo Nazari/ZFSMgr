@@ -55,19 +55,19 @@ std::string valorDe(const std::map<std::string, std::string>& props, const std::
     return {};
 }
 
-const char* const kActivado = "org.fc16.gsa:activado";
-const char* const kRecursivo = "org.fc16.gsa:recursivo";
-const char* const kNivelar = "org.fc16.gsa:nivelar";
-const char* const kDestino = "org.fc16.gsa:destino";
-const char* const kHorario = "org.fc16.gsa:horario";
-const char* const kDiario = "org.fc16.gsa:diario";
-const char* const kSemanal = "org.fc16.gsa:semanal";
-const char* const kMensual = "org.fc16.gsa:mensual";
-const char* const kAnual = "org.fc16.gsa:anual";
+const char* const kActivado = "org.zfsmgr:schedule-enabled";
+const char* const kRecursivo = "org.zfsmgr:schedule-recursive";
+const char* const kNivelar = "org.zfsmgr:schedule-level";
+const char* const kDestino = "org.zfsmgr:schedule-target";
+const char* const kHorario = "org.zfsmgr:schedule-hourly";
+const char* const kDiario = "org.zfsmgr:schedule-daily";
+const char* const kSemanal = "org.zfsmgr:schedule-weekly";
+const char* const kMensual = "org.zfsmgr:schedule-monthly";
+const char* const kAnual = "org.zfsmgr:schedule-yearly";
 
 }  // namespace
 
-const char* const kPropertyPrefix = "org.fc16.gsa:";
+const char* const kPropertyPrefix = "org.zfsmgr:schedule-";
 
 bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
                       Reason& porQue) {
@@ -123,13 +123,13 @@ bool isValid(const std::string& dataset, const Schedule& p,
         return false;
     }
     if (hayQueMirarDestino) {
-        const std::size_t dosPuntos = p.target.find("::");
-        if (dosPuntos == std::string::npos) {
+        std::string conexion;
+        std::string dataset;
+        if (!splitTarget(p.target, conexion, dataset)) {
             porQue.failure = Failure::MalformedTarget;
             porQue.detail = p.target;
             return false;
         }
-        const std::string conexion = trim(p.target.substr(0, dosPuntos));
         if (conexionExiste && !conexionExiste(conexion)) {
             porQue.failure = Failure::TargetHasNoConnection;
             porQue.detail = conexion;
@@ -199,8 +199,6 @@ std::string labelOf(Failure f) {
             return i18n::tr("t_cmd_gsa_nivelar_esta_puesto_hay", "nivelar está puesto y no hay destino");
         case Failure::MalformedTarget:
             return i18n::tr("t_cmd_gsa_destino_url", "el destino tiene que ser la URL de un dataset: zfsm://<conexión>/<pool>/<dataset>");
-        case Failure::LegacyTargetFormat:
-            return i18n::tr("t_cmd_gsa_destino_viejo", "«Conexión::pool/dataset» ya no se admite: escríbalo como URL");
         case Failure::TargetHasNoConnection:
             return i18n::tr("t_cmd_gsa_destino_nombra_conexion_existe", "el destino nombra una conexión que no existe");
         case Failure::ClashesWithRecursive:
@@ -273,29 +271,6 @@ std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
 
 namespace zfsmgr::base::gsa {
 
-std::string destinationAsUrl(const std::string& destino) {
-    const std::string t = trim(destino);
-    const std::size_t sep = t.find("::");
-    if (sep == std::string::npos || sep == 0 || sep + 2 >= t.size()) {
-        return t;
-    }
-    return "zfsm://" + t.substr(0, sep) + "/" + t.substr(sep + 2);
-}
-
-std::string destinationFromUrl(const std::string& texto) {
-    std::string t = trim(texto);
-    if (!startsWith(toLowerAscii(t), "zfsm://")) {
-        return t;   // ya viene en el formato que se guarda, o es basura que validará otro
-    }
-    t = t.substr(7);
-    const std::size_t barra = t.find('/');
-    if (barra == std::string::npos || barra == 0 || barra + 1 >= t.size()) {
-        return trim(texto);   // «zfsm://maquina» no nombra ningún dataset: que falle la
-                              // validación con su motivo, no aquí en silencio
-    }
-    return t.substr(0, barra) + "::" + t.substr(barra + 1);
-}
-
 }  // namespace zfsmgr::base::gsa
 
 namespace zfsmgr::base::gsa {
@@ -324,34 +299,36 @@ bool esGsa(const std::string& nombre) { return nombre.rfind("GSA-", 0) == 0; }
 
 }  // namespace
 
-bool targetFromUrl(const std::string& texto, std::string& guardado, Reason& porQue) {
-    porQue = Reason{};
-    guardado.clear();
-    const std::string t = trim(texto);
-    if (!startsWith(toLowerAscii(t), "zfsm://")) {
-        if (t.find("::") != std::string::npos) {
-            porQue.failure = Failure::LegacyTargetFormat;
-            porQue.detail = destinationAsUrl(t);
-        } else {
-            porQue.failure = Failure::MalformedTarget;
-            porQue.detail = t;
-        }
-        return false;
-    }
+bool splitTarget(const std::string& destino, std::string& conexion, std::string& dataset) {
+    const std::string t = trim(destino);
     // Un patrón no es un destino: nivelar «a lo que case» no significa nada.
-    if (t.find_first_of("*?[") != std::string::npos) {
-        porQue.failure = Failure::MalformedTarget;
-        porQue.detail = t;
+    if (!startsWith(toLowerAscii(t), "zfsm://") || t.find_first_of("*?[") != std::string::npos) {
         return false;
     }
     ZfsmUrl u;
     std::string error;
     if (!parseZfsmUrl(t, u, error) || u.kind != ZfsmKind::Dataset || !u.section.empty()) {
-        porQue.failure = Failure::MalformedTarget;
-        porQue.detail = t;
         return false;
     }
-    guardado = u.connection + "::" + u.dataset;
+    conexion = u.connection;
+    dataset = u.dataset;
+    return true;
+}
+
+bool targetFromUrl(const std::string& texto, std::string& guardado, Reason& porQue) {
+    porQue = Reason{};
+    guardado.clear();
+    std::string conexion;
+    std::string dataset;
+    if (!splitTarget(texto, conexion, dataset)) {
+        porQue.failure = Failure::MalformedTarget;
+        porQue.detail = trim(texto);
+        return false;
+    }
+    ZfsmUrl u;
+    std::string error;
+    parseZfsmUrl(trim(texto), u, error);
+    guardado = formatZfsmUrl(u);
     return true;
 }
 
@@ -500,15 +477,9 @@ bool parseState(const std::string& texto, ConnectionState& out, std::string& err
             const json::Value& r = v[p.first];
             if (r.isObject() && !r["ok"].toBool(true)) {
                 d.failedStep = p.second;
-                d.error = r["error"].toString();
-                // Con código, en el idioma de quien lo lee; si no lo conoce, la frase que vino.
-                const std::string codigo = r["error_code"].toString();
-                if (!codigo.empty()) {
-                    std::vector<std::string> args;
-                    for (const auto& a : r["error_args"].toArray()) args.push_back(a.toString());
-                    const std::string frase = agentmsg::inClientLanguage(codigo, args);
-                    if (!frase.empty()) d.error = frase;
-                }
+                std::vector<std::string> args;
+                for (const auto& a : r["error_args"].toArray()) args.push_back(a.toString());
+                d.error = agentmsg::render(r["error_code"].toString(), args);
                 d.errorTime = r["time"].toInt(0);
                 break;
             }

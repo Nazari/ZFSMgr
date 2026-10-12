@@ -32,7 +32,7 @@ View parse(const std::string& salida) {
             }
             continue;
         }
-        if (c.size() >= 3) {
+        if (c.size() >= 4) {
             Peer p;
             p.id = trim(c[0]);
             p.host = trim(c[1]);
@@ -41,12 +41,7 @@ View parse(const std::string& salida) {
             } catch (...) {
                 p.puerto = 0;
             }
-            // La cuarta columna es el uid, y puede no venir: un daemon anterior a esto
-            // manda tres. Se lee si está y no se exige, que es lo que permite actualizar
-            // las máquinas de una en una.
-            if (c.size() >= 4) {
-                p.uid = trim(c[3]);
-            }
+            p.uid = trim(c[3]);
             v.pares.push_back(p);
         }
     }
@@ -66,10 +61,7 @@ bool destinationIsSelf(const std::string& connId, const SelfMatch& m) {
             continue;
         }
         const std::string suyo = toLowerAscii(trim(p.uid));
-        if (suyo.empty() || mio.empty()) {
-            break;  // ese par no trae identidad: se cae al respaldo por nombre
-        }
-        return suyo == mio;
+        return !suyo.empty() && !mio.empty() && suyo == mio;
     }
 
     // 2. El nombre es con el que me entregaron las credenciales.
@@ -78,8 +70,8 @@ bool destinationIsSelf(const std::string& connId, const SelfMatch& m) {
         return entregado == mio;
     }
 
-    // 3. Sin identidad en ninguna parte: por nombre, como siempre.
-    return !m.selfName.empty() && id == toLowerAscii(trim(m.selfName));
+    // Sin identidad no se afirma nada: mejor no nivelar que nivelar al sitio equivocado.
+    return false;
 }
 
 std::string labelOf(Failure f) {

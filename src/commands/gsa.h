@@ -9,7 +9,7 @@
 // SCHEDULED snapshots (GSA): what they are and what is valid.
 //
 // A dataset's schedule does not live in a file belonging to this program: it is made of USER
-// PROPERTIES on the dataset itself, prefixed `org.fc16.gsa:`. What runs them is a thread of
+// PROPERTIES on the dataset itself, prefixed `org.zfsmgr:schedule-`. What runs them is a thread of
 // the agent of that machine (`runGsaSchedulerThread` in `daemon_main.cpp`), every five
 // minutes; the shell only reads and writes properties, and reads the scheduler's state.
 //
@@ -19,7 +19,7 @@
 //
 // **Why this is in the base layer and not in the interface.** The rules lived inside
 // `MainWindow::validatePendingGsaDrafts`, in Qt, and nowhere else. The moment the shell
-// wanted to schedule anything —and it already can: `set org.fc16.gsa:diario=7` works today—
+// wanted to schedule anything —and it already can: `set org.zfsmgr:schedule-daily=7` works today—
 // they would have to be rewritten, and there would be two copies drifting apart. This
 // repository has already paid that bill three times: the ZFS property table, the transport
 // reasons and the `zfs send` flags.
@@ -44,7 +44,7 @@ struct Schedule {
     int weekly{0};
     int monthly{0};
     int yearly{0};
-    std::string target;   // «Connection::Pool/Dataset»
+    std::string target;   // «zfsm://connection/pool/dataset»
 
     bool hasNoRetentions() const {
         return hourly <= 0 && daily <= 0 && weekly <= 0 && monthly <= 0 && yearly <= 0;
@@ -56,10 +56,9 @@ enum class Failure {
     RetentionNotAnInteger,   // detail: the offending property
     EnabledWithNoRetention,
     LevelWithNoTarget,
-    MalformedTarget,         // no «::» in it
+    MalformedTarget,         // not the URL of a dataset
     TargetHasNoConnection,   // detail: the name of the missing connection
     ClashesWithRecursive,    // detail: the dataset that already has one
-    LegacyTargetFormat,      // detail: the URL it should have been written as
 };
 
 struct Reason {
@@ -106,26 +105,6 @@ std::string labelOf(Failure f);
 // whatever sits between the first and the second hyphen.
 std::string snapshotClass(const std::string& name);
 
-// ── The target, in the two shapes it has ─────────────────────────────────────
-//
-// **Stored in ZFS it goes as «Connection::Pool/Dataset»**, and that cannot change: it is
-// written into the properties of datasets that already exist, and the daemon's scheduler
-// splits it on «::» (`daemon_main.cpp`). Changing the format would break the schedules
-// already out there and the interface that wrote them.
-//
-// But that notation predates `zfsm://`, and on screen it sits badly next to the addresses
-// the rest of the program uses. So it is STORED as always and SHOWN as a URL. These two
-// functions are the conversion, and they live here —next to what reads and validates the
-// target— so that there does not end up being one copy per client.
-
-// «Connection::Pool/Dataset» → «zfsm://Connection/Pool/Dataset». Returns the text as-is when
-// it does not have the expected shape: showing something odd beats hiding it.
-std::string destinationAsUrl(const std::string& target);
-
-// The way back. It accepts BOTH shapes on input —a URL or the long-standing format— because
-// whoever types it by hand may write either, and both are understood.
-std::string destinationFromUrl(const std::string& text);
-
 // A dataset's snapshots, ORDERED for display: first the manual ones, in the order they
 // arrived, and then the scheduled ones grouped by class, with the known classes in order of
 // period —from hourly to yearly— and the unknown ones last.
@@ -136,11 +115,16 @@ std::string destinationFromUrl(const std::string& text);
 std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
     const std::vector<std::string>& names);
 
-// The target as the user writes it: ONLY `zfsm://<connection>/<pool>/<dataset>`. The old
-// «Connection::Pool/Dataset» is deprecated on input (`LegacyTargetFormat`, with the URL it
-// should have been in `detail`); it is still what is STORED, and the daemon still reads it.
-// A connection alone, a snapshot, a section or a pattern are `MalformedTarget`.
+// ── The target ───────────────────────────────────────────────────────────────
+//
+// `zfsm://<connection>/<pool>/<dataset>`, written, stored in the property and read by the
+// daemon the same way. A connection alone, a snapshot, a section or a pattern are
+// `MalformedTarget`. `stored` is the URL normalised.
 bool targetFromUrl(const std::string& text, std::string& stored, Reason& why);
+
+// The two halves of a target, for whoever has to reach it. False if it is not the URL of a
+// dataset.
+bool splitTarget(const std::string& target, std::string& connection, std::string& dataset);
 
 // ── Levelling: what to send and what to change on the target ─────────────────
 //

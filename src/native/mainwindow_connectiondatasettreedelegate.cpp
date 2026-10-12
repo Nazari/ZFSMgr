@@ -66,15 +66,15 @@ QString datasetLeafNameUi(const QString& datasetName) {
 
 QStringList gsaUserPropsForScheduling() {
     return {
-        QStringLiteral("org.fc16.gsa:activado"),
-        QStringLiteral("org.fc16.gsa:recursivo"),
-        QStringLiteral("org.fc16.gsa:horario"),
-        QStringLiteral("org.fc16.gsa:diario"),
-        QStringLiteral("org.fc16.gsa:semanal"),
-        QStringLiteral("org.fc16.gsa:mensual"),
-        QStringLiteral("org.fc16.gsa:anual"),
-        QStringLiteral("org.fc16.gsa:nivelar"),
-        QStringLiteral("org.fc16.gsa:destino"),
+        QStringLiteral("org.zfsmgr:schedule-enabled"),
+        QStringLiteral("org.zfsmgr:schedule-recursive"),
+        QStringLiteral("org.zfsmgr:schedule-hourly"),
+        QStringLiteral("org.zfsmgr:schedule-daily"),
+        QStringLiteral("org.zfsmgr:schedule-weekly"),
+        QStringLiteral("org.zfsmgr:schedule-monthly"),
+        QStringLiteral("org.zfsmgr:schedule-yearly"),
+        QStringLiteral("org.zfsmgr:schedule-level"),
+        QStringLiteral("org.zfsmgr:schedule-target"),
     };
 }
 
@@ -89,7 +89,7 @@ bool isGsaProp(const QString& prop) {
 
 QString gsaDefaultValueForScheduling(const QString& prop) {
     const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+    if (p.compare(QStringLiteral("org.zfsmgr:schedule-target"), Qt::CaseInsensitive) == 0) {
         return QString();
     }
     // Una diaria de siete días como punto de partida.
@@ -99,13 +99,13 @@ QString gsaDefaultValueForScheduling(const QString& prop) {
     // regla que existe desde marzo—. O sea que la orden preparaba algo que el programa se
     // negaba a aceptar, y quien la usaba veía o nada o un error sin haber tocado un valor.
     // Siete diarias es lo que uno quiere el 90 % de las veces y se cambia en el sitio.
-    if (p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0) {
+    if (p.compare(QStringLiteral("org.zfsmgr:schedule-daily"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("7");
     }
-    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+    if (p.compare(QStringLiteral("org.zfsmgr:schedule-hourly"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.zfsmgr:schedule-weekly"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.zfsmgr:schedule-monthly"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.zfsmgr:schedule-yearly"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("0");
     }
     return QStringLiteral("off");
@@ -2545,8 +2545,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         while (parent.contains(QLatin1Char('/'))) {
             parent = parent.section(QLatin1Char('/'), 0, -2);
             const QMap<QString, QString> values = effectiveGsaValuesForDataset(parent);
-            const QString activeKey = findCaseInsensitivePropKey(values, QStringLiteral("org.fc16.gsa:activado"));
-            const QString recursiveKey = findCaseInsensitivePropKey(values, QStringLiteral("org.fc16.gsa:recursivo"));
+            const QString activeKey = findCaseInsensitivePropKey(values, QStringLiteral("org.zfsmgr:schedule-enabled"));
+            const QString recursiveKey = findCaseInsensitivePropKey(values, QStringLiteral("org.zfsmgr:schedule-recursive"));
             if (!activeKey.isEmpty() && !recursiveKey.isEmpty()
                 && gsaValueOn(values.value(activeKey))
                 && gsaValueOn(values.value(recursiveKey))) {
@@ -2685,7 +2685,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             && menuOpenedOnDatasetNode
             && objectType != QStringLiteral("volume")) {
             const QMap<QString, QString> selfGsaValues = effectiveGsaValuesForDataset(ctx.datasetName);
-            const QString selfActiveKey = findCaseInsensitivePropKey(selfGsaValues, QStringLiteral("org.fc16.gsa:activado"));
+            const QString selfActiveKey = findCaseInsensitivePropKey(selfGsaValues, QStringLiteral("org.zfsmgr:schedule-enabled"));
             const bool selfAlreadyActive =
                 !selfActiveKey.isEmpty() && gsaValueOn(selfGsaValues.value(selfActiveKey));
             const bool ancestorAlreadyActive = !recursiveGsaAncestorForDataset(ctx.datasetName).isEmpty();
@@ -2772,7 +2772,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 return;
             }
             for (const QString& prop : gsaUserPropsForScheduling()) {
-                const QString value = prop.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0
+                const QString value = prop.compare(QStringLiteral("org.zfsmgr:schedule-enabled"), Qt::CaseInsensitive) == 0
                                           ? QStringLiteral("on")
                                           : gsaDefaultValueForScheduling(prop);
                 m_mainWindow->updateConnContentDraftInherit(token, actx.datasetName, prop, false);
@@ -2795,11 +2795,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     QStringLiteral("t_sched_prepared_001"),
                     QStringLiteral("Programación preparada para «%1»: activada, con 7 instantáneas "
                                    "diarias.\n\nNo se ha aplicado todavía. Ajuste las retenciones en "
-                                   "las propiedades del dataset (org.fc16.gsa:*) y pulse Aplicar.")
+                                   "las propiedades del dataset (org.zfsmgr:schedule-*) y pulse Aplicar.")
                         .arg(actx.datasetName),
                     QStringLiteral("Schedule prepared for «%1»: enabled, keeping 7 daily "
                                    "snapshots.\n\nIt has not been applied yet. Adjust the retentions "
-                                   "in the dataset properties (org.fc16.gsa:*) and press Apply.")
+                                   "in the dataset properties (org.zfsmgr:schedule-*) and press Apply.")
                         .arg(actx.datasetName)
                         .arg(actx.datasetName)));
             return;

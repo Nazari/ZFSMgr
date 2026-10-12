@@ -26,7 +26,7 @@ The first tab, and the only **editable** one.
 
 - Closed-value ones show as a dropdown.
 - Inheritable ones carry a checkbox in the `Inherited` column.
-- User properties — the ones with `:` in the name, such as `org.fc16.gsa:*` — are editable and
+- User properties — the ones with `:` in the name, such as `org.zfsmgr:schedule-*` — are editable and
   also carry the inheritance control.
 - Read-only ones, ones that do not apply to the platform, and `canmount` carry no inheritance
   control.

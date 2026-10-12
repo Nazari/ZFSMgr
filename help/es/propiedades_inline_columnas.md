@@ -25,7 +25,7 @@ La primera pestaña, y la única **editable**.
 
 - Las de valores cerrados salen como desplegable.
 - Las que admiten herencia llevan casilla en la columna `Heredada`.
-- Las propiedades de usuario —las que llevan `:` en el nombre, como `org.fc16.gsa:*`— son
+- Las propiedades de usuario —las que llevan `:` en el nombre, como `org.zfsmgr:schedule-*`— son
   editables y también llevan control de herencia.
 - No llevan control de herencia las de solo lectura, las que no aplican a la plataforma, y
   `canmount`.

@@ -326,6 +326,20 @@ struct DaemonJob {
     std::string description;
 };
 
+// El error de un trabajo: su código y sus argumentos. La frase inglesa queda solo para el
+// registro del daemon; al cliente le llega el código. Lo que no es del agente —la salida de
+// `zfs`— va con el código «text».
+void ponErrorDeTrabajo(DaemonJob& j, const std::string& codigo, std::vector<std::string> args) {
+    if (codigo.empty()) {
+        j.errorCode = "text";
+        j.errorArgs = {args.empty() ? std::string() : args.front()};
+    } else {
+        j.errorCode = codigo;
+        j.errorArgs = std::move(args);
+    }
+    j.errorText = zfsmgr::base::agentmsg::inEnglish(j.errorCode, j.errorArgs);
+}
+
 std::mutex g_jobsMutex;
 std::unordered_map<std::string, DaemonJob> g_jobs;
 
@@ -1097,8 +1111,8 @@ bool removeTreeWithoutCrossingMounts(const std::filesystem::path& node, dev_t de
 //
 // De dónde venía importa: `kali` lo tenía RECIBIDO (`mountpoint=/ received`), y devolvérselo
 // con `zfs set` lo dejaba como `local`, que ya no sigue a lo que llegue en el siguiente envío.
-constexpr const char* kSavedMountpointProp = "org.fc16.zfsmgr:savedmountpoint";
-constexpr const char* kSavedMountpointSourceProp = "org.fc16.zfsmgr:savedmountpointsource";
+constexpr const char* kSavedMountpointProp = "org.zfsmgr:savedmountpoint";
+constexpr const char* kSavedMountpointSourceProp = "org.zfsmgr:savedmountpointsource";
 
 // «local», «received», «inherited», «default» —o vacío si no se pudo saber—.
 std::string origenDeMountpoint(const std::string& ds) {
@@ -4966,7 +4980,7 @@ int runDumpGsaRawAllPools() {
         ExecResult one = runExecCapture(
             "zfs",
             {"get", "-H", "-o", "name,property,value", "-r",
-             "org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino", pool});
+             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target", pool});
         if (!one.out.empty()) {
             std::cout << one.out;
             if (one.out.back() != '\n') {
@@ -5068,7 +5082,7 @@ ExecResult runDumpGsaRawAllPoolsCapture() {
         ExecResult one = runExecCapture(
             "zfs",
             {"get", "-H", "-o", "name,property,value", "-r",
-             "org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino", pool});
+             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target", pool});
         if (!one.out.empty()) {
             out << one.out;
             if (one.out.back() != '\n') {
@@ -6096,11 +6110,12 @@ GsaRpc gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     salida = resp["stdout"].toString();
     if (rc != 0) {
         error = trim(resp["stderr"].toString());
-        // El par ya puede contestar con código (agentmsg): se conserva tal cual.
+        // Si el par contesta con código (agentmsg), se conserva tal cual.
         if (!resp["code"].toString().empty()) {
             std::vector<std::string> a;
             for (const auto& x : resp["args"].toArray()) a.push_back(x.toString());
             t_gsaFalloPar = {resp["code"].toString(), a};
+            error = zfsmgr::base::agentmsg::inEnglish(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
         } else if (!error.empty()) {
             t_gsaFalloPar = {"text", {error}};
         } else {
@@ -6389,13 +6404,12 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         return falla(codigoEnvoltorio,
                      {donde, trim(r.err).empty() ? "exit " + std::to_string(r.rc) : trim(r.err)});
     };
-    const std::size_t sep = dstSpec.find("::");
-    if (sep == std::string::npos || sep == 0 || sep + 2 >= dstSpec.size()) {
+    std::string conexionDestino;
+    std::string dstDataset;
+    if (!G::splitTarget(dstSpec, conexionDestino, dstDataset)) {
         return falla("gsa_bad_destination", {dstSpec});
     }
-    const std::string conexionDestino = trim(dstSpec.substr(0, sep));
-    const std::string dstDataset = trim(dstSpec.substr(sep + 2));
-    const std::string dstUrl = G::destinationAsUrl(dstSpec);
+    const std::string& dstUrl = dstSpec;
     const bool isLocal = (target.mode == "local");
 
     std::vector<G::SnapRef> origen;
@@ -6691,18 +6705,14 @@ void gsaActualizaEntrada(const std::string& ds,
     gsaGuardaEstadoSinBloqueo(raiz);
 }
 
-// El error de un paso en el estado: la frase en inglés —para un CLI anterior a los códigos—
-// y su código con sus argumentos, que el CLI dice en su idioma.
-void gsaPonError(zfsmgr::base::json::Value& v, const std::string& frase, const std::string& codigo,
+// El error de un paso en el estado: su código y sus argumentos, que el CLI dice en su idioma.
+void gsaPonError(zfsmgr::base::json::Value& v, const std::string& codigo,
                  const std::vector<std::string>& args) {
     namespace J = zfsmgr::base::json;
-    v.set("error", J::Value(frase));
-    if (!codigo.empty()) {
-        v.set("error_code", J::Value(codigo));
-        J::Array a;
-        for (const auto& x : args) a.push_back(J::Value(x));
-        v.set("error_args", J::Value(std::move(a)));
-    }
+    v.set("error_code", J::Value(codigo));
+    J::Array a;
+    for (const auto& x : args) a.push_back(J::Value(x));
+    v.set("error_args", J::Value(std::move(a)));
 }
 
 zfsmgr::base::json::Value gsaRegistroDe(const GsaPaso& p, long long cuando) {
@@ -6710,7 +6720,7 @@ zfsmgr::base::json::Value gsaRegistroDe(const GsaPaso& p, long long cuando) {
     v.set("time", zfsmgr::base::json::Value(cuando));
     v.set("ok", zfsmgr::base::json::Value(p.ok));
     if (!p.ok) {
-        gsaPonError(v, p.error, p.codigo, p.args);
+        gsaPonError(v, p.codigo, p.args);
     }
     return v;
 }
@@ -6726,14 +6736,14 @@ struct GsaProgramacion {
 
 GsaProgramacion gsaLeeProgramacion(const std::string& ds) {
     GsaProgramacion p;
-    p.recursive = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false));
-    p.hourly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:horario", false));
-    p.daily = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:diario", false));
-    p.weekly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:semanal", false));
-    p.monthly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:mensual", false));
-    p.yearly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:anual", false));
-    p.levelOn = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar", false));
-    p.dstSpec = gsaPropValue(ds, "org.fc16.gsa:destino", false);
+    p.recursive = gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-recursive", false));
+    p.hourly = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-hourly", false));
+    p.daily = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-daily", false));
+    p.weekly = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-weekly", false));
+    p.monthly = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-monthly", false));
+    p.yearly = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-yearly", false));
+    p.levelOn = gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-level", false));
+    p.dstSpec = gsaPropValue(ds, "org.zfsmgr:schedule-target", false);
     return p;
 }
 
@@ -6746,8 +6756,8 @@ std::string gsaAncestroRecursivo(const std::string& ds) {
             return {};
         }
         probe = probe.substr(0, slash);
-        if (gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:activado", /*local=*/true))
-            && gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:recursivo", /*local=*/false))) {
+        if (gsaBoolOn(gsaPropValue(probe, "org.zfsmgr:schedule-enabled", /*local=*/true))
+            && gsaBoolOn(gsaPropValue(probe, "org.zfsmgr:schedule-recursive", /*local=*/false))) {
             return probe;
         }
     }
@@ -6798,7 +6808,7 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
         j.snap = ds;
         j.dstDataset = dstSpec;
         j.startedAtUtc = utcNowIsoString();
-        j.description = "gsa level " + ds + " -> " + zfsmgr::base::gsa::destinationAsUrl(dstSpec);
+        j.description = "gsa level " + ds + " -> " + dstSpec;
         std::lock_guard<std::mutex> lock(g_jobsMutex);
         g_jobs[id] = j;
         persistJobsLocked();
@@ -6862,9 +6872,11 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
             if (it != g_jobs.end()) {
                 if (!cancelado) {
                     it->second.state = n.paso.ok && tuvoTurno ? JobState::Done : JobState::Failed;
-                    it->second.errorText = parado ? "the daemon is stopping" : n.paso.error;
-                    it->second.errorCode = parado ? "daemon_stopping" : n.paso.codigo;
-                    it->second.errorArgs = parado ? std::vector<std::string>{} : n.paso.args;
+                    if (parado) {
+                        ponErrorDeTrabajo(it->second, "daemon_stopping", {});
+                    } else if (!n.paso.ok) {
+                        ponErrorDeTrabajo(it->second, n.paso.codigo, n.paso.args);
+                    }
                 }
                 it->second.finishedAtUtc = utcNowIsoString();
                 persistJobsLocked();
@@ -6892,9 +6904,7 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
                     codigo = "gsa_daemon_stopped";
                     args = {};
                 }
-                const std::string frase = codigo.empty() ? n.paso.error
-                                                         : zfsmgr::base::agentmsg::inEnglish(codigo, args);
-                gsaPonError(reg, frase, codigo, args);
+                gsaPonError(reg, codigo, args);
                 // La base sigue siendo la de la última vez que fue bien: es la que hay que
                 // seguir protegiendo de la poda.
                 reg.set("base_guid", J::Value(previo["base_guid"].toString()));
@@ -7026,8 +7036,10 @@ std::string gsaProcesaDataset(const std::string& ds, const std::string& selfConn
         return {};
     }
     GsaTargetConn target;
-    const std::size_t sep = p.dstSpec.find("::");
-    if (sep != std::string::npos && gsaDestinoSoyYo(trim(p.dstSpec.substr(0, sep)), selfConn)) {
+    std::string conexionDestino;
+    std::string datasetDestino;
+    if (G::splitTarget(p.dstSpec, conexionDestino, datasetDestino)
+        && gsaDestinoSoyYo(conexionDestino, selfConn)) {
         target.mode = "local";
     }
     return gsaLanzaNivelacion(ds, p.recursive, p.dstSpec, target, log);
@@ -7053,7 +7065,7 @@ void gsaRunOnce(const GsaLog& log) {
             if (g_stop.load()) break;
             const std::string ds = trim(rawLine);
             if (ds.empty()) continue;
-            if (!gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true))) continue;
+            if (!gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-enabled", /*local=*/true))) continue;
             bool cubierto = false;
             for (const std::string& root : raicesRecursivas) {
                 if (desciende(ds, root)) { cubierto = true; break; }
@@ -7061,7 +7073,7 @@ void gsaRunOnce(const GsaLog& log) {
             if (cubierto || !gsaAncestroRecursivo(ds).empty()) continue;
             programados.insert(ds);
             gsaProcesaDataset(ds, selfConn, /*forzado=*/false, log);
-            if (gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false))) {
+            if (gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-recursive", false))) {
                 raicesRecursivas.push_back(ds);
             }
         }
@@ -7093,7 +7105,7 @@ ExecResult runGsaRunOnceCapture(const std::string& ds) {
         ponCodigo(r, "usage", {"--mutate-gsa-run-once <dataset>"});
         return r;
     }
-    if (!gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true))) {
+    if (!gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-enabled", /*local=*/true))) {
         return fallo(1, "gsa_no_schedule", {ds});
     }
     const std::string ancestro = gsaAncestroRecursivo(ds);
@@ -7146,7 +7158,7 @@ ExecResult runDumpGsaStatusCapture() {
             if (pool.empty()) continue;
             const ExecResult g = runExecCapture(
                 "zfs", {"get", "-H", "-r", "-s", "local", "-t", "filesystem", "-o", "name,value",
-                        "org.fc16.gsa:activado", pool});
+                        "org.zfsmgr:schedule-enabled", pool});
             if (g.rc != 0) continue;
             for (const std::string& l : splitLines(g.out)) {
                 const std::size_t tab = l.find('\t');
@@ -7176,8 +7188,8 @@ ExecResult runDumpGsaStatusCapture() {
                 if (!gsaAncestroRecursivo(ds).empty()) continue;
                 J::Value e;
                 e.set("pending", J::Value(true));
-                e.set("level", J::Value(gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar", false))));
-                e.set("destination", J::Value(gsaPropValue(ds, "org.fc16.gsa:destino", false)));
+                e.set("level", J::Value(gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-level", false))));
+                e.set("destination", J::Value(gsaPropValue(ds, "org.zfsmgr:schedule-target", false)));
                 datasets.set(ds, e);
             }
         }
@@ -7212,8 +7224,7 @@ void gsaCierraNivelacionesHuerfanas() {
             reg.set("time", J::Value(ahora));
             reg.set("job", J::Value(e["level_job"]["id"].toString()));
             reg.set("ok", J::Value(false));
-            gsaPonError(reg, zfsmgr::base::agentmsg::inEnglish("gsa_daemon_restarted", {}),
-                        "gsa_daemon_restarted", {});
+            gsaPonError(reg, "gsa_daemon_restarted", {});
             reg.set("base_guid", J::Value(previo["base_guid"].toString()));
             reg.set("sent", J::Value(previo["sent"].toString()));
             e.set("level_result", reg);
@@ -7348,9 +7359,7 @@ static void cierraConRechazo(TransferSocket s) {
 // devuelve por el mismo socket cómo le fue —«RC=<n>» y, si falló, «ERR=<motivo>»—, y el
 // emisor lo espera antes de darse por bueno.
 //
-// Es compatible en los dos sentidos: un emisor antiguo ya cerró y no lo lee —escribir en ese
-// socket no hace daño, el daemon ignora SIGPIPE—, y un receptor antiguo cierra sin decir nada,
-// que el emisor toma como «sin noticias» y no como un fallo.
+// Un receptor que cierra SIN decir cómo le fue es un fallo: o murió, o se cortó la conexión.
 static void informaAlEmisor(TransferSocket s, int rc, const std::string& motivo) {
     std::string linea = "RC=" + std::to_string(rc) + "\n";
     if (rc != 0) {
@@ -7365,7 +7374,7 @@ static void informaAlEmisor(TransferSocket s, int rc, const std::string& motivo)
 }
 
 // Lo que contestó el receptor, si contestó. `hayVeredicto` falso quiere decir que cerró sin
-// decir nada —un receptor anterior a esto— o que no se pudo leer.
+// decir nada o que no se pudo leer.
 struct VeredictoDelReceptor {
     bool hayVeredicto{false};
     int rc{0};
@@ -9667,6 +9676,8 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         // Todo salió de aquí, y el otro lado dice que no lo pudo usar.
         ponFallo(r, 1, "receiver_failed",
                  {veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc) : veredicto.motivo});
+    } else if (!veredicto.hayVeredicto) {
+        ponFallo(r, 1, "receiver_no_verdict", {});
     }
     return r;
 }
@@ -10240,13 +10251,11 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
     } else {
         it->second.state     = JobState::Failed;
         if (vacioSinSerlo) {
-            it->second.errorCode = "send_moved_nothing";
-            it->second.errorArgs.clear();
-            it->second.errorText = zfsmgr::base::agentmsg::inEnglish("send_moved_nothing", {});
+            ponErrorDeTrabajo(it->second, "send_moved_nothing", {});
+        } else if (!r.code.empty()) {
+            ponErrorDeTrabajo(it->second, r.code, r.args);
         } else {
-            it->second.errorText = trim(r.err);
-            it->second.errorCode = r.code;
-            it->second.errorArgs = r.args;
+            ponErrorDeTrabajo(it->second, "", {trim(r.err)});
         }
     }
     it->second.finishedAtUtc = utcNowIsoString();
@@ -10682,7 +10691,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         return runExecCapture(
             "zfs",
             {"get", "-H", "-o", "name,property,value,source", "-r",
-             "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino",
+             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org.zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target",
              params[0]});
     }
 
@@ -11301,7 +11310,6 @@ static void persistJobsLocked() {
           << ",\"elapsedSecs\":" << j.elapsedSecs
           << ",\"startedAt\":\"" << jsonEscape(j.startedAtUtc)
           << "\",\"finishedAt\":\"" << jsonEscape(j.finishedAtUtc)
-          << "\",\"error\":\"" << jsonEscape(j.errorText)
           << "\",\"error_code\":\"" << jsonEscape(j.errorCode)
           << "\",\"error_args\":" << argsJson(j.errorArgs)
           << ",\"desc\":\"" << jsonEscape(j.description)
@@ -11357,7 +11365,6 @@ static void loadPersistedJobsAtStartup() {
         j.elapsedSecs   = static_cast<long>(v["elapsedSecs"].toInt());
         j.startedAtUtc  = v["startedAt"].toString();
         j.finishedAtUtc = v["finishedAt"].toString();
-        j.errorText     = v["error"].toString();
         j.errorCode     = v["error_code"].toString();
         for (const auto& a : v["error_args"].toArray()) j.errorArgs.push_back(a.toString());
 
@@ -11366,9 +11373,7 @@ static void loadPersistedJobsAtStartup() {
         // Los que seguían corriendo cuando el daemon paró no se pueden recuperar.
         if (j.state == JobState::Running || j.state == JobState::Queued) {
             j.state        = JobState::Failed;
-            j.errorText    = "daemon restarted while running";
-            j.errorCode    = "job_daemon_restarted";
-            j.errorArgs.clear();
+            ponErrorDeTrabajo(j, "job_daemon_restarted", {});
             j.finishedAtUtc = utcNowIsoString();
         }
         g_jobs[j.id] = std::move(j);
@@ -11613,10 +11618,12 @@ void runSubmittedMutationJob(const std::string& jobId,
     }
     j.resultRc = r.rc;
     j.resultOut = r.out;
-    if (r.rc != 0 && j.errorText.empty()) {
-        j.errorText = r.err.empty() ? ("exit " + std::to_string(r.rc)) : r.err;
-        j.errorCode = r.code;
-        j.errorArgs = r.args;
+    if (r.rc != 0 && j.errorCode.empty()) {
+        if (!r.code.empty()) {
+            ponErrorDeTrabajo(j, r.code, r.args);
+        } else {
+            ponErrorDeTrabajo(j, "", {trim(r.err).empty() ? "exit " + std::to_string(r.rc) : trim(r.err)});
+        }
     }
     j.finishedAtUtc = utcNowIsoString();
     persistJobsLocked();
@@ -12278,7 +12285,6 @@ int runServeLoop() {
                            << "ELAPSED_SECS=" << j.elapsedSecs << "\n"
                            << "STARTED_AT=" << j.startedAtUtc << "\n"
                            << "FINISHED_AT=" << j.finishedAtUtc << "\n"
-                           << "ERROR=" << j.errorText << "\n"
                            << "ERROR_CODE=" << j.errorCode << "\n"
                            << "ERROR_ARGS=" << argsJson(j.errorArgs) << "\n"
                            << "DESCRIPTION=" << j.description << "\n";
@@ -12322,7 +12328,6 @@ int runServeLoop() {
                        << ",\"elapsed\":" << j->elapsedSecs
                        << ",\"started\":\"" << jsonEscape(j->startedAtUtc)
                        << "\",\"finished\":\"" << jsonEscape(j->finishedAtUtc)
-                       << "\",\"error\":\"" << jsonEscape(j->errorText)
                        << "\",\"error_code\":\"" << jsonEscape(j->errorCode)
                        << "\",\"error_args\":" << argsJson(j->errorArgs)
                        << ",\"desc\":\"" << jsonEscape(j->description)
@@ -12517,10 +12522,11 @@ int runServeLoop() {
             }
         }
 
-        // "code" y "args" solo cuando el fallo es del propio agente y está codificado: un
-        // cliente anterior los ignora y se queda con stderr, como siempre.
+        // Un fallo del propio agente va como "code" y "args" EN VEZ de la frase: stderr solo
+        // lleva lo que no es suyo (la salida de `zfs` sin código alrededor).
         std::string codigo;
         if (!exec.code.empty()) {
+            exec.err.clear();
             codigo = ",\"code\":\"" + jsonEscape(exec.code) + "\",\"args\":[";
             for (std::size_t i = 0; i < exec.args.size(); ++i) {
                 codigo += (i ? ",\"" : "\"") + jsonEscape(exec.args[i]) + "\"";
@@ -12927,20 +12933,8 @@ int main(int argc, char* argv[]) {
         return runExecStreaming(
             "zfs",
             {"get", "-H", "-o", "name,property,value,source", "-r",
-             "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino",
+             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org.zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target",
              args[2]});
-    }
-    // Una pasada del planificador AHORA, por la línea de órdenes de la propia máquina.
-    //
-    // No es un verbo RPC a propósito: no forma parte del contrato con el cliente, así que
-    // no toca el marcador de esquema y no obliga a reinstalar agentes. Sirve para dos
-    // cosas: probar una programación sin esperar al ciclo, y ver POR QUÉ una no hizo nada,
-    // porque el registro sale aquí mismo.
-    if (cmd == "--gsa-run-once") {
-        gsaRunOnce([](const char* nivel, const std::string& linea) {
-            std::cout << nivel << " " << linea << "\n";
-        });
-        return 0;
     }
     if (cmd == "--dump-daemon-log") {
         long long offset = 0;

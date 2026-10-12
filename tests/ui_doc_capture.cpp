@@ -160,15 +160,15 @@ int main(int argc, char** argv) {
          MainWindow::UiTestPropertySeed{QStringLiteral("used"), QStringLiteral("18,4G")},
          MainWindow::UiTestPropertySeed{QStringLiteral("referenced"), QStringLiteral("12,1G")},
          MainWindow::UiTestPropertySeed{QStringLiteral("compression"), QStringLiteral("lz4")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:activado"), QStringLiteral("on")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:recursivo"), QStringLiteral("on")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:horario"), QStringLiteral("3")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:diario"), QStringLiteral("-")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:semanal"), QStringLiteral("-")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:mensual"), QStringLiteral("-")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:anual"), QStringLiteral("-")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:nivelar"), QStringLiteral("off")},
-         MainWindow::UiTestPropertySeed{QStringLiteral("org.fc16.gsa:destino"), QStringLiteral("-")}});
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-enabled"), QStringLiteral("on")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-recursive"), QStringLiteral("on")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-hourly"), QStringLiteral("3")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-daily"), QStringLiteral("-")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-weekly"), QStringLiteral("-")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-monthly"), QStringLiteral("-")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-yearly"), QStringLiteral("-")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-level"), QStringLiteral("off")},
+         MainWindow::UiTestPropertySeed{QStringLiteral("org.zfsmgr:schedule-target"), QStringLiteral("-")}});
     window.rebuildConnectionDetailsForTest();
 
     window.show();

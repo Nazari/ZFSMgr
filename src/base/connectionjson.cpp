@@ -11,7 +11,7 @@ namespace zfsmgr::base::connjson {
 namespace {
 
 // Comparación sin distinguir caja para las etiquetas ASCII de este fichero: «LOCAL»,
-// «SSH», «PSRP». Todas lo son, así que la variante ASCII es la correcta aquí.
+// «SSH», «LOCAL». Todas lo son, así que la variante ASCII es la correcta aquí.
 bool igualNoCase(const std::string& a, const std::string& b) {
     return toLowerAscii(a) == toLowerAscii(b);
 }
@@ -50,19 +50,6 @@ bool shouldForceLocalSudo(const ConnectionProfile& p) {
 bool profileHasDaemonTls(const ConnectionProfile& p) {
     return !trim(p.daemonTlsServerCertPem).empty() || !trim(p.daemonTlsClientCertPem).empty()
         || !trim(p.daemonTlsClientKeyPem).empty();
-}
-
-bool migratePsrpProfileToSsh(ConnectionProfile& p) {
-    if (!igualNoCase(trim(p.connType), "PSRP")) {
-        return false;
-    }
-    p.connType = "SSH";
-    p.osType = "Windows";
-    p.useSudo = false;
-    if (p.port == 5986 || p.port <= 0) {
-        p.port = 22;
-    }
-    return true;
 }
 
 std::string decodeHexAsciiIfUuid(const std::string& raw) {

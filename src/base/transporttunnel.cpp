@@ -693,8 +693,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
         rc = static_cast<int>(resp["rc"].toInt(1));
         out = resp["stdout"].toString();
         err = resp["stderr"].toString();
-    // El fallo como CÓDIGO, si el agente lo manda y este cliente lo conoce: la frase en su
-    // idioma en vez de la inglesa que viene en stderr. Ver agentmsg.h.
+    // El fallo como CÓDIGO: la frase en el idioma de este cliente. Ver agentmsg.h.
     {
         const std::string codigo = resp["code"].toString();
         agentmsg::setLastCode(codigo);
@@ -703,10 +702,7 @@ bool tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
             for (const auto& a : resp["args"].toArray()) {
                 args.push_back(a.toString());
             }
-            const std::string frase = agentmsg::inClientLanguage(codigo, args);
-            if (!frase.empty()) {
-                err = frase + "\n";
-            }
+            err = agentmsg::render(codigo, args) + "\n";
         }
     }
         {

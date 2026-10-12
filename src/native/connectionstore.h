@@ -119,10 +119,6 @@ public:
     bool encryptStoredPasswords(QString& error);
     bool rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error);
 
-    // Expuesta para poder verificar la conversión de perfiles PSRP sin fabricar un
-    // almacén en disco. El puerto es la parte que se olvida y la que convierte una
-    // conexión rota en una conexión rota sin explicación.
-    static bool migratePsrpProfileToSshForTest(ConnectionProfile& p);
 
 private:
     QString aviso(zfsmgr::base::store::Reason m,

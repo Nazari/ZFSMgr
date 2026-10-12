@@ -149,15 +149,6 @@ int ensurePort(const QString& connType, int port) {
     return CJ::ensurePort(bs(connType), port);
 }
 
-bool migratePsrpProfileToSsh(ConnectionProfile& p) {
-    BP::ConnectionProfile o = aBase(p);
-    const bool cambio = CJ::migratePsrpProfileToSsh(o);
-    if (cambio) {
-        p = deBase(o);
-    }
-    return cambio;
-}
-
 
 bool profileHasDaemonTls(const ConnectionProfile& p) {
     return CJ::profileHasDaemonTls(aBase(p));
@@ -305,14 +296,6 @@ QString ConnectionStore::traduce(const BS::Warning& a) const {
             return trk(QStringLiteral("t_cstore_json_upsert_err"),
                        QStringLiteral("No se pudo guardar la conexión"),
                        QStringLiteral("Could not save the connection"));
-        case M::PsrpProfileConverted:
-            return QStringLiteral("%1: %2").arg(
-                conexion,
-                trk(QStringLiteral("t_cstore_psrp001"),
-                    QStringLiteral("usaba PSRP, que ya no está soportado. Se ha convertido a "
-                                   "SSH en el puerto 22; revise usuario, clave y acceso SSH."),
-                    QStringLiteral("used PSRP, which is no longer supported. It has been "
-                                   "converted to SSH on port 22; check user, key and SSH access.")));
     }
     return QString();
 }
@@ -476,10 +459,6 @@ void ConnectionStore::ensureAppDefaults() const {
 
 
 
-bool ConnectionStore::migratePsrpProfileToSshForTest(ConnectionProfile& p) {
-    return migratePsrpProfileToSsh(p);
-}
-
 LoadResult ConnectionStore::loadConnections() const {
     LoadResult result;
     QString loadErr;
@@ -495,11 +474,6 @@ LoadResult ConnectionStore::loadConnections() const {
     }
     for (const QJsonValue& v : connections) {
         ConnectionProfile p = connectionFromJson(v.toObject());
-        // Antes de ensurePort: la conversión decide el puerto y no debe pisarla nadie.
-        if (migratePsrpProfileToSsh(p)) {
-            result.warnings.push_back(
-                aviso(BS::Reason::PsrpProfileConverted, p.name.isEmpty() ? p.id : p.name));
-        }
         p.port = ensurePort(p.connType, p.port);
 
         // Abrir los secretos lo hace la CAPA BASE, que es donde lo usa también el

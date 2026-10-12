@@ -349,13 +349,9 @@ ConnectionProfile ConnectionDialog::profile() const {
 }
 
 void ConnectionDialog::ensureDefaultPortForMode() {
-    // Se siguen reconociendo 5985/5986 como "puerto puesto por la aplicación" para que
-    // un perfil que venía de PSRP recupere el 22 al editarlo, en vez de conservar un
-    // puerto de WinRM al que ya nadie escucha.
     const QString wantedPort = QStringLiteral("22");
     const QString current = m_portEdit->text().trimmed();
-    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22")
-        || current == QStringLiteral("5985") || current == QStringLiteral("5986")) {
+    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22")) {
         m_portEdit->setText(wantedPort);
     }
     m_lastAutoPort = wantedPort;

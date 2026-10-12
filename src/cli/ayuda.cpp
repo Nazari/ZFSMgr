@@ -1040,8 +1040,7 @@ const std::vector<Orden> kOrdenes = {
       {{"t_sch_rec", "--recursive / --no-recursive"},
        {"t_sch_rec_q", "Si cubre también a los descendientes."}},
       {{"t_sch_to2", "--to <zfsm://conexión/pool/dataset>"},
-       {"t_sch_to_q2", "A dónde se nivela lo programado: la URL de un dataset. El formato antiguo "
-        "«Conexión::pool/dataset» ya no se admite al escribirlo."}},
+       {"t_sch_to_q3", "A dónde se nivela lo programado: la URL de un dataset."}},
       {{"t_sch_level", "--level / --no-level"},
        {"t_sch_level_q", "Nivelar contra el destino después de cada snapshot. Exige --to."}},
       {{"t_sch_off", "--off"}, {"t_sch_off_q", "La apaga CONSERVANDO lo configurado."}},
@@ -1052,7 +1051,7 @@ const std::vector<Orden> kOrdenes = {
        "diarias», y programarla apagada no significaría nada. Para apagarla sin perder lo "
        "puesto, «--off»; para quitarla del todo, «--clear»."},
       {"t_sch_det2", "La programación no es un fichero de este programa: son PROPIEDADES del dataset "
-       "—`org.fc16.gsa:*`—, así que sobrevive a reinstalar el cliente y viaja con el pool "
+       "—`org.zfsmgr:schedule-*`—, así que sobrevive a reinstalar el cliente y viaja con el pool "
        "si se exporta. Se pueden ver con «ls #properties»."},
       {"t_sch_det3", "Quien hace los snapshots es el agente GSA de esa máquina, no este programa: "
        "si no está instalado, la programación queda escrita y no pasa nada. Las reglas se "

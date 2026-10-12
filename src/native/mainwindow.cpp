@@ -55,33 +55,33 @@ QString canonicalDatasetParentName(const QString& fullName) {
 
 QStringList gsaPropertyKeysForModel() {
     return {
-        QStringLiteral("org.fc16.gsa:activado"),
-        QStringLiteral("org.fc16.gsa:recursivo"),
-        QStringLiteral("org.fc16.gsa:horario"),
-        QStringLiteral("org.fc16.gsa:diario"),
-        QStringLiteral("org.fc16.gsa:semanal"),
-        QStringLiteral("org.fc16.gsa:mensual"),
-        QStringLiteral("org.fc16.gsa:anual"),
-        QStringLiteral("org.fc16.gsa:nivelar"),
-        QStringLiteral("org.fc16.gsa:destino"),
+        QStringLiteral("org.zfsmgr:schedule-enabled"),
+        QStringLiteral("org.zfsmgr:schedule-recursive"),
+        QStringLiteral("org.zfsmgr:schedule-hourly"),
+        QStringLiteral("org.zfsmgr:schedule-daily"),
+        QStringLiteral("org.zfsmgr:schedule-weekly"),
+        QStringLiteral("org.zfsmgr:schedule-monthly"),
+        QStringLiteral("org.zfsmgr:schedule-yearly"),
+        QStringLiteral("org.zfsmgr:schedule-level"),
+        QStringLiteral("org.zfsmgr:schedule-target"),
     };
 }
 
 QString gsaComparableValue(const QString& propName, const QString& rawValue) {
     const QString prop = propName.trimmed();
     const QString value = rawValue.trimmed();
-    if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+    if (!prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)) {
         return rawValue;
     }
-    if (prop.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+    if (prop.compare(QStringLiteral("org.zfsmgr:schedule-target"), Qt::CaseInsensitive) == 0) {
         return (value == QStringLiteral("-")) ? QString() : rawValue;
     }
     if (value.isEmpty() || value == QStringLiteral("-")) {
-        if (prop.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
-            || prop.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+        if (prop.compare(QStringLiteral("org.zfsmgr:schedule-hourly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-daily"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-weekly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-monthly"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.zfsmgr:schedule-yearly"), Qt::CaseInsensitive) == 0) {
             return QStringLiteral("0");
         }
         return QStringLiteral("off");
@@ -1702,7 +1702,7 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
                 if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
                     continue;
                 }
-                if (prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+                if (prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)
                     && isLocallyConfiguredGsaSource(source)) {
                     result.loaded[dsName].insert(prop, value);
                 }

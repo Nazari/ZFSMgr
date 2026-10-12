@@ -56,8 +56,6 @@ std::string labelOf(const Warning& a) {
             return con(t("t_sw_duplicado", "ya hay una conexión con ese nombre"), a.connection);
         case Reason::ConnectionNotSaved:
             return con(t("t_sw_no_guardada", "no se pudo guardar la conexión"), a.detail);
-        case Reason::PsrpProfileConverted:
-            return con(t("t_sw_psrp", "perfil PSRP convertido a SSH"), a.connection);
         case Reason::WrongField:
             return con(format(t("t_sw_campo", "campo incorrecto «%1»"), {a.field}), a.detail);
         case Reason::CannotEncrypt:

@@ -17,13 +17,13 @@ using mwhelpers::shSingleQuote;
 QString unixAlternateMountHelpersScript() {
     return QStringLiteral(
         "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "saved_prop='org.zfsmgr:savedmountpoint'; "
         "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
         "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
         "zfs set mountpoint=\"$mp\" \"$ds\"; "
         "zfs mount \"$ds\" >/dev/null 2>&1 || true; }; "
         "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "saved_prop='org.zfsmgr:savedmountpoint'; "
         "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
         "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
         "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "

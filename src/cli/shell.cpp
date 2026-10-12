@@ -1522,7 +1522,7 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     const std::string prefijo = destino.dataset + "/";
     for (const std::string& linea : B::split(out, "\n", true)) {
         const std::vector<std::string> c = B::split(linea, "\t", false);
-        if (c.size() < 10) {
+        if (c.size() < 12) {
             continue;
         }
         const std::string& nombre = c[0];
@@ -1550,15 +1550,8 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         // 78 G y el listado lo enseñaba igual que un sistema de ficheros, con el punto de
         // montaje a «-» como única pista. No es un detalle de rótulo: en un volumen no se
         // puede entrar, no tiene hijos que listar y no se monta.
-        //
-        // La columna puede no venir: un agente anterior a esto manda diez y ahí se acaba la
-        // línea. Entonces se vuelve a la deducción de siempre, que acierta con las
-        // instantáneas y es lo único que había.
-        const std::string tipoCrudo = c.size() > 10 ? B::toLowerAscii(B::trim(c[10]))
-                                                     : std::string();
-        const std::string tipo = !tipoCrudo.empty()
-                                     ? (tipoCrudo == "filesystem" ? "dataset" : tipoCrudo)
-                                     : (esSnap ? "snapshot" : "dataset");
+        const std::string tipoCrudo = B::toLowerAscii(B::trim(c[10]));
+        const std::string tipo = tipoCrudo == "filesystem" ? "dataset" : tipoCrudo;
         // El ESTADO: una sola columna que contesta «¿puedo llegar a esto ahora mismo?» para
         // las dos clases de cosa.
         //
@@ -1567,13 +1560,11 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
         // saber. No se usa `volmode` para decirlo: su valor habitual es `default` —«lo que
         // diga el parámetro del módulo»— y eso no contesta la pregunta. El agente mira si
         // existe el nodo, que es un hecho y no una intención.
-        const std::string dispositivo = c.size() > 11 ? B::toLowerAscii(B::trim(c[11]))
-                                                       : std::string();
+        const std::string dispositivo = B::toLowerAscii(B::trim(c[11]));
         std::string estado;
         if (esSnap || tipo == "snapshot") {
             estado = "-";  // una instantánea ni se monta ni se expone
         } else if (tipo == "volume") {
-            // Sin la columna —agente anterior a esto— no se inventa: se dice que no se sabe.
             estado = dispositivo.empty() || dispositivo == "-" ? "?" : dispositivo;
         } else {
             estado = B::toLowerAscii(B::trim(c[7])) == "yes" ? "mounted" : "unmounted";
@@ -3387,7 +3378,7 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                            p.recursive ? "true" : "false", std::to_string(p.hourly),
                            std::to_string(p.daily), std::to_string(p.weekly),
                            std::to_string(p.monthly), std::to_string(p.yearly),
-                           p.target.empty() ? "-" : B::gsa::destinationAsUrl(p.target)});
+                           p.target.empty() ? "-" : p.target});
     }
     return t;
 }
@@ -3644,20 +3635,11 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         //
         // Su ausencia no rompe nada visible: rompe la nivelación GSA contra un dataset de la
         // propia máquina, en silencio y con un mensaje que culpa al par. Sin enseñarlo aquí
-        // no había forma de dar con ello. Un daemon anterior a este cambio no lo emite, y
-        // entonces se dice eso mismo en vez de fingir que está vacío.
+        // no había forma de dar con ello.
         if (vista.self.empty()) {
-            // Dos causas, y desde aquí NO se distinguen: que la máquina no tenga puesto el
-            // dato, o que su daemon sea anterior a esta comprobación y por eso no lo diga.
-            // El mensaje las nombra las dos en vez de afirmar la que suene peor: dar por
-            // roto lo que solo está desactualizado manda a buscar donde no hay nada.
-            std::fputs(TC("t_peers_sin_self",
-                          "AVISO: esta máquina no ha dicho con qué nombre la llama usted.\n"
-                          "       O no lo tiene puesto —y entonces NO puede nivelar contra un\n"
-                          "       dataset suyo propio, sin avisar de ello—, o su daemon es\n"
-                          "       anterior a esta comprobación y simplemente no lo informa.\n"
-                          "       «peers --push» arregla lo primero; actualizar el daemon,\n"
-                          "       lo segundo.\n"),
+            std::fputs(TC("t_peers_sin_self2",
+                          "AVISO: esta máquina no tiene credenciales entregadas: no puede nivelar\n"
+                          "       contra otras ni contra sí misma. «peers --push» sobre ella.\n"),
                        stderr);
         } else {
             std::fprintf(stderr, TC("t_peers_self", "se identifica como: %s\n"),
@@ -3668,9 +3650,10 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         // misma y otra también—; esto no lo elige nadie.
         if (!vista.realUid.empty()) {
             if (vista.selfUid.empty()) {
-                std::fprintf(stderr, TC("t_peers_uid_sin",
-                                        "identidad de la máquina: %s (no se le entregó ninguna; "
-                                        "decidirá por el nombre)\n"),
+                std::fprintf(stderr, TC("t_peers_uid_sin2",
+                                        "AVISO: esta máquina es %s, pero no se le entregó su "
+                                        "identidad: no sabrá nivelar contra sí misma. «peers "
+                                        "--push» sobre ella.\n"),
                              vista.realUid.c_str());
             } else if (B::toLowerAscii(vista.selfUid) == B::toLowerAscii(vista.realUid)) {
                 std::fprintf(stderr, TC("t_peers_uid_ok", "identidad de la máquina: %s\n"),
@@ -3703,9 +3686,8 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     // Componer la carga es cosa de la capa base: la interfaz y el servidor web necesitan
     // exactamente lo mismo, y esto estaba solo aquí.
     // El uid de la máquina a la que se entrega. Sale de su perfil, que lo rellena `refresh`
-    // preguntándoselo a ella. Si está vacío se dice: sin él la entrega funciona igual pero
-    // esa máquina seguirá decidiendo «¿este destino soy yo?» por el nombre, que es lo que se
-    // está intentando dejar atrás.
+    // preguntándoselo a ella. Es OBLIGATORIO: «¿este destino soy yo?» se decide por él y solo
+    // por él.
     std::string uidDeDestino;
     {
         const auto* pd = buscarConexion(e.conns, destino.connection);
@@ -3713,10 +3695,10 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             uidDeDestino = B::trim(pd->machineUid);
         }
         if (uidDeDestino.empty()) {
-            std::fputs(TC("t_push_sin_uid",
-                          "aviso: no se conoce el identificador de máquina de este destino.\n"
-                          "       Se entrega igual, pero decidirá por el NOMBRE y no por su\n"
-                          "       identidad. Un «refresh» sobre esa conexión lo averigua.\n"), stderr);
+            std::fputs(TC("t_push_sin_uid2",
+                          "no se conoce el identificador de máquina de este destino: un «refresh»\n"
+                          "sobre esa conexión lo averigua, y después «peers --push».\n"), stderr);
+            return false;
         }
     }
     const PR::Handover entrega =
@@ -3858,13 +3840,7 @@ B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionP
     }
     if (rc != 0) {
         const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
-        // Por el CÓDIGO; el texto, para un daemon anterior a los códigos (que sigue mandándolo
-        // en inglés).
-        c.whyNotChecked = B::agentmsg::lastCode() == "unknown_command"
-                                  || detalle.find("unknown command") != std::string::npos
-                              ? T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no "
-                                  "informa del estado; «install-daemon» lo actualiza")
-                              : detalle;
+        c.whyNotChecked = detalle;
         return c;
     }
     std::string errJson;
@@ -3902,14 +3878,14 @@ std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetStat
     std::string que;
     if (d.failedStep == "level") {
         que = B::format(T("t_sch_mal_nivel", "la nivelación a %1"),
-                        {B::gsa::destinationAsUrl(d.destination)});
+                        {d.destination});
     } else if (d.failedStep == "snapshot") {
         que = T("t_sch_mal_snap", "el snapshot");
     } else if (d.failedStep == "prune") {
         que = T("t_sch_mal_poda", "la poda");
     } else {
         que = B::format(T("t_sch_mal_poda_dst", "la poda de %1"),
-                        {B::gsa::destinationAsUrl(d.destination)});
+                        {d.destination});
     }
     return B::format(T("t_sch_mal_fila", "%1 — %2 falló (%3): %4"),
                      {url, que, horaLocal(d.errorTime), d.error});
@@ -4009,7 +3985,7 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
             t.filas.push_back({c.connection, d.dataset,
                                d.lastSnapshot.empty() ? "-" : d.lastSnapshot,
                                nivel,
-                               d.destination.empty() ? "-" : B::gsa::destinationAsUrl(d.destination),
+                               d.destination.empty() ? "-" : d.destination,
                                estado});
         }
     }
@@ -4354,12 +4330,10 @@ private:
     std::string m_error;
 };
 
-// El error de un trabajo en el idioma de quien lo lee: con código (agentmsg), su frase; sin
-// él —un daemon anterior a los códigos— o con uno que este cliente no conoce, el texto que vino.
-std::string errorDeTrabajo(const std::string& texto, const std::string& codigo,
-                           const std::string& argsJson) {
+// El error de un trabajo en el idioma de quien lo lee: su código y sus argumentos (agentmsg).
+std::string errorDeTrabajo(const std::string& codigo, const std::string& argsJson) {
     if (codigo.empty()) {
-        return texto;
+        return {};
     }
     std::vector<std::string> args;
     B::json::Value v;
@@ -4367,27 +4341,18 @@ std::string errorDeTrabajo(const std::string& texto, const std::string& codigo,
     if (B::json::parse(argsJson.empty() ? "[]" : argsJson, v, &err)) {
         for (const auto& a : v.toArray()) args.push_back(a.toString());
     }
-    const std::string frase = B::agentmsg::inClientLanguage(codigo, args);
-    return frase.empty() ? texto : frase;
+    return B::agentmsg::render(codigo, args);
 }
 
 std::string errorDeTrabajo(const std::map<std::string, std::string>& k) {
     const auto de = [&](const char* c) { return k.count(c) ? k.at(c) : std::string(); };
-    return errorDeTrabajo(de("ERROR"), de("ERROR_CODE"), de("ERROR_ARGS"));
+    return errorDeTrabajo(de("ERROR_CODE"), de("ERROR_ARGS"));
 }
-
-bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
 
 // `schedule run`: una pasada del planificador para ESTE dataset, ahora. Lo que el daemon
 // registró se enseña aquí mismo. La nivelación, si toca, sale como TRABAJO: sin `--wait` se
 // dice cuál y se vuelve, como `send`; con `--wait` se sigue hasta que acaba.
 bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino, bool esperar) {
-    if (!agenteAnuncia(e, destino.connection, "--mutate-gsa-run-once")) {
-        std::fprintf(stderr, "%s\n",
-                     T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no informa "
-                       "del estado; «install-daemon» lo actualiza").c_str());
-        return false;
-    }
     std::string out;
     std::string errorDeOrden;
     const bool ok = agente(e, destino, PET::gsaRunOnce(destino.dataset), out, 600000, &errorDeOrden);
@@ -4535,7 +4500,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         if (v.empty()) {
             return true;
         }
-        std::map<std::string, std::string> uno{{std::string(B::gsa::kPropertyPrefix) + "diario", v}};
+        std::map<std::string, std::string> uno{{std::string(B::gsa::kPropertyPrefix) + "daily", v}};
         B::gsa::Schedule tmp;
         B::gsa::Reason m;
         if (!B::gsa::fromProperties(uno, tmp, m)) {
@@ -4556,15 +4521,11 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     if (pet.tiene("--level")) { nueva.level = true; }
     if (pet.tiene("--no-level")) { nueva.level = false; }
     if (!pet.valor("to").empty()) {
-        // Solo la URL. «Conexión::pool/dataset» es lo que se GUARDA —el daemon lo lee así y
-        // así está en las máquinas—, pero ya no se escribe a mano: se dice cómo ponerlo.
+        // La URL de un dataset: así se escribe, se guarda y la lee el daemon.
         B::gsa::Reason m;
         if (!B::gsa::targetFromUrl(pet.valor("to"), nueva.target, m)) {
             std::fprintf(stderr, "--to %s: %s\n", pet.valor("to").c_str(),
                          B::gsa::labelOf(m.failure).c_str());
-            if (m.failure == B::gsa::Failure::LegacyTargetFormat) {
-                std::fprintf(stderr, "  --to %s\n", m.detail.c_str());
-            }
             return false;
         }
     }
@@ -5172,8 +5133,6 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
 // Que sea un trabajo y no una espera es lo que permite mandar terabytes y cerrar la
 // sesión. Con `--wait` se espera aquí, sondeando.
 
-bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
-
 // Que el fichero de destino de un `send` está entero en su sitio.
 //
 // El trabajo es del EMISOR, y que acabe bien dice que mandó todo, no que el otro lado lo
@@ -5373,16 +5332,6 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         if (!zfsmgr::compresion::leeEleccion(pet.valor("comp"), compresion, errComp)) {
             std::fprintf(stderr, "--comp: %s\n", errComp.c_str());
             e.ultimoRc = 2;
-            return false;
-        }
-        if (compresion.formato != zfsmgr::compresion::Formato::Ninguno
-            && !agenteAnuncia(e, destino.connection, "--file-stream-compression")) {
-            std::fprintf(stderr,
-                         TC("t_send_comp_agente_viejo",
-                            "el agente de %s no sabe guardar el fichero comprimido (lo dejaría sin "
-                            "comprimir): actualícelo con «install-daemon»\n"),
-                         destino.connection.c_str());
-            e.ultimoRc = 1;
             return false;
         }
         // Con -c o -w los bloques ya van comprimidos o cifrados: comprimir otra vez gasta CPU
@@ -6070,7 +6019,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
             char ritmo[32];
             std::snprintf(ritmo, sizeof(ritmo), "%.2f", j["rate"].toDouble());
             // El texto de error puede traer saltos de línea; en una tabla los rompe.
-            std::string textoErr = errorDeTrabajo(j["error"].toString(), j["error_code"].toString(),
+            std::string textoErr = errorDeTrabajo(j["error_code"].toString(),
                                                   B::json::toCompact(j["error_args"]));
             B::replaceAll(textoErr, "\n", " ");
             B::replaceAll(textoErr, "\r", " ");
@@ -6080,7 +6029,7 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
                                           std::to_string(j["elapsed"].toInt()), B::trim(textoErr)};
             if (detalle) {
                 const std::string d = j["desc"].toString();
-                fila.push_back(d.empty() ? std::string("-") : d);   // agente anterior: no lo dice
+                fila.push_back(d.empty() ? std::string("-") : d);
             }
             t.filas.push_back(fila);
         }
@@ -6144,10 +6093,10 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
     for (const auto& kv : claves) {
         // El código del error y sus argumentos no se enseñan sueltos: dan la fila «error» en
         // el idioma de quien lo lee.
-        if (kv.first == "ERROR_CODE" || kv.first == "ERROR_ARGS") {
+        if (kv.first == "ERROR_ARGS") {
             continue;
         }
-        if (kv.first == "ERROR") {
+        if (kv.first == "ERROR_CODE") {
             t.filas.push_back({"error", errorDeTrabajo(claves)});
             continue;
         }
@@ -7081,25 +7030,6 @@ bool estadoDeRuta(Estado& e, const std::string& conexion, const std::string& rut
 
 // ¿El agente de `conexion` anuncia `capacidad` en su `--health`? Para lo que un agente
 // anterior no rechazaría sino que IGNORARÍA en silencio, como el `--as` del emisor del árbol.
-bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad) {
-    ZfsmUrl u;
-    u.kind = ZfsmKind::Connection;
-    u.connection = conexion;
-    std::string out;
-    if (!agente(e, u, {"--health"}, out)) {
-        return false;
-    }
-    for (const std::string& linea : B::split(out, "\n", true)) {
-        if (linea.rfind("CAPS=", 0) == 0) {
-            for (const std::string& c : B::split(B::trim(linea.substr(5)), ",", true)) {
-                if (B::trim(c) == capacidad) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
 
 // `ruta` partida en su directorio y su último tramo. En Windows el padre de «C:/x» es «C:/»,
 // no «C:», que sería «el directorio actual de la unidad C».
@@ -7229,23 +7159,6 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
     // destino un directorio con el nombre del fichero, y el envío fallaba después con «no es
     // un directorio». Quedaba basura con forma de éxito a medias.
     const bool esFichero = esFicheroEn(e, uOrigen, rutaOrigen);
-    {
-        const std::string hoja = hojaDe(rutaOrigen);
-        {
-            // Con otro nombre lo pone el EMISOR (`--as`), que manda el manifiesto con el
-            // nombre de llegada. Un emisor anterior lo ignoraría y lo mandaría con el suyo:
-            // se mira antes de pedirlo.
-            if (esFichero && nombre != hoja && !agenteAnuncia(e, maqOrigen, "--tree-send-as")) {
-                std::fprintf(stderr,
-                             TC("t_cp_as_fichero_remoto",
-                                "el agente de %s no sabe mandar un fichero con otro nombre (llegaría "
-                                "como «%s»): actualícelo con «install-daemon»\n"),
-                             maqOrigen.c_str(), hoja.c_str());
-                e.ultimoRc = 1;
-                return false;
-            }
-        }
-    }
     // El directorio donde aterriza tiene que EXISTIR antes: el receptor del árbol no lo
     // crea y se planta con «no es un directorio». Se crea con un verbo que solo puede crear
     // DENTRO de algo que ya está, no en cualquier parte del sistema.

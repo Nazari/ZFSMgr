@@ -65,16 +65,6 @@ void ensureLocalProfile(std::vector<ConnectionProfile>& profiles, const std::str
 void mergeTrustStore(std::vector<ConnectionProfile>& profiles, const json::Value& trust,
                      const std::string& master, store::Warnings& warnings);
 
-// PSRP was withdrawn as a transport: it cannot carry the daemon, because the RPC travels
-// through an `ssh -L` tunnel and without SSH there is no tunnel. A profile saved with PSRP
-// can neither stay as it is —it would fail opaquely— nor simply vanish, so it is converted
-// to SSH.
-//
-// The port is the part that gets forgotten: 5986 is WinRM, and leaving it turns a broken
-// connection into a broken connection WITH NO explanation, which is worse than where it
-// started.
-bool migratePsrpProfileToSsh(ConnectionProfile& p);
-
 // When `raw` is the ASCII hex of a UUID, returns the UUID; otherwise, empty.
 //
 // It imitates `QByteArray::fromHex`, which **skips non-hex characters** instead of failing,

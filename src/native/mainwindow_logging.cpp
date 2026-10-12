@@ -193,7 +193,7 @@ bool looksLikeGsaRuntimeLine(const QString& line) {
     return low.startsWith(QStringLiteral("gsa "))
            || low.contains(QStringLiteral(" zfsmgr-gsa"))
            || low.contains(QStringLiteral(" gsa "))
-           || low.contains(QStringLiteral("org.fc16.gsa:"));
+           || low.contains(QStringLiteral("org.zfsmgr:schedule-"));
 }
 
 void ensureLogHorizontalScrollTracking(QPlainTextEdit* view) {

@@ -29,8 +29,7 @@ struct Peer {
     std::string id;
     std::string host;
     int puerto{0};
-    // El identificador de MÁQUINA, que no depende de quién mire. Vacío cuando el daemon de
-    // la otra punta es anterior a esto y manda solo tres columnas.
+    // El identificador de MÁQUINA, que no depende de quién mire.
     std::string uid;
 };
 
@@ -86,17 +85,15 @@ Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
 // una función de mil líneas es donde se esconden los fallos que nadie ve. En este proyecto
 // ya ha pasado.
 //
-// El orden de las tres respuestas no es caprichoso:
+// Decide SIEMPRE el identificador de máquina, nunca el nombre:
 //
 //   1. Si el nombre es el de un PAR y ese par trae uid, manda ese uid. Es el caso que
 //      arregla el defecto: el cliente que escribió la programación llama a esta máquina de
 //      una forma y el que entregó las credenciales la llamó de otra.
 //   2. Si no, y el nombre es con el que se entregaron las credenciales, manda el uid que se
 //      entregó —comprobando que de verdad es el mío—.
-//   3. Y si no hay uid por ninguna parte, el nombre. Es el camino de siempre, y se conserva
-//      a propósito: un `peers.json` escrito por un cliente anterior no trae uid, y quitarlo
-//      convertiría una actualización del cliente en una nivelación que deja de ocurrir sin
-//      decir nada.
+//   3. Sin uid por ninguna parte, NO: mejor no nivelar que nivelar al sitio equivocado.
+//      `peers --push` exige el uid de la máquina a la que entrega.
 struct SelfMatch {
     std::string selfName;              // con qué nombre se le entregaron las credenciales
     std::string selfUid;               // qué uid se le entregó

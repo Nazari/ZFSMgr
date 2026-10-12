@@ -10,19 +10,19 @@ No se gestiona como un componente independiente desde un menú específico de GS
 
 El GSA ejecuta snapshots automáticos por dataset y, cuando procede, nivelación (`zfs send | zfs recv`) hacia un destino.
 
-La configuración se sigue expresando con propiedades ZFS `org.fc16.gsa:*` en cada dataset.
+La configuración se sigue expresando con propiedades ZFS `org.zfsmgr:schedule-*` en cada dataset.
 
 Propiedades principales:
 
-- `org.fc16.gsa:activado`
-- `org.fc16.gsa:recursivo`
-- `org.fc16.gsa:horario`
-- `org.fc16.gsa:diario`
-- `org.fc16.gsa:semanal`
-- `org.fc16.gsa:mensual`
-- `org.fc16.gsa:anual`
-- `org.fc16.gsa:nivelar`
-- `org.fc16.gsa:destino`
+- `org.zfsmgr:schedule-enabled`
+- `org.zfsmgr:schedule-recursive`
+- `org.zfsmgr:schedule-hourly`
+- `org.zfsmgr:schedule-daily`
+- `org.zfsmgr:schedule-weekly`
+- `org.zfsmgr:schedule-monthly`
+- `org.zfsmgr:schedule-yearly`
+- `org.zfsmgr:schedule-level`
+- `org.zfsmgr:schedule-target`
 
 ## Modelo operativo
 

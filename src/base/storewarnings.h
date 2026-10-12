@@ -50,7 +50,6 @@ enum class Reason {
     ConnectionNotSaved,
 
     // --- Informational warnings
-    PsrpProfileConverted,            // connection
 };
 
 // The reason with its data. Named fields, not a list of arguments: that way the place that

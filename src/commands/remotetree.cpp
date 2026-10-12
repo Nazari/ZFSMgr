@@ -485,13 +485,7 @@ std::string serializeManifest(const std::vector<Entry>& entradas) {
         out += std::to_string(e.path.size());
         out += ' ';
         out += std::to_string(e.target.size());
-        // --- Dueño y grupo, AL FINAL de la línea y a propósito.
-        //
-        // La cabecera se lee con un `iss >> campo >> campo …` posicional, así que lo que
-        // sobra al final se ignora: un agente anterior a esto lee las seis primeras y sigue
-        // como siempre. Y el analizador nuevo trata lo que falte como ausente. Por eso se
-        // añaden aquí y no en medio: en medio sería un formato nuevo, y habría que
-        // actualizar las dos puntas a la vez.
+        // --- Dueño y grupo.
         out += ' ';
         out += std::to_string(e.uid);
         out += ' ';
@@ -576,27 +570,24 @@ bool parseManifest(const std::string& texto, std::vector<Entry>& salida,
         e.path = texto.substr(i, lr);
         e.target = texto.substr(i + lr, ld);
         i += lr + ld;
-        // --- Dueño y grupo, si vienen.
-        //
-        // OPCIONALES a propósito: un agente anterior a esto manda seis campos y ahí se
-        // acaba la línea. Exigirlos convertiría «la otra máquina tiene un agente de la
-        // semana pasada» en «la copia no funciona», que es mucho peor que copiar sin
-        // conservar el dueño —que es justo lo que se venía haciendo—.
+        // --- Dueño y grupo.
         std::uint32_t uid = 0;
         std::uint32_t gid = 0;
         std::size_t lu = 0;
         std::size_t lg = 0;
-        if (iss >> uid >> gid >> lu >> lg) {
-            if (i + lu + lg > texto.size()) {
-                error = "manifest truncated in the owner";
-                return false;
-            }
-            e.uid = uid;
-            e.gid = gid;
-            e.owner = texto.substr(i, lu);
-            e.group = texto.substr(i + lu, lg);
-            i += lu + lg;
+        if (!(iss >> uid >> gid >> lu >> lg)) {
+            error = "manifest line without owner and group";
+            return false;
         }
+        if (i + lu + lg > texto.size()) {
+            error = "manifest truncated in the owner";
+            return false;
+        }
+        e.uid = uid;
+        e.gid = gid;
+        e.owner = texto.substr(i, lu);
+        e.group = texto.substr(i + lu, lg);
+        i += lu + lg;
         salida.push_back(e);
     }
     error = "the manifest does not end in «E»";
@@ -713,10 +704,8 @@ std::string headerOf(const Operation& o) {
     h += std::to_string(o.entry.path.size());
     h += ' ';
     h += std::to_string(o.entry.target.size());
-    // Dueño y grupo, al final y por el mismo motivo que en el manifiesto: lo que sobra en
-    // la línea lo ignora un agente anterior a esto, y lo que falta lo trata como ausente
-    // uno nuevo. Hace falta aquí ADEMÁS de en el manifiesto porque ésta es la cabecera de
-    // cada operación, y es por donde viaja un fichero que se envía o se parchea.
+    // Dueño y grupo. Hace falta aquí ADEMÁS de en el manifiesto porque ésta es la cabecera
+    // de cada operación, y es por donde viaja un fichero que se envía o se parchea.
     h += ' ';
     h += std::to_string(o.entry.uid);
     h += ' ';
@@ -754,19 +743,18 @@ bool parseHeader(const std::string& linea, Operation& salida, std::size_t& largo
     salida.entry.size = tam;
     largoRuta = lr;
     largoDestino = ld;
-    // Opcionales: un agente anterior a esto manda seis campos y ahí acaba la línea.
     std::uint32_t uid = 0;
     std::uint32_t gid = 0;
     std::size_t lu = 0;
     std::size_t lg = 0;
-    largoDueno = 0;
-    largoGrupo = 0;
-    if (iss >> uid >> gid >> lu >> lg) {
-        salida.entry.uid = uid;
-        salida.entry.gid = gid;
-        largoDueno = lu;
-        largoGrupo = lg;
+    if (!(iss >> uid >> gid >> lu >> lg)) {
+        error = "header without owner and group: " + linea;
+        return false;
     }
+    salida.entry.uid = uid;
+    salida.entry.gid = gid;
+    largoDueno = lu;
+    largoGrupo = lg;
     return true;
 }
 
@@ -1079,7 +1067,7 @@ bool setOwner(const std::string& ruta, std::uint32_t uid, std::uint32_t gid,
     return true;
 #else
     if (uid == 0 && gid == 0 && usuario.empty() && grupo.empty()) {
-        return true;  // nada que poner: manifiesto de un agente anterior a esto
+        return true;  // nada que poner: un origen sin dueño (Windows, donde es un SID)
     }
     // El NOMBRE manda y el número es el respaldo. Si el nombre existe en esta máquina, ese
     // es el dueño correcto aunque su número sea otro; y si no existe —una cuenta que solo

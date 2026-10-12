@@ -97,6 +97,11 @@ const Mensaje kMensajes[] = {
     {"receiver_stalled", "el receptor dejó de leer: %1 s sin poder mandar un solo byte",
      "the receiver stopped reading: %1 s without being able to send a single byte"},
     {"receiver_failed", "el receptor falló: %1", "the receiver failed: %1"},
+    {"receiver_no_verdict",
+     "el receptor cerró sin decir cómo le fue: se cortó o murió; el registro de la máquina de "
+     "destino dice por qué",
+     "the receiver closed without reporting how it went: it dropped or died; check the log on "
+     "the target machine"},
     {"receiver_dropped",
      "se cortó la conexión con el receptor; el registro de la máquina de destino dice por qué "
      "falló zfs recv",
@@ -345,6 +350,18 @@ std::string inClientLanguage(const std::string& code, const std::vector<std::str
 }
 
 bool isKnown(const std::string& code) { return busca(code) != nullptr; }
+
+std::string render(const std::string& code, const std::vector<std::string>& args) {
+    const std::string frase = inClientLanguage(code, args);
+    if (!frase.empty()) {
+        return frase;
+    }
+    std::string out = code;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        out += (i ? ", " : ": ") + args[i];
+    }
+    return out;
+}
 
 const std::string& lastCode() { return t_ultimoCodigo; }
 void setLastCode(const std::string& code) { t_ultimoCodigo = code; }

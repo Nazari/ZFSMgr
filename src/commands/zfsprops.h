@@ -32,7 +32,7 @@ enum class Platform {
 Platform platformOf(const std::string& osType, const std::string& osLine);
 
 // User properties carry a «:» in the name. They can always be written: ZFS does not
-// interpret them, and this program keeps its schedule in there (`org.fc16.gsa:*`).
+// interpret them, and this program keeps its schedule in there (`org.zfsmgr:schedule-*`).
 bool isUserProperty(const std::string& prop);
 
 // Does that property exist on that platform? Offering `jailed` on Linux is offering an error.

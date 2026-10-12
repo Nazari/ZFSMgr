@@ -572,21 +572,14 @@ private Q_SLOTS:
         QCOMPARE(vuelta[0].mode, e[0].mode);
     }
 
-    void unManifiestoSinDuenoSigueValiendo() {
-        // **La compatibilidad, que es lo que permite actualizar las maquinas de una en una.**
-        // Un agente anterior a esto manda seis campos y ahi acaba la linea. Exigir los
-        // nuevos convertiria «la otra maquina tiene un agente de la semana pasada» en «la
-        // copia no funciona», que es mucho peor que copiar sin conservar el dueno.
-        const std::string viejo = "f 7 1700000000 420 5 0\n" "f.txt" "E\n";
+    void unManifiestoSinDuenoSeRechaza() {
+        // Dueño y grupo son obligatorios: los dos extremos son siempre de la misma versión.
+        // Una línea sin ellos es un manifiesto roto, no uno «sin dueño».
+        const std::string corto = "f 7 1700000000 420 5 0\n" "f.txt" "E\n";
         std::vector<AR::Entry> vuelta;
         std::string err;
-        QVERIFY2(AR::parseManifest(viejo, vuelta, err), err.c_str());
-        QCOMPARE(vuelta.size(), size_t(1));
-        QCOMPARE(QString::fromStdString(vuelta[0].path), QString("f.txt"));
-        QCOMPARE(vuelta[0].mode, uint32_t(420));
-        // Sin dueno: a cero y vacio, que es «no se sabe» y se traduce en no tocarlo.
-        QCOMPARE(vuelta[0].uid, uint32_t(0));
-        QVERIFY(vuelta[0].owner.empty());
+        QVERIFY(!AR::parseManifest(corto, vuelta, err));
+        QVERIFY(!err.empty());
     }
 
     void laCabeceraDeOperacionTambienLosLleva() {
@@ -611,16 +604,12 @@ private Q_SLOTS:
         QCOMPARE(lgr, o.entry.group.size());
     }
 
-    void unaCabeceraDeOperacionSinDuenoSigueValiendo() {
+    void unaCabeceraDeOperacionSinDuenoSeRechaza() {
         AR::Operation vuelta;
         std::size_t lr = 0, ld = 0, ldu = 0, lgr = 0;
         std::string err;
-        QVERIFY2(AR::parseHeader("F 420 1700000000 7 5 0", vuelta, lr, ld, ldu, lgr, err),
-                 err.c_str());
-        QCOMPARE(lr, size_t(5));
-        QCOMPARE(ldu, size_t(0));
-        QCOMPARE(lgr, size_t(0));
-        QCOMPARE(vuelta.entry.uid, uint32_t(0));
+        QVERIFY(!AR::parseHeader("F 420 1700000000 7 5 0", vuelta, lr, ld, ldu, lgr, err));
+        QVERIFY(!err.empty());
     }
 
     void elRecorridoAnotaElModoDeLosDirectorios() {
