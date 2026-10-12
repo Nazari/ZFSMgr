@@ -92,7 +92,17 @@ Listado de cambios.
    En resumen: lo que se buscaba —una sola forma de decir «copia esto ahí»— ya está hecho con
    `cp`. Lo que queda no es duplicación, son operaciones distintas que se parecen por fuera.
 
-9. [ABIERTO 2026-10-10, confirmado que se quiere 2026-10-11] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
+9. [HECHO 2026-10-12] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
+   Lo hecho: catálogo `base/agentmsg` (código estable + argumentos + castellano e inglés). El
+   agente manda "code"/"args" junto a la frase inglesa de stderr; el cliente los traduce donde
+   lee la respuesta (sin tocar firmas). Compatible en los dos sentidos. Migrados ~200 sitios:
+   planificador (también su gsa-state.json), trabajos (jobs, job, --wait), envío entre
+   máquinas, desglosar/ensamblar/todir, ficheros y árboles, dispositivos, pares y bind, el
+   cliente TLS de la capa base (que estaba en castellano a mano) y los «usage» de una línea.
+   El texto de OpenZFS va como argumento («text»). Quedan en inglés: media docena de «usage»
+   partidos en varias líneas, errores internos de análisis de cargas (código «internal») y los
+   del receptor del árbol que viajan por variables intermedias.
+   La pregunta original:
    códigos que traduzca el CLI? Hoy cada error del daemon sale como una frase ya escrita
    —en castellano hasta la 1.0; en inglés desde ella, como solución provisional— y el cliente
    la imprime tal cual, así que no puede traducirla ni decidir según ella sin comparar
