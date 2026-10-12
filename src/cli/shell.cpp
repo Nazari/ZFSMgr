@@ -19,6 +19,7 @@
 #include "zfsprops.h"
 #include "helpers.h"
 #include "linea.h"
+#include "pantalla.h"
 #include "json.h"
 #include "processes.h"
 #include "secretinput.h"
@@ -52,6 +53,8 @@
 #include <array>
 #include <set>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <ctime>
 #include <sstream>
 #include <thread>
@@ -4115,6 +4118,238 @@ private:
     std::thread m_hilo;
 };
 
+// La ZONA DE ESTADO de la pantalla: debajo de la línea de órdenes, siempre a la vista.
+//
+//   zfsm://local/back · programaciones en verde · ✗ <el último error>
+//   trabajos: unib send tank/x@s 1.2G 85.0 MiB/s · local gsa-level back/x 300M
+//
+// Cada conexión tiene su hilo y su PROPIA sesión, como la comprobación del arranque: una
+// máquina apagada no retrasa a las demás ni pisa los túneles del intérprete. Los trabajos se
+// preguntan cada 2 s mientras haya alguno en marcha y cada 30 s si no; las programaciones,
+// al arrancar y cada 5 minutos. Sustituye a la comprobación del arranque cuando hay
+// pantalla: el veredicto se ve aquí, y si hay fallos se escriben además una vez.
+class MonitorDeEstado {
+public:
+    MonitorDeEstado(const Sesion& ses, const Conexiones& conns, bool programaciones)
+        : m_dirConfig(ses.dirConfig), m_maestra(ses.maestra), m_programaciones(programaciones) {
+        for (const auto& p : conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (!conns.desconectada(id) && !conns.secretoSinAbrir(id)) {
+                m_perfiles.push_back(p);
+            }
+        }
+        m_estado.resize(m_perfiles.size());
+        for (std::size_t i = 0; i < m_perfiles.size(); ++i) {
+            m_estado[i].prog.connection = m_perfiles[i].id.empty() ? m_perfiles[i].name
+                                                                   : m_perfiles[i].id;
+            m_hilos.emplace_back([this, i] { hilo(i); });
+        }
+        compone();
+    }
+    ~MonitorDeEstado() {
+        {
+            std::lock_guard<std::mutex> lock(m_m);
+            m_parar = true;
+        }
+        m_cv.notify_all();
+        for (auto& h : m_hilos) {
+            if (h.joinable()) h.join();
+        }
+    }
+
+    // Tras cada orden: dónde se está y, si falló, su último error. Sale bien → se quita.
+    void ponSitio(const std::string& url, int rc, const std::string& ultimoError,
+                  bool tocoProgramaciones) {
+        {
+            std::lock_guard<std::mutex> lock(m_m);
+            m_sitio = url;
+            if (rc == 0) {
+                m_error.clear();
+            } else if (!ultimoError.empty()) {
+                m_error = ultimoError;
+            }
+            // Una orden puede haber lanzado un trabajo: se pregunta YA, no a los 30 s. Y una
+            // `schedule` cambia lo programado: también eso.
+            ++m_aviso;
+            if (tocoProgramaciones) {
+                ++m_avisoProg;
+            }
+        }
+        m_cv.notify_all();
+        compone();
+    }
+
+private:
+    struct PorConexion {
+        std::vector<std::string> trabajos;
+        B::gsa::ConnectionState prog;
+        bool progHecha{false};
+    };
+
+    void hilo(std::size_t i) {
+        auto ses = crearSesion(m_dirConfig, m_maestra, /*verboso=*/false);
+        ses->transporte.sink = [](B::TransportSession::Level, const std::string&, const std::string&) {};
+        ses->transporte.warningSink = [](B::TransportSession::Level, const std::string&,
+                                         const B::transport::WarningNote&) {};
+        const B::ConnectionProfile& p = m_perfiles[i];
+        auto proxTrabajos = std::chrono::steady_clock::now();
+        auto proxProg = proxTrabajos;
+        unsigned avisoVisto = 0;
+        unsigned avisoProgVisto = 0;
+        while (true) {
+            {
+                std::unique_lock<std::mutex> lock(m_m);
+                if (m_parar) return;
+                if (m_aviso != avisoVisto) {
+                    avisoVisto = m_aviso;
+                    proxTrabajos = std::chrono::steady_clock::now();
+                }
+                if (m_avisoProg != avisoProgVisto) {
+                    avisoProgVisto = m_avisoProg;
+                    proxProg = std::chrono::steady_clock::now();
+                }
+            }
+            const auto ahora = std::chrono::steady_clock::now();
+            if (ahora >= proxTrabajos) {
+                std::vector<std::string> trabajos;
+                std::string out, err;
+                int rc = -1;
+                if (ejecutarAgente(*ses, p, PET::jobList(), out, err, rc, nullptr, 4000) && rc == 0) {
+                    for (const std::string& l : B::split(out, "\n", true)) {
+                        if (!B::startsWith(l, "JOB=")) continue;
+                        B::json::Value j;
+                        std::string e;
+                        if (!B::json::parse(l.substr(4), j, &e)) continue;
+                        const std::string est = j["state"].toString();
+                        if (est != "running" && est != "queued") continue;
+                        char ritmo[32];
+                        std::snprintf(ritmo, sizeof(ritmo), "%.1f MiB/s", j["rate"].toDouble());
+                        std::string t = m_estado[i].prog.connection + " " + j["type"].toString();
+                        if (!j["snap"].toString().empty()) t += " " + j["snap"].toString();
+                        if (est == "queued") {
+                            t += " " + T("t_est_en_cola", "en cola");
+                        } else {
+                            t += " " + B::humanSize(std::to_string(j["bytes"].toInt())) + " " + ritmo;
+                        }
+                        trabajos.push_back(t);
+                    }
+                }
+                bool acaboNivelacion = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_m);
+                    const auto nivelando = [](const std::vector<std::string>& v) {
+                        for (const auto& x : v) {
+                            if (x.find(" gsa-level ") != std::string::npos) return true;
+                        }
+                        return false;
+                    };
+                    acaboNivelacion = nivelando(m_estado[i].trabajos) && !nivelando(trabajos);
+                    m_estado[i].trabajos = trabajos;
+                }
+                // Una nivelación que acaba cambia el estado de su programación: se pregunta ya,
+                // no dentro de cinco minutos.
+                if (acaboNivelacion) {
+                    proxProg = ahora;
+                }
+                proxTrabajos = ahora + std::chrono::seconds(trabajos.empty() ? 30 : 2);
+                compone();
+            }
+            if (m_programaciones && ahora >= proxProg) {
+                B::gsa::ConnectionState c = estadoDeProgramaciones(*ses, p, 8000);
+                bool primeraRonda = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_m);
+                    m_estado[i].prog = c;
+                    if (!m_estado[i].progHecha) {
+                        m_estado[i].progHecha = true;
+                        ++m_progHechas;
+                        primeraRonda = m_progHechas == m_estado.size();
+                    }
+                }
+                proxProg = ahora + std::chrono::minutes(5);
+                compone();
+                // Con fallos, la primera vez se escriben también: en la zona solo cabe el
+                // resumen, y el detalle tiene que quedar en el historial.
+                if (primeraRonda) {
+                    std::vector<B::gsa::ConnectionState> todas;
+                    {
+                        std::lock_guard<std::mutex> lock(m_m);
+                        for (const auto& x : m_estado) todas.push_back(x.prog);
+                    }
+                    std::vector<std::pair<std::string, B::gsa::DatasetState>> mal;
+                    std::vector<const B::gsa::ConnectionState*> sin;
+                    if (B::gsa::summarize(todas, mal, sin) == B::gsa::Verdict::WithErrors) {
+                        encolaAviso(ComprobacionDeArranque::resumen(todas));
+                    }
+                }
+            }
+            std::unique_lock<std::mutex> lock(m_m);
+            m_cv.wait_for(lock, std::chrono::seconds(1),
+                          [this, &avisoVisto] { return m_parar || m_aviso != avisoVisto; });
+        }
+    }
+
+    void compone() {
+        std::vector<std::string> lineas;
+        {
+            std::lock_guard<std::mutex> lock(m_m);
+            std::string l = m_sitio.empty() ? std::string("zfsm://") : m_sitio;
+            if (m_programaciones) {
+                l += " · ";
+                if (m_progHechas < m_estado.size()) {
+                    l += T("t_est_prog_comprobando", "programaciones: comprobando…");
+                } else {
+                    std::vector<B::gsa::ConnectionState> todas;
+                    for (const auto& x : m_estado) todas.push_back(x.prog);
+                    std::vector<std::pair<std::string, B::gsa::DatasetState>> mal;
+                    std::vector<const B::gsa::ConnectionState*> sin;
+                    const B::gsa::Verdict v = B::gsa::summarize(todas, mal, sin);
+                    if (v == B::gsa::Verdict::AllGreen) {
+                        l += T("t_est_prog_verde", "programaciones en verde");
+                    } else if (v == B::gsa::Verdict::NoSchedules) {
+                        l += T("t_est_prog_ninguna", "sin programaciones");
+                    } else {
+                        l += B::format(T("t_est_prog_mal", "programaciones con errores: %1"),
+                                       {std::to_string(mal.size())});
+                    }
+                    if (!sin.empty()) {
+                        std::string nombres;
+                        for (const auto* c : sin) nombres += (nombres.empty() ? "" : ", ") + c->connection;
+                        l += " · " + B::format(T("t_est_sin_comprobar", "sin comprobar: %1"), {nombres});
+                    }
+                }
+            }
+            if (!m_error.empty()) {
+                l += " · ✗ " + m_error;
+            }
+            lineas.push_back(l);
+            std::string t;
+            for (const auto& x : m_estado) {
+                for (const auto& tr : x.trabajos) t += (t.empty() ? "" : " · ") + tr;
+            }
+            if (!t.empty()) {
+                lineas.push_back(T("t_est_trabajos", "trabajos: ") + t);
+            }
+        }
+        pantalla::ponEstado(lineas);
+    }
+
+    std::string m_dirConfig;
+    std::string m_maestra;
+    bool m_programaciones;
+    std::vector<B::ConnectionProfile> m_perfiles;
+    std::vector<PorConexion> m_estado;
+    std::size_t m_progHechas{0};
+    std::vector<std::thread> m_hilos;
+    std::mutex m_m;
+    std::condition_variable m_cv;
+    bool m_parar{false};
+    unsigned m_aviso{0};
+    unsigned m_avisoProg{0};
+    std::string m_sitio;
+    std::string m_error;
+};
+
 bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
 
 // `schedule run`: una pasada del planificador para ESTE dataset, ahora. Lo que el daemon
@@ -7801,6 +8036,9 @@ bool cmdInfo(Estado& e, const LineaAnalizada& linea) {
 // El ancho del terminal, para partir las descripciones de la ayuda. Sin poder
 // averiguarlo se toman 80, que es lo que siempre se ha supuesto.
 int anchoTerminal() {
+    if (pantalla::activa()) {
+        return static_cast<int>(pantalla::anchoTerminal());   // stdout es una tubería
+    }
 #ifndef _WIN32
     winsize w{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 40) {
@@ -9520,7 +9758,7 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
 }
 
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi,
-                  bool compruebaProgramaciones) {
+                  bool compruebaProgramaciones, bool pantallaCompleta) {
     Estado e;
     // Al salir —por donde sea: `exit`, fin de la entrada o una orden que falla en un guion—
     // se sueltan los montajes de solo lectura que queden.
@@ -9569,10 +9807,23 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     }
 
     const bool interactivo = hayTerminal();
+    // La pantalla: línea multilínea, repintado al cambiar el tamaño y zona de estado. Antes
+    // que nada que escriba, para que entre en su historial.
+    if (interactivo && pantallaCompleta) {
+        pantalla::arranca();
+    }
+    struct ParaPantalla {
+        ~ParaPantalla() { pantalla::para(); }
+    } paraPantalla;
     // El estado de las programaciones, en segundo plano. Solo con terminal: en un guion o en
     // una tubería, una línea de más en la salida de error que nadie ha pedido estorba.
+    // Con pantalla, la zona de estado (que lleva también el veredicto de las programaciones);
+    // sin ella, la comprobación del arranque de siempre, en una línea.
     std::unique_ptr<ComprobacionDeArranque> comprobacion;
-    if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
+    std::unique_ptr<MonitorDeEstado> monitor;
+    if (interactivo && pantalla::activa() && !ses.sinSecretos) {
+        monitor = std::make_unique<MonitorDeEstado>(ses, e.conns, compruebaProgramaciones);
+    } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
         comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
     }
     if (interactivo) {
@@ -9655,9 +9906,29 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     });
 
     std::string linea;
+    std::string ultimaOrden;
+    // La primera palabra de una línea: basta para saber de qué orden se trata.
+    const auto recortadaPrimera = [](const std::string& l) {
+        const std::string t = B::trim(l);
+        const std::size_t sp = t.find(' ');
+        return sp == std::string::npos ? t : t.substr(0, sp);
+    };
     while (!e.salir) {
+        if (monitor) {
+            pantalla::sincroniza();
+            monitor->ponSitio(textoDe(e.actual), e.ultimoRc, pantalla::ultimaLineaDeError(),
+                              B::startsWith(ultimaOrden, "schedule"));
+        }
         if (!lector.lee(textoDe(e.actual) + "> ", linea)) {
             break;
+        }
+        pantalla::marcaOrden();
+        ultimaOrden = B::toLowerAscii(B::trim(recortadaPrimera(linea)));
+        // Con la zona de estado, cada orden empieza en 0: las que se atienden en este mismo
+        // bucle —`pwd`, `help`, `cls`— no lo tocan, y el error de la anterior seguiría a la
+        // vista después de una que fue bien.
+        if (monitor) {
+            e.ultimoRc = 0;
         }
         const std::string recortada = B::trim(linea);
         if (recortada.empty() || recortada.front() == '#') {
@@ -9729,7 +10000,9 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         // Se borra también el HISTORIAL de desplazamiento —`3J`—, que es lo que uno espera
         // de limpiar: sin eso queda todo ahí arriba y basta con subir para verlo.
         if (orden == "cls") {
-            if (hayTerminal()) {
+            if (pantalla::activa()) {
+                pantalla::limpia();   // y lo guardado para repintar, que si no volvería
+            } else if (hayTerminal()) {
                 std::fputs("\033[H\033[2J\033[3J", stdout);
                 std::fflush(stdout);
             }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pantalla.h"
 #include "tr.h"
 
 #include "json.h"
@@ -178,6 +179,26 @@ struct Tabla {
                 }
                 std::printf("\n");
             }
+            return;
+        }
+        // Con la pantalla del intérprete, la tabla se le da como DATOS: la pinta con bordes y
+        // la recompone al ancho nuevo si cambia el tamaño de la ventana. Sin ella —un guion,
+        // una tubería— sale como siempre, sin bordes, que es lo que leen los guiones.
+        if (pantalla::activa()) {
+            std::vector<std::vector<std::string>> celdas;
+            for (const auto& fila : filas) {
+                std::vector<std::string> c;
+                for (std::size_t i = 0; i < fila.size(); ++i) {
+                    const std::string v = celdaTexto(i, fila[i]);
+                    c.push_back(v.empty() ? "-" : v);
+                }
+                celdas.push_back(std::move(c));
+            }
+            std::vector<bool> derecha;
+            for (std::size_t i = 0; i < cabecerasTexto.size(); ++i) {
+                derecha.push_back(tipoDe(i) == Tipo::Entero || tipoDe(i) == Tipo::Bytes);
+            }
+            pantalla::tabla(cabecerasTexto, celdas, derecha);
             return;
         }
         // Anchos por columna, contando CARACTERES y no bytes: «sí» ocupa tres bytes y

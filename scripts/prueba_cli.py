@@ -1225,7 +1225,10 @@ def casos_load_key(ctx):
 
 
 def casos_editor_ancho(ctx):
-    """El editor de línea no puede pintar más ancho que el terminal.
+    """El editor de línea no puede pintar más ancho que el terminal (camino sin pantalla).
+
+    Con `--no-tui`: es el pintado de una sola fila que se desplaza de lado. El de la pantalla
+    —la línea partida en filas— lo prueba `casos_pantalla`.
 
     Con una línea más larga que el terminal, el repintado volvía con «\\r» al principio de
     la fila FÍSICA y no al de la línea: al pegar una orden larga se imprimía una copia
@@ -1242,7 +1245,7 @@ def casos_editor_ancho(ctx):
     pid, fd = pty.fork()
     if pid == 0:
         os.dup2(r, 9)
-        os.execv(CLI, [CLI, "--lang", "es", "--password-fd", "9"])
+        os.execv(CLI, [CLI, "--lang", "es", "--password-fd", "9", "--no-tui"])
     os.close(r)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 60, 0, 0))
     salida = b""
@@ -1292,6 +1295,168 @@ def casos_editor_ancho(ctx):
         print(f"  ok     {nombre}")
 
 
+class Tmux:
+    """Un terminal de verdad para probar la PANTALLA: tmux interpreta las secuencias de escape,
+    se le puede cambiar el tamaño y devuelve lo que se VE. En un servidor propio
+    (`-L zfsmgr-bateria`), sin tocar ninguna sesión del usuario."""
+
+    def __init__(self, ctx, ancho, alto, extra=""):
+        self.t = ["tmux", "-L", "zfsmgr-bateria"]
+        fichero = os.path.join(ctx.dir_tmp, ".maestra")
+        subprocess.run(self.t + ["kill-server"], capture_output=True)
+        orden = (f"bash -c 'exec 9<{fichero}; exec {CLI} --password-fd 9 --lang es "
+                 f"--no-schedule-check {extra}'")
+        subprocess.run(self.t + ["new-session", "-d", "-s", "p", "-x", str(ancho), "-y",
+                                 str(alto), orden], check=True)
+        subprocess.run(self.t + ["set", "-g", "window-size", "manual"], capture_output=True)
+        self.espera("zfsm://>", 10)
+
+    def teclas(self, *k):
+        subprocess.run(self.t + ["send-keys", "-t", "p"] + list(k), check=True)
+
+    def pantalla(self):
+        return subprocess.run(self.t + ["capture-pane", "-p", "-t", "p"], capture_output=True,
+                              text=True).stdout
+
+    def espera(self, patron, segs=8):
+        fin = time.time() + segs
+        while time.time() < fin:
+            if re.search(patron, self.pantalla(), re.M):
+                return True
+            time.sleep(0.2)
+        return False
+
+    def tamano(self, ancho, alto):
+        subprocess.run(self.t + ["resize-window", "-t", "p", "-x", str(ancho), "-y", str(alto)],
+                       check=True)
+        time.sleep(0.8)   # la pantalla espera a que deje de cambiar antes de repintar
+
+    def cierra(self):
+        subprocess.run(self.t + ["kill-server"], capture_output=True)
+
+
+def casos_pantalla(ctx):
+    """La pantalla del intérprete con terminal: la línea de órdenes partida en filas como en
+    bash, lo escrito repintado al cambiar el tamaño, las preguntas y Ctrl-C."""
+    if not shutil.which("tmux"):
+        print("  (sin tmux: no se prueba la pantalla)")
+        return
+    P = POOL_LOCAL
+
+    def comprueba(nombre, problemas, vista):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    t = Tmux(ctx, 60, 15)
+    try:
+        larga = "ls zfsm://local/" + "x" * 150
+        t.teclas(larga)
+        t.espera("x{20}$")
+        vista = t.pantalla()
+        filas = [l for l in vista.splitlines() if "x" in l]
+        problemas = []
+        if len(filas) < 3:
+            problemas.append(f"la orden ocupa {len(filas)} filas: no se parte como en bash")
+        if "".join(l.strip() for l in filas).count("x" * 150) != 1:
+            problemas.append("la orden no se ve entera y una sola vez")
+        if any(len(l) > 60 for l in vista.splitlines()):
+            problemas.append("una fila más ancha que el terminal")
+        comprueba("pantalla: una orden larga se parte en filas y se ve entera", problemas, vista)
+
+        # Ctrl-A al principio y una letra: entra en su sitio, en la primera fila.
+        t.teclas("C-a", "Z")
+        t.espera(r"zfsm://> Zls")
+        vista = t.pantalla()
+        comprueba("pantalla: el cursor cruza las filas (Ctrl-A y escribir al principio)",
+                  [] if re.search(r"^zfsm://> Zls zfsm://local/x", vista, re.M)
+                  else ["la «Z» no está al principio de la orden"], vista)
+
+        t.teclas("C-u", "C-k")
+        t.teclas("C-e", "C-u")
+        t.teclas("pwd", "Enter")
+        t.espera(r"^zfsm://$")
+        t.teclas("help cd", "Enter")
+        t.espera("sube un nivel")
+        t.tamano(40, 15)
+        vista = t.pantalla()
+        problemas = []
+        if any(len(l) > 40 for l in vista.splitlines()):
+            problemas.append("tras estrechar, una fila más ancha que el terminal")
+        # El terminal parte las líneas largas de antes: se busca una palabra corta.
+        if not re.search(r"vuelve", vista):
+            problemas.append("tras estrechar, no se ve lo escrito antes")
+        # Abajo del todo va la zona de estado; la línea de órdenes, justo encima.
+        if not any(re.search(r"^zfsm://> *$", l) for l in vista.rstrip().splitlines()[-2:]):
+            problemas.append("tras estrechar, la línea de órdenes no queda abajo")
+        comprueba("pantalla: al estrechar la ventana se repinta lo escrito y la línea",
+                  problemas, vista)
+
+        t.tamano(90, 20)
+        t.teclas(f"cd Local/{P}/datos", "Enter")
+        t.espera(rf"zfsm://local/{P}/datos>")
+        t.teclas("schedule --clear", "Enter")
+        hay = t.espera(r"\[s/N\]: *$")
+        t.teclas("n", "Enter")
+        t.espera("cancelado")
+        t.tamano(70, 20)
+        vista = t.pantalla()
+        comprueba("pantalla: una pregunta s/N y su respuesta quedan, también tras repintar",
+                  [] if hay and re.search(r"\[s/N\]: n$", vista, re.M) and "cancelado" in vista
+                  else ["no se ve la pregunta con su «n» y el «cancelado»"], vista)
+
+        t.teclas("abc", "C-c")
+        time.sleep(0.5)
+        t.teclas("pwd", "Enter")
+        vivo = t.espera(rf"^zfsm://local/{P}/datos$")
+        vista = t.pantalla()
+        comprueba("pantalla: Ctrl-C abandona la línea y el intérprete sigue",
+                  [] if vivo and "abc^C" in vista else ["Ctrl-C mató el intérprete o no marcó la línea"],
+                  vista)
+
+        # Las tablas: con bordes, en fichas cuando no caben, y de vuelta a tabla al ensanchar.
+        t.teclas("cls", "Enter")
+        t.tamano(170, 40)
+        t.teclas("ls zfsm://", "Enter")
+        t.espera(r"^└", 20)
+        vista = t.pantalla()
+        comprueba("pantalla: una tabla sale con bordes y su cabecera",
+                  [] if re.search(r"^┌─", vista, re.M) and re.search(r"^│ ID\s+│", vista, re.M)
+                  and re.search(r"^├─", vista, re.M) else ["no hay bordes ni cabecera"], vista)
+        t.tamano(60, 40)
+        vista = t.pantalla()
+        comprueba("pantalla: si no cabe, una ficha por fila en vez de tiras",
+                  [] if re.search(r"^── \w+ ─", vista, re.M) and re.search(r"^  TIPO\s+SSH", vista, re.M)
+                  and not any(len(l) > 60 for l in vista.splitlines())
+                  else ["no está en fichas, o alguna fila se sale"], vista)
+        t.tamano(170, 40)
+        vista = t.pantalla()
+        comprueba("pantalla: al ensanchar vuelve a ser tabla",
+                  [] if re.search(r"^├─", vista, re.M) and not re.search(r"^── local", vista, re.M)
+                  else ["no ha vuelto a la tabla"], vista)
+
+        # La zona de estado: la posición, el último error y que se quita tras una que va bien.
+        t.teclas("cd zfsm://local/noexiste", "Enter")
+        t.espera("✗")
+        vista = t.pantalla().rstrip()
+        abajo = vista.splitlines()[-1]
+        comprueba("pantalla: la zona de estado da la posición y el último error",
+                  [] if abajo.startswith("zfsm://") and "✗ no existe" in abajo
+                  else [f"la última fila es «{abajo}»"], vista)
+        t.teclas("pwd", "Enter")
+        time.sleep(1.5)
+        abajo = t.pantalla().rstrip().splitlines()[-1]
+        comprueba("pantalla: tras una orden que va bien, el error se quita",
+                  [] if "✗" not in abajo else [f"sigue: «{abajo}»"], abajo)
+    finally:
+        t.cierra()
+
+
 def casos_tab_continua(ctx):
     """El tabulador sobre un nombre ya escrito entero ofrece lo que puede seguir.
 
@@ -1325,7 +1490,11 @@ def casos_tab_continua(ctx):
                     salida += os.read(fd, 65536)
                 except OSError:
                     break
-        return salida.decode("utf-8", "replace")
+        # Sin las secuencias de escape de la pantalla: lo que se comprueba es QUÉ se completa,
+        # no cómo se pinta.
+        # El borrado de la zona («\r», subir y limpiar) es un salto a efectos de lo que se lee.
+        texto = re.sub(r"\r(\x1b\[\d+A)?\x1b\[J", "\n", salida.decode("utf-8", "replace"))
+        return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", texto)
 
     lee(3)
     os.write(fd, b"cd local\t")
@@ -1349,16 +1518,22 @@ def casos_tab_continua(ctx):
     except ChildProcessError:
         pass
     problemas = []
+
+    # Lo que quedó en la línea de órdenes: la ÚLTIMA fila del indicador. Debajo puede ir la
+    # zona de estado de la pantalla, así que «lo último de la salida» ya no es la línea.
+    def enLinea(texto):
+        filas = [l.rstrip() for l in texto.replace("\r", "\n").split("\n") if l.startswith("zfsm://> ")]
+        return filas[-1] if filas else ""
     # Una máquina sigue con «/» (sus pools) o con `#path/` (sus ficheros): se enseñan las dos.
     if not re.search(r"^\s+local/\s+local#path/\s*$", conexion.replace("\r", ""), re.M):
         problemas.append("`cd local<tab>` no enseña «local/  local#path/»")
-    if not seccion.rstrip().endswith("cd local#path/"):
+    if not enLinea(seccion).endswith("cd local#path/"):
         problemas.append("`cd local#<tab>` no escribe «local#path/»")
-    if not ruta.rstrip().endswith("cd local#path/etc/"):
+    if not enLinea(ruta).endswith("cd local#path/etc/"):
         problemas.append("`cd local#path/et<tab>` no escribe «etc/»")
-    if not subir.rstrip().endswith("cd local/../"):
+    if not enLinea(subir).endswith("cd local/../"):
         problemas.append("`cd local/..<tab>` no escribe «../»")
-    if not subir_path.rstrip().endswith("ls zfsm://local#path/etc/../"):
+    if not enLinea(subir_path).endswith("ls zfsm://local#path/etc/../"):
         problemas.append("`ls …#path/etc/..<tab>` no escribe «../»")
     # Y las opciones se enseñan SIN lo que comparten: «ztfc16/  ztfc16#», no la URL entera
     # repetida delante de cada una.
@@ -2526,7 +2701,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

@@ -515,6 +515,8 @@ add_executable(zfsmgr-cli
     ../src/cli/linea.cpp
     ../src/cli/linea.h
     ../src/cli/main.cpp
+    ../src/cli/pantalla.cpp
+    ../src/cli/pantalla.h
     ../src/cli/secretinput.cpp
     ../src/cli/secretinput.h
     ../src/cli/session.cpp

@@ -31,4 +31,13 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
 // ¿Hay un terminal al otro lado? Sirve para decidir si tiene sentido preguntar.
 bool hayTerminal();
 
+// Quien pinta el terminal (la pantalla del intérprete) se entera de cada pregunta: `antes`
+// escribe el aviso él mismo y deja de repintar; `despues` recibe lo respondido (vacío en un
+// secreto) y vuelve a pintar. Sin ganchos, el aviso va por la salida de error como siempre.
+// Va por ganchos y no llamando a la pantalla porque este fichero entra también en otros
+// ejecutables que no la tienen.
+using AntesDePreguntar = void (*)(const std::string& aviso);
+using DespuesDePreguntar = void (*)(const std::string& eco, bool secreto);
+void ponGanchosDePregunta(AntesDePreguntar antes, DespuesDePreguntar despues);
+
 }  // namespace zfsmgr::cli

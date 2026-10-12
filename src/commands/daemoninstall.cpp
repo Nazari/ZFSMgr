@@ -127,6 +127,21 @@ std::string installScript(const std::string& plataforma, const std::string& vers
         "tmp_bin='/tmp/zfsmgr-agent.bin.$$'; cat > \"$tmp_bin\"; install -m 700 \"$tmp_bin\" "
         + shSingleQuote(DP::unixBinPath()) + "; rm -f \"$tmp_bin\"; ";
     const std::string conf = DP::simpleConfigPayload(version, apiVersion);
+    // El `agent.conf` se escribe entero en cada instalación, pero la DIRECCIÓN en la que
+    // atiende el daemon no es de la instalación: la pone `peers --listen` para que otras
+    // máquinas puedan nivelar contra esta. Se escribía siempre `127.0.0.1`, así que cada
+    // actualización dejaba sin red al daemon —y sin nivelación las programaciones que
+    // apuntaban a él— sin que nada lo dijera. Visto el 2026-10-12 tras `install-daemon -a`.
+    // Se lee la que hubiera ANTES de escribir y se vuelve a poner; con awk, que es igual en
+    // Linux, macOS y FreeBSD (sus `sed -i` no lo son).
+    const std::string escribeConf =
+        "bind_previo=$(sed -n 's/^AGENT_BIND=//p' " + DP::unixConfigPath()
+        + " 2>/dev/null | tail -n1); "
+        + "cat > " + DP::unixConfigPath() + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+        + "if [ -n \"$bind_previo\" ]; then "
+          "awk -v b=\"$bind_previo\" '/^AGENT_BIND=/{print \"AGENT_BIND=\" b; next} {print}' "
+        + DP::unixConfigPath() + " > " + DP::unixConfigPath() + ".tmp && mv "
+        + DP::unixConfigPath() + ".tmp " + DP::unixConfigPath() + "; fi\n";
     const std::string tls = DP::tlsBootstrapShellCommand();
     const std::string bin = DP::unixBinPath();
     const std::string confPath = DP::unixConfigPath();
@@ -136,7 +151,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
 
     if (plataforma == "macos") {
         return "mkdir -p /usr/local/libexec /etc/zfsmgr; " + despliegue
-               + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+               + escribeConf
                + "cat > " + DP::macPlistPath() + " <<'EOF_AGENT_PLIST'\n" + DP::macLaunchdPlist()
                + "\nEOF_AGENT_PLIST\n" + tls + "; "
                + "chmod 600 " + confPath + "; chmod 644 " + DP::macPlistPath() + "; "
@@ -186,7 +201,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
                  "if [ -n \"$ldd_missing\" ]; then "
                  "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
                  "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; exit 1; fi; "
-               + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+               + escribeConf
                + "cat > " + DP::freeBsdRcPath() + " <<'EOF_AGENT_RC'\n" + DP::freeBsdRcScript()
                + "\nEOF_AGENT_RC\n" + tls + "; "
                + "chmod 700 " + DP::freeBsdRcPath() + "; chmod 600 " + confPath + "; "
@@ -209,7 +224,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
     return "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; "
            "exit 1; fi; mkdir -p /usr/local/libexec /etc/zfsmgr; "
            + despliegue
-           + "cat > " + confPath + " <<'EOF_AGENT_CONF'\n" + conf + "\nEOF_AGENT_CONF\n"
+           + escribeConf
            + "cat > " + DP::linuxServicePath() + " <<'EOF_AGENT_SERVICE'\n"
            + DP::linuxSystemdService() + "\nEOF_AGENT_SERVICE\n" + tls + "; "
            + "chmod 600 " + confPath + "; chmod 644 " + DP::linuxServicePath() + "; "

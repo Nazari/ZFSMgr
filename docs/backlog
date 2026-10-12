@@ -136,7 +136,23 @@ Listado de cambios.
    comprimido CORTADO que tiene que fallar con su motivo (el descompresor lo detecta antes que
    `zfs recv`), y un fichero de un formato con la extensión de otro.
 
-11. [ABIERTO 2026-10-12] Barra de estado en el terminal del CLI, en vez de ncurses.
+11. [HECHO 2026-10-12] Barra de estado en el terminal del CLI, en vez de ncurses.
+   Lo hecho (src/cli/pantalla.{h,cpp}), con terminal y salvo `--no-tui`/TERM=dumb: la salida
+   estándar y la de error se desvían a tuberías que lee la pantalla, que pinta por encima de
+   una zona fija ABAJO (no arriba: un margen superior hace que lo que sale por arriba no pase
+   al historial del terminal) y guarda lo pintado para repintarlo al cambiar el tamaño.
+   - Línea de órdenes multilínea como bash; Ctrl-C abandona la línea (antes mataba el
+     intérprete: el modo crudo dejaba ISIG); lo tecleado por adelantado ya no se tira
+     (TCSAFLUSH → TCSADRAIN).
+   - Tablas con bordes Unicode (ASCII sin UTF-8), recompuestas al ancho de cada momento; si no
+     caben ni estrechando, una ficha por fila. Viajan por la tubería como una marca APC con
+     los datos, para llegar en su orden. Sin terminal, como siempre: los guiones no cambian.
+   - Zona de estado: posición, programaciones (verde / con errores / sin comprobar), último
+     error, y los trabajos en curso de todas las conexiones con su avance.
+   - Las preguntas s/N y las contraseñas pausan la zona (ganchos en secretinput).
+   - En Windows: modo de terminal virtual de la consola, o se cae al terminal sencillo. SIN
+     PROBAR en una consola de verdad.
+   Lo que sigue es el planteamiento original:
    Se valoró ncurses y se descarta: no existe en Windows (el mismo motivo por el que el editor
    de línea se escribió a mano en vez de usar readline), se adueña de la pantalla —se pierden
    el historial de desplazamiento y el copiar/pegar de las tablas—, choca con todo lo que hoy

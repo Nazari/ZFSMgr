@@ -28,7 +28,11 @@ namespace zfsmgr::cli {
 //
 // `compruebaProgramaciones`: con terminal, comprobar en segundo plano el estado de las
 // programaciones de todas las conexiones y avisar en una línea (`--no-schedule-check` lo quita).
+//
+// `pantallaCompleta`: con terminal, la pantalla de `pantalla.h` —línea multilínea, repintado
+// al cambiar el tamaño, zona de estado—; `--no-tui` la quita.
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},
-                  bool asumirSi = false, bool compruebaProgramaciones = true);
+                  bool asumirSi = false, bool compruebaProgramaciones = true,
+                  bool pantallaCompleta = true);
 
 }  // namespace zfsmgr::cli

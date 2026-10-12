@@ -1,5 +1,6 @@
 #include "linea.h"
 
+#include "pantalla.h"
 #include "secretinput.h"
 
 #include <algorithm>
@@ -109,10 +110,15 @@ public:
         m_ok = ::tcgetattr(STDIN_FILENO, &m_viejo) == 0;
         if (m_ok) {
             termios nuevo = m_viejo;
-            nuevo.c_lflag &= ~static_cast<tcflag_t>(ICANON | ECHO);
+            // Sin ISIG: Ctrl-C tiene que llegar como el carácter 3 —abandonar la línea, como
+            // en bash— y no como una SIGINT que mataba el intérprete entero mientras se
+            // escribía. Fuera del editor el terminal vuelve a su modo y Ctrl-C es lo de siempre.
+            nuevo.c_lflag &= ~static_cast<tcflag_t>(ICANON | ECHO | ISIG);
             nuevo.c_cc[VMIN] = 1;
             nuevo.c_cc[VTIME] = 0;
-            ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &nuevo);
+            // TCSADRAIN y no TCSAFLUSH: este cambia el modo TIRANDO lo tecleado y aún no
+            // leído, y lo que se escribía mientras acababa la orden anterior desaparecía.
+            ::tcsetattr(STDIN_FILENO, TCSADRAIN, &nuevo);
         }
 #endif
     }
@@ -126,7 +132,7 @@ public:
             _setmode(_fileno(stdin), m_modoViejo);
         }
 #else
-        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &m_viejo);
+        ::tcsetattr(STDIN_FILENO, TCSADRAIN, &m_viejo);
 #endif
     }
     bool ok() const { return m_ok; }
@@ -156,6 +162,9 @@ std::size_t columnas(const std::string& s) {
 
 // El ancho del terminal en columnas, o 80 si no se puede saber.
 std::size_t anchoDelTerminal() {
+    if (pantalla::activa()) {
+        return pantalla::anchoTerminal();   // stderr es ahora una tubería
+    }
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info{};
     if (GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE), &info)) {
@@ -261,6 +270,12 @@ void LectorDeLinea::recuerda(const std::string& linea) {
 
 void LectorDeLinea::repinta(const std::string& indicador, const std::string& linea,
                             std::size_t cursor, std::size_t& anchoPintado) {
+    // Con la pantalla activa la línea la pinta ella, partida en filas como en bash; lo de
+    // abajo es el camino sin ella (un terminal sin secuencias de escape, `--no-tui`).
+    if (pantalla::activa()) {
+        pantalla::ponEdicion(indicador, linea, cursor);
+        return;
+    }
     // **Sin una sola secuencia de escape**: solo retorno de carro y espacios.
     //
     // La consola de Windows no interpreta ANSI si no se le activa el modo de terminal
@@ -345,7 +360,11 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
     if (opciones.size() > 1) {
         // Ya no se puede alargar: se enseñan, que es la otra cosa que puede querer quien
         // pulsa el tabulador dos veces.
-        std::fprintf(stderr, "\n");
+        // Con la pantalla, la lista sale por encima de la zona: no hace falta salir antes de
+        // la línea que se está escribiendo.
+        if (!pantalla::activa()) {
+            std::fprintf(stderr, "\n");
+        }
         for (const std::string& o : loQueSeEnsena(opciones)) {
             std::fprintf(stderr, "  %s", o.c_str());
         }
@@ -354,7 +373,22 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
     return true;
 }
 
+// La línea se da por terminada: con la pantalla pasa a su historial; sin ella, un salto.
+void terminaLinea(const char* marca) {
+    if (pantalla::activa()) {
+        pantalla::cierraEdicion();
+        return;
+    }
+    std::fprintf(stderr, "%s\n", marca);
+}
+
 void encolaAviso(const std::string& texto) {
+    // Con la pantalla, lo que se escribe desde cualquier hilo ya se pinta por encima de la
+    // zona sin partir lo que se teclea —también en Windows—: no hace falta esperar al editor.
+    if (pantalla::activa()) {
+        std::fprintf(stderr, "%s\n", texto.c_str());
+        return;
+    }
     std::lock_guard<std::mutex> lock(g_avisosMutex);
     g_avisos.push_back(texto);
 }
@@ -422,11 +456,11 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
 #endif
         const int c = leeByte();
         if (c == EOF) {
-            std::fprintf(stderr, "\n");
+            terminaLinea("");
             return false;
         }
         if (c == '\n' || c == '\r') {
-            std::fprintf(stderr, "\n");
+            terminaLinea("");
             out = linea;
             return true;
         }
@@ -435,13 +469,16 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
         }
         if (c == 4) {  // Ctrl-D
             if (linea.empty()) {
-                std::fprintf(stderr, "\n");
+                terminaLinea("");
                 return false;
             }
             continue;
         }
         if (c == 3) {  // Ctrl-C: se abandona la línea, no la sesión
-            std::fprintf(stderr, "^C\n");
+            if (pantalla::activa()) {
+                pantalla::ponEdicion(indicador, linea + "^C", linea.size() + 2);
+            }
+            terminaLinea("^C");
             out.clear();
             return true;
         }

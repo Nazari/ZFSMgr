@@ -84,6 +84,16 @@ bool leerSecretoDeDescriptor(int fd, std::string& out, std::string& error) {
     return true;
 }
 
+namespace {
+AntesDePreguntar g_antes = nullptr;
+DespuesDePreguntar g_despues = nullptr;
+}  // namespace
+
+void ponGanchosDePregunta(AntesDePreguntar antes, DespuesDePreguntar despues) {
+    g_antes = antes;
+    g_despues = despues;
+}
+
 bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std::string& error) {
     out.clear();
     error.clear();
@@ -93,8 +103,12 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
     }
     // El aviso va por la salida de ERROR, no por la estándar: así se puede canalizar la
     // salida del programa a un fichero sin que el mensaje acabe dentro.
-    std::fputs(aviso.c_str(), stderr);
-    std::fflush(stderr);
+    if (g_antes) {
+        g_antes(aviso);
+    } else {
+        std::fputs(aviso.c_str(), stderr);
+        std::fflush(stderr);
+    }
 
     bool ok = false;
 #ifdef _WIN32
@@ -136,7 +150,11 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
         ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &viejo);
     }
 #endif
-    std::fputs("\n", stderr);  // el salto que el usuario no vio al pulsar Intro
+    if (g_despues) {
+        g_despues(std::string(), /*secreto=*/true);
+    } else {
+        std::fputs("\n", stderr);  // el salto que el usuario no vio al pulsar Intro
+    }
     if (!ok) {
         error = T("t_no_se_leyo_nada", "no se leyó nada");
     }
@@ -152,14 +170,21 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
     }
     // Igual que la de arriba menos el apagado del eco, y por el mismo motivo el aviso va
     // por la salida de ERROR: así la estándar se puede canalizar a un fichero.
-    std::fputs(aviso.c_str(), stderr);
-    std::fflush(stderr);
+    if (g_antes) {
+        g_antes(aviso);
+    } else {
+        std::fputs(aviso.c_str(), stderr);
+        std::fflush(stderr);
+    }
     std::string linea;
     int c = 0;
     while ((c = std::fgetc(stdin)) != EOF && c != '\n') {
         if (c != '\r') {
             linea.push_back(static_cast<char>(c));
         }
+    }
+    if (g_despues) {
+        g_despues(linea, /*secreto=*/false);
     }
     if (linea.empty() && c == EOF) {
         error = T("t_no_se_leyo_nada", "no se leyó nada");
