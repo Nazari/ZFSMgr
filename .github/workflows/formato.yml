@@ -29,4 +29,7 @@ jobs:
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
             base="HEAD~1"
           fi
-          CLANG_FORMAT="$HOME/.local/bin/clang-format" scripts/formato.sh --check "$base"
+          # Where pipx put it (on the runners it is /opt/pipx_bin, not ~/.local/bin), and not
+          # whatever clang-format the image may carry, which can be another version.
+          CLANG_FORMAT="$(pipx environment --value PIPX_BIN_DIR)/clang-format" \
+            scripts/formato.sh --check "$base"
